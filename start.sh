@@ -346,6 +346,10 @@ GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.hea
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
   fail "GraphQL did not return repository.headOid"
 fi
+SSR_HEAD_OID="$(sed -n 's/.*data-smoke-head-oid="\([^"]*\)".*/\1/p' "$TMP_DIR/frontend.html" | head -n 1)"
+if [[ "$SSR_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
+  fail "rendered frontend headOid $SSR_HEAD_OID did not match GraphQL headOid $GRAPHQL_HEAD_OID"
+fi
 
 expect_status "event session through Astro" 200 "$TMP_DIR/events-session.json" \
   -X POST \
@@ -451,6 +455,9 @@ test -f "$GIT_SMOKE_CLONE/README.md" || fail "git clone did not fetch README.md"
 CLONED_HEAD_OID="$(git -C "$GIT_SMOKE_CLONE" rev-parse HEAD)"
 if [[ "$CLONED_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
   fail "git clone HEAD $CLONED_HEAD_OID did not match GraphQL headOid $GRAPHQL_HEAD_OID"
+fi
+if [[ "$CLONED_HEAD_OID" != "$SSR_HEAD_OID" ]]; then
+  fail "git clone HEAD $CLONED_HEAD_OID did not match rendered frontend headOid $SSR_HEAD_OID"
 fi
 git -C "$GIT_SMOKE_CLONE" \
   -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \

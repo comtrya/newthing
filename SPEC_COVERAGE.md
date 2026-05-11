@@ -58,7 +58,7 @@ Current expected results:
 - Astro frontend build passes and emits a server-rendered frontend artifact.
 - Development server check returns `forgepoint-server ready=true mode=development ...`.
 - Production-testbed server check returns `forgepoint-server ready=true mode=production-testbed ...` when production gates are configured.
-- `start.sh` seeds demo input into versioned extension storage document tables, opens and validates a real local bare Git repository, runs the Astro frontend in front of the Rust server, and verifies operator-code exchange, GraphQL live Git data, events, extension manifest/asset sessions, typed Wasmtime resolver summaries, Git clone/fetch, and receive-pack fail-closed behavior through that frontend origin.
+- `start.sh` seeds demo input into versioned extension storage document tables, opens and validates a real local bare Git repository, runs the Astro frontend in front of the Rust server, and verifies operator-code exchange, GraphQL live Git data, SSR-rendered head OID equality, events, extension manifest/asset sessions, typed Wasmtime resolver summaries, Git clone/fetch, and receive-pack fail-closed behavior through that frontend origin.
 - The Astro repository UI renders live refs, branches, commits, tree entries, blobs, file previews, diffs, and Git/storage-derived metric counts from the server; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff panel.
 - The frontend discovers installed extensions from GraphQL, validates their UI manifests, imports their entry assets, and creates extension host elements from manifest slot declarations.
 - CLI commands return v1 capabilities, backup summary, and restore completion event.

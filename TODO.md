@@ -17,6 +17,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: extension resolver records expose typed code-browser, pull-request, and checks output summaries instead of UI-visible numeric proof values.
 - Real: `start.sh` uses structured JSON assertions for readyz, token exchange, GraphQL Git data, GraphQL storage data, and typed resolver summaries.
 - Real: `start.sh` validates `git ls-remote`, branch-specific fetch, and clone HEAD matching GraphQL `repository.headOid`.
+- Real: `start.sh` validates the SSR-rendered frontend head OID matches GraphQL and cloned Git HEAD.
 - Real: `start.sh` validates Git no-token, wrong-token, missing-`git:read`, single-use session reuse, and receive-pack fail-closed auth/error behavior.
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
 - Real: GraphQL exposes typed `workspace`, `repository`, `extensionInstallations`, `extensionResolvers`, and `activityEvents` roots; the Astro frontend and first-party extension UI assets consume those roots instead of the generic `demo` aggregate.
@@ -256,7 +257,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Current smoke checks typed resolver summaries for all first-party extensions; real WIT resolver execution coverage is still needed once the ABI is implemented.
 - Current smoke checks extension assets contain `customElements.define`. Also verify the imported elements render content in the browser.
 - Current smoke validates Git clone/fetch, `git ls-remote`, branch-specific fetch, and cloned commit equality with GraphQL.
-- Add smoke validation that the cloned commit equals the commit shown in the rendered UI.
+- Real: smoke validates that the cloned commit equals the commit shown in the SSR-rendered UI shell.
 - Add smoke validation that the diff rendered by the UI comes from `git diff main~1 main`.
 - Add smoke validation that deleting or changing runtime PR/check storage changes UI output.
 - Smoke validates receive-pack fails with the documented explicit `UNSUPPORTED` error until push is implemented.

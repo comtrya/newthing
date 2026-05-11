@@ -9,6 +9,7 @@ let initialRepo:
   | {
       title: string;
       commit: string;
+      headOid: string;
       refs: number;
       files: number;
       resolvers: number;
@@ -37,7 +38,7 @@ try {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          query: "{ repository { owner name currentCommit refs files } extensionResolvers }",
+          query: "{ repository { owner name currentCommit headOid refs files } extensionResolvers }",
         }),
       });
       const graphql = await graphqlResponse.json();
@@ -46,6 +47,7 @@ try {
         initialRepo = {
           title: `${repository.owner} / ${repository.name}`,
           commit: repository.currentCommit,
+          headOid: repository.headOid,
           refs: repository.refs?.length ?? 0,
           files: repository.files?.length ?? 0,
           resolvers: graphql?.data?.extensionResolvers?.length ?? 0,
@@ -71,7 +73,7 @@ try {
         <h1>Forgepoint</h1>
         {
           initialRepo ? (
-            <p data-smoke="rendered-ui-live">
+            <p data-smoke="rendered-ui-live" data-smoke-head-oid={initialRepo.headOid}>
               {initialRepo.title} at {initialRepo.commit} with {initialRepo.refs} refs,{" "}
               {initialRepo.files} files, and {initialRepo.resolvers} Wasmtime resolvers.
             </p>
