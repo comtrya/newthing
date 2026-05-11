@@ -227,7 +227,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: extension asset imports include the manifest integrity as a version key, and the Rust asset route returns content-hash ETags with immutable private cache headers.
 - Real: frontend validates UI manifest schema version, id, entry integrity, reserved routes, and slot declarations before mounting.
 - Real: the frontend renders visible extension-panel error states for load failure, resolver failure, and permission denial.
-- Real: `start.sh` executes the served first-party extension assets in a DOM/custom-elements runtime harness and asserts code-browser, pull-request, and checks surfaces render non-empty mounted evidence.
+- Real: `start.sh` runs the live Astro page in headless Chrome/Chromium and asserts the real frontend host path mounts code-browser, pull-request, and checks extension surfaces with non-empty evidence.
 - Add browser-level UI tests if Playwright or the Browser plugin is available in the environment.
 
 ## 9. Remove Fake Metrics And Metadata
@@ -261,10 +261,10 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 - Current smoke uses structured JSON assertions for GraphQL Git/storage/resolver coverage, but not yet for every endpoint response.
 - Current smoke checks typed resolver summaries for all first-party extensions; real WIT resolver execution coverage is still needed once the ABI is implemented.
-- Real: current smoke checks extension assets contain `customElements.define` and executes the served first-party assets in a DOM/custom-elements runtime harness to prove code-browser, PR, and checks elements mount with non-empty output.
+- Real: current smoke checks extension assets contain `customElements.define` and drives the live Astro page in headless Chrome/Chromium to prove code-browser, PR, and checks elements mount through `frontend/src/main.ts` and `<comtrya-extension-host>` with non-empty output.
 - Current smoke validates Git clone/fetch, `git ls-remote`, branch-specific fetch, and cloned commit equality with GraphQL.
 - Real: smoke validates that the cloned commit equals the commit shown in the SSR-rendered UI shell.
-- Real: smoke validates the GraphQL diff patch comes from `git diff --patch --find-renames HEAD~1 HEAD`, and the extension-surface runtime smoke asserts the mounted code-browser output includes diff evidence.
+- Real: smoke validates the GraphQL diff patch comes from `git diff --patch --find-renames HEAD~1 HEAD`, and the headless browser smoke asserts the mounted code-browser output includes diff evidence.
 - Add smoke validation that deleting or changing runtime PR/check storage changes UI output.
 - Smoke validates receive-pack fails with the documented explicit `UNSUPPORTED` error until push is implemented.
 - Real: smoke validates unsupported old/v1 routes return explicit `UNSUPPORTED` errors, not fake success.
@@ -302,8 +302,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Rust tests for checks resolver behavior against real commit oids.
 - Frontend typecheck.
 - Astro build.
-- DOM/custom-elements runtime smoke for extension elements, plus browser-rendered
-  smoke for repository UI when browser automation is available.
+- Headless-browser smoke for extension elements and repository UI.
 - End-to-end `start.sh` smoke with:
   - readiness,
   - auth,

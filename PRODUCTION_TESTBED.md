@@ -93,7 +93,7 @@ Ready means the runtime is safe to run as a production-style test bed:
 - extension-owned pull request/check/activity state is persisted in the versioned `$COMTRYA_DATA_DIR/extensions/storage` schema and document tables
 - Git upload-pack clone/fetch works through the Astro origin with a scoped Comtrya credential
 - smoke validation compares the GraphQL diff patch with real cloned-repository Git diff output
-- smoke validation executes the served first-party extension assets in a DOM/custom-elements runtime harness and checks mounted, non-empty code-browser, pull-request, and checks output
+- smoke validation drives the live Astro page in headless Chrome/Chromium and checks the real frontend host path mounts non-empty code-browser, pull-request, and checks output
 - unsupported runtime surfaces are listed from one registry in `/readyz` and return `UNSUPPORTED` JSON errors
 - Git receive-pack write surfaces fail closed after authentication
 
