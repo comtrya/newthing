@@ -4,7 +4,7 @@
   "extension": "code-browser",
   "assets": {
     "entry": "/_extensions/ext_code_browser/assets/index.js",
-    "entryIntegrity": "sha256-2ada8827fa616ec46201b3c39ff00bd21d2b0e0268acee61fb10c0ff50da299d",
+    "entryIntegrity": "sha256-e74bc08f34020df9f875fba16ddccc777a05fc675ee2ce5bdd31e90ec9073a3f",
     "styles": []
   },
   "routes": [
