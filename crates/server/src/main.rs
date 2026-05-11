@@ -240,6 +240,7 @@ impl StartupOptions {
 struct Runtime {
     options: StartupOptions,
     config: InstanceConfig,
+    extension_config_declared: bool,
     data_dir: PathBuf,
     extension_storage: ExtensionRuntimeStore,
     demo_repository: DemoRepositoryRuntime,
@@ -282,11 +283,16 @@ struct ExtensionAsset {
 
 impl Runtime {
     fn start(options: StartupOptions) -> Result<Self, String> {
-        let config = if let Some(path) = &options.config_path {
-            load_config_file(path)?
+        let loaded_config = if let Some(path) = &options.config_path {
+            load_config_file_with_metadata(path)?
         } else {
-            InstanceConfig::minimal_dev()
+            LoadedConfig {
+                config: InstanceConfig::minimal_dev(),
+                extension_config_declared: false,
+            }
         };
+        let config = loaded_config.config;
+        let extension_config_declared = loaded_config.extension_config_declared;
         config.validate().map_err(|error| error.to_string())?;
         validate_production_testbed(&config, &options)?;
 
@@ -318,9 +324,12 @@ impl Runtime {
             .map_err(|error| format!("demo repository validation failed: {error}"))?;
         let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
-        let extension_runtime =
-            load_configured_extension_runtime(&options.extension_dir, &config.extensions)
-                .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
+        let extension_runtime = load_configured_extension_runtime(
+            &options.extension_dir,
+            extension_config_declared,
+            &config.extensions,
+        )
+        .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -328,6 +337,7 @@ impl Runtime {
             data_dir: options.data_dir.clone(),
             options,
             config,
+            extension_config_declared,
             extension_storage,
             demo_repository,
             extension_runtime,
@@ -399,7 +409,7 @@ impl Runtime {
             .iter()
             .filter(|ext| ext.enabled)
             .count();
-        let resolvers_executed = if self.config.extensions.is_empty() {
+        let resolvers_executed = if !self.extension_config_declared {
             FIRST_PARTY_EXTENSIONS
                 .iter()
                 .all(|id| self.extension_runtime.contains_key(*id))
@@ -445,9 +455,11 @@ impl Runtime {
         let repository = merge_repository_metadata(git.repository.clone(), repository.as_ref());
         let pull_requests = self.extension_storage.collection_data("pull_requests")?;
         let checks = self.extension_storage.collection_data("check_runs")?;
-        let extensions = self
-            .extension_storage
-            .collection_data("extension_installations")?;
+        let extensions = filter_extension_installations(
+            self.extension_storage
+                .collection_data("extension_installations")?,
+            &self.extension_runtime,
+        );
         let activity = self.extension_storage.collection_data("activity_events")?;
         let extension_resolvers = self.extension_resolver_payload(&git, &pull_requests, &checks);
         Ok(json!({
@@ -745,6 +757,26 @@ impl Runtime {
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .collect()
     }
+}
+
+fn filter_extension_installations(
+    extensions: Value,
+    loaded: &BTreeMap<String, WasmtimeResolverRecord>,
+) -> Value {
+    let Value::Array(items) = extensions else {
+        return extensions;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .filter(|extension| {
+                extension
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .is_some_and(|id| loaded.contains_key(id))
+            })
+            .collect(),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2728,9 +2760,10 @@ fn load_extension_runtime(
 
 fn load_configured_extension_runtime(
     extension_dir: &Path,
+    extension_config_declared: bool,
     configs: &[ExtensionInstallConfig],
 ) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
-    if configs.is_empty() {
+    if !extension_config_declared {
         return load_extension_runtime(extension_dir);
     }
     let enabled = configs
@@ -3097,7 +3130,17 @@ fn validate_production_testbed(
     Ok(())
 }
 
+#[derive(Debug)]
+struct LoadedConfig {
+    config: InstanceConfig,
+    extension_config_declared: bool,
+}
+
 fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
+    load_config_file_with_metadata(path).map(|loaded| loaded.config)
+}
+
+fn load_config_file_with_metadata(path: &Path) -> Result<LoadedConfig, String> {
     let source = fs::read_to_string(path)
         .map_err(|error| format!("failed to read config {}: {error}", path.display()))?;
     let mut config = InstanceConfig::minimal_dev();
@@ -3163,11 +3206,16 @@ fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
             };
         }
     }
-    if let Some(extensions) = cue_extension_install_configs(&source)? {
+    let extensions = cue_extension_install_configs(&source)?;
+    let extension_config_declared = extensions.is_some();
+    if let Some(extensions) = extensions {
         config.extensions = extensions;
     }
     config.validate().map_err(|error| error.to_string())?;
-    Ok(config)
+    Ok(LoadedConfig {
+        config,
+        extension_config_declared,
+    })
 }
 
 fn cue_string(source: &str, key: &str) -> Option<String> {
@@ -3417,10 +3465,33 @@ fn cue_next_key_colon(source: &str, offset: usize) -> Option<(String, usize)> {
             continue;
         }
         let key_start = absolute_offset + stripped.len() - trimmed.len();
-        let colon_relative = trimmed.find(':')?;
-        let key = trimmed[..colon_relative].trim();
-        if !key.is_empty() && key.chars().all(|ch| cue_identifier_char(Some(ch))) {
-            return Some((key.to_string(), key_start + colon_relative));
+        if let Some(rest) = trimmed.strip_prefix('"') {
+            let mut escaped = false;
+            for (relative, ch) in rest.char_indices() {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+                if ch == '\\' {
+                    escaped = true;
+                    continue;
+                }
+                if ch == '"' {
+                    let after_key = &rest[relative + ch.len_utf8()..];
+                    let colon_after_key = after_key.trim_start();
+                    if colon_after_key.starts_with(':') {
+                        let colon_relative = trimmed.len() - colon_after_key.len();
+                        return Some((rest[..relative].to_string(), key_start + colon_relative));
+                    }
+                    break;
+                }
+            }
+        } else {
+            let colon_relative = trimmed.find(':')?;
+            let key = trimmed[..colon_relative].trim();
+            if !key.is_empty() && key.chars().all(|ch| cue_identifier_char(Some(ch))) {
+                return Some((key.to_string(), key_start + colon_relative));
+            }
         }
         absolute_offset += line.len();
     }
@@ -4031,7 +4102,7 @@ extensions: {
     }
     enabled: true
   }
-  pull-requests: {
+  "pull-requests": {
     source: {
       kind: "oci"
       registry: "ghcr.io"
@@ -4040,7 +4111,7 @@ extensions: {
     }
     enabled: false
   }
-  code-browser: {
+  "code-browser": {
     source: {
       kind: "oci"
       registry: "ghcr.io"
@@ -4142,6 +4213,32 @@ extensions: [
         let config = load_config_file(&config_path).unwrap();
 
         assert!(config.extensions.is_empty());
+    }
+
+    #[test]
+    fn config_loader_records_empty_extension_map_as_declared() {
+        let dir = temp_dir("config-extension-empty-map");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: {}
+"#,
+        )
+        .unwrap();
+
+        let loaded = load_config_file_with_metadata(&config_path).unwrap();
+        let runtime = load_configured_extension_runtime(
+            &test_extension_dir(),
+            true,
+            &loaded.config.extensions,
+        )
+        .unwrap();
+
+        assert!(loaded.extension_config_declared);
+        assert!(loaded.config.extensions.is_empty());
+        assert!(runtime.is_empty());
     }
 
     #[tokio::test]
@@ -4598,6 +4695,74 @@ extensions: [
     }
 
     #[test]
+    fn demo_payload_filters_disabled_configured_extension_installations() {
+        let dir = temp_dir("configured-demo-filter");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: {
+  checks: {
+    source: {
+      kind: "local"
+      path: "ext_checks"
+    }
+    enabled: true
+  }
+  "pull-requests": {
+    source: {
+      kind: "local"
+      path: "ext_pull_requests"
+    }
+    enabled: false
+  }
+  "code-browser": {
+    source: {
+      kind: "local"
+      path: "ext_code_browser"
+    }
+    enabled: false
+  }
+}
+"#,
+        )
+        .unwrap();
+        let runtime = Runtime::start(StartupOptions {
+            config_path: Some(config_path),
+            data_dir: temp_dir("configured-demo-filter-data"),
+            extension_dir: test_extension_dir(),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            check: false,
+            tls_terminated: false,
+            operator_code: Some("testbed-operator-code".to_string()),
+            session_ttl_seconds: 300,
+            external_demo: false,
+        })
+        .unwrap();
+
+        let demo = runtime.demo_payload().unwrap();
+        let extensions = demo["extensions"]
+            .as_array()
+            .expect("extension installations array");
+
+        assert_eq!(extensions.len(), 1);
+        assert_eq!(extensions[0]["id"], "ext_checks");
+        assert!(
+            runtime
+                .extension_manifest_body("ext_checks")
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            runtime
+                .extension_manifest_body("ext_code_browser")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn extension_runtime_rejects_backend_ui_manifest_mismatch() {
         let extension_dir = temp_dir("extension-manifest-mismatch");
         copy_dir_recursive(&test_extension_dir(), &extension_dir);
@@ -4672,7 +4837,7 @@ extensions: [
             },
         ];
 
-        let runtime = load_configured_extension_runtime(&extension_dir, &configs).unwrap();
+        let runtime = load_configured_extension_runtime(&extension_dir, true, &configs).unwrap();
 
         assert_eq!(runtime.len(), 1);
         assert!(runtime.contains_key("ext_checks"));
@@ -4697,9 +4862,11 @@ extensions: [
         };
 
         let absolute_error =
-            load_configured_extension_runtime(&test_extension_dir(), &[absolute]).unwrap_err();
+            load_configured_extension_runtime(&test_extension_dir(), true, &[absolute])
+                .unwrap_err();
         let traversal_error =
-            load_configured_extension_runtime(&test_extension_dir(), &[traversal]).unwrap_err();
+            load_configured_extension_runtime(&test_extension_dir(), true, &[traversal])
+                .unwrap_err();
 
         assert!(absolute_error.contains("must be relative to COMTRYA_EXTENSION_DIR"));
         assert!(traversal_error.contains("must stay within COMTRYA_EXTENSION_DIR"));
@@ -4715,14 +4882,15 @@ extensions: [
             enabled: false,
         }];
 
-        let runtime = load_configured_extension_runtime(&test_extension_dir(), &configs).unwrap();
+        let runtime =
+            load_configured_extension_runtime(&test_extension_dir(), true, &configs).unwrap();
 
         assert!(runtime.is_empty());
     }
 
     #[test]
     fn configured_extensions_fall_back_to_first_party_when_not_declared() {
-        let runtime = load_configured_extension_runtime(&test_extension_dir(), &[]).unwrap();
+        let runtime = load_configured_extension_runtime(&test_extension_dir(), false, &[]).unwrap();
 
         assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
         for id in FIRST_PARTY_EXTENSIONS {
@@ -4742,7 +4910,8 @@ extensions: [
             enabled: true,
         }];
 
-        let error = load_configured_extension_runtime(&test_extension_dir(), &configs).unwrap_err();
+        let error =
+            load_configured_extension_runtime(&test_extension_dir(), true, &configs).unwrap_err();
 
         assert!(error.contains("extension checks uses OCI source"));
         assert!(error.contains("OCI extension installs are not supported"));
