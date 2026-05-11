@@ -346,6 +346,7 @@ GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.hea
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
   fail "GraphQL did not return repository.headOid"
 fi
+json_value "$TMP_DIR/graphql.json" 'json.data.repository.diff.patch' >"$TMP_DIR/graphql-diff.patch"
 SSR_HEAD_OID="$(sed -n 's/.*data-smoke-head-oid="\([^"]*\)".*/\1/p' "$TMP_DIR/frontend.html" | head -n 1)"
 if [[ "$SSR_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
   fail "rendered frontend headOid $SSR_HEAD_OID did not match GraphQL headOid $GRAPHQL_HEAD_OID"
@@ -458,6 +459,13 @@ if [[ "$CLONED_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
 fi
 if [[ "$CLONED_HEAD_OID" != "$SSR_HEAD_OID" ]]; then
   fail "git clone HEAD $CLONED_HEAD_OID did not match rendered frontend headOid $SSR_HEAD_OID"
+fi
+git -C "$GIT_SMOKE_CLONE" diff --patch --find-renames HEAD~1 HEAD \
+  >"$TMP_DIR/git-diff.patch" || fail "git diff against cloned repository failed"
+if ! cmp -s "$TMP_DIR/graphql-diff.patch" "$TMP_DIR/git-diff.patch"; then
+  printf '[forgepoint] GraphQL diff patch did not match git diff HEAD~1 HEAD\n' >&2
+  diff -u "$TMP_DIR/git-diff.patch" "$TMP_DIR/graphql-diff.patch" >&2 || true
+  exit 1
 fi
 git -C "$GIT_SMOKE_CLONE" \
   -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \

@@ -79,6 +79,7 @@ Ready means the runtime is safe to run as a production-style test bed:
 - the frontend mounts extension host elements from runtime extension installations and UI manifest slot declarations
 - extension-owned pull request/check/activity state is persisted in the versioned `$FORGEPOINT_DATA_DIR/extensions/storage` schema and document tables
 - Git upload-pack clone/fetch works through the Astro origin with a scoped Forgepoint credential
+- smoke validation compares the GraphQL diff patch with real cloned-repository Git diff output
 - unsupported runtime surfaces are listed from one registry in `/readyz` and return `UNSUPPORTED` JSON errors
 - Git receive-pack write surfaces fail closed after authentication
 
