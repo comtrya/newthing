@@ -766,10 +766,13 @@ function renderExtensionIssues(issues: ExtensionMountIssue[]): void {
     .join("");
 }
 
-async function importExtensionAsset(pathname: string): Promise<void> {
+async function importExtensionAsset(pathname: string, version?: string): Promise<void> {
   const session = await client.issueExtensionSession();
   const url = new URL(pathname, serverURL);
   url.searchParams.set("session", session);
+  if (version) {
+    url.searchParams.set("v", version);
+  }
   await import(/* @vite-ignore */ url.href);
 }
 
@@ -779,7 +782,7 @@ async function mountExtension(installation: ExtensionInstallation): Promise<Exte
   if (manifest.id !== installation.id) {
     throw new Error(`${installation.id} manifest id mismatch: ${manifest.id}`);
   }
-  await importExtensionAsset(manifest.assets.entry);
+  await importExtensionAsset(manifest.assets.entry, manifest.assets.entryIntegrity);
 
   const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
   if (!slotGrid) {

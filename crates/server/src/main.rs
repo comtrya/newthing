@@ -1,5 +1,6 @@
 use axum::body::{Body, Bytes};
 use axum::extract::{Path as AxumPath, Query, RawQuery, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, ETAG};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
@@ -190,6 +191,13 @@ struct WasmtimeResolverRecord {
     resolver: String,
     output_type: String,
     status: String,
+}
+
+#[derive(Debug)]
+struct ExtensionAsset {
+    content_type: &'static str,
+    body: Vec<u8>,
+    etag: String,
 }
 
 impl Runtime {
@@ -416,7 +424,7 @@ impl Runtime {
         &self,
         extension: &str,
         asset_path: &str,
-    ) -> Result<Option<(&'static str, Vec<u8>)>, String> {
+    ) -> Result<Option<ExtensionAsset>, String> {
         if asset_path.contains("..") {
             return Ok(None);
         }
@@ -434,7 +442,13 @@ impl Runtime {
             _ => "application/octet-stream",
         };
         fs::read(&path)
-            .map(|body| Some((content_type, body)))
+            .map(|body| {
+                Some(ExtensionAsset {
+                    etag: asset_etag(&body),
+                    content_type,
+                    body,
+                })
+            })
             .map_err(|error| format!("failed to read extension asset {}: {error}", path.display()))
     }
 
@@ -1043,7 +1057,7 @@ async fn extension_asset(
     if let Err(response) = extension_asset_principal(&state, &headers, query.get("session")) {
         return response;
     }
-    let (content_type, body) = match state.runtime.extension_asset_body(&extension, &asset_path) {
+    let asset = match state.runtime.extension_asset_body(&extension, &asset_path) {
         Ok(Some(asset)) => asset,
         Ok(None) => {
             return error_response(
@@ -1060,17 +1074,26 @@ async fn extension_asset(
             );
         }
     };
-    let mut response = bytes_response(StatusCode::OK, content_type, body, cors);
+    let mut response = bytes_response(StatusCode::OK, asset.content_type, asset.body, cors);
+    apply_extension_asset_headers(&mut response, &asset.etag);
+    response
+}
+
+fn apply_extension_asset_headers(response: &mut Response, etag: &str) {
     response.headers_mut().insert(
-        "Content-Security-Policy",
+        CONTENT_SECURITY_POLICY,
         HeaderValue::from_static(
             "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'self'; base-uri 'self'",
         ),
     );
-    response
-        .headers_mut()
-        .insert("ETag", HeaderValue::from_static("\"runtime\""));
-    response
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=31536000, immutable"),
+    );
+    response.headers_mut().insert(
+        ETAG,
+        HeaderValue::from_str(etag).expect("valid extension asset ETag"),
+    );
 }
 
 async fn git_endpoint(
@@ -2517,6 +2540,10 @@ fn asset_integrity(body: &[u8]) -> String {
     out
 }
 
+fn asset_etag(body: &[u8]) -> String {
+    format!("\"{}\"", asset_integrity(body))
+}
+
 fn load_extension_runtime(
     extension_dir: &Path,
 ) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
@@ -3152,6 +3179,40 @@ mod tests {
 
         assert_eq!(first.status(), StatusCode::OK);
         assert_eq!(second.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn extension_assets_use_content_hash_cache_headers() {
+        let runtime = dev_runtime();
+        let session = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let mut query = HashMap::new();
+        query.insert("session".to_string(), session);
+
+        let response = extension_asset(
+            State(AppState { runtime }),
+            AxumPath(("ext_code_browser".to_string(), "index.js".to_string())),
+            HeaderMap::new(),
+            Query(query),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(CACHE_CONTROL).unwrap(),
+            "private, max-age=31536000, immutable"
+        );
+        let etag = response
+            .headers()
+            .get(ETAG)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(etag.starts_with("\"sha256-"));
+        assert_ne!(etag, "\"runtime\"");
+
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(etag, asset_etag(&body));
     }
 
     #[tokio::test]

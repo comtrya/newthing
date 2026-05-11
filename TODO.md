@@ -224,7 +224,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: extension host elements are created from runtime extension installations and UI manifest slot declarations instead of hardcoded host elements.
 - Real: extension slots are rendered based on manifest slot declarations.
 - Startup validates extension asset integrity beyond checking that `entryIntegrity` exists.
-- Add extension asset cache/version handling.
+- Real: extension asset imports include the manifest integrity as a version key, and the Rust asset route returns content-hash ETags with immutable private cache headers.
 - Real: frontend validates UI manifest schema version, id, entry integrity, reserved routes, and slot declarations before mounting.
 - Real: the frontend renders visible extension-panel error states for load failure, resolver failure, and permission denial.
 - Add smoke validation that dynamically imported extension elements render non-empty content.
