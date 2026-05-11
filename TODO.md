@@ -255,7 +255,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: startup validates that Wasmtime components export the expected resolver before starting the server.
 - Startup validates extension UI manifests and backend extension manifests agree.
 - Real: startup validates that the Git repo has expected refs and HEAD.
-- Add startup validation that `.envrc` has a non-default operator code if this is used for external demos.
+- Real: `FORGEPOINT_EXTERNAL_DEMO=1` makes startup reject the local default `.envrc` operator code.
 
 ## 11. Smoke Test Coverage Gaps
 

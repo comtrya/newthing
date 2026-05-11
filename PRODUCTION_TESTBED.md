@@ -23,6 +23,9 @@ server and exit after the probes pass. Oneshot runs default to
 `FORGEPOINT_SESSION_TTL_SECONDS=2` so the smoke path can prove expired browser
 session tokens fail closed without waiting five minutes; normal interactive runs
 keep the five-minute session TTL unless you set the variable yourself.
+Set `FORGEPOINT_EXTERNAL_DEMO=1` for shared demos; production startup then
+rejects the local `.envrc.example` operator code and requires a non-default
+`FORGEPOINT_OPERATOR_CODE`.
 
 `./start.sh` seeds demo input into
 `$FORGEPOINT_DATA_DIR/metadata/demo-state.json` from

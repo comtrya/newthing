@@ -1,4 +1,5 @@
 export FORGEPOINT_OPERATOR_CODE=forgepoint-local-operator-code
+# Set FORGEPOINT_EXTERNAL_DEMO=1 for shared demos; startup will reject this local default code.
 export FORGEPOINT_LISTEN=127.0.0.1:8080
 export FORGEPOINT_FRONTEND_LISTEN=127.0.0.1:4321
 export FORGEPOINT_EXTENSION_DIR=$PWD/extensions/first-party

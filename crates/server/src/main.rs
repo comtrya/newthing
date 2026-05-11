@@ -102,6 +102,7 @@ struct StartupOptions {
     tls_terminated: bool,
     operator_code: Option<String>,
     session_ttl_seconds: u64,
+    external_demo: bool,
 }
 
 impl StartupOptions {
@@ -156,6 +157,7 @@ impl StartupOptions {
             tls_terminated: env_truthy("FORGEPOINT_TLS_TERMINATED"),
             operator_code: std::env::var("FORGEPOINT_OPERATOR_CODE").ok(),
             session_ttl_seconds: env_u64("FORGEPOINT_SESSION_TTL_SECONDS", 300),
+            external_demo: env_truthy("FORGEPOINT_EXTERNAL_DEMO"),
         }
     }
 }
@@ -1301,6 +1303,7 @@ fn typed_repository_payload(demo: &Value) -> Value {
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
+const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "forgepoint-local-operator-code"];
 const DEMO_EXPECTED_REFS: &[&str] = &[
     "refs/heads/main",
     "refs/heads/extensions/checks-dashboard",
@@ -2752,13 +2755,16 @@ fn validate_production_testbed(
     if !options.tls_terminated {
         return Err("production mode requires FORGEPOINT_TLS_TERMINATED=true".to_string());
     }
-    if options
-        .operator_code
-        .as_deref()
-        .is_none_or(|code| code.len() < 12 || code == "dev-secret")
-    {
+    let operator_code = options.operator_code.as_deref().unwrap_or_default();
+    if operator_code.len() < 12 || operator_code == "dev-secret" {
         return Err(
             "production testbed requires FORGEPOINT_OPERATOR_CODE with at least 12 characters"
+                .to_string(),
+        );
+    }
+    if options.external_demo && DEFAULT_OPERATOR_CODES.contains(&operator_code) {
+        return Err(
+            "external production-testbed demos require a non-default FORGEPOINT_OPERATOR_CODE"
                 .to_string(),
         );
     }
@@ -2997,6 +3003,7 @@ mod tests {
                 tls_terminated: false,
                 operator_code: Some("testbed-operator-code".to_string()),
                 session_ttl_seconds,
+                external_demo: false,
             })
             .unwrap(),
         )
@@ -3272,6 +3279,7 @@ mod tests {
             tls_terminated: false,
             operator_code: Some("operator-code".to_string()),
             session_ttl_seconds: 300,
+            external_demo: false,
         };
 
         assert!(
@@ -3281,6 +3289,15 @@ mod tests {
         );
         let mut options = options;
         options.tls_terminated = true;
+        assert!(validate_production_testbed(&config, &options).is_ok());
+        options.external_demo = true;
+        options.operator_code = Some("forgepoint-local-operator-code".to_string());
+        assert!(
+            validate_production_testbed(&config, &options)
+                .unwrap_err()
+                .contains("non-default FORGEPOINT_OPERATOR_CODE")
+        );
+        options.operator_code = Some("operator-code-for-external-demo".to_string());
         assert!(validate_production_testbed(&config, &options).is_ok());
     }
 
