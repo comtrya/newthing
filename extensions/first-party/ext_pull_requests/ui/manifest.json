@@ -4,7 +4,7 @@
   "extension": "pull-requests",
   "assets": {
     "entry": "/_extensions/ext_pull_requests/assets/index.js",
-    "entryIntegrity": "sha256-d282c6c8fc89e43a75dafde441001a80952a565b7bb2af9f1bff74448aafbbb3",
+    "entryIntegrity": "sha256-5e9c688c914a4ba546febcc54a089db77cc4b5485e7a144f66bdfc9a2318e692",
     "styles": []
   },
   "routes": [

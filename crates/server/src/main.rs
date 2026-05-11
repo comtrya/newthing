@@ -21,8 +21,71 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
+use tokio::sync::Semaphore;
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
+
+#[derive(Clone)]
+struct PureRustGitState {
+    project_root: PathBuf,
+    semaphore: Arc<Semaphore>,
+    max_body: usize,
+    timeout_ms: u64,
+}
+
+impl PureRustGitState {
+    fn from_runtime(runtime: &Runtime) -> Self {
+        Self {
+            project_root: runtime.demo_repository.project_root.clone(),
+            semaphore: Arc::new(Semaphore::new(8)),
+            max_body: 64 * 1024 * 1024,
+            timeout_ms: 60_000,
+        }
+    }
+
+    #[cfg(test)]
+    fn test_default() -> Self {
+        Self {
+            project_root: PathBuf::from("/tmp/comtrya-test-repos"),
+            semaphore: Arc::new(Semaphore::new(1)),
+            max_body: 1024 * 1024,
+            timeout_ms: 5_000,
+        }
+    }
+}
+
+impl RepositoryProvider for PureRustGitState {
+    fn ensure_local_repository(&self, segments: &[String]) -> anyhow::Result<PathBuf> {
+        for s in segments {
+            if s.is_empty() || s.contains("..") || s.contains('/') {
+                anyhow::bail!("invalid repo segment");
+            }
+        }
+        let mut path = self.project_root.clone();
+        for s in segments {
+            path.push(s);
+        }
+        if !path.exists() {
+            anyhow::bail!("repository {} not found", path.display());
+        }
+        Ok(path)
+    }
+}
+
+impl GitHttpState for PureRustGitState {
+    type Storage = Self;
+    fn storage(&self) -> &Self { self }
+    fn git_semaphore(&self) -> &Arc<Semaphore> { &self.semaphore }
+    fn git_max_body(&self) -> usize { self.max_body }
+    fn git_timeout_ms(&self) -> u64 { self.timeout_ms }
+    fn validate_slug(&self, slug: &str) -> anyhow::Result<()> {
+        if slug.is_empty() || slug.contains("..") || slug.contains('/') {
+            anyhow::bail!("invalid repo slug");
+        }
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -50,7 +113,8 @@ async fn main() {
     }
 
     let listen = runtime.options.listen;
-    let app = router(AppState { runtime });
+    let git_state = PureRustGitState::from_runtime(&runtime);
+    let app = router(AppState { runtime, git_state });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .unwrap_or_else(|error| {
@@ -90,6 +154,7 @@ fn router(state: AppState) -> Router {
 #[derive(Clone)]
 struct AppState {
     runtime: Arc<Runtime>,
+    git_state: PureRustGitState,
 }
 
 #[derive(Debug, Clone)]
@@ -1147,23 +1212,81 @@ async fn git_endpoint(
             "credential scope does not allow requested Git operation",
         );
     }
-    let adapter = ShellGitHttpBackendAdapter;
-    match adapter.handle(GitSmartHttpRequest {
-        project_root: &state.runtime.demo_repository.project_root,
-        path: &path,
-        query: raw_query.as_deref().unwrap_or_default(),
-        method: &method,
-        headers: &headers,
-        body,
-        cors,
-    }) {
-        Ok(response) => response,
-        Err(error) => error_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            ErrorCode::StorageUnavailable.as_str(),
-            &error,
-        ),
+
+    let use_legacy = std::env::var("COMTRYA_GIT_BACKEND").ok().as_deref() == Some("legacy");
+    if use_legacy {
+        let adapter = ShellGitHttpBackendAdapter;
+        return match adapter.handle(GitSmartHttpRequest {
+            project_root: &state.runtime.demo_repository.project_root,
+            path: &path,
+            query: raw_query.as_deref().unwrap_or_default(),
+            method: &method,
+            headers: &headers,
+            body,
+            cors,
+        }) {
+            Ok(response) => response,
+            Err(error) => error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                &error,
+            ),
+        };
     }
+
+    // Pure-Rust Smart HTTP v2 path via comtrya-git-http.
+    // Parse "{seg}/{seg}.../{suffix}" where suffix is info/refs | git-upload-pack | git-receive-pack.
+    let (segments, suffix) = match split_git_path(&path) {
+        Some(parts) => parts,
+        None => return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "unrecognized Git smart HTTP path",
+        ),
+    };
+    let service = parse_service_query(raw_query.as_deref());
+    let mut response = git_v2::dispatch(
+        state.git_state.clone(),
+        segments,
+        &suffix,
+        service.as_deref(),
+        headers,
+        axum::body::Body::from(body),
+    ).await;
+    response.headers_mut().extend(cors);
+    response
+}
+
+fn split_git_path(path: &str) -> Option<(Vec<String>, String)> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    for suffix in ["info/refs", "git-upload-pack", "git-receive-pack"] {
+        let suffix_with_slash = format!("/{suffix}");
+        if let Some(prefix) = trimmed.strip_suffix(&suffix_with_slash) {
+            let segs: Vec<String> = prefix
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+            if segs.is_empty() {
+                return None;
+            }
+            return Some((segs, suffix.to_string()));
+        }
+    }
+    None
+}
+
+fn parse_service_query(query: Option<&str>) -> Option<String> {
+    let q = query?;
+    for pair in q.split('&') {
+        if let Some(value) = pair.strip_prefix("service=") {
+            return Some(value.to_string());
+        }
+    }
+    None
 }
 
 fn extension_asset_principal(
@@ -1330,6 +1453,11 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
         .map_err(|error| format!("failed to create repository root: {error}"))?;
 
     if git_ref_exists(&git_dir, "refs/heads/main") {
+        let export_marker = git_dir.join("git-daemon-export-ok");
+        if !export_marker.exists() {
+            fs::write(&export_marker, b"")
+                .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
+        }
         return Ok(DemoRepositoryRuntime {
             git_dir,
             project_root,
@@ -1480,6 +1608,8 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
         Command::new("git").arg("init").arg("--bare").arg(&git_dir),
         "git init bare demo repository",
     )?;
+    fs::write(git_dir.join("git-daemon-export-ok"), b"")
+        .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
     run_command(
         Command::new("git")
             .arg("-C")
@@ -3051,9 +3181,7 @@ mod tests {
 
     #[tokio::test]
     async fn readyz_reports_runtime_checks() {
-        let state = AppState {
-            runtime: dev_runtime(),
-        };
+        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
         let response = readyz(State(state), HeaderMap::new()).await;
 
         assert_eq!(response.status(), StatusCode::OK);
@@ -3161,9 +3289,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_routes_return_registry_errors() {
-        let state = AppState {
-            runtime: dev_runtime(),
-        };
+        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
 
         for (path, expected_surface) in [
             ("/auth/oidc/prod/callback", "oidc_browser_callback"),
@@ -3192,9 +3318,7 @@ mod tests {
 
     #[tokio::test]
     async fn disallowed_origin_is_forbidden() {
-        let state = AppState {
-            runtime: dev_runtime(),
-        };
+        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
         let mut headers = HeaderMap::new();
         headers.insert("origin", HeaderValue::from_static("https://evil.example"));
         let response = graphql_get(State(state), headers).await;
@@ -3209,9 +3333,7 @@ mod tests {
         let mut query = HashMap::new();
         query.insert("session".to_string(), token.clone());
 
-        let state = AppState {
-            runtime: runtime.clone(),
-        };
+        let state = AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() };
         let first = events(State(state.clone()), HeaderMap::new(), Query(query.clone())).await;
         let second = events(State(state), HeaderMap::new(), Query(query)).await;
 
@@ -3227,7 +3349,7 @@ mod tests {
         query.insert("session".to_string(), session);
 
         let response = extension_asset(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
             AxumPath(("ext_code_browser".to_string(), "index.js".to_string())),
             HeaderMap::new(),
             Query(query),
@@ -3260,7 +3382,7 @@ mod tests {
         let mut query = HashMap::new();
         query.insert("session".to_string(), token);
 
-        let response = events(State(AppState { runtime }), HeaderMap::new(), Query(query)).await;
+        let response = events(State(AppState { runtime, git_state: PureRustGitState::test_default() }), HeaderMap::new(), Query(query)).await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
@@ -3384,7 +3506,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         };
 
         let response =
-            token_exchange(State(AppState { runtime }), HeaderMap::new(), Json(request)).await;
+            token_exchange(State(AppState { runtime, git_state: PureRustGitState::test_default() }), HeaderMap::new(), Json(request)).await;
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -3394,6 +3516,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     #[tokio::test]
     async fn git_endpoint_serves_upload_pack_after_auth() {
         let runtime = dev_runtime();
+        let git_state = PureRustGitState::from_runtime(&runtime);
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
@@ -3401,7 +3524,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = git_endpoint(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3419,9 +3542,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn git_upload_pack_fails_closed_without_auth_or_scope() {
         let runtime = dev_runtime();
         let no_token_response = git_endpoint(
-            State(AppState {
-                runtime: runtime.clone(),
-            }),
+            State(AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() }),
             HeaderMap::new(),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3446,9 +3567,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             PrincipalStatus::OperatorCredential,
         );
         let wrong_scope_response = git_endpoint(
-            State(AppState {
-                runtime: runtime.clone(),
-            }),
+            State(AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3473,7 +3592,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             PrincipalStatus::OperatorCredential,
         );
         let write_only_fetch_response = git_endpoint(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
             bearer_headers(&write_only_token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3503,7 +3622,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = git_endpoint(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/../comtrya.git/info/refs".to_string()),
@@ -3531,7 +3650,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = git_endpoint(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3586,7 +3705,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = graphql_post(
-            State(AppState { runtime }),
+            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
             headers,
             json!({"query": "{ repository { refs commits pullRequests checks } }"}).to_string(),
         )

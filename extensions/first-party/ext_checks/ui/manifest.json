@@ -4,7 +4,7 @@
   "extension": "checks",
   "assets": {
     "entry": "/_extensions/ext_checks/assets/index.js",
-    "entryIntegrity": "sha256-6e2c1e9b85871af9c39c748616c3a3db4f3a9832dab99ad6c49d5bb0307d63fe",
+    "entryIntegrity": "sha256-e1d28da59b183d61b0aa1de42e740517cbec246343173ec519c554827cf706cb",
     "styles": []
   },
   "routes": [

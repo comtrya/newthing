@@ -14,6 +14,44 @@ pub struct ServiceQuery { pub service: Option<String> }
 
 enum AdvertiseMode { Git, Rust }
 
+/// Dispatch a parsed Smart HTTP request to the appropriate handler.
+/// Suffix is the trailing portion of the request path, one of:
+///   "info/refs", "git-upload-pack", "git-receive-pack"
+/// Segments are the repository path components (e.g. ["forge", "demo"]).
+pub async fn dispatch<S>(
+    state: S,
+    segments: Vec<String>,
+    suffix: &str,
+    query_service: Option<&str>,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Response
+where
+    S: GitHttpState,
+{
+    match suffix {
+        "info/refs" => {
+            if query_service != Some("git-upload-pack") {
+                return (StatusCode::BAD_REQUEST, "unsupported service").into_response();
+            }
+            let repo_dir = match resolve_repo_dir(state.storage(), &segments) {
+                Ok(p) => p,
+                Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
+            };
+            if !is_public_repo(&repo_dir) {
+                return (StatusCode::NOT_FOUND, "repo not found").into_response();
+            }
+            match select_advertise_mode() {
+                AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &headers).await,
+                AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &headers).await,
+            }
+        }
+        "git-upload-pack" => handle_upload_pack(state, segments, headers, body).await,
+        "git-receive-pack" => receive_pack_blocked().await.into_response(),
+        _ => (StatusCode::NOT_FOUND, "git endpoint not found").into_response(),
+    }
+}
+
 fn select_advertise_mode() -> AdvertiseMode {
     match std::env::var("COMTRYA_GIT_SMART_V2_ADVERTISE").ok().as_deref() {
         Some("rust") => AdvertiseMode::Rust,
@@ -116,6 +154,9 @@ where
 
     // Compose a protocol v2 advertisement matching git http-backend semantics closely.
     let mut body = Vec::with_capacity(256);
+    // Smart HTTP service banner (always present in info/refs over HTTP).
+    body.extend_from_slice(&encode_pkt_line(b"# service=git-upload-pack\n"));
+    body.extend_from_slice(PKT_FLUSH);
     // version banner
     body.extend_from_slice(&encode_pkt_line(b"version 2\n"));
     body.extend_from_slice(PKT_FLUSH);
@@ -215,7 +256,7 @@ where
     }
 }
 
-async fn handle_upload_pack<S>(state: S, mut segments: Vec<String>, headers: HeaderMap, body: axum::body::Body) -> Response
+pub async fn handle_upload_pack<S>(state: S, mut segments: Vec<String>, headers: HeaderMap, body: axum::body::Body) -> Response
 where
     S: GitHttpState,
 {
@@ -576,6 +617,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::pkt::encode_pkt_line;
+    use crate::repo::RepositoryProvider;
 
     #[derive(Clone)]
     struct TestStorage {
@@ -673,7 +715,12 @@ mod tests {
             "user.email=t@e",
             "-c",
             "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "tag.gpgsign=false",
             "commit",
+            "--no-gpg-sign",
             "-m",
             "init",
         ]).status();
