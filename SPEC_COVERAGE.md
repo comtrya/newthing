@@ -53,7 +53,7 @@ cargo run -p forgepoint-cli -- restore
 Current expected results:
 
 - Rust format check passes.
-- Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, and 22 server route/runtime tests.
+- Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, and 23 server route/runtime tests.
 - Frontend typecheck passes through Bun's TypeScript runtime.
 - Astro frontend build passes and emits a server-rendered frontend artifact.
 - Development server check returns `forgepoint-server ready=true mode=development ...`.

@@ -3597,6 +3597,22 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     }
 
     #[test]
+    fn extension_runtime_loads_first_party_manifests_from_disk() {
+        let runtime = load_extension_runtime(&test_extension_dir()).unwrap();
+
+        assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
+        for id in FIRST_PARTY_EXTENSIONS {
+            let resolver = runtime.get(*id).expect("first-party resolver loaded");
+            assert_eq!(resolver.id, *id);
+            assert_eq!(resolver.component, "component.wat");
+            assert_eq!(resolver.resolver, "resolve");
+            assert_eq!(resolver.status, "executed");
+            assert!(resolver.output_type.starts_with("forgepoint."));
+            assert!(resolver.output_type.ends_with("/summary.v1"));
+        }
+    }
+
+    #[test]
     fn extension_runtime_rejects_invalid_component_bytes() {
         let extension_dir = temp_dir("extension-invalid-component");
         copy_dir_recursive(&test_extension_dir(), &extension_dir);
