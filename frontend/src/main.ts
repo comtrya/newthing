@@ -1,5 +1,5 @@
 import { HttpComtryaClient } from "./client";
-import type { ExtensionUiManifest, ComtryaClient, ComtryaEvent } from "./contracts";
+import type { ExtensionUiManifest, ComtryaEvent } from "./contracts";
 import { validateUiManifest } from "./contracts";
 import "./extension-host";
 
@@ -10,32 +10,6 @@ const app = document.querySelector<HTMLElement>("#app");
 const serverURL = import.meta.env.PUBLIC_COMTRYA_SERVER_URL || window.location.origin;
 const seededOperatorCode = import.meta.env.PUBLIC_COMTRYA_OPERATOR_CODE || "";
 const client = new HttpComtryaClient(serverURL);
-const extensionClient: ComtryaClient = {
-  query: async <TData = unknown, TVars = Record<string, unknown>>(
-    document: string,
-    variables?: TVars,
-    opts?: { signal?: AbortSignal; operationName?: string },
-  ): Promise<TData> => {
-    if (state.graphql) {
-      return state.graphql as TData;
-    }
-    return client.query<TData, TVars>(document, variables, opts);
-  },
-  mutate: <TData = unknown, TVars = Record<string, unknown>>(
-    document: string,
-    variables?: TVars,
-    opts?: { signal?: AbortSignal; operationName?: string },
-  ): Promise<TData> => client.mutate<TData, TVars>(document, variables, opts),
-  subscribe: <TData = unknown, TVars = Record<string, unknown>>(
-    document: string,
-    variables?: TVars,
-    opts?: { signal?: AbortSignal; operationName?: string },
-  ): AsyncIterable<TData> => client.subscribe<TData, TVars>(document, variables, opts),
-  permissions: (resourceURN: string): Promise<string[]> => client.permissions(resourceURN),
-  events: (filter, opts): AsyncIterable<ComtryaEvent> => client.events(filter, opts),
-  navigate: (path, opts): void => client.navigate(path, opts),
-  toast: (level, message): void => client.toast(level, message),
-};
 
 type ReadyPayload = {
   ready: boolean;
@@ -335,7 +309,7 @@ function renderShell(): void {
               </div>
               <span class="status-pill status-warn">extension</span>
             </div>
-            <div class="extension-slot-mount" data-extension-slot-mount="repository.code">
+            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.code">
               ${slotPlaceholderMarkup("repository.code")}
             </div>
           </section>
@@ -348,7 +322,7 @@ function renderShell(): void {
               </div>
               <span id="graphql-pill" class="status-pill status-warn">waiting</span>
             </div>
-            <div class="extension-slot-mount" data-extension-slot-mount="repository.overview">
+            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.overview">
               ${slotPlaceholderMarkup("repository.overview")}
             </div>
           </section>
@@ -361,7 +335,7 @@ function renderShell(): void {
               </div>
               <span id="checks-pill" class="status-pill status-warn">waiting</span>
             </div>
-            <div class="extension-slot-mount" data-extension-slot-mount="repository.checks">
+            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.checks">
               ${slotPlaceholderMarkup("repository.checks")}
             </div>
           </section>
@@ -377,6 +351,7 @@ function renderShell(): void {
           </div>
           <div id="extension-registry" class="extension-registry"></div>
           <div id="extension-errors" class="extension-errors" aria-live="polite"></div>
+          <div id="extension-generic-slots" class="extension-generic-slots" data-smoke="extension-generic-slots" aria-live="polite"></div>
         </section>
 
         <section id="activity" class="activity-grid">
@@ -596,7 +571,7 @@ function extensionHostContext(installation: ExtensionInstallation, slotName: str
   const graphql = state.graphql;
   const resolver = graphql?.extensionResolvers.find((candidate) => candidate.id === installation.id);
   return {
-    comtryaClient: extensionClient,
+    comtryaClient: client,
     viewer: graphql?.viewer ?? { authenticated: false },
     resource: DEFAULT_RESOURCE,
     routeParams: { workspace: "comtrya", repo: "comtrya" },
@@ -670,21 +645,71 @@ function renderExtensionIssues(issues: ExtensionMountIssue[]): void {
 }
 
 function extensionSlotMount(slotName: string): HTMLElement | undefined {
-  const mounts = app?.querySelectorAll<HTMLElement>("[data-extension-slot-mount]") ?? [];
-  for (const mount of mounts) {
+  const dedicatedMounts =
+    app?.querySelectorAll<HTMLElement>("#extension-slots [data-extension-slot-mount]") ?? [];
+  for (const mount of dedicatedMounts) {
     if (mount.dataset.extensionSlotMount === slotName) {
       return mount;
     }
   }
-  const fallback = app?.querySelector<HTMLElement>("#extension-slots");
-  return fallback?.querySelector("[data-extension-slot-mount]") ? undefined : (fallback ?? undefined);
+  return genericSlotMount(slotName);
+}
+
+function genericSlotMount(slotName: string): HTMLElement | undefined {
+  const container = app?.querySelector<HTMLElement>("#extension-generic-slots");
+  if (!container) {
+    return undefined;
+  }
+  const existing = Array.from(
+    container.querySelectorAll<HTMLElement>("[data-extension-slot-mount]"),
+  ).find((mount) => mount.dataset.extensionSlotMount === slotName);
+  if (existing) {
+    return existing;
+  }
+
+  const frame = document.createElement("section");
+  frame.className = "extension-generic-slot";
+  frame.dataset.extensionSlotFrame = slotName;
+
+  const heading = document.createElement("div");
+  heading.className = "panel-heading";
+  const title = document.createElement("h3");
+  title.textContent = "Extension Slot";
+  const slotLabel = document.createElement("span");
+  slotLabel.className = "status-pill status-warn";
+  slotLabel.textContent = slotName;
+  heading.append(title, slotLabel);
+
+  const mount = document.createElement("div");
+  mount.className = "extension-slot-mount";
+  mount.dataset.extensionSlotMount = slotName;
+  mount.setAttribute("data-smoke", "extension-slot-surface");
+  mount.innerHTML = slotPlaceholderMarkup(slotName);
+
+  frame.append(heading, mount);
+  container.append(frame);
+  return mount;
 }
 
 function clearExtensionSlotMounts(): void {
-  const mounts = app?.querySelectorAll<HTMLElement>("[data-extension-slot-mount]") ?? [];
+  const mounts = app?.querySelectorAll<HTMLElement>("#extension-slots [data-extension-slot-mount]") ?? [];
   for (const mount of mounts) {
     delete mount.dataset.extensionMounted;
     mount.innerHTML = slotPlaceholderMarkup(mount.dataset.extensionSlotMount ?? "");
+  }
+  app?.querySelector<HTMLElement>("#extension-generic-slots")?.replaceChildren();
+}
+
+function updateExtensionSmokeCounts(mountedSlots: number, issueCount: number): void {
+  for (const container of [
+    app?.querySelector<HTMLElement>("#extension-slots"),
+    app?.querySelector<HTMLElement>("#extension-generic-slots"),
+  ]) {
+    if (!container) {
+      continue;
+    }
+    container.dataset.mountedSlots = String(mountedSlots);
+    container.dataset.extensionIssues = String(issueCount);
   }
 }
 
@@ -796,6 +821,7 @@ async function mountExtension(installation: ExtensionInstallation): Promise<Exte
     host.className = "extension-frame";
     host.dataset.extensionId = manifest.id;
     host.dataset.extensionSlot = slot.slot;
+    host.setAttribute("data-smoke", "extension-slot-mounted");
     host.setAttribute("aria-label", `${installation.name} extension slot ${slot.slot}`);
     host.configure?.(manifest, extensionHostContext(installation, slot.slot), slot.slot);
     if (!mount.dataset.extensionMounted) {
@@ -814,6 +840,7 @@ async function mountExtensions(): Promise<void> {
   clearExtensionSlotMounts();
   if (installations.length === 0) {
     renderExtensionIssues([]);
+    updateExtensionSmokeCounts(0, 0);
     setStatus("#extension-pill", false, "no manifests");
     return;
   }
@@ -840,6 +867,7 @@ async function mountExtensions(): Promise<void> {
   const mountedSlots = results.reduce((total, result) => total + result.slots, 0);
   const issues = results.flatMap((result) => result.issues);
   renderExtensionIssues(issues);
+  updateExtensionSmokeCounts(mountedSlots, issues.length);
   const statusLabel =
     issues.length > 0
       ? `${mountedSlots} slots, ${issues.length} issues`

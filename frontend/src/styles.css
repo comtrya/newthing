@@ -399,6 +399,28 @@ mark.draft {
   display: none;
 }
 
+.extension-generic-slots {
+  display: grid;
+  gap: 12px;
+}
+
+.extension-generic-slots:empty {
+  display: none;
+}
+
+.extension-generic-slot {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d9e1eb;
+  border-radius: 9px;
+  background: #fbfcfe;
+  padding: 12px;
+}
+
+.extension-generic-slot .panel-heading {
+  margin-bottom: 0;
+}
+
 .extension-error {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -509,8 +531,48 @@ mark.draft {
   text-align: left;
 }
 
+.code-browser-grid button[aria-pressed="true"] {
+  border-color: #145ea8;
+  background: #e8f2ff;
+  color: #114f8f;
+  font-weight: 800;
+}
+
 .code-browser-grid pre {
   min-height: 150px;
+  overflow: auto;
+  margin: 0;
+  border-radius: 8px;
+  background: #111827;
+  color: #e5eefc;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.code-browser-context {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.code-browser-context article {
+  align-items: start;
+}
+
+.code-browser-context span {
+  color: #657386;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.code-browser-diff {
+  grid-column: 1 / -1;
+}
+
+.code-browser-diff pre {
+  max-height: 180px;
   overflow: auto;
   margin: 0;
   border-radius: 8px;
@@ -548,6 +610,10 @@ mark.draft {
   }
 
   .activity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .code-browser-context {
     grid-template-columns: 1fr;
   }
 
