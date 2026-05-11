@@ -2961,6 +2961,15 @@ mod tests {
         )
     }
 
+    fn bearer_headers(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        headers
+    }
+
     #[tokio::test]
     async fn readyz_reports_runtime_checks() {
         let state = AppState {
@@ -3187,15 +3196,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-        );
 
         let response = git_endpoint(
             State(AppState { runtime }),
-            headers,
+            bearer_headers(&token),
             Method::GET,
             AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
@@ -3209,6 +3213,85 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     }
 
     #[tokio::test]
+    async fn git_upload_pack_fails_closed_without_auth_or_scope() {
+        let runtime = dev_runtime();
+        let no_token_response = git_endpoint(
+            State(AppState {
+                runtime: runtime.clone(),
+            }),
+            HeaderMap::new(),
+            Method::GET,
+            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-upload-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(no_token_response.status(), StatusCode::UNAUTHORIZED);
+        let body = to_bytes(no_token_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::Unauthenticated.as_str()
+        );
+
+        let token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let wrong_scope_response = git_endpoint(
+            State(AppState { runtime }),
+            bearer_headers(&token),
+            Method::GET,
+            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-upload-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(wrong_scope_response.status(), StatusCode::FORBIDDEN);
+        let body = to_bytes(wrong_scope_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::Forbidden.as_str()
+        );
+    }
+
+    #[tokio::test]
+    async fn git_endpoint_rejects_path_traversal_after_auth() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let response = git_endpoint(
+            State(AppState { runtime }),
+            bearer_headers(&token),
+            Method::GET,
+            AxumPath("forgepoint/../forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-upload-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::NotFound.as_str()
+        );
+    }
+
+    #[tokio::test]
     async fn git_receive_pack_returns_unsupported_registry_error() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
@@ -3216,15 +3299,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "authorization",
-            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
-        );
 
         let response = git_endpoint(
             State(AppState { runtime }),
-            headers,
+            bearer_headers(&token),
             Method::GET,
             AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
             RawQuery(Some("service=git-receive-pack".to_string())),
