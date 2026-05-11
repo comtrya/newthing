@@ -263,7 +263,17 @@ impl ExtensionManifest {
             wasm_component: "extension.wasm".to_string(),
             wit_world: "comtrya:extension/extension".to_string(),
             graphql_sdl: Some(
-                "extend type Repository { pullRequests: [PullRequest!]! }".to_string(),
+                r#"
+                directive @pull_requests_resolver on FIELD_DEFINITION
+                extend type Query {
+                  pullRequests: [PullRequest!]! @pull_requests_resolver
+                }
+                type PullRequest {
+                  id: ID!
+                  title: String!
+                }
+                "#
+                .to_string(),
             ),
             cue_schemas: vec!["schema.cue".to_string()],
             ui_manifest: Some("ui/manifest.json".to_string()),
@@ -370,8 +380,22 @@ impl ExtensionHost {
                 "missing required capability grant",
             ));
         }
-        if let Some(sdl) = &installation.manifest.graphql_sdl {
-            GraphqlComposer::default().compose(&installation.manifest.name, sdl)?;
+        if let Some(sdl) = installation.manifest.graphql_sdl.as_deref() {
+            let mut fragments = self
+                .installations
+                .values()
+                .filter(|existing| existing.state == ExtensionState::Active)
+                .filter(|existing| existing.manifest.name != installation.manifest.name)
+                .filter_map(|existing| {
+                    existing
+                        .manifest
+                        .graphql_sdl
+                        .as_deref()
+                        .map(|sdl| (existing.manifest.name.as_str(), sdl))
+                })
+                .collect::<Vec<_>>();
+            fragments.push((installation.manifest.name.as_str(), sdl));
+            GraphqlComposer::default().compose_many(fragments)?;
         }
         installation.state = ExtensionState::Validated;
         installation.state = ExtensionState::Migrating;
@@ -433,9 +457,12 @@ impl ExtensionHost {
 #[derive(Debug, Clone)]
 pub struct GraphqlComposer {
     core_sdl: String,
+    extension_core_type_allowlist: BTreeSet<String>,
     reserved_core_fields: BTreeSet<String>,
     reserved_core_types: BTreeSet<String>,
 }
+
+const GRAPHQL_EXTENSION_ROOT_TYPES: [&str; 3] = ["Query", "Mutation", "Subscription"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposedGraphqlArtifact {
@@ -465,6 +492,10 @@ impl Default for GraphqlComposer {
 
         Self {
             core_sdl: CORE_SDL_BASELINE.trim().to_string(),
+            extension_core_type_allowlist: GRAPHQL_EXTENSION_ROOT_TYPES
+                .into_iter()
+                .map(String::from)
+                .collect(),
             reserved_core_fields,
             reserved_core_types,
         }
@@ -472,36 +503,77 @@ impl Default for GraphqlComposer {
 }
 
 impl GraphqlComposer {
-    pub fn compose(&self, extension_name: &str, sdl: &str) -> CoreResult<ComposedGraphqlArtifact> {
-        self.compose_many([(extension_name, sdl)])
+    pub fn compose(&self, extension_name: &str, sdl: &str) -> CoreResult<()> {
+        self.compose_artifact(extension_name, sdl).map(|_| ())
     }
 
-    pub fn compose_many<'a, I>(&self, fragments: I) -> CoreResult<ComposedGraphqlArtifact>
+    pub fn compose_artifact(
+        &self,
+        extension_name: &str,
+        sdl: &str,
+    ) -> CoreResult<ComposedGraphqlArtifact> {
+        self.compose_artifact_many([(extension_name, sdl)])
+    }
+
+    pub fn compose_many<'a, I>(&self, fragments: I) -> CoreResult<()>
     where
         I: IntoIterator<Item = (&'a str, &'a str)>,
     {
-        let mut artifact = self.core_sdl.clone();
+        self.compose_artifact_many(fragments).map(|_| ())
+    }
+
+    pub fn compose_artifact_many<'a, I>(&self, fragments: I) -> CoreResult<ComposedGraphqlArtifact>
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
+        let mut fragments = fragments
+            .into_iter()
+            .map(|(extension_name, sdl)| {
+                let extension_name = extension_name.trim();
+                if extension_name.is_empty() {
+                    return Err(CoreError::extension_activation_failed(
+                        "extension name must be non-empty for GraphQL SDL composition",
+                    ));
+                }
+                Ok(ParsedGraphqlFragment {
+                    extension_name: extension_name.to_string(),
+                    sdl,
+                    parsed: ParsedGraphqlSdl::parse(extension_name, sdl)?,
+                })
+            })
+            .collect::<CoreResult<Vec<_>>>()?;
+
         let mut extension_type_owners = BTreeMap::new();
         let mut extension_field_owners = BTreeMap::new();
 
-        for (extension_name, sdl) in fragments {
-            let extension_name = extension_name.trim();
-            if extension_name.is_empty() {
-                return Err(CoreError::extension_activation_failed(
-                    "extension name must be non-empty for GraphQL SDL composition",
-                ));
-            }
+        for fragment in &fragments {
+            self.validate_directives(&fragment.extension_name, &fragment.parsed)?;
+            self.validate_reserved_fields(&fragment.parsed)?;
+        }
 
-            let parsed = ParsedGraphqlSdl::parse(extension_name, sdl)?;
-            self.validate_directives(extension_name, &parsed)?;
-            self.validate_reserved_fields(&parsed)?;
-            self.register_type_ownership(extension_name, &parsed, &mut extension_type_owners)?;
-            self.register_field_ownership(extension_name, &parsed, &mut extension_field_owners)?;
+        for fragment in &fragments {
+            self.register_type_ownership(
+                &fragment.extension_name,
+                &fragment.parsed,
+                &mut extension_type_owners,
+            )?;
+        }
 
-            let sdl = sdl.trim();
+        for fragment in &fragments {
+            self.validate_type_extensions(&fragment.parsed, &extension_type_owners)?;
+            self.register_field_ownership(
+                &fragment.extension_name,
+                &fragment.parsed,
+                &mut extension_field_owners,
+            )?;
+        }
+
+        let mut artifact = self.core_sdl.clone();
+        for fragment in fragments.drain(..) {
+            let sdl = fragment.sdl.trim();
             if !sdl.is_empty() {
                 artifact.push_str("\n\n# Extension SDL: ");
-                artifact.push_str(extension_name);
+                artifact.push_str(&fragment.extension_name);
                 artifact.push('\n');
                 artifact.push_str(sdl);
             }
@@ -520,6 +592,40 @@ impl GraphqlComposer {
             if !directive.starts_with(&namespace) {
                 return Err(CoreError::extension_activation_failed(format!(
                     "extension directive @{directive} must be namespaced with @{namespace}"
+                )));
+            }
+        }
+        for directive in &parsed.directive_usages {
+            if !directive.starts_with(&namespace) {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension directive usage @{directive} must be namespaced with @{namespace}"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_type_extensions(
+        &self,
+        parsed: &ParsedGraphqlSdl,
+        extension_type_owners: &BTreeMap<String, String>,
+    ) -> CoreResult<()> {
+        for extension in &parsed.type_extensions {
+            if self.reserved_core_types.contains(&extension.name) {
+                if self.extension_core_type_allowlist.contains(&extension.name) {
+                    continue;
+                }
+
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension SDL must not extend core type {}",
+                    extension.name
+                )));
+            }
+
+            if !extension_type_owners.contains_key(&extension.name) {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension SDL must not extend unknown type {}",
+                    extension.name
                 )));
             }
         }
@@ -593,17 +699,35 @@ impl GraphqlComposer {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ParsedGraphqlSdl {
     directive_definitions: Vec<String>,
+    directive_usages: Vec<String>,
     type_definitions: Vec<GraphqlTypeDefinition>,
+    type_extensions: Vec<GraphqlTypeExtension>,
     fields: Vec<GraphqlFieldDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedGraphqlFragment<'a> {
+    extension_name: String,
+    sdl: &'a str,
+    parsed: ParsedGraphqlSdl,
 }
 
 impl ParsedGraphqlSdl {
     fn parse(extension_name: &str, sdl: &str) -> CoreResult<Self> {
         let tokens = tokenize_graphql_sdl(extension_name, sdl)?;
-        let mut parsed = Self::default();
+        let mut parsed = Self {
+            directive_usages: parse_directive_usages(extension_name, &tokens)?,
+            ..Self::default()
+        };
         let mut index = 0;
 
         while index < tokens.len() {
+            if schema_definition_start(&tokens, index) {
+                return Err(CoreError::extension_activation_failed(
+                    "extension SDL must not define schema",
+                ));
+            }
+
             if token_name_eq(tokens.get(index), "directive") {
                 let (directive, next_index) =
                     parse_directive_definition(extension_name, &tokens, index)?;
@@ -616,10 +740,13 @@ impl ParsedGraphqlSdl {
                 index += 1;
                 continue;
             };
-            let (definition, fields, next_index) =
+            let (definition, extension, fields, next_index) =
                 parse_type_definition(extension_name, &tokens, kind_index, is_extension)?;
             if let Some(definition) = definition {
                 parsed.type_definitions.push(definition);
+            }
+            if let Some(extension) = extension {
+                parsed.type_extensions.push(extension);
             }
             parsed.fields.extend(fields);
             index = next_index;
@@ -631,6 +758,11 @@ impl ParsedGraphqlSdl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GraphqlTypeDefinition {
+    name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct GraphqlTypeExtension {
     name: String,
 }
 
@@ -655,6 +787,42 @@ enum GraphqlSdlToken {
     LeftParen,
     RightParen,
     Colon,
+}
+
+fn parse_directive_usages(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+) -> CoreResult<Vec<String>> {
+    let mut usages = Vec::new();
+
+    for (index, token) in tokens.iter().enumerate() {
+        if !matches!(token, GraphqlSdlToken::At) {
+            continue;
+        }
+        if index
+            .checked_sub(1)
+            .is_some_and(|previous| token_name_eq(tokens.get(previous), "directive"))
+        {
+            continue;
+        }
+
+        let Some(GraphqlSdlToken::Name(name)) = tokens.get(index + 1) else {
+            return Err(CoreError::extension_activation_failed(format!(
+                "extension {extension_name} SDL directive usage must name a directive"
+            )));
+        };
+        usages.push(name.clone());
+    }
+
+    Ok(usages)
+}
+
+fn schema_definition_start(tokens: &[GraphqlSdlToken], index: usize) -> bool {
+    token_name_eq(tokens.get(index), "schema")
+        && matches!(
+            tokens.get(index + 1),
+            Some(GraphqlSdlToken::At | GraphqlSdlToken::LeftBrace)
+        )
 }
 
 fn parse_directive_definition(
@@ -683,11 +851,12 @@ fn parse_type_definition(
     is_extension: bool,
 ) -> CoreResult<(
     Option<GraphqlTypeDefinition>,
+    Option<GraphqlTypeExtension>,
     Vec<GraphqlFieldDefinition>,
     usize,
 )> {
     let Some(GraphqlSdlToken::Name(kind)) = tokens.get(kind_index) else {
-        return Ok((None, Vec::new(), kind_index + 1));
+        return Ok((None, None, Vec::new(), kind_index + 1));
     };
     let Some(GraphqlSdlToken::Name(type_name)) = tokens.get(kind_index + 1) else {
         return Err(CoreError::extension_activation_failed(format!(
@@ -717,7 +886,14 @@ fn parse_type_definition(
             name: type_name.clone(),
         })
     };
-    Ok((definition, fields, next_index))
+    let extension = if is_extension {
+        Some(GraphqlTypeExtension {
+            name: type_name.clone(),
+        })
+    } else {
+        None
+    };
+    Ok((definition, extension, fields, next_index))
 }
 
 fn type_definition_start(tokens: &[GraphqlSdlToken], index: usize) -> Option<(usize, bool)> {
@@ -1062,6 +1238,17 @@ mod tests {
         manifest_a.name = "pull-requests".to_string();
         let mut manifest_b = ExtensionManifest::reference_pull_requests();
         manifest_b.name = "reviews".to_string();
+        manifest_b.graphql_sdl = Some(
+            r#"
+            extend type Query {
+              reviews: [Review!]!
+            }
+            type Review {
+              id: ID!
+            }
+            "#
+            .to_string(),
+        );
 
         host.activate(ExtensionInstallation::new(
             manifest_a.clone(),
@@ -1093,13 +1280,13 @@ mod tests {
     fn graphql_composer_preserves_namespaced_extension_fragments() {
         let composer = GraphqlComposer::default();
         let artifact = composer
-            .compose_many([
+            .compose_artifact_many([
                 (
                     "pull-requests",
                     r#"
                     directive @pull_requests_resolver on FIELD_DEFINITION
-                    extend type Repository {
-                      pullRequests(first: Int = 25): [PullRequest!]!
+                    extend type Query {
+                      pullRequests(first: Int = 25): [PullRequest!]! @pull_requests_resolver
                     }
                     type PullRequest {
                       id: ID!
@@ -1111,8 +1298,8 @@ mod tests {
                     "checks",
                     r#"
                     directive @checks_resolver on FIELD_DEFINITION
-                    extend type Repository {
-                      checkSummaries: [CheckSummary!]!
+                    extend type Query {
+                      checkSummaries: [CheckSummary!]! @checks_resolver
                     }
                     type CheckSummary {
                       id: ID!
@@ -1138,7 +1325,22 @@ mod tests {
         let err = composer
             .compose(
                 "checks",
-                "directive @resolver on FIELD_DEFINITION\nextend type Repository { checkSummaries: [String!]! }",
+                "directive @resolver on FIELD_DEFINITION\nextend type Query { checkSummaries: [String!]! }",
+            )
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("@resolver"));
+        assert!(err.message.contains("@checks_"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_unnamespaced_directive_usages() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose(
+                "checks",
+                "extend type Query { checkSummaries: [String!]! @resolver }",
             )
             .unwrap_err();
 
@@ -1154,14 +1356,14 @@ mod tests {
             .compose_many([
                 (
                     "pull-requests",
-                    "extend type Repository { activity: [String!]! }",
+                    "extend type Query { activity: [String!]! }",
                 ),
-                ("checks", "extend type Repository { activity: [String!]! }"),
+                ("checks", "extend type Query { activity: [String!]! }"),
             ])
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
-        assert!(err.message.contains("Repository.activity"));
+        assert!(err.message.contains("Query.activity"));
         assert!(err.message.contains("pull-requests"));
     }
 
@@ -1184,11 +1386,63 @@ mod tests {
     fn graphql_composer_rejects_reserved_comtrya_fields() {
         let composer = GraphqlComposer::default();
         let err = composer
-            .compose("audit", "extend type Repository { _comtryaAudit: String }")
+            .compose("audit", "extend type Query { _comtryaAudit: String }")
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
         assert!(err.message.contains("_comtrya"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_forbidden_core_type_extensions() {
+        let composer = GraphqlComposer::default();
+        for sdl in [
+            "extend type Viewer { profileLink: String }",
+            "extend type InstanceCapabilities { extensionSearch: Boolean! }",
+        ] {
+            let err = composer.compose("bad", sdl).unwrap_err();
+
+            assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+            assert!(err.message.contains("must not extend core type"));
+        }
+    }
+
+    #[test]
+    fn graphql_composer_rejects_schema_definitions() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("bad", "schema { query: Query }")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("must not define schema"));
+    }
+
+    #[test]
+    fn activation_rejects_graphql_conflicts_with_active_extensions() {
+        let mut host = ExtensionHost::default();
+        let mut manifest_a = ExtensionManifest::reference_pull_requests();
+        manifest_a.name = "activity".to_string();
+        manifest_a.graphql_sdl = Some("extend type Query { activity: [String!]! }".to_string());
+        let mut manifest_b = ExtensionManifest::reference_pull_requests();
+        manifest_b.name = "checks".to_string();
+        manifest_b.graphql_sdl = Some("extend type Query { activity: [String!]! }".to_string());
+
+        host.activate(ExtensionInstallation::new(
+            manifest_a.clone(),
+            manifest_a.capabilities.clone(),
+        ))
+        .unwrap();
+        let err = host
+            .activate(ExtensionInstallation::new(
+                manifest_b.clone(),
+                manifest_b.capabilities.clone(),
+            ))
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("Query.activity"));
+        assert!(err.message.contains("activity"));
     }
 
     #[test]
