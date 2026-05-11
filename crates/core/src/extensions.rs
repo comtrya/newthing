@@ -2,6 +2,84 @@ use crate::error::{CoreError, CoreResult, ErrorCode};
 use crate::ids::{IdPrefix, OpaqueId};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Where an extension's `.wasm` component is fetched from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExtensionSource {
+    /// A filesystem path on the host, resolved relative to the host's
+    /// extensions directory. Useful for development and first-party packages.
+    Local { path: String },
+    /// An OCI artifact referenced by registry + image + tag-or-digest.
+    /// Resolved by `comtrya-extension-oci` with optional offline cache fallback.
+    Oci {
+        registry: String,
+        image: String,
+        reference: OciReference,
+    },
+}
+
+/// Either a mutable tag or an immutable digest. Digests are recommended for
+/// production; tags are convenient for development.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OciReference {
+    Tag(String),
+    Digest(String),
+}
+
+impl OciReference {
+    pub fn as_ref_str(&self) -> &str {
+        match self {
+            OciReference::Tag(t) => t.as_str(),
+            OciReference::Digest(d) => d.as_str(),
+        }
+    }
+    pub fn is_digest(&self) -> bool {
+        matches!(self, OciReference::Digest(_))
+    }
+}
+
+/// A configured extension instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtensionInstallConfig {
+    pub id: String,
+    pub source: ExtensionSource,
+    pub enabled: bool,
+}
+
+impl ExtensionInstallConfig {
+    pub fn validate(&self) -> CoreResult<()> {
+        if self.id.trim().is_empty() {
+            return Err(CoreError::config_invalid(
+                "extension id must be non-empty",
+            ));
+        }
+        match &self.source {
+            ExtensionSource::Local { path } if path.trim().is_empty() => {
+                Err(CoreError::config_invalid(
+                    "extension local path must be non-empty",
+                ))
+            }
+            ExtensionSource::Oci {
+                registry,
+                image,
+                reference,
+            } => {
+                if registry.trim().is_empty() || image.trim().is_empty() {
+                    return Err(CoreError::config_invalid(
+                        "extension OCI registry and image must be non-empty",
+                    ));
+                }
+                if reference.as_ref_str().trim().is_empty() {
+                    return Err(CoreError::config_invalid(
+                        "extension OCI reference (tag or digest) must be non-empty",
+                    ));
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
 pub const WIT_SKETCH: &str = r#"
 package comtrya:extension;
 world extension {

@@ -98,6 +98,7 @@ pub struct InstanceConfig {
     pub workspaces: BTreeMap<String, WorkspaceConfig>,
     pub ceilings: Ceilings,
     pub rate_limits: RateLimits,
+    pub extensions: Vec<crate::extensions::ExtensionInstallConfig>,
 }
 
 impl InstanceConfig {
@@ -125,6 +126,16 @@ impl InstanceConfig {
                 CoreError::config_invalid(format!("workspace slug {slug:?}: {}", err.message))
             })?;
             validate_visibility_ceiling(workspace.visibility, &self.ceilings.workspace)?;
+        }
+        let mut seen = BTreeMap::new();
+        for ext in &self.extensions {
+            ext.validate()?;
+            if seen.insert(ext.id.clone(), ()).is_some() {
+                return Err(CoreError::config_invalid(format!(
+                    "duplicate extension id {:?} in config",
+                    ext.id
+                )));
+            }
         }
         Ok(())
     }
@@ -173,6 +184,7 @@ impl InstanceConfig {
             workspaces,
             ceilings: Ceilings::default(),
             rate_limits: RateLimits::default(),
+            extensions: Vec::new(),
         }
     }
 }
@@ -668,10 +680,58 @@ fn validate_visibility_ceiling(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extensions::{ExtensionInstallConfig, ExtensionSource, OciReference};
 
     #[test]
     fn minimal_dev_config_validates() {
         InstanceConfig::minimal_dev().validate().unwrap();
+    }
+
+    #[test]
+    fn extension_install_oci_validates() {
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions.push(ExtensionInstallConfig {
+            id: "pull-requests".to_string(),
+            source: ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "comtrya/extensions/pull-requests".to_string(),
+                reference: OciReference::Tag("v1.0.0".to_string()),
+            },
+            enabled: true,
+        });
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn duplicate_extension_ids_are_rejected() {
+        let mut config = InstanceConfig::minimal_dev();
+        for _ in 0..2 {
+            config.extensions.push(ExtensionInstallConfig {
+                id: "checks".to_string(),
+                source: ExtensionSource::Local {
+                    path: "extensions/first-party/ext_checks".to_string(),
+                },
+                enabled: true,
+            });
+        }
+        let err = config.validate().unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConfigInvalid);
+        assert!(err.message.contains("duplicate extension"));
+    }
+
+    #[test]
+    fn empty_oci_reference_is_rejected() {
+        let cfg = ExtensionInstallConfig {
+            id: "x".to_string(),
+            source: ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "x/y".to_string(),
+                reference: OciReference::Tag("".to_string()),
+            },
+            enabled: true,
+        };
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConfigInvalid);
     }
 
     #[test]
