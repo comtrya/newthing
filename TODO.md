@@ -248,8 +248,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - branches,
   - extension installations,
   - extension-owned PR/check/activity documents.
-- Add a `--reset` or env flag that deletes all generated runtime state intentionally.
-- Avoid ad hoc `rm -rf` paths in the smoke script unless guarded to the configured data dir.
+- Real: `start.sh --reset` and `FORGEPOINT_RESET_DEMO_DATA=1` intentionally reset generated runtime state.
+- Real: `start.sh` reset deletion is guarded so only generated paths under `FORGEPOINT_DATA_DIR` can be removed.
 - Real: `start.sh` prints the seeded repository path, branch list, and extension install list from live GraphQL data.
 - Add startup validation that first-party extension files exist before starting the server.
 - Add startup validation that Wasmtime components export the expected typed resolvers.

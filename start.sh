@@ -7,9 +7,20 @@ cd "$ROOT_DIR"
 SERVER_PID=""
 FRONTEND_PID=""
 TMP_DIR=""
+REQUEST_RESET=0
 
 log() {
   printf '[forgepoint] %s\n' "$*"
+}
+
+usage() {
+  cat <<'USAGE'
+Usage: ./start.sh [--reset] [--oneshot]
+
+Options:
+  --reset    Reset generated demo repository and extension storage before startup.
+  --oneshot  Exit after the smoke checks pass.
+USAGE
 }
 
 fail() {
@@ -26,6 +37,21 @@ fail() {
 require_command() {
   local command_name="$1"
   command -v "$command_name" >/dev/null 2>&1 || fail "missing required command: $command_name"
+}
+
+reset_generated_path() {
+  local path="$1"
+  case "$path" in
+    "$DATA_DIR"/*)
+      if [[ -e "$path" ]]; then
+        log "resetting generated path: $path"
+        rm -rf -- "$path"
+      fi
+      ;;
+    *)
+      fail "refusing to reset path outside FORGEPOINT_DATA_DIR: $path"
+      ;;
+  esac
 }
 
 cleanup() {
@@ -204,6 +230,27 @@ wait_for_url() {
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT TERM
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --reset)
+      REQUEST_RESET=1
+      shift
+      ;;
+    --oneshot)
+      export FORGEPOINT_ONESHOT=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      fail "unknown argument: $1"
+      ;;
+  esac
+done
+
 load_envrc
 
 CONFIG="${FORGEPOINT_CONFIG:-config/production-testbed.cue}"
@@ -220,6 +267,10 @@ READY_TIMEOUT_SECONDS="${FORGEPOINT_READY_TIMEOUT_SECONDS:-30}"
 ONESHOT="${FORGEPOINT_ONESHOT:-0}"
 OPERATOR_CODE="${FORGEPOINT_OPERATOR_CODE:-}"
 BUN="${BUN:-$HOME/.bun/bin/bun}"
+
+if [[ "$REQUEST_RESET" == "1" ]]; then
+  RESET_DEMO_DATA=1
+fi
 
 if [[ -z "$OPERATOR_CODE" ]]; then
   fail "FORGEPOINT_OPERATOR_CODE is required. Put a seeded operator code in .envrc or export it before running start.sh."
@@ -251,9 +302,9 @@ mkdir -p "$DATA_DIR/metadata"
 DEMO_STATE="$DATA_DIR/metadata/demo-state.json"
 if [[ "$RESET_DEMO_DATA" == "1" || ! -f "$DEMO_STATE" ]]; then
   cp "$DEMO_FIXTURE" "$DEMO_STATE"
-  rm -rf "$DATA_DIR/repositories/forgepoint/forgepoint.git"
-  rm -rf "$DATA_DIR/metadata/demo-repository-workdir"
-  rm -rf "$DATA_DIR/extensions/storage"
+  reset_generated_path "$DATA_DIR/repositories/forgepoint/forgepoint.git"
+  reset_generated_path "$DATA_DIR/metadata/demo-repository-workdir"
+  reset_generated_path "$DATA_DIR/extensions/storage"
   log "seeded demo state: $DEMO_STATE"
 fi
 

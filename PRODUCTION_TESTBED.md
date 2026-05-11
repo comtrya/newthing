@@ -25,10 +25,13 @@ server and exit after the probes pass.
 `$FORGEPOINT_DATA_DIR/metadata/demo-state.json` from
 `fixtures/demo/conference.json`; server startup imports that input into the
 versioned extension storage tables under `$FORGEPOINT_DATA_DIR/extensions/storage`.
-Set `FORGEPOINT_RESET_DEMO_DATA=0` if you want to keep edits in that data
-directory between runs. Explicit environment values passed to `./start.sh` win
-over values loaded from `.envrc`. The smoke output prints the seeded repository
-path, live branch list, and installed extension list after GraphQL is available.
+Use `./start.sh --reset` or `FORGEPOINT_RESET_DEMO_DATA=1` to intentionally
+delete and reseed generated demo repository and extension storage paths under
+`$FORGEPOINT_DATA_DIR`; set `FORGEPOINT_RESET_DEMO_DATA=0` if you want to keep
+edits in that data directory between runs. Explicit environment values passed to
+`./start.sh` win over values loaded from `.envrc`. The smoke output prints the
+seeded repository path, live branch list, and installed extension list after
+GraphQL is available.
 
 ```sh
 mkdir -p /private/tmp/forgepoint-production-testbed
