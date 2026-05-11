@@ -1613,7 +1613,9 @@ fn tokenize_graphql_sdl(extension_name: &str, sdl: &str) -> CoreResult<Vec<Graph
                 index += 1;
             }
             '.' if chars.get(index + 1) == Some(&'.') && chars.get(index + 2) == Some(&'.') => {
-                index += 3;
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported token `...`"
+                )));
             }
             '-' if chars
                 .get(index + 1)
@@ -2171,6 +2173,20 @@ mod tests {
         assert!(missing_colon.message.contains("unsupported field syntax"));
         assert_eq!(unbalanced.code, ErrorCode::ExtensionActivationFailed);
         assert!(unbalanced.message.contains("unbalanced braces"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_ellipsis_tokens() {
+        let composer = GraphqlComposer::default();
+        for sdl in [
+            "... extend type Query { ok: String }",
+            "extend type Query { ok: String ... }",
+        ] {
+            let err = composer.compose("bad", sdl).unwrap_err();
+
+            assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+            assert!(err.message.contains("unsupported token `...`"));
+        }
     }
 
     #[test]
