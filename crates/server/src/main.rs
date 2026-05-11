@@ -448,11 +448,13 @@ impl Runtime {
                     "members": 0
                 })
             });
-        let repository = self
-            .extension_storage
-            .single_document_data("repositories")?;
+        let repository_documents = self.extension_storage.collection_data("repositories")?;
         let git = self.git_snapshot()?;
-        let repository = merge_repository_metadata(git.repository.clone(), repository.as_ref());
+        let repository_metadata = repository_documents
+            .as_array()
+            .and_then(|repositories| repositories.first());
+        let repository = merge_repository_metadata(git.repository.clone(), repository_metadata);
+        let repositories = repository_collection_payload(&repository, &repository_documents);
         let pull_requests = self.extension_storage.collection_data("pull_requests")?;
         let checks = self.extension_storage.collection_data("check_runs")?;
         let extensions = filter_extension_installations(
@@ -466,6 +468,7 @@ impl Runtime {
             "generatedBy": "comtrya-runtime/v1",
             "workspace": workspace,
             "repository": repository,
+            "repositories": repositories,
             "refs": git.refs,
             "branches": git.branches,
             "commits": git.commits,
@@ -964,6 +967,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
                 },
                 "workspace": demo.get("workspace").cloned().unwrap_or_else(|| json!(null)),
                 "repository": repository,
+                "repositories": demo.get("repositories").cloned().unwrap_or_else(|| json!([])),
                 "extensionInstallations": demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
                 "extensionResolvers": demo.get("extensionResolvers").cloned().unwrap_or_else(|| json!([])),
                 "activityEvents": demo.get("activity").cloned().unwrap_or_else(|| json!([])),
@@ -1483,6 +1487,24 @@ fn typed_repository_payload(demo: &Value) -> Value {
         );
     }
     repository
+}
+
+fn repository_collection_payload(live_repository: &Value, stored_repositories: &Value) -> Value {
+    let mut repositories = Vec::new();
+    let live_id = live_repository.get("id").and_then(Value::as_str);
+    repositories.push(live_repository.clone());
+
+    if let Some(stored) = stored_repositories.as_array() {
+        for repository in stored {
+            let stored_id = repository.get("id").and_then(Value::as_str);
+            if stored_id.is_some() && stored_id == live_id {
+                continue;
+            }
+            repositories.push(repository.clone());
+        }
+    }
+
+    Value::Array(repositories)
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];

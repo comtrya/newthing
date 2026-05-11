@@ -5,6 +5,7 @@ import "./extension-host";
 
 const DEFAULT_RESOURCE = "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const TOKEN_ACTIONS = ["graphql:read", "graphql:write", "events:read", "git:read", "checks:read"];
+const SELECTED_REPOSITORY_KEY = "comtrya:selected-repository";
 
 const app = document.querySelector<HTMLElement>("#app");
 const serverURL = import.meta.env.PUBLIC_COMTRYA_SERVER_URL || window.location.origin;
@@ -37,77 +38,96 @@ type TokenExchangePayload = {
   resource: string;
 };
 
-type DemoState = {
-  workspace: {
-    name: string;
-    slug: string;
-    visibility: string;
-    members: number;
-  };
-  repository: {
-    owner: string;
-    name: string;
-    path: string;
-    visibility: string;
-    description: string;
-    defaultBranch: string;
-    currentCommit: string;
-    language: string;
-    license: string;
-    updated: string;
-  };
-  refs: Array<{ name: string; target: string; shortTarget: string }>;
-  branches: Array<{ name: string; commit: string; ahead: number; behind: number }>;
-  commits: Array<{ oid: string; shortOid: string; subject: string; author: string; time: string }>;
-  treeEntries: Array<{ path: string; mode: string; kind: string; oid: string; size: number }>;
-  files: Array<{
-    path: string;
-    kind: string;
-    status: string;
-    mode: string;
-    oid: string;
-    size: number;
-    preview: string;
-  }>;
-  blobs: Array<{ path: string; oid: string; size: number; preview: string }>;
-  diff: { path: string; language: string; patch: string };
-  pullRequests: Array<{
-    number: number;
-    title: string;
-    author: string;
-    avatar: string;
-    state: string;
-    base: string;
-    head: string;
-    comments: number;
-    changes: string;
-    checks: string;
-    review: string;
-  }>;
-  checks: Array<{ name: string; provider: string; conclusion: string; duration: string }>;
-  extensions: ExtensionInstallation[];
-  extensionResolvers: Array<{
-    id: string;
-    component: string;
-    resolver: string;
-    outputType: string;
-    output: Record<string, unknown>;
-    status: string;
-  }>;
-  activity: Array<{ type: string; summary: string; actor: string; time: string }>;
+type WorkspacePayload = {
+  name: string;
+  slug: string;
+  visibility: string;
+  members: number;
 };
 
-type RepositoryPayload = DemoState["repository"] & {
-  refs: DemoState["refs"];
-  branches: DemoState["branches"];
-  commits: DemoState["commits"];
-  treeEntries: DemoState["treeEntries"];
-  files: DemoState["files"];
-  blobs: DemoState["blobs"];
-  diff: DemoState["diff"];
-  pullRequests: DemoState["pullRequests"];
-  checks: DemoState["checks"];
+type RefPayload = { name: string; target: string; shortTarget: string };
+type BranchPayload = { name: string; commit: string; ahead: number; behind: number };
+type CommitPayload = {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  time: string;
 };
+type TreeEntryPayload = { path: string; mode: string; kind: string; oid: string; size: number };
+type FilePayload = {
+  path: string;
+  kind: string;
+  status: string;
+  mode: string;
+  oid: string;
+  size: number;
+  preview: string;
+};
+type BlobPayload = { path: string; oid: string; size: number; preview: string };
+type DiffPayload = { path: string; language: string; patch: string };
+type PullRequestPayload = {
+  number: number;
+  title: string;
+  author: string;
+  avatar: string;
+  state: string;
+  base: string;
+  head: string;
+  comments: number;
+  changes: string;
+  checks: string;
+  review: string;
+};
+type CheckPayload = { name: string; provider: string; conclusion: string; duration: string };
+type ActivityPayload = { type: string; summary: string; actor: string; time: string };
+
+type RepositorySummary = {
+  id?: string;
+  owner: string;
+  name: string;
+  path: string;
+  gitHttpPath?: string;
+  visibility: string;
+  description: string;
+  defaultBranch: string;
+  currentCommit?: string;
+  headOid?: string;
+  language?: string;
+  license?: string;
+  updated?: string;
+  refs?: RefPayload[];
+  branches?: BranchPayload[];
+  commits?: CommitPayload[];
+  treeEntries?: TreeEntryPayload[];
+  files?: FilePayload[];
+  blobs?: BlobPayload[];
+  diff?: DiffPayload;
+  pullRequests?: PullRequestPayload[];
+  checks?: CheckPayload[];
+};
+
+type RepositoryPayload = Required<
+  Pick<
+    RepositorySummary,
+    | "owner"
+    | "name"
+    | "path"
+    | "visibility"
+    | "description"
+    | "defaultBranch"
+    | "refs"
+    | "branches"
+    | "commits"
+    | "treeEntries"
+    | "files"
+    | "blobs"
+    | "diff"
+    | "pullRequests"
+    | "checks"
+  >
+> &
+  RepositorySummary;
 
 type GraphqlPayload = {
   viewer: { authenticated: boolean; permissions: string[] };
@@ -117,11 +137,19 @@ type GraphqlPayload = {
     publicURL: string;
     capabilities: Record<string, boolean>;
   };
-  workspace: DemoState["workspace"];
+  workspace: WorkspacePayload;
   repository: RepositoryPayload;
-  extensionInstallations: DemoState["extensions"];
-  extensionResolvers: DemoState["extensionResolvers"];
-  activityEvents: DemoState["activity"];
+  repositories?: RepositorySummary[];
+  extensionInstallations: ExtensionInstallation[];
+  extensionResolvers: Array<{
+    id: string;
+    component: string;
+    resolver: string;
+    outputType: string;
+    output: Record<string, unknown>;
+    status: string;
+  }>;
+  activityEvents: ActivityPayload[];
 };
 
 type ExtensionMountIssueKind = "load" | "resolver" | "permission";
@@ -143,28 +171,32 @@ type ExtensionMountResult = {
 type AppState = {
   ready?: ReadyPayload;
   graphql?: GraphqlPayload;
+  selectedRepositoryPath?: string;
+  repositoryFilter: string;
 };
 
-const state: AppState = {};
+const state: AppState = {
+  selectedRepositoryPath: localStorage.getItem(SELECTED_REPOSITORY_KEY) ?? undefined,
+  repositoryFilter: "",
+};
 
 function escapeHtml(value: unknown): string {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
 
-function formatCount(value: number): string {
-  return new Intl.NumberFormat("en", { notation: value > 9999 ? "compact" : "standard" }).format(
-    value,
-  );
+function formatCount(value: number | undefined): string {
+  return new Intl.NumberFormat("en", { notation: value && value > 9999 ? "compact" : "standard" })
+    .format(value ?? 0);
 }
 
 function setText(selector: string, value: unknown): void {
   const element = app?.querySelector<HTMLElement>(selector);
   if (element) {
-    element.textContent = String(value);
+    element.textContent = String(value ?? "");
   }
 }
 
@@ -177,24 +209,122 @@ function setStatus(selector: string, ok: boolean, label: string): void {
   element.textContent = label;
 }
 
+function statusClass(value: unknown): string {
+  return String(value ?? "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_");
+}
+
+function arrayOrEmpty<T>(value: T[] | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function repoPath(repo: Partial<RepositorySummary> | undefined): string {
+  if (!repo) {
+    return "comtrya/comtrya";
+  }
+  return repo.path || [repo.owner, repo.name].filter(Boolean).join("/") || "comtrya/comtrya";
+}
+
+function repoOwner(repo: RepositorySummary): string {
+  return repo.owner || repo.path.split("/").slice(0, -1).join("/") || "comtrya";
+}
+
+function repoName(repo: RepositorySummary): string {
+  return repo.name || repo.path.split("/").at(-1) || "repository";
+}
+
+function ensureRepositoryPayload(repo: RepositorySummary): RepositoryPayload {
+  return {
+    owner: repoOwner(repo),
+    name: repoName(repo),
+    path: repoPath(repo),
+    gitHttpPath: repo.gitHttpPath,
+    visibility: repo.visibility ?? "PRIVATE",
+    description: repo.description ?? "Repository registered in this Comtrya instance.",
+    defaultBranch: repo.defaultBranch ?? "main",
+    currentCommit: repo.currentCommit ?? "unknown",
+    headOid: repo.headOid,
+    language: repo.language ?? "unknown",
+    license: repo.license ?? "unknown",
+    updated: repo.updated ?? "unknown",
+    refs: arrayOrEmpty(repo.refs),
+    branches: arrayOrEmpty(repo.branches),
+    commits: arrayOrEmpty(repo.commits),
+    treeEntries: arrayOrEmpty(repo.treeEntries),
+    files: arrayOrEmpty(repo.files),
+    blobs: arrayOrEmpty(repo.blobs),
+    diff: repo.diff ?? { path: "unavailable", language: "diff", patch: "" },
+    pullRequests: arrayOrEmpty(repo.pullRequests),
+    checks: arrayOrEmpty(repo.checks),
+    id: repo.id,
+  };
+}
+
+function repositoriesFromGraphql(graphql: GraphqlPayload): RepositoryPayload[] {
+  const byPath = new Map<string, RepositoryPayload>();
+  for (const repo of graphql.repositories ?? []) {
+    const payload = ensureRepositoryPayload(repo);
+    byPath.set(payload.path, payload);
+  }
+  const live = ensureRepositoryPayload(graphql.repository);
+  byPath.set(live.path, { ...byPath.get(live.path), ...live });
+  return Array.from(byPath.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function activeRepository(graphql: GraphqlPayload): RepositoryPayload {
+  const repositories = repositoriesFromGraphql(graphql);
+  const selected = state.selectedRepositoryPath
+    ? repositories.find((repo) => repo.path === state.selectedRepositoryPath)
+    : undefined;
+  const active = selected ?? repositories[0] ?? ensureRepositoryPayload(graphql.repository);
+  state.selectedRepositoryPath = active.path;
+  localStorage.setItem(SELECTED_REPOSITORY_KEY, active.path);
+  return active;
+}
+
+function repositoryResource(repo: RepositoryPayload): string {
+  return repo.id ? `comtrya://repository/${repo.id}` : DEFAULT_RESOURCE;
+}
+
+function cloneURL(repo: RepositoryPayload): string {
+  const gitPath = repo.gitHttpPath ?? `/git/${repo.path}.git`;
+  return `${serverURL}${gitPath.startsWith("/") ? gitPath : `/${gitPath}`}`;
+}
+
+function shortOid(value: string | undefined): string {
+  if (!value || value === "unknown") {
+    return "unknown";
+  }
+  return value.slice(0, 12);
+}
+
+function passingChecks(checks: CheckPayload[]): number {
+  return checks.filter((check) => check.conclusion === "SUCCESS").length;
+}
+
+function readyReviews(pulls: PullRequestPayload[]): number {
+  return pulls.filter((pull) => pull.state === "READY").length;
+}
+
 const SLOT_LABELS: Record<string, { title: string; detail: string }> = {
   "repository.code": {
     title: "Code Browser",
-    detail: "Connect to load repository files.",
+    detail: "Repository tree and file previews mount here when the extension is available.",
   },
   "repository.overview": {
     title: "Pull Requests",
-    detail: "Connect to load review state.",
+    detail: "Review queues and merge readiness mount here when the extension is available.",
   },
   "repository.checks": {
     title: "Checks",
-    detail: "Connect to load check runs.",
+    detail: "CI and deployment evidence mount here when the extension is available.",
   },
 };
 
 function slotPlaceholderMarkup(slotName: string): string {
   const label = SLOT_LABELS[slotName] ?? {
-    title: "Extension slot",
+    title: "Extension Slot",
     detail: "Waiting for a matching extension manifest slot.",
   };
   return `
@@ -213,15 +343,15 @@ function renderShell(): void {
   app.innerHTML = `
     <header class="topbar">
       <div class="brand-lockup">
-        <span class="brand-mark">F</span>
+        <span class="brand-mark">C</span>
         <div>
           <strong>Comtrya</strong>
-          <span>Conference demo environment</span>
+          <span>Self-hosted forge</span>
         </div>
       </div>
-      <label class="global-search">
-        <span>Search</span>
-        <input type="search" value="comtrya/comtrya" aria-label="Search Comtrya" />
+      <label class="command-search">
+        <span>Repository switcher</span>
+        <input id="repo-search" type="search" value="" placeholder="Search repositories" aria-label="Search repositories" />
       </label>
       <div class="topbar-actions">
         <span id="ready-pill" class="status-pill status-warn">offline</span>
@@ -230,7 +360,13 @@ function renderShell(): void {
     </header>
 
     <section class="forge-layout">
-      <aside class="sidebar">
+      <aside class="workspace-sidebar" aria-label="Workspace navigation">
+        <section class="workspace-card">
+          <span class="eyebrow">Workspace</span>
+          <strong id="workspace-name">Comtrya Labs</strong>
+          <span id="workspace-meta">single tenant</span>
+        </section>
+
         <form id="operator-form" class="operator-form">
           <label for="operator-code">Operator code</label>
           <div class="operator-row">
@@ -238,7 +374,21 @@ function renderShell(): void {
             <button type="submit">Connect</button>
           </div>
         </form>
-        <nav class="repo-nav" aria-label="Repository navigation">
+
+        <section class="repo-browser">
+          <div class="section-heading">
+            <span>Repositories</span>
+            <strong id="repo-count">0</strong>
+          </div>
+          <div id="repo-list" class="repo-list" aria-live="polite">
+            <button type="button" class="repo-row active" disabled>
+              <span>comtrya/comtrya</span>
+              <small>Connect to load</small>
+            </button>
+          </div>
+        </section>
+
+        <nav class="workspace-nav" aria-label="Repository sections">
           <a class="active" href="#overview">Overview</a>
           <a href="#code">Code</a>
           <a href="#pulls">Pull requests</a>
@@ -249,17 +399,24 @@ function renderShell(): void {
       </aside>
 
       <main class="content">
-        <section id="overview" class="repo-hero">
-          <div>
-            <span class="eyebrow">Private workspace</span>
+        <section id="overview" class="repo-toolbar">
+          <div class="repo-identity">
+            <span class="breadcrumb" id="repo-breadcrumb">comtrya / repository</span>
             <h1 id="repo-title">comtrya / comtrya</h1>
             <p id="repo-description">Connect to load repository state.</p>
           </div>
           <div class="repo-actions">
-            <button type="button">Watch</button>
-            <button type="button">Star</button>
-            <button type="button">Fork</button>
+            <button id="copy-clone" type="button">Copy clone URL</button>
+            <a class="button-link" href="#extensions">Extension status</a>
           </div>
+        </section>
+
+        <section class="repo-tabs" aria-label="Repository tabs">
+          <a class="active" href="#overview">Summary</a>
+          <a href="#code">Code</a>
+          <a href="#pulls">Reviews</a>
+          <a href="#checks">Checks</a>
+          <a href="#activity">Activity</a>
         </section>
 
         <section class="metric-grid" aria-label="Repository metrics">
@@ -269,77 +426,119 @@ function renderShell(): void {
           <article><span>Checks</span><strong id="metric-checks">0/0</strong></article>
         </section>
 
-        <section class="repo-context-grid">
-          <aside class="panel intelligence-panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Repository Context</h2>
-                <p id="branch-summary">main</p>
+        <section class="work-grid">
+          <div class="primary-column">
+            <section class="panel branch-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Branch Cockpit</h2>
+                  <p id="branch-summary">main</p>
+                </div>
+                <code id="commit-hash">------</code>
               </div>
-              <code id="commit-hash">------</code>
+              <div id="branch-list" class="branch-list"></div>
+            </section>
+
+            <div id="extension-slots" class="extension-surfaces" data-smoke="manifest-driven-extension-slots">
+              <section id="code" class="panel extension-zone extension-zone-wide">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Code</h2>
+                    <p>Extension-owned repository browser.</p>
+                  </div>
+                  <span class="status-pill status-info">extension</span>
+                </div>
+                <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.code">
+                  ${slotPlaceholderMarkup("repository.code")}
+                </div>
+              </section>
+
+              <section id="pulls" class="panel extension-zone">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Pull Requests</h2>
+                    <p>Review queue and merge readiness.</p>
+                  </div>
+                  <span id="graphql-pill" class="status-pill status-warn">waiting</span>
+                </div>
+                <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.overview">
+                  ${slotPlaceholderMarkup("repository.overview")}
+                </div>
+              </section>
+
+              <section id="checks" class="panel extension-zone">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Checks</h2>
+                    <p>CI and deployment evidence.</p>
+                  </div>
+                  <span id="checks-pill" class="status-pill status-warn">waiting</span>
+                </div>
+                <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.checks">
+                  ${slotPlaceholderMarkup("repository.checks")}
+                </div>
+              </section>
             </div>
-            <dl>
-              <div><dt>Language</dt><dd id="repo-language">unknown</dd></div>
-              <div><dt>License</dt><dd id="repo-license">unknown</dd></div>
-              <div><dt>Last update</dt><dd id="repo-updated">unknown</dd></div>
-              <div><dt>Viewer</dt><dd id="viewer-state">anonymous</dd></div>
-              <div><dt>Tree entries</dt><dd id="tree-count">0</dd></div>
-              <div><dt>Blobs</dt><dd id="blob-count">0</dd></div>
-            </dl>
-            <h3>Refs</h3>
-            <ol id="ref-list" class="compact-list"></ol>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Commits</h2>
+                  <p>Latest history from Git storage.</p>
+                </div>
+              </div>
+              <ol id="commit-list" class="commit-list"></ol>
+            </section>
+          </div>
+
+          <aside class="ops-rail">
+            <section class="panel repo-facts">
+              <div class="panel-heading">
+                <h2>Repository Facts</h2>
+                <span id="repo-visibility" class="status-pill status-info">private</span>
+              </div>
+              <dl>
+                <div><dt>Language</dt><dd id="repo-language">unknown</dd></div>
+                <div><dt>License</dt><dd id="repo-license">unknown</dd></div>
+                <div><dt>Updated</dt><dd id="repo-updated">unknown</dd></div>
+                <div><dt>Viewer</dt><dd id="viewer-state">anonymous</dd></div>
+                <div><dt>Tree entries</dt><dd id="tree-count">0</dd></div>
+                <div><dt>Blobs</dt><dd id="blob-count">0</dd></div>
+              </dl>
+            </section>
+
+            <section class="panel queue-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Work Queue</h2>
+                  <p>Review and automation pressure.</p>
+                </div>
+              </div>
+              <div class="queue-stats">
+                <article><strong id="queue-reviews">0</strong><span>ready reviews</span></article>
+                <article><strong id="queue-actions">0</strong><span>attention checks</span></article>
+              </div>
+              <ol id="queue-list" class="queue-list"></ol>
+            </section>
+
+            <section class="panel clone-panel">
+              <div class="panel-heading">
+                <h2>Clone</h2>
+                <span class="status-pill status-ok">Git HTTPS</span>
+              </div>
+              <code id="clone-command" class="command">git clone ${escapeHtml(serverURL)}/git/comtrya/comtrya.git</code>
+              <p class="muted">Scoped credentials are issued through the operator flow.</p>
+            </section>
+
+            <section class="panel refs-panel">
+              <div class="panel-heading">
+                <h2>Refs</h2>
+                <span id="ref-total" class="status-pill status-info">0</span>
+              </div>
+              <ol id="ref-list" class="compact-list"></ol>
+            </section>
           </aside>
-          <section class="panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Commits</h2>
-                <p>Live commit history read from the local bare Git repository.</p>
-              </div>
-            </div>
-            <ol id="commit-list" class="commit-list"></ol>
-          </section>
         </section>
-
-        <div id="extension-slots" class="extension-surfaces" data-smoke="manifest-driven-extension-slots">
-          <section id="code" class="panel extension-zone">
-            <div class="panel-heading">
-              <div>
-                <h2>Code Browser</h2>
-                <p>Tree, blobs, and review context.</p>
-              </div>
-              <span class="status-pill status-warn">extension</span>
-            </div>
-            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.code">
-              ${slotPlaceholderMarkup("repository.code")}
-            </div>
-          </section>
-
-          <section id="pulls" class="panel extension-zone">
-            <div class="panel-heading">
-              <div>
-                <h2>Pull Requests</h2>
-                <p>Reviews, branch comparison, and merge readiness.</p>
-              </div>
-              <span id="graphql-pill" class="status-pill status-warn">waiting</span>
-            </div>
-            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.overview">
-              ${slotPlaceholderMarkup("repository.overview")}
-            </div>
-          </section>
-
-          <section id="checks" class="panel extension-zone">
-            <div class="panel-heading">
-              <div>
-                <h2>Checks</h2>
-                <p>CI, deployment evidence, and protected branch state.</p>
-              </div>
-              <span id="checks-pill" class="status-pill status-warn">waiting</span>
-            </div>
-            <div class="extension-slot-mount" data-smoke="extension-slot-surface" data-extension-slot-mount="repository.checks">
-              ${slotPlaceholderMarkup("repository.checks")}
-            </div>
-          </section>
-        </div>
 
         <section id="extensions" class="panel">
           <div class="panel-heading">
@@ -357,18 +556,17 @@ function renderShell(): void {
         <section id="activity" class="activity-grid">
           <div class="panel">
             <div class="panel-heading">
-              <h2>Live Events</h2>
+              <h2>Activity</h2>
               <span id="events-pill" class="status-pill status-warn">waiting</span>
             </div>
             <ol id="event-list" class="event-list"></ol>
           </div>
-          <div class="panel">
+          <div class="panel unsupported-panel">
             <div class="panel-heading">
-              <h2>Clone</h2>
-              <span class="status-pill status-ok">Git upload-pack live</span>
+              <h2>Runtime Boundaries</h2>
+              <span id="boundary-count" class="status-pill status-info">0</span>
             </div>
-            <code class="command">git clone ${escapeHtml(serverURL)}/git/comtrya/comtrya.git</code>
-            <p class="muted">Smoke validation clones and fetches this seeded bare repository through the Astro origin with a scoped Comtrya credential.</p>
+            <div id="unsupported-list" class="unsupported-list"></div>
           </div>
         </section>
       </main>
@@ -408,7 +606,7 @@ async function refreshState(): Promise<void> {
   const [ready, graphql] = await Promise.all([
     fetchReady(),
     client.query<GraphqlPayload>(
-      "{ viewer { authenticated permissions } instance { id name publicURL capabilities } workspace repository extensionInstallations extensionResolvers activityEvents }",
+      "{ viewer { authenticated permissions } instance { id name publicURL capabilities } workspace repository repositories extensionInstallations extensionResolvers activityEvents }",
     ),
   ]);
   state.ready = ready;
@@ -422,55 +620,120 @@ function renderData(): void {
   if (!ready || !graphql) {
     return;
   }
-  const demo: DemoState = {
-    workspace: graphql.workspace,
-    repository: graphql.repository,
-    refs: graphql.repository.refs,
-    branches: graphql.repository.branches,
-    commits: graphql.repository.commits,
-    treeEntries: graphql.repository.treeEntries,
-    files: graphql.repository.files,
-    blobs: graphql.repository.blobs,
-    diff: graphql.repository.diff,
-    pullRequests: graphql.repository.pullRequests,
-    checks: graphql.repository.checks,
-    extensions: graphql.extensionInstallations,
-    extensionResolvers: graphql.extensionResolvers,
-    activity: graphql.activityEvents,
-  };
-  const repo = demo.repository;
-  const passing = demo.checks.filter((check) => check.conclusion === "SUCCESS").length;
+
+  const repo = activeRepository(graphql);
+  const repositories = repositoriesFromGraphql(graphql);
+  const checks = repo.checks;
+  const passing = passingChecks(checks);
+  const blockedChecks = checks.length - passing;
 
   setStatus("#ready-pill", ready.ready, ready.ready ? "ready" : "not ready");
   setStatus("#graphql-pill", graphql.viewer.authenticated, "authenticated");
-  setStatus("#checks-pill", passing === demo.checks.length, `${passing}/${demo.checks.length} passing`);
+  setStatus("#checks-pill", passing === checks.length, `${passing}/${checks.length} passing`);
+  setStatus("#repo-visibility", repo.visibility === "PRIVATE", repo.visibility.toLowerCase());
+  setText("#workspace-name", graphql.workspace.name);
+  setText(
+    "#workspace-meta",
+    `${graphql.workspace.visibility.toLowerCase()} · ${formatCount(graphql.workspace.members)} members`,
+  );
+  setText("#repo-count", repositories.length);
+  setText("#repo-breadcrumb", repo.path.replace("/", " / "));
   setText("#repo-title", `${repo.owner} / ${repo.name}`);
   setText("#repo-description", repo.description);
-  setText("#metric-refs", formatCount(demo.refs.length));
-  setText("#metric-branches", formatCount(demo.branches.length));
-  setText("#metric-files", formatCount(demo.files.length));
-  setText("#metric-checks", `${passing}/${demo.checks.length}`);
-  setText("#branch-summary", `${repo.defaultBranch} · ${demo.branches.length} branches`);
-  setText("#commit-hash", repo.currentCommit);
+  setText("#metric-refs", formatCount(repo.refs.length));
+  setText("#metric-branches", formatCount(repo.branches.length));
+  setText("#metric-files", formatCount(repo.files.length));
+  setText("#metric-checks", `${passing}/${checks.length}`);
+  setText("#branch-summary", `${repo.defaultBranch} · ${repo.branches.length} branches`);
+  setText("#commit-hash", shortOid(repo.currentCommit));
   setText("#repo-language", repo.language);
   setText("#repo-license", repo.license);
   setText("#repo-updated", repo.updated);
   setText("#viewer-state", graphql.viewer.authenticated ? "operator credential" : "anonymous");
-  setText("#tree-count", demo.treeEntries.length);
-  setText("#blob-count", demo.blobs.length);
+  setText("#tree-count", repo.treeEntries.length);
+  setText("#blob-count", repo.blobs.length);
+  setText("#queue-reviews", readyReviews(repo.pullRequests));
+  setText("#queue-actions", blockedChecks);
+  setText("#ref-total", repo.refs.length);
+  setText("#clone-command", `git clone ${cloneURL(repo)}`);
+  setText("#boundary-count", ready.unsupported.length);
 
-  renderRefs(demo);
-  renderCommits(demo);
-  renderExtensionRegistry(demo);
-  renderActivity(demo);
+  renderRepositoryList(repositories);
+  renderBranches(repo);
+  renderRefs(repo);
+  renderCommits(repo);
+  renderQueue(repo);
+  renderExtensionRegistry(graphql);
+  renderActivity(graphql.activityEvents);
+  renderUnsupported(ready);
 }
 
-function renderRefs(demo: DemoState): void {
+function renderRepositoryList(repositories: RepositoryPayload[]): void {
+  const list = app?.querySelector<HTMLElement>("#repo-list");
+  if (!list) {
+    return;
+  }
+  const filter = state.repositoryFilter.trim().toLowerCase();
+  const filtered = repositories.filter((repo) => {
+    const haystack = `${repo.path} ${repo.description} ${repo.language ?? ""}`.toLowerCase();
+    return !filter || haystack.includes(filter);
+  });
+  list.innerHTML = filtered
+    .map((repo) => {
+      const active = repo.path === state.selectedRepositoryPath;
+      const meta = `${repo.visibility.toLowerCase()} · ${formatCount(repo.branches.length)} branches · ${
+        repo.language ?? "unknown"
+      }`;
+      return `
+        <button type="button" class="repo-row${active ? " active" : ""}" data-repo-path="${escapeHtml(repo.path)}" aria-current="${active ? "page" : "false"}">
+          <span>${escapeHtml(repo.path)}</span>
+          <small>${escapeHtml(meta)}</small>
+        </button>
+      `;
+    })
+    .join("");
+  if (!filtered.length) {
+    list.innerHTML = `
+      <article class="empty-state">
+        <strong>No repositories match</strong>
+        <span>Clear the switcher filter to return to the workspace list.</span>
+      </article>
+    `;
+  }
+}
+
+function renderBranches(repo: RepositoryPayload): void {
+  const list = app?.querySelector<HTMLElement>("#branch-list");
+  if (!list) {
+    return;
+  }
+  list.innerHTML = repo.branches
+    .slice(0, 6)
+    .map((branch) => {
+      const current = branch.name === repo.defaultBranch;
+      return `
+        <article class="${current ? "current" : ""}">
+          <div>
+            <strong>${escapeHtml(branch.name)}</strong>
+            <span>${escapeHtml(branch.commit)} · +${formatCount(branch.ahead)} / -${formatCount(branch.behind)}</span>
+          </div>
+          <mark>${current ? "default" : "branch"}</mark>
+        </article>
+      `;
+    })
+    .join("");
+  if (!repo.branches.length) {
+    list.innerHTML = `<article class="empty-state"><strong>No branches</strong><span>This repository has no branch data yet.</span></article>`;
+  }
+}
+
+function renderRefs(repo: RepositoryPayload): void {
   const list = app?.querySelector<HTMLOListElement>("#ref-list");
   if (!list) {
     return;
   }
-  list.innerHTML = demo.refs
+  list.innerHTML = repo.refs
+    .slice(0, 8)
     .map(
       (ref) => `
         <li>
@@ -482,19 +745,19 @@ function renderRefs(demo: DemoState): void {
     .join("");
 }
 
-function renderCommits(demo: DemoState): void {
+function renderCommits(repo: RepositoryPayload): void {
   const list = app?.querySelector<HTMLOListElement>("#commit-list");
   if (!list) {
     return;
   }
-  list.innerHTML = demo.commits
+  list.innerHTML = repo.commits
     .map(
       (commit) => `
         <li>
           <code>${escapeHtml(commit.shortOid)}</code>
           <div>
             <strong>${escapeHtml(commit.subject)}</strong>
-            <span>${escapeHtml(commit.author)} | ${escapeHtml(commit.time)}</span>
+            <span>${escapeHtml(commit.author)} · ${escapeHtml(commit.time)}</span>
           </div>
         </li>
       `,
@@ -502,37 +765,80 @@ function renderCommits(demo: DemoState): void {
     .join("");
 }
 
-function renderExtensionRegistry(demo: DemoState): void {
+function renderQueue(repo: RepositoryPayload): void {
+  const list = app?.querySelector<HTMLOListElement>("#queue-list");
+  if (!list) {
+    return;
+  }
+  const pulls = repo.pullRequests.slice(0, 4);
+  list.innerHTML = pulls
+    .map(
+      (pull) => `
+        <li>
+          <div>
+            <strong>#${escapeHtml(pull.number)} ${escapeHtml(pull.title)}</strong>
+            <span>${escapeHtml(pull.head)} into ${escapeHtml(pull.base)} · ${escapeHtml(pull.checks)}</span>
+          </div>
+          <mark class="${escapeHtml(statusClass(pull.state))}">${escapeHtml(pull.state)}</mark>
+        </li>
+      `,
+    )
+    .join("");
+  if (!pulls.length) {
+    list.innerHTML = `<li class="empty-state"><strong>No active reviews</strong><span>Pull request data will appear when the extension returns it.</span></li>`;
+  }
+}
+
+function renderExtensionRegistry(graphql: GraphqlPayload): void {
   const registry = app?.querySelector<HTMLElement>("#extension-registry");
   if (!registry) {
     return;
   }
-  registry.innerHTML = demo.extensions
+  registry.innerHTML = graphql.extensionInstallations
     .map((extension) => {
-      const resolver = demo.extensionResolvers.find((item) => item.id === extension.id);
+      const resolver = graphql.extensionResolvers.find((item) => item.id === extension.id);
       return `
         <article>
-          <strong>${escapeHtml(extension.name)}</strong>
-          <span>${escapeHtml(extension.description)}</span>
-          <mark>${escapeHtml(extension.status)} | ${escapeHtml(resolver?.outputType ?? "not executed")}</mark>
+          <div>
+            <strong>${escapeHtml(extension.name)}</strong>
+            <span>${escapeHtml(extension.description)}</span>
+          </div>
+          <mark>${escapeHtml(extension.status)} · ${escapeHtml(resolver?.outputType ?? "not executed")}</mark>
         </article>
       `;
     })
     .join("");
 }
 
-function renderActivity(demo: DemoState): void {
+function renderActivity(events: ActivityPayload[]): void {
   const list = app?.querySelector<HTMLOListElement>("#event-list");
   if (!list) {
     return;
   }
-  list.innerHTML = demo.activity
+  list.innerHTML = events
     .map(
       (event) => `
         <li>
           <strong>${escapeHtml(event.summary)}</strong>
           <span>${escapeHtml(event.actor)} · ${escapeHtml(event.type)} · ${escapeHtml(event.time)}</span>
         </li>
+      `,
+    )
+    .join("");
+}
+
+function renderUnsupported(ready: ReadyPayload): void {
+  const list = app?.querySelector<HTMLElement>("#unsupported-list");
+  if (!list) {
+    return;
+  }
+  list.innerHTML = ready.unsupported
+    .map(
+      (surface) => `
+        <article>
+          <strong>${escapeHtml(surface.id.replaceAll("_", " "))}</strong>
+          <span>${escapeHtml(surface.message)}</span>
+        </article>
       `,
     )
     .join("");
@@ -569,17 +875,19 @@ async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiM
 
 function extensionHostContext(installation: ExtensionInstallation, slotName: string) {
   const graphql = state.graphql;
+  const repo = graphql ? activeRepository(graphql) : undefined;
   const resolver = graphql?.extensionResolvers.find((candidate) => candidate.id === installation.id);
+  const [workspace = "comtrya", repoNameValue = "comtrya"] = repoPath(repo).split("/");
   return {
     comtryaClient: client,
     viewer: graphql?.viewer ?? { authenticated: false },
-    resource: DEFAULT_RESOURCE,
-    routeParams: { workspace: "comtrya", repo: "comtrya" },
+    resource: repo ? repositoryResource(repo) : DEFAULT_RESOURCE,
+    routeParams: { workspace, repo: repoNameValue },
     capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
     data: {
       slot: slotName,
       workspace: graphql?.workspace,
-      repository: graphql?.repository,
+      repository: repo,
       extensionInstallation: installation,
       extensionResolver: resolver,
       extensionResolvers: graphql?.extensionResolvers ?? [],
@@ -734,10 +1042,7 @@ function renderSlotIssue(slotName: string, issue: ExtensionMountIssue): void {
   mount.innerHTML = issueMarkup({ ...issue, slotName });
 }
 
-function renderIssueForSlots(
-  slots: ExtensionUiManifest["slots"],
-  issue: ExtensionMountIssue,
-): void {
+function renderIssueForSlots(slots: ExtensionUiManifest["slots"], issue: ExtensionMountIssue): void {
   for (const slot of slots) {
     renderSlotIssue(slot.slot, { ...issue, slotName: slot.slot });
   }
@@ -895,6 +1200,39 @@ function bind(): void {
     } catch (error) {
       setStatus("#ready-pill", false, "error");
       setText("#viewer-state", error instanceof Error ? error.message : "connection failed");
+    }
+  });
+
+  app?.addEventListener("click", async (event) => {
+    const target = event.target as HTMLElement;
+    const repoButton = target.closest<HTMLButtonElement>("[data-repo-path]");
+    if (repoButton?.dataset.repoPath) {
+      state.selectedRepositoryPath = repoButton.dataset.repoPath;
+      localStorage.setItem(SELECTED_REPOSITORY_KEY, state.selectedRepositoryPath);
+      renderData();
+      if (state.graphql) {
+        await mountExtensions();
+      }
+      return;
+    }
+    if (target.closest("#copy-clone") && state.graphql) {
+      const repo = activeRepository(state.graphql);
+      const command = `git clone ${cloneURL(repo)}`;
+      await navigator.clipboard?.writeText(command).catch(() => undefined);
+      const button = app?.querySelector<HTMLButtonElement>("#copy-clone");
+      if (button) {
+        button.textContent = "Clone URL copied";
+        window.setTimeout(() => {
+          button.textContent = "Copy clone URL";
+        }, 1600);
+      }
+    }
+  });
+
+  app?.querySelector<HTMLInputElement>("#repo-search")?.addEventListener("input", (event) => {
+    state.repositoryFilter = (event.target as HTMLInputElement).value;
+    if (state.graphql) {
+      renderRepositoryList(repositoriesFromGraphql(state.graphql));
     }
   });
 

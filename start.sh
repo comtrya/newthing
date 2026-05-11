@@ -20,6 +20,9 @@ Usage: ./start.sh [--reset] [--oneshot]
 Options:
   --reset    Reset generated demo repository and extension storage before startup.
   --oneshot  Exit after the smoke checks pass.
+
+Environment:
+  COMTRYA_BROWSER_SMOKE=1  Run the headless browser extension smoke in interactive mode.
 USAGE
 }
 
@@ -74,6 +77,7 @@ load_envrc() {
 
   local override_names=(
     BUN
+    COMTRYA_BROWSER_SMOKE
     COMTRYA_CONFIG
     COMTRYA_DATA_DIR
     COMTRYA_DEMO_FIXTURE
@@ -513,6 +517,7 @@ FRONTEND_PORT="${FRONTEND_LISTEN##*:}"
 FRONTEND_URL="${COMTRYA_FRONTEND_URL:-http://${FRONTEND_LISTEN}}"
 READY_TIMEOUT_SECONDS="${COMTRYA_READY_TIMEOUT_SECONDS:-30}"
 ONESHOT="${COMTRYA_ONESHOT:-0}"
+BROWSER_SMOKE="${COMTRYA_BROWSER_SMOKE:-0}"
 OPERATOR_CODE="${COMTRYA_OPERATOR_CODE:-}"
 SESSION_TTL_SECONDS="${COMTRYA_SESSION_TTL_SECONDS:-300}"
 BUN="${BUN:-$(command -v bun || true)}"
@@ -748,10 +753,14 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
   expect_contains "extension ${extension_id} asset through Astro" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
 
-assert_extension_browser_surfaces_render \
-  "$TMP_DIR/frontend-browser-evidence.json" \
-  "$TMP_DIR/frontend-browser.log" \
-  "$TMP_DIR/graphql.json"
+if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
+  assert_extension_browser_surfaces_render \
+    "$TMP_DIR/frontend-browser-evidence.json" \
+    "$TMP_DIR/frontend-browser.log" \
+    "$TMP_DIR/graphql.json"
+else
+  log "skipping browser host path smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
+fi
 
 expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
