@@ -10,6 +10,7 @@ let initialRepo:
       title: string;
       commit: string;
       headOid: string;
+      resource: string;
       refs: number;
       files: number;
       resolvers: number;
@@ -18,6 +19,23 @@ let initialRepo:
 
 try {
   if (operatorCode) {
+    const bootstrapResponse = await fetch(new URL("/graphql", backend), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "{ repository { id owner name currentCommit headOid refs files } extensionResolvers }",
+      }),
+    });
+    if (!bootstrapResponse.ok) {
+      throw new Error("repository bootstrap failed");
+    }
+    const bootstrap = await bootstrapResponse.json();
+    const bootstrapRepository = bootstrap?.data?.repository;
+    if (!bootstrapRepository?.id) {
+      throw new Error("repository bootstrap did not return an id");
+    }
+    const requestedResource = `forgepoint://repository/${bootstrapRepository.id}`;
+
     const tokenResponse = await fetch(new URL("/auth/token-exchange", backend), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -25,7 +43,7 @@ try {
         grantType: "urn:forgepoint:grant:operator-code",
         subjectToken: operatorCode,
         subjectTokenType: "urn:forgepoint:token-type:operator-code",
-        requestedResource: "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+        requestedResource,
         requestedActions: ["graphql:read", "events:read", "git:read", "checks:read"],
       }),
     });
@@ -38,7 +56,7 @@ try {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          query: "{ repository { owner name currentCommit headOid refs files } extensionResolvers }",
+          query: "{ repository { id owner name currentCommit headOid refs files } extensionResolvers }",
         }),
       });
       const graphql = await graphqlResponse.json();
@@ -48,6 +66,7 @@ try {
           title: `${repository.owner} / ${repository.name}`,
           commit: repository.currentCommit,
           headOid: repository.headOid,
+          resource: `forgepoint://repository/${repository.id}`,
           refs: repository.refs?.length ?? 0,
           files: repository.files?.length ?? 0,
           resolvers: graphql?.data?.extensionResolvers?.length ?? 0,
@@ -73,7 +92,11 @@ try {
         <h1>Forgepoint</h1>
         {
           initialRepo ? (
-            <p data-smoke="rendered-ui-live" data-smoke-head-oid={initialRepo.headOid}>
+            <p
+              data-smoke="rendered-ui-live"
+              data-smoke-head-oid={initialRepo.headOid}
+              data-smoke-resource={initialRepo.resource}
+            >
               {initialRepo.title} at {initialRepo.commit} with {initialRepo.refs} refs,{" "}
               {initialRepo.files} files, and {initialRepo.resolvers} Wasmtime resolvers.
             </p>

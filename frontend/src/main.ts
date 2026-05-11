@@ -6,7 +6,6 @@ import type { ExtensionUiManifest, ForgepointEvent } from "./contracts";
 import { validateUiManifest } from "./contracts";
 import "./extension-host";
 
-const DEFAULT_RESOURCE = "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const TOKEN_ACTIONS = ["graphql:read", "graphql:write", "events:read", "git:read", "checks:read"];
 
 const app = document.querySelector<HTMLElement>("#app");
@@ -50,9 +49,11 @@ type DemoState = {
     members: number;
   };
   repository: {
+    id: string;
     owner: string;
     name: string;
     path: string;
+    gitHttpPath: string;
     visibility: string;
     description: string;
     defaultBranch: string;
@@ -172,6 +173,13 @@ function setText(selector: string, value: unknown): void {
   }
 }
 
+function setInputValue(selector: string, value: string): void {
+  const element = app?.querySelector<HTMLInputElement>(selector);
+  if (element) {
+    element.value = value;
+  }
+}
+
 function setStatus(selector: string, ok: boolean, label: string): void {
   const element = app?.querySelector<HTMLElement>(selector);
   if (!element) {
@@ -197,7 +205,7 @@ function renderShell(): void {
       </div>
       <label class="global-search">
         <span>Search</span>
-        <input type="search" value="forgepoint/forgepoint" aria-label="Search Forgepoint" />
+        <input id="repo-search" type="search" value="" aria-label="Search repositories" placeholder="repository path" />
       </label>
       <div class="topbar-actions">
         <span id="ready-pill" class="status-pill status-warn">offline</span>
@@ -351,7 +359,7 @@ function renderShell(): void {
               <h2>Clone</h2>
               <span class="status-pill status-ok">Git upload-pack live</span>
             </div>
-            <code class="command">git clone ${escapeHtml(serverURL)}/git/forgepoint/forgepoint.git</code>
+            <code id="clone-command" class="command">Connect to load clone URL.</code>
             <p class="muted">Smoke validation clones and fetches this seeded bare repository through the Astro origin with a scoped Forgepoint credential.</p>
           </div>
         </section>
@@ -360,7 +368,21 @@ function renderShell(): void {
   `;
 }
 
-async function exchangeOperatorCode(operatorCode: string): Promise<TokenExchangePayload> {
+function repositoryResource(repository: Pick<DemoState["repository"], "id">): string {
+  return `forgepoint://repository/${repository.id}`;
+}
+
+async function fetchRepositoryContext(): Promise<RepositoryPayload> {
+  const data = await client.query<{ repository: RepositoryPayload }>(
+    "{ repository { id owner name path gitHttpPath } }",
+  );
+  if (!data.repository?.id) {
+    throw new Error("repository context is missing an id");
+  }
+  return data.repository;
+}
+
+async function exchangeOperatorCode(operatorCode: string, resource: string): Promise<TokenExchangePayload> {
   const response = await fetch(new URL("/auth/token-exchange", serverURL), {
     method: "POST",
     credentials: "include",
@@ -369,7 +391,7 @@ async function exchangeOperatorCode(operatorCode: string): Promise<TokenExchange
       grantType: "urn:forgepoint:grant:operator-code",
       subjectToken: operatorCode,
       subjectTokenType: "urn:forgepoint:token-type:operator-code",
-      requestedResource: DEFAULT_RESOURCE,
+      requestedResource: resource,
       requestedActions: TOKEN_ACTIONS,
     }),
   });
@@ -430,6 +452,8 @@ function renderData(): void {
   setStatus("#checks-pill", passing === demo.checks.length, `${passing}/${demo.checks.length} passing`);
   setText("#repo-title", `${repo.owner} / ${repo.name}`);
   setText("#repo-description", repo.description);
+  setInputValue("#repo-search", repo.path);
+  setText("#clone-command", `git clone ${serverURL}${repo.gitHttpPath}`);
   setText("#metric-refs", formatCount(demo.refs.length));
   setText("#metric-branches", formatCount(demo.branches.length));
   setText("#metric-files", formatCount(demo.files.length));
@@ -701,11 +725,13 @@ async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiM
 
 function extensionHostContext() {
   const graphql = state.graphql;
+  const repository = graphql?.repository;
+  const [workspace = "", repo = ""] = repository?.path.split("/") ?? [];
   return {
     forgepointClient: client,
     viewer: graphql?.viewer ?? { authenticated: false },
-    resource: DEFAULT_RESOURCE,
-    routeParams: { workspace: "forgepoint", repo: "forgepoint" },
+    resource: repository ? repositoryResource(repository) : "",
+    routeParams: { workspace, repo },
     capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
   };
 }
@@ -874,7 +900,8 @@ async function connect(operatorCode: string): Promise<void> {
   if (!operatorCode.trim()) {
     throw new Error("operator code is required");
   }
-  const credential = await exchangeOperatorCode(operatorCode.trim());
+  const repository = await fetchRepositoryContext();
+  const credential = await exchangeOperatorCode(operatorCode.trim(), repositoryResource(repository));
   client.setAccessToken(credential.accessToken);
   await refreshState();
   await Promise.all([renderEvents(), mountExtensions()]);

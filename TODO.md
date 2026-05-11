@@ -193,6 +193,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Partial: route tests prove `git:write` alone cannot fetch; push remains disabled before write-scope validation is meaningful.
 - Real: route tests cover path traversal rejection for `/git/...`.
 - Add multiple repository support instead of one hardcoded `forgepoint/forgepoint.git`.
+  - Partial: frontend now derives the active repository resource and clone path from GraphQL.
 - Make repository metadata derive from the repository record and Git config, not literals.
 
 ## 7. Make GraphQL Honest

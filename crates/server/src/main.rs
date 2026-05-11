@@ -3597,8 +3597,16 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
         assert_eq!(
+            payload["data"]["repository"]["id"],
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
+        );
+        assert_eq!(
             payload["data"]["repository"]["path"],
             "forgepoint/forgepoint"
+        );
+        assert_eq!(
+            payload["data"]["repository"]["gitHttpPath"],
+            "/git/forgepoint/forgepoint.git"
         );
         assert!(
             payload["data"]["repository"]["refs"]
