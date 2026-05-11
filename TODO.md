@@ -175,9 +175,9 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Replace shelling out to `git http-backend` with the intended Git implementation path when ready.
 - Decide whether stage demo accepts shell-backed Git as a temporary production-testbed adapter or requires native `gix` immediately.
 - If shell-backed Git remains temporarily:
-  - document it honestly,
-  - isolate it behind a trait,
-  - test it as an adapter,
+  - Real: `ARCHITECTURE.md` documents it honestly as a temporary production-testbed adapter,
+  - Real: the shell-backed implementation is isolated behind a `GitSmartHttpAdapter` trait,
+  - Real: server tests cover the shell-backed adapter boundary,
   - remove all claims that it is native `gix`.
 - Implement receive-pack/push support or explicitly keep the stage demo read-only.
 - If push is in scope:

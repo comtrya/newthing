@@ -1147,15 +1147,16 @@ async fn git_endpoint(
             "credential scope does not allow requested Git operation",
         );
     }
-    match run_git_http_backend(
-        &state.runtime.demo_repository.project_root,
-        &path,
-        raw_query.as_deref().unwrap_or_default(),
-        &method,
-        &headers,
+    let adapter = ShellGitHttpBackendAdapter;
+    match adapter.handle(GitSmartHttpRequest {
+        project_root: &state.runtime.demo_repository.project_root,
+        path: &path,
+        query: raw_query.as_deref().unwrap_or_default(),
+        method: &method,
+        headers: &headers,
         body,
         cors,
-    ) {
+    }) {
         Ok(response) => response,
         Err(error) => error_response(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2614,6 +2615,36 @@ fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
+trait GitSmartHttpAdapter {
+    fn handle(&self, request: GitSmartHttpRequest<'_>) -> Result<Response, String>;
+}
+
+struct GitSmartHttpRequest<'a> {
+    project_root: &'a Path,
+    path: &'a str,
+    query: &'a str,
+    method: &'a Method,
+    headers: &'a HeaderMap,
+    body: Bytes,
+    cors: HeaderMap,
+}
+
+struct ShellGitHttpBackendAdapter;
+
+impl GitSmartHttpAdapter for ShellGitHttpBackendAdapter {
+    fn handle(&self, request: GitSmartHttpRequest<'_>) -> Result<Response, String> {
+        run_git_http_backend(
+            request.project_root,
+            request.path,
+            request.query,
+            request.method,
+            request.headers,
+            request.body,
+            request.cors,
+        )
+    }
+}
+
 fn run_git_http_backend(
     project_root: &Path,
     path: &str,
@@ -3520,6 +3551,24 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             payload["errors"][0]["extensions"]["surface"],
             "git_receive_pack"
         );
+    }
+
+    #[test]
+    fn shell_git_http_adapter_rejects_unsupported_methods_before_spawn() {
+        let adapter = ShellGitHttpBackendAdapter;
+        let error = adapter
+            .handle(GitSmartHttpRequest {
+                project_root: Path::new("/does-not-need-to-exist"),
+                path: "forgepoint/forgepoint.git/info/refs",
+                query: "service=git-upload-pack",
+                method: &Method::DELETE,
+                headers: &HeaderMap::new(),
+                body: Bytes::new(),
+                cors: HeaderMap::new(),
+            })
+            .unwrap_err();
+
+        assert_eq!(error, "unsupported Git HTTP method: DELETE");
     }
 
     #[tokio::test]
