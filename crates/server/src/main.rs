@@ -3595,4 +3595,62 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         assert!(error.contains("entryIntegrity"));
         assert!(error.contains("did not match computed"));
     }
+
+    #[test]
+    fn extension_runtime_rejects_invalid_component_bytes() {
+        let extension_dir = temp_dir("extension-invalid-component");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        fs::write(
+            extension_dir
+                .join("ext_pull_requests")
+                .join("component.wat"),
+            "this is not a valid component",
+        )
+        .unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("failed to compile"));
+        assert!(error.contains("ext_pull_requests/component.wat"));
+    }
+
+    #[test]
+    fn extension_runtime_rejects_missing_resolver_export() {
+        let extension_dir = temp_dir("extension-missing-resolver");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let manifest_path = extension_dir.join("ext_code_browser").join("manifest.json");
+        let mut manifest =
+            serde_json::from_str::<Value>(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["runtime"]["resolver"] = json!("missing_resolver");
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("did not export resolver missing_resolver"));
+    }
+
+    #[test]
+    fn extension_runtime_rejects_resolver_trap() {
+        let extension_dir = temp_dir("extension-resolver-trap");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        fs::write(
+            extension_dir.join("ext_checks").join("component.wat"),
+            r#"(component
+  (core module $m
+    (func (export "resolve") (result i32)
+      unreachable))
+  (core instance $i (instantiate $m))
+  (func (export "resolve") (result u32)
+    (canon lift (core func $i "resolve"))))"#,
+        )
+        .unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("ext_checks resolver failed"));
+    }
 }

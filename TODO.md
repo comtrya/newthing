@@ -23,6 +23,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: `start.sh` validates Git no-token, wrong-token, missing-`git:read`, single-use session reuse, and receive-pack fail-closed auth/error behavior.
 - Real: Rust route tests cover Git upload-pack no-auth, wrong-scope, path traversal, and receive-pack fail-closed behavior.
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
+- Real: Rust tests cover first-party Wasmtime component compile, missing resolver export, and resolver trap failures.
 - Real: GraphQL exposes typed `workspace`, `repository`, `extensionInstallations`, `extensionResolvers`, and `activityEvents` roots; the Astro frontend and first-party extension UI assets consume those roots instead of the generic `demo` aggregate.
 - Real: startup computes SHA-256 for first-party extension entry assets and rejects stale UI manifest `entryIntegrity` values.
 - Real: startup validates the seeded bare Git repository HEAD and expected demo branch refs.
@@ -294,7 +295,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: Rust route tests cover Git upload-pack auth/scope behavior.
 - Real: Rust route tests cover receive-pack fail-closed behavior.
 - Rust tests for extension manifest loading from disk.
-- Rust tests for Wasmtime resolver compile/instantiate/call failures.
+- Real: Rust tests cover Wasmtime resolver compile/export/call failures.
 - Rust tests for extension storage read/write/query.
 - Rust tests for PR resolver behavior against real Git refs.
 - Rust tests for checks resolver behavior against real commit oids.
