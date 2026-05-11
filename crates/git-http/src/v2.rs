@@ -171,7 +171,165 @@ where
 
 // POST /.../git-receive-pack (explicitly blocked)
 pub async fn receive_pack_blocked() -> impl IntoResponse {
+    // Receive-pack is intentionally not wired to public dispatch until write auth,
+    // object connectivity validation, pack safety, and ref transactions are reviewed.
     (StatusCode::FORBIDDEN, "push over HTTP is disabled")
+}
+
+#[allow(dead_code)]
+const RECEIVE_ZERO_OID: &str = "0000000000000000000000000000000000000000";
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReceivePackCommandSet {
+    commands: Vec<ReceivePackCommand>,
+    capabilities: ReceivePackCapabilities,
+    pack_bytes: usize,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ReceivePackCommand {
+    old_oid: String,
+    new_oid: String,
+    ref_name: String,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct ReceivePackCapabilities {
+    report_status: bool,
+    report_status_v2: bool,
+    object_format: Option<String>,
+    agent: Option<String>,
+}
+
+#[allow(dead_code)]
+fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
+    let mut offset = 0usize;
+    let mut commands = Vec::new();
+    let mut capabilities = ReceivePackCapabilities::default();
+
+    loop {
+        if offset + 4 > bytes.len() {
+            anyhow::bail!("truncated pkt-line length");
+        }
+        let len = usize::from_str_radix(std::str::from_utf8(&bytes[offset..offset + 4])?, 16)?;
+        offset += 4;
+        if len == 0 {
+            break;
+        }
+        if len <= 4 {
+            anyhow::bail!("unsupported receive-pack control packet");
+        }
+        let data_len = len - 4;
+        if offset + data_len > bytes.len() {
+            anyhow::bail!("truncated pkt-line data");
+        }
+        let data = &bytes[offset..offset + data_len];
+        offset += data_len;
+
+        let command_data = if commands.is_empty() {
+            if let Some(nul) = data.iter().position(|b| *b == 0) {
+                parse_receive_pack_capabilities(&data[nul + 1..], &mut capabilities)?;
+                &data[..nul]
+            } else {
+                data
+            }
+        } else {
+            data
+        };
+        commands.push(parse_receive_pack_command(command_data)?);
+    }
+
+    if commands.is_empty() {
+        anyhow::bail!("no ref update commands");
+    }
+
+    Ok(ReceivePackCommandSet {
+        commands,
+        capabilities,
+        pack_bytes: bytes.len().saturating_sub(offset),
+    })
+}
+
+#[allow(dead_code)]
+fn parse_receive_pack_capabilities(
+    bytes: &[u8],
+    capabilities: &mut ReceivePackCapabilities,
+) -> anyhow::Result<()> {
+    let text = std::str::from_utf8(bytes)?.trim_end_matches('\n');
+    for capability in text.split_whitespace() {
+        match capability {
+            "report-status" => capabilities.report_status = true,
+            "report-status-v2" => capabilities.report_status_v2 = true,
+            capability if capability.starts_with("agent=") => {
+                capabilities.agent = Some(capability["agent=".len()..].to_string());
+            }
+            capability if capability.starts_with("object-format=") => {
+                let object_format = &capability["object-format=".len()..];
+                if object_format != "sha1" {
+                    anyhow::bail!("unsupported object-format {object_format}");
+                }
+                capabilities.object_format = Some(object_format.to_string());
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand> {
+    let line = std::str::from_utf8(data)?.trim_end_matches('\n');
+    let mut parts = line.split(' ');
+    let old_oid = parts.next().unwrap_or_default();
+    let new_oid = parts.next().unwrap_or_default();
+    let ref_name = parts.next().unwrap_or_default();
+    if parts.next().is_some()
+        || !receive_pack_is_sha1_hex(old_oid)
+        || !receive_pack_is_sha1_hex(new_oid)
+    {
+        anyhow::bail!("malformed ref update command");
+    }
+    validate_receive_pack_ref(ref_name)?;
+    Ok(ReceivePackCommand {
+        old_oid: old_oid.to_string(),
+        new_oid: new_oid.to_string(),
+        ref_name: ref_name.to_string(),
+    })
+}
+
+#[allow(dead_code)]
+fn receive_pack_is_sha1_hex(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+#[allow(dead_code)]
+fn validate_receive_pack_ref(ref_name: &str) -> anyhow::Result<()> {
+    if !(ref_name.starts_with("refs/heads/") || ref_name.starts_with("refs/tags/")) {
+        anyhow::bail!("unsupported ref namespace");
+    }
+    if ref_name.ends_with('/')
+        || ref_name.contains("//")
+        || ref_name.contains("..")
+        || ref_name.contains("@{")
+        || ref_name
+            .bytes()
+            .any(|b| b <= 0x20 || matches!(b, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\'))
+    {
+        anyhow::bail!("invalid ref name");
+    }
+    if ref_name.split('/').any(|part| {
+        part.is_empty()
+            || part == "."
+            || part.ends_with(".lock")
+            || part.starts_with('.')
+            || part.ends_with('.')
+    }) {
+        anyhow::bail!("invalid ref name");
+    }
+    Ok(())
 }
 
 async fn advertise_v2_rust<S>(state: &S, segments: &[String], _headers: &HeaderMap) -> Response
@@ -1166,6 +1324,87 @@ mod tests {
     async fn receive_pack_is_forbidden() {
         let resp = receive_pack_blocked().await.into_response();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn dispatch_keeps_receive_pack_disabled() {
+        let (state, _local_dir) = mk_app_state().await.unwrap();
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "git-receive-pack",
+            None,
+            AxHeaderMap::new(),
+            axum::body::Body::empty(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn dispatch_does_not_advertise_receive_pack() {
+        let (state, _local_dir) = mk_app_state().await.unwrap();
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "info/refs",
+            Some("git-receive-pack"),
+            AxHeaderMap::new(),
+            axum::body::Body::empty(),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn parse_receive_pack_command_set_groundwork() {
+        let new_oid = "1111111111111111111111111111111111111111";
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} {new_oid} refs/heads/main\0report-status report-status-v2 object-format=sha1 agent=git/2.53.0\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        req.extend_from_slice(b"PACK...");
+
+        let parsed = parse_receive_pack_command_set(&req).unwrap();
+        assert_eq!(parsed.commands.len(), 1);
+        assert_eq!(parsed.commands[0].old_oid, RECEIVE_ZERO_OID);
+        assert_eq!(parsed.commands[0].new_oid, new_oid);
+        assert_eq!(parsed.commands[0].ref_name, "refs/heads/main");
+        assert!(parsed.capabilities.report_status);
+        assert!(parsed.capabilities.report_status_v2);
+        assert_eq!(parsed.capabilities.object_format.as_deref(), Some("sha1"));
+        assert_eq!(parsed.capabilities.agent.as_deref(), Some("git/2.53.0"));
+        assert_eq!(parsed.pack_bytes, b"PACK...".len());
+    }
+
+    #[test]
+    fn parse_receive_pack_rejects_unsupported_object_format() {
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/main\0report-status object-format=sha256\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        assert!(parse_receive_pack_command_set(&req).is_err());
+    }
+
+    #[test]
+    fn parse_receive_pack_rejects_invalid_ref_names() {
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/../main\0report-status\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        assert!(parse_receive_pack_command_set(&req).is_err());
     }
 
     #[tokio::test]
