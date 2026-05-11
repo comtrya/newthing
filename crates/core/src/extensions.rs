@@ -812,7 +812,10 @@ enum GraphqlSdlToken {
     LeftParen,
     RightParen,
     Bang,
+    Ampersand,
     Colon,
+    Equals,
+    Pipe,
 }
 
 fn parse_directive_usages(
@@ -889,10 +892,18 @@ fn parse_directive_definition(
 
     let next_definition = next_top_level_definition_index(tokens, cursor);
     let mut saw_location = false;
+    let mut expect_location = true;
     while cursor < next_definition {
         match tokens.get(cursor) {
-            Some(GraphqlSdlToken::Name(location)) if is_directive_location_name(location) => {
+            Some(GraphqlSdlToken::Name(location))
+                if expect_location && is_directive_location_name(location) =>
+            {
                 saw_location = true;
+                expect_location = false;
+                cursor += 1;
+            }
+            Some(GraphqlSdlToken::Pipe) if saw_location && !expect_location => {
+                expect_location = true;
                 cursor += 1;
             }
             token => {
@@ -906,6 +917,11 @@ fn parse_directive_definition(
     if !saw_location {
         return Err(CoreError::extension_activation_failed(format!(
             "extension {extension_name} SDL directive @{name} must declare at least one location"
+        )));
+    }
+    if expect_location {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL directive @{name} has a trailing location separator"
         )));
     }
 
@@ -935,6 +951,14 @@ fn parse_type_definition(
     let mut fields = Vec::new();
     let mut next_index = kind_index + 2;
     if let Some(open_brace) = find_definition_body(tokens, kind_index + 2) {
+        validate_type_header_tokens(
+            extension_name,
+            tokens,
+            kind,
+            type_name,
+            kind_index + 2,
+            open_brace,
+        )?;
         let close_brace = matching_brace(extension_name, tokens, open_brace)?;
         if is_field_container_kind(kind) {
             for field_name in
@@ -968,6 +992,79 @@ fn parse_type_definition(
         None
     };
     Ok((definition, extension, fields, next_index))
+}
+
+fn validate_type_header_tokens(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+    kind: &str,
+    type_name: &str,
+    mut cursor: usize,
+    body_index: usize,
+) -> CoreResult<()> {
+    while cursor < body_index {
+        match tokens.get(cursor) {
+            Some(GraphqlSdlToken::Name(name)) if name == "implements" => {
+                if !matches!(kind, "type" | "interface") {
+                    return Err(CoreError::extension_activation_failed(format!(
+                        "extension {extension_name} SDL {kind} {type_name} cannot implement interfaces"
+                    )));
+                }
+                cursor = parse_implements_clause(extension_name, tokens, cursor + 1, body_index)?;
+            }
+            Some(GraphqlSdlToken::At) => {
+                cursor = skip_directive_usage_tokens(extension_name, tokens, cursor, body_index)?;
+            }
+            token => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL {kind} {type_name} contains unsupported header syntax near {}",
+                    token_label(token)
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_implements_clause(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+    mut cursor: usize,
+    body_index: usize,
+) -> CoreResult<usize> {
+    if matches!(tokens.get(cursor), Some(GraphqlSdlToken::Ampersand)) {
+        cursor += 1;
+    }
+
+    let mut saw_interface = false;
+    let mut expect_interface = true;
+    while cursor < body_index {
+        match tokens.get(cursor) {
+            Some(GraphqlSdlToken::Name(_)) if expect_interface => {
+                saw_interface = true;
+                expect_interface = false;
+                cursor += 1;
+            }
+            Some(GraphqlSdlToken::Ampersand) if saw_interface && !expect_interface => {
+                expect_interface = true;
+                cursor += 1;
+            }
+            Some(GraphqlSdlToken::At) if saw_interface && !expect_interface => return Ok(cursor),
+            token => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL implements clause contains unsupported syntax near {}",
+                    token_label(token)
+                )));
+            }
+        }
+    }
+
+    if !saw_interface || expect_interface {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL implements clause must name interfaces"
+        )));
+    }
+    Ok(cursor)
 }
 
 fn type_definition_start(tokens: &[GraphqlSdlToken], index: usize) -> Option<(usize, bool)> {
@@ -1073,8 +1170,11 @@ fn parse_field_names(
             }
             Some(
                 GraphqlSdlToken::Bang
+                | GraphqlSdlToken::Ampersand
                 | GraphqlSdlToken::Colon
+                | GraphqlSdlToken::Equals
                 | GraphqlSdlToken::LeftBracket
+                | GraphqlSdlToken::Pipe
                 | GraphqlSdlToken::RightBracket
                 | GraphqlSdlToken::LeftParen
                 | GraphqlSdlToken::RightParen,
@@ -1147,8 +1247,11 @@ fn consume_field_type_and_directives(
             }
             Some(
                 GraphqlSdlToken::Bang
+                | GraphqlSdlToken::Ampersand
                 | GraphqlSdlToken::Colon
+                | GraphqlSdlToken::Equals
                 | GraphqlSdlToken::LeftBracket
+                | GraphqlSdlToken::Pipe
                 | GraphqlSdlToken::RightBracket
                 | GraphqlSdlToken::LeftParen
                 | GraphqlSdlToken::RightParen,
@@ -1356,11 +1459,22 @@ fn tokenize_graphql_sdl(extension_name: &str, sdl: &str) -> CoreResult<Vec<Graph
                 tokens.push(GraphqlSdlToken::Colon);
                 index += 1;
             }
+            '&' => {
+                tokens.push(GraphqlSdlToken::Ampersand);
+                index += 1;
+            }
+            '=' => {
+                tokens.push(GraphqlSdlToken::Equals);
+                index += 1;
+            }
+            '|' => {
+                tokens.push(GraphqlSdlToken::Pipe);
+                index += 1;
+            }
             '!' => {
                 tokens.push(GraphqlSdlToken::Bang);
                 index += 1;
             }
-            '&' | '=' | '|' => index += 1,
             '.' if chars.get(index + 1) == Some(&'.') && chars.get(index + 2) == Some(&'.') => {
                 index += 3;
             }
@@ -1526,7 +1640,10 @@ fn token_label(token: Option<&GraphqlSdlToken>) -> String {
         Some(GraphqlSdlToken::LeftParen) => "`(`".to_string(),
         Some(GraphqlSdlToken::RightParen) => "`)`".to_string(),
         Some(GraphqlSdlToken::Bang) => "`!`".to_string(),
+        Some(GraphqlSdlToken::Ampersand) => "`&`".to_string(),
         Some(GraphqlSdlToken::Colon) => "`:`".to_string(),
+        Some(GraphqlSdlToken::Equals) => "`=`".to_string(),
+        Some(GraphqlSdlToken::Pipe) => "`|`".to_string(),
         None => "end of input".to_string(),
     }
 }
@@ -1764,6 +1881,17 @@ mod tests {
     }
 
     #[test]
+    fn graphql_composer_rejects_malformed_directive_location_separator() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("checks", "directive @checks_resolver on FIELD_DEFINITION |")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("trailing location separator"));
+    }
+
+    #[test]
     fn graphql_composer_rejects_unnamespaced_directive_usages() {
         let composer = GraphqlComposer::default();
         let err = composer
@@ -1939,6 +2067,29 @@ mod tests {
         assert_eq!(trailing.code, ErrorCode::ExtensionActivationFailed);
         assert!(trailing.message.contains("unsupported top-level syntax"));
         assert!(trailing.message.contains("junk"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_field_default_value_without_value() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("bad", "extend type Query { ok: String = }")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("malformed field type"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_type_header_junk() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("bad", "type ExtensionItem junk { id: ID! }")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("unsupported header syntax"));
+        assert!(err.message.contains("junk"));
     }
 
     #[test]
