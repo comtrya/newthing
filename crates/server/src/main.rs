@@ -6,9 +6,11 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
 use comtrya_core::{
-    ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, InstanceCapabilities,
-    InstanceConfig, RepoStorageBackend, ResourceRef, TokenAction, allowed_methods_for_route,
+    ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, ExtensionInstallConfig,
+    ExtensionSource, InstanceCapabilities, InstanceConfig, OciReference, RepoStorageBackend,
+    ResourceRef, TokenAction, allowed_methods_for_route,
 };
+use comtrya_extension_oci::ExtensionCache;
 use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -266,6 +268,8 @@ struct WasmtimeResolverRecord {
     resolver: String,
     output_type: String,
     status: String,
+    #[serde(skip)]
+    root: PathBuf,
 }
 
 #[derive(Debug)]
@@ -313,8 +317,12 @@ impl Runtime {
             .map_err(|error| format!("demo repository validation failed: {error}"))?;
         let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
-        let extension_runtime = load_extension_runtime(&options.extension_dir)
-            .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
+        let extension_runtime = load_configured_extension_runtime(
+            &options.extension_dir,
+            &options.data_dir,
+            &config.extensions,
+        )
+        .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -387,12 +395,20 @@ impl Runtime {
             "extensionStorageDocuments".to_string(),
             self.extension_storage.documents_path().is_file(),
         );
-        checks.insert(
-            "wasmtimeResolversExecuted".to_string(),
-            ["ext_pull_requests", "ext_code_browser", "ext_checks"]
+        let enabled_extension_configs = self
+            .config
+            .extensions
+            .iter()
+            .filter(|ext| ext.enabled)
+            .count();
+        let resolvers_executed = if enabled_extension_configs == 0 {
+            FIRST_PARTY_EXTENSIONS
                 .iter()
-                .all(|id| self.extension_runtime.contains_key(*id)),
-        );
+                .all(|id| self.extension_runtime.contains_key(*id))
+        } else {
+            self.extension_runtime.len() == enabled_extension_configs
+        };
+        checks.insert("wasmtimeResolversExecuted".to_string(), resolvers_executed);
         checks.insert(
             "productionTlsTerminated".to_string(),
             self.config.environment != Environment::Production || self.options.tls_terminated,
@@ -534,7 +550,9 @@ impl Runtime {
         if !self.extension_runtime.contains_key(extension) {
             return None;
         }
-        Some(self.options.extension_dir.join(extension))
+        self.extension_runtime
+            .get(extension)
+            .map(|record| record.root.clone())
     }
 
     fn check_boundary(&self, headers: &HeaderMap, route: &str) -> Result<HeaderMap, Response> {
@@ -2687,18 +2705,163 @@ fn asset_etag(body: &[u8]) -> String {
     format!("\"{}\"", asset_integrity(body))
 }
 
+#[derive(Debug, Clone)]
+struct ExtensionPackageRoot {
+    configured_id: String,
+    root: PathBuf,
+}
+
 fn load_extension_runtime(
     extension_dir: &Path,
 ) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+    let packages = FIRST_PARTY_EXTENSIONS
+        .iter()
+        .map(|id| ExtensionPackageRoot {
+            configured_id: (*id).to_string(),
+            root: extension_dir.join(id),
+        })
+        .collect::<Vec<_>>();
+    load_extension_packages(packages)
+}
+
+fn load_configured_extension_runtime(
+    extension_dir: &Path,
+    data_dir: &Path,
+    configs: &[ExtensionInstallConfig],
+) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+    let enabled = configs
+        .iter()
+        .filter(|config| config.enabled)
+        .collect::<Vec<_>>();
+    if enabled.is_empty() {
+        return load_extension_runtime(extension_dir);
+    }
+
+    let mut packages = Vec::new();
+    for config in enabled {
+        match &config.source {
+            ExtensionSource::Local { path } => packages.push(ExtensionPackageRoot {
+                configured_id: config.id.clone(),
+                root: resolve_local_extension_package(extension_dir, path),
+            }),
+            ExtensionSource::Oci {
+                registry,
+                image,
+                reference,
+            } => {
+                resolve_oci_extension_package(data_dir, config, registry, image, reference)?;
+            }
+        }
+    }
+    load_extension_packages(packages)
+}
+
+fn resolve_local_extension_package(extension_dir: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let extension_dir_relative = extension_dir.join(path);
+    if extension_dir_relative.exists() {
+        extension_dir_relative
+    } else {
+        absolute_path(path.to_path_buf())
+    }
+}
+
+fn resolve_oci_extension_package(
+    data_dir: &Path,
+    config: &ExtensionInstallConfig,
+    registry: &str,
+    image: &str,
+    reference: &OciReference,
+) -> Result<(), String> {
+    let reference = reference.as_ref_str();
+    let cache_dir = data_dir.join("extensions/oci-cache");
+    let cache = ExtensionCache::new(cache_dir.clone()).map_err(|error| {
+        format!(
+            "extension {} uses OCI source {}/{}:{}, but the cache at {} could not be opened: {error}",
+            config.id,
+            registry,
+            image,
+            reference,
+            cache_dir.display()
+        )
+    })?;
+    let cache_key = ExtensionCache::compute_cache_key(registry, image, reference);
+    if !cache.is_cached(&cache_key) {
+        return Err(format!(
+            "extension {} uses OCI source {}/{}:{}, but no cached artifact was found in {}. Server startup resolves OCI extensions offline; prefetch this extension into the cache or configure source.kind: \"local\" with a package path.",
+            config.id,
+            registry,
+            image,
+            reference,
+            cache_dir.display()
+        ));
+    }
+    match cache.verify_checksum(&cache_key) {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(format!(
+                "extension {} uses OCI source {}/{}:{}, but cached artifact {} failed checksum verification. Refresh the OCI cache or remove the corrupt cache entry.",
+                config.id,
+                registry,
+                image,
+                reference,
+                cache.wasm_path(&cache_key).display()
+            ));
+        }
+        Err(error) => {
+            return Err(format!(
+                "extension {} uses OCI source {}/{}:{}, but cached artifact {} could not be verified: {error}. Refresh the OCI cache or configure source.kind: \"local\" with a package path.",
+                config.id,
+                registry,
+                image,
+                reference,
+                cache.wasm_path(&cache_key).display()
+            ));
+        }
+    }
+
+    Err(format!(
+        "extension {} uses OCI source {}/{}:{} and resolved cached Wasm at {}, but server startup still needs a local extension package with manifest.json and UI assets. Configure source.kind: \"local\" with a package path until OCI package unpacking is available.",
+        config.id,
+        registry,
+        image,
+        reference,
+        cache.wasm_path(&cache_key).display()
+    ))
+}
+
+fn load_extension_packages(
+    packages: Vec<ExtensionPackageRoot>,
+) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
     let engine = Engine::default();
     let mut loaded = BTreeMap::new();
-    for id in FIRST_PARTY_EXTENSIONS {
-        let root = extension_dir.join(id);
+    for package in packages {
+        let root = package.root;
         let manifest_path = root.join("manifest.json");
         let manifest_source = fs::read_to_string(&manifest_path)
             .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
         let manifest = serde_json::from_str::<Value>(&manifest_source)
             .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
+        let id = manifest
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} missing id", manifest_path.display()))?;
+        let name = manifest
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} missing name", manifest_path.display()))?;
+        if package.configured_id != id && package.configured_id != name {
+            return Err(format!(
+                "extension config id {} does not match package id {} or name {} at {}",
+                package.configured_id,
+                id,
+                name,
+                root.display()
+            ));
+        }
         validate_extension_manifest_pair(id, &root, &manifest)?;
         let component_name = manifest
             .get("wasmComponent")
@@ -2733,16 +2896,22 @@ fn load_extension_runtime(
         let _ = func
             .call(&mut store, ())
             .map_err(|error| format!("{id} resolver failed: {error}"))?;
-        loaded.insert(
-            (*id).to_string(),
-            WasmtimeResolverRecord {
-                id: (*id).to_string(),
-                component: component_name.to_string(),
-                resolver: resolver.to_string(),
-                output_type: output_type.to_string(),
-                status: "executed".to_string(),
-            },
-        );
+        if loaded
+            .insert(
+                id.to_string(),
+                WasmtimeResolverRecord {
+                    id: id.to_string(),
+                    component: component_name.to_string(),
+                    resolver: resolver.to_string(),
+                    output_type: output_type.to_string(),
+                    status: "executed".to_string(),
+                    root,
+                },
+            )
+            .is_some()
+        {
+            return Err(format!("duplicate extension package id {id}"));
+        }
     }
     Ok(loaded)
 }
@@ -3027,6 +3196,9 @@ fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
             };
         }
     }
+    if let Some(extensions) = cue_extension_install_configs(&source)? {
+        config.extensions = extensions;
+    }
     config.validate().map_err(|error| error.to_string())?;
     Ok(config)
 }
@@ -3070,6 +3242,270 @@ fn quoted_array(line: &str, key: &str) -> Option<Vec<String>> {
             })
             .collect(),
     )
+}
+
+fn cue_extension_install_configs(
+    source: &str,
+) -> Result<Option<Vec<ExtensionInstallConfig>>, String> {
+    let Some(body) = cue_balanced_body_after_key(source, "extensions", '[', ']')? else {
+        return Ok(None);
+    };
+    let blocks = cue_top_level_objects(&body)?;
+    let mut configs = Vec::new();
+    for block in blocks {
+        configs.push(cue_extension_install_config(&block)?);
+    }
+    Ok(Some(configs))
+}
+
+fn cue_extension_install_config(block: &str) -> Result<ExtensionInstallConfig, String> {
+    let id = cue_field_string(block, "id")
+        .ok_or_else(|| "extension install entry missing id".to_string())?;
+    let source = cue_balanced_body_after_key(block, "source", '{', '}')?
+        .ok_or_else(|| format!("extension {id} missing source block"))?;
+    let kind = cue_field_string(&source, "kind")
+        .ok_or_else(|| format!("extension {id} source missing kind"))?;
+    let source = match kind.as_str() {
+        "local" => {
+            let path = cue_field_string(&source, "path")
+                .ok_or_else(|| format!("extension {id} local source missing path"))?;
+            ExtensionSource::Local { path }
+        }
+        "oci" => {
+            let registry = cue_field_string(&source, "registry")
+                .ok_or_else(|| format!("extension {id} OCI source missing registry"))?;
+            let image = cue_field_string(&source, "image")
+                .ok_or_else(|| format!("extension {id} OCI source missing image"))?;
+            let reference = if let Some(digest) = cue_field_string(&source, "digest") {
+                OciReference::Digest(digest)
+            } else if let Some(reference) = cue_field_string(&source, "reference") {
+                oci_reference_from_config(reference)
+            } else if let Some(tag) = cue_field_string(&source, "tag") {
+                OciReference::Tag(tag)
+            } else {
+                return Err(format!("extension {id} OCI source missing reference"));
+            };
+            ExtensionSource::Oci {
+                registry,
+                image,
+                reference,
+            }
+        }
+        _ => {
+            return Err(format!(
+                "extension {id} source kind {kind:?} is not supported"
+            ));
+        }
+    };
+
+    Ok(ExtensionInstallConfig {
+        id,
+        source,
+        enabled: cue_field_bool(block, "enabled").unwrap_or(true),
+    })
+}
+
+fn oci_reference_from_config(reference: String) -> OciReference {
+    if reference.starts_with("sha256:") {
+        OciReference::Digest(reference)
+    } else {
+        OciReference::Tag(reference)
+    }
+}
+
+fn cue_key_offset(source: &str, key: &str) -> Option<usize> {
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = offset + line.len() - trimmed.len();
+        if let Some(rest) = trimmed.strip_prefix(key) {
+            if rest.trim_start().starts_with(':') {
+                return Some(start);
+            }
+        }
+        offset += line.len();
+    }
+    None
+}
+
+fn cue_balanced_body_after_key(
+    source: &str,
+    key: &str,
+    open: char,
+    close: char,
+) -> Result<Option<String>, String> {
+    let Some(key_offset) = cue_key_offset(source, key) else {
+        return Ok(None);
+    };
+    let Some(open_relative) = source[key_offset..].find(open) else {
+        return Err(format!("{key} missing {open} block"));
+    };
+    let open_index = key_offset + open_relative;
+    let close_index = cue_balanced_close(source, open_index, open, close)
+        .ok_or_else(|| format!("{key} has an unclosed {open} block"))?;
+    Ok(Some(
+        source[open_index + open.len_utf8()..close_index].to_string(),
+    ))
+}
+
+fn cue_balanced_close(source: &str, open_index: usize, open: char, close: char) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut in_line_comment = false;
+    for (relative, ch) in source[open_index..].char_indices() {
+        let index = open_index + relative;
+        if in_line_comment {
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if source[index..].starts_with("//") {
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+        } else if ch == open {
+            depth += 1;
+        } else if ch == close {
+            depth = depth.checked_sub(1)?;
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+    }
+    None
+}
+
+fn cue_top_level_objects(source: &str) -> Result<Vec<String>, String> {
+    let mut objects = Vec::new();
+    let mut start = None;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut in_line_comment = false;
+    for (index, ch) in source.char_indices() {
+        if in_line_comment {
+            if ch == '\n' {
+                in_line_comment = false;
+            }
+            continue;
+        }
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if source[index..].starts_with("//") {
+            in_line_comment = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+        } else if ch == '{' {
+            if depth == 0 {
+                start = Some(index);
+            }
+            depth += 1;
+        } else if ch == '}' {
+            depth = depth
+                .checked_sub(1)
+                .ok_or_else(|| "extensions block has an unmatched }".to_string())?;
+            if depth == 0 {
+                let start = start
+                    .take()
+                    .ok_or_else(|| "extensions block object ended before it began".to_string())?;
+                objects.push(source[start..=index].to_string());
+            }
+        }
+    }
+    if depth != 0 {
+        return Err("extensions block has an unclosed object".to_string());
+    }
+    Ok(objects)
+}
+
+fn cue_field_string(source: &str, key: &str) -> Option<String> {
+    cue_field_value(source, key).and_then(|value| {
+        let (_, rest) = value.split_once('"')?;
+        let (value, _) = rest.split_once('"')?;
+        Some(value.to_string())
+    })
+}
+
+fn cue_field_bool(source: &str, key: &str) -> Option<bool> {
+    cue_field_value(source, key).and_then(|value| {
+        let value = value.trim_start();
+        if value.starts_with("true") {
+            Some(true)
+        } else if value.starts_with("false") {
+            Some(false)
+        } else {
+            None
+        }
+    })
+}
+
+fn cue_field_value(source: &str, key: &str) -> Option<String> {
+    for line in source.lines() {
+        let line = cue_strip_line_comment(line);
+        let mut remainder = line.as_str();
+        while let Some(index) = remainder.find(key) {
+            let before = remainder[..index].chars().next_back();
+            let after_key = &remainder[index + key.len()..];
+            if !cue_identifier_char(before) && after_key.trim_start().starts_with(':') {
+                let (_, value) = after_key.split_once(':')?;
+                return Some(value.to_string());
+            }
+            remainder = &after_key[after_key.char_indices().nth(1).map_or(0, |(idx, _)| idx)..];
+        }
+    }
+    None
+}
+
+fn cue_identifier_char(ch: Option<char>) -> bool {
+    ch.map(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+        .unwrap_or(false)
+}
+
+fn cue_strip_line_comment(line: &str) -> String {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in line.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+        } else if line[index..].starts_with("//") {
+            return line[..index].to_string();
+        }
+    }
+    line.to_string()
 }
 
 fn touch(path: &Path) -> std::io::Result<()> {
@@ -3523,6 +3959,78 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
 
         assert_eq!(config.environment, Environment::Production);
         assert_eq!(config.allowed_origins, ["https://comtrya.example.test"]);
+    }
+
+    #[test]
+    fn config_loader_reads_extension_install_configs() {
+        let dir = temp_dir("config-extensions");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: [
+  {
+    id: "checks"
+    source: {
+      kind: "local"
+      path: "ext_checks"
+    }
+    enabled: true
+  },
+  {
+    id: "pull-requests"
+    source: {
+      kind: "oci"
+      registry: "ghcr.io"
+      image: "comtrya/extensions/pull-requests"
+      reference: "v1.0.0"
+    }
+    enabled: false
+  },
+  {
+    id: "code-browser"
+    source: {
+      kind: "oci"
+      registry: "ghcr.io"
+      image: "comtrya/extensions/code-browser"
+      digest: "sha256:abc123"
+    }
+  },
+]
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+
+        assert_eq!(config.extensions.len(), 3);
+        assert_eq!(config.extensions[0].id, "checks");
+        assert!(config.extensions[0].enabled);
+        assert_eq!(
+            config.extensions[0].source,
+            ExtensionSource::Local {
+                path: "ext_checks".to_string()
+            }
+        );
+        assert!(!config.extensions[1].enabled);
+        assert_eq!(
+            config.extensions[1].source,
+            ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "comtrya/extensions/pull-requests".to_string(),
+                reference: OciReference::Tag("v1.0.0".to_string())
+            }
+        );
+        assert_eq!(
+            config.extensions[2].source,
+            ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "comtrya/extensions/code-browser".to_string(),
+                reference: OciReference::Digest("sha256:abc123".to_string())
+            }
+        );
+        assert!(config.extensions[2].enabled);
     }
 
     #[tokio::test]
@@ -4030,6 +4538,83 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             assert!(resolver.output_type.starts_with("comtrya."));
             assert!(resolver.output_type.ends_with("/summary.v1"));
         }
+    }
+
+    #[test]
+    fn configured_local_extensions_choose_package_directories() {
+        let extension_dir = temp_dir("configured-local-extensions");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let configs = vec![
+            ExtensionInstallConfig {
+                id: "checks".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_checks".to_string(),
+                },
+                enabled: true,
+            },
+            ExtensionInstallConfig {
+                id: "code-browser".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_code_browser".to_string(),
+                },
+                enabled: false,
+            },
+        ];
+
+        let runtime =
+            load_configured_extension_runtime(&extension_dir, &temp_dir("oci-cache"), &configs)
+                .unwrap();
+
+        assert_eq!(runtime.len(), 1);
+        assert!(runtime.contains_key("ext_checks"));
+        assert_eq!(runtime["ext_checks"].root, extension_dir.join("ext_checks"));
+    }
+
+    #[test]
+    fn configured_extensions_fall_back_to_first_party_when_none_enabled() {
+        let configs = vec![ExtensionInstallConfig {
+            id: "checks".to_string(),
+            source: ExtensionSource::Local {
+                path: "ext_checks".to_string(),
+            },
+            enabled: false,
+        }];
+
+        let runtime = load_configured_extension_runtime(
+            &test_extension_dir(),
+            &temp_dir("oci-cache"),
+            &configs,
+        )
+        .unwrap();
+
+        assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
+        for id in FIRST_PARTY_EXTENSIONS {
+            assert!(runtime.contains_key(*id));
+        }
+    }
+
+    #[test]
+    fn configured_oci_extensions_fail_with_actionable_cache_error() {
+        let configs = vec![ExtensionInstallConfig {
+            id: "checks".to_string(),
+            source: ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "comtrya/extensions/checks".to_string(),
+                reference: OciReference::Tag("v1.0.0".to_string()),
+            },
+            enabled: true,
+        }];
+
+        let error = load_configured_extension_runtime(
+            &test_extension_dir(),
+            &temp_dir("oci-cache"),
+            &configs,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("extension checks uses OCI source"));
+        assert!(error.contains("no cached artifact"));
+        assert!(error.contains("source.kind: \"local\""));
     }
 
     #[test]
