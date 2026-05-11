@@ -273,7 +273,10 @@ READY_TIMEOUT_SECONDS="${COMTRYA_READY_TIMEOUT_SECONDS:-30}"
 ONESHOT="${COMTRYA_ONESHOT:-0}"
 OPERATOR_CODE="${COMTRYA_OPERATOR_CODE:-}"
 SESSION_TTL_SECONDS="${COMTRYA_SESSION_TTL_SECONDS:-300}"
-BUN="${BUN:-$HOME/.bun/bin/bun}"
+BUN="${BUN:-$(command -v bun || true)}"
+if [[ -z "$BUN" && -x "$HOME/.bun/bin/bun" ]]; then
+  BUN="$HOME/.bun/bin/bun"
+fi
 
 if [[ "$REQUEST_RESET" == "1" ]]; then
   RESET_DEMO_DATA=1
@@ -531,7 +534,10 @@ json_assert "Git upload-pack without git read scope fails closed through Astro" 
 log "checking seeded Git refs through Astro"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   ls-remote "$FRONTEND_URL/git/comtrya/comtrya.git" \
-  >"$TMP_DIR/git-ls-remote.log" 2>&1 || fail "git ls-remote through Astro failed"
+  >"$TMP_DIR/git-ls-remote.log" 2>&1 || {
+  sed -n '1,160p' "$TMP_DIR/git-ls-remote.log" >&2 || true
+  fail "git ls-remote through Astro failed"
+}
 if ! grep -Fq "${GRAPHQL_HEAD_OID}"$'\t'"refs/heads/main" "$TMP_DIR/git-ls-remote.log"; then
   printf '[comtrya] git ls-remote output did not match GraphQL headOid %s\n' "$GRAPHQL_HEAD_OID" >&2
   sed -n '1,120p' "$TMP_DIR/git-ls-remote.log" >&2 || true
@@ -542,7 +548,10 @@ log "cloning seeded Git repository through Astro"
 GIT_SMOKE_CLONE="$TMP_DIR/comtrya-clone"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   clone "$FRONTEND_URL/git/comtrya/comtrya.git" "$GIT_SMOKE_CLONE" \
-  >"$TMP_DIR/git-clone.log" 2>&1 || fail "git clone through Astro failed"
+  >"$TMP_DIR/git-clone.log" 2>&1 || {
+  sed -n '1,200p' "$TMP_DIR/git-clone.log" >&2 || true
+  fail "git clone through Astro failed"
+}
 test -f "$GIT_SMOKE_CLONE/README.md" || fail "git clone did not fetch README.md"
 CLONED_HEAD_OID="$(git -C "$GIT_SMOKE_CLONE" rev-parse HEAD)"
 if [[ "$CLONED_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
@@ -561,11 +570,17 @@ fi
 git -C "$GIT_SMOKE_CLONE" \
   -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   fetch origin main \
-  >"$TMP_DIR/git-fetch.log" 2>&1 || fail "git fetch through Astro failed"
+  >"$TMP_DIR/git-fetch.log" 2>&1 || {
+  sed -n '1,200p' "$TMP_DIR/git-fetch.log" >&2 || true
+  fail "git fetch through Astro failed"
+}
 git -C "$GIT_SMOKE_CLONE" \
   -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   fetch origin refs/heads/ui/repository-intelligence:refs/remotes/origin/ui/repository-intelligence \
-  >"$TMP_DIR/git-fetch-branch.log" 2>&1 || fail "git branch-specific fetch through Astro failed"
+  >"$TMP_DIR/git-fetch-branch.log" 2>&1 || {
+  sed -n '1,200p' "$TMP_DIR/git-fetch-branch.log" >&2 || true
+  fail "git branch-specific fetch through Astro failed"
+}
 git -C "$GIT_SMOKE_CLONE" rev-parse refs/remotes/origin/ui/repository-intelligence \
   >"$TMP_DIR/git-fetch-branch-rev.log" || fail "branch-specific fetch did not create remote ref"
 log "ok - Git clone/fetch through Astro"

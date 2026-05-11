@@ -95,9 +95,9 @@
     }
   ],
   "checks": [
-    { "name": "nix flake check", "provider": "Forge CI", "conclusion": "SUCCESS", "duration": "2m 14s" },
-    { "name": "cargo test --workspace", "provider": "Forge CI", "conclusion": "SUCCESS", "duration": "49s" },
-    { "name": "astro build", "provider": "Forge CI", "conclusion": "SUCCESS", "duration": "11s" },
+    { "name": "nix flake check", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "2m 14s" },
+    { "name": "cargo test --workspace", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "49s" },
+    { "name": "astro build", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "11s" },
     { "name": "extension sandbox policy", "provider": "Wasmtime Preview", "conclusion": "ACTION_REQUIRED", "duration": "3s" }
   ],
   "extensions": [

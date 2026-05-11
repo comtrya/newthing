@@ -7,8 +7,8 @@ that the full Comtrya v1 product is complete.
 
 The Rust host lives in `crates/server/src/main.rs`. It owns startup gates,
 runtime state, auth/session issuance, GraphQL responses, extension asset
-serving, event streams, unsupported-surface errors, and the temporary Git smart
-HTTP adapter.
+serving, event streams, unsupported-surface errors, and the Git smart HTTP
+endpoint.
 
 Startup reads `config/production-testbed.cue` through `COMTRYA_CONFIG`,
 initializes `$COMTRYA_DATA_DIR`, opens or seeds the demo bare repository,
@@ -93,11 +93,12 @@ The demo repository is a real local bare Git repository under
 `$COMTRYA_DATA_DIR/repositories/comtrya/comtrya.git`. Startup seeds or
 opens it idempotently, validates `HEAD`, and checks expected demo branch refs.
 
-Git clone/fetch currently works through the Astro origin and Rust host by
-shelling out to `git http-backend`. That is an intentional production-testbed
-adapter, not native `gix` storage. Receive-pack/push remains explicitly
-unsupported and returns the registered `UNSUPPORTED` surface until write support
-is implemented.
+Git clone/fetch currently works through the Astro origin and Rust host through
+the pure-Rust `comtrya-git-http` Smart HTTP v2 path by default. The older
+`git http-backend` shell adapter remains available only for regression
+comparison with `COMTRYA_GIT_BACKEND=legacy`. Receive-pack/push remains
+explicitly unsupported and returns the registered `UNSUPPORTED` surface until
+write support is implemented.
 
 ## Known Not Real Yet
 

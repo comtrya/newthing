@@ -64,8 +64,7 @@ impl SecretStore {
             .secrets
             .get(name)
             .ok_or_else(|| CoreError::bad_user_input("unknown secret"))?;
-        let source =
-            ResourceRef::parse("comtrya://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let source = ResourceRef::parse("comtrya://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         outbox.append(EventEnvelope::core(
             CoreEventType::SecretAccessed,
             source.clone(),

@@ -3,8 +3,8 @@ import "../styles.css";
 
 export const prerender = false;
 
-const backend = process.env.FORGEPOINT_SERVER_URL ?? "http://127.0.0.1:8080";
-const operatorCode = process.env.PUBLIC_FORGEPOINT_OPERATOR_CODE ?? "";
+const backend = process.env.COMTRYA_SERVER_URL ?? "http://127.0.0.1:8080";
+const operatorCode = process.env.PUBLIC_COMTRYA_OPERATOR_CODE ?? "";
 let initialRepo:
   | {
       title: string;
@@ -22,10 +22,10 @@ try {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        grantType: "urn:forgepoint:grant:operator-code",
+        grantType: "urn:comtrya:grant:operator-code",
         subjectToken: operatorCode,
-        subjectTokenType: "urn:forgepoint:token-type:operator-code",
-        requestedResource: "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+        subjectTokenType: "urn:comtrya:token-type:operator-code",
+        requestedResource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
         requestedActions: ["graphql:read", "events:read", "git:read", "checks:read"],
       }),
     });
@@ -65,12 +65,12 @@ try {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forgepoint</title>
+    <title>Comtrya</title>
   </head>
   <body>
     <main id="app" class="app-shell">
       <section class="loading-screen" aria-live="polite">
-        <h1>Forgepoint</h1>
+        <h1>Comtrya</h1>
         {
           initialRepo ? (
             <p data-smoke="rendered-ui-live" data-smoke-head-oid={initialRepo.headOid}>

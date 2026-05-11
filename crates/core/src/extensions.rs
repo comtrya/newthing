@@ -48,16 +48,12 @@ pub struct ExtensionInstallConfig {
 impl ExtensionInstallConfig {
     pub fn validate(&self) -> CoreResult<()> {
         if self.id.trim().is_empty() {
-            return Err(CoreError::config_invalid(
-                "extension id must be non-empty",
-            ));
+            return Err(CoreError::config_invalid("extension id must be non-empty"));
         }
         match &self.source {
-            ExtensionSource::Local { path } if path.trim().is_empty() => {
-                Err(CoreError::config_invalid(
-                    "extension local path must be non-empty",
-                ))
-            }
+            ExtensionSource::Local { path } if path.trim().is_empty() => Err(
+                CoreError::config_invalid("extension local path must be non-empty"),
+            ),
             ExtensionSource::Oci {
                 registry,
                 image,

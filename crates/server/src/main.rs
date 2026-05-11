@@ -9,6 +9,7 @@ use comtrya_core::{
     ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, InstanceCapabilities,
     InstanceConfig, RepoStorageBackend, ResourceRef, TokenAction, allowed_methods_for_route,
 };
+use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -21,7 +22,6 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
-use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use tokio::sync::Semaphore;
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
@@ -75,10 +75,18 @@ impl RepositoryProvider for PureRustGitState {
 
 impl GitHttpState for PureRustGitState {
     type Storage = Self;
-    fn storage(&self) -> &Self { self }
-    fn git_semaphore(&self) -> &Arc<Semaphore> { &self.semaphore }
-    fn git_max_body(&self) -> usize { self.max_body }
-    fn git_timeout_ms(&self) -> u64 { self.timeout_ms }
+    fn storage(&self) -> &Self {
+        self
+    }
+    fn git_semaphore(&self) -> &Arc<Semaphore> {
+        &self.semaphore
+    }
+    fn git_max_body(&self) -> usize {
+        self.max_body
+    }
+    fn git_timeout_ms(&self) -> u64 {
+        self.timeout_ms
+    }
     fn validate_slug(&self, slug: &str) -> anyhow::Result<()> {
         if slug.is_empty() || slug.contains("..") || slug.contains('/') {
             anyhow::bail!("invalid repo slug");
@@ -1238,11 +1246,13 @@ async fn git_endpoint(
     // Parse "{seg}/{seg}.../{suffix}" where suffix is info/refs | git-upload-pack | git-receive-pack.
     let (segments, suffix) = match split_git_path(&path) {
         Some(parts) => parts,
-        None => return error_response(
-            StatusCode::NOT_FOUND,
-            ErrorCode::NotFound.as_str(),
-            "unrecognized Git smart HTTP path",
-        ),
+        None => {
+            return error_response(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                "unrecognized Git smart HTTP path",
+            );
+        }
     };
     let service = parse_service_query(raw_query.as_deref());
     let mut response = git_v2::dispatch(
@@ -1252,7 +1262,8 @@ async fn git_endpoint(
         service.as_deref(),
         headers,
         axum::body::Body::from(body),
-    ).await;
+    )
+    .await;
     response.headers_mut().extend(cors);
     response
 }
@@ -2604,9 +2615,7 @@ fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> 
         .map_err(|error| format!("failed to read {}: {error}", ui_manifest_path.display()))?;
     let ui_manifest = serde_json::from_str::<Value>(&ui_source)
         .map_err(|error| format!("failed to parse {}: {error}", ui_manifest_path.display()))?;
-    if ui_manifest.get("schemaVersion").and_then(Value::as_str)
-        != Some("comtrya.ui-extension/v1")
-    {
+    if ui_manifest.get("schemaVersion").and_then(Value::as_str) != Some("comtrya.ui-extension/v1") {
         return Err(format!("{id} UI manifest has unsupported schemaVersion"));
     }
     if ui_manifest.get("id").and_then(Value::as_str) != Some(id) {
@@ -3181,7 +3190,10 @@ mod tests {
 
     #[tokio::test]
     async fn readyz_reports_runtime_checks() {
-        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
+        let state = AppState {
+            runtime: dev_runtime(),
+            git_state: PureRustGitState::test_default(),
+        };
         let response = readyz(State(state), HeaderMap::new()).await;
 
         assert_eq!(response.status(), StatusCode::OK);
@@ -3289,7 +3301,10 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_routes_return_registry_errors() {
-        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
+        let state = AppState {
+            runtime: dev_runtime(),
+            git_state: PureRustGitState::test_default(),
+        };
 
         for (path, expected_surface) in [
             ("/auth/oidc/prod/callback", "oidc_browser_callback"),
@@ -3318,7 +3333,10 @@ mod tests {
 
     #[tokio::test]
     async fn disallowed_origin_is_forbidden() {
-        let state = AppState { runtime: dev_runtime(), git_state: PureRustGitState::test_default() };
+        let state = AppState {
+            runtime: dev_runtime(),
+            git_state: PureRustGitState::test_default(),
+        };
         let mut headers = HeaderMap::new();
         headers.insert("origin", HeaderValue::from_static("https://evil.example"));
         let response = graphql_get(State(state), headers).await;
@@ -3333,7 +3351,10 @@ mod tests {
         let mut query = HashMap::new();
         query.insert("session".to_string(), token.clone());
 
-        let state = AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() };
+        let state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
         let first = events(State(state.clone()), HeaderMap::new(), Query(query.clone())).await;
         let second = events(State(state), HeaderMap::new(), Query(query)).await;
 
@@ -3349,7 +3370,10 @@ mod tests {
         query.insert("session".to_string(), session);
 
         let response = extension_asset(
-            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
             AxumPath(("ext_code_browser".to_string(), "index.js".to_string())),
             HeaderMap::new(),
             Query(query),
@@ -3382,7 +3406,15 @@ mod tests {
         let mut query = HashMap::new();
         query.insert("session".to_string(), token);
 
-        let response = events(State(AppState { runtime, git_state: PureRustGitState::test_default() }), HeaderMap::new(), Query(query)).await;
+        let response = events(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            HeaderMap::new(),
+            Query(query),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
@@ -3500,13 +3532,19 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             grant_type: "urn:comtrya:grant:operator-code".to_string(),
             subject_token: "testbed-operator-code".to_string(),
             subject_token_type: "urn:comtrya:token-type:operator-code".to_string(),
-            requested_resource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
-                .to_string(),
+            requested_resource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             requested_actions: vec!["git:read".to_string()],
         };
 
-        let response =
-            token_exchange(State(AppState { runtime, git_state: PureRustGitState::test_default() }), HeaderMap::new(), Json(request)).await;
+        let response = token_exchange(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            HeaderMap::new(),
+            Json(request),
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -3542,7 +3580,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn git_upload_pack_fails_closed_without_auth_or_scope() {
         let runtime = dev_runtime();
         let no_token_response = git_endpoint(
-            State(AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
             HeaderMap::new(),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3567,7 +3608,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             PrincipalStatus::OperatorCredential,
         );
         let wrong_scope_response = git_endpoint(
-            State(AppState { runtime: runtime.clone(), git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3592,7 +3636,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             PrincipalStatus::OperatorCredential,
         );
         let write_only_fetch_response = git_endpoint(
-            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
             bearer_headers(&write_only_token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3622,7 +3669,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = git_endpoint(
-            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/../comtrya.git/info/refs".to_string()),
@@ -3650,7 +3700,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = git_endpoint(
-            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
@@ -3705,7 +3758,10 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let response = graphql_post(
-            State(AppState { runtime, git_state: PureRustGitState::test_default() }),
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
             headers,
             json!({"query": "{ repository { refs commits pullRequests checks } }"}).to_string(),
         )
@@ -3715,10 +3771,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
-        assert_eq!(
-            payload["data"]["repository"]["path"],
-            "comtrya/comtrya"
-        );
+        assert_eq!(payload["data"]["repository"]["path"], "comtrya/comtrya");
         assert!(
             payload["data"]["repository"]["refs"]
                 .as_array()
@@ -3857,7 +3910,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
                 json!({
                     "repositoryID": "repo_test",
                     "name": "runtime mutation",
-                    "provider": "Forge CI",
+                    "provider": "Comtrya CI",
                     "conclusion": "SUCCESS",
                     "duration": "1s"
                 }),
@@ -3875,7 +3928,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         let runtime = dev_runtime();
         let check = runtime
             .extension_storage
-            .query_documents_by_index("check_runs", &[("provider", json!("Forge CI"))])
+            .query_documents_by_index("check_runs", &[("provider", json!("Comtrya CI"))])
             .unwrap()
             .into_iter()
             .next()

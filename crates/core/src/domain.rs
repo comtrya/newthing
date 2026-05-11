@@ -134,9 +134,9 @@ impl ResourceRef {
     }
 
     pub fn parse(value: &str) -> CoreResult<Self> {
-        let rest = value.strip_prefix("comtrya://").ok_or_else(|| {
-            CoreError::bad_user_input("resource reference must use comtrya://")
-        })?;
+        let rest = value
+            .strip_prefix("comtrya://")
+            .ok_or_else(|| CoreError::bad_user_input("resource reference must use comtrya://"))?;
         let (kind, id) = rest.split_once('/').ok_or_else(|| {
             CoreError::bad_user_input("resource reference must include kind and ID")
         })?;
@@ -251,8 +251,8 @@ mod tests {
 
     #[test]
     fn resource_ref_rejects_kind_id_mismatch() {
-        let err = ResourceRef::parse("comtrya://repository/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3")
-            .unwrap_err();
+        let err =
+            ResourceRef::parse("comtrya://repository/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap_err();
         assert_eq!(err.code, crate::ErrorCode::BadUserInput);
     }
 

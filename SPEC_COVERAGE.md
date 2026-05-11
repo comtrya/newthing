@@ -53,7 +53,7 @@ cargo run -p comtrya-cli -- restore
 Current expected results:
 
 - Rust format check passes.
-- Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, and 29 server route/runtime tests.
+- Rust workspace tests pass: 80 core tests, 16 git-http tests, 12 extension-oci tests, 29 server route/runtime tests, and 1 MVP integration test.
 - Frontend typecheck passes through Bun's TypeScript runtime.
 - Astro frontend build passes and emits a server-rendered frontend artifact.
 - Development server check returns `comtrya-server ready=true mode=development ...`.
@@ -63,3 +63,13 @@ Current expected results:
 - The Astro repository UI renders live refs, branches, commits, tree entries, blobs, file previews, diffs, and Git/storage-derived metric counts from the server; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff panel.
 - The frontend discovers installed extensions from GraphQL, validates their UI manifests, imports versioned entry assets, creates extension host elements from manifest slot declarations, and renders visible load/resolver/permission error states.
 - CLI commands return v1 capabilities, backup summary, and restore completion event.
+
+## v3 Foundation Evidence
+
+| v3 surface | Artifact evidence |
+| --- | --- |
+| Comtrya rename | source/manifests/env vars/WIT/crate names use Comtrya naming; legacy Forgepoint mentions are limited to historical v1 provenance notes |
+| Pure-Rust Smart HTTP v2 | `crates/git-http`, server `/git/*` dispatch through `comtrya_git_http::v2::dispatch`, `COMTRYA_GIT_BACKEND=legacy` regression escape hatch |
+| Typed extension host WIT | `wit/comtrya-extension.wit` defines `host-log`, `host-events`, `host-storage`, `host-git`, `host-http`, `host-secrets`, and `host-jobs` |
+| OCI extension distribution contract | `crates/extension-oci`, `ExtensionCache`, `OciExtensionFetcher`, and `ExtensionInstallConfig` with local/OCI source validation |
+| POC run posture | `start.sh --reset --oneshot` builds Rust + Astro, exercises Auth/GraphQL/events/extensions/Git clone/fetch, and proves receive-pack fails closed |

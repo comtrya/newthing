@@ -62,9 +62,7 @@ impl CoreEventType {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InstanceConfigReloadStarted => "dev.comtrya.instance.config.reload.started",
-            Self::InstanceConfigReloadSucceeded => {
-                "dev.comtrya.instance.config.reload.succeeded"
-            }
+            Self::InstanceConfigReloadSucceeded => "dev.comtrya.instance.config.reload.succeeded",
             Self::InstanceConfigReloadFailed => "dev.comtrya.instance.config.reload.failed",
             Self::InstanceBackupStarted => "dev.comtrya.instance.backup.started",
             Self::InstanceBackupSucceeded => "dev.comtrya.instance.backup.succeeded",

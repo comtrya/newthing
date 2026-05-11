@@ -5,10 +5,7 @@ pub trait RepositoryProvider {
     fn ensure_local_repository(&self, segments: &[String]) -> anyhow::Result<PathBuf>;
 }
 
-pub fn resolve_repo_dir<P>(
-    storage: &P,
-    segments: &[String],
-) -> anyhow::Result<PathBuf>
+pub fn resolve_repo_dir<P>(storage: &P, segments: &[String]) -> anyhow::Result<PathBuf>
 where
     P: RepositoryProvider,
 {

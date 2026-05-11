@@ -803,7 +803,7 @@ No code browser is required in the default UI.
 
 The first-party extension set should validate the platform rather than expand core.
 
-Forge validation pack:
+Comtrya validation pack:
 
 - Code browser extension.
 - Pull requests and reviews extension.

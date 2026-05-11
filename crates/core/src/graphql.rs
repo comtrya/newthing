@@ -199,10 +199,7 @@ mod tests {
     fn viewer_permissions_for_unknown_resource_returns_empty_list() {
         assert!(
             gateway()
-                .viewer_permissions(
-                    &Principal::Anonymous,
-                    "comtrya://repository/repo_missing"
-                )
+                .viewer_permissions(&Principal::Anonymous, "comtrya://repository/repo_missing")
                 .is_empty()
         );
     }

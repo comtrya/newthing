@@ -183,9 +183,9 @@ mod tests {
 
     #[test]
     fn test_compute_cache_key() {
-        let key1 = ExtensionCache::compute_cache_key("ghcr.io", "forgepoint/ext1", "v1.0.0");
-        let key2 = ExtensionCache::compute_cache_key("ghcr.io", "forgepoint/ext1", "v1.0.0");
-        let key3 = ExtensionCache::compute_cache_key("ghcr.io", "forgepoint/ext1", "v2.0.0");
+        let key1 = ExtensionCache::compute_cache_key("ghcr.io", "comtrya/ext1", "v1.0.0");
+        let key2 = ExtensionCache::compute_cache_key("ghcr.io", "comtrya/ext1", "v1.0.0");
+        let key3 = ExtensionCache::compute_cache_key("ghcr.io", "comtrya/ext1", "v2.0.0");
 
         // Same inputs produce same key
         assert_eq!(key1, key2);
