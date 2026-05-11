@@ -384,7 +384,12 @@ impl ExtensionHost {
             let mut fragments = self
                 .installations
                 .values()
-                .filter(|existing| existing.state == ExtensionState::Active)
+                .filter(|existing| {
+                    matches!(
+                        existing.state,
+                        ExtensionState::Active | ExtensionState::ActiveDegraded
+                    )
+                })
                 .filter(|existing| existing.manifest.name != installation.manifest.name)
                 .filter_map(|existing| {
                     existing
@@ -1433,6 +1438,36 @@ mod tests {
             manifest_a.capabilities.clone(),
         ))
         .unwrap();
+        let err = host
+            .activate(ExtensionInstallation::new(
+                manifest_b.clone(),
+                manifest_b.capabilities.clone(),
+            ))
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("Query.activity"));
+        assert!(err.message.contains("activity"));
+    }
+
+    #[test]
+    fn activation_rejects_graphql_conflicts_with_active_degraded_extensions() {
+        let mut host = ExtensionHost::default();
+        let mut manifest_a = ExtensionManifest::reference_pull_requests();
+        manifest_a.name = "activity".to_string();
+        manifest_a.graphql_sdl = Some("extend type Query { activity: [String!]! }".to_string());
+        let mut manifest_b = ExtensionManifest::reference_pull_requests();
+        manifest_b.name = "checks".to_string();
+        manifest_b.graphql_sdl = Some("extend type Query { activity: [String!]! }".to_string());
+
+        host.activate(ExtensionInstallation::new(
+            manifest_a.clone(),
+            manifest_a.capabilities.clone(),
+        ))
+        .unwrap();
+        host.installations.get_mut(&manifest_a.name).unwrap().state =
+            ExtensionState::ActiveDegraded;
+
         let err = host
             .activate(ExtensionInstallation::new(
                 manifest_b.clone(),
