@@ -39,20 +39,26 @@ v3 brings those three back, on top of v2's kernel/contracts/spec discipline.
 This branch is built in short increments, each committed and pushed:
 
 1. ✅ `V3_PLAN.md` and PR opened.
-2. New `crates/git-http` ported from v1 (pure-Rust Smart HTTP v2, read path).
-3. Wire `crates/git-http` into `crates/server` routes; remove `git http-backend` shell adapter for upload-pack.
-4. Define typed WIT resolver ABI in `wit/comtrya-extension.wit` (kill the numeric-proof shape).
-5. Per-extension SQLite host capability (`crates/extension-storage-sqlite`); WIT host functions for documents/KV/queue/events.
-6. Federated GraphQL composer + planner: dispatch resolver fields to extension components.
-7. OCI extension distribution (`crates/extension-oci`): fetch, verify, cache, install.
-8. CUE config schema extended for extension OCI references.
-9. Replace fixture-seeded request-path data with extension-owned resolvers.
-10. Frontend extension-host refactor — strip product panels from the shell.
-11. First-party pull-requests extension end-to-end (schema, persistence, UI, OCI).
-12. Receive-pack/push path on top of `crates/git-http`.
-13. `SPEC_COVERAGE.md` and `TODO.md` reconciled with v3 reality; `start.sh` smoke assertions updated.
+2. ✅ Rename Forgepoint → Comtrya across source, manifests, env vars, WIT, crate names.
+3. ✅ `crates/git-http` (~1880 LOC) ported from v1 — pure-Rust Smart HTTP v2.
+4. ✅ Wire `crates/git-http` into `crates/server`; pure-Rust upload-pack by default; `git http-backend` shell adapter remains behind `COMTRYA_GIT_BACKEND=legacy`.
+5. ✅ Typed WIT host interfaces (`host-log`, `host-events`, `host-storage`, `host-git`, `host-http`, `host-secrets`, `host-jobs`) defined in `wit/comtrya-extension.wit`.
+6. ✅ `crates/extension-oci` ported from v1: `OciExtensionFetcher` + content-addressed `ExtensionCache`, retries/backoff/offline-mode, checksum verification.
+7. ✅ `ExtensionInstallConfig` + `ExtensionSource::{Local, Oci}` + `OciReference::{Tag, Digest}` added to core; `InstanceConfig.extensions: Vec<…>` with validation; `config/config.cue` example added.
 
-Each increment is a separate commit and push, so the PR shows a real progression. The PR is opened on increment 1 with a clear scope so reviewers can follow along.
+Deferred to follow-up branches (tracked in `V3_STATUS.md`):
+
+8. Per-extension SQLite host capability + WIT Linker wiring.
+9. Federated GraphQL SDL composer that dispatches fields to extensions.
+10. CUE loader upgrade to parse the `extensions:` block authoritatively.
+11. Wire `OciExtensionFetcher` into `load_extension_runtime`.
+12. Typed WIT resolver execution — kill the numeric-proof shape end-to-end.
+13. Astro shell as real extension host (strip product panels).
+14. First-party `ext_pull_requests` end-to-end through the new path.
+15. Receive-pack/push on top of `crates/git-http`.
+16. `SPEC_COVERAGE.md`, `TODO.md`, `start.sh` reconciliation for v3 surfaces.
+
+Each completed increment is a separate commit on this branch so the PR shows a real progression. See `V3_STATUS.md` for the up-to-date snapshot.
 
 ## Verification
 
