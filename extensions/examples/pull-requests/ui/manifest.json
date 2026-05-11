@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "forgepoint.ui-extension/v1",
+  "extension": "pull-requests",
+  "assets": {
+    "entry": "/_extensions/ext_01hv/assets/index.js",
+    "entryIntegrity": "sha256-development",
+    "styles": ["/_extensions/ext_01hv/assets/styles.css"]
+  },
+  "routes": [
+    {
+      "path": "/:workspace/:group*/:repo/pulls",
+      "element": "forgepoint-pull-request-list",
+      "requiredPermission": "pull-requests.read"
+    }
+  ],
+  "slots": [
+    {
+      "slot": "repository.nav",
+      "element": "forgepoint-pull-request-nav",
+      "requiredPermission": "pull-requests.read"
+    }
+  ]
+}
