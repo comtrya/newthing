@@ -21,11 +21,12 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
 - Real: GraphQL exposes typed `workspace`, `repository`, `extensionInstallations`, `extensionResolvers`, and `activityEvents` roots; the Astro frontend and first-party extension UI assets consume those roots instead of the generic `demo` aggregate.
 - Real: startup computes SHA-256 for first-party extension entry assets and rejects stale UI manifest `entryIntegrity` values.
+- Real: visible repository metric cards use live Git/storage counts, and seed metadata cannot override derived repository metrics, language, license, or update timestamp.
 - Not real enough: the host page is still mostly Astro/TypeScript host UI, not a shell composed from real extension-provided surfaces.
 - Not real enough: pull request, checks, extension registry, and activity data are storage documents seeded from `fixtures/demo/conference.json`, but typed first-party extension resolvers still do not own the product behavior.
 - Not real enough: the WASM components still expose a minimal execution proof ABI; typed WIT resolver calls do not yet own the business logic for code browsing, pull requests, or checks.
 - Not real enough: receive-pack/push is explicitly disabled.
-- Not real enough: stars, forks, watchers, license, and some descriptive repository metadata are seeded demo metadata, not Git-derived facts.
+- Not real enough: workspace identity, repository description, and some first-party extension documents are seeded demo metadata.
 
 ## Definition Of Done
 
@@ -222,15 +223,12 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 ## 9. Remove Fake Metrics And Metadata
 
-- Replace hardcoded stars/forks/watchers with either:
-  - real repository metadata records in storage, or
-  - remove them from the demo UI.
-- Replace hardcoded license/language with derived values:
-  - license from repository files or metadata storage,
-  - language from file statistics or metadata storage.
+- Real: visible stars/forks/watchers metrics were removed from the demo UI.
+- Real: visible refs/branches/files/checks metrics are derived from live Git/storage data.
+- Real: license/language are derived from repository files and cannot be overridden by seed metadata.
 - Replace hardcoded workspace/member counts with runtime storage.
 - Replace relative time strings from fixtures with timestamps formatted by the frontend from real stored timestamps.
-- Add tests that no UI-visible repository metrics come from inline constants.
+- Real: server tests prevent seeded repository metrics/language/license from overriding derived runtime facts.
 
 ## 10. Harden Startup And Seeding
 

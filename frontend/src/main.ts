@@ -51,9 +51,6 @@ type DemoState = {
     description: string;
     defaultBranch: string;
     currentCommit: string;
-    stars: number;
-    forks: number;
-    watchers: number;
     language: string;
     license: string;
     updated: string;
@@ -221,9 +218,9 @@ function renderShell(): void {
         </section>
 
         <section class="metric-grid" aria-label="Repository metrics">
-          <article><span>Stars</span><strong id="metric-stars">0</strong></article>
-          <article><span>Forks</span><strong id="metric-forks">0</strong></article>
-          <article><span>Watchers</span><strong id="metric-watchers">0</strong></article>
+          <article><span>Refs</span><strong id="metric-refs">0</strong></article>
+          <article><span>Branches</span><strong id="metric-branches">0</strong></article>
+          <article><span>Files</span><strong id="metric-files">0</strong></article>
           <article><span>Checks</span><strong id="metric-checks">0/0</strong></article>
         </section>
 
@@ -415,9 +412,9 @@ function renderData(): void {
   setStatus("#checks-pill", passing === demo.checks.length, `${passing}/${demo.checks.length} passing`);
   setText("#repo-title", `${repo.owner} / ${repo.name}`);
   setText("#repo-description", repo.description);
-  setText("#metric-stars", formatCount(repo.stars));
-  setText("#metric-forks", formatCount(repo.forks));
-  setText("#metric-watchers", formatCount(repo.watchers));
+  setText("#metric-refs", formatCount(demo.refs.length));
+  setText("#metric-branches", formatCount(demo.branches.length));
+  setText("#metric-files", formatCount(demo.files.length));
   setText("#metric-checks", `${passing}/${demo.checks.length}`);
   setText("#branch-summary", `${repo.defaultBranch} · ${demo.branches.length} branches`);
   setText("#commit-hash", repo.currentCommit);

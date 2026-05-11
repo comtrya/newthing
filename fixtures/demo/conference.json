@@ -15,14 +15,7 @@
     "path": "forgepoint/forgepoint",
     "visibility": "PRIVATE",
     "description": "Self-hosted code forge kernel with extension-native product surfaces.",
-    "defaultBranch": "main",
-    "currentCommit": "9f8b7c6",
-    "stars": 12842,
-    "forks": 417,
-    "watchers": 931,
-    "language": "Rust",
-    "license": "Apache-2.0",
-    "updated": "18 minutes ago"
+    "defaultBranch": "main"
   },
   "branches": [
     { "name": "main", "commit": "9f8b7c6", "ahead": 0, "behind": 0 },

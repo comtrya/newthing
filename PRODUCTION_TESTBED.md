@@ -73,7 +73,7 @@ Ready means the runtime is safe to run as a production-style test bed:
 - operator-code based testbed token exchange issues five-minute scoped credentials
 - SSE and extension asset session tokens are single-use
 - the Astro frontend fronts the Rust API without injecting credentials
-- the repository UI renders live Git refs, branches, commits, tree entries, blob previews, and diffs; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
+- the repository UI renders live Git refs, branches, commits, tree entries, blob previews, diffs, and Git/storage-derived metric counts; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
 - first-party pull request, code browser, and checks extensions are loaded from disk, compiled/instantiated as Component Model components through Wasmtime, and exposed through `/_extensions/...` with typed resolver output summaries
 - extension-owned pull request/check/activity state is persisted in the versioned `$FORGEPOINT_DATA_DIR/extensions/storage` schema and document tables
 - Git upload-pack clone/fetch works through the Astro origin with a scoped Forgepoint credential

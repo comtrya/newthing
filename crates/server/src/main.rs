@@ -1545,19 +1545,7 @@ fn merge_repository_metadata(mut live_repository: Value, metadata: Option<&Value
     let Some(live_object) = live_repository.as_object_mut() else {
         return live_repository;
     };
-    for key in [
-        "id",
-        "owner",
-        "name",
-        "path",
-        "visibility",
-        "description",
-        "stars",
-        "forks",
-        "watchers",
-        "language",
-        "license",
-    ] {
+    for key in ["id", "owner", "name", "path", "visibility", "description"] {
         if let Some(value) = metadata.get(key) {
             live_object.insert(key.to_string(), value.clone());
         }
@@ -3247,6 +3235,48 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             payload["data"]["repository"]["headOid"],
             payload["data"]["demo"]["repository"]["headOid"]
         );
+    }
+
+    #[test]
+    fn repository_seed_metadata_cannot_override_derived_facts() {
+        let live_repository = json!({
+            "id": "repo_live",
+            "owner": "forgepoint",
+            "name": "forgepoint",
+            "path": "forgepoint/forgepoint",
+            "visibility": "PRIVATE",
+            "description": "derived from runtime",
+            "stars": 0,
+            "forks": 0,
+            "watchers": 0,
+            "language": "Rust",
+            "license": "unknown",
+            "updated": "2026-05-11T00:00:00Z"
+        });
+        let seed_metadata = json!({
+            "id": "repo_seed",
+            "owner": "seeded",
+            "name": "repo",
+            "path": "seeded/repo",
+            "visibility": "PUBLIC",
+            "description": "seeded description",
+            "stars": 12842,
+            "forks": 417,
+            "watchers": 931,
+            "language": "COBOL",
+            "license": "Apache-2.0",
+            "updated": "18 minutes ago"
+        });
+
+        let merged = merge_repository_metadata(live_repository, Some(&seed_metadata));
+
+        assert_eq!(merged["description"], "seeded description");
+        assert_eq!(merged["stars"], 0);
+        assert_eq!(merged["forks"], 0);
+        assert_eq!(merged["watchers"], 0);
+        assert_eq!(merged["language"], "Rust");
+        assert_eq!(merged["license"], "unknown");
+        assert_eq!(merged["updated"], "2026-05-11T00:00:00Z");
     }
 
     #[test]
