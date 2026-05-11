@@ -1240,7 +1240,9 @@ fn next_top_level_definition_index(tokens: &[GraphqlSdlToken], start: usize) -> 
         }
         if brace_depth == 0
             && paren_depth == 0
-            && top_level_definition_start(tokens, index).is_some()
+            && (top_level_definition_start(tokens, index).is_some()
+                || (matches!(tokens.get(index), Some(GraphqlSdlToken::StringLiteral))
+                    && top_level_definition_start(tokens, index + 1).is_some()))
         {
             return index;
         }
@@ -1325,9 +1327,11 @@ fn parse_field_names(
                 | GraphqlSdlToken::Colon
                 | GraphqlSdlToken::Equals
                 | GraphqlSdlToken::LeftBracket
+                | GraphqlSdlToken::LeftBrace
                 | GraphqlSdlToken::NumberLiteral
                 | GraphqlSdlToken::Pipe
                 | GraphqlSdlToken::RightBracket
+                | GraphqlSdlToken::RightBrace
                 | GraphqlSdlToken::LeftParen
                 | GraphqlSdlToken::RightParen,
             ) if brace_depth == 0 && paren_depth == 0 => {
@@ -2448,9 +2452,14 @@ mod tests {
         let err = composer
             .compose("bad", "extend type Query { ok: String { broken } }")
             .unwrap_err();
+        let bare = composer
+            .compose("bad", "extend type Query { { broken } ok: String }")
+            .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
         assert!(err.message.contains("malformed field type"));
+        assert_eq!(bare.code, ErrorCode::ExtensionActivationFailed);
+        assert!(bare.message.contains("unsupported field syntax"));
     }
 
     #[test]
@@ -2471,7 +2480,12 @@ mod tests {
                 "type SearchIssue { id: ID! }\n\
                  type SearchPullRequest { id: ID! }\n\
                  union SearchResult = SearchIssue | SearchPullRequest\n\
-                 scalar SearchCursor",
+                 scalar SearchCursor\n\
+                 \"Search edge\"\n\
+                 type SearchEdge { id: ID! }\n\
+                 union DescribedResult = SearchIssue | SearchPullRequest\n\
+                 \"Search node\"\n\
+                 type SearchNode { id: ID! }",
             )
             .unwrap();
 
