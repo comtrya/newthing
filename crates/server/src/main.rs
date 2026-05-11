@@ -3437,7 +3437,7 @@ fn cue_top_level_keyed_objects(source: &str) -> Result<Vec<(String, String)>, St
     let mut objects = Vec::new();
     let mut offset = 0usize;
     while offset < source.len() {
-        let Some((key, colon_index)) = cue_next_key_colon(source, offset) else {
+        let Some((key, colon_index)) = cue_next_key_colon(source, offset)? else {
             break;
         };
         let Some((open_index, open_char)) = cue_first_significant_char(source, colon_index + 1)
@@ -3455,7 +3455,7 @@ fn cue_top_level_keyed_objects(source: &str) -> Result<Vec<(String, String)>, St
     Ok(objects)
 }
 
-fn cue_next_key_colon(source: &str, offset: usize) -> Option<(String, usize)> {
+fn cue_next_key_colon(source: &str, offset: usize) -> Result<Option<(String, usize)>, String> {
     let mut absolute_offset = offset;
     for line in source[offset..].split_inclusive('\n') {
         let stripped = cue_strip_line_comment(line);
@@ -3481,21 +3481,41 @@ fn cue_next_key_colon(source: &str, offset: usize) -> Option<(String, usize)> {
                     let colon_after_key = after_key.trim_start();
                     if colon_after_key.starts_with(':') {
                         let colon_relative = trimmed.len() - colon_after_key.len();
-                        return Some((rest[..relative].to_string(), key_start + colon_relative));
+                        return Ok(Some((
+                            rest[..relative].to_string(),
+                            key_start + colon_relative,
+                        )));
                     }
                     break;
                 }
             }
         } else {
-            let colon_relative = trimmed.find(':')?;
+            let Some(colon_relative) = trimmed.find(':') else {
+                absolute_offset += line.len();
+                continue;
+            };
             let key = trimmed[..colon_relative].trim();
-            if !key.is_empty() && key.chars().all(|ch| cue_identifier_char(Some(ch))) {
-                return Some((key.to_string(), key_start + colon_relative));
+            if key.contains('-') {
+                return Err(format!(
+                    "extension label {key:?} must be quoted because raw CUE labels cannot contain '-'"
+                ));
+            }
+            if !key.is_empty() && key.chars().all(cue_raw_label_char) {
+                return Ok(Some((key.to_string(), key_start + colon_relative)));
+            }
+            if !key.is_empty() {
+                return Err(format!(
+                    "extension label {key:?} is not a valid raw CUE label"
+                ));
             }
         }
         absolute_offset += line.len();
     }
-    None
+    Ok(None)
+}
+
+fn cue_raw_label_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }
 
 fn cue_first_significant_char(source: &str, start: usize) -> Option<(usize, char)> {
@@ -4184,6 +4204,31 @@ extensions: checks: {
                 path: "ext_checks".to_string()
             }
         );
+    }
+
+    #[test]
+    fn config_loader_rejects_unquoted_hyphenated_extension_labels() {
+        let dir = temp_dir("config-extension-invalid-raw-label");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: {
+  pull-requests: {
+    source: {
+      kind: "local"
+      path: "ext_pull_requests"
+    }
+  }
+}
+"#,
+        )
+        .unwrap();
+
+        let error = load_config_file(&config_path).unwrap_err();
+
+        assert!(error.contains("must be quoted"));
     }
 
     #[test]
