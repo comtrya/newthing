@@ -19,7 +19,10 @@ starts both processes, probes the frontend health/readiness/Auth/GraphQL/events/
 extensions/Git boundaries, and then keeps the stack running for manual browser
 testing. Use
 `FORGEPOINT_ONESHOT=1 ./start.sh` when you want the same smoke test to stop the
-server and exit after the probes pass.
+server and exit after the probes pass. Oneshot runs default to
+`FORGEPOINT_SESSION_TTL_SECONDS=2` so the smoke path can prove expired browser
+session tokens fail closed without waiting five minutes; normal interactive runs
+keep the five-minute session TTL unless you set the variable yourself.
 
 `./start.sh` seeds demo input into
 `$FORGEPOINT_DATA_DIR/metadata/demo-state.json` from
@@ -76,7 +79,7 @@ Ready means the runtime is safe to run as a production-style test bed:
 - the seeded bare Git repository HEAD and expected demo branch refs validate at startup
 - browser CORS checks are enforced
 - operator-code based testbed token exchange issues five-minute scoped credentials
-- SSE and extension asset session tokens are single-use
+- SSE and extension asset session tokens are single-use and expire fail-closed
 - the Astro frontend fronts the Rust API without injecting credentials
 - the repository UI renders live Git refs, branches, commits, tree entries, blob previews, diffs, and Git/storage-derived metric counts; the SSR shell exposes the same head OID that GraphQL and Git clone/fetch return; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
 - first-party pull request, code browser, and checks extensions are loaded from disk, compiled/instantiated as Component Model components through Wasmtime, and exposed through `/_extensions/...` with typed resolver output summaries

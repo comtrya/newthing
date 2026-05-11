@@ -21,7 +21,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: `start.sh` validates the SSR-rendered frontend head OID matches GraphQL and cloned Git HEAD.
 - Real: `start.sh` validates the GraphQL diff patch exactly matches `git diff --patch --find-renames HEAD~1 HEAD` from the cloned repository.
 - Real: `start.sh` prints the seeded repository path, live branch list, and installed extension list from GraphQL.
-- Real: `start.sh` validates Git no-token, wrong-token, missing-`git:read`, single-use session reuse, and receive-pack fail-closed auth/error behavior.
+- Real: `start.sh` validates Git no-token, wrong-token, missing-`git:read`, single-use and expired session failures, and receive-pack fail-closed auth/error behavior.
 - Real: Rust route tests cover Git upload-pack no-auth, wrong-scope, path traversal, and receive-pack fail-closed behavior.
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
 - Real: Rust tests prove first-party extension manifests load from disk with expected component/resolver/output metadata.
@@ -268,8 +268,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Add smoke validation that deleting or changing runtime PR/check storage changes UI output.
 - Smoke validates receive-pack fails with the documented explicit `UNSUPPORTED` error until push is implemented.
 - Real: smoke validates unsupported old/v1 routes return explicit `UNSUPPORTED` errors, not fake success.
-- Smoke validates auth failure for no token, wrong token, token without `git:read`, and single-use session reuse.
-- Add smoke validation for expired session reuse.
+- Smoke validates auth failure for no token, wrong token, token without `git:read`, single-use session reuse, and expired session rejection.
 
 ## 12. Unsupported V1 Surfaces Must Be Enumerated
 

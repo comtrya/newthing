@@ -100,6 +100,7 @@ struct StartupOptions {
     check: bool,
     tls_terminated: bool,
     operator_code: Option<String>,
+    session_ttl_seconds: u64,
 }
 
 impl StartupOptions {
@@ -153,6 +154,7 @@ impl StartupOptions {
             check,
             tls_terminated: env_truthy("FORGEPOINT_TLS_TERMINATED"),
             operator_code: std::env::var("FORGEPOINT_OPERATOR_CODE").ok(),
+            session_ttl_seconds: env_u64("FORGEPOINT_SESSION_TTL_SECONDS", 300),
         }
     }
 }
@@ -545,7 +547,7 @@ impl Runtime {
                 token.clone(),
                 SessionRecord {
                     principal,
-                    expires_at: now_seconds() + 300,
+                    expires_at: now_seconds().saturating_add(self.options.session_ttl_seconds),
                     used: false,
                 },
             );
@@ -919,7 +921,7 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
     let token = state.runtime.issue_session(principal);
     json_response(
         StatusCode::OK,
-        json!({"session": token, "expiresIn": 300}),
+        json!({"session": token, "expiresIn": state.runtime.options.session_ttl_seconds}),
         cors,
     )
 }
@@ -2904,6 +2906,13 @@ fn env_truthy(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn env_u64(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2947,6 +2956,10 @@ mod tests {
     }
 
     fn dev_runtime() -> Arc<Runtime> {
+        dev_runtime_with_session_ttl(300)
+    }
+
+    fn dev_runtime_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
         Arc::new(
             Runtime::start(StartupOptions {
                 config_path: None,
@@ -2956,6 +2969,7 @@ mod tests {
                 check: false,
                 tls_terminated: false,
                 operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds,
             })
             .unwrap(),
         )
@@ -3140,6 +3154,28 @@ mod tests {
         assert_eq!(second.status(), StatusCode::UNAUTHORIZED);
     }
 
+    #[tokio::test]
+    async fn expired_session_token_fails_closed_for_events() {
+        let runtime = dev_runtime_with_session_ttl(0);
+        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let mut query = HashMap::new();
+        query.insert("session".to_string(), token);
+
+        let response = events(State(AppState { runtime }), HeaderMap::new(), Query(query)).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            "UNAUTHENTICATED"
+        );
+        assert_eq!(
+            payload["errors"][0]["message"],
+            "event session is expired or already used"
+        );
+    }
+
     #[test]
     fn production_mode_requires_tls_operator_code_and_absolute_paths() {
         let mut config = InstanceConfig::minimal_dev();
@@ -3174,6 +3210,7 @@ mod tests {
             check: false,
             tls_terminated: false,
             operator_code: Some("operator-code".to_string()),
+            session_ttl_seconds: 300,
         };
 
         assert!(

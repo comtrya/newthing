@@ -86,6 +86,7 @@ load_envrc() {
     FORGEPOINT_READY_TIMEOUT_SECONDS
     FORGEPOINT_RESET_DEMO_DATA
     FORGEPOINT_SERVER_URL
+    FORGEPOINT_SESSION_TTL_SECONDS
     PUBLIC_FORGEPOINT_OPERATOR_CODE
   )
   for name in "${override_names[@]}"; do
@@ -253,6 +254,10 @@ done
 
 load_envrc
 
+if [[ "${FORGEPOINT_ONESHOT:-0}" == "1" && -z "${FORGEPOINT_SESSION_TTL_SECONDS+x}" ]]; then
+  export FORGEPOINT_SESSION_TTL_SECONDS=2
+fi
+
 CONFIG="${FORGEPOINT_CONFIG:-config/production-testbed.cue}"
 DATA_DIR="${FORGEPOINT_DATA_DIR:-/private/tmp/forgepoint-production-testbed}"
 DEMO_FIXTURE="${FORGEPOINT_DEMO_FIXTURE:-fixtures/demo/conference.json}"
@@ -266,6 +271,7 @@ FRONTEND_URL="${FORGEPOINT_FRONTEND_URL:-http://${FRONTEND_LISTEN}}"
 READY_TIMEOUT_SECONDS="${FORGEPOINT_READY_TIMEOUT_SECONDS:-30}"
 ONESHOT="${FORGEPOINT_ONESHOT:-0}"
 OPERATOR_CODE="${FORGEPOINT_OPERATOR_CODE:-}"
+SESSION_TTL_SECONDS="${FORGEPOINT_SESSION_TTL_SECONDS:-300}"
 BUN="${BUN:-$HOME/.bun/bin/bun}"
 
 if [[ "$REQUEST_RESET" == "1" ]]; then
@@ -278,6 +284,9 @@ fi
 
 if [[ "$DATA_DIR" != /* ]]; then
   fail "FORGEPOINT_DATA_DIR must be absolute in production-testbed mode: $DATA_DIR"
+fi
+if ! [[ "$SESSION_TTL_SECONDS" =~ ^[0-9]+$ ]]; then
+  fail "FORGEPOINT_SESSION_TTL_SECONDS must be an integer number of seconds: $SESSION_TTL_SECONDS"
 fi
 
 require_command cargo
@@ -292,6 +301,7 @@ export FORGEPOINT_TLS_TERMINATED=true
 export FORGEPOINT_OPERATOR_CODE="$OPERATOR_CODE"
 export FORGEPOINT_LISTEN="$BACKEND_LISTEN"
 export FORGEPOINT_SERVER_URL="$BACKEND_URL"
+export FORGEPOINT_SESSION_TTL_SECONDS="$SESSION_TTL_SECONDS"
 export PUBLIC_FORGEPOINT_OPERATOR_CODE="${PUBLIC_FORGEPOINT_OPERATOR_CODE:-$OPERATOR_CODE}"
 
 if [[ ! -f "$DEMO_FIXTURE" ]]; then
@@ -331,6 +341,7 @@ log "checking production-testbed startup gates"
 log "starting Rust server at $BACKEND_URL"
 log "starting Astro frontend at $FRONTEND_URL"
 log "data dir: $DATA_DIR"
+log "session ttl: ${SESSION_TTL_SECONDS}s"
 log "server log: $SERVER_LOG"
 log "frontend log: $FRONTEND_LOG"
 "$SERVER_BIN" >"$SERVER_LOG" 2>&1 &
@@ -429,6 +440,28 @@ expect_status "event session reuse fails closed through Astro" 401 "$TMP_DIR/eve
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
 json_assert "event session reuse fails closed through Astro" "$TMP_DIR/events-reuse.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
+
+if (( SESSION_TTL_SECONDS <= 5 )); then
+  expect_status "short-lived event session through Astro" 200 "$TMP_DIR/events-expiring-session.json" \
+    -X POST \
+    -H "origin: $FRONTEND_URL" \
+    -H "sec-fetch-site: same-origin" \
+    -H "authorization: Bearer $ACCESS_TOKEN" \
+    -H "content-type: application/json" \
+    --data '{}' \
+    "$FRONTEND_URL/events/session"
+  EXPIRING_EVENT_SESSION="$(extract_json_string session "$TMP_DIR/events-expiring-session.json")"
+  if [[ -z "$EXPIRING_EVENT_SESSION" ]]; then
+    fail "short-lived event session request did not return session"
+  fi
+  sleep "$((SESSION_TTL_SECONDS + 1))"
+  expect_status "expired event session fails closed through Astro" 401 "$TMP_DIR/events-expired.json" \
+    "$FRONTEND_URL/events?session=$EXPIRING_EVENT_SESSION"
+  json_assert "expired event session fails closed through Astro" "$TMP_DIR/events-expired.json" \
+    'json.errors[0].extensions.code === "UNAUTHENTICATED" && json.errors[0].message.includes("expired")'
+else
+  log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
+fi
 
 for extension_id in ext_pull_requests ext_code_browser ext_checks; do
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
