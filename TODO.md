@@ -251,8 +251,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: `start.sh --reset` and `FORGEPOINT_RESET_DEMO_DATA=1` intentionally reset generated runtime state.
 - Real: `start.sh` reset deletion is guarded so only generated paths under `FORGEPOINT_DATA_DIR` can be removed.
 - Real: `start.sh` prints the seeded repository path, branch list, and extension install list from live GraphQL data.
-- Add startup validation that first-party extension files exist before starting the server.
-- Add startup validation that Wasmtime components export the expected typed resolvers.
+- Real: startup validates that first-party extension files exist before starting the server.
+- Real: startup validates that Wasmtime components export the expected resolver before starting the server.
 - Startup validates extension UI manifests and backend extension manifests agree.
 - Real: startup validates that the Git repo has expected refs and HEAD.
 - Add startup validation that `.envrc` has a non-default operator code if this is used for external demos.

@@ -3670,6 +3670,18 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     }
 
     #[test]
+    fn extension_runtime_rejects_missing_first_party_files() {
+        let extension_dir = temp_dir("extension-missing-files");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        fs::remove_file(extension_dir.join("ext_checks").join("manifest.json")).unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("failed to read"));
+        assert!(error.contains("ext_checks/manifest.json"));
+    }
+
+    #[test]
     fn extension_runtime_rejects_invalid_component_bytes() {
         let extension_dir = temp_dir("extension-invalid-component");
         copy_dir_recursive(&test_extension_dir(), &extension_dir);
