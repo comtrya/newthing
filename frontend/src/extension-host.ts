@@ -7,6 +7,15 @@ export interface ExtensionContext {
   resource: string;
   routeParams: Record<string, string>;
   capabilities: Record<string, boolean>;
+  data?: {
+    slot?: string;
+    workspace?: unknown;
+    repository?: unknown;
+    extensionInstallation?: unknown;
+    extensionResolver?: unknown;
+    extensionResolvers?: unknown[];
+    activityEvents?: unknown[];
+  };
 }
 
 export class ExtensionHostElement extends HTMLElement {
@@ -41,12 +50,24 @@ export class ExtensionHostElement extends HTMLElement {
       resource?: string;
       routeParams?: Record<string, string>;
       capabilities?: Record<string, boolean>;
+      comtryaData?: ExtensionContext["data"];
+      comtryaRepository?: unknown;
+      extensionResolver?: unknown;
+      extensionResolvers?: unknown[];
+      extensionInstallation?: unknown;
+      extensionSlot?: string;
     };
     element.comtryaClient = this.context.comtryaClient;
     element.viewer = this.context.viewer;
     element.resource = this.context.resource;
     element.routeParams = this.context.routeParams;
     element.capabilities = this.context.capabilities;
+    element.comtryaData = this.context.data;
+    element.comtryaRepository = this.context.data?.repository;
+    element.extensionResolver = this.context.data?.extensionResolver;
+    element.extensionResolvers = this.context.data?.extensionResolvers;
+    element.extensionInstallation = this.context.data?.extensionInstallation;
+    element.extensionSlot = slot?.slot;
     this.replaceChildren(element);
   }
 }

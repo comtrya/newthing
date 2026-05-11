@@ -1,8 +1,5 @@
-import { FileDiff, parsePatchFiles } from "@pierre/diffs";
-import { FileTree } from "@pierre/trees";
-import type { GitStatusEntry } from "@pierre/trees";
 import { HttpComtryaClient } from "./client";
-import type { ExtensionUiManifest, ComtryaEvent } from "./contracts";
+import type { ExtensionUiManifest, ComtryaClient, ComtryaEvent } from "./contracts";
 import { validateUiManifest } from "./contracts";
 import "./extension-host";
 
@@ -13,8 +10,32 @@ const app = document.querySelector<HTMLElement>("#app");
 const serverURL = import.meta.env.PUBLIC_COMTRYA_SERVER_URL || window.location.origin;
 const seededOperatorCode = import.meta.env.PUBLIC_COMTRYA_OPERATOR_CODE || "";
 const client = new HttpComtryaClient(serverURL);
-let repositoryTree: FileTree | undefined;
-let reviewDiff: FileDiff | undefined;
+const extensionClient: ComtryaClient = {
+  query: async <TData = unknown, TVars = Record<string, unknown>>(
+    document: string,
+    variables?: TVars,
+    opts?: { signal?: AbortSignal; operationName?: string },
+  ): Promise<TData> => {
+    if (state.graphql) {
+      return state.graphql as TData;
+    }
+    return client.query<TData, TVars>(document, variables, opts);
+  },
+  mutate: <TData = unknown, TVars = Record<string, unknown>>(
+    document: string,
+    variables?: TVars,
+    opts?: { signal?: AbortSignal; operationName?: string },
+  ): Promise<TData> => client.mutate<TData, TVars>(document, variables, opts),
+  subscribe: <TData = unknown, TVars = Record<string, unknown>>(
+    document: string,
+    variables?: TVars,
+    opts?: { signal?: AbortSignal; operationName?: string },
+  ): AsyncIterable<TData> => client.subscribe<TData, TVars>(document, variables, opts),
+  permissions: (resourceURN: string): Promise<string[]> => client.permissions(resourceURN),
+  events: (filter, opts): AsyncIterable<ComtryaEvent> => client.events(filter, opts),
+  navigate: (path, opts): void => client.navigate(path, opts),
+  toast: (level, message): void => client.toast(level, message),
+};
 
 type ReadyPayload = {
   ready: boolean;
@@ -135,6 +156,7 @@ type ExtensionMountIssue = {
   extensionId: string;
   extensionName: string;
   kind: ExtensionMountIssueKind;
+  slotName?: string;
   title: string;
   detail: string;
 };
@@ -179,6 +201,34 @@ function setStatus(selector: string, ok: boolean, label: string): void {
   }
   element.className = ok ? "status-pill status-ok" : "status-pill status-warn";
   element.textContent = label;
+}
+
+const SLOT_LABELS: Record<string, { title: string; detail: string }> = {
+  "repository.code": {
+    title: "Code Browser",
+    detail: "Connect to load repository files.",
+  },
+  "repository.overview": {
+    title: "Pull Requests",
+    detail: "Connect to load review state.",
+  },
+  "repository.checks": {
+    title: "Checks",
+    detail: "Connect to load check runs.",
+  },
+};
+
+function slotPlaceholderMarkup(slotName: string): string {
+  const label = SLOT_LABELS[slotName] ?? {
+    title: "Extension slot",
+    detail: "Waiting for a matching extension manifest slot.",
+  };
+  return `
+    <article class="extension-placeholder" data-extension-slot-placeholder="${escapeHtml(slotName)}">
+      <strong>${escapeHtml(label.title)}</strong>
+      <span>${escapeHtml(label.detail)}</span>
+    </article>
+  `;
 }
 
 function renderShell(): void {
@@ -245,31 +295,15 @@ function renderShell(): void {
           <article><span>Checks</span><strong id="metric-checks">0/0</strong></article>
         </section>
 
-        <section id="code" class="workbench">
-          <div class="workbench-main panel">
+        <section class="repo-context-grid">
+          <aside class="panel intelligence-panel">
             <div class="panel-heading">
               <div>
-                <h2>Repository</h2>
+                <h2>Repository Context</h2>
                 <p id="branch-summary">main</p>
               </div>
               <code id="commit-hash">------</code>
             </div>
-            <div class="repo-workspace">
-              <div id="file-tree" class="tree-host" aria-label="Repository file tree"></div>
-              <div>
-                <pre id="file-preview" class="file-preview"></pre>
-                <div class="diff-panel">
-                  <div class="diff-header">
-                    <strong id="diff-path">Review diff</strong>
-                    <span>Rendered by @pierre/diffs</span>
-                  </div>
-                  <div id="review-diff" class="review-diff"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <aside class="panel intelligence-panel">
-            <h2>Repository Intelligence</h2>
             <dl>
               <div><dt>Language</dt><dd id="repo-language">unknown</dd></div>
               <div><dt>License</dt><dd id="repo-license">unknown</dd></div>
@@ -281,61 +315,68 @@ function renderShell(): void {
             <h3>Refs</h3>
             <ol id="ref-list" class="compact-list"></ol>
           </aside>
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Commits</h2>
+                <p>Live commit history read from the local bare Git repository.</p>
+              </div>
+            </div>
+            <ol id="commit-list" class="commit-list"></ol>
+          </section>
         </section>
 
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Commits</h2>
-              <p>Live commit history read from the local bare Git repository.</p>
+        <div id="extension-slots" class="extension-surfaces" data-smoke="manifest-driven-extension-slots">
+          <section id="code" class="panel extension-zone">
+            <div class="panel-heading">
+              <div>
+                <h2>Code Browser</h2>
+                <p>Tree, blobs, and review context.</p>
+              </div>
+              <span class="status-pill status-warn">extension</span>
             </div>
-          </div>
-          <ol id="commit-list" class="commit-list"></ol>
-        </section>
+            <div class="extension-slot-mount" data-extension-slot-mount="repository.code">
+              ${slotPlaceholderMarkup("repository.code")}
+            </div>
+          </section>
 
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Blob Previews</h2>
-              <p>Blob object metadata and previews from Git object storage.</p>
+          <section id="pulls" class="panel extension-zone">
+            <div class="panel-heading">
+              <div>
+                <h2>Pull Requests</h2>
+                <p>Reviews, branch comparison, and merge readiness.</p>
+              </div>
+              <span id="graphql-pill" class="status-pill status-warn">waiting</span>
             </div>
-          </div>
-          <div id="blob-list" class="blob-list"></div>
-        </section>
+            <div class="extension-slot-mount" data-extension-slot-mount="repository.overview">
+              ${slotPlaceholderMarkup("repository.overview")}
+            </div>
+          </section>
 
-        <section id="pulls" class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Pull Requests</h2>
-              <p>First-party PR extension data rendered in the host UI.</p>
+          <section id="checks" class="panel extension-zone">
+            <div class="panel-heading">
+              <div>
+                <h2>Checks</h2>
+                <p>CI, deployment evidence, and protected branch state.</p>
+              </div>
+              <span id="checks-pill" class="status-pill status-warn">waiting</span>
             </div>
-            <span id="graphql-pill" class="status-pill status-warn">waiting</span>
-          </div>
-          <div id="pull-list" class="pull-list"></div>
-        </section>
-
-        <section id="checks" class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Checks</h2>
-              <p>Protected-branch status, CI evidence, and extension-owned signals.</p>
+            <div class="extension-slot-mount" data-extension-slot-mount="repository.checks">
+              ${slotPlaceholderMarkup("repository.checks")}
             </div>
-            <span id="checks-pill" class="status-pill status-warn">waiting</span>
-          </div>
-          <div id="check-list" class="check-list"></div>
-        </section>
+          </section>
+        </div>
 
         <section id="extensions" class="panel">
           <div class="panel-heading">
             <div>
               <h2>Extensions</h2>
-              <p>Runtime-discovered manifests and ESM web components served by Rust.</p>
+              <p>Installed surfaces, resolver output, and load status.</p>
             </div>
             <span id="extension-pill" class="status-pill status-warn">not loaded</span>
           </div>
           <div id="extension-registry" class="extension-registry"></div>
           <div id="extension-errors" class="extension-errors" aria-live="polite"></div>
-          <div id="extension-slots" class="extension-grid" data-smoke="manifest-driven-extension-slots"></div>
         </section>
 
         <section id="activity" class="activity-grid">
@@ -443,78 +484,10 @@ function renderData(): void {
   setText("#tree-count", demo.treeEntries.length);
   setText("#blob-count", demo.blobs.length);
 
-  void renderFiles(demo);
   renderRefs(demo);
   renderCommits(demo);
-  renderBlobs(demo);
-  renderPulls(demo);
-  renderChecks(demo);
   renderExtensionRegistry(demo);
   renderActivity(demo);
-}
-
-async function renderFiles(demo: DemoState): Promise<void> {
-  const treeMount = app?.querySelector<HTMLElement>("#file-tree");
-  const preview = app?.querySelector<HTMLPreElement>("#file-preview");
-  const diffPath = app?.querySelector<HTMLElement>("#diff-path");
-  const reviewDiffMount = app?.querySelector<HTMLElement>("#review-diff");
-  if (!treeMount || !preview || !reviewDiffMount) {
-    return;
-  }
-
-  const fileByPath = new Map(demo.files.map((file) => [file.path, file]));
-  const paths = demo.files.map((file) => file.path);
-  const gitStatus: GitStatusEntry[] = demo.files.map((file) => ({
-    path: file.path,
-    status: statusForFile(file.status),
-  }));
-
-  repositoryTree?.cleanUp();
-  treeMount.replaceChildren();
-  repositoryTree = new FileTree({
-    density: "compact",
-    fileTreeSearchMode: "hide-non-matches",
-    flattenEmptyDirectories: true,
-    gitStatus,
-    icons: "standard",
-    initialExpansion: "open",
-    initialSelectedPaths: [paths[0] ?? ""].filter(Boolean),
-    onSelectionChange: (selectedPaths) => {
-      const selected = fileByPath.get(selectedPaths[0] ?? "") ?? demo.files[0];
-      preview.textContent = selected
-        ? `${selected.path}\n${selected.oid} | ${selected.size} bytes\n\n${selected.preview}`
-        : "";
-    },
-    paths,
-    search: true,
-    stickyFolders: true,
-  });
-  repositoryTree.render({ containerWrapper: treeMount });
-  const first = demo.files[0];
-  preview.textContent = first
-    ? `${first.path}\n${first.oid} | ${first.size} bytes\n\n${first.preview}`
-    : "";
-
-  if (diffPath) {
-    diffPath.textContent = demo.diff.path;
-  }
-  const patch = parsePatchFiles(demo.diff.patch, "comtrya-demo", true)[0];
-  const fileDiff = patch?.files[0];
-  reviewDiff?.cleanUp();
-  reviewDiffMount.replaceChildren();
-  reviewDiff = new FileDiff({
-    diffIndicators: "bars",
-    diffStyle: "unified",
-    hunkSeparators: "line-info-basic",
-    lineDiffType: "word",
-    overflow: "scroll",
-    theme: "github-light",
-  });
-  if (fileDiff) {
-    reviewDiff.render({ containerWrapper: reviewDiffMount, fileDiff });
-  } else {
-    reviewDiffMount.replaceChildren("No review diff available.");
-  }
 }
 
 function renderRefs(demo: DemoState): void {
@@ -549,86 +522,6 @@ function renderCommits(demo: DemoState): void {
             <span>${escapeHtml(commit.author)} | ${escapeHtml(commit.time)}</span>
           </div>
         </li>
-      `,
-    )
-    .join("");
-}
-
-function renderBlobs(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#blob-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.blobs
-    .slice(0, 6)
-    .map(
-      (blob) => `
-        <article>
-          <div>
-            <strong>${escapeHtml(blob.path)}</strong>
-            <span>${escapeHtml(blob.oid.slice(0, 12))} | ${blob.size} bytes</span>
-          </div>
-          <pre>${escapeHtml(blob.preview.slice(0, 360))}</pre>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-function statusForFile(status: string): GitStatusEntry["status"] {
-  if (status.includes("new") || status.includes("added")) {
-    return "added";
-  }
-  if (status.includes("deleted")) {
-    return "deleted";
-  }
-  if (status.includes("renamed")) {
-    return "renamed";
-  }
-  if (status.includes("untracked")) {
-    return "untracked";
-  }
-  return "modified";
-}
-
-function renderPulls(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#pull-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.pullRequests
-    .map(
-      (pull) => `
-        <article>
-          <div class="avatar">${escapeHtml(pull.avatar)}</div>
-          <div>
-            <strong>#${pull.number} ${escapeHtml(pull.title)}</strong>
-            <span>${escapeHtml(pull.author)} wants to merge ${escapeHtml(pull.head)} into ${escapeHtml(pull.base)}</span>
-            <small>${escapeHtml(pull.review)} · ${pull.comments} comments · ${escapeHtml(pull.changes)}</small>
-          </div>
-          <mark class="${pull.state.toLowerCase()}">${escapeHtml(pull.state)}</mark>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-function renderChecks(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#check-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.checks
-    .map(
-      (check) => `
-        <article>
-          <span class="check-icon ${check.conclusion.toLowerCase()}"></span>
-          <div>
-            <strong>${escapeHtml(check.name)}</strong>
-            <span>${escapeHtml(check.provider)} · ${escapeHtml(check.duration)}</span>
-          </div>
-          <mark class="${check.conclusion.toLowerCase()}">${escapeHtml(check.conclusion)}</mark>
-        </article>
       `,
     )
     .join("");
@@ -699,14 +592,24 @@ async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiM
   return manifest;
 }
 
-function extensionHostContext() {
+function extensionHostContext(installation: ExtensionInstallation, slotName: string) {
   const graphql = state.graphql;
+  const resolver = graphql?.extensionResolvers.find((candidate) => candidate.id === installation.id);
   return {
-    comtryaClient: client,
+    comtryaClient: extensionClient,
     viewer: graphql?.viewer ?? { authenticated: false },
     resource: DEFAULT_RESOURCE,
     routeParams: { workspace: "comtrya", repo: "comtrya" },
     capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
+    data: {
+      slot: slotName,
+      workspace: graphql?.workspace,
+      repository: graphql?.repository,
+      extensionInstallation: installation,
+      extensionResolver: resolver,
+      extensionResolvers: graphql?.extensionResolvers ?? [],
+      activityEvents: graphql?.activityEvents ?? [],
+    },
   };
 }
 
@@ -766,6 +669,55 @@ function renderExtensionIssues(issues: ExtensionMountIssue[]): void {
     .join("");
 }
 
+function extensionSlotMount(slotName: string): HTMLElement | undefined {
+  const mounts = app?.querySelectorAll<HTMLElement>("[data-extension-slot-mount]") ?? [];
+  for (const mount of mounts) {
+    if (mount.dataset.extensionSlotMount === slotName) {
+      return mount;
+    }
+  }
+  const fallback = app?.querySelector<HTMLElement>("#extension-slots");
+  return fallback?.querySelector("[data-extension-slot-mount]") ? undefined : (fallback ?? undefined);
+}
+
+function clearExtensionSlotMounts(): void {
+  const mounts = app?.querySelectorAll<HTMLElement>("[data-extension-slot-mount]") ?? [];
+  for (const mount of mounts) {
+    delete mount.dataset.extensionMounted;
+    mount.innerHTML = slotPlaceholderMarkup(mount.dataset.extensionSlotMount ?? "");
+  }
+}
+
+function issueMarkup(issue: ExtensionMountIssue): string {
+  return `
+    <article class="extension-error extension-error-${issue.kind}" data-extension-id="${escapeHtml(issue.extensionId)}">
+      <div>
+        <strong>${escapeHtml(issue.extensionName)}: ${escapeHtml(issue.title)}</strong>
+        <span>${escapeHtml(issue.detail)}</span>
+      </div>
+      <mark>${escapeHtml(issue.kind)}</mark>
+    </article>
+  `;
+}
+
+function renderSlotIssue(slotName: string, issue: ExtensionMountIssue): void {
+  const mount = extensionSlotMount(slotName);
+  if (!mount) {
+    return;
+  }
+  delete mount.dataset.extensionMounted;
+  mount.innerHTML = issueMarkup({ ...issue, slotName });
+}
+
+function renderIssueForSlots(
+  slots: ExtensionUiManifest["slots"],
+  issue: ExtensionMountIssue,
+): void {
+  for (const slot of slots) {
+    renderSlotIssue(slot.slot, { ...issue, slotName: slot.slot });
+  }
+}
+
 async function importExtensionAsset(pathname: string, version?: string): Promise<void> {
   const session = await client.issueExtensionSession();
   const url = new URL(pathname, serverURL);
@@ -777,38 +729,60 @@ async function importExtensionAsset(pathname: string, version?: string): Promise
 }
 
 async function mountExtension(installation: ExtensionInstallation): Promise<ExtensionMountResult> {
-  const issues = resolverIssuesFor(installation);
   const manifest = await fetchExtensionManifest(installation.id);
   if (manifest.id !== installation.id) {
     throw new Error(`${installation.id} manifest id mismatch: ${manifest.id}`);
   }
-  await importExtensionAsset(manifest.assets.entry, manifest.assets.entryIntegrity);
-
-  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
-  if (!slotGrid) {
-    return { slots: 0, issues };
+  const resolverIssues = resolverIssuesFor(installation);
+  if (resolverIssues.length > 0) {
+    renderIssueForSlots(manifest.slots, resolverIssues[0]!);
+    return { slots: 0, issues: resolverIssues };
+  }
+  try {
+    await importExtensionAsset(manifest.assets.entry, manifest.assets.entryIntegrity);
+  } catch (error) {
+    const issue = {
+      extensionId: installation.id,
+      extensionName: installation.name,
+      kind: "load" as const,
+      title: "Asset import failed",
+      detail: describeError(error),
+    };
+    renderIssueForSlots(manifest.slots, issue);
+    return { slots: 0, issues: [issue] };
   }
 
+  const issues: ExtensionMountIssue[] = [];
   let mountedSlots = 0;
   for (const slot of manifest.slots) {
+    const mount = extensionSlotMount(slot.slot);
+    if (!mount) {
+      continue;
+    }
     if (!hasRequiredPermission(slot.requiredPermission)) {
-      issues.push({
+      const issue = {
         extensionId: manifest.id,
         extensionName: installation.name,
         kind: "permission",
+        slotName: slot.slot,
         title: "Permission denied",
         detail: `${slot.slot} requires ${slot.requiredPermission}.`,
-      });
+      } satisfies ExtensionMountIssue;
+      issues.push(issue);
+      renderSlotIssue(slot.slot, issue);
       continue;
     }
     if (!customElements.get(slot.element)) {
-      issues.push({
+      const issue = {
         extensionId: manifest.id,
         extensionName: installation.name,
         kind: "load",
+        slotName: slot.slot,
         title: "Element not registered",
         detail: `${slot.element} was not defined by ${manifest.assets.entry}.`,
-      });
+      } satisfies ExtensionMountIssue;
+      issues.push(issue);
+      renderSlotIssue(slot.slot, issue);
       continue;
     }
     const host = document.createElement("comtrya-extension-host") as HTMLElement & {
@@ -823,8 +797,12 @@ async function mountExtension(installation: ExtensionInstallation): Promise<Exte
     host.dataset.extensionId = manifest.id;
     host.dataset.extensionSlot = slot.slot;
     host.setAttribute("aria-label", `${installation.name} extension slot ${slot.slot}`);
-    host.configure?.(manifest, extensionHostContext(), slot.slot);
-    slotGrid.append(host);
+    host.configure?.(manifest, extensionHostContext(installation, slot.slot), slot.slot);
+    if (!mount.dataset.extensionMounted) {
+      mount.replaceChildren();
+      mount.dataset.extensionMounted = "true";
+    }
+    mount.append(host);
     mountedSlots += 1;
   }
 
@@ -833,8 +811,7 @@ async function mountExtension(installation: ExtensionInstallation): Promise<Exte
 
 async function mountExtensions(): Promise<void> {
   const installations = state.graphql?.extensionInstallations ?? [];
-  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
-  slotGrid?.replaceChildren();
+  clearExtensionSlotMounts();
   if (installations.length === 0) {
     renderExtensionIssues([]);
     setStatus("#extension-pill", false, "no manifests");
