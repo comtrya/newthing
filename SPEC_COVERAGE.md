@@ -53,7 +53,7 @@ cargo run -p comtrya-cli -- restore
 Current expected results:
 
 - Rust format check passes.
-- Rust workspace tests pass: 80 core tests, 16 git-http tests, 12 extension-oci tests, 29 server route/runtime tests, and 1 MVP integration test.
+- Rust workspace tests pass: 109 core tests, 21 git-http tests, 12 extension-oci tests, 41 server route/runtime tests, and 1 MVP integration test.
 - Frontend typecheck passes through Bun's TypeScript runtime.
 - Astro frontend build passes and emits a server-rendered frontend artifact.
 - Development server check returns `comtrya-server ready=true mode=development ...`.
