@@ -758,8 +758,10 @@ impl ParsedGraphqlSdl {
             }
 
             let Some((kind_index, is_extension)) = type_definition_start(&tokens, index) else {
-                index += 1;
-                continue;
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported top-level syntax near {}",
+                    token_label(tokens.get(index))
+                )));
             };
             let (definition, extension, fields, next_index) =
                 parse_type_definition(extension_name, &tokens, kind_index, is_extension)?;
@@ -862,7 +864,10 @@ fn parse_directive_definition(
         )));
     };
 
-    Ok((name.clone(), index + 3))
+    Ok((
+        name.clone(),
+        next_top_level_definition_index(tokens, index + 3),
+    ))
 }
 
 fn parse_type_definition(
@@ -935,6 +940,31 @@ fn type_definition_start(tokens: &[GraphqlSdlToken], index: usize) -> Option<(us
     }
 }
 
+fn next_top_level_definition_index(tokens: &[GraphqlSdlToken], start: usize) -> usize {
+    let mut brace_depth = 0usize;
+    let mut paren_depth = 0usize;
+
+    for index in start..tokens.len() {
+        match tokens.get(index) {
+            Some(GraphqlSdlToken::LeftBrace) => brace_depth += 1,
+            Some(GraphqlSdlToken::RightBrace) => brace_depth = brace_depth.saturating_sub(1),
+            Some(GraphqlSdlToken::LeftParen) => paren_depth += 1,
+            Some(GraphqlSdlToken::RightParen) => paren_depth = paren_depth.saturating_sub(1),
+            _ => {}
+        }
+        if brace_depth == 0
+            && paren_depth == 0
+            && (schema_definition_start(tokens, index)
+                || token_name_eq(tokens.get(index), "directive")
+                || type_definition_start(tokens, index).is_some())
+        {
+            return index;
+        }
+    }
+
+    tokens.len()
+}
+
 fn find_definition_body(tokens: &[GraphqlSdlToken], start: usize) -> Option<usize> {
     let mut paren_depth = 0usize;
     for (offset, token) in tokens[start..].iter().enumerate() {
@@ -987,42 +1017,135 @@ fn parse_field_names(
     let mut index = start;
     let mut brace_depth = 0usize;
     let mut paren_depth = 0usize;
-    let mut saw_top_level_name = false;
 
     while index < end {
         match tokens.get(index) {
+            Some(GraphqlSdlToken::At) if brace_depth == 0 && paren_depth == 0 => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported field directive placement"
+                )));
+            }
+            Some(
+                GraphqlSdlToken::Colon | GraphqlSdlToken::LeftParen | GraphqlSdlToken::RightParen,
+            ) if brace_depth == 0 && paren_depth == 0 => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported field syntax"
+                )));
+            }
             Some(GraphqlSdlToken::LeftBrace) => brace_depth += 1,
             Some(GraphqlSdlToken::RightBrace) => brace_depth = brace_depth.saturating_sub(1),
             Some(GraphqlSdlToken::LeftParen) => paren_depth += 1,
             Some(GraphqlSdlToken::RightParen) => paren_depth = paren_depth.saturating_sub(1),
             Some(GraphqlSdlToken::Name(name)) if brace_depth == 0 && paren_depth == 0 => {
-                saw_top_level_name = true;
-                if field_name_is_followed_by_type(tokens, index, end) {
+                if let Some(colon_index) = field_type_colon_index(tokens, index, end) {
                     fields.push(name.clone());
+                    index = consume_field_type_and_directives(
+                        extension_name,
+                        tokens,
+                        colon_index + 1,
+                        end,
+                    )?;
+                    continue;
                 }
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported field syntax near {name}"
+                )));
             }
             _ => {}
         }
         index += 1;
     }
 
-    if fields.is_empty() && saw_top_level_name {
-        return Err(CoreError::extension_activation_failed(format!(
-            "extension {extension_name} SDL contains unsupported field syntax"
-        )));
-    }
-
     Ok(fields)
 }
 
-fn field_name_is_followed_by_type(tokens: &[GraphqlSdlToken], index: usize, end: usize) -> bool {
+fn field_type_colon_index(tokens: &[GraphqlSdlToken], index: usize, end: usize) -> Option<usize> {
     match tokens.get(index + 1) {
-        Some(GraphqlSdlToken::Colon) => true,
+        Some(GraphqlSdlToken::Colon) => Some(index + 1),
         Some(GraphqlSdlToken::LeftParen) => matching_paren(tokens, index + 1, end)
-            .and_then(|close_paren| tokens.get(close_paren + 1))
-            .is_some_and(|token| matches!(token, GraphqlSdlToken::Colon)),
-        _ => false,
+            .filter(|close_paren| {
+                matches!(tokens.get(close_paren + 1), Some(GraphqlSdlToken::Colon))
+            })
+            .map(|close_paren| close_paren + 1),
+        _ => None,
     }
+}
+
+fn consume_field_type_and_directives(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+    mut index: usize,
+    end: usize,
+) -> CoreResult<usize> {
+    let mut saw_type_name = false;
+
+    while index < end {
+        match tokens.get(index) {
+            Some(GraphqlSdlToken::Name(_)) if !saw_type_name => {
+                saw_type_name = true;
+                index += 1;
+            }
+            Some(GraphqlSdlToken::Name(_))
+                if field_type_colon_index(tokens, index, end).is_some() =>
+            {
+                return Ok(index);
+            }
+            Some(GraphqlSdlToken::Name(name)) => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported field syntax near {name}"
+                )));
+            }
+            Some(GraphqlSdlToken::At) if saw_type_name => {
+                index = skip_directive_usage_tokens(extension_name, tokens, index, end)?;
+            }
+            Some(GraphqlSdlToken::At) => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL field type is missing before directive"
+                )));
+            }
+            Some(
+                GraphqlSdlToken::Colon | GraphqlSdlToken::LeftParen | GraphqlSdlToken::RightParen,
+            ) => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported field syntax"
+                )));
+            }
+            Some(GraphqlSdlToken::LeftBrace | GraphqlSdlToken::RightBrace) | None => break,
+        }
+    }
+
+    if !saw_type_name {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL field is missing a type"
+        )));
+    }
+
+    Ok(index)
+}
+
+fn skip_directive_usage_tokens(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+    index: usize,
+    end: usize,
+) -> CoreResult<usize> {
+    let Some(GraphqlSdlToken::Name(_)) = tokens.get(index + 1) else {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL directive usage must name a directive"
+        )));
+    };
+
+    let mut next = index + 2;
+    if matches!(tokens.get(next), Some(GraphqlSdlToken::LeftParen)) {
+        next = matching_paren(tokens, next, end)
+            .map(|close_paren| close_paren + 1)
+            .ok_or_else(|| {
+                CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unbalanced parentheses"
+                ))
+            })?;
+    }
+    Ok(next)
 }
 
 fn matching_paren(tokens: &[GraphqlSdlToken], open_paren: usize, end: usize) -> Option<usize> {
@@ -1290,6 +1413,19 @@ fn is_top_level_definition_keyword(name: &str) -> bool {
 
 fn token_name_eq(token: Option<&GraphqlSdlToken>, expected: &str) -> bool {
     matches!(token, Some(GraphqlSdlToken::Name(name)) if name == expected)
+}
+
+fn token_label(token: Option<&GraphqlSdlToken>) -> String {
+    match token {
+        Some(GraphqlSdlToken::Name(name)) => format!("`{name}`"),
+        Some(GraphqlSdlToken::At) => "`@`".to_string(),
+        Some(GraphqlSdlToken::LeftBrace) => "`{`".to_string(),
+        Some(GraphqlSdlToken::RightBrace) => "`}`".to_string(),
+        Some(GraphqlSdlToken::LeftParen) => "`(`".to_string(),
+        Some(GraphqlSdlToken::RightParen) => "`)`".to_string(),
+        Some(GraphqlSdlToken::Colon) => "`:`".to_string(),
+        None => "end of input".to_string(),
+    }
 }
 
 fn is_graphql_name_start(char: char) -> bool {
@@ -1615,6 +1751,36 @@ mod tests {
         assert!(missing_colon.message.contains("unsupported field syntax"));
         assert_eq!(unbalanced.code, ErrorCode::ExtensionActivationFailed);
         assert!(unbalanced.message.contains("unbalanced braces"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_partial_valid_malformed_field_blocks() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("bad", "extend type Query { ok: String broken String }")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("unsupported field syntax"));
+        assert!(err.message.contains("broken"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_top_level_junk() {
+        let composer = GraphqlComposer::default();
+        let leading = composer
+            .compose("bad", "junk extend type Query { ok: String }")
+            .unwrap_err();
+        let trailing = composer
+            .compose("bad", "extend type Query { ok: String } junk")
+            .unwrap_err();
+
+        assert_eq!(leading.code, ErrorCode::ExtensionActivationFailed);
+        assert!(leading.message.contains("unsupported top-level syntax"));
+        assert!(leading.message.contains("junk"));
+        assert_eq!(trailing.code, ErrorCode::ExtensionActivationFailed);
+        assert!(trailing.message.contains("unsupported top-level syntax"));
+        assert!(trailing.message.contains("junk"));
     }
 
     #[test]
