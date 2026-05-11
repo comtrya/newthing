@@ -331,7 +331,6 @@ dependencies = [
  "axum",
  "bytes",
  "comtrya-core",
- "comtrya-extension-oci",
  "comtrya-git-http",
  "serde",
  "serde_json",

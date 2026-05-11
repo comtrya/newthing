@@ -10,7 +10,6 @@ use comtrya_core::{
     ExtensionSource, InstanceCapabilities, InstanceConfig, OciReference, RepoStorageBackend,
     ResourceRef, TokenAction, allowed_methods_for_route,
 };
-use comtrya_extension_oci::ExtensionCache;
 use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -270,6 +269,8 @@ struct WasmtimeResolverRecord {
     status: String,
     #[serde(skip)]
     root: PathBuf,
+    #[serde(skip)]
+    ui_manifest: PathBuf,
 }
 
 #[derive(Debug)]
@@ -317,12 +318,9 @@ impl Runtime {
             .map_err(|error| format!("demo repository validation failed: {error}"))?;
         let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
-        let extension_runtime = load_configured_extension_runtime(
-            &options.extension_dir,
-            &options.data_dir,
-            &config.extensions,
-        )
-        .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
+        let extension_runtime =
+            load_configured_extension_runtime(&options.extension_dir, &config.extensions)
+                .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -401,7 +399,7 @@ impl Runtime {
             .iter()
             .filter(|ext| ext.enabled)
             .count();
-        let resolvers_executed = if enabled_extension_configs == 0 {
+        let resolvers_executed = if self.config.extensions.is_empty() {
             FIRST_PARTY_EXTENSIONS
                 .iter()
                 .all(|id| self.extension_runtime.contains_key(*id))
@@ -503,10 +501,10 @@ impl Runtime {
     }
 
     fn extension_manifest_body(&self, extension: &str) -> Result<Option<String>, String> {
-        let Some(root) = self.extension_root(extension) else {
+        let Some(record) = self.extension_runtime_record(extension) else {
             return Ok(None);
         };
-        fs::read_to_string(root.join("ui/manifest.json"))
+        fs::read_to_string(&record.ui_manifest)
             .map(Some)
             .map_err(|error| format!("failed to read UI manifest for {extension}: {error}"))
     }
@@ -544,15 +542,15 @@ impl Runtime {
     }
 
     fn extension_root(&self, extension: &str) -> Option<PathBuf> {
-        if extension == "ext_01hv" {
-            return self.extension_root("ext_pull_requests");
-        }
-        if !self.extension_runtime.contains_key(extension) {
-            return None;
-        }
-        self.extension_runtime
-            .get(extension)
+        self.extension_runtime_record(extension)
             .map(|record| record.root.clone())
+    }
+
+    fn extension_runtime_record(&self, extension: &str) -> Option<&WasmtimeResolverRecord> {
+        if extension == "ext_01hv" {
+            return self.extension_runtime_record("ext_pull_requests");
+        }
+        self.extension_runtime.get(extension)
     }
 
     fn check_boundary(&self, headers: &HeaderMap, route: &str) -> Result<HeaderMap, Response> {
@@ -2606,7 +2604,11 @@ fn stable_slug(value: &str) -> String {
     slug.trim_matches('_').to_string()
 }
 
-fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> Result<(), String> {
+fn validate_extension_manifest_pair(
+    id: &str,
+    root: &Path,
+    manifest: &Value,
+) -> Result<PathBuf, String> {
     if manifest.get("schemaVersion").and_then(Value::as_str) != Some("comtrya.extension/v1") {
         return Err(format!(
             "{id} backend manifest has unsupported schemaVersion"
@@ -2689,7 +2691,7 @@ fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> 
     {
         return Err(format!("{id} UI manifest must declare at least one slot"));
     }
-    Ok(())
+    Ok(ui_manifest_path)
 }
 
 fn asset_integrity(body: &[u8]) -> String {
@@ -2726,15 +2728,17 @@ fn load_extension_runtime(
 
 fn load_configured_extension_runtime(
     extension_dir: &Path,
-    data_dir: &Path,
     configs: &[ExtensionInstallConfig],
 ) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+    if configs.is_empty() {
+        return load_extension_runtime(extension_dir);
+    }
     let enabled = configs
         .iter()
         .filter(|config| config.enabled)
         .collect::<Vec<_>>();
     if enabled.is_empty() {
-        return load_extension_runtime(extension_dir);
+        return Ok(BTreeMap::new());
     }
 
     let mut packages = Vec::new();
@@ -2742,95 +2746,57 @@ fn load_configured_extension_runtime(
         match &config.source {
             ExtensionSource::Local { path } => packages.push(ExtensionPackageRoot {
                 configured_id: config.id.clone(),
-                root: resolve_local_extension_package(extension_dir, path),
+                root: resolve_local_extension_package(extension_dir, path)?,
             }),
             ExtensionSource::Oci {
                 registry,
                 image,
                 reference,
             } => {
-                resolve_oci_extension_package(data_dir, config, registry, image, reference)?;
+                return Err(unsupported_oci_extension(
+                    config, registry, image, reference,
+                ));
             }
         }
     }
     load_extension_packages(packages)
 }
 
-fn resolve_local_extension_package(extension_dir: &Path, path: &str) -> PathBuf {
+fn resolve_local_extension_package(extension_dir: &Path, path: &str) -> Result<PathBuf, String> {
     let path = Path::new(path);
     if path.is_absolute() {
-        return path.to_path_buf();
+        return Err(format!(
+            "local extension path {} must be relative to COMTRYA_EXTENSION_DIR",
+            path.display()
+        ));
     }
-    let extension_dir_relative = extension_dir.join(path);
-    if extension_dir_relative.exists() {
-        extension_dir_relative
-    } else {
-        absolute_path(path.to_path_buf())
+    for component in path.components() {
+        if !matches!(
+            component,
+            std::path::Component::Normal(_) | std::path::Component::CurDir
+        ) {
+            return Err(format!(
+                "local extension path {} must stay within COMTRYA_EXTENSION_DIR",
+                path.display()
+            ));
+        }
     }
+    Ok(extension_dir.join(path))
 }
 
-fn resolve_oci_extension_package(
-    data_dir: &Path,
+fn unsupported_oci_extension(
     config: &ExtensionInstallConfig,
     registry: &str,
     image: &str,
     reference: &OciReference,
-) -> Result<(), String> {
-    let reference = reference.as_ref_str();
-    let cache_dir = data_dir.join("extensions/oci-cache");
-    let cache = ExtensionCache::new(cache_dir.clone()).map_err(|error| {
-        format!(
-            "extension {} uses OCI source {}/{}:{}, but the cache at {} could not be opened: {error}",
-            config.id,
-            registry,
-            image,
-            reference,
-            cache_dir.display()
-        )
-    })?;
-    let cache_key = ExtensionCache::compute_cache_key(registry, image, reference);
-    if !cache.is_cached(&cache_key) {
-        return Err(format!(
-            "extension {} uses OCI source {}/{}:{}, but no cached artifact was found in {}. Server startup resolves OCI extensions offline; prefetch this extension into the cache or configure source.kind: \"local\" with a package path.",
-            config.id,
-            registry,
-            image,
-            reference,
-            cache_dir.display()
-        ));
-    }
-    match cache.verify_checksum(&cache_key) {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err(format!(
-                "extension {} uses OCI source {}/{}:{}, but cached artifact {} failed checksum verification. Refresh the OCI cache or remove the corrupt cache entry.",
-                config.id,
-                registry,
-                image,
-                reference,
-                cache.wasm_path(&cache_key).display()
-            ));
-        }
-        Err(error) => {
-            return Err(format!(
-                "extension {} uses OCI source {}/{}:{}, but cached artifact {} could not be verified: {error}. Refresh the OCI cache or configure source.kind: \"local\" with a package path.",
-                config.id,
-                registry,
-                image,
-                reference,
-                cache.wasm_path(&cache_key).display()
-            ));
-        }
-    }
-
-    Err(format!(
-        "extension {} uses OCI source {}/{}:{} and resolved cached Wasm at {}, but server startup still needs a local extension package with manifest.json and UI assets. Configure source.kind: \"local\" with a package path until OCI package unpacking is available.",
+) -> String {
+    format!(
+        "extension {} uses OCI source {}/{}:{}, but OCI extension installs are not supported by server startup yet. Configure source.kind: \"local\" with a package path under COMTRYA_EXTENSION_DIR.",
         config.id,
         registry,
         image,
-        reference,
-        cache.wasm_path(&cache_key).display()
-    ))
+        reference.as_ref_str()
+    )
 }
 
 fn load_extension_packages(
@@ -2862,7 +2828,7 @@ fn load_extension_packages(
                 root.display()
             ));
         }
-        validate_extension_manifest_pair(id, &root, &manifest)?;
+        let ui_manifest = validate_extension_manifest_pair(id, &root, &manifest)?;
         let component_name = manifest
             .get("wasmComponent")
             .and_then(Value::as_str)
@@ -2906,6 +2872,7 @@ fn load_extension_packages(
                     output_type: output_type.to_string(),
                     status: "executed".to_string(),
                     root,
+                    ui_manifest,
                 },
             )
             .is_some()
@@ -3247,20 +3214,49 @@ fn quoted_array(line: &str, key: &str) -> Option<Vec<String>> {
 fn cue_extension_install_configs(
     source: &str,
 ) -> Result<Option<Vec<ExtensionInstallConfig>>, String> {
-    let Some(body) = cue_balanced_body_after_key(source, "extensions", '[', ']')? else {
+    let Some(key_offset) = cue_key_offset(source, "extensions") else {
         return Ok(None);
     };
-    let blocks = cue_top_level_objects(&body)?;
+    let colon_index = source[key_offset..]
+        .find(':')
+        .map(|relative| key_offset + relative)
+        .ok_or_else(|| "extensions field missing :".to_string())?;
+    let Some((value_index, value_start)) = cue_first_significant_char(source, colon_index + 1)
+    else {
+        return Ok(None);
+    };
+    if value_start == '[' {
+        return Ok(None);
+    }
+    let body = if value_start == '{' {
+        let close_index = cue_balanced_close(source, value_index, '{', '}')
+            .ok_or_else(|| "extensions map has an unclosed { block".to_string())?;
+        source[value_index + 1..close_index].to_string()
+    } else {
+        let open_index = source[value_index..]
+            .find('{')
+            .map(|relative| value_index + relative)
+            .ok_or_else(|| "extensions keyed entry missing { block".to_string())?;
+        let close_index = cue_balanced_close(source, open_index, '{', '}')
+            .ok_or_else(|| "extensions keyed entry has an unclosed { block".to_string())?;
+        source[value_index..=close_index].to_string()
+    };
+    let blocks = cue_top_level_keyed_objects(&body)?;
     let mut configs = Vec::new();
-    for block in blocks {
-        configs.push(cue_extension_install_config(&block)?);
+    for (id, block) in blocks {
+        configs.push(cue_extension_install_config(id, &block)?);
     }
     Ok(Some(configs))
 }
 
-fn cue_extension_install_config(block: &str) -> Result<ExtensionInstallConfig, String> {
-    let id = cue_field_string(block, "id")
-        .ok_or_else(|| "extension install entry missing id".to_string())?;
+fn cue_extension_install_config(id: String, block: &str) -> Result<ExtensionInstallConfig, String> {
+    if let Some(field_id) = cue_field_string(block, "id") {
+        if field_id != id {
+            return Err(format!(
+                "extension keyed as {id:?} must not declare mismatched id {field_id:?}"
+            ));
+        }
+    }
     let source = cue_balanced_body_after_key(block, "source", '{', '}')?
         .ok_or_else(|| format!("extension {id} missing source block"))?;
     let kind = cue_field_string(&source, "kind")
@@ -3389,57 +3385,67 @@ fn cue_balanced_close(source: &str, open_index: usize, open: char, close: char) 
     None
 }
 
-fn cue_top_level_objects(source: &str) -> Result<Vec<String>, String> {
+fn cue_top_level_keyed_objects(source: &str) -> Result<Vec<(String, String)>, String> {
     let mut objects = Vec::new();
-    let mut start = None;
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut in_line_comment = false;
-    for (index, ch) in source.char_indices() {
-        if in_line_comment {
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
+    let mut offset = 0usize;
+    while offset < source.len() {
+        let Some((key, colon_index)) = cue_next_key_colon(source, offset) else {
+            break;
+        };
+        let Some((open_index, open_char)) = cue_first_significant_char(source, colon_index + 1)
+        else {
+            return Err(format!("extension {key} missing value"));
+        };
+        if open_char != '{' {
+            return Err(format!("extension {key} value must be an object"));
         }
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if source[index..].starts_with("//") {
-            in_line_comment = true;
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if ch == '{' {
-            if depth == 0 {
-                start = Some(index);
-            }
-            depth += 1;
-        } else if ch == '}' {
-            depth = depth
-                .checked_sub(1)
-                .ok_or_else(|| "extensions block has an unmatched }".to_string())?;
-            if depth == 0 {
-                let start = start
-                    .take()
-                    .ok_or_else(|| "extensions block object ended before it began".to_string())?;
-                objects.push(source[start..=index].to_string());
-            }
-        }
-    }
-    if depth != 0 {
-        return Err("extensions block has an unclosed object".to_string());
+        let close_index = cue_balanced_close(source, open_index, '{', '}')
+            .ok_or_else(|| format!("extension {key} has an unclosed object"))?;
+        objects.push((key, source[open_index..=close_index].to_string()));
+        offset = close_index + 1;
     }
     Ok(objects)
+}
+
+fn cue_next_key_colon(source: &str, offset: usize) -> Option<(String, usize)> {
+    let mut absolute_offset = offset;
+    for line in source[offset..].split_inclusive('\n') {
+        let stripped = cue_strip_line_comment(line);
+        let trimmed = stripped.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with(',') {
+            absolute_offset += line.len();
+            continue;
+        }
+        let key_start = absolute_offset + stripped.len() - trimmed.len();
+        let colon_relative = trimmed.find(':')?;
+        let key = trimmed[..colon_relative].trim();
+        if !key.is_empty() && key.chars().all(|ch| cue_identifier_char(Some(ch))) {
+            return Some((key.to_string(), key_start + colon_relative));
+        }
+        absolute_offset += line.len();
+    }
+    None
+}
+
+fn cue_first_significant_char(source: &str, start: usize) -> Option<(usize, char)> {
+    let mut index = start;
+    while index < source.len() {
+        let remainder = &source[index..];
+        if remainder.starts_with("//") {
+            if let Some(newline) = remainder.find('\n') {
+                index += newline + 1;
+                continue;
+            }
+            return None;
+        }
+        let ch = remainder.chars().next()?;
+        if ch.is_whitespace() {
+            index += ch.len_utf8();
+            continue;
+        }
+        return Some((index, ch));
+    }
+    None
 }
 
 fn cue_field_string(source: &str, key: &str) -> Option<String> {
@@ -3835,6 +3841,54 @@ mod tests {
         assert_eq!(etag, asset_etag(&body));
     }
 
+    #[test]
+    fn extension_manifest_body_uses_backend_declared_ui_manifest_path() {
+        let extension_dir = temp_dir("declared-ui-manifest");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let extension_root = extension_dir.join("ext_checks");
+        let backend_manifest_path = extension_root.join("manifest.json");
+        let custom_manifest_path = extension_root.join("custom/ui-extension.json");
+        fs::create_dir_all(custom_manifest_path.parent().unwrap()).unwrap();
+        fs::rename(
+            extension_root.join("ui/manifest.json"),
+            &custom_manifest_path,
+        )
+        .unwrap();
+        let mut backend_manifest =
+            serde_json::from_str::<Value>(&fs::read_to_string(&backend_manifest_path).unwrap())
+                .unwrap();
+        backend_manifest["ui"]["manifest"] = json!("custom/ui-extension.json");
+        fs::write(
+            &backend_manifest_path,
+            serde_json::to_vec_pretty(&backend_manifest).unwrap(),
+        )
+        .unwrap();
+
+        let runtime = Runtime::start(StartupOptions {
+            config_path: None,
+            data_dir: temp_dir("declared-ui-manifest-data"),
+            extension_dir,
+            listen: "127.0.0.1:0".parse().unwrap(),
+            check: false,
+            tls_terminated: false,
+            operator_code: Some("testbed-operator-code".to_string()),
+            session_ttl_seconds: 300,
+            external_demo: false,
+        })
+        .unwrap();
+
+        let body = runtime
+            .extension_manifest_body("ext_checks")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            runtime.extension_runtime["ext_checks"].ui_manifest,
+            custom_manifest_path
+        );
+        assert!(body.contains("\"id\": \"ext_checks\""));
+    }
+
     #[tokio::test]
     async fn expired_session_token_fails_closed_for_events() {
         let runtime = dev_runtime_with_session_ttl(0);
@@ -3969,17 +4023,15 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             &config_path,
             r#"
 package comtrya
-extensions: [
-  {
-    id: "checks"
+extensions: {
+  checks: {
     source: {
       kind: "local"
       path: "ext_checks"
     }
     enabled: true
-  },
-  {
-    id: "pull-requests"
+  }
+  pull-requests: {
     source: {
       kind: "oci"
       registry: "ghcr.io"
@@ -3987,17 +4039,16 @@ extensions: [
       reference: "v1.0.0"
     }
     enabled: false
-  },
-  {
-    id: "code-browser"
+  }
+  code-browser: {
     source: {
       kind: "oci"
       registry: "ghcr.io"
       image: "comtrya/extensions/code-browser"
       digest: "sha256:abc123"
     }
-  },
-]
+  }
+}
 "#,
         )
         .unwrap();
@@ -4031,6 +4082,66 @@ extensions: [
             }
         );
         assert!(config.extensions[2].enabled);
+    }
+
+    #[test]
+    fn config_loader_reads_shorthand_keyed_extension_install_config() {
+        let dir = temp_dir("config-extension-shorthand");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: checks: {
+  source: {
+    kind: "local"
+    path: "ext_checks"
+  }
+  enabled: true
+}
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+
+        assert_eq!(config.extensions.len(), 1);
+        assert_eq!(config.extensions[0].id, "checks");
+        assert_eq!(
+            config.extensions[0].source,
+            ExtensionSource::Local {
+                path: "ext_checks".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn config_loader_treats_list_extension_block_as_documentation_only() {
+        let dir = temp_dir("config-extension-list-docs");
+        let config_path = dir.join("config.cue");
+        fs::write(
+            &config_path,
+            r#"
+package comtrya
+extensions: [
+  {
+    id: "checks"
+    source: {
+      kind: "oci"
+      registry: "ghcr.io"
+      image: "comtrya/extensions/checks"
+      reference: "v1.0.0"
+    }
+    enabled: true
+  },
+]
+"#,
+        )
+        .unwrap();
+
+        let config = load_config_file(&config_path).unwrap();
+
+        assert!(config.extensions.is_empty());
     }
 
     #[tokio::test]
@@ -4561,9 +4672,7 @@ extensions: [
             },
         ];
 
-        let runtime =
-            load_configured_extension_runtime(&extension_dir, &temp_dir("oci-cache"), &configs)
-                .unwrap();
+        let runtime = load_configured_extension_runtime(&extension_dir, &configs).unwrap();
 
         assert_eq!(runtime.len(), 1);
         assert!(runtime.contains_key("ext_checks"));
@@ -4571,7 +4680,33 @@ extensions: [
     }
 
     #[test]
-    fn configured_extensions_fall_back_to_first_party_when_none_enabled() {
+    fn configured_local_extensions_reject_unsafe_paths() {
+        let absolute = ExtensionInstallConfig {
+            id: "checks".to_string(),
+            source: ExtensionSource::Local {
+                path: temp_dir("absolute-extension-path").display().to_string(),
+            },
+            enabled: true,
+        };
+        let traversal = ExtensionInstallConfig {
+            id: "checks".to_string(),
+            source: ExtensionSource::Local {
+                path: "../ext_checks".to_string(),
+            },
+            enabled: true,
+        };
+
+        let absolute_error =
+            load_configured_extension_runtime(&test_extension_dir(), &[absolute]).unwrap_err();
+        let traversal_error =
+            load_configured_extension_runtime(&test_extension_dir(), &[traversal]).unwrap_err();
+
+        assert!(absolute_error.contains("must be relative to COMTRYA_EXTENSION_DIR"));
+        assert!(traversal_error.contains("must stay within COMTRYA_EXTENSION_DIR"));
+    }
+
+    #[test]
+    fn configured_extensions_load_none_when_all_declared_entries_are_disabled() {
         let configs = vec![ExtensionInstallConfig {
             id: "checks".to_string(),
             source: ExtensionSource::Local {
@@ -4580,12 +4715,14 @@ extensions: [
             enabled: false,
         }];
 
-        let runtime = load_configured_extension_runtime(
-            &test_extension_dir(),
-            &temp_dir("oci-cache"),
-            &configs,
-        )
-        .unwrap();
+        let runtime = load_configured_extension_runtime(&test_extension_dir(), &configs).unwrap();
+
+        assert!(runtime.is_empty());
+    }
+
+    #[test]
+    fn configured_extensions_fall_back_to_first_party_when_not_declared() {
+        let runtime = load_configured_extension_runtime(&test_extension_dir(), &[]).unwrap();
 
         assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
         for id in FIRST_PARTY_EXTENSIONS {
@@ -4605,15 +4742,10 @@ extensions: [
             enabled: true,
         }];
 
-        let error = load_configured_extension_runtime(
-            &test_extension_dir(),
-            &temp_dir("oci-cache"),
-            &configs,
-        )
-        .unwrap_err();
+        let error = load_configured_extension_runtime(&test_extension_dir(), &configs).unwrap_err();
 
         assert!(error.contains("extension checks uses OCI source"));
-        assert!(error.contains("no cached artifact"));
+        assert!(error.contains("OCI extension installs are not supported"));
         assert!(error.contains("source.kind: \"local\""));
     }
 
