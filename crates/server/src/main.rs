@@ -3023,6 +3023,63 @@ mod tests {
         assert!(error.contains("refs/heads/ui/repository-intelligence"));
     }
 
+    #[test]
+    fn demo_repository_seeding_is_idempotent_and_reopens_existing_repo() {
+        let data_dir = temp_dir("demo-repository-idempotent");
+        let repo = ensure_demo_repository(&data_dir).unwrap();
+        let first_head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"]).unwrap();
+
+        let reopened = ensure_demo_repository(&data_dir).unwrap();
+        let second_head = git_text(&reopened.git_dir, &["rev-parse", "refs/heads/main"]).unwrap();
+
+        assert_eq!(reopened.git_dir, repo.git_dir);
+        assert_eq!(reopened.project_root, repo.project_root);
+        assert_eq!(reopened.http_path, "forgepoint/forgepoint.git");
+        assert_eq!(first_head, second_head);
+        validate_demo_repository_refs(&reopened).unwrap();
+    }
+
+    #[test]
+    fn git_demo_snapshot_extracts_refs_tree_blobs_and_diff_from_seeded_repo() {
+        let data_dir = temp_dir("demo-repository-snapshot");
+        let repo = ensure_demo_repository(&data_dir).unwrap();
+
+        let snapshot = git_demo_snapshot(&repo).unwrap();
+
+        assert_eq!(snapshot.repository["path"], "forgepoint/forgepoint");
+        assert_eq!(snapshot.repository["defaultBranch"], "main");
+        assert_eq!(snapshot.repository["headOid"].as_str().unwrap().len(), 40);
+        assert!(snapshot.refs.iter().any(|reference| {
+            reference["name"] == "refs/heads/main"
+                && reference["target"] == snapshot.repository["headOid"]
+        }));
+        assert!(
+            snapshot
+                .branches
+                .iter()
+                .any(|branch| branch["name"] == "main")
+        );
+        assert!(snapshot.commits.len() >= 2);
+        assert!(
+            snapshot
+                .tree_entries
+                .iter()
+                .any(|entry| entry["path"] == "README.md")
+        );
+        assert!(
+            snapshot
+                .blobs
+                .iter()
+                .any(|blob| blob["path"] == "README.md")
+        );
+        assert!(
+            snapshot.diff["patch"]
+                .as_str()
+                .unwrap()
+                .contains("live Git storage")
+        );
+    }
+
     #[tokio::test]
     async fn unsupported_routes_return_registry_errors() {
         let state = AppState {

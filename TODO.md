@@ -7,6 +7,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: `start.sh` builds and launches the Rust server and Astro frontend.
 - Real: the operator-code flow exchanges the seeded `.envrc` code for a scoped bearer credential.
 - Real: the server seeds or opens a local bare Git repository under `$FORGEPOINT_DATA_DIR/repositories`.
+- Real: Rust tests cover seeded Git repository idempotent open and snapshot extraction from refs, tree, blobs, and diff.
 - Real: GraphQL returns refs, branches, commits, tree entries, blobs, file previews, and diffs derived from that Git repository.
 - Real: Git clone/fetch works through the Astro origin using a scoped Forgepoint credential.
 - Real: extension UI manifests and assets are served from `/_extensions/...`.
@@ -291,8 +292,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 ## 14. Test Matrix Needed Before Calling It Proper
 
-- Rust unit tests for Git repository seeding/opening.
-- Rust unit tests for Git snapshot extraction.
+- Real: Rust unit tests cover Git repository seeding/opening.
+- Real: Rust unit tests cover Git snapshot extraction.
 - Real: Rust route tests cover Git upload-pack auth/scope behavior.
 - Real: Rust route tests cover receive-pack fail-closed behavior.
 - Real: Rust tests cover extension manifest loading from disk.
