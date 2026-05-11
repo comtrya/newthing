@@ -87,12 +87,13 @@ Ready means the runtime is safe to run as a production-style test bed:
 - operator-code based testbed token exchange issues five-minute scoped credentials
 - SSE and extension asset session tokens are single-use and expire fail-closed
 - the Astro frontend fronts the Rust API without injecting credentials
-- the repository UI renders live Git refs, branches, commits, tree entries, blob previews, diffs, and Git/storage-derived metric counts; the SSR shell exposes the same head OID that GraphQL and Git clone/fetch return; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
+- the repository UI renders live Git refs, branches, commits, and Git/storage-derived metric counts; the SSR shell exposes the same head OID that GraphQL and Git clone/fetch return; code browsing, pull requests, and checks are mounted through extension-composed surfaces
 - first-party pull request, code browser, and checks extensions are loaded from disk, compiled/instantiated as Component Model components through Wasmtime, and exposed through `/_extensions/...` with typed resolver output summaries
 - the frontend mounts extension host elements from runtime extension installations and UI manifest slot declarations
 - extension-owned pull request/check/activity state is persisted in the versioned `$COMTRYA_DATA_DIR/extensions/storage` schema and document tables
 - Git upload-pack clone/fetch works through the Astro origin with a scoped Comtrya credential
 - smoke validation compares the GraphQL diff patch with real cloned-repository Git diff output
+- smoke validation executes the served first-party extension assets in a DOM/custom-elements runtime harness and checks mounted, non-empty code-browser, pull-request, and checks output
 - unsupported runtime surfaces are listed from one registry in `/readyz` and return `UNSUPPORTED` JSON errors
 - Git receive-pack write surfaces fail closed after authentication
 
