@@ -263,17 +263,7 @@ impl ExtensionManifest {
             wasm_component: "extension.wasm".to_string(),
             wit_world: "comtrya:extension/extension".to_string(),
             graphql_sdl: Some(
-                r#"
-                directive @pull_requests_resolver on FIELD_DEFINITION
-                extend type Query {
-                  pullRequests: [PullRequest!]! @pull_requests_resolver
-                }
-                type PullRequest {
-                  id: ID!
-                  title: String!
-                }
-                "#
-                .to_string(),
+                "extend type Repository { pullRequests: [PullRequest!]! }".to_string(),
             ),
             cue_schemas: vec!["schema.cue".to_string()],
             ui_manifest: Some("ui/manifest.json".to_string()),
@@ -467,7 +457,27 @@ pub struct GraphqlComposer {
     reserved_core_types: BTreeSet<String>,
 }
 
-const GRAPHQL_EXTENSION_ROOT_TYPES: [&str; 3] = ["Query", "Mutation", "Subscription"];
+const GRAPHQL_CORE_EXTENSION_ALLOWLIST: [&str; 4] =
+    ["Query", "Mutation", "Subscription", "Repository"];
+const GRAPHQL_ADDITIONAL_CORE_TYPES: [&str; 1] = ["Repository"];
+const GRAPHQL_REPOSITORY_CORE_FIELDS: [&str; 14] = [
+    "Repository.id",
+    "Repository.slug",
+    "Repository.path",
+    "Repository.name",
+    "Repository.visibility",
+    "Repository.defaultBranch",
+    "Repository.storageBackend",
+    "Repository.projects",
+    "Repository.refs",
+    "Repository.checks",
+    "Repository.effectiveConfig",
+    "Repository.objectAt",
+    "Repository.tree",
+    "Repository.diff",
+];
+const GRAPHQL_BUILT_IN_DIRECTIVES: [&str; 5] =
+    ["deprecated", "specifiedBy", "oneOf", "include", "skip"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComposedGraphqlArtifact {
@@ -484,20 +494,22 @@ impl Default for GraphqlComposer {
     fn default() -> Self {
         let core_sdl = ParsedGraphqlSdl::parse("comtrya-core", CORE_SDL_BASELINE)
             .expect("core GraphQL SDL baseline must parse");
-        let reserved_core_fields = core_sdl
+        let mut reserved_core_fields = core_sdl
             .fields
             .iter()
             .map(GraphqlFieldDefinition::path)
-            .collect();
-        let reserved_core_types = core_sdl
+            .collect::<BTreeSet<_>>();
+        reserved_core_fields.extend(GRAPHQL_REPOSITORY_CORE_FIELDS.into_iter().map(String::from));
+        let mut reserved_core_types = core_sdl
             .type_definitions
             .iter()
             .map(|definition| definition.name.clone())
-            .collect();
+            .collect::<BTreeSet<_>>();
+        reserved_core_types.extend(GRAPHQL_ADDITIONAL_CORE_TYPES.into_iter().map(String::from));
 
         Self {
             core_sdl: CORE_SDL_BASELINE.trim().to_string(),
-            extension_core_type_allowlist: GRAPHQL_EXTENSION_ROOT_TYPES
+            extension_core_type_allowlist: GRAPHQL_CORE_EXTENSION_ALLOWLIST
                 .into_iter()
                 .map(String::from)
                 .collect(),
@@ -601,6 +613,9 @@ impl GraphqlComposer {
             }
         }
         for directive in &parsed.directive_usages {
+            if GRAPHQL_BUILT_IN_DIRECTIVES.contains(&directive.as_str()) {
+                continue;
+            }
             if !directive.starts_with(&namespace) {
                 return Err(CoreError::extension_activation_failed(format!(
                     "extension directive usage @{directive} must be namespaced with @{namespace}"
@@ -720,6 +735,7 @@ struct ParsedGraphqlFragment<'a> {
 impl ParsedGraphqlSdl {
     fn parse(extension_name: &str, sdl: &str) -> CoreResult<Self> {
         let tokens = tokenize_graphql_sdl(extension_name, sdl)?;
+        validate_balanced_delimiters(extension_name, &tokens)?;
         let mut parsed = Self {
             directive_usages: parse_directive_usages(extension_name, &tokens)?,
             ..Self::default()
@@ -874,7 +890,9 @@ fn parse_type_definition(
     if let Some(open_brace) = find_definition_body(tokens, kind_index + 2) {
         let close_brace = matching_brace(extension_name, tokens, open_brace)?;
         if is_field_container_kind(kind) {
-            for field_name in parse_field_names(tokens, open_brace + 1, close_brace) {
+            for field_name in
+                parse_field_names(extension_name, tokens, open_brace + 1, close_brace)?
+            {
                 fields.push(GraphqlFieldDefinition {
                     type_name: type_name.clone(),
                     name: field_name,
@@ -959,11 +977,17 @@ fn matching_brace(
     )))
 }
 
-fn parse_field_names(tokens: &[GraphqlSdlToken], start: usize, end: usize) -> Vec<String> {
+fn parse_field_names(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+    start: usize,
+    end: usize,
+) -> CoreResult<Vec<String>> {
     let mut fields = Vec::new();
     let mut index = start;
     let mut brace_depth = 0usize;
     let mut paren_depth = 0usize;
+    let mut saw_top_level_name = false;
 
     while index < end {
         match tokens.get(index) {
@@ -971,19 +995,24 @@ fn parse_field_names(tokens: &[GraphqlSdlToken], start: usize, end: usize) -> Ve
             Some(GraphqlSdlToken::RightBrace) => brace_depth = brace_depth.saturating_sub(1),
             Some(GraphqlSdlToken::LeftParen) => paren_depth += 1,
             Some(GraphqlSdlToken::RightParen) => paren_depth = paren_depth.saturating_sub(1),
-            Some(GraphqlSdlToken::Name(name))
-                if brace_depth == 0
-                    && paren_depth == 0
-                    && field_name_is_followed_by_type(tokens, index, end) =>
-            {
-                fields.push(name.clone());
+            Some(GraphqlSdlToken::Name(name)) if brace_depth == 0 && paren_depth == 0 => {
+                saw_top_level_name = true;
+                if field_name_is_followed_by_type(tokens, index, end) {
+                    fields.push(name.clone());
+                }
             }
             _ => {}
         }
         index += 1;
     }
 
-    fields
+    if fields.is_empty() && saw_top_level_name {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL contains unsupported field syntax"
+        )));
+    }
+
+    Ok(fields)
 }
 
 fn field_name_is_followed_by_type(tokens: &[GraphqlSdlToken], index: usize, end: usize) -> bool {
@@ -1011,6 +1040,54 @@ fn matching_paren(tokens: &[GraphqlSdlToken], open_paren: usize, end: usize) -> 
         }
     }
     None
+}
+
+fn validate_balanced_delimiters(
+    extension_name: &str,
+    tokens: &[GraphqlSdlToken],
+) -> CoreResult<()> {
+    let mut stack = Vec::new();
+
+    for token in tokens {
+        match token {
+            GraphqlSdlToken::LeftBrace => stack.push(GraphqlSdlToken::LeftBrace),
+            GraphqlSdlToken::LeftParen => stack.push(GraphqlSdlToken::LeftParen),
+            GraphqlSdlToken::RightBrace => {
+                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftBrace)) {
+                    return Err(CoreError::extension_activation_failed(format!(
+                        "extension {extension_name} SDL contains unbalanced braces"
+                    )));
+                }
+            }
+            GraphqlSdlToken::RightParen => {
+                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftParen)) {
+                    return Err(CoreError::extension_activation_failed(format!(
+                        "extension {extension_name} SDL contains unbalanced parentheses"
+                    )));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if stack
+        .iter()
+        .any(|token| matches!(token, GraphqlSdlToken::LeftBrace))
+    {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL contains unbalanced braces"
+        )));
+    }
+    if stack
+        .iter()
+        .any(|token| matches!(token, GraphqlSdlToken::LeftParen))
+    {
+        return Err(CoreError::extension_activation_failed(format!(
+            "extension {extension_name} SDL contains unbalanced parentheses"
+        )));
+    }
+
+    Ok(())
 }
 
 fn tokenize_graphql_sdl(extension_name: &str, sdl: &str) -> CoreResult<Vec<GraphqlSdlToken>> {
@@ -1060,11 +1137,72 @@ fn tokenize_graphql_sdl(extension_name: &str, sdl: &str) -> CoreResult<Vec<Graph
                 tokens.push(GraphqlSdlToken::Colon);
                 index += 1;
             }
-            _ => index += 1,
+            '!' | '&' | '=' | '[' | ']' | '|' => index += 1,
+            '.' if chars.get(index + 1) == Some(&'.') && chars.get(index + 2) == Some(&'.') => {
+                index += 3;
+            }
+            '-' if chars
+                .get(index + 1)
+                .is_some_and(|char| char.is_ascii_digit()) =>
+            {
+                index = parse_number_literal(extension_name, &chars, index)?;
+            }
+            char if char.is_ascii_digit() => {
+                index = parse_number_literal(extension_name, &chars, index)?;
+            }
+            char => {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unsupported token `{char}`"
+                )));
+            }
         }
     }
 
     Ok(tokens)
+}
+
+fn parse_number_literal(extension_name: &str, chars: &[char], start: usize) -> CoreResult<usize> {
+    let mut index = start;
+    if chars.get(index) == Some(&'-') {
+        index += 1;
+    }
+    while index < chars.len() && chars[index].is_ascii_digit() {
+        index += 1;
+    }
+    if chars.get(index) == Some(&'.') {
+        index += 1;
+        let fraction_start = index;
+        while index < chars.len() && chars[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == fraction_start {
+            return Err(CoreError::extension_activation_failed(format!(
+                "extension {extension_name} SDL contains malformed number literal"
+            )));
+        }
+    }
+    if chars
+        .get(index)
+        .is_some_and(|char| matches!(*char, 'e' | 'E'))
+    {
+        index += 1;
+        if chars
+            .get(index)
+            .is_some_and(|char| matches!(*char, '+' | '-'))
+        {
+            index += 1;
+        }
+        let exponent_start = index;
+        while index < chars.len() && chars[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == exponent_start {
+            return Err(CoreError::extension_activation_failed(format!(
+                "extension {extension_name} SDL contains malformed number literal"
+            )));
+        }
+    }
+    Ok(index)
 }
 
 fn skip_string_literal(extension_name: &str, chars: &[char], start: usize) -> CoreResult<usize> {
@@ -1325,6 +1463,28 @@ mod tests {
     }
 
     #[test]
+    fn graphql_composer_allows_repository_pull_request_extension() {
+        let composer = GraphqlComposer::default();
+        composer
+            .compose(
+                "pull-requests",
+                "extend type Repository { pullRequests: [PullRequest!]! }",
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn graphql_composer_rejects_repository_core_field_replacement() {
+        let composer = GraphqlComposer::default();
+        let err = composer
+            .compose("bad", "extend type Repository { refs: [String!]! }")
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
+        assert!(err.message.contains("Repository.refs"));
+    }
+
+    #[test]
     fn graphql_composer_rejects_unnamespaced_directive_definitions() {
         let composer = GraphqlComposer::default();
         let err = composer
@@ -1352,6 +1512,19 @@ mod tests {
         assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
         assert!(err.message.contains("@resolver"));
         assert!(err.message.contains("@checks_"));
+    }
+
+    #[test]
+    fn graphql_composer_allows_builtin_directive_usages() {
+        let composer = GraphqlComposer::default();
+        composer
+            .compose(
+                "checks",
+                r#"extend type Query {
+                  oldChecks: [String!]! @deprecated(reason: "use checkSummaries")
+                }"#,
+            )
+            .unwrap();
     }
 
     #[test]
@@ -1421,6 +1594,27 @@ mod tests {
 
         assert_eq!(err.code, ErrorCode::ExtensionActivationFailed);
         assert!(err.message.contains("must not define schema"));
+    }
+
+    #[test]
+    fn graphql_composer_rejects_malformed_sdl() {
+        let composer = GraphqlComposer::default();
+        let unsupported_token = composer
+            .compose("bad", "extend type Query { broken-field: String }")
+            .unwrap_err();
+        let missing_colon = composer
+            .compose("bad", "extend type Query { broken String }")
+            .unwrap_err();
+        let unbalanced = composer
+            .compose("bad", "extend type Query { broken: String")
+            .unwrap_err();
+
+        assert_eq!(unsupported_token.code, ErrorCode::ExtensionActivationFailed);
+        assert!(unsupported_token.message.contains("unsupported token"));
+        assert_eq!(missing_colon.code, ErrorCode::ExtensionActivationFailed);
+        assert!(missing_colon.message.contains("unsupported field syntax"));
+        assert_eq!(unbalanced.code, ErrorCode::ExtensionActivationFailed);
+        assert!(unbalanced.message.contains("unbalanced braces"));
     }
 
     #[test]
