@@ -153,7 +153,7 @@ impl JobQueue {
         if extend_by_ms > wall_time_quota_ms {
             return Err(CoreError::forbidden(
                 "job lock extension exceeds wall-time quota",
-                format!("forgepoint://job/{}", lease.job_id),
+                format!("comtrya://job/{}", lease.job_id),
                 "jobs:run",
             ));
         }

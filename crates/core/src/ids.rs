@@ -168,7 +168,7 @@ fn validate_slug(value: &str) -> CoreResult<()> {
     if value.contains('/') {
         return Err(CoreError::bad_user_input("slug must not contain '/'"));
     }
-    if ["_forgepoint", "_system", "_assets", "_extensions", ".git"].contains(&value) {
+    if ["_comtrya", "_system", "_assets", "_extensions", ".git"].contains(&value) {
         return Err(CoreError::bad_user_input("slug is reserved"));
     }
     if !value.bytes().all(|byte| {
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn slug_validation_enforces_spec_rules() {
-        assert!(Slug::new("forgepoint.dev").is_ok());
+        assert!(Slug::new("comtrya.dev").is_ok());
         assert!(Slug::new("team_core-1").is_ok());
         assert!(Slug::new("_system").is_err());
         assert!(Slug::new(".git").is_err());

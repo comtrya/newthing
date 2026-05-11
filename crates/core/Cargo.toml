@@ -1,5 +1,5 @@
 [package]
-name = "forgepoint-core"
+name = "comtrya-core"
 version.workspace = true
 edition.workspace = true
 

@@ -157,6 +157,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "comtrya-cli"
+version = "0.1.0"
+dependencies = [
+ "comtrya-core",
+]
+
+[[package]]
+name = "comtrya-core"
+version = "0.1.0"
+
+[[package]]
+name = "comtrya-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "comtrya-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "wasmtime",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -396,30 +420,6 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
-
-[[package]]
-name = "forgepoint-cli"
-version = "0.1.0"
-dependencies = [
- "forgepoint-core",
-]
-
-[[package]]
-name = "forgepoint-core"
-version = "0.1.0"
-
-[[package]]
-name = "forgepoint-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "forgepoint-core",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "wasmtime",
-]
 
 [[package]]
 name = "form_urlencoded"

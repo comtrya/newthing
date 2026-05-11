@@ -1,18 +1,18 @@
 import { FileDiff, parsePatchFiles } from "@pierre/diffs";
 import { FileTree } from "@pierre/trees";
 import type { GitStatusEntry } from "@pierre/trees";
-import { HttpForgepointClient } from "./client";
-import type { ExtensionUiManifest, ForgepointEvent } from "./contracts";
+import { HttpComtryaClient } from "./client";
+import type { ExtensionUiManifest, ComtryaEvent } from "./contracts";
 import { validateUiManifest } from "./contracts";
 import "./extension-host";
 
-const DEFAULT_RESOURCE = "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+const DEFAULT_RESOURCE = "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const TOKEN_ACTIONS = ["graphql:read", "graphql:write", "events:read", "git:read", "checks:read"];
 
 const app = document.querySelector<HTMLElement>("#app");
-const serverURL = import.meta.env.PUBLIC_FORGEPOINT_SERVER_URL || window.location.origin;
-const seededOperatorCode = import.meta.env.PUBLIC_FORGEPOINT_OPERATOR_CODE || "";
-const client = new HttpForgepointClient(serverURL);
+const serverURL = import.meta.env.PUBLIC_COMTRYA_SERVER_URL || window.location.origin;
+const seededOperatorCode = import.meta.env.PUBLIC_COMTRYA_OPERATOR_CODE || "";
+const client = new HttpComtryaClient(serverURL);
 let repositoryTree: FileTree | undefined;
 let reviewDiff: FileDiff | undefined;
 
@@ -191,13 +191,13 @@ function renderShell(): void {
       <div class="brand-lockup">
         <span class="brand-mark">F</span>
         <div>
-          <strong>Forgepoint</strong>
+          <strong>Comtrya</strong>
           <span>Conference demo environment</span>
         </div>
       </div>
       <label class="global-search">
         <span>Search</span>
-        <input type="search" value="forgepoint/forgepoint" aria-label="Search Forgepoint" />
+        <input type="search" value="comtrya/comtrya" aria-label="Search Comtrya" />
       </label>
       <div class="topbar-actions">
         <span id="ready-pill" class="status-pill status-warn">offline</span>
@@ -228,7 +228,7 @@ function renderShell(): void {
         <section id="overview" class="repo-hero">
           <div>
             <span class="eyebrow">Private workspace</span>
-            <h1 id="repo-title">forgepoint / forgepoint</h1>
+            <h1 id="repo-title">comtrya / comtrya</h1>
             <p id="repo-description">Connect to load repository state.</p>
           </div>
           <div class="repo-actions">
@@ -351,8 +351,8 @@ function renderShell(): void {
               <h2>Clone</h2>
               <span class="status-pill status-ok">Git upload-pack live</span>
             </div>
-            <code class="command">git clone ${escapeHtml(serverURL)}/git/forgepoint/forgepoint.git</code>
-            <p class="muted">Smoke validation clones and fetches this seeded bare repository through the Astro origin with a scoped Forgepoint credential.</p>
+            <code class="command">git clone ${escapeHtml(serverURL)}/git/comtrya/comtrya.git</code>
+            <p class="muted">Smoke validation clones and fetches this seeded bare repository through the Astro origin with a scoped Comtrya credential.</p>
           </div>
         </section>
       </main>
@@ -366,9 +366,9 @@ async function exchangeOperatorCode(operatorCode: string): Promise<TokenExchange
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      grantType: "urn:forgepoint:grant:operator-code",
+      grantType: "urn:comtrya:grant:operator-code",
       subjectToken: operatorCode,
-      subjectTokenType: "urn:forgepoint:token-type:operator-code",
+      subjectTokenType: "urn:comtrya:token-type:operator-code",
       requestedResource: DEFAULT_RESOURCE,
       requestedActions: TOKEN_ACTIONS,
     }),
@@ -498,7 +498,7 @@ async function renderFiles(demo: DemoState): Promise<void> {
   if (diffPath) {
     diffPath.textContent = demo.diff.path;
   }
-  const patch = parsePatchFiles(demo.diff.patch, "forgepoint-demo", true)[0];
+  const patch = parsePatchFiles(demo.diff.patch, "comtrya-demo", true)[0];
   const fileDiff = patch?.files[0];
   reviewDiff?.cleanUp();
   reviewDiffMount.replaceChildren();
@@ -677,7 +677,7 @@ async function renderEvents(): Promise<void> {
   }
   let count = 0;
   for await (const event of client.events()) {
-    const typedEvent = event as ForgepointEvent;
+    const typedEvent = event as ComtryaEvent;
     const item = document.createElement("li");
     item.innerHTML = `<strong>${escapeHtml(typedEvent.type)}</strong><span>${escapeHtml(typedEvent.source)}</span>`;
     list.prepend(item);
@@ -702,10 +702,10 @@ async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiM
 function extensionHostContext() {
   const graphql = state.graphql;
   return {
-    forgepointClient: client,
+    comtryaClient: client,
     viewer: graphql?.viewer ?? { authenticated: false },
     resource: DEFAULT_RESOURCE,
-    routeParams: { workspace: "forgepoint", repo: "forgepoint" },
+    routeParams: { workspace: "comtrya", repo: "comtrya" },
     capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
   };
 }
@@ -811,7 +811,7 @@ async function mountExtension(installation: ExtensionInstallation): Promise<Exte
       });
       continue;
     }
-    const host = document.createElement("forgepoint-extension-host") as HTMLElement & {
+    const host = document.createElement("comtrya-extension-host") as HTMLElement & {
       configure?: (
         manifest: ExtensionUiManifest,
         context: ReturnType<typeof extensionHostContext>,

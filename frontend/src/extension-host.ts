@@ -1,8 +1,8 @@
-import type { ExtensionUiManifest, ForgepointClient } from "./contracts";
+import type { ExtensionUiManifest, ComtryaClient } from "./contracts";
 import { validateUiManifest } from "./contracts";
 
 export interface ExtensionContext {
-  forgepointClient: ForgepointClient;
+  comtryaClient: ComtryaClient;
   viewer: unknown;
   resource: string;
   routeParams: Record<string, string>;
@@ -36,13 +36,13 @@ export class ExtensionHostElement extends HTMLElement {
       return;
     }
     const element = document.createElement(elementName) as HTMLElement & {
-      forgepointClient?: ForgepointClient;
+      comtryaClient?: ComtryaClient;
       viewer?: unknown;
       resource?: string;
       routeParams?: Record<string, string>;
       capabilities?: Record<string, boolean>;
     };
-    element.forgepointClient = this.context.forgepointClient;
+    element.comtryaClient = this.context.comtryaClient;
     element.viewer = this.context.viewer;
     element.resource = this.context.resource;
     element.routeParams = this.context.routeParams;
@@ -51,4 +51,4 @@ export class ExtensionHostElement extends HTMLElement {
   }
 }
 
-customElements.define("forgepoint-extension-host", ExtensionHostElement);
+customElements.define("comtrya-extension-host", ExtensionHostElement);

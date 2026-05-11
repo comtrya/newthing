@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { jsonError, proxyForgepoint } from "../server/forgepoint";
+import { jsonError, proxyComtrya } from "../server/comtrya";
 
 export const prerender = false;
 
@@ -26,9 +26,9 @@ function canProxy(path: string): boolean {
 const handler: APIRoute = ({ params, request }) => {
   const path = routePath(params.path);
   if (!canProxy(path)) {
-    return jsonError(404, "NOT_FOUND", "route is not served by the Forgepoint frontend");
+    return jsonError(404, "NOT_FOUND", "route is not served by the Comtrya frontend");
   }
-  return proxyForgepoint(request, path);
+  return proxyComtrya(request, path);
 };
 
 export const GET = handler;

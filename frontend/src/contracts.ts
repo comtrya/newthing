@@ -6,7 +6,7 @@ export interface EventFilter {
   visibility?: Visibility[];
 }
 
-export interface ForgepointEvent {
+export interface ComtryaEvent {
   id: string;
   type: string;
   source: string;
@@ -14,7 +14,7 @@ export interface ForgepointEvent {
   data: unknown;
 }
 
-export interface ForgepointClient {
+export interface ComtryaClient {
   query<TData = unknown, TVars = Record<string, unknown>>(
     document: string,
     variables?: TVars,
@@ -31,13 +31,13 @@ export interface ForgepointClient {
     opts?: { signal?: AbortSignal; operationName?: string },
   ): AsyncIterable<TData>;
   permissions(resourceURN: string): Promise<string[]>;
-  events(filter?: EventFilter, opts?: { signal?: AbortSignal }): AsyncIterable<ForgepointEvent>;
+  events(filter?: EventFilter, opts?: { signal?: AbortSignal }): AsyncIterable<ComtryaEvent>;
   navigate(path: string, opts?: { replace?: boolean }): void;
   toast(level: "info" | "success" | "warn" | "error", message: string): void;
 }
 
 export interface ExtensionUiManifest {
-  schemaVersion: "forgepoint.ui-extension/v1";
+  schemaVersion: "comtrya.ui-extension/v1";
   id: string;
   extension: string;
   assets: {
@@ -58,7 +58,7 @@ export interface ExtensionUiManifest {
 }
 
 export function validateUiManifest(manifest: ExtensionUiManifest): void {
-  if (manifest.schemaVersion !== "forgepoint.ui-extension/v1") {
+  if (manifest.schemaVersion !== "comtrya.ui-extension/v1") {
     throw new Error("unsupported UI extension manifest schema");
   }
   if (!manifest.id) {

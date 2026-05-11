@@ -1,8 +1,8 @@
-# Forgepoint v2 Specification
+# Comtrya v2 Specification
 
 ## 1. Mission
 
-Forgepoint v2 is a self-host-first GitHub replacement designed for every person or organization to run their own code forge. The product is intentionally minimal by default. Core provides only the kernel required to host Git repositories, authenticate users, enforce policy, run extensions, validate configuration, emit events, and expose a coherent API.
+Comtrya v2 is a self-host-first GitHub replacement designed for every person or organization to run their own code forge. The product is intentionally minimal by default. Core provides only the kernel required to host Git repositories, authenticate users, enforce policy, run extensions, validate configuration, emit events, and expose a coherent API.
 
 Almost all product features are delivered as extensions. Pull requests, code browsing, epics, Kanban boards, PRDs, docs, wiki, federation publishers, and similar capabilities are not built into the default product surface. They are installed as WASM feature packages.
 
@@ -18,11 +18,11 @@ The system must support both monorepo and polyrepo workflows by default. Monorep
 - The architecture must still support larger organization deployments without changing public APIs.
 - Git compatibility is mandatory, but the implementation must be Rust-native.
 - Events are durable first-class records that can be projected to other protocols.
-- Local operation must not depend on a hosted Forgepoint service.
+- Local operation must not depend on a hosted Comtrya service.
 
 ## 3. Deployment Model
 
-Forgepoint v2 is single-tenant. One instance is owned by one person or organization and can contain many users, teams, workspaces, groups, repositories, and projects.
+Comtrya v2 is single-tenant. One instance is owned by one person or organization and can contain many users, teams, workspaces, groups, repositories, and projects.
 
 The v1 deployment topology is strictly single-node:
 
@@ -109,7 +109,7 @@ Frontend:
 - TypeScript.
 - Bun.
 - Web components for extension UI.
-- Full Forgepoint component kit for visual consistency.
+- Full Comtrya component kit for visual consistency.
 
 Persistence:
 
@@ -132,7 +132,7 @@ Configuration:
 
 ## 6. Identity And Authentication
 
-Forgepoint v2 uses OIDC only.
+Comtrya v2 uses OIDC only.
 
 Core must not introduce its own social identity protocol. ATProto, ActivityPub, or other identities may be linked or used by extensions and publishers, but OIDC is the authentication mechanism.
 
@@ -149,29 +149,29 @@ User provisioning:
 - Users are created just-in-time on first successful OIDC login.
 - JIT provisioning is allowed only when configured issuer, domain, group, or claim rules permit it.
 - Admins may also pre-provision users.
-- JIT provisioning emits `dev.forgepoint.user.created` (see §32.2).
+- JIT provisioning emits `dev.comtrya.user.created` (see §32.2).
 
 Human Git authentication:
 
-- Forgepoint does not use personal access tokens by default.
+- Comtrya does not use personal access tokens by default.
 - Humans authenticate through an OIDC browser or device flow.
-- A Forgepoint CLI credential helper obtains short-lived scoped Git credentials from the server.
+- A Comtrya CLI credential helper obtains short-lived scoped Git credentials from the server.
 - Git session credentials last minutes and can be refreshed by the helper.
 - Credential issuance is audited.
 
 Automation authentication:
 
 - CI and other automation use OIDC token exchange only.
-- Trusted workload OIDC issuers exchange JWTs for short-lived Forgepoint credentials.
+- Trusted workload OIDC issuers exchange JWTs for short-lived Comtrya credentials.
 - Issued credentials are scoped by configured policy and authorization checks.
-- Forgepoint v1 does not require long-lived bot tokens for automation.
+- Comtrya v1 does not require long-lived bot tokens for automation.
 - Workload token exchange requires TLS. Optional mTLS may be configured per-issuer in `config.cue` for higher-assurance workloads; v1 does not require it.
 
 Token scope model:
 
 - Credentials are scoped by resource and action.
 - Action names are drawn from a closed enum, registered by core and by extensions through their capability manifests. Core actions in v1: `git:read`, `git:write`, `graphql:read`, `graphql:write`, `events:read`, `checks:read`, `checks:write`. Unknown action names are rejected with `BAD_USER_INPUT`.
-- Resource scopes may target instance, workspace, group, repository, project, or extension-owned resources, expressed as canonical `forgepoint://...` URIs (see §29.2).
+- Resource scopes may target instance, workspace, group, repository, project, or extension-owned resources, expressed as canonical `comtrya://...` URIs (see §29.2).
 
 ## 7. Authorization
 
@@ -330,7 +330,7 @@ Core metadata includes:
 
 ## 12. Configuration
 
-Forgepoint has two configuration layers:
+Comtrya has two configuration layers:
 
 - Local instance configuration.
 - Repository-local configuration.
@@ -360,15 +360,15 @@ Remote instance config repositories are explicitly deferred.
 
 ### 12.2 Repository Configuration
 
-Repository-local configuration uses CUE files with `package forgepoint`.
+Repository-local configuration uses CUE files with `package comtrya`.
 
 Rules:
 
-- Forgepoint evaluates only CUE files in `package forgepoint`.
+- Comtrya evaluates only CUE files in `package comtrya`.
 - These files may live anywhere in the repository.
 - Evaluation uses path inheritance.
 - Core computes effective typed config snapshots per relevant path.
-- Any invalid Forgepoint CUE on a protected/default ref rejects the ref update.
+- Any invalid Comtrya CUE on a protected/default ref rejects the ref update.
 - Incompatible inherited concrete values are validation errors.
 - Repository config can configure behavior only within ceilings set by local instance config.
 
@@ -377,10 +377,10 @@ Evaluation budget (DoS protection):
 - Synchronous CUE validation on receive-pack must observe a per-push budget. Default values are normative for v1 and are overridable through `cue.evalBudget` in `config.cue` within `ceilings.repository.cueEvalBudget`:
   - `wallTimeMs: 5000`
   - `memoryBytes: 256_000_000` (256 MiB)
-  - `maxFiles: 1024` (total `package forgepoint` files across the affected tree)
+  - `maxFiles: 1024` (total `package comtrya` files across the affected tree)
   - `maxDepth: 16` (max nesting depth of inherited paths)
   - `maxBytes: 8_000_000` (total CUE source bytes across affected tree)
-- Any breach rejects the push with `CONFIG_INVALID` and emits `dev.forgepoint.repository.config.rejected` with `reason: "evaluation_budget"`.
+- Any breach rejects the push with `CONFIG_INVALID` and emits `dev.comtrya.repository.config.rejected` with `reason: "evaluation_budget"`.
 - The budget is per-push (not per-effective-path); concurrent pushes do not share budget.
 
 Repository CUE may configure:
@@ -404,17 +404,17 @@ CUE schema versioning:
 
 ### 12.3 Push Validation
 
-Protected/default ref updates must synchronously validate Forgepoint CUE.
+Protected/default ref updates must synchronously validate Comtrya CUE.
 
-If any Forgepoint CUE in the pushed default/protected ref is invalid, the push is rejected.
+If any Comtrya CUE in the pushed default/protected ref is invalid, the push is rejected.
 
 Core should also support explicit pre-merge checks so invalid configuration cannot be merged into the default branch through a PR extension.
 
 Bootstrap (first push to an empty repository):
 
 - A brand-new repository has no CUE config. The default ref (commonly `refs/heads/main`) is protected by default.
-- A push that introduces zero `package forgepoint` files is accepted (validation succeeds trivially).
-- A push that introduces one or more `package forgepoint` files must produce a valid effective config at every relevant path; otherwise the push is rejected.
+- A push that introduces zero `package comtrya` files is accepted (validation succeeds trivially).
+- A push that introduces one or more `package comtrya` files must produce a valid effective config at every relevant path; otherwise the push is rejected.
 - After the first valid CUE-bearing push, the repository's `refs.protected` config governs subsequent pushes.
 
 ## 13. GraphQL API
@@ -770,7 +770,7 @@ Extension UI delivery:
 - Extension UI uses web components.
 - No frontend rebuild is required when installing an extension.
 
-The frontend must use the Forgepoint component kit for consistent UI.
+The frontend must use the Comtrya component kit for consistent UI.
 
 The component kit should include:
 
@@ -838,7 +838,7 @@ Feature data residency:
 
 ## 23. CLI
 
-The Forgepoint CLI supports:
+The Comtrya CLI supports:
 
 - OIDC Git credential helper flow.
 - CUE validation for local and repository config.
@@ -885,9 +885,9 @@ The kernel MVP is successful when the following end-to-end flow works:
 2. Start the Rust server against SQLite.
 3. Log in with OIDC.
 4. Create or expose a workspace, group, and repository.
-5. Authenticate Git over HTTPS through the Forgepoint credential helper.
+5. Authenticate Git over HTTPS through the Comtrya credential helper.
 6. Push to the repository using a standard Git client.
-7. Reject invalid `package forgepoint` CUE on a protected/default ref.
+7. Reject invalid `package comtrya` CUE on a protected/default ref.
 8. Accept valid CUE and store effective path config snapshots.
 9. Emit durable CloudEvents for repository activity.
 10. Stream visible events over SSE.
@@ -935,7 +935,7 @@ CUE tests:
 - Local `config.cue` startup validation.
 - Manual reload success.
 - Manual reload failure without partial apply.
-- Repository `package forgepoint` discovery.
+- Repository `package comtrya` discovery.
 - Path inheritance.
 - Incompatible inherited value failure.
 - Effective path snapshot generation.
@@ -990,9 +990,9 @@ Consistency requirements:
 
 Restore:
 
-- `forgepointctl restore <bundle>` validates schema compatibility, applies all components, and verifies cross-component referential integrity (every `Repository.id` referenced by metadata exists in the repo-storage component, etc.).
+- `comtryactl restore <bundle>` validates schema compatibility, applies all components, and verifies cross-component referential integrity (every `Repository.id` referenced by metadata exists in the repo-storage component, etc.).
 - A failed restore must not partially clobber an existing instance: restore targets an empty data directory or a freshly provisioned database.
-- Restore emits `dev.forgepoint.instance.restore.completed` (or `.failed`).
+- Restore emits `dev.comtrya.instance.restore.completed` (or `.failed`).
 
 Encryption: bundles are signed and (optionally) encrypted with operator-managed keys. Key material is not embedded in the bundle.
 
@@ -1083,7 +1083,7 @@ Slugs:
 - Must not start with `.`.
 - Must not contain `/`.
 - Must be 1–64 characters.
-- Reserved exact-match names: `_forgepoint`, `_system`, `_assets`, `_extensions`, `.git`.
+- Reserved exact-match names: `_comtrya`, `_system`, `_assets`, `_extensions`, `.git`.
 - Reserved prefixes for core use: any slug beginning with `_` is reserved for core and is not assignable by users; extensions must not register UI route segments under leading-underscore slugs.
 
 ### 29.2 Resource References
@@ -1093,15 +1093,15 @@ Every object exposed to authorization, events, checks, jobs, or extensions must 
 Canonical string form:
 
 ```text
-forgepoint://<kind>/<opaque-id>
+comtrya://<kind>/<opaque-id>
 ```
 
 Examples:
 
 ```text
-forgepoint://workspace/ws_01hv...
-forgepoint://repository/repo_01hv...
-forgepoint://project/proj_01hv...
+comtrya://workspace/ws_01hv...
+comtrya://repository/repo_01hv...
+comtrya://project/proj_01hv...
 ```
 
 Human path form:
@@ -1165,13 +1165,13 @@ The local instance config file is `config.cue`.
 It must use:
 
 ```cue
-package forgepoint
+package comtrya
 ```
 
 The top-level shape is:
 
 ```cue
-package forgepoint
+package comtrya
 
 instance: {
 	id:               string
@@ -1444,7 +1444,7 @@ Principal selector variants:
 
 Repository config files:
 
-- Must use `package forgepoint`.
+- Must use `package comtrya`.
 - May live anywhere in the repository tree.
 - Are discovered from the Git tree being validated.
 - Are evaluated through embedded `cuengine`.
@@ -1452,7 +1452,7 @@ Repository config files:
 Repository config shape:
 
 ```cue
-package forgepoint
+package comtrya
 
 repo?: {
 	name?: string
@@ -1505,7 +1505,7 @@ Protected ref rule:
 		deny?: [...string]
 	}
 	require?: {
-		validForgepointConfig?: *true | bool
+		validComtryaConfig?: *true | bool
 		checks?: [...string]
 		linearHistory?: *false | bool
 		signedCommits?: *false | bool
@@ -1540,10 +1540,10 @@ Path inheritance is based on file location.
 
 For an effective path `/a/b/c`:
 
-1. Collect all `package forgepoint` CUE files at repository root.
-2. Collect all `package forgepoint` CUE files under `/a`.
-3. Collect all `package forgepoint` CUE files under `/a/b`.
-4. Collect all `package forgepoint` CUE files under `/a/b/c`.
+1. Collect all `package comtrya` CUE files at repository root.
+2. Collect all `package comtrya` CUE files under `/a`.
+3. Collect all `package comtrya` CUE files under `/a/b`.
+4. Collect all `package comtrya` CUE files under `/a/b/c`.
 5. Unify them in ancestor-to-descendant order.
 6. Export the typed effective config for `/a/b/c`.
 
@@ -1617,7 +1617,7 @@ Errors that relate to a resource should include:
 {
   "extensions": {
     "code": "FORBIDDEN",
-    "resource": "forgepoint://repository/repo_...",
+    "resource": "comtrya://repository/repo_...",
     "permission": "repo.read"
   }
 }
@@ -1630,7 +1630,7 @@ The core schema must include the following concepts. Field names may be refined 
 ```graphql
 scalar DateTime
 scalar JSON
-"Canonical resource reference: forgepoint://<kind>/<opaque-id>"
+"Canonical resource reference: comtrya://<kind>/<opaque-id>"
 scalar ResourceURN
 
 enum Visibility {
@@ -1699,7 +1699,7 @@ type Subscription {
 type Viewer {
   user: User
   authenticated: Boolean!
-  "Resource is a canonical `forgepoint://<kind>/<opaque-id>` URN. Returns the empty list when the viewer has no permissions on the resource or when the resource is unknown — never errors, to avoid existence disclosure."
+  "Resource is a canonical `comtrya://<kind>/<opaque-id>` URN. Returns the empty list when the viewer has no permissions on the resource or when the resource is unknown — never errors, to avoid existence disclosure."
   permissions(resource: ResourceURN!): [String!]!
 }
 
@@ -2010,7 +2010,7 @@ Extension SDL:
 - May add object, input, enum, scalar, interface, and union types.
 - May extend explicitly allowed core types.
 - Must not replace core field definitions.
-- Must not define fields starting with `_forgepoint`.
+- Must not define fields starting with `_comtrya`.
 - Must namespace custom directives with the extension name.
 
 On conflict:
@@ -2032,12 +2032,12 @@ The canonical event envelope is CloudEvents-style JSON:
 {
   "specversion": "1.0",
   "id": "evt_01hv...",
-  "type": "dev.forgepoint.repository.ref.updated",
-  "source": "forgepoint://repository/repo_01hv...",
+  "type": "dev.comtrya.repository.ref.updated",
+  "source": "comtrya://repository/repo_01hv...",
   "subject": "refs/heads/main",
   "time": "2026-05-11T10:00:00Z",
   "datacontenttype": "application/json",
-  "dataschema": "https://forgepoint.dev/schemas/events/repository-ref-updated.v1.json",
+  "dataschema": "https://comtrya.dev/schemas/events/repository-ref-updated.v1.json",
   "actor": {
     "kind": "user",
     "id": "usr_01hv...",
@@ -2045,8 +2045,8 @@ The canonical event envelope is CloudEvents-style JSON:
   },
   "visibility": "INTERNAL",
   "resources": [
-    "forgepoint://workspace/ws_01hv...",
-    "forgepoint://repository/repo_01hv..."
+    "comtrya://workspace/ws_01hv...",
+    "comtrya://repository/repo_01hv..."
   ],
   "correlationid": "evt_01hv...",
   "causationid": "evt_01hv...",
@@ -2070,7 +2070,7 @@ Required extension attributes:
 CloudEvents compliance note:
 
 - `correlationid`, `causationid`, and `visibility` are CloudEvents-compliant string-valued extension attributes.
-- `actor` (object) and `resources` (array) are non-primitive and therefore not strict-CloudEvents-compliant. Forgepoint's outbox and SSE stream emit them as shown for ergonomic consumption by Forgepoint-aware clients.
+- `actor` (object) and `resources` (array) are non-primitive and therefore not strict-CloudEvents-compliant. Comtrya's outbox and SSE stream emit them as shown for ergonomic consumption by Comtrya-aware clients.
 - Publisher extensions targeting strict CloudEvents consumers (e.g. external webhooks, ActivityPub bridges) must project the envelope to a strict form: `actor` becomes a URI string under the extension attribute name `actor`, and `resources` is moved inside `data`. Core provides a helper for this projection through the publisher capability.
 
 ### 32.2 Core Event Types
@@ -2079,71 +2079,71 @@ Required core event type names:
 
 Instance:
 
-- `dev.forgepoint.instance.config.reload.started`
-- `dev.forgepoint.instance.config.reload.succeeded`
-- `dev.forgepoint.instance.config.reload.failed`
-- `dev.forgepoint.instance.backup.started`
-- `dev.forgepoint.instance.backup.succeeded`
-- `dev.forgepoint.instance.backup.failed`
-- `dev.forgepoint.instance.restore.started`
-- `dev.forgepoint.instance.restore.completed`
-- `dev.forgepoint.instance.restore.failed`
+- `dev.comtrya.instance.config.reload.started`
+- `dev.comtrya.instance.config.reload.succeeded`
+- `dev.comtrya.instance.config.reload.failed`
+- `dev.comtrya.instance.backup.started`
+- `dev.comtrya.instance.backup.succeeded`
+- `dev.comtrya.instance.backup.failed`
+- `dev.comtrya.instance.restore.started`
+- `dev.comtrya.instance.restore.completed`
+- `dev.comtrya.instance.restore.failed`
 
 Auth and identity:
 
-- `dev.forgepoint.auth.login.succeeded`
-- `dev.forgepoint.auth.login.failed`
-- `dev.forgepoint.auth.credential.issued`
-- `dev.forgepoint.user.created`
-- `dev.forgepoint.user.deactivated`
-- `dev.forgepoint.team.created`
-- `dev.forgepoint.team.deleted`
-- `dev.forgepoint.team.member.added`
-- `dev.forgepoint.team.member.removed`
+- `dev.comtrya.auth.login.succeeded`
+- `dev.comtrya.auth.login.failed`
+- `dev.comtrya.auth.credential.issued`
+- `dev.comtrya.user.created`
+- `dev.comtrya.user.deactivated`
+- `dev.comtrya.team.created`
+- `dev.comtrya.team.deleted`
+- `dev.comtrya.team.member.added`
+- `dev.comtrya.team.member.removed`
 
 Namespaces and resources:
 
-- `dev.forgepoint.workspace.created`
-- `dev.forgepoint.workspace.updated`
-- `dev.forgepoint.workspace.deleted`
-- `dev.forgepoint.group.created`
-- `dev.forgepoint.group.updated`
-- `dev.forgepoint.group.moved`
-- `dev.forgepoint.group.deleted`
-- `dev.forgepoint.repository.created`
-- `dev.forgepoint.repository.updated`
-- `dev.forgepoint.repository.renamed`
-- `dev.forgepoint.repository.visibility.changed`
-- `dev.forgepoint.repository.deleted`
-- `dev.forgepoint.repository.ref.updated`
-- `dev.forgepoint.repository.push.rejected`
-- `dev.forgepoint.repository.config.validated`
-- `dev.forgepoint.repository.config.rejected`
-- `dev.forgepoint.project.created`
-- `dev.forgepoint.project.updated`
-- `dev.forgepoint.project.deleted`
+- `dev.comtrya.workspace.created`
+- `dev.comtrya.workspace.updated`
+- `dev.comtrya.workspace.deleted`
+- `dev.comtrya.group.created`
+- `dev.comtrya.group.updated`
+- `dev.comtrya.group.moved`
+- `dev.comtrya.group.deleted`
+- `dev.comtrya.repository.created`
+- `dev.comtrya.repository.updated`
+- `dev.comtrya.repository.renamed`
+- `dev.comtrya.repository.visibility.changed`
+- `dev.comtrya.repository.deleted`
+- `dev.comtrya.repository.ref.updated`
+- `dev.comtrya.repository.push.rejected`
+- `dev.comtrya.repository.config.validated`
+- `dev.comtrya.repository.config.rejected`
+- `dev.comtrya.project.created`
+- `dev.comtrya.project.updated`
+- `dev.comtrya.project.deleted`
 
 Checks, jobs, extensions:
 
-- `dev.forgepoint.check.created`
-- `dev.forgepoint.check.updated`
-- `dev.forgepoint.job.queued`
-- `dev.forgepoint.job.started`
-- `dev.forgepoint.job.succeeded`
-- `dev.forgepoint.job.failed`
-- `dev.forgepoint.job.dead`
-- `dev.forgepoint.extension.installed`
-- `dev.forgepoint.extension.activated`
-- `dev.forgepoint.extension.disabled`
-- `dev.forgepoint.extension.failed`
-- `dev.forgepoint.secret.accessed`
-- `dev.forgepoint.publisher.delivery.succeeded`
-- `dev.forgepoint.publisher.delivery.failed`
+- `dev.comtrya.check.created`
+- `dev.comtrya.check.updated`
+- `dev.comtrya.job.queued`
+- `dev.comtrya.job.started`
+- `dev.comtrya.job.succeeded`
+- `dev.comtrya.job.failed`
+- `dev.comtrya.job.dead`
+- `dev.comtrya.extension.installed`
+- `dev.comtrya.extension.activated`
+- `dev.comtrya.extension.disabled`
+- `dev.comtrya.extension.failed`
+- `dev.comtrya.secret.accessed`
+- `dev.comtrya.publisher.delivery.succeeded`
+- `dev.comtrya.publisher.delivery.failed`
 
 Extensions must use event types under:
 
 ```text
-dev.forgepoint.extension.<extension-name>.<event-name>
+dev.comtrya.extension.<extension-name>.<event-name>
 ```
 
 Third-party extension authors may use their own DNS-style prefix if declared in the extension manifest.
@@ -2175,7 +2175,7 @@ Event format (the `id:` line carries the cursor, not the raw event ID):
 
 ```text
 id: <opaque-cursor>
-event: dev.forgepoint.repository.ref.updated
+event: dev.comtrya.repository.ref.updated
 data: {"specversion":"1.0","id":"evt_01hv...", ...}
 ```
 
@@ -2184,7 +2184,7 @@ Cursors:
 - Cursors are opaque, server-signed tokens binding a position in the visibility-filtered projection of the outbox to the caller's authorization context at the time of issue.
 - Cursors are not interchangeable across callers: a cursor issued to user A is rejected when presented by user B with `BAD_USER_INPUT`.
 - On resume, the server re-applies visibility filtering. Events the caller is no longer authorized to see are silently skipped. Events the caller has just gained access to are *not* retroactively replayed past the cursor; they appear in subsequent events naturally.
-- `Last-Event-ID` is treated as a cursor for compatibility. If the value is invalid or stale (older than 24h), the stream begins from "now" and the server emits an initial `event: dev.forgepoint.stream.resume.rejected` with the rejection reason in `data`.
+- `Last-Event-ID` is treated as a cursor for compatibility. If the value is invalid or stale (older than 24h), the stream begins from "now" and the server emits an initial `event: dev.comtrya.stream.resume.rejected` with the rejection reason in `data`.
 
 The stream must apply the same visibility and authorization filtering as GraphQL event queries.
 
@@ -2315,11 +2315,11 @@ Per-issuer behavior depends on `clientKind` (§30.1):
 
 CLI flow:
 
-1. Git invokes Forgepoint credential helper.
+1. Git invokes Comtrya credential helper.
 2. Helper requests a device or browser OIDC flow.
 3. User authenticates with configured OIDC issuer.
-4. Helper calls Forgepoint token exchange endpoint.
-5. Forgepoint returns a short-lived Git credential scoped to the requested resource/action.
+4. Helper calls Comtrya token exchange endpoint.
+5. Comtrya returns a short-lived Git credential scoped to the requested resource/action.
 6. Helper returns username/password material to Git's HTTPS credential protocol.
 
 Required endpoint:
@@ -2334,10 +2334,10 @@ Request fields:
 
 ```json
 {
-  "grantType": "urn:forgepoint:grant:oidc-token-exchange",
+  "grantType": "urn:comtrya:grant:oidc-token-exchange",
   "subjectToken": "<oidc-jwt>",
   "subjectTokenType": "urn:ietf:params:oauth:token-type:jwt",
-  "requestedResource": "forgepoint://repository/repo_...",
+  "requestedResource": "comtrya://repository/repo_...",
   "requestedActions": ["git:read", "git:write"]
 }
 ```
@@ -2350,7 +2350,7 @@ Response fields:
   "tokenType": "Bearer",
   "expiresIn": 300,
   "scope": ["git:read", "git:write"],
-  "resource": "forgepoint://repository/repo_..."
+  "resource": "comtrya://repository/repo_..."
 }
 ```
 
@@ -2475,15 +2475,15 @@ Required logical fields:
 
 ```json
 {
-  "schemaVersion": "forgepoint.extension/v1",
+  "schemaVersion": "comtrya.extension/v1",
   "name": "pull-requests",
   "displayName": "Pull Requests",
   "version": "0.1.0",
-  "publisher": "forgepoint-dev",
+  "publisher": "comtrya-dev",
   "description": "Pull request and review workflow",
   "wasm": {
     "component": "extension.wasm",
-    "witWorld": "forgepoint:extension/extension"
+    "witWorld": "comtrya:extension/extension"
   },
   "graphql": {
     "sdl": "schema.graphql"
@@ -2505,8 +2505,8 @@ Required logical fields:
     }
   ],
   "subscribedEventTypes": [
-    "dev.forgepoint.repository.ref.updated",
-    "dev.forgepoint.check.updated"
+    "dev.comtrya.repository.ref.updated",
+    "dev.comtrya.check.updated"
   ],
   "capabilities": {
     "graphql": true,
@@ -2589,7 +2589,7 @@ Index build during activation:
 The WIT interface should include these capabilities:
 
 ```wit
-package forgepoint:extension;
+package comtrya:extension;
 
 world extension {
   import host-log;
@@ -2840,7 +2840,7 @@ Extension UI manifest:
 
 ```json
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v1",
   "extension": "pull-requests",
   "assets": {
     "entry": "/_extensions/ext_01hv/assets/index.js",
@@ -2849,19 +2849,19 @@ Extension UI manifest:
   "routes": [
     {
       "path": "/:workspace/:group*/:repo/pulls",
-      "element": "forgepoint-pull-request-list",
+      "element": "comtrya-pull-request-list",
       "requiredPermission": "pull_request.read"
     },
     {
       "path": "/:workspace/:group*/:repo/pulls/:number",
-      "element": "forgepoint-pull-request-detail",
+      "element": "comtrya-pull-request-detail",
       "requiredPermission": "pull_request.read"
     }
   ],
   "slots": [
     {
       "slot": "repository.nav",
-      "element": "forgepoint-pull-request-nav",
+      "element": "comtrya-pull-request-nav",
       "requiredPermission": "pull_request.read"
     }
   ]
@@ -2874,7 +2874,7 @@ Extension web components receive context through properties, not global mutable 
 
 Required properties:
 
-- `forgepointClient` (see interface below)
+- `comtryaClient` (see interface below)
 - `viewer`
 - `resource`
 - `routeParams`
@@ -2882,10 +2882,10 @@ Required properties:
 
 Components must dispatch standard DOM events for navigation and toast/notification requests. They must not assume a specific frontend framework runtime.
 
-`forgepointClient` interface (TypeScript):
+`comtryaClient` interface (TypeScript):
 
 ```typescript
-interface ForgepointClient {
+interface ComtryaClient {
   /** GraphQL query. Returns parsed `data` or throws with a `code` from §31.2. */
   query<TData = unknown, TVars = Record<string, unknown>>(
     document: string,
@@ -3048,12 +3048,12 @@ The MVP must include automated tests for these workflows:
 | Git | Push after credential expiry | Ref update fails and helper can refresh |
 | Git | Repository rename and clone old URL within retention | 301 redirect to new path |
 | Git | Repository rename and clone old URL after retention | 404 |
-| CUE | Push invalid `package forgepoint` to default ref | Push rejected |
+| CUE | Push invalid `package comtrya` to default ref | Push rejected |
 | CUE | Push valid inherited config | Effective path snapshots stored |
 | CUE | Child conflicts with parent | Push rejected with config diagnostics |
-| CUE | Push exceeds `cueEvalBudget` | Push rejected with `CONFIG_INVALID` and `dev.forgepoint.repository.config.rejected` event with `reason: "evaluation_budget"` |
-| CUE | Bootstrap push with no `package forgepoint` files to a brand-new repo | Accepted |
-| CUE | Bootstrap push with invalid `package forgepoint` to a brand-new repo | Rejected |
+| CUE | Push exceeds `cueEvalBudget` | Push rejected with `CONFIG_INVALID` and `dev.comtrya.repository.config.rejected` event with `reason: "evaluation_budget"` |
+| CUE | Bootstrap push with no `package comtrya` files to a brand-new repo | Accepted |
+| CUE | Bootstrap push with invalid `package comtrya` to a brand-new repo | Rejected |
 | Visibility | Create PUBLIC repo under PRIVATE workspace with `allowPublicDescendants: false` | Rejected with `CONFIG_INVALID` |
 | Visibility | Create PUBLIC repo under workspace with `allowPublicDescendants: true` | Accepted |
 | Storage | Concurrent ref update | One update wins, the other gets conflict |
@@ -3064,7 +3064,7 @@ The MVP must include automated tests for these workflows:
 | GraphQL | `ExtensionInstallation.manifestAdmin` for a non-admin viewer | Returns null |
 | Events | Private event over public SSE | Event is not delivered |
 | Events | Cursor resume after user lost access | Resumed stream omits no-longer-visible events |
-| Events | `Last-Event-ID` older than 24h | Stream begins from "now" with `dev.forgepoint.stream.resume.rejected` |
+| Events | `Last-Event-ID` older than 24h | Stream begins from "now" with `dev.comtrya.stream.resume.rejected` |
 | Events | CloudEvents strict projection through publisher | `actor` is URI string and `resources` lives in `data` |
 | Authz | User loses team membership | Subsequent reads and streams stop exposing resource within 5s |
 | Authz | Unauthenticated request to PUBLIC repository | Allowed via `anonymous:*` |
@@ -3086,7 +3086,7 @@ The MVP must include automated tests for these workflows:
 | Jobs | Server restarts with queued job | Job remains queued and later runs |
 | Jobs | SQLite single-writer claim under concurrent attempts | Exactly one worker claims each job |
 | Rate | `/auth/token-exchange` exceeds per-principal ceiling | `RATE_LIMITED` |
-| Backup | `forgepointctl backup` followed by `restore` to empty dir | Repository state, extension storage, secrets, and metadata fully recovered |
+| Backup | `comtryactl backup` followed by `restore` to empty dir | Repository state, extension storage, secrets, and metadata fully recovered |
 
 ## 40. References
 

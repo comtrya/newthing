@@ -148,18 +148,18 @@ impl InstanceConfig {
             },
         );
         Self {
-            id: "forgepoint-dev".to_string(),
-            name: "Forgepoint Dev".to_string(),
+            id: "comtrya-dev".to_string(),
+            name: "Comtrya Dev".to_string(),
             public_url: "http://localhost:8080".to_string(),
             environment: Environment::Development,
             allowed_origins: vec!["http://localhost:4321".to_string()],
             database: DatabaseConfig::Sqlite {
-                url: "sqlite://forgepoint.db".to_string(),
+                url: "sqlite://comtrya.db".to_string(),
             },
             oidc_issuers: vec![OidcIssuerConfig {
                 id: "dev".to_string(),
                 issuer_url: "https://issuer.example.test".to_string(),
-                client_id: "forgepoint".to_string(),
+                client_id: "comtrya".to_string(),
                 client_kind: ClientKind::Confidential,
                 client_secret: Some("dev-secret".to_string()),
                 redirect_url: "http://localhost:8080/auth/oidc/dev/callback".to_string(),
@@ -368,12 +368,12 @@ pub fn validate_repository_cue_sources(
     files: &[CueFile],
     budget: &CueEvalBudget,
 ) -> CoreResult<ConfigValidation> {
-    let forgepoint_files: Vec<&CueFile> = files
+    let comtrya_files: Vec<&CueFile> = files
         .iter()
-        .filter(|file| file.source.contains("package forgepoint"))
+        .filter(|file| file.source.contains("package comtrya"))
         .collect();
 
-    if forgepoint_files.is_empty() {
+    if comtrya_files.is_empty() {
         return Ok(ConfigValidation {
             accepted: true,
             diagnostics: Vec::new(),
@@ -381,11 +381,11 @@ pub fn validate_repository_cue_sources(
         });
     }
 
-    enforce_cue_budget(&forgepoint_files, budget)?;
+    enforce_cue_budget(&comtrya_files, budget)?;
 
     let mut diagnostics = Vec::new();
     let mut paths = BTreeSet::from(["/".to_string()]);
-    for file in forgepoint_files {
+    for file in comtrya_files {
         if !balanced_braces(&file.source) {
             diagnostics.push(ConfigDiagnostic {
                 severity: "error".to_string(),
@@ -678,7 +678,7 @@ mod tests {
     fn production_confidential_oidc_requires_secret() {
         let mut config = InstanceConfig::minimal_dev();
         config.environment = Environment::Production;
-        config.public_url = "https://forgepoint.example.test".to_string();
+        config.public_url = "https://comtrya.example.test".to_string();
         config.oidc_issuers[0].client_secret = Some(String::new());
 
         let err = config.validate().unwrap_err();
@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn repository_cue_bootstrap_without_forgepoint_package_is_trivially_accepted() {
+    fn repository_cue_bootstrap_without_comtrya_package_is_trivially_accepted() {
         let result = validate_repository_cue_sources(
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
@@ -732,8 +732,8 @@ mod tests {
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
             &[CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\ninvalid: true".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\ninvalid: true".to_string(),
             }],
             &CueEvalBudget::default(),
         )
@@ -753,8 +753,8 @@ mod tests {
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
             &[CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\nrepo: {}".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nrepo: {}".to_string(),
             }],
             &budget,
         )
@@ -771,12 +771,12 @@ mod tests {
             "0123456789abcdef0123456789abcdef01234567",
             &[
                 CueFile {
-                    path: "forgepoint.cue".to_string(),
-                    source: "package forgepoint\nrepo: {}".to_string(),
+                    path: "comtrya.cue".to_string(),
+                    source: "package comtrya\nrepo: {}".to_string(),
                 },
                 CueFile {
-                    path: "services/api/forgepoint.cue".to_string(),
-                    source: "package forgepoint\nprojects: api: path: \"services/api\"".to_string(),
+                    path: "services/api/comtrya.cue".to_string(),
+                    source: "package comtrya\nprojects: api: path: \"services/api\"".to_string(),
                 },
             ],
             &CueEvalBudget::default(),

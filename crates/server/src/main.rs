@@ -5,7 +5,7 @@ use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
-use forgepoint_core::{
+use comtrya_core::{
     ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, InstanceCapabilities,
     InstanceConfig, RepoStorageBackend, ResourceRef, TokenAction, allowed_methods_for_route,
 };
@@ -30,7 +30,7 @@ async fn main() {
     let runtime = match Runtime::start(options) {
         Ok(runtime) => Arc::new(runtime),
         Err(error) => {
-            eprintln!("forgepoint-server refused to start: {error}");
+            eprintln!("comtrya-server refused to start: {error}");
             std::process::exit(1);
         }
     };
@@ -38,7 +38,7 @@ async fn main() {
     if runtime.options.check {
         let ready = runtime.readiness();
         println!(
-            "forgepoint-server ready={} mode={} dataDir={}",
+            "comtrya-server ready={} mode={} dataDir={}",
             ready.ready,
             ready.mode,
             runtime.data_dir.display()
@@ -58,7 +58,7 @@ async fn main() {
             std::process::exit(1);
         });
     println!(
-        "forgepoint-server listening on http://{}",
+        "comtrya-server listening on http://{}",
         listener.local_addr().expect("listener has local addr")
     );
     axum::serve(listener, app).await.expect("server failed");
@@ -107,14 +107,14 @@ struct StartupOptions {
 
 impl StartupOptions {
     fn from_env_and_args(args: impl Iterator<Item = String>) -> Self {
-        let mut config_path = std::env::var_os("FORGEPOINT_CONFIG").map(PathBuf::from);
-        let mut data_dir = std::env::var_os("FORGEPOINT_DATA_DIR")
+        let mut config_path = std::env::var_os("COMTRYA_CONFIG").map(PathBuf::from);
+        let mut data_dir = std::env::var_os("COMTRYA_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("./data"));
-        let mut extension_dir = std::env::var_os("FORGEPOINT_EXTENSION_DIR")
+        let mut extension_dir = std::env::var_os("COMTRYA_EXTENSION_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("extensions/first-party"));
-        let mut listen = std::env::var("FORGEPOINT_LISTEN")
+        let mut listen = std::env::var("COMTRYA_LISTEN")
             .ok()
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| "127.0.0.1:8080".parse().expect("valid default listen addr"));
@@ -154,10 +154,10 @@ impl StartupOptions {
             extension_dir: absolute_path(extension_dir),
             listen,
             check,
-            tls_terminated: env_truthy("FORGEPOINT_TLS_TERMINATED"),
-            operator_code: std::env::var("FORGEPOINT_OPERATOR_CODE").ok(),
-            session_ttl_seconds: env_u64("FORGEPOINT_SESSION_TTL_SECONDS", 300),
-            external_demo: env_truthy("FORGEPOINT_EXTERNAL_DEMO"),
+            tls_terminated: env_truthy("COMTRYA_TLS_TERMINATED"),
+            operator_code: std::env::var("COMTRYA_OPERATOR_CODE").ok(),
+            session_ttl_seconds: env_u64("COMTRYA_SESSION_TTL_SECONDS", 300),
+            external_demo: env_truthy("COMTRYA_EXTERNAL_DEMO"),
         }
     }
 }
@@ -261,14 +261,14 @@ impl Runtime {
         };
         runtime
             .append_event(
-                "dev.forgepoint.instance.started",
+                "dev.comtrya.instance.started",
                 json!({"mode": runtime.mode()}),
             )
             .map_err(|error| format!("failed to append startup event: {error}"))?;
         for resolver in runtime.extension_runtime.values() {
             runtime
                 .append_event(
-                    "dev.forgepoint.extension.resolver.executed",
+                    "dev.comtrya.extension.resolver.executed",
                     json!({
                         "extension": resolver.id,
                         "component": resolver.component,
@@ -345,8 +345,8 @@ impl Runtime {
             .unwrap_or_else(|| {
                 json!({
                     "id": "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-                    "slug": "forgepoint",
-                    "name": "Forgepoint Labs",
+                    "slug": "comtrya",
+                    "name": "Comtrya Labs",
                     "visibility": "PRIVATE",
                     "members": 0
                 })
@@ -364,7 +364,7 @@ impl Runtime {
         let activity = self.extension_storage.collection_data("activity_events")?;
         let extension_resolvers = self.extension_resolver_payload(&git, &pull_requests, &checks);
         Ok(json!({
-            "generatedBy": "forgepoint-runtime/v1",
+            "generatedBy": "comtrya-runtime/v1",
             "workspace": workspace,
             "repository": repository,
             "refs": git.refs,
@@ -469,7 +469,7 @@ impl Runtime {
             return Err(error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::ConfigInvalid.as_str(),
-                "production requires FORGEPOINT_TLS_TERMINATED=true behind a TLS terminator",
+                "production requires COMTRYA_TLS_TERMINATED=true behind a TLS terminator",
             ));
         }
 
@@ -567,7 +567,7 @@ impl Runtime {
                     used: false,
                 },
             );
-        let _ = self.append_audit("dev.forgepoint.session.issued", json!({"token": token}));
+        let _ = self.append_audit("dev.comtrya.session.issued", json!({"token": token}));
         token
     }
 
@@ -610,7 +610,7 @@ impl Runtime {
                 },
             );
         let _ = self.append_event(
-            "dev.forgepoint.auth.credential.issued",
+            "dev.comtrya.auth.credential.issued",
             json!({"resource": resource, "scope": actions}),
         );
         token
@@ -628,7 +628,7 @@ impl Runtime {
                 "specversion": "1.0",
                 "id": self.next_token("evt"),
                 "type": event_type,
-                "source": "forgepoint://instance/local",
+                "source": "comtrya://instance/local",
                 "time": now_seconds(),
                 "visibility": "PRIVATE",
                 "data": data
@@ -710,7 +710,7 @@ const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
     UnsupportedSurface {
         id: "legacy_v1_api",
         path_prefix: "/api/v1/",
-        message: "legacy Forgepoint v1 API routes are intentionally unsupported by this v2 production-testbed runtime",
+        message: "legacy Comtrya v1 API routes are intentionally unsupported by this v2 production-testbed runtime",
     },
 ];
 
@@ -903,7 +903,7 @@ fn event_stream_response(
             let event_type = event
                 .get("type")
                 .and_then(Value::as_str)
-                .unwrap_or("dev.forgepoint.event");
+                .unwrap_or("dev.comtrya.event");
             format!("id: {idx}\nevent: {event_type}\ndata: {event}\n\n")
         })
         .collect::<String>();
@@ -964,8 +964,8 @@ async fn token_exchange(
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    if request.grant_type != "urn:forgepoint:grant:operator-code"
-        || request.subject_token_type != "urn:forgepoint:token-type:operator-code"
+    if request.grant_type != "urn:comtrya:grant:operator-code"
+        || request.subject_token_type != "urn:comtrya:token-type:operator-code"
     {
         return error_response(
             StatusCode::BAD_REQUEST,
@@ -1118,11 +1118,11 @@ async fn git_endpoint(
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
-            "Git smart HTTP requires a valid Forgepoint credential",
+            "Git smart HTTP requires a valid Comtrya credential",
         );
         response.headers_mut().insert(
             "WWW-Authenticate",
-            HeaderValue::from_static("Bearer realm=\"forgepoint\""),
+            HeaderValue::from_static("Bearer realm=\"comtrya\""),
         );
         return response;
     }
@@ -1304,7 +1304,7 @@ fn typed_repository_payload(demo: &Value) -> Value {
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
-const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "forgepoint-local-operator-code"];
+const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "comtrya-local-operator-code"];
 const DEMO_EXPECTED_REFS: &[&str] = &[
     "refs/heads/main",
     "refs/heads/extensions/checks-dashboard",
@@ -1325,7 +1325,7 @@ struct GitDemoSnapshot {
 
 fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, String> {
     let project_root = data_dir.join("repositories");
-    let git_dir = project_root.join("forgepoint/forgepoint.git");
+    let git_dir = project_root.join("comtrya/comtrya.git");
     fs::create_dir_all(git_dir.parent().expect("demo repo has parent"))
         .map_err(|error| format!("failed to create repository root: {error}"))?;
 
@@ -1333,7 +1333,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
         return Ok(DemoRepositoryRuntime {
             git_dir,
             project_root,
-            http_path: "forgepoint/forgepoint.git".to_string(),
+            http_path: "comtrya/comtrya.git".to_string(),
         });
     }
     if git_dir.exists() {
@@ -1364,7 +1364,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
             .arg(&workdir)
             .arg("config")
             .arg("user.name")
-            .arg("Forgepoint Demo"),
+            .arg("Comtrya Demo"),
         "git config user.name",
     )?;
     run_command(
@@ -1373,7 +1373,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
             .arg(&workdir)
             .arg("config")
             .arg("user.email")
-            .arg("demo@forgepoint.local"),
+            .arg("demo@comtrya.local"),
         "git config user.email",
     )?;
     run_command(
@@ -1389,7 +1389,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
     write_seed_file(
         &workdir,
         "README.md",
-        "# Forgepoint\n\nForgepoint is a self-hosted code forge built around a Rust kernel and extension-delivered product surfaces.\n",
+        "# Comtrya\n\nComtrya is a self-hosted code forge built around a Rust kernel and extension-delivered product surfaces.\n",
     )?;
     write_seed_file(
         &workdir,
@@ -1404,7 +1404,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
     write_seed_file(
         &workdir,
         "frontend/src/main.ts",
-        "export function mountRepository() {\n  return \"live forgepoint repository\";\n}\n",
+        "export function mountRepository() {\n  return \"live comtrya repository\";\n}\n",
     )?;
     run_command(
         Command::new("git")
@@ -1421,14 +1421,14 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
             .arg("commit")
             .arg("--no-gpg-sign")
             .arg("-m")
-            .arg("Seed Forgepoint demo repository"),
+            .arg("Seed Comtrya demo repository"),
         "git commit initial demo files",
     )?;
 
     write_seed_file(
         &workdir,
         "README.md",
-        "# Forgepoint\n\nForgepoint is a self-hosted code forge built around a Rust kernel, live Git storage, and Wasmtime-loaded product extensions.\n\nThis repository is a real bare Git repository opened by the local Forgepoint server and cloned through the Astro origin during smoke validation.\n",
+        "# Comtrya\n\nComtrya is a self-hosted code forge built around a Rust kernel, live Git storage, and Wasmtime-loaded product extensions.\n\nThis repository is a real bare Git repository opened by the local Comtrya server and cloned through the Astro origin during smoke validation.\n",
     )?;
     write_seed_file(
         &workdir,
@@ -1514,7 +1514,7 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
     Ok(DemoRepositoryRuntime {
         git_dir,
         project_root,
-        http_path: "forgepoint/forgepoint.git".to_string(),
+        http_path: "comtrya/comtrya.git".to_string(),
     })
 }
 
@@ -1572,12 +1572,12 @@ fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, St
     Ok(GitDemoSnapshot {
         repository: json!({
             "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-            "owner": "forgepoint",
-            "name": "forgepoint",
-            "path": "forgepoint/forgepoint",
-            "gitHttpPath": "/git/forgepoint/forgepoint.git",
+            "owner": "comtrya",
+            "name": "comtrya",
+            "path": "comtrya/comtrya",
+            "gitHttpPath": "/git/comtrya/comtrya.git",
             "visibility": "PRIVATE",
-            "description": "Local bare Git repository opened by the Forgepoint production-testbed runtime.",
+            "description": "Local bare Git repository opened by the Comtrya production-testbed runtime.",
             "defaultBranch": "main",
             "currentCommit": short_head,
             "headOid": head,
@@ -1954,7 +1954,7 @@ fn git_bytes(git_dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
-const EXTENSION_STORAGE_SCHEMA_VERSION: &str = "forgepoint.extension-storage/v1";
+const EXTENSION_STORAGE_SCHEMA_VERSION: &str = "comtrya.extension-storage/v1";
 const EXTENSION_STORAGE_MIGRATIONS: &[&str] = &["001_extension_documents"];
 
 #[derive(Debug, Clone)]
@@ -2079,7 +2079,7 @@ impl ExtensionRuntimeStore {
             self.create_document(record)?;
         }
         self.append_storage_event(
-            "dev.forgepoint.extension_storage.seeded",
+            "dev.comtrya.extension_storage.seeded",
             json!({
                 "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
                 "documents": document_count
@@ -2158,7 +2158,7 @@ impl ExtensionRuntimeStore {
         };
         self.write_records_atomically(&records)?;
         self.append_storage_event(
-            "dev.forgepoint.extension_storage.document_updated",
+            "dev.comtrya.extension_storage.document_updated",
             json!({"collection": collection, "id": id, "version": version}),
         )
     }
@@ -2239,12 +2239,12 @@ fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>
         .pointer("/repository/id")
         .and_then(Value::as_str)
         .unwrap_or("repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
-    let repo_ref = format!("forgepoint://repository/{repo_id}");
+    let repo_ref = format!("comtrya://repository/{repo_id}");
     let workspace_id = seed
         .pointer("/workspace/id")
         .and_then(Value::as_str)
         .unwrap_or("ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
-    let workspace_ref = format!("forgepoint://workspace/{workspace_id}");
+    let workspace_ref = format!("comtrya://workspace/{workspace_id}");
     let mut records = Vec::new();
 
     if let Some(workspace) = seed.get("workspace").cloned() {
@@ -2448,7 +2448,7 @@ fn stable_slug(value: &str) -> String {
 }
 
 fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> Result<(), String> {
-    if manifest.get("schemaVersion").and_then(Value::as_str) != Some("forgepoint.extension/v1") {
+    if manifest.get("schemaVersion").and_then(Value::as_str) != Some("comtrya.extension/v1") {
         return Err(format!(
             "{id} backend manifest has unsupported schemaVersion"
         ));
@@ -2475,7 +2475,7 @@ fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> 
     let ui_manifest = serde_json::from_str::<Value>(&ui_source)
         .map_err(|error| format!("failed to parse {}: {error}", ui_manifest_path.display()))?;
     if ui_manifest.get("schemaVersion").and_then(Value::as_str)
-        != Some("forgepoint.ui-extension/v1")
+        != Some("comtrya.ui-extension/v1")
     {
         return Err(format!("{id} UI manifest has unsupported schemaVersion"));
     }
@@ -2672,7 +2672,7 @@ fn run_git_http_backend(
         .env("GATEWAY_INTERFACE", "CGI/1.1")
         .env("SERVER_PROTOCOL", "HTTP/1.1")
         .env("REMOTE_ADDR", "127.0.0.1")
-        .env("REMOTE_USER", "forgepoint")
+        .env("REMOTE_USER", "comtrya")
         .env(
             "HTTP_GIT_PROTOCOL",
             header_str(headers, "git-protocol").unwrap_or(""),
@@ -2784,26 +2784,26 @@ fn validate_production_testbed(
         return Ok(());
     }
     if !options.tls_terminated {
-        return Err("production mode requires FORGEPOINT_TLS_TERMINATED=true".to_string());
+        return Err("production mode requires COMTRYA_TLS_TERMINATED=true".to_string());
     }
     let operator_code = options.operator_code.as_deref().unwrap_or_default();
     if operator_code.len() < 12 || operator_code == "dev-secret" {
         return Err(
-            "production testbed requires FORGEPOINT_OPERATOR_CODE with at least 12 characters"
+            "production testbed requires COMTRYA_OPERATOR_CODE with at least 12 characters"
                 .to_string(),
         );
     }
     if options.external_demo && DEFAULT_OPERATOR_CODES.contains(&operator_code) {
         return Err(
-            "external production-testbed demos require a non-default FORGEPOINT_OPERATOR_CODE"
+            "external production-testbed demos require a non-default COMTRYA_OPERATOR_CODE"
                 .to_string(),
         );
     }
     if !options.data_dir.is_absolute() {
-        return Err("production mode requires an absolute FORGEPOINT_DATA_DIR".to_string());
+        return Err("production mode requires an absolute COMTRYA_DATA_DIR".to_string());
     }
     if !options.extension_dir.is_dir() {
-        return Err("production testbed requires FORGEPOINT_EXTENSION_DIR to exist".to_string());
+        return Err("production testbed requires COMTRYA_EXTENSION_DIR to exist".to_string());
     }
     if config
         .allowed_origins
@@ -2882,9 +2882,9 @@ fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
     if let Some(value) = cue_string_after(&source, "workspaces", "visibility") {
         if let Some(workspace) = config.workspaces.get_mut("default") {
             workspace.visibility = match value.as_str() {
-                "PUBLIC" => forgepoint_core::Visibility::Public,
-                "INTERNAL" => forgepoint_core::Visibility::Internal,
-                _ => forgepoint_core::Visibility::Private,
+                "PUBLIC" => comtrya_core::Visibility::Public,
+                "INTERNAL" => comtrya_core::Visibility::Internal,
+                _ => comtrya_core::Visibility::Private,
             };
         }
     }
@@ -2981,7 +2981,7 @@ fn env_u64(name: &str, default: u64) -> u64 {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
-    use forgepoint_core::OidcIssuerConfig;
+    use comtrya_core::OidcIssuerConfig;
     use std::sync::atomic::AtomicU64;
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -2989,7 +2989,7 @@ mod tests {
     fn temp_dir(name: &str) -> PathBuf {
         let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "forgepoint-testbed-{name}-{}-{counter}",
+            "comtrya-testbed-{name}-{}-{counter}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time works")
@@ -3113,7 +3113,7 @@ mod tests {
 
         assert_eq!(reopened.git_dir, repo.git_dir);
         assert_eq!(reopened.project_root, repo.project_root);
-        assert_eq!(reopened.http_path, "forgepoint/forgepoint.git");
+        assert_eq!(reopened.http_path, "comtrya/comtrya.git");
         assert_eq!(first_head, second_head);
         validate_demo_repository_refs(&reopened).unwrap();
     }
@@ -3125,7 +3125,7 @@ mod tests {
 
         let snapshot = git_demo_snapshot(&repo).unwrap();
 
-        assert_eq!(snapshot.repository["path"], "forgepoint/forgepoint");
+        assert_eq!(snapshot.repository["path"], "comtrya/comtrya");
         assert_eq!(snapshot.repository["defaultBranch"], "main");
         assert_eq!(snapshot.repository["headOid"].as_str().unwrap().len(), 40);
         assert!(snapshot.refs.iter().any(|reference| {
@@ -3279,15 +3279,15 @@ mod tests {
     fn production_mode_requires_tls_operator_code_and_absolute_paths() {
         let mut config = InstanceConfig::minimal_dev();
         config.environment = Environment::Production;
-        config.public_url = "https://forgepoint.example.test".to_string();
-        config.allowed_origins = vec!["https://forgepoint.example.test".to_string()];
+        config.public_url = "https://comtrya.example.test".to_string();
+        config.allowed_origins = vec!["https://comtrya.example.test".to_string()];
         config.oidc_issuers = vec![OidcIssuerConfig {
             id: "prod".to_string(),
             issuer_url: "https://issuer.example.test".to_string(),
-            client_id: "forgepoint".to_string(),
+            client_id: "comtrya".to_string(),
             client_kind: ClientKind::Confidential,
             client_secret: Some("not-a-dev-secret".to_string()),
-            redirect_url: "https://forgepoint.example.test/auth/oidc/prod/callback".to_string(),
+            redirect_url: "https://comtrya.example.test/auth/oidc/prod/callback".to_string(),
             allowed_domains: vec!["example.test".to_string()],
             allowed_groups: Vec::new(),
             allowed_subjects: Vec::new(),
@@ -3322,11 +3322,11 @@ mod tests {
         options.tls_terminated = true;
         assert!(validate_production_testbed(&config, &options).is_ok());
         options.external_demo = true;
-        options.operator_code = Some("forgepoint-local-operator-code".to_string());
+        options.operator_code = Some("comtrya-local-operator-code".to_string());
         assert!(
             validate_production_testbed(&config, &options)
                 .unwrap_err()
-                .contains("non-default FORGEPOINT_OPERATOR_CODE")
+                .contains("non-default COMTRYA_OPERATOR_CODE")
         );
         options.operator_code = Some("operator-code-for-external-demo".to_string());
         assert!(validate_production_testbed(&config, &options).is_ok());
@@ -3341,21 +3341,21 @@ mod tests {
             &config_path,
             format!(
                 r#"
-package forgepoint
+package comtrya
 instance: {{
   id: "prod"
   name: "Prod"
-  publicURL: "https://forgepoint.example.test"
+  publicURL: "https://comtrya.example.test"
   environment: "production"
-  allowedOrigins: ["https://forgepoint.example.test"]
+  allowedOrigins: ["https://comtrya.example.test"]
 }}
-database: {{ kind: "sqlite", url: "sqlite://forgepoint.db" }}
+database: {{ kind: "sqlite", url: "sqlite://comtrya.db" }}
 oidc: issuers: [{{
   issuerURL: "https://issuer.example.test"
-  clientID: "forgepoint"
+  clientID: "comtrya"
   clientKind: "confidential"
   clientSecret: "prod-secret"
-  redirectURL: "https://forgepoint.example.test/auth/oidc/prod/callback"
+  redirectURL: "https://comtrya.example.test/auth/oidc/prod/callback"
   allowed: domains: ["example.test"]
 }}]
 storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
@@ -3368,17 +3368,17 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         let config = load_config_file(&config_path).unwrap();
 
         assert_eq!(config.environment, Environment::Production);
-        assert_eq!(config.allowed_origins, ["https://forgepoint.example.test"]);
+        assert_eq!(config.allowed_origins, ["https://comtrya.example.test"]);
     }
 
     #[tokio::test]
     async fn token_exchange_issues_short_lived_testbed_credential() {
         let runtime = dev_runtime();
         let request = TokenExchangeRequest {
-            grant_type: "urn:forgepoint:grant:operator-code".to_string(),
+            grant_type: "urn:comtrya:grant:operator-code".to_string(),
             subject_token: "testbed-operator-code".to_string(),
-            subject_token_type: "urn:forgepoint:token-type:operator-code".to_string(),
-            requested_resource: "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
+            subject_token_type: "urn:comtrya:token-type:operator-code".to_string(),
+            requested_resource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
                 .to_string(),
             requested_actions: vec!["git:read".to_string()],
         };
@@ -3395,7 +3395,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn git_endpoint_serves_upload_pack_after_auth() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3404,7 +3404,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             State(AppState { runtime }),
             bearer_headers(&token),
             Method::GET,
-            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
             Bytes::new(),
         )
@@ -3424,7 +3424,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             }),
             HeaderMap::new(),
             Method::GET,
-            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
             Bytes::new(),
         )
@@ -3441,7 +3441,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3451,7 +3451,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             }),
             bearer_headers(&token),
             Method::GET,
-            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
             Bytes::new(),
         )
@@ -3468,7 +3468,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         );
 
         let write_only_token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:write".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3476,7 +3476,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             State(AppState { runtime }),
             bearer_headers(&write_only_token),
             Method::GET,
-            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
             Bytes::new(),
         )
@@ -3497,7 +3497,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn git_endpoint_rejects_path_traversal_after_auth() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3506,7 +3506,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             State(AppState { runtime }),
             bearer_headers(&token),
             Method::GET,
-            AxumPath("forgepoint/../forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/../comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-upload-pack".to_string())),
             Bytes::new(),
         )
@@ -3525,7 +3525,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn git_receive_pack_returns_unsupported_registry_error() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3534,7 +3534,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             State(AppState { runtime }),
             bearer_headers(&token),
             Method::GET,
-            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-receive-pack".to_string())),
             Bytes::new(),
         )
@@ -3559,7 +3559,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
         let error = adapter
             .handle(GitSmartHttpRequest {
                 project_root: Path::new("/does-not-need-to-exist"),
-                path: "forgepoint/forgepoint.git/info/refs",
+                path: "comtrya/comtrya.git/info/refs",
                 query: "service=git-upload-pack",
                 method: &Method::DELETE,
                 headers: &HeaderMap::new(),
@@ -3575,7 +3575,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn graphql_response_exposes_typed_repository_fields() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -3598,7 +3598,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
 
         assert_eq!(
             payload["data"]["repository"]["path"],
-            "forgepoint/forgepoint"
+            "comtrya/comtrya"
         );
         assert!(
             payload["data"]["repository"]["refs"]
@@ -3624,9 +3624,9 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     fn repository_seed_metadata_cannot_override_derived_facts() {
         let live_repository = json!({
             "id": "repo_live",
-            "owner": "forgepoint",
-            "name": "forgepoint",
-            "path": "forgepoint/forgepoint",
+            "owner": "comtrya",
+            "name": "comtrya",
+            "path": "comtrya/comtrya",
             "visibility": "PRIVATE",
             "description": "derived from runtime",
             "stars": 0,
@@ -3673,16 +3673,16 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
                 "generatedAt": "2026-05-11T00:00:00Z",
                 "workspace": {
                     "id": "ws_test",
-                    "slug": "forgepoint",
-                    "name": "Forgepoint Labs",
+                    "slug": "comtrya",
+                    "name": "Comtrya Labs",
                     "visibility": "PRIVATE",
                     "members": 3
                 },
                 "repository": {
                     "id": "repo_test",
-                    "owner": "forgepoint",
-                    "name": "forgepoint",
-                    "path": "forgepoint/forgepoint",
+                    "owner": "comtrya",
+                    "name": "comtrya",
+                    "path": "comtrya/comtrya",
                     "visibility": "PRIVATE",
                     "description": "Runtime storage test",
                     "stars": 9,
@@ -3733,8 +3733,8 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
                 "ext_checks",
                 "check_runs",
                 "check_runtime_mutation",
-                "forgepoint://repository/repo_test",
-                vec!["forgepoint://repository/repo_test".to_string()],
+                "comtrya://repository/repo_test",
+                vec!["comtrya://repository/repo_test".to_string()],
                 json!({
                     "repositoryID": "repo_test",
                     "name": "runtime mutation",
@@ -3794,7 +3794,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
 
         assert_eq!(
             code_browser["outputType"],
-            "forgepoint.code-browser/summary.v1"
+            "comtrya.code-browser/summary.v1"
         );
         assert!(
             code_browser["output"]["methods"]
@@ -3855,7 +3855,7 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             assert_eq!(resolver.component, "component.wat");
             assert_eq!(resolver.resolver, "resolve");
             assert_eq!(resolver.status, "executed");
-            assert!(resolver.output_type.starts_with("forgepoint."));
+            assert!(resolver.output_type.starts_with("comtrya."));
             assert!(resolver.output_type.ends_with("/summary.v1"));
         }
     }

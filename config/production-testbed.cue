@@ -1,25 +1,25 @@
-package forgepoint
+package comtrya
 
 instance: {
-	id:          "forgepoint-production-testbed"
-	name:        "Forgepoint Production Testbed"
-	publicURL:   "https://forgepoint.localhost"
+	id:          "comtrya-production-testbed"
+	name:        "Comtrya Production Testbed"
+	publicURL:   "https://comtrya.localhost"
 	environment: "production"
-	allowedOrigins: ["https://forgepoint.localhost"]
+	allowedOrigins: ["https://comtrya.localhost"]
 }
 
 database: {
 	kind: "sqlite"
-	url:  "sqlite:///private/tmp/forgepoint-production-testbed/metadata/forgepoint.db"
+	url:  "sqlite:///private/tmp/comtrya-production-testbed/metadata/comtrya.db"
 }
 
 oidc: issuers: [{
 	id:           "testbed"
 	issuerURL:    "https://issuer.example.test"
-	clientID:     "forgepoint"
+	clientID:     "comtrya"
 	clientKind:   "confidential"
 	clientSecret: "replace-with-real-oidc-client-secret"
-	redirectURL:  "https://forgepoint.localhost/auth/oidc/testbed/callback"
+	redirectURL:  "https://comtrya.localhost/auth/oidc/testbed/callback"
 	allowed: domains: ["example.test"]
 }]
 
@@ -27,7 +27,7 @@ storage: repositories: {
 	default: "local"
 	backends: local: {
 		kind: "local"
-		path: "/private/tmp/forgepoint-production-testbed/repositories"
+		path: "/private/tmp/comtrya-production-testbed/repositories"
 	}
 }
 

@@ -1,4 +1,4 @@
-# Forgepoint Stage-Ready Demo TODO
+# Comtrya Stage-Ready Demo TODO
 
 This file is intentionally blunt. The current demo has some real paths, but it is not yet a fully honest product demo where every visible surface is produced by real Git storage, real Wasmtime Component Model extensions, and durable first-class runtime state.
 
@@ -6,14 +6,14 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 
 - Real: `start.sh` builds and launches the Rust server and Astro frontend.
 - Real: the operator-code flow exchanges the seeded `.envrc` code for a scoped bearer credential.
-- Real: the server seeds or opens a local bare Git repository under `$FORGEPOINT_DATA_DIR/repositories`.
+- Real: the server seeds or opens a local bare Git repository under `$COMTRYA_DATA_DIR/repositories`.
 - Real: Rust tests cover seeded Git repository idempotent open and snapshot extraction from refs, tree, blobs, and diff.
 - Real: GraphQL returns refs, branches, commits, tree entries, blobs, file previews, and diffs derived from that Git repository.
-- Real: Git clone/fetch works through the Astro origin using a scoped Forgepoint credential.
+- Real: Git clone/fetch works through the Astro origin using a scoped Comtrya credential.
 - Real: extension UI manifests and assets are served from `/_extensions/...`.
 - Real: Astro dynamically imports extension JS assets.
 - Real: Wasmtime compiles, instantiates, and executes minimal Component Model resolver components.
-- Real: extension runtime data is imported at startup into versioned storage files under `$FORGEPOINT_DATA_DIR/extensions/storage`.
+- Real: extension runtime data is imported at startup into versioned storage files under `$COMTRYA_DATA_DIR/extensions/storage`.
 - Real: request-time GraphQL demo aggregation reads pull requests, checks, extension installs, activity, workspace, and repository metadata from extension storage documents instead of a runtime JSON blob.
 - Real: extension resolver records expose typed code-browser, pull-request, and checks output summaries instead of UI-visible numeric proof values.
 - Real: `start.sh` uses structured JSON assertions for readyz, token exchange, GraphQL Git data, GraphQL storage data, and typed resolver summaries.
@@ -42,15 +42,15 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 The demo is proper when a skeptical reviewer can start `./start.sh`, open `http://127.0.0.1:4321/`, and every visible product surface can be traced to one of these real sources:
 
 - Git object database, refs, commits, trees, blobs, diffs, or push/fetch protocol.
-- Durable Forgepoint runtime storage with explicit schema and migrations.
+- Durable Comtrya runtime storage with explicit schema and migrations.
 - A first-party Wasmtime Component Model extension called by the host through a real resolver interface.
-- Authenticated Forgepoint API calls made through the Astro origin.
+- Authenticated Comtrya API calls made through the Astro origin.
 
 No visible product data should come from inline JS constants, fixture-only JSON, hardcoded fake metrics, or host-side placeholder models.
 
 ## 1. Replace Fixture-Seeded Runtime JSON With Real Runtime Storage
 
-- Create a proper extension/runtime storage schema instead of `$FORGEPOINT_DATA_DIR/extensions/runtime-state.json`.
+- Create a proper extension/runtime storage schema instead of `$COMTRYA_DATA_DIR/extensions/runtime-state.json`.
 - Add migrations for extension documents, indexes, activity events, pull requests, review comments, check suites, check runs, and extension install records.
 - Move seeded demo data import behind explicit seed commands or startup seed logic that writes through the same storage APIs used by runtime code.
 - Delete the direct `fixtures/demo/conference.json` fallback from request-time product paths.
@@ -192,7 +192,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Partial: route tests and smoke cover unauthorized upload-pack; push remains disabled/unsupported.
 - Partial: route tests prove `git:write` alone cannot fetch; push remains disabled before write-scope validation is meaningful.
 - Real: route tests cover path traversal rejection for `/git/...`.
-- Add multiple repository support instead of one hardcoded `forgepoint/forgepoint.git`.
+- Add multiple repository support instead of one hardcoded `comtrya/comtrya.git`.
 - Make repository metadata derive from the repository record and Git config, not literals.
 
 ## 7. Make GraphQL Honest
@@ -248,14 +248,14 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - branches,
   - extension installations,
   - extension-owned PR/check/activity documents.
-- Real: `start.sh --reset` and `FORGEPOINT_RESET_DEMO_DATA=1` intentionally reset generated runtime state.
-- Real: `start.sh` reset deletion is guarded so only generated paths under `FORGEPOINT_DATA_DIR` can be removed.
+- Real: `start.sh --reset` and `COMTRYA_RESET_DEMO_DATA=1` intentionally reset generated runtime state.
+- Real: `start.sh` reset deletion is guarded so only generated paths under `COMTRYA_DATA_DIR` can be removed.
 - Real: `start.sh` prints the seeded repository path, branch list, and extension install list from live GraphQL data.
 - Real: startup validates that first-party extension files exist before starting the server.
 - Real: startup validates that Wasmtime components export the expected resolver before starting the server.
 - Real: startup validates extension UI manifests and backend extension manifests agree.
 - Real: startup validates that the Git repo has expected refs and HEAD.
-- Real: `FORGEPOINT_EXTERNAL_DEMO=1` makes startup reject the local default `.envrc` operator code.
+- Real: `COMTRYA_EXTERNAL_DEMO=1` makes startup reject the local default `.envrc` operator code.
 
 ## 11. Smoke Test Coverage Gaps
 

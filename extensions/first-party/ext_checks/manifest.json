@@ -1,17 +1,17 @@
 {
-  "schemaVersion": "forgepoint.extension/v1",
+  "schemaVersion": "comtrya.extension/v1",
   "id": "ext_checks",
   "name": "checks",
   "displayName": "Checks",
   "version": "0.1.0",
-  "publisher": "forgepoint-dev",
+  "publisher": "comtrya-dev",
   "wasmComponent": "component.wat",
-  "witWorld": "forgepoint:extension/extension",
+  "witWorld": "comtrya:extension/extension",
   "ui": {
     "manifest": "ui/manifest.json"
   },
   "runtime": {
     "resolver": "resolve",
-    "outputType": "forgepoint.checks/summary.v1"
+    "outputType": "comtrya.checks/summary.v1"
   }
 }

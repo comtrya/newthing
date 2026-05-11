@@ -156,7 +156,7 @@ mod tests {
     use crate::ResourceRef;
 
     fn repo() -> ResourceRef {
-        ResourceRef::parse("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
+        ResourceRef::parse("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
     }
 
     #[test]
@@ -169,7 +169,7 @@ mod tests {
     fn required_check_failure_blocks_protected_update() {
         let mut registry = CheckRegistry::default();
         let check = registry
-            .create(repo(), "abc123", "ci/server", "forgepoint")
+            .create(repo(), "abc123", "ci/server", "comtrya")
             .unwrap();
         registry
             .update(
@@ -186,7 +186,7 @@ mod tests {
     fn required_check_success_allows_protected_update() {
         let mut registry = CheckRegistry::default();
         let check = registry
-            .create(repo(), "abc123", "ci/server", "forgepoint")
+            .create(repo(), "abc123", "ci/server", "comtrya")
             .unwrap();
         registry
             .update(

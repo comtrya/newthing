@@ -61,59 +61,59 @@ pub enum CoreEventType {
 impl CoreEventType {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::InstanceConfigReloadStarted => "dev.forgepoint.instance.config.reload.started",
+            Self::InstanceConfigReloadStarted => "dev.comtrya.instance.config.reload.started",
             Self::InstanceConfigReloadSucceeded => {
-                "dev.forgepoint.instance.config.reload.succeeded"
+                "dev.comtrya.instance.config.reload.succeeded"
             }
-            Self::InstanceConfigReloadFailed => "dev.forgepoint.instance.config.reload.failed",
-            Self::InstanceBackupStarted => "dev.forgepoint.instance.backup.started",
-            Self::InstanceBackupSucceeded => "dev.forgepoint.instance.backup.succeeded",
-            Self::InstanceBackupFailed => "dev.forgepoint.instance.backup.failed",
-            Self::InstanceRestoreStarted => "dev.forgepoint.instance.restore.started",
-            Self::InstanceRestoreCompleted => "dev.forgepoint.instance.restore.completed",
-            Self::InstanceRestoreFailed => "dev.forgepoint.instance.restore.failed",
-            Self::AuthLoginSucceeded => "dev.forgepoint.auth.login.succeeded",
-            Self::AuthLoginFailed => "dev.forgepoint.auth.login.failed",
-            Self::AuthCredentialIssued => "dev.forgepoint.auth.credential.issued",
-            Self::UserCreated => "dev.forgepoint.user.created",
-            Self::UserDeactivated => "dev.forgepoint.user.deactivated",
-            Self::TeamCreated => "dev.forgepoint.team.created",
-            Self::TeamDeleted => "dev.forgepoint.team.deleted",
-            Self::TeamMemberAdded => "dev.forgepoint.team.member.added",
-            Self::TeamMemberRemoved => "dev.forgepoint.team.member.removed",
-            Self::WorkspaceCreated => "dev.forgepoint.workspace.created",
-            Self::WorkspaceUpdated => "dev.forgepoint.workspace.updated",
-            Self::WorkspaceDeleted => "dev.forgepoint.workspace.deleted",
-            Self::GroupCreated => "dev.forgepoint.group.created",
-            Self::GroupUpdated => "dev.forgepoint.group.updated",
-            Self::GroupMoved => "dev.forgepoint.group.moved",
-            Self::GroupDeleted => "dev.forgepoint.group.deleted",
-            Self::RepositoryCreated => "dev.forgepoint.repository.created",
-            Self::RepositoryUpdated => "dev.forgepoint.repository.updated",
-            Self::RepositoryRenamed => "dev.forgepoint.repository.renamed",
-            Self::RepositoryVisibilityChanged => "dev.forgepoint.repository.visibility.changed",
-            Self::RepositoryDeleted => "dev.forgepoint.repository.deleted",
-            Self::RepositoryRefUpdated => "dev.forgepoint.repository.ref.updated",
-            Self::RepositoryPushRejected => "dev.forgepoint.repository.push.rejected",
-            Self::RepositoryConfigValidated => "dev.forgepoint.repository.config.validated",
-            Self::RepositoryConfigRejected => "dev.forgepoint.repository.config.rejected",
-            Self::ProjectCreated => "dev.forgepoint.project.created",
-            Self::ProjectUpdated => "dev.forgepoint.project.updated",
-            Self::ProjectDeleted => "dev.forgepoint.project.deleted",
-            Self::CheckCreated => "dev.forgepoint.check.created",
-            Self::CheckUpdated => "dev.forgepoint.check.updated",
-            Self::JobQueued => "dev.forgepoint.job.queued",
-            Self::JobStarted => "dev.forgepoint.job.started",
-            Self::JobSucceeded => "dev.forgepoint.job.succeeded",
-            Self::JobFailed => "dev.forgepoint.job.failed",
-            Self::JobDead => "dev.forgepoint.job.dead",
-            Self::ExtensionInstalled => "dev.forgepoint.extension.installed",
-            Self::ExtensionActivated => "dev.forgepoint.extension.activated",
-            Self::ExtensionDisabled => "dev.forgepoint.extension.disabled",
-            Self::ExtensionFailed => "dev.forgepoint.extension.failed",
-            Self::SecretAccessed => "dev.forgepoint.secret.accessed",
-            Self::PublisherDeliverySucceeded => "dev.forgepoint.publisher.delivery.succeeded",
-            Self::PublisherDeliveryFailed => "dev.forgepoint.publisher.delivery.failed",
+            Self::InstanceConfigReloadFailed => "dev.comtrya.instance.config.reload.failed",
+            Self::InstanceBackupStarted => "dev.comtrya.instance.backup.started",
+            Self::InstanceBackupSucceeded => "dev.comtrya.instance.backup.succeeded",
+            Self::InstanceBackupFailed => "dev.comtrya.instance.backup.failed",
+            Self::InstanceRestoreStarted => "dev.comtrya.instance.restore.started",
+            Self::InstanceRestoreCompleted => "dev.comtrya.instance.restore.completed",
+            Self::InstanceRestoreFailed => "dev.comtrya.instance.restore.failed",
+            Self::AuthLoginSucceeded => "dev.comtrya.auth.login.succeeded",
+            Self::AuthLoginFailed => "dev.comtrya.auth.login.failed",
+            Self::AuthCredentialIssued => "dev.comtrya.auth.credential.issued",
+            Self::UserCreated => "dev.comtrya.user.created",
+            Self::UserDeactivated => "dev.comtrya.user.deactivated",
+            Self::TeamCreated => "dev.comtrya.team.created",
+            Self::TeamDeleted => "dev.comtrya.team.deleted",
+            Self::TeamMemberAdded => "dev.comtrya.team.member.added",
+            Self::TeamMemberRemoved => "dev.comtrya.team.member.removed",
+            Self::WorkspaceCreated => "dev.comtrya.workspace.created",
+            Self::WorkspaceUpdated => "dev.comtrya.workspace.updated",
+            Self::WorkspaceDeleted => "dev.comtrya.workspace.deleted",
+            Self::GroupCreated => "dev.comtrya.group.created",
+            Self::GroupUpdated => "dev.comtrya.group.updated",
+            Self::GroupMoved => "dev.comtrya.group.moved",
+            Self::GroupDeleted => "dev.comtrya.group.deleted",
+            Self::RepositoryCreated => "dev.comtrya.repository.created",
+            Self::RepositoryUpdated => "dev.comtrya.repository.updated",
+            Self::RepositoryRenamed => "dev.comtrya.repository.renamed",
+            Self::RepositoryVisibilityChanged => "dev.comtrya.repository.visibility.changed",
+            Self::RepositoryDeleted => "dev.comtrya.repository.deleted",
+            Self::RepositoryRefUpdated => "dev.comtrya.repository.ref.updated",
+            Self::RepositoryPushRejected => "dev.comtrya.repository.push.rejected",
+            Self::RepositoryConfigValidated => "dev.comtrya.repository.config.validated",
+            Self::RepositoryConfigRejected => "dev.comtrya.repository.config.rejected",
+            Self::ProjectCreated => "dev.comtrya.project.created",
+            Self::ProjectUpdated => "dev.comtrya.project.updated",
+            Self::ProjectDeleted => "dev.comtrya.project.deleted",
+            Self::CheckCreated => "dev.comtrya.check.created",
+            Self::CheckUpdated => "dev.comtrya.check.updated",
+            Self::JobQueued => "dev.comtrya.job.queued",
+            Self::JobStarted => "dev.comtrya.job.started",
+            Self::JobSucceeded => "dev.comtrya.job.succeeded",
+            Self::JobFailed => "dev.comtrya.job.failed",
+            Self::JobDead => "dev.comtrya.job.dead",
+            Self::ExtensionInstalled => "dev.comtrya.extension.installed",
+            Self::ExtensionActivated => "dev.comtrya.extension.activated",
+            Self::ExtensionDisabled => "dev.comtrya.extension.disabled",
+            Self::ExtensionFailed => "dev.comtrya.extension.failed",
+            Self::SecretAccessed => "dev.comtrya.secret.accessed",
+            Self::PublisherDeliverySucceeded => "dev.comtrya.publisher.delivery.succeeded",
+            Self::PublisherDeliveryFailed => "dev.comtrya.publisher.delivery.failed",
         }
     }
 }
@@ -422,13 +422,13 @@ mod tests {
     use crate::{ResourceKind, ResourceRef};
 
     fn repo_ref() -> ResourceRef {
-        ResourceRef::parse("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
+        ResourceRef::parse("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
     }
 
     fn actor() -> EventActor {
         EventActor {
             kind: "user".to_string(),
-            uri: "forgepoint://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            uri: "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             display_name: Some("Rawkode".to_string()),
         }
     }
@@ -437,15 +437,15 @@ mod tests {
     fn core_event_type_names_match_spec() {
         assert_eq!(
             CoreEventType::RepositoryRefUpdated.as_str(),
-            "dev.forgepoint.repository.ref.updated"
+            "dev.comtrya.repository.ref.updated"
         );
         assert_eq!(
             CoreEventType::InstanceRestoreCompleted.as_str(),
-            "dev.forgepoint.instance.restore.completed"
+            "dev.comtrya.instance.restore.completed"
         );
         assert_eq!(
             CoreEventType::PublisherDeliveryFailed.as_str(),
-            "dev.forgepoint.publisher.delivery.failed"
+            "dev.comtrya.publisher.delivery.failed"
         );
     }
 
@@ -556,8 +556,8 @@ mod tests {
         );
 
         let json = event.strict_cloudevents_projection();
-        assert!(json.contains("\"actor\":\"forgepoint://user/usr_"));
-        assert!(json.contains("\"resources\":[\"forgepoint://repository/repo_"));
+        assert!(json.contains("\"actor\":\"comtrya://user/usr_"));
+        assert!(json.contains("\"resources\":[\"comtrya://repository/repo_"));
         assert!(!json.contains("\"actor\":{\""));
     }
 

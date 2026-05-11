@@ -143,14 +143,14 @@ mod tests {
     fn forbidden_errors_carry_resource_and_permission_extensions() {
         let err = CoreError::forbidden(
             "cannot read repository",
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "git:read",
         );
 
         assert_eq!(err.code, ErrorCode::Forbidden);
         assert_eq!(
             err.resource.as_deref(),
-            Some("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3")
+            Some("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3")
         );
         assert_eq!(err.permission.as_deref(), Some("git:read"));
     }

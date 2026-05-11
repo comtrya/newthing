@@ -1,11 +1,11 @@
-import type { EventFilter, ForgepointClient, ForgepointEvent } from "./contracts";
+import type { EventFilter, ComtryaClient, ComtryaEvent } from "./contracts";
 
 type GraphqlEnvelope<TData> = {
   data?: TData;
   errors?: Array<{ message: string; extensions?: { code?: string } }>;
 };
 
-export class HttpForgepointClient implements ForgepointClient {
+export class HttpComtryaClient implements ComtryaClient {
   private accessToken?: string;
 
   constructor(
@@ -64,7 +64,7 @@ export class HttpForgepointClient implements ForgepointClient {
   async *events(
     filter?: EventFilter,
     opts?: { signal?: AbortSignal },
-  ): AsyncIterable<ForgepointEvent> {
+  ): AsyncIterable<ComtryaEvent> {
     const session = await this.issueSession("/events/session");
     const url = new URL("/events", this.baseURL);
     url.searchParams.set("session", session);
@@ -74,7 +74,7 @@ export class HttpForgepointClient implements ForgepointClient {
     for (const type of filter?.types ?? []) {
       url.searchParams.append("type", type);
     }
-    yield* this.eventSource<ForgepointEvent>(url, opts?.signal);
+    yield* this.eventSource<ComtryaEvent>(url, opts?.signal);
   }
 
   navigate(path: string, opts?: { replace?: boolean }): void {
@@ -86,7 +86,7 @@ export class HttpForgepointClient implements ForgepointClient {
   }
 
   toast(level: "info" | "success" | "warn" | "error", message: string): void {
-    window.dispatchEvent(new CustomEvent("forgepoint:toast", { detail: { level, message } }));
+    window.dispatchEvent(new CustomEvent("comtrya:toast", { detail: { level, message } }));
   }
 
   async issueExtensionSession(): Promise<string> {

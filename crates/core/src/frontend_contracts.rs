@@ -1,8 +1,8 @@
 use crate::error::{CoreError, CoreResult};
 use std::collections::BTreeMap;
 
-pub const FORGEPOINT_CLIENT_TYPESCRIPT: &str = r#"
-interface ForgepointClient {
+pub const COMTRYA_CLIENT_TYPESCRIPT: &str = r#"
+interface ComtryaClient {
   query<TData = unknown, TVars = Record<string, unknown>>(document: string, variables?: TVars, opts?: { signal?: AbortSignal; operationName?: string }): Promise<TData>;
   mutate<TData = unknown, TVars = Record<string, unknown>>(document: string, variables?: TVars, opts?: { signal?: AbortSignal; operationName?: string }): Promise<TData>;
   subscribe<TData = unknown, TVars = Record<string, unknown>>(document: string, variables?: TVars, opts?: { signal?: AbortSignal; operationName?: string }): AsyncIterable<TData>;
@@ -46,7 +46,7 @@ pub struct UiManifest {
 
 impl UiManifest {
     pub fn validate(&self) -> CoreResult<()> {
-        if self.schema_version != "forgepoint.ui-extension/v1" {
+        if self.schema_version != "comtrya.ui-extension/v1" {
             return Err(CoreError::bad_user_input(
                 "unsupported UI extension schemaVersion",
             ));
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn installed_ui_extension_manifest_validates_routes_and_assets() {
         let manifest = UiManifest {
-            schema_version: "forgepoint.ui-extension/v1".to_string(),
+            schema_version: "comtrya.ui-extension/v1".to_string(),
             extension: "pull-requests".to_string(),
             assets: UiAssets {
                 entry: "/_extensions/ext_01hv/assets/index.js".to_string(),
@@ -148,12 +148,12 @@ mod tests {
             },
             routes: vec![UiRoute {
                 path: "/:workspace/:repo/pulls".to_string(),
-                element: "forgepoint-pull-request-list".to_string(),
+                element: "comtrya-pull-request-list".to_string(),
                 required_permission: "pull-requests.read".to_string(),
             }],
             slots: vec![UiSlot {
                 slot: "repository.nav".to_string(),
-                element: "forgepoint-pull-request-nav".to_string(),
+                element: "comtrya-pull-request-nav".to_string(),
                 required_permission: "pull-requests.read".to_string(),
             }],
             csp_connect_src: Vec::new(),
@@ -207,9 +207,9 @@ mod tests {
     }
 
     #[test]
-    fn forgepoint_client_contract_hides_access_tokens() {
-        assert!(FORGEPOINT_CLIENT_TYPESCRIPT.contains("subscribe"));
-        assert!(FORGEPOINT_CLIENT_TYPESCRIPT.contains("toast"));
-        assert!(!FORGEPOINT_CLIENT_TYPESCRIPT.contains("accessToken"));
+    fn comtrya_client_contract_hides_access_tokens() {
+        assert!(COMTRYA_CLIENT_TYPESCRIPT.contains("subscribe"));
+        assert!(COMTRYA_CLIENT_TYPESCRIPT.contains("toast"));
+        assert!(!COMTRYA_CLIENT_TYPESCRIPT.contains("accessToken"));
     }
 }

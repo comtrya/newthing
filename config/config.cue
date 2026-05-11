@@ -1,8 +1,8 @@
-package forgepoint
+package comtrya
 
 instance: {
-	id:          "forgepoint-dev"
-	name:        "Forgepoint Dev"
+	id:          "comtrya-dev"
+	name:        "Comtrya Dev"
 	publicURL:   "http://localhost:8080"
 	environment: "development"
 	allowedOrigins: ["http://localhost:4321"]
@@ -10,13 +10,13 @@ instance: {
 
 database: {
 	kind: "sqlite"
-	url:  "sqlite://forgepoint.db"
+	url:  "sqlite://comtrya.db"
 }
 
 oidc: issuers: [{
 	id:          "dev"
 	issuerURL:   "https://issuer.example.test"
-	clientID:    "forgepoint"
+	clientID:    "comtrya"
 	clientKind:  "confidential"
 	clientSecret: "dev-secret"
 	redirectURL: "http://localhost:8080/auth/oidc/dev/callback"

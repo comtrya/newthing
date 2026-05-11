@@ -134,8 +134,8 @@ impl ResourceRef {
     }
 
     pub fn parse(value: &str) -> CoreResult<Self> {
-        let rest = value.strip_prefix("forgepoint://").ok_or_else(|| {
-            CoreError::bad_user_input("resource reference must use forgepoint://")
+        let rest = value.strip_prefix("comtrya://").ok_or_else(|| {
+            CoreError::bad_user_input("resource reference must use comtrya://")
         })?;
         let (kind, id) = rest.split_once('/').ok_or_else(|| {
             CoreError::bad_user_input("resource reference must include kind and ID")
@@ -146,7 +146,7 @@ impl ResourceRef {
     }
 
     pub fn canonical(&self) -> String {
-        format!("forgepoint://{}/{}", self.kind.as_str(), self.id)
+        format!("comtrya://{}/{}", self.kind.as_str(), self.id)
     }
 }
 
@@ -240,18 +240,18 @@ mod tests {
     #[test]
     fn resource_refs_use_canonical_opaque_form() {
         let reference =
-            ResourceRef::parse("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
 
         assert_eq!(reference.kind, ResourceKind::Repository);
         assert_eq!(
             reference.canonical(),
-            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
         );
     }
 
     #[test]
     fn resource_ref_rejects_kind_id_mismatch() {
-        let err = ResourceRef::parse("forgepoint://repository/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3")
+        let err = ResourceRef::parse("comtrya://repository/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3")
             .unwrap_err();
         assert_eq!(err.code, crate::ErrorCode::BadUserInput);
     }

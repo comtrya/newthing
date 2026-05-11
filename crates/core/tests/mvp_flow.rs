@@ -1,4 +1,4 @@
-use forgepoint_core::*;
+use comtrya_core::*;
 
 #[test]
 fn kernel_mvp_flow_is_exercised_through_contract_layer() {
@@ -47,10 +47,10 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         .issue_git_credential(
             &mut auth,
             TokenExchangeRequest {
-                grant_type: "urn:forgepoint:grant:oidc-token-exchange".to_string(),
+                grant_type: "urn:comtrya:grant:oidc-token-exchange".to_string(),
                 subject_token: "jwt".to_string(),
                 subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
-                requested_resource: format!("forgepoint://repository/{}", repository.id),
+                requested_resource: format!("comtrya://repository/{}", repository.id),
                 requested_actions: vec!["git:read".to_string(), "git:write".to_string()],
             },
             Principal::User(login.user.id),
@@ -71,8 +71,8 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
             StagingBudget::for_pack_size(64),
             Vec::new(),
             vec![CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\ninvalid: true".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\ninvalid: true".to_string(),
             }],
         )
         .unwrap();
@@ -96,8 +96,8 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
             StagingBudget::for_pack_size(64),
             vec![update.clone()],
             vec![CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\nrepo: {}".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nrepo: {}".to_string(),
             }],
         )
         .unwrap();
@@ -126,7 +126,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         Some("refs/heads/main".to_string()),
         EventActor {
             kind: "user".to_string(),
-            uri: "forgepoint://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            uri: "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             display_name: Some("Rawkode".to_string()),
         },
         Visibility::Private,

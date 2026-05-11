@@ -10,7 +10,7 @@ TMP_DIR=""
 REQUEST_RESET=0
 
 log() {
-  printf '[forgepoint] %s\n' "$*"
+  printf '[comtrya] %s\n' "$*"
 }
 
 usage() {
@@ -24,10 +24,10 @@ USAGE
 }
 
 fail() {
-  printf '[forgepoint] ERROR: %s\n' "$*" >&2
+  printf '[comtrya] ERROR: %s\n' "$*" >&2
   for log_file in "${SERVER_LOG:-}" "${FRONTEND_LOG:-}"; do
     if [[ -n "$log_file" && -f "$log_file" ]]; then
-      printf '\n[forgepoint] %s tail:\n' "$log_file" >&2
+      printf '\n[comtrya] %s tail:\n' "$log_file" >&2
       tail -n 80 "$log_file" >&2 || true
     fi
   done
@@ -49,7 +49,7 @@ reset_generated_path() {
       fi
       ;;
     *)
-      fail "refusing to reset path outside FORGEPOINT_DATA_DIR: $path"
+      fail "refusing to reset path outside COMTRYA_DATA_DIR: $path"
       ;;
   esac
 }
@@ -74,21 +74,21 @@ load_envrc() {
 
   local override_names=(
     BUN
-    FORGEPOINT_CONFIG
-    FORGEPOINT_DATA_DIR
-    FORGEPOINT_DEMO_FIXTURE
-    FORGEPOINT_EXTERNAL_DEMO
-    FORGEPOINT_EXTENSION_DIR
-    FORGEPOINT_FRONTEND_LISTEN
-    FORGEPOINT_FRONTEND_URL
-    FORGEPOINT_LISTEN
-    FORGEPOINT_ONESHOT
-    FORGEPOINT_OPERATOR_CODE
-    FORGEPOINT_READY_TIMEOUT_SECONDS
-    FORGEPOINT_RESET_DEMO_DATA
-    FORGEPOINT_SERVER_URL
-    FORGEPOINT_SESSION_TTL_SECONDS
-    PUBLIC_FORGEPOINT_OPERATOR_CODE
+    COMTRYA_CONFIG
+    COMTRYA_DATA_DIR
+    COMTRYA_DEMO_FIXTURE
+    COMTRYA_EXTERNAL_DEMO
+    COMTRYA_EXTENSION_DIR
+    COMTRYA_FRONTEND_LISTEN
+    COMTRYA_FRONTEND_URL
+    COMTRYA_LISTEN
+    COMTRYA_ONESHOT
+    COMTRYA_OPERATOR_CODE
+    COMTRYA_READY_TIMEOUT_SECONDS
+    COMTRYA_RESET_DEMO_DATA
+    COMTRYA_SERVER_URL
+    COMTRYA_SESSION_TTL_SECONDS
+    PUBLIC_COMTRYA_OPERATOR_CODE
   )
   for name in "${override_names[@]}"; do
     eval "SNAP_${name}_SET=\"\${${name}+1}\""
@@ -129,8 +129,8 @@ expect_status() {
   local status
   status="$(curl -sS -o "$body_file" -w '%{http_code}' "$@")" || fail "$label request failed"
   if [[ "$status" != "$expected" ]]; then
-    printf '\n[forgepoint] %s returned HTTP %s, expected %s\n' "$label" "$status" "$expected" >&2
-    printf '[forgepoint] response body:\n' >&2
+    printf '\n[comtrya] %s returned HTTP %s, expected %s\n' "$label" "$status" "$expected" >&2
+    printf '[comtrya] response body:\n' >&2
     sed -n '1,180p' "$body_file" >&2 || true
     exit 1
   fi
@@ -143,8 +143,8 @@ expect_contains() {
   local needle="$3"
 
   if ! grep -Fq "$needle" "$body_file"; then
-    printf '\n[forgepoint] %s response did not contain: %s\n' "$label" "$needle" >&2
-    printf '[forgepoint] response body:\n' >&2
+    printf '\n[comtrya] %s response did not contain: %s\n' "$label" "$needle" >&2
+    printf '[comtrya] response body:\n' >&2
     sed -n '1,180p' "$body_file" >&2 || true
     exit 1
   fi
@@ -162,19 +162,19 @@ let json;
 try {
   json = JSON.parse(fs.readFileSync(file, "utf8"));
 } catch (error) {
-  console.error(`[forgepoint] ${label} did not return valid JSON: ${error.message}`);
+  console.error(`[comtrya] ${label} did not return valid JSON: ${error.message}`);
   process.exit(1);
 }
 let ok = false;
 try {
   ok = Boolean(Function("json", `"use strict"; return (${expression});`)(json));
 } catch (error) {
-  console.error(`[forgepoint] ${label} JSON assertion threw: ${error.message}`);
-  console.error(`[forgepoint] assertion: ${expression}`);
+  console.error(`[comtrya] ${label} JSON assertion threw: ${error.message}`);
+  console.error(`[comtrya] assertion: ${expression}`);
   process.exit(1);
 }
 if (!ok) {
-  console.error(`[forgepoint] ${label} JSON assertion failed: ${expression}`);
+  console.error(`[comtrya] ${label} JSON assertion failed: ${expression}`);
   console.error(JSON.stringify(json, null, 2).slice(0, 12000));
   process.exit(1);
 }
@@ -239,7 +239,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --oneshot)
-      export FORGEPOINT_ONESHOT=1
+      export COMTRYA_ONESHOT=1
       shift
       ;;
     -h|--help)
@@ -255,24 +255,24 @@ done
 
 load_envrc
 
-if [[ "${FORGEPOINT_ONESHOT:-0}" == "1" && -z "${FORGEPOINT_SESSION_TTL_SECONDS+x}" ]]; then
-  export FORGEPOINT_SESSION_TTL_SECONDS=2
+if [[ "${COMTRYA_ONESHOT:-0}" == "1" && -z "${COMTRYA_SESSION_TTL_SECONDS+x}" ]]; then
+  export COMTRYA_SESSION_TTL_SECONDS=2
 fi
 
-CONFIG="${FORGEPOINT_CONFIG:-config/production-testbed.cue}"
-DATA_DIR="${FORGEPOINT_DATA_DIR:-/private/tmp/forgepoint-production-testbed}"
-DEMO_FIXTURE="${FORGEPOINT_DEMO_FIXTURE:-fixtures/demo/conference.json}"
-RESET_DEMO_DATA="${FORGEPOINT_RESET_DEMO_DATA:-0}"
-BACKEND_LISTEN="${FORGEPOINT_LISTEN:-127.0.0.1:8080}"
-BACKEND_URL="${FORGEPOINT_SERVER_URL:-http://${BACKEND_LISTEN}}"
-FRONTEND_LISTEN="${FORGEPOINT_FRONTEND_LISTEN:-127.0.0.1:4321}"
+CONFIG="${COMTRYA_CONFIG:-config/production-testbed.cue}"
+DATA_DIR="${COMTRYA_DATA_DIR:-/private/tmp/comtrya-production-testbed}"
+DEMO_FIXTURE="${COMTRYA_DEMO_FIXTURE:-fixtures/demo/conference.json}"
+RESET_DEMO_DATA="${COMTRYA_RESET_DEMO_DATA:-0}"
+BACKEND_LISTEN="${COMTRYA_LISTEN:-127.0.0.1:8080}"
+BACKEND_URL="${COMTRYA_SERVER_URL:-http://${BACKEND_LISTEN}}"
+FRONTEND_LISTEN="${COMTRYA_FRONTEND_LISTEN:-127.0.0.1:4321}"
 FRONTEND_HOST="${FRONTEND_LISTEN%:*}"
 FRONTEND_PORT="${FRONTEND_LISTEN##*:}"
-FRONTEND_URL="${FORGEPOINT_FRONTEND_URL:-http://${FRONTEND_LISTEN}}"
-READY_TIMEOUT_SECONDS="${FORGEPOINT_READY_TIMEOUT_SECONDS:-30}"
-ONESHOT="${FORGEPOINT_ONESHOT:-0}"
-OPERATOR_CODE="${FORGEPOINT_OPERATOR_CODE:-}"
-SESSION_TTL_SECONDS="${FORGEPOINT_SESSION_TTL_SECONDS:-300}"
+FRONTEND_URL="${COMTRYA_FRONTEND_URL:-http://${FRONTEND_LISTEN}}"
+READY_TIMEOUT_SECONDS="${COMTRYA_READY_TIMEOUT_SECONDS:-30}"
+ONESHOT="${COMTRYA_ONESHOT:-0}"
+OPERATOR_CODE="${COMTRYA_OPERATOR_CODE:-}"
+SESSION_TTL_SECONDS="${COMTRYA_SESSION_TTL_SECONDS:-300}"
 BUN="${BUN:-$HOME/.bun/bin/bun}"
 
 if [[ "$REQUEST_RESET" == "1" ]]; then
@@ -280,14 +280,14 @@ if [[ "$REQUEST_RESET" == "1" ]]; then
 fi
 
 if [[ -z "$OPERATOR_CODE" ]]; then
-  fail "FORGEPOINT_OPERATOR_CODE is required. Put a seeded operator code in .envrc or export it before running start.sh."
+  fail "COMTRYA_OPERATOR_CODE is required. Put a seeded operator code in .envrc or export it before running start.sh."
 fi
 
 if [[ "$DATA_DIR" != /* ]]; then
-  fail "FORGEPOINT_DATA_DIR must be absolute in production-testbed mode: $DATA_DIR"
+  fail "COMTRYA_DATA_DIR must be absolute in production-testbed mode: $DATA_DIR"
 fi
 if ! [[ "$SESSION_TTL_SECONDS" =~ ^[0-9]+$ ]]; then
-  fail "FORGEPOINT_SESSION_TTL_SECONDS must be an integer number of seconds: $SESSION_TTL_SECONDS"
+  fail "COMTRYA_SESSION_TTL_SECONDS must be an integer number of seconds: $SESSION_TTL_SECONDS"
 fi
 
 require_command cargo
@@ -295,16 +295,16 @@ require_command curl
 require_command git
 [[ -x "$BUN" ]] || fail "missing Bun executable: $BUN"
 
-export FORGEPOINT_CONFIG="$CONFIG"
-export FORGEPOINT_DATA_DIR="$DATA_DIR"
-export FORGEPOINT_EXTERNAL_DEMO="${FORGEPOINT_EXTERNAL_DEMO:-0}"
-export FORGEPOINT_EXTENSION_DIR="${FORGEPOINT_EXTENSION_DIR:-$ROOT_DIR/extensions/first-party}"
-export FORGEPOINT_TLS_TERMINATED=true
-export FORGEPOINT_OPERATOR_CODE="$OPERATOR_CODE"
-export FORGEPOINT_LISTEN="$BACKEND_LISTEN"
-export FORGEPOINT_SERVER_URL="$BACKEND_URL"
-export FORGEPOINT_SESSION_TTL_SECONDS="$SESSION_TTL_SECONDS"
-export PUBLIC_FORGEPOINT_OPERATOR_CODE="${PUBLIC_FORGEPOINT_OPERATOR_CODE:-$OPERATOR_CODE}"
+export COMTRYA_CONFIG="$CONFIG"
+export COMTRYA_DATA_DIR="$DATA_DIR"
+export COMTRYA_EXTERNAL_DEMO="${COMTRYA_EXTERNAL_DEMO:-0}"
+export COMTRYA_EXTENSION_DIR="${COMTRYA_EXTENSION_DIR:-$ROOT_DIR/extensions/first-party}"
+export COMTRYA_TLS_TERMINATED=true
+export COMTRYA_OPERATOR_CODE="$OPERATOR_CODE"
+export COMTRYA_LISTEN="$BACKEND_LISTEN"
+export COMTRYA_SERVER_URL="$BACKEND_URL"
+export COMTRYA_SESSION_TTL_SECONDS="$SESSION_TTL_SECONDS"
+export PUBLIC_COMTRYA_OPERATOR_CODE="${PUBLIC_COMTRYA_OPERATOR_CODE:-$OPERATOR_CODE}"
 
 if [[ ! -f "$DEMO_FIXTURE" ]]; then
   fail "demo fixture not found: $DEMO_FIXTURE"
@@ -314,25 +314,25 @@ mkdir -p "$DATA_DIR/metadata"
 DEMO_STATE="$DATA_DIR/metadata/demo-state.json"
 if [[ "$RESET_DEMO_DATA" == "1" || ! -f "$DEMO_STATE" ]]; then
   cp "$DEMO_FIXTURE" "$DEMO_STATE"
-  reset_generated_path "$DATA_DIR/repositories/forgepoint/forgepoint.git"
+  reset_generated_path "$DATA_DIR/repositories/comtrya/comtrya.git"
   reset_generated_path "$DATA_DIR/metadata/demo-repository-workdir"
   reset_generated_path "$DATA_DIR/extensions/storage"
   log "seeded demo state: $DEMO_STATE"
 fi
 
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/forgepoint-start.XXXXXX")"
-SERVER_LOG="${FORGEPOINT_SERVER_LOG:-$DATA_DIR/server.log}"
-FRONTEND_LOG="${FORGEPOINT_FRONTEND_LOG:-$DATA_DIR/frontend.log}"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/comtrya-start.XXXXXX")"
+SERVER_LOG="${COMTRYA_SERVER_LOG:-$DATA_DIR/server.log}"
+FRONTEND_LOG="${COMTRYA_FRONTEND_LOG:-$DATA_DIR/frontend.log}"
 
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_DIR" == /* ]]; then
-  SERVER_BIN="$TARGET_DIR/debug/forgepoint-server"
+  SERVER_BIN="$TARGET_DIR/debug/comtrya-server"
 else
-  SERVER_BIN="$ROOT_DIR/$TARGET_DIR/debug/forgepoint-server"
+  SERVER_BIN="$ROOT_DIR/$TARGET_DIR/debug/comtrya-server"
 fi
 
-log "building forgepoint-server"
-cargo build -p forgepoint-server
+log "building comtrya-server"
+cargo build -p comtrya-server
 
 log "building Astro frontend"
 (cd frontend && "$BUN" run build)
@@ -353,8 +353,8 @@ wait_for_url "server readyz" "$BACKEND_URL/readyz" 200
 
 (
   cd frontend
-  FORGEPOINT_SERVER_URL="$BACKEND_URL" \
-    PUBLIC_FORGEPOINT_OPERATOR_CODE="$PUBLIC_FORGEPOINT_OPERATOR_CODE" \
+  COMTRYA_SERVER_URL="$BACKEND_URL" \
+    PUBLIC_COMTRYA_OPERATOR_CODE="$PUBLIC_COMTRYA_OPERATOR_CODE" \
     "$BUN" run preview -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 ) >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID="$!"
@@ -363,7 +363,7 @@ wait_for_url "frontend shell" "$FRONTEND_URL/" 200
 
 expect_status "frontend shell" 200 "$TMP_DIR/frontend.html" \
   "$FRONTEND_URL/"
-expect_contains "frontend shell" "$TMP_DIR/frontend.html" "Forgepoint"
+expect_contains "frontend shell" "$TMP_DIR/frontend.html" "Comtrya"
 expect_contains "rendered UI through Astro" "$TMP_DIR/frontend.html" 'data-smoke="rendered-ui-live"'
 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
@@ -383,7 +383,7 @@ json_assert "unsupported OIDC callback fails explicitly through Astro" "$TMP_DIR
 
 expect_status "operator code exchange through Astro" 200 "$TMP_DIR/token.json" \
   -H "content-type: application/json" \
-  --data "{\"grantType\":\"urn:forgepoint:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:forgepoint:token-type:operator-code\",\"requestedResource\":\"forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"checks:read\"]}" \
+  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"checks:read\"]}" \
   "$FRONTEND_URL/auth/token-exchange"
 
 ACCESS_TOKEN="$(extract_json_string accessToken "$TMP_DIR/token.json")"
@@ -399,11 +399,11 @@ expect_status "GraphQL through Astro" 200 "$TMP_DIR/graphql.json" \
 json_assert "GraphQL viewer through Astro" "$TMP_DIR/graphql.json" \
   'json.data.viewer.authenticated === true && json.data.viewer.permissions.includes("git:read")'
 json_assert "GraphQL Git data through Astro" "$TMP_DIR/graphql.json" \
-  'json.data.repository.path === "forgepoint/forgepoint" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
+  'json.data.repository.path === "comtrya/comtrya" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
 json_assert "GraphQL storage data through Astro" "$TMP_DIR/graphql.json" \
-  'json.data.workspace.name === "Forgepoint Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 3 && json.data.activityEvents.length > 0'
+  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 3 && json.data.activityEvents.length > 0'
 json_assert "GraphQL typed resolver data through Astro" "$TMP_DIR/graphql.json" \
-  'json.data.extensionResolvers.length === 3 && json.data.extensionResolvers.every((resolver) => resolver.status === "executed" && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_code_browser" && resolver.outputType === "forgepoint.code-browser/summary.v1" && resolver.output.methods.includes("repository_refs") && resolver.output.blobPreviews === json.data.repository.blobs.length)'
+  'json.data.extensionResolvers.length === 3 && json.data.extensionResolvers.every((resolver) => resolver.status === "executed" && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_code_browser" && resolver.outputType === "comtrya.code-browser/summary.v1" && resolver.output.methods.includes("repository_refs") && resolver.output.blobPreviews === json.data.repository.blobs.length)'
 json_assert "GraphQL demo convenience aggregate through Astro" "$TMP_DIR/graphql.json" \
   'json.data.demo.repository.headOid === json.data.repository.headOid'
 GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.headOid')"
@@ -412,7 +412,7 @@ if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
 fi
 GRAPHQL_BRANCHES="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.branches.map((branch) => branch.name).join(", ")')"
 GRAPHQL_EXTENSIONS="$(json_value "$TMP_DIR/graphql.json" 'json.data.extensionInstallations.map((extension) => extension.id).join(", ")')"
-log "seeded repository path: $DATA_DIR/repositories/forgepoint/forgepoint.git"
+log "seeded repository path: $DATA_DIR/repositories/comtrya/comtrya.git"
 log "seeded branches: $GRAPHQL_BRANCHES"
 log "installed extensions: $GRAPHQL_EXTENSIONS"
 json_value "$TMP_DIR/graphql.json" 'json.data.repository.diff.patch' >"$TMP_DIR/graphql-diff.patch"
@@ -437,7 +437,7 @@ fi
 
 expect_status "event stream through Astro" 200 "$TMP_DIR/events.json" \
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
-expect_contains "event stream through Astro" "$TMP_DIR/events.json" 'dev.forgepoint.instance.started'
+expect_contains "event stream through Astro" "$TMP_DIR/events.json" 'dev.comtrya.instance.started'
 expect_status "event session reuse fails closed through Astro" 401 "$TMP_DIR/events-reuse.json" \
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
 json_assert "event session reuse fails closed through Astro" "$TMP_DIR/events-reuse.json" \
@@ -481,7 +481,7 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
 
   expect_status "extension ${extension_id} manifest through Astro" 200 "$TMP_DIR/${extension_id}-manifest.json" \
     "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
-  expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "forgepoint.ui-extension/v1"'
+  expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v1"'
   json_assert "extension ${extension_id} manifest declares mountable slots" "$TMP_DIR/${extension_id}-manifest.json" \
     "json.id === \"$extension_id\" && json.slots.length > 0 && json.slots.every((slot) => slot.slot.startsWith(\"repository.\") && typeof slot.element === \"string\" && slot.element.length > 0)"
 
@@ -504,19 +504,19 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
 done
 
 expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
-  "$FRONTEND_URL/git/forgepoint/forgepoint.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack without token fails closed through Astro" "$TMP_DIR/git-no-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
 expect_status "Git upload-pack with wrong token fails closed through Astro" 401 "$TMP_DIR/git-wrong-token.json" \
   -H "authorization: Bearer wrong-token" \
-  "$FRONTEND_URL/git/forgepoint/forgepoint.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack with wrong token fails closed through Astro" "$TMP_DIR/git-wrong-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
 expect_status "operator code exchange for non-Git credential" 200 "$TMP_DIR/no-git-token.json" \
   -H "content-type: application/json" \
-  --data "{\"grantType\":\"urn:forgepoint:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:forgepoint:token-type:operator-code\",\"requestedResource\":\"forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"requestedActions\":[\"graphql:read\"]}" \
+  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"requestedActions\":[\"graphql:read\"]}" \
   "$FRONTEND_URL/auth/token-exchange"
 NO_GIT_TOKEN="$(extract_json_string accessToken "$TMP_DIR/no-git-token.json")"
 if [[ -z "$NO_GIT_TOKEN" ]]; then
@@ -524,24 +524,24 @@ if [[ -z "$NO_GIT_TOKEN" ]]; then
 fi
 expect_status "Git upload-pack without git read scope fails closed through Astro" 403 "$TMP_DIR/git-no-read-scope.json" \
   -H "authorization: Bearer $NO_GIT_TOKEN" \
-  "$FRONTEND_URL/git/forgepoint/forgepoint.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack without git read scope fails closed through Astro" "$TMP_DIR/git-no-read-scope.json" \
   'json.errors[0].extensions.code === "FORBIDDEN"'
 
 log "checking seeded Git refs through Astro"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
-  ls-remote "$FRONTEND_URL/git/forgepoint/forgepoint.git" \
+  ls-remote "$FRONTEND_URL/git/comtrya/comtrya.git" \
   >"$TMP_DIR/git-ls-remote.log" 2>&1 || fail "git ls-remote through Astro failed"
 if ! grep -Fq "${GRAPHQL_HEAD_OID}"$'\t'"refs/heads/main" "$TMP_DIR/git-ls-remote.log"; then
-  printf '[forgepoint] git ls-remote output did not match GraphQL headOid %s\n' "$GRAPHQL_HEAD_OID" >&2
+  printf '[comtrya] git ls-remote output did not match GraphQL headOid %s\n' "$GRAPHQL_HEAD_OID" >&2
   sed -n '1,120p' "$TMP_DIR/git-ls-remote.log" >&2 || true
   exit 1
 fi
 
 log "cloning seeded Git repository through Astro"
-GIT_SMOKE_CLONE="$TMP_DIR/forgepoint-clone"
+GIT_SMOKE_CLONE="$TMP_DIR/comtrya-clone"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
-  clone "$FRONTEND_URL/git/forgepoint/forgepoint.git" "$GIT_SMOKE_CLONE" \
+  clone "$FRONTEND_URL/git/comtrya/comtrya.git" "$GIT_SMOKE_CLONE" \
   >"$TMP_DIR/git-clone.log" 2>&1 || fail "git clone through Astro failed"
 test -f "$GIT_SMOKE_CLONE/README.md" || fail "git clone did not fetch README.md"
 CLONED_HEAD_OID="$(git -C "$GIT_SMOKE_CLONE" rev-parse HEAD)"
@@ -554,7 +554,7 @@ fi
 git -C "$GIT_SMOKE_CLONE" diff --patch --find-renames HEAD~1 HEAD \
   >"$TMP_DIR/git-diff.patch" || fail "git diff against cloned repository failed"
 if ! cmp -s "$TMP_DIR/graphql-diff.patch" "$TMP_DIR/git-diff.patch"; then
-  printf '[forgepoint] GraphQL diff patch did not match git diff HEAD~1 HEAD\n' >&2
+  printf '[comtrya] GraphQL diff patch did not match git diff HEAD~1 HEAD\n' >&2
   diff -u "$TMP_DIR/git-diff.patch" "$TMP_DIR/graphql-diff.patch" >&2 || true
   exit 1
 fi
@@ -572,7 +572,7 @@ log "ok - Git clone/fetch through Astro"
 
 expect_status "Git receive-pack fails closed through Astro" 501 "$TMP_DIR/git-receive-pack.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  "$FRONTEND_URL/git/forgepoint/forgepoint.git/info/refs?service=git-receive-pack"
+  "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-receive-pack"
 json_assert "Git receive-pack fails closed through Astro" "$TMP_DIR/git-receive-pack.json" \
   'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "git_receive_pack" && json.errors[0].message.includes("receive-pack")'
 

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v1",
   "id": "ext_pull_requests",
   "extension": "pull-requests",
   "assets": {
@@ -9,15 +9,15 @@
   },
   "routes": [
     {
-      "path": "/forgepoint/forgepoint",
-      "element": "forgepoint-pull-requests",
+      "path": "/comtrya/comtrya",
+      "element": "comtrya-pull-requests",
       "requiredPermission": "pull-requests.read"
     }
   ],
   "slots": [
     {
       "slot": "repository.overview",
-      "element": "forgepoint-pull-requests",
+      "element": "comtrya-pull-requests",
       "requiredPermission": "pull-requests.read"
     }
   ]

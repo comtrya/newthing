@@ -3,7 +3,7 @@ use crate::ids::{IdPrefix, OpaqueId};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const WIT_SKETCH: &str = r#"
-package forgepoint:extension;
+package comtrya:extension;
 world extension {
   import host-log;
   import host-events;
@@ -137,7 +137,7 @@ pub struct ExtensionManifest {
 
 impl ExtensionManifest {
     pub fn validate(&self) -> CoreResult<()> {
-        if self.schema_version != "forgepoint.extension/v1" {
+        if self.schema_version != "comtrya.extension/v1" {
             return Err(CoreError::extension_activation_failed(
                 "unsupported extension schemaVersion",
             ));
@@ -180,13 +180,13 @@ impl ExtensionManifest {
             ..ExtensionCapabilities::default()
         };
         Self {
-            schema_version: "forgepoint.extension/v1".to_string(),
+            schema_version: "comtrya.extension/v1".to_string(),
             name: "pull-requests".to_string(),
             display_name: "Pull Requests".to_string(),
             version: "0.1.0".to_string(),
-            publisher: "forgepoint-dev".to_string(),
+            publisher: "comtrya-dev".to_string(),
             wasm_component: "extension.wasm".to_string(),
-            wit_world: "forgepoint:extension/extension".to_string(),
+            wit_world: "comtrya:extension/extension".to_string(),
             graphql_sdl: Some(
                 "extend type Repository { pullRequests: [PullRequest!]! }".to_string(),
             ),
@@ -202,7 +202,7 @@ impl ExtensionManifest {
                     resource_kinds: vec!["repository".to_string(), "project".to_string()],
                 },
             ],
-            subscribed_event_types: vec!["dev.forgepoint.repository.ref.updated".to_string()],
+            subscribed_event_types: vec!["dev.comtrya.repository.ref.updated".to_string()],
             capabilities,
         }
     }
@@ -363,9 +363,9 @@ pub struct GraphqlComposer {
 impl GraphqlComposer {
     pub fn compose(&self, extension_name: &str, sdl: &str) -> CoreResult<()> {
         let _ = &self.reserved_core_fields;
-        if sdl.contains("_forgepoint") {
+        if sdl.contains("_comtrya") {
             return Err(CoreError::extension_activation_failed(
-                "extension SDL must not define _forgepoint fields",
+                "extension SDL must not define _comtrya fields",
             ));
         }
         if sdl.contains("type Query") && sdl.contains("viewer") {

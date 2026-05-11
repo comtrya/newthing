@@ -1,4 +1,4 @@
-package forgepoint:extension;
+package comtrya:extension;
 
 world extension {
   import host-log;

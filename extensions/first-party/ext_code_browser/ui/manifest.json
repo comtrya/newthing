@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v1",
   "id": "ext_code_browser",
   "extension": "code-browser",
   "assets": {
@@ -9,15 +9,15 @@
   },
   "routes": [
     {
-      "path": "/forgepoint/forgepoint",
-      "element": "forgepoint-code-browser",
+      "path": "/comtrya/comtrya",
+      "element": "comtrya-code-browser",
       "requiredPermission": "code.read"
     }
   ],
   "slots": [
     {
       "slot": "repository.code",
-      "element": "forgepoint-code-browser",
+      "element": "comtrya-code-browser",
       "requiredPermission": "code.read"
     }
   ]

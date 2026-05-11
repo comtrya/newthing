@@ -452,8 +452,8 @@ mod tests {
                 StagingBudget::for_pack_size(10),
                 Vec::new(),
                 vec![CueFile {
-                    path: "forgepoint.cue".to_string(),
-                    source: "package forgepoint\ninvalid: true".to_string(),
+                    path: "comtrya.cue".to_string(),
+                    source: "package comtrya\ninvalid: true".to_string(),
                 }],
             )
             .unwrap();

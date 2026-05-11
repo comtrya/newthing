@@ -1,4 +1,4 @@
-# Forgepoint Demo Operator Runbook
+# Comtrya Demo Operator Runbook
 
 This runbook is for the local production-testbed demo.
 
@@ -15,12 +15,12 @@ For shared demos, set a non-default operator code and enable the external-demo
 gate before starting:
 
 ```sh
-export FORGEPOINT_OPERATOR_CODE="<non-default-demo-code>"
-export FORGEPOINT_EXTERNAL_DEMO=1
+export COMTRYA_OPERATOR_CODE="<non-default-demo-code>"
+export COMTRYA_EXTERNAL_DEMO=1
 ./start.sh --reset
 ```
 
-`--reset` only deletes guarded generated paths under `FORGEPOINT_DATA_DIR`.
+`--reset` only deletes guarded generated paths under `COMTRYA_DATA_DIR`.
 
 ## Start
 
@@ -39,9 +39,9 @@ One-shot smoke run:
 Useful local overrides:
 
 ```sh
-FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed \
-FORGEPOINT_LISTEN=127.0.0.1:8080 \
-FORGEPOINT_FRONTEND_LISTEN=127.0.0.1:4321 \
+COMTRYA_DATA_DIR=/private/tmp/comtrya-production-testbed \
+COMTRYA_LISTEN=127.0.0.1:8080 \
+COMTRYA_FRONTEND_LISTEN=127.0.0.1:4321 \
 ./start.sh --reset
 ```
 
@@ -59,12 +59,12 @@ When using custom listen addresses, read the URLs from `start.sh` output.
 `.envrc.example` seeds:
 
 ```sh
-FORGEPOINT_OPERATOR_CODE=forgepoint-local-operator-code
+COMTRYA_OPERATOR_CODE=comtrya-local-operator-code
 ```
 
 That code is acceptable for local smoke only. With
-`FORGEPOINT_EXTERNAL_DEMO=1`, startup rejects it and requires a non-default
-`FORGEPOINT_OPERATOR_CODE`.
+`COMTRYA_EXTERNAL_DEMO=1`, startup rejects it and requires a non-default
+`COMTRYA_OPERATOR_CODE`.
 
 ## Smoke Output
 
@@ -87,7 +87,7 @@ A passing `./start.sh --reset --oneshot` should print:
 Default data root:
 
 ```sh
-/private/tmp/forgepoint-production-testbed
+/private/tmp/comtrya-production-testbed
 ```
 
 Important generated paths:
@@ -95,7 +95,7 @@ Important generated paths:
 - `metadata/demo-state.json`: copied seed input.
 - `metadata/events.jsonl`: runtime event log.
 - `metadata/audit.jsonl`: runtime audit log.
-- `repositories/forgepoint/forgepoint.git`: seeded bare Git repository.
+- `repositories/comtrya/comtrya.git`: seeded bare Git repository.
 - `metadata/demo-repository-workdir`: temporary seed worktree.
 - `extensions/storage/schema.json`: extension storage schema.
 - `extensions/storage/documents.jsonl`: extension storage documents.
@@ -107,10 +107,10 @@ Important generated paths:
 Set `DATA_DIR` to the value printed by `start.sh` if you override it.
 
 ```sh
-DATA_DIR=/private/tmp/forgepoint-production-testbed
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" show-ref
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" rev-parse HEAD
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" log --oneline --decorate --all
+DATA_DIR=/private/tmp/comtrya-production-testbed
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" show-ref
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" rev-parse HEAD
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" log --oneline --decorate --all
 ```
 
 Clone through the Astro origin with a scoped credential by using the token
@@ -120,7 +120,7 @@ on its clone/fetch smoke assertions.
 ## Inspect Extension Storage
 
 ```sh
-DATA_DIR=/private/tmp/forgepoint-production-testbed
+DATA_DIR=/private/tmp/comtrya-production-testbed
 sed -n '1,220p' "$DATA_DIR/extensions/storage/schema.json"
 sed -n '1,20p' "$DATA_DIR/extensions/storage/documents.jsonl"
 sed -n '1,20p' "$DATA_DIR/extensions/storage/events.jsonl"

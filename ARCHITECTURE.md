@@ -1,7 +1,7 @@
-# Forgepoint Production-Testbed Architecture
+# Comtrya Production-Testbed Architecture
 
 This document describes the runnable production-testbed shape. It is not a claim
-that the full Forgepoint v1 product is complete.
+that the full Comtrya v1 product is complete.
 
 ## Rust Host
 
@@ -10,8 +10,8 @@ runtime state, auth/session issuance, GraphQL responses, extension asset
 serving, event streams, unsupported-surface errors, and the temporary Git smart
 HTTP adapter.
 
-Startup reads `config/production-testbed.cue` through `FORGEPOINT_CONFIG`,
-initializes `$FORGEPOINT_DATA_DIR`, opens or seeds the demo bare repository,
+Startup reads `config/production-testbed.cue` through `COMTRYA_CONFIG`,
+initializes `$COMTRYA_DATA_DIR`, opens or seeds the demo bare repository,
 opens extension runtime storage, validates first-party extension packages, and
 instantiates the minimal Wasmtime resolver components. `/readyz` reports the
 runtime checks and the explicitly unsupported surfaces.
@@ -19,14 +19,14 @@ runtime checks and the explicitly unsupported surfaces.
 Production-testbed startup fails closed when required production posture is
 missing: TLS termination, absolute data paths, HTTPS origins, local repository
 storage paths, first-party extension files, demo Git refs, resolver exports, or
-operator-code requirements. `FORGEPOINT_EXTERNAL_DEMO=1` additionally rejects
+operator-code requirements. `COMTRYA_EXTERNAL_DEMO=1` additionally rejects
 the local default operator code from `.envrc.example`.
 
 ## Astro Shell
 
 The Astro shell lives under `frontend/`.
 
-- `frontend/src/server/forgepoint.ts` proxies requests to the Rust host and
+- `frontend/src/server/comtrya.ts` proxies requests to the Rust host and
   forwards only the HTTP headers the testbed needs.
 - `frontend/src/client.ts` is the browser client for GraphQL, mutation,
   subscription-shaped calls, events, extension sessions, navigation, and toast
@@ -35,7 +35,7 @@ The Astro shell lives under `frontend/`.
   operator code for a bearer credential, fetches typed GraphQL roots, mounts
   extension slots from runtime manifests, and shows extension load/resolver/
   permission failures in the Extensions panel.
-- `frontend/src/extension-host.ts` defines the `<forgepoint-extension-host>`
+- `frontend/src/extension-host.ts` defines the `<comtrya-extension-host>`
   custom element that passes the host client, viewer, resource, route params,
   and capability context into extension UI elements.
 
@@ -73,7 +73,7 @@ business logic are still TODO work.
 ## Extension Storage
 
 Extension runtime storage is under
-`$FORGEPOINT_DATA_DIR/extensions/storage/`.
+`$COMTRYA_DATA_DIR/extensions/storage/`.
 
 - `schema.json`: storage schema version, migration list, collections, and
   indexes.
@@ -82,7 +82,7 @@ Extension runtime storage is under
 - `events.jsonl`: storage-level events such as seeding and document updates.
 
 On first startup, `fixtures/demo/conference.json` is copied into
-`$FORGEPOINT_DATA_DIR/metadata/demo-state.json` by `start.sh`; the Rust host
+`$COMTRYA_DATA_DIR/metadata/demo-state.json` by `start.sh`; the Rust host
 imports that seed input into extension storage. Request-time GraphQL reads Git
 state plus these extension storage documents instead of reading the fixture
 directly.
@@ -90,7 +90,7 @@ directly.
 ## Git Storage And Protocol Adapter
 
 The demo repository is a real local bare Git repository under
-`$FORGEPOINT_DATA_DIR/repositories/forgepoint/forgepoint.git`. Startup seeds or
+`$COMTRYA_DATA_DIR/repositories/comtrya/comtrya.git`. Startup seeds or
 opens it idempotently, validates `HEAD`, and checks expected demo branch refs.
 
 Git clone/fetch currently works through the Astro origin and Rust host by
@@ -107,5 +107,5 @@ is implemented.
   GraphQL aggregation, not full extension-owned product logic.
 - The host UI still renders product panels directly.
 - Receive-pack/push is disabled.
-- Only the seeded `forgepoint/forgepoint.git` repository path is supported.
+- Only the seeded `comtrya/comtrya.git` repository path is supported.
 - Some workspace/repository metadata remains seeded demo data.

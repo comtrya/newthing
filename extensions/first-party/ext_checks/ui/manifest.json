@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v1",
   "id": "ext_checks",
   "extension": "checks",
   "assets": {
@@ -9,15 +9,15 @@
   },
   "routes": [
     {
-      "path": "/forgepoint/forgepoint",
-      "element": "forgepoint-checks-board",
+      "path": "/comtrya/comtrya",
+      "element": "comtrya-checks-board",
       "requiredPermission": "checks:read"
     }
   ],
   "slots": [
     {
       "slot": "repository.checks",
-      "element": "forgepoint-checks-board",
+      "element": "comtrya-checks-board",
       "requiredPermission": "checks:read"
     }
   ]

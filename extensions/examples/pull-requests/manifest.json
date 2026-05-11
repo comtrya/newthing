@@ -1,12 +1,12 @@
 {
-  "schemaVersion": "forgepoint.extension/v1",
+  "schemaVersion": "comtrya.extension/v1",
   "name": "pull-requests",
   "displayName": "Pull Requests",
   "version": "0.1.0",
-  "publisher": "forgepoint-dev",
+  "publisher": "comtrya-dev",
   "wasm": {
     "component": "extension.wasm",
-    "witWorld": "forgepoint:extension/extension"
+    "witWorld": "comtrya:extension/extension"
   },
   "graphql": {
     "sdl": "schema.graphql"
@@ -27,7 +27,7 @@
       "resourceKinds": ["repository", "project"]
     }
   ],
-  "subscribedEventTypes": ["dev.forgepoint.repository.ref.updated"],
+  "subscribedEventTypes": ["dev.comtrya.repository.ref.updated"],
   "capabilities": {
     "graphql": true,
     "cue": true,

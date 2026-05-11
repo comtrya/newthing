@@ -1,6 +1,6 @@
-# Forgepoint v3 — Plan
+# Comtrya v3 — Plan
 
-This branch combines what v1 (the original Forgepoint at `forgepoint-dev/forgepoint`) and v2 (the spec-driven rewrite, which this repo is) each got right into a single coherent kernel.
+This branch combines what v1 (the original implementation, on-disk at `forgepoint-dev/forgepoint`, now renamed to Comtrya going forward) and v2 (the spec-driven rewrite that this repo started from) each got right into a single coherent kernel.
 
 ## Why v3
 
@@ -20,7 +20,7 @@ v3 brings those three back, on top of v2's kernel/contracts/spec discipline.
 4. **Adopt v1's OCI extension distribution on top of v2's Component Model.** Extensions are signed OCI artifacts containing a Component Model `.wasm` + manifest; registry auth + offline cache.
 5. **Bring back federated GraphQL.** A planner/executor dispatches resolver fields to extension components via typed WIT calls. Host does not stitch JSON.
 6. **Replace JSONL extension storage with per-extension SQLite,** exposed to extensions through a typed WIT host capability (document/KV/queue/event API). Versioned migrations per extension.
-7. **Make the Astro frontend a real extension host.** Strip inline product panels. Adopt v1's `@forgepoint/astro-integration-<feature>` pattern.
+7. **Make the Astro frontend a real extension host.** Strip inline product panels. Adopt v1's `@comtrya/astro-integration-<feature>` pattern.
 8. **Ship one first-party extension end-to-end (pull requests).** Owns schema (WIT), persistence (storage capability), UI (Astro integration), distributed as OCI artifact. This is the proof.
 9. **Keep v2's spec/coverage/runbook discipline.** `SPEC.md` → `SPEC_COVERAGE.md` → `TODO.md` → `start.sh` smoke assertions stay authoritative.
 10. **Drop unused inheritance.** No ATProto auth, no RON config, no fixture-sourced product data on the request path.
@@ -41,7 +41,7 @@ This branch is built in short increments, each committed and pushed:
 1. ✅ `V3_PLAN.md` and PR opened.
 2. New `crates/git-http` ported from v1 (pure-Rust Smart HTTP v2, read path).
 3. Wire `crates/git-http` into `crates/server` routes; remove `git http-backend` shell adapter for upload-pack.
-4. Define typed WIT resolver ABI in `wit/forgepoint-extension.wit` (kill the numeric-proof shape).
+4. Define typed WIT resolver ABI in `wit/comtrya-extension.wit` (kill the numeric-proof shape).
 5. Per-extension SQLite host capability (`crates/extension-storage-sqlite`); WIT host functions for documents/KV/queue/events.
 6. Federated GraphQL composer + planner: dispatch resolver fields to extension components.
 7. OCI extension distribution (`crates/extension-oci`): fetch, verify, cache, install.

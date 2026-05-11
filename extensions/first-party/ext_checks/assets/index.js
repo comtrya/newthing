@@ -1,6 +1,6 @@
-class ForgepointChecksBoard extends HTMLElement {
+class ComtryaChecksBoard extends HTMLElement {
   async connectedCallback() {
-    const data = await this.forgepointClient.query("query Checks { repository { checks } extensionResolvers }");
+    const data = await this.comtryaClient.query("query Checks { repository { checks } extensionResolvers }");
     const checks = data.repository.checks;
     const passing = checks.filter((check) => check.conclusion === "SUCCESS").length;
     const resolver = data.extensionResolvers.find((item) => item.id === "ext_checks");
@@ -23,6 +23,6 @@ class ForgepointChecksBoard extends HTMLElement {
   }
 }
 
-if (!customElements.get("forgepoint-checks-board")) {
-  customElements.define("forgepoint-checks-board", ForgepointChecksBoard);
+if (!customElements.get("comtrya-checks-board")) {
+  customElements.define("comtrya-checks-board", ComtryaChecksBoard);
 }

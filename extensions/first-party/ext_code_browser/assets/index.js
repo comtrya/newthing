@@ -1,6 +1,6 @@
-class ForgepointCodeBrowser extends HTMLElement {
+class ComtryaCodeBrowser extends HTMLElement {
   async connectedCallback() {
-    const data = await this.forgepointClient.query("query CodeBrowser { repository { files treeEntries blobs } extensionResolvers }");
+    const data = await this.comtryaClient.query("query CodeBrowser { repository { files treeEntries blobs } extensionResolvers }");
     const files = data.repository.files;
     const resolver = data.extensionResolvers.find((item) => item.id === "ext_code_browser");
     const output = resolver?.output ?? {};
@@ -23,6 +23,6 @@ class ForgepointCodeBrowser extends HTMLElement {
   }
 }
 
-if (!customElements.get("forgepoint-code-browser")) {
-  customElements.define("forgepoint-code-browser", ForgepointCodeBrowser);
+if (!customElements.get("comtrya-code-browser")) {
+  customElements.define("comtrya-code-browser", ComtryaCodeBrowser);
 }

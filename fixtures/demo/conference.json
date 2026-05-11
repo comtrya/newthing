@@ -1,18 +1,18 @@
 {
-  "generatedBy": "forgepoint-demo-seed/v1",
+  "generatedBy": "comtrya-demo-seed/v1",
   "generatedAt": "2026-05-11T00:00:00Z",
   "workspace": {
     "id": "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-    "slug": "forgepoint",
-    "name": "Forgepoint Labs",
+    "slug": "comtrya",
+    "name": "Comtrya Labs",
     "visibility": "PRIVATE",
     "members": 42
   },
   "repository": {
     "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-    "owner": "forgepoint",
-    "name": "forgepoint",
-    "path": "forgepoint/forgepoint",
+    "owner": "comtrya",
+    "name": "comtrya",
+    "path": "comtrya/comtrya",
     "visibility": "PRIVATE",
     "description": "Self-hosted code forge kernel with extension-native product surfaces.",
     "defaultBranch": "main"
@@ -27,7 +27,7 @@
       "path": "README.md",
       "kind": "markdown",
       "status": "modified 18m ago",
-      "preview": "# Forgepoint\n\nForgepoint is a self-hosted code forge built around a small Rust core and extension-delivered product surfaces.\n\nThis demo instance is seeded from persisted runtime state, served through the Rust API, and rendered by the Astro frontend."
+      "preview": "# Comtrya\n\nComtrya is a self-hosted code forge built around a small Rust core and extension-delivered product surfaces.\n\nThis demo instance is seeded from persisted runtime state, served through the Rust API, and rendered by the Astro frontend."
     },
     {
       "path": "SPEC.md",
@@ -45,13 +45,13 @@
       "path": "frontend/src/main.ts",
       "kind": "typescript",
       "status": "changed 7m ago",
-      "preview": "const client = new HttpForgepointClient(serverURL);\nawait mountExtension(\"ext_pull_requests\");\nawait mountExtension(\"ext_code_browser\");\nawait mountExtension(\"ext_checks\");"
+      "preview": "const client = new HttpComtryaClient(serverURL);\nawait mountExtension(\"ext_pull_requests\");\nawait mountExtension(\"ext_code_browser\");\nawait mountExtension(\"ext_checks\");"
     }
   ],
   "diff": {
     "path": "frontend/src/main.ts",
     "language": "diff",
-    "patch": "diff --git a/frontend/src/main.ts b/frontend/src/main.ts\n@@ -1,5 +1,9 @@\n-import { HttpForgepointClient } from \"./client\";\n+import { FileTree } from \"@pierre/trees\";\n+import { codeToHtml } from \"@pierre/diffs\";\n+import { HttpForgepointClient } from \"./client\";\n+\n+const EXTENSIONS = [\"ext_pull_requests\", \"ext_code_browser\", \"ext_checks\"];\n@@ -44,3 +48,5 @@\n-renderShell();\n+renderShell();\n+mountRepositoryTree();\n+mountReviewDiff();"
+    "patch": "diff --git a/frontend/src/main.ts b/frontend/src/main.ts\n@@ -1,5 +1,9 @@\n-import { HttpComtryaClient } from \"./client\";\n+import { FileTree } from \"@pierre/trees\";\n+import { codeToHtml } from \"@pierre/diffs\";\n+import { HttpComtryaClient } from \"./client\";\n+\n+const EXTENSIONS = [\"ext_pull_requests\", \"ext_code_browser\", \"ext_checks\"];\n@@ -44,3 +48,5 @@\n-renderShell();\n+renderShell();\n+mountRepositoryTree();\n+mountReviewDiff();"
   },
   "pullRequests": [
     {
@@ -125,19 +125,19 @@
   ],
   "activity": [
     {
-      "type": "dev.forgepoint.repository.updated",
+      "type": "dev.comtrya.repository.updated",
       "summary": "Repository intelligence view promoted to demo track",
       "actor": "rawkode",
       "time": "18 minutes ago"
     },
     {
-      "type": "dev.forgepoint.extension.activated",
+      "type": "dev.comtrya.extension.activated",
       "summary": "Checks extension activated from OCI package",
-      "actor": "forgepoint-extension-host",
+      "actor": "comtrya-extension-host",
       "time": "14 minutes ago"
     },
     {
-      "type": "dev.forgepoint.pull_request.ready",
+      "type": "dev.comtrya.pull_request.ready",
       "summary": "PR #42 reached merge readiness with all required checks passing",
       "actor": "pull-requests",
       "time": "9 minutes ago"

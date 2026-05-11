@@ -22,11 +22,11 @@ const FORWARDED_HEADERS = [
 ];
 
 export function backendUrl(pathname: string): URL {
-  const base = process.env.FORGEPOINT_SERVER_URL ?? DEFAULT_BACKEND_URL;
+  const base = process.env.COMTRYA_SERVER_URL ?? DEFAULT_BACKEND_URL;
   return new URL(pathname, base.endsWith("/") ? base : `${base}/`);
 }
 
-export async function proxyForgepoint(request: Request, pathname: string): Promise<Response> {
+export async function proxyComtrya(request: Request, pathname: string): Promise<Response> {
   let upstream: Response;
   let targetHref = "";
   try {
@@ -55,8 +55,8 @@ export async function proxyForgepoint(request: Request, pathname: string): Promi
     return jsonError(
       502,
       "UPSTREAM_UNAVAILABLE",
-      `${targetHref || "Forgepoint server"}: ${
-        error instanceof Error ? error.message : "Forgepoint server request failed"
+      `${targetHref || "Comtrya server"}: ${
+        error instanceof Error ? error.message : "Comtrya server request failed"
       }${cause}`,
     );
   }

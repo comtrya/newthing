@@ -1,6 +1,6 @@
-class ForgepointPullRequests extends HTMLElement {
+class ComtryaPullRequests extends HTMLElement {
   async connectedCallback() {
-    const data = await this.forgepointClient.query("query PullRequests { repository { pullRequests } extensionResolvers }");
+    const data = await this.comtryaClient.query("query PullRequests { repository { pullRequests } extensionResolvers }");
     const pulls = data.repository.pullRequests;
     const resolver = data.extensionResolvers.find((item) => item.id === "ext_pull_requests");
     const output = resolver?.output ?? {};
@@ -21,6 +21,6 @@ class ForgepointPullRequests extends HTMLElement {
   }
 }
 
-if (!customElements.get("forgepoint-pull-requests")) {
-  customElements.define("forgepoint-pull-requests", ForgepointPullRequests);
+if (!customElements.get("comtrya-pull-requests")) {
+  customElements.define("comtrya-pull-requests", ComtryaPullRequests);
 }
