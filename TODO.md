@@ -226,7 +226,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Startup validates extension asset integrity beyond checking that `entryIntegrity` exists.
 - Add extension asset cache/version handling.
 - Real: frontend validates UI manifest schema version, id, entry integrity, reserved routes, and slot declarations before mounting.
-- Add visible error states for extension load failure, resolver failure, and permission denial.
+- Real: the frontend renders visible extension-panel error states for load failure, resolver failure, and permission denial.
 - Add smoke validation that dynamically imported extension elements render non-empty content.
 - Add browser-level UI tests if Playwright or the Browser plugin is available in the environment.
 

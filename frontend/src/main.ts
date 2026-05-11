@@ -129,6 +129,21 @@ type GraphqlPayload = {
   activityEvents: DemoState["activity"];
 };
 
+type ExtensionMountIssueKind = "load" | "resolver" | "permission";
+
+type ExtensionMountIssue = {
+  extensionId: string;
+  extensionName: string;
+  kind: ExtensionMountIssueKind;
+  title: string;
+  detail: string;
+};
+
+type ExtensionMountResult = {
+  slots: number;
+  issues: ExtensionMountIssue[];
+};
+
 type AppState = {
   ready?: ReadyPayload;
   graphql?: GraphqlPayload;
@@ -319,6 +334,7 @@ function renderShell(): void {
             <span id="extension-pill" class="status-pill status-warn">not loaded</span>
           </div>
           <div id="extension-registry" class="extension-registry"></div>
+          <div id="extension-errors" class="extension-errors" aria-live="polite"></div>
           <div id="extension-slots" class="extension-grid" data-smoke="manifest-driven-extension-slots"></div>
         </section>
 
@@ -694,6 +710,62 @@ function extensionHostContext() {
   };
 }
 
+function hasRequiredPermission(permission: string): boolean {
+  const permissions = state.graphql?.viewer.permissions ?? [];
+  return permissions.includes("instance.admin") || permissions.includes(permission);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function resolverIssuesFor(installation: ExtensionInstallation): ExtensionMountIssue[] {
+  const resolver = state.graphql?.extensionResolvers.find((candidate) => candidate.id === installation.id);
+  if (!resolver) {
+    return [
+      {
+        extensionId: installation.id,
+        extensionName: installation.name,
+        kind: "resolver",
+        title: "Resolver unavailable",
+        detail: "No runtime resolver record was returned for this installed extension.",
+      },
+    ];
+  }
+  if (resolver.status !== "executed") {
+    return [
+      {
+        extensionId: installation.id,
+        extensionName: installation.name,
+        kind: "resolver",
+        title: "Resolver failed",
+        detail: `${resolver.resolver} returned status ${resolver.status}.`,
+      },
+    ];
+  }
+  return [];
+}
+
+function renderExtensionIssues(issues: ExtensionMountIssue[]): void {
+  const container = app?.querySelector<HTMLElement>("#extension-errors");
+  if (!container) {
+    return;
+  }
+  container.innerHTML = issues
+    .map(
+      (issue) => `
+        <article class="extension-error extension-error-${issue.kind}" data-extension-id="${escapeHtml(issue.extensionId)}">
+          <div>
+            <strong>${escapeHtml(issue.extensionName)}: ${escapeHtml(issue.title)}</strong>
+            <span>${escapeHtml(issue.detail)}</span>
+          </div>
+          <mark>${escapeHtml(issue.kind)}</mark>
+        </article>
+      `,
+    )
+    .join("");
+}
+
 async function importExtensionAsset(pathname: string): Promise<void> {
   const session = await client.issueExtensionSession();
   const url = new URL(pathname, serverURL);
@@ -701,7 +773,8 @@ async function importExtensionAsset(pathname: string): Promise<void> {
   await import(/* @vite-ignore */ url.href);
 }
 
-async function mountExtension(installation: ExtensionInstallation): Promise<number> {
+async function mountExtension(installation: ExtensionInstallation): Promise<ExtensionMountResult> {
+  const issues = resolverIssuesFor(installation);
   const manifest = await fetchExtensionManifest(installation.id);
   if (manifest.id !== installation.id) {
     throw new Error(`${installation.id} manifest id mismatch: ${manifest.id}`);
@@ -710,10 +783,31 @@ async function mountExtension(installation: ExtensionInstallation): Promise<numb
 
   const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
   if (!slotGrid) {
-    return 0;
+    return { slots: 0, issues };
   }
 
+  let mountedSlots = 0;
   for (const slot of manifest.slots) {
+    if (!hasRequiredPermission(slot.requiredPermission)) {
+      issues.push({
+        extensionId: manifest.id,
+        extensionName: installation.name,
+        kind: "permission",
+        title: "Permission denied",
+        detail: `${slot.slot} requires ${slot.requiredPermission}.`,
+      });
+      continue;
+    }
+    if (!customElements.get(slot.element)) {
+      issues.push({
+        extensionId: manifest.id,
+        extensionName: installation.name,
+        kind: "load",
+        title: "Element not registered",
+        detail: `${slot.element} was not defined by ${manifest.assets.entry}.`,
+      });
+      continue;
+    }
     const host = document.createElement("forgepoint-extension-host") as HTMLElement & {
       configure?: (
         manifest: ExtensionUiManifest,
@@ -728,9 +822,10 @@ async function mountExtension(installation: ExtensionInstallation): Promise<numb
     host.setAttribute("aria-label", `${installation.name} extension slot ${slot.slot}`);
     host.configure?.(manifest, extensionHostContext(), slot.slot);
     slotGrid.append(host);
+    mountedSlots += 1;
   }
 
-  return manifest.slots.length;
+  return { slots: mountedSlots, issues };
 }
 
 async function mountExtensions(): Promise<void> {
@@ -738,12 +833,38 @@ async function mountExtensions(): Promise<void> {
   const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
   slotGrid?.replaceChildren();
   if (installations.length === 0) {
+    renderExtensionIssues([]);
     setStatus("#extension-pill", false, "no manifests");
     return;
   }
-  const mountedSlotCounts = await Promise.all(installations.map((installation) => mountExtension(installation)));
-  const mountedSlots = mountedSlotCounts.reduce((total, count) => total + count, 0);
-  setStatus("#extension-pill", mountedSlots > 0, `${mountedSlots} slots from ${installations.length} extensions`);
+  const results = await Promise.all(
+    installations.map(async (installation): Promise<ExtensionMountResult> => {
+      try {
+        return await mountExtension(installation);
+      } catch (error) {
+        return {
+          slots: 0,
+          issues: [
+            {
+              extensionId: installation.id,
+              extensionName: installation.name,
+              kind: "load",
+              title: "Load failed",
+              detail: describeError(error),
+            },
+          ],
+        };
+      }
+    }),
+  );
+  const mountedSlots = results.reduce((total, result) => total + result.slots, 0);
+  const issues = results.flatMap((result) => result.issues);
+  renderExtensionIssues(issues);
+  const statusLabel =
+    issues.length > 0
+      ? `${mountedSlots} slots, ${issues.length} issues`
+      : `${mountedSlots} slots from ${installations.length} extensions`;
+  setStatus("#extension-pill", mountedSlots > 0 && issues.length === 0, statusLabel);
 }
 
 async function connect(operatorCode: string): Promise<void> {
