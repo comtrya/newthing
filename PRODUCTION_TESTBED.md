@@ -27,7 +27,8 @@ server and exit after the probes pass.
 versioned extension storage tables under `$FORGEPOINT_DATA_DIR/extensions/storage`.
 Set `FORGEPOINT_RESET_DEMO_DATA=0` if you want to keep edits in that data
 directory between runs. Explicit environment values passed to `./start.sh` win
-over values loaded from `.envrc`.
+over values loaded from `.envrc`. The smoke output prints the seeded repository
+path, live branch list, and installed extension list after GraphQL is available.
 
 ```sh
 mkdir -p /private/tmp/forgepoint-production-testbed

@@ -346,6 +346,11 @@ GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.hea
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
   fail "GraphQL did not return repository.headOid"
 fi
+GRAPHQL_BRANCHES="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.branches.map((branch) => branch.name).join(", ")')"
+GRAPHQL_EXTENSIONS="$(json_value "$TMP_DIR/graphql.json" 'json.data.extensionInstallations.map((extension) => extension.id).join(", ")')"
+log "seeded repository path: $DATA_DIR/repositories/forgepoint/forgepoint.git"
+log "seeded branches: $GRAPHQL_BRANCHES"
+log "installed extensions: $GRAPHQL_EXTENSIONS"
 json_value "$TMP_DIR/graphql.json" 'json.data.repository.diff.patch' >"$TMP_DIR/graphql-diff.patch"
 SSR_HEAD_OID="$(sed -n 's/.*data-smoke-head-oid="\([^"]*\)".*/\1/p' "$TMP_DIR/frontend.html" | head -n 1)"
 if [[ "$SSR_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then

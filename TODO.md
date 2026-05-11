@@ -19,6 +19,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: `start.sh` validates `git ls-remote`, branch-specific fetch, and clone HEAD matching GraphQL `repository.headOid`.
 - Real: `start.sh` validates the SSR-rendered frontend head OID matches GraphQL and cloned Git HEAD.
 - Real: `start.sh` validates the GraphQL diff patch exactly matches `git diff --patch --find-renames HEAD~1 HEAD` from the cloned repository.
+- Real: `start.sh` prints the seeded repository path, live branch list, and installed extension list from GraphQL.
 - Real: `start.sh` validates Git no-token, wrong-token, missing-`git:read`, single-use session reuse, and receive-pack fail-closed auth/error behavior.
 - Real: Rust route tests cover Git upload-pack no-auth, wrong-scope, path traversal, and receive-pack fail-closed behavior.
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
@@ -246,7 +247,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - extension-owned PR/check/activity documents.
 - Add a `--reset` or env flag that deletes all generated runtime state intentionally.
 - Avoid ad hoc `rm -rf` paths in the smoke script unless guarded to the configured data dir.
-- Print the seeded repository path, branch list, and extension install list at startup.
+- Real: `start.sh` prints the seeded repository path, branch list, and extension install list from live GraphQL data.
 - Add startup validation that first-party extension files exist before starting the server.
 - Add startup validation that Wasmtime components export the expected typed resolvers.
 - Startup validates extension UI manifests and backend extension manifests agree.
