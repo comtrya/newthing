@@ -341,21 +341,24 @@ function renderShell(): void {
   }
 
   app.innerHTML = `
-    <header class="topbar">
+    <header class="topbar" role="banner">
       <div class="brand-lockup">
-        <span class="brand-mark">C</span>
-        <div>
-          <strong>Comtrya</strong>
-          <span>Self-hosted forge</span>
+        <span class="brand-mark">c</span>
+        <div class="brand-text">
+          <strong>comtrya</strong>
+          <span>operator console</span>
         </div>
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span class="brand-workspace" id="brand-workspace">Comtrya Labs</span>
       </div>
-      <label class="command-search">
-        <span>Repository switcher</span>
-        <input id="repo-search" type="search" value="" placeholder="Search repositories" aria-label="Search repositories" />
+      <label class="command-search" aria-label="Repository switcher">
+        <span>Jump to</span>
+        <input id="repo-search" type="search" value="" placeholder="Search repositories, files, refs…" aria-label="Search repositories" />
+        <kbd>⌘K</kbd>
       </label>
       <div class="topbar-actions">
         <span id="ready-pill" class="status-pill status-warn">offline</span>
-        <code class="server-url">${escapeHtml(serverURL)}</code>
+        <code class="server-url" title="${escapeHtml(serverURL)}">${escapeHtml(serverURL)}</code>
       </div>
     </header>
 
@@ -370,8 +373,8 @@ function renderShell(): void {
         <form id="operator-form" class="operator-form">
           <label for="operator-code">Operator code</label>
           <div class="operator-row">
-            <input id="operator-code" name="operatorCode" type="password" autocomplete="off" value="${escapeHtml(seededOperatorCode)}" />
-            <button type="submit">Connect</button>
+            <input id="operator-code" name="operatorCode" type="password" autocomplete="off" placeholder="paste credential" value="${escapeHtml(seededOperatorCode)}" />
+            <button type="submit" class="primary">Connect</button>
           </div>
         </form>
 
@@ -383,18 +386,18 @@ function renderShell(): void {
           <div id="repo-list" class="repo-list" aria-live="polite">
             <button type="button" class="repo-row active" disabled>
               <span>comtrya/comtrya</span>
-              <small>Connect to load</small>
+              <small>connect to load</small>
             </button>
           </div>
         </section>
 
         <nav class="workspace-nav" aria-label="Repository sections">
-          <a class="active" href="#overview">Overview</a>
-          <a href="#code">Code</a>
-          <a href="#pulls">Pull requests</a>
-          <a href="#checks">Checks</a>
-          <a href="#extensions">Extensions</a>
-          <a href="#activity">Activity</a>
+          <a class="active" href="#overview" data-glyph="◆">Summary<kbd>g s</kbd></a>
+          <a href="#code" data-glyph="{}">Code<kbd>g c</kbd></a>
+          <a href="#pulls" data-glyph="⇄">Pull requests<kbd>g p</kbd></a>
+          <a href="#checks" data-glyph="✓">Checks<kbd>g k</kbd></a>
+          <a href="#extensions" data-glyph="◇">Extensions<kbd>g e</kbd></a>
+          <a href="#activity" data-glyph="≋">Activity<kbd>g a</kbd></a>
         </nav>
       </aside>
 
@@ -408,6 +411,7 @@ function renderShell(): void {
           <div class="repo-actions">
             <button id="copy-clone" type="button">Copy clone URL</button>
             <a class="button-link" href="#extensions">Extension status</a>
+            <span id="repo-visibility" class="status-pill status-info">private</span>
           </div>
         </section>
 
@@ -431,7 +435,7 @@ function renderShell(): void {
             <section class="panel branch-panel">
               <div class="panel-heading">
                 <div>
-                  <h2>Branch Cockpit</h2>
+                  <h2>Branches</h2>
                   <p id="branch-summary">main</p>
                 </div>
                 <code id="commit-hash">------</code>
@@ -495,14 +499,14 @@ function renderShell(): void {
             <section class="panel repo-facts">
               <div class="panel-heading">
                 <h2>Repository Facts</h2>
-                <span id="repo-visibility" class="status-pill status-info">private</span>
+                <span class="status-pill" id="repo-id-pill">git</span>
               </div>
               <dl>
                 <div><dt>Language</dt><dd id="repo-language">unknown</dd></div>
                 <div><dt>License</dt><dd id="repo-license">unknown</dd></div>
                 <div><dt>Updated</dt><dd id="repo-updated">unknown</dd></div>
                 <div><dt>Viewer</dt><dd id="viewer-state">anonymous</dd></div>
-                <div><dt>Tree entries</dt><dd id="tree-count">0</dd></div>
+                <div><dt>Tree</dt><dd id="tree-count">0</dd></div>
                 <div><dt>Blobs</dt><dd id="blob-count">0</dd></div>
               </dl>
             </section>
@@ -515,8 +519,8 @@ function renderShell(): void {
                 </div>
               </div>
               <div class="queue-stats">
-                <article><strong id="queue-reviews">0</strong><span>ready reviews</span></article>
-                <article><strong id="queue-actions">0</strong><span>attention checks</span></article>
+                <article><strong id="queue-reviews">0</strong><span>Ready reviews</span></article>
+                <article><strong id="queue-actions">0</strong><span>Attention checks</span></article>
               </div>
               <ol id="queue-list" class="queue-list"></ol>
             </section>
@@ -524,10 +528,10 @@ function renderShell(): void {
             <section class="panel clone-panel">
               <div class="panel-heading">
                 <h2>Clone</h2>
-                <span class="status-pill status-ok">Git HTTPS</span>
+                <span class="status-pill status-ok">git over https</span>
               </div>
               <code id="clone-command" class="command">git clone ${escapeHtml(serverURL)}/git/comtrya/comtrya.git</code>
-              <p class="muted">Scoped credentials are issued through the operator flow.</p>
+              <p class="muted">Scoped credentials issued through the operator flow.</p>
             </section>
 
             <section class="panel refs-panel">
@@ -632,6 +636,7 @@ function renderData(): void {
   setStatus("#checks-pill", passing === checks.length, `${passing}/${checks.length} passing`);
   setStatus("#repo-visibility", repo.visibility === "PRIVATE", repo.visibility.toLowerCase());
   setText("#workspace-name", graphql.workspace.name);
+  setText("#brand-workspace", graphql.workspace.name);
   setText(
     "#workspace-meta",
     `${graphql.workspace.visibility.toLowerCase()} · ${formatCount(graphql.workspace.members)} members`,
@@ -755,6 +760,7 @@ function renderCommits(repo: RepositoryPayload): void {
       (commit) => `
         <li>
           <code>${escapeHtml(commit.shortOid)}</code>
+          <span class="commit-dot" aria-hidden="true"></span>
           <div>
             <strong>${escapeHtml(commit.subject)}</strong>
             <span>${escapeHtml(commit.author)} · ${escapeHtml(commit.time)}</span>

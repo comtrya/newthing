@@ -61,26 +61,59 @@ try {
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>Comtrya</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@1,500&display=swap"
+    />
   </head>
   <body>
     <main id="app" class="app-shell">
-      <section class="loading-screen" aria-live="polite">
-        <h1>Comtrya</h1>
-        {
-          initialRepo ? (
-            <p data-smoke="rendered-ui-live" data-smoke-head-oid={initialRepo.headOid}>
-              {initialRepo.title} at {initialRepo.commit} with {initialRepo.refs} refs,{" "}
-              {initialRepo.files} files, and {initialRepo.resolvers} Wasmtime resolvers.
-            </p>
-          ) : (
-            <p>Starting interface...</p>
-          )
-        }
+      <section class="boot-screen" aria-live="polite">
+        <div class="boot-mark" aria-hidden="true">
+          <span class="boot-mark-glyph">c</span>
+          <span class="boot-mark-pulse"></span>
+        </div>
+        <div class="boot-meta">
+          <span class="boot-eyebrow">Comtrya</span>
+          <h1 class="boot-title">Self-hosted code forge</h1>
+          {
+            initialRepo ? (
+              <p
+                class="boot-status"
+                data-smoke="rendered-ui-live"
+                data-smoke-head-oid={initialRepo.headOid}
+              >
+                <span class="boot-status-dot boot-status-live" />
+                <code>{initialRepo.title}</code>
+                <span class="boot-status-sep">·</span>
+                <code>{initialRepo.commit}</code>
+                <span class="boot-status-sep">·</span>
+                <span>
+                  {initialRepo.refs} refs · {initialRepo.files} files · {initialRepo.resolvers}{" "}
+                  resolvers
+                </span>
+              </p>
+            ) : (
+              <p class="boot-status">
+                <span class="boot-status-dot" />
+                <span>Booting interface — establishing operator session.</span>
+              </p>
+            )
+          }
+        </div>
+        <div class="boot-keys" aria-hidden="true">
+          <span><kbd>⌘</kbd><kbd>K</kbd> Command</span>
+          <span><kbd>g</kbd><kbd>c</kbd> Code</span>
+          <span><kbd>g</kbd><kbd>p</kbd> Pulls</span>
+        </div>
       </section>
     </main>
     <script src="../main.ts"></script>
