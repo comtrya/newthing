@@ -203,200 +203,246 @@ extract_json_string() {
   json_value "$body_file" "json[\"$field\"]"
 }
 
-assert_extension_surfaces_render() {
-  local graphql_file="$1"
-  local code_asset="$2"
-  local pulls_asset="$3"
-  local checks_asset="$4"
+find_headless_browser() {
+  if [[ -n "${COMTRYA_BROWSER_BIN:-}" ]]; then
+    [[ -x "$COMTRYA_BROWSER_BIN" ]] || fail "COMTRYA_BROWSER_BIN is not executable: $COMTRYA_BROWSER_BIN"
+    printf '%s' "$COMTRYA_BROWSER_BIN"
+    return
+  fi
+
+  local candidates=(
+    "google-chrome"
+    "google-chrome-stable"
+    "chromium"
+    "chromium-browser"
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    "/Applications/Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev"
+    "/Applications/Chromium.app/Contents/MacOS/Chromium"
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+  )
+  for candidate in "${candidates[@]}"; do
+    if [[ "$candidate" == */* ]]; then
+      if [[ -x "$candidate" ]]; then
+        printf '%s' "$candidate"
+        return
+      fi
+    else
+      local resolved
+      resolved="$(command -v "$candidate" 2>/dev/null || true)"
+      if [[ -n "$resolved" ]]; then
+        printf '%s' "$resolved"
+        return
+      fi
+    fi
+  done
+
+  return 1
+}
+
+assert_extension_browser_surfaces_render() {
+  local evidence_file="$1"
+  local browser_log="$2"
+  local graphql_file="$3"
+  local browser_bin
+  browser_bin="$(find_headless_browser)" || fail "extension browser smoke requires Chrome/Chromium or COMTRYA_BROWSER_BIN"
+
+  local profile_dir="$TMP_DIR/headless-browser-profile"
+  local browser_stdout="$TMP_DIR/headless-browser.stdout"
+  local debugging_port="${COMTRYA_BROWSER_DEBUG_PORT:-$((24000 + RANDOM % 20000))}"
+  local browser_pid=""
+  rm -rf "$profile_dir"
+  mkdir -p "$profile_dir"
+
+  "$browser_bin" \
+    --headless=new \
+    --disable-gpu \
+    --disable-dev-shm-usage \
+    --no-default-browser-check \
+    --no-first-run \
+    --no-sandbox \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port="$debugging_port" \
+    --user-data-dir="$profile_dir" \
+    about:blank >"$browser_stdout" 2>"$browser_log" &
+  browser_pid="$!"
+
+  local deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+  until curl -sSf "http://127.0.0.1:${debugging_port}/json" >/dev/null 2>&1; do
+    if ! kill -0 "$browser_pid" >/dev/null 2>&1; then
+      printf '\n[comtrya] headless browser exited before DevTools became ready: %s\n' "$browser_bin" >&2
+      printf '[comtrya] browser log:\n' >&2
+      sed -n '1,180p' "$browser_log" >&2 || true
+      fail "headless browser did not start"
+    fi
+    if ((SECONDS >= deadline)); then
+      kill "$browser_pid" >/dev/null 2>&1 || true
+      wait "$browser_pid" >/dev/null 2>&1 || true
+      fail "headless browser DevTools did not become ready"
+    fi
+    sleep 0.25
+  done
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [graphqlFile, codeAsset, pullsAsset, checksAsset] = process.argv.slice(1);
+const [port, pageUrl, graphqlFile, outputFile] = process.argv.slice(1);
+const graphql = JSON.parse(fs.readFileSync(graphqlFile, "utf8")).data;
 
-class FakeElement {
-  constructor(tagName = "element") {
-    this.tagName = String(tagName).toLowerCase();
-    this.children = [];
-    this.attributes = new Map();
-    this.dataset = {};
-    this.className = "";
-    this.textContent = "";
-  }
-
-  append(...children) {
-    for (const child of children.flat()) {
-      if (child === undefined || child === null) {
-        continue;
-      }
-      this.children.push(typeof child === "string" ? new FakeText(child) : child);
-    }
-  }
-
-  replaceChildren(...children) {
-    this.children = [];
-    this.textContent = "";
-    this.append(...children);
-  }
-
-  setAttribute(name, value) {
-    const stringValue = String(value);
-    this.attributes.set(name, stringValue);
-    if (name.startsWith("data-")) {
-      const key = name
-        .slice("data-".length)
-        .replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-      this.dataset[key] = stringValue;
-    }
-  }
-
-  getAttribute(name) {
-    return this.attributes.get(name) ?? null;
-  }
-
-  addEventListener() {}
-
-  querySelectorAll(selector) {
-    const matches = [];
-    visit(this, (node) => {
-      if (node !== this && node.tagName === selector.toLowerCase()) {
-        matches.push(node);
-      }
-    });
-    return matches;
-  }
-}
-
-class FakeText {
-  constructor(value) {
-    this.textContent = String(value);
-    this.children = [];
-  }
-}
-
-const registry = new Map();
-globalThis.HTMLElement = FakeElement;
-globalThis.document = {
-  createElement(tagName) {
-    return new FakeElement(tagName);
-  },
-};
-globalThis.customElements = {
-  define(name, constructor) {
-    registry.set(name, constructor);
-  },
-  get(name) {
-    return registry.get(name);
-  },
+const expected = {
+  filePath: graphql.repository.files[0]?.path,
+  diffPath: graphql.repository.diff?.path,
+  treeEntries: `${graphql.repository.treeEntries.length} tree entries`,
+  pullTitle: graphql.repository.pullRequests[0]?.title,
+  checkName: graphql.repository.checks[0]?.name,
 };
 
-function visit(node, callback) {
-  callback(node);
-  for (const child of node.children ?? []) {
-    visit(child, callback);
-  }
-}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function textOf(node) {
-  let value = node.textContent ?? "";
-  for (const child of node.children ?? []) {
-    value += textOf(child);
-  }
-  return value;
-}
-
-function findSurface(root, smokeSelector) {
-  let found;
-  visit(root, (node) => {
-    if (!found && node.getAttribute?.("data-smoke") === smokeSelector) {
-      found = node;
+async function pageTarget() {
+  for (const _ of Array.from({ length: 80 })) {
+    const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) =>
+      response.json(),
+    );
+    const target = targets.find((candidate) => candidate.type === "page");
+    if (target?.webSocketDebuggerUrl) {
+      return target;
     }
-  });
-  return found;
-}
-
-function loadAsset(path) {
-  const source = fs.readFileSync(path, "utf8");
-  Function(source)();
-}
-
-async function mountCase(testCase, graphql) {
-  loadAsset(testCase.asset);
-  const constructor = customElements.get(testCase.element);
-  if (!constructor) {
-    throw new Error(`${testCase.element} was not registered`);
+    await sleep(250);
   }
-  const extensionResolver = graphql.extensionResolvers.find(
-    (resolver) => resolver.id === testCase.extensionId,
-  );
-  const element = new constructor();
-  element.comtryaData = {
-    repository: graphql.repository,
-    extensionResolver,
-    extensionResolvers: graphql.extensionResolvers,
+  throw new Error("Chrome DevTools did not expose a page target");
+}
+
+async function connect(target) {
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  const pending = new Map();
+  let nextId = 1;
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (!message.id || !pending.has(message.id)) {
+      return;
+    }
+    const { resolve, reject } = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.error) {
+      reject(new Error(message.error.message ?? JSON.stringify(message.error)));
+    } else {
+      resolve(message.result);
+    }
   };
-  element.comtryaClient = {
-    async query() {
-      return {
-        repository: graphql.repository,
-        extensionResolvers: graphql.extensionResolvers,
-      };
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = () => reject(new Error("Chrome DevTools websocket failed"));
+  });
+  return {
+    send(method, params = {}) {
+      const id = nextId++;
+      ws.send(JSON.stringify({ id, method, params }));
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    },
+    close() {
+      ws.close();
     },
   };
-  await element.connectedCallback();
+}
 
-  const surface = findSurface(element, testCase.smoke);
-  if (!surface) {
-    throw new Error(`${testCase.element} did not render ${testCase.smoke}`);
-  }
-  if (surface.dataset.extensionRendered !== "non-empty") {
-    throw new Error(
-      `${testCase.element} rendered ${surface.dataset.extensionRendered ?? "without"} non-empty evidence`,
-    );
-  }
-  const renderedText = textOf(surface);
-  for (const expectedText of testCase.expectedText.filter(Boolean)) {
-    if (!renderedText.includes(expectedText)) {
-      throw new Error(`${testCase.element} output did not include ${expectedText}`);
+function collectExpression() {
+  return `(() => {
+    const surfaces = {};
+    for (const name of [
+      "extension-surface-code-browser",
+      "extension-surface-pull-requests",
+      "extension-surface-checks",
+    ]) {
+      const element = document.querySelector("[data-smoke=\\\"" + name + "\\\"]");
+      surfaces[name] = {
+        rendered: element?.dataset.extensionRendered ?? null,
+        text: element?.innerText || element?.textContent || "",
+      };
     }
+    return {
+      mountedSlots: document.querySelector("#extension-slots")?.dataset.mountedSlots ?? null,
+      extensionIssues: document.querySelector("#extension-slots")?.dataset.extensionIssues ?? null,
+      hosts: Array.from(document.querySelectorAll("comtrya-extension-host")).map((host) => ({
+        slot: host.dataset.extensionSlot ?? null,
+        extension: host.dataset.extensionId ?? null,
+      })),
+      surfaces,
+      extensionPill: document.querySelector("#extension-pill")?.textContent ?? "",
+      readyPill: document.querySelector("#ready-pill")?.textContent ?? "",
+    };
+  })()`;
+}
+
+function evidenceIsReady(evidence) {
+  const slots = new Set(evidence.hosts.map((host) => host.slot));
+  return (
+    evidence.mountedSlots === "3" &&
+    evidence.extensionIssues === "0" &&
+    slots.has("repository.code") &&
+    slots.has("repository.overview") &&
+    slots.has("repository.checks") &&
+    evidence.surfaces["extension-surface-code-browser"]?.rendered === "non-empty" &&
+    evidence.surfaces["extension-surface-pull-requests"]?.rendered === "non-empty" &&
+    evidence.surfaces["extension-surface-checks"]?.rendered === "non-empty" &&
+    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.filePath) &&
+    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.diffPath) &&
+    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.treeEntries) &&
+    evidence.surfaces["extension-surface-pull-requests"]?.text.includes(expected.pullTitle) &&
+    evidence.surfaces["extension-surface-checks"]?.text.includes(expected.checkName)
+  );
+}
+
+const target = await pageTarget();
+const cdp = await connect(target);
+try {
+  await cdp.send("Runtime.enable");
+  await cdp.send("Page.enable");
+  await cdp.send("Page.navigate", { url: pageUrl });
+
+  let lastEvidence = {};
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const result = await cdp.send("Runtime.evaluate", {
+      expression: collectExpression(),
+      returnByValue: true,
+    });
+    if (result.exceptionDetails) {
+      const detail =
+        result.exceptionDetails.exception?.description ??
+        result.exceptionDetails.text ??
+        "DOM collection threw";
+      fs.writeFileSync(
+        outputFile,
+        JSON.stringify({ exception: detail, exceptionDetails: result.exceptionDetails }, null, 2),
+      );
+      throw new Error(detail);
+    }
+    lastEvidence = result.result?.value ?? {};
+    if (evidenceIsReady(lastEvidence)) {
+      fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
+      process.exit(0);
+    }
+    await sleep(250);
   }
+  fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
+  throw new Error("mounted extension surfaces did not become ready");
+} finally {
+  cdp.close();
 }
-
-const graphql = JSON.parse(fs.readFileSync(graphqlFile, "utf8")).data;
-const cases = [
-  {
-    asset: codeAsset,
-    element: "comtrya-code-browser",
-    extensionId: "ext_code_browser",
-    smoke: "extension-surface-code-browser",
-    expectedText: [
-      graphql.repository.files[0]?.path,
-      graphql.repository.diff?.path,
-      `${graphql.repository.treeEntries.length} tree entries`,
-    ],
-  },
-  {
-    asset: pullsAsset,
-    element: "comtrya-pull-requests",
-    extensionId: "ext_pull_requests",
-    smoke: "extension-surface-pull-requests",
-    expectedText: [graphql.repository.pullRequests[0]?.title, "active reviews"],
-  },
-  {
-    asset: checksAsset,
-    element: "comtrya-checks-board",
-    extensionId: "ext_checks",
-    smoke: "extension-surface-checks",
-    expectedText: [graphql.repository.checks[0]?.name, "passing"],
-  },
-];
-
-for (const testCase of cases) {
-  await mountCase(testCase, graphql);
-}
-' "$graphql_file" "$code_asset" "$pulls_asset" "$checks_asset"; then
-    fail "extension mounted surface smoke failed"
+' "$debugging_port" "$FRONTEND_URL/" "$graphql_file" "$evidence_file"; then
+    kill "$browser_pid" >/dev/null 2>&1 || true
+    wait "$browser_pid" >/dev/null 2>&1 || true
+    printf '\n[comtrya] headless browser host-path smoke failed with %s\n' "$browser_bin" >&2
+    printf '[comtrya] browser evidence:\n' >&2
+    sed -n '1,220p' "$evidence_file" >&2 || true
+    printf '[comtrya] browser log:\n' >&2
+    sed -n '1,180p' "$browser_log" >&2 || true
+    exit 1
   fi
-  log "ok - extension mounted surfaces render non-empty runtime evidence"
+
+  kill "$browser_pid" >/dev/null 2>&1 || true
+  wait "$browser_pid" >/dev/null 2>&1 || true
+
+  log "ok - browser host path mounted non-empty extension surfaces"
 }
 
 wait_for_url() {
@@ -702,11 +748,10 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
   expect_contains "extension ${extension_id} asset through Astro" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
 
-assert_extension_surfaces_render \
-  "$TMP_DIR/graphql.json" \
-  "$TMP_DIR/ext_code_browser-asset.js" \
-  "$TMP_DIR/ext_pull_requests-asset.js" \
-  "$TMP_DIR/ext_checks-asset.js"
+assert_extension_browser_surfaces_render \
+  "$TMP_DIR/frontend-browser-evidence.json" \
+  "$TMP_DIR/frontend-browser.log" \
+  "$TMP_DIR/graphql.json"
 
 expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"

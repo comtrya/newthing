@@ -136,7 +136,7 @@ indexed fields, version, update timestamp, and data payload.
   request, and checks product surfaces are composed through extension slots.
 - PR/check business behavior is not yet resolver-owned against real Git refs.
 - Receive-pack/push is disabled.
-- Full browser automation still needs a Playwright or Browser-plugin path, but
-  `start.sh` now runs a DOM/custom-elements runtime smoke that mounts the
-  served first-party code-browser, pull-request, and checks elements and checks
-  for non-empty output.
+- Full browser interaction coverage still needs a Playwright or Browser-plugin
+  path, but `start.sh` now runs the live Astro page in headless Chrome/Chromium
+  and checks that the real frontend host path mounts non-empty first-party
+  code-browser, pull-request, and checks surfaces.
