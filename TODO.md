@@ -190,7 +190,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - update PR/check derived state as needed.
 - Add smart HTTP tests with real `git clone`, `git fetch`, and `git push`.
 - Partial: route tests and smoke cover unauthorized upload-pack; push remains disabled/unsupported.
-- Add negative tests for wrong scope: `git:read` cannot push, `git:write` alone cannot fetch if read is required.
+- Partial: route tests prove `git:write` alone cannot fetch; push remains disabled before write-scope validation is meaningful.
 - Real: route tests cover path traversal rejection for `/git/...`.
 - Add multiple repository support instead of one hardcoded `forgepoint/forgepoint.git`.
 - Make repository metadata derive from the repository record and Git config, not literals.

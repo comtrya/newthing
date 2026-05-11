@@ -3415,7 +3415,9 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
             PrincipalStatus::OperatorCredential,
         );
         let wrong_scope_response = git_endpoint(
-            State(AppState { runtime }),
+            State(AppState {
+                runtime: runtime.clone(),
+            }),
             bearer_headers(&token),
             Method::GET,
             AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
@@ -3426,6 +3428,31 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
 
         assert_eq!(wrong_scope_response.status(), StatusCode::FORBIDDEN);
         let body = to_bytes(wrong_scope_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::Forbidden.as_str()
+        );
+
+        let write_only_token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["git:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let write_only_fetch_response = git_endpoint(
+            State(AppState { runtime }),
+            bearer_headers(&write_only_token),
+            Method::GET,
+            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-upload-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(write_only_fetch_response.status(), StatusCode::FORBIDDEN);
+        let body = to_bytes(write_only_fetch_response.into_body(), usize::MAX)
             .await
             .unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
