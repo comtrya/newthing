@@ -1,17 +1,23 @@
+pub mod auth;
+pub mod authz;
 pub mod checks;
 pub mod config;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod git_storage;
 pub mod ids;
 pub mod jobs;
 pub mod persistence;
 
+pub use auth::*;
+pub use authz::*;
 pub use checks::*;
 pub use config::*;
 pub use domain::*;
 pub use error::*;
 pub use events::*;
+pub use git_storage::*;
 pub use ids::*;
 pub use jobs::*;
 pub use persistence::*;
