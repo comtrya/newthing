@@ -386,6 +386,8 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
   expect_status "extension ${extension_id} manifest through Astro" 200 "$TMP_DIR/${extension_id}-manifest.json" \
     "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
   expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "forgepoint.ui-extension/v1"'
+  json_assert "extension ${extension_id} manifest declares mountable slots" "$TMP_DIR/${extension_id}-manifest.json" \
+    "json.id === \"$extension_id\" && json.slots.length > 0 && json.slots.every((slot) => slot.slot.startsWith(\"repository.\") && typeof slot.element === \"string\" && slot.element.length > 0)"
 
   expect_status "extension ${extension_id} asset session" 200 "$TMP_DIR/${extension_id}-asset-session.json" \
     -X POST \

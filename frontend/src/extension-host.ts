@@ -12,11 +12,13 @@ export interface ExtensionContext {
 export class ExtensionHostElement extends HTMLElement {
   private manifest?: ExtensionUiManifest;
   private context?: ExtensionContext;
+  private slotName?: string;
 
-  configure(manifest: ExtensionUiManifest, context: ExtensionContext): void {
+  configure(manifest: ExtensionUiManifest, context: ExtensionContext, slotName?: string): void {
     validateUiManifest(manifest);
     this.manifest = manifest;
     this.context = context;
+    this.slotName = slotName;
     this.render();
   }
 
@@ -24,12 +26,16 @@ export class ExtensionHostElement extends HTMLElement {
     if (!this.manifest || !this.context) {
       return;
     }
+    const slot = this.slotName
+      ? this.manifest.slots.find((candidate) => candidate.slot === this.slotName)
+      : this.manifest.slots[0];
     const route = this.manifest.routes[0];
-    if (!route) {
+    const elementName = slot?.element ?? route?.element;
+    if (!elementName) {
       this.replaceChildren();
       return;
     }
-    const element = document.createElement(route.element) as HTMLElement & {
+    const element = document.createElement(elementName) as HTMLElement & {
       forgepointClient?: ForgepointClient;
       viewer?: unknown;
       resource?: string;

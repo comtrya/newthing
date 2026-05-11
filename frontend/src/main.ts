@@ -7,7 +7,6 @@ import { validateUiManifest } from "./contracts";
 import "./extension-host";
 
 const DEFAULT_RESOURCE = "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-const EXTENSIONS = ["ext_pull_requests", "ext_code_browser", "ext_checks"] as const;
 const TOKEN_ACTIONS = ["graphql:read", "graphql:write", "events:read", "git:read", "checks:read"];
 
 const app = document.querySelector<HTMLElement>("#app");
@@ -26,6 +25,13 @@ type ReadyPayload = {
     pathPrefix: string;
     message: string;
   }>;
+};
+
+type ExtensionInstallation = {
+  id: string;
+  name: string;
+  status: string;
+  description: string;
 };
 
 type TokenExchangePayload = {
@@ -84,7 +90,7 @@ type DemoState = {
     review: string;
   }>;
   checks: Array<{ name: string; provider: string; conclusion: string; duration: string }>;
-  extensions: Array<{ id: string; name: string; status: string; description: string }>;
+  extensions: ExtensionInstallation[];
   extensionResolvers: Array<{
     id: string;
     component: string;
@@ -313,11 +319,7 @@ function renderShell(): void {
             <span id="extension-pill" class="status-pill status-warn">not loaded</span>
           </div>
           <div id="extension-registry" class="extension-registry"></div>
-          <div class="extension-grid">
-            <forgepoint-extension-host id="host-ext_pull_requests" class="extension-frame"></forgepoint-extension-host>
-            <forgepoint-extension-host id="host-ext_code_browser" class="extension-frame"></forgepoint-extension-host>
-            <forgepoint-extension-host id="host-ext_checks" class="extension-frame"></forgepoint-extension-host>
-          </div>
+          <div id="extension-slots" class="extension-grid" data-smoke="manifest-driven-extension-slots"></div>
         </section>
 
         <section id="activity" class="activity-grid">
@@ -681,6 +683,17 @@ async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiM
   return manifest;
 }
 
+function extensionHostContext() {
+  const graphql = state.graphql;
+  return {
+    forgepointClient: client,
+    viewer: graphql?.viewer ?? { authenticated: false },
+    resource: DEFAULT_RESOURCE,
+    routeParams: { workspace: "forgepoint", repo: "forgepoint" },
+    capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
+  };
+}
+
 async function importExtensionAsset(pathname: string): Promise<void> {
   const session = await client.issueExtensionSession();
   const url = new URL(pathname, serverURL);
@@ -688,27 +701,49 @@ async function importExtensionAsset(pathname: string): Promise<void> {
   await import(/* @vite-ignore */ url.href);
 }
 
-async function mountExtension(extensionId: (typeof EXTENSIONS)[number]): Promise<void> {
-  const manifest = await fetchExtensionManifest(extensionId);
+async function mountExtension(installation: ExtensionInstallation): Promise<number> {
+  const manifest = await fetchExtensionManifest(installation.id);
+  if (manifest.id !== installation.id) {
+    throw new Error(`${installation.id} manifest id mismatch: ${manifest.id}`);
+  }
   await importExtensionAsset(manifest.assets.entry);
 
-  const host = app?.querySelector(`#host-${extensionId}`) as
-    | (HTMLElement & {
-        configure?: (manifest: ExtensionUiManifest, context: Record<string, unknown>) => void;
-      })
-    | null;
-  host?.configure?.(manifest, {
-    forgepointClient: client,
-    viewer: { authenticated: true },
-    resource: DEFAULT_RESOURCE,
-    routeParams: { workspace: "forgepoint", repo: "forgepoint" },
-    capabilities: { extensionRuntime: true },
-  });
+  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
+  if (!slotGrid) {
+    return 0;
+  }
+
+  for (const slot of manifest.slots) {
+    const host = document.createElement("forgepoint-extension-host") as HTMLElement & {
+      configure?: (
+        manifest: ExtensionUiManifest,
+        context: ReturnType<typeof extensionHostContext>,
+        slotName?: string,
+      ) => void;
+    };
+    host.id = `host-${manifest.id}-${slot.slot.replaceAll(".", "-")}`;
+    host.className = "extension-frame";
+    host.dataset.extensionId = manifest.id;
+    host.dataset.extensionSlot = slot.slot;
+    host.setAttribute("aria-label", `${installation.name} extension slot ${slot.slot}`);
+    host.configure?.(manifest, extensionHostContext(), slot.slot);
+    slotGrid.append(host);
+  }
+
+  return manifest.slots.length;
 }
 
 async function mountExtensions(): Promise<void> {
-  await Promise.all(EXTENSIONS.map((extensionId) => mountExtension(extensionId)));
-  setStatus("#extension-pill", true, `${EXTENSIONS.length} loaded`);
+  const installations = state.graphql?.extensionInstallations ?? [];
+  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
+  slotGrid?.replaceChildren();
+  if (installations.length === 0) {
+    setStatus("#extension-pill", false, "no manifests");
+    return;
+  }
+  const mountedSlotCounts = await Promise.all(installations.map((installation) => mountExtension(installation)));
+  const mountedSlots = mountedSlotCounts.reduce((total, count) => total + count, 0);
+  setStatus("#extension-pill", mountedSlots > 0, `${mountedSlots} slots from ${installations.length} extensions`);
 }
 
 async function connect(operatorCode: string): Promise<void> {

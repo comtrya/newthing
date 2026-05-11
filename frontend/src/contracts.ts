@@ -38,6 +38,7 @@ export interface ForgepointClient {
 
 export interface ExtensionUiManifest {
   schemaVersion: "forgepoint.ui-extension/v1";
+  id: string;
   extension: string;
   assets: {
     entry: string;
@@ -60,15 +61,26 @@ export function validateUiManifest(manifest: ExtensionUiManifest): void {
   if (manifest.schemaVersion !== "forgepoint.ui-extension/v1") {
     throw new Error("unsupported UI extension manifest schema");
   }
+  if (!manifest.id) {
+    throw new Error("extension manifest must include an id");
+  }
   if (!manifest.assets.entry.startsWith("/_extensions/")) {
     throw new Error("extension entry must be served by the Rust asset API");
   }
   if (!manifest.assets.entryIntegrity?.startsWith("sha256-")) {
     throw new Error("extension entry must advertise a sha256 integrity value");
   }
+  if (manifest.slots.length === 0) {
+    throw new Error("extension manifest must declare at least one slot");
+  }
   for (const route of manifest.routes) {
     if (route.path.startsWith("/_")) {
       throw new Error("extension routes cannot use reserved paths");
+    }
+  }
+  for (const slot of manifest.slots) {
+    if (!slot.slot || !slot.element) {
+      throw new Error("extension slots must include a slot name and element");
     }
   }
 }

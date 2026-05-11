@@ -22,6 +22,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: GraphQL exposes typed `workspace`, `repository`, `extensionInstallations`, `extensionResolvers`, and `activityEvents` roots; the Astro frontend and first-party extension UI assets consume those roots instead of the generic `demo` aggregate.
 - Real: startup computes SHA-256 for first-party extension entry assets and rejects stale UI manifest `entryIntegrity` values.
 - Real: startup validates the seeded bare Git repository HEAD and expected demo branch refs.
+- Real: the frontend mounts extension host elements from runtime extension installations and UI manifest slot declarations instead of hardcoded extension IDs.
 - Real: visible repository metric cards use live Git/storage counts, and seed metadata cannot override derived repository metrics, language, license, or update timestamp.
 - Not real enough: the host page is still mostly Astro/TypeScript host UI, not a shell composed from real extension-provided surfaces.
 - Not real enough: pull request, checks, extension registry, and activity data are storage documents seeded from `fixtures/demo/conference.json`, but typed first-party extension resolvers still do not own the product behavior.
@@ -213,11 +214,11 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Move PR surface rendering into the pull request extension.
 - Move checks surface rendering into the checks extension.
 - Stop the host shell from directly rendering PR/check fake product cards.
-- Add route registration from UI manifests instead of hardcoded extension host elements.
-- Render extension slots based on manifest slot declarations.
+- Real: extension host elements are created from runtime extension installations and UI manifest slot declarations instead of hardcoded host elements.
+- Real: extension slots are rendered based on manifest slot declarations.
 - Startup validates extension asset integrity beyond checking that `entryIntegrity` exists.
 - Add extension asset cache/version handling.
-- Add manifest/schema version compatibility checks in the frontend.
+- Real: frontend validates UI manifest schema version, id, entry integrity, reserved routes, and slot declarations before mounting.
 - Add visible error states for extension load failure, resolver failure, and permission denial.
 - Add smoke validation that dynamically imported extension elements render non-empty content.
 - Add browser-level UI tests if Playwright or the Browser plugin is available in the environment.
@@ -278,7 +279,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Remove any product path that imports directly from `fixtures/demo/conference.json` after storage seeding is implemented.
 - Move fixture seed files under a clear seed/test path.
 - Delete inline extension JS constants from Rust server code. Extension assets must only come from extension package files.
-- Delete hardcoded extension ids from the frontend once manifest-driven registration works.
+- Real: hardcoded first-party extension ids were removed from the frontend once manifest-driven slot mounting was in place.
 - Delete hardcoded repository id/path from frontend after repository routing is real.
 - Delete the generic `demo` GraphQL product path when typed API fields are in place.
 
