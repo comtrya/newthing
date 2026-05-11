@@ -62,8 +62,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - appending events in the same transaction,
   - reading extension-owned data with permission checks.
 - Make `demo_payload()` assemble data from Git plus runtime storage repositories, not raw JSON values.
-- Add tests proving that deleting the fixture after initial seed does not break the UI/API.
-- Add tests proving changes in runtime storage immediately affect GraphQL/UI output.
+- Real: server tests prove deleting the fixture after initial seed does not break runtime storage-backed API output.
+- Real: server tests prove runtime storage changes immediately affect GraphQL output; browser/UI proof is still tracked in the smoke gaps.
 
 ## 2. Make Extensions Own Their Product Data
 
@@ -253,7 +253,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: `start.sh` prints the seeded repository path, branch list, and extension install list from live GraphQL data.
 - Real: startup validates that first-party extension files exist before starting the server.
 - Real: startup validates that Wasmtime components export the expected resolver before starting the server.
-- Startup validates extension UI manifests and backend extension manifests agree.
+- Real: startup validates extension UI manifests and backend extension manifests agree.
 - Real: startup validates that the Git repo has expected refs and HEAD.
 - Real: `FORGEPOINT_EXTERNAL_DEMO=1` makes startup reject the local default `.envrc` operator code.
 
@@ -297,7 +297,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: Rust route tests cover receive-pack fail-closed behavior.
 - Real: Rust tests cover extension manifest loading from disk.
 - Real: Rust tests cover Wasmtime resolver compile/export/call failures.
-- Rust tests for extension storage read/write/query.
+- Real: Rust tests cover extension storage read/write/query behavior.
 - Rust tests for PR resolver behavior against real Git refs.
 - Rust tests for checks resolver behavior against real commit oids.
 - Frontend typecheck.
