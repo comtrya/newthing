@@ -81,10 +81,6 @@ button {
 .muted,
 .repo-hero p,
 .panel-heading p,
-.file-list small,
-.pull-list span,
-.pull-list small,
-.check-list span,
 .event-list span,
 .extension-registry span {
   color: #657386;
@@ -255,7 +251,6 @@ h2 {
 
 .metric-grid article,
 .panel,
-.workbench-main,
 .intelligence-panel {
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -272,14 +267,18 @@ h2 {
   font-size: 26px;
 }
 
-.workbench {
+.repo-context-grid,
+.extension-surfaces {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
   gap: 16px;
 }
 
+.extension-zone:first-child {
+  grid-column: 1 / -1;
+}
+
 .panel,
-.workbench-main,
 .intelligence-panel {
   padding: 18px;
 }
@@ -287,67 +286,6 @@ h2 {
 .panel-heading {
   justify-content: space-between;
   margin-bottom: 14px;
-}
-
-.repo-workspace {
-  display: grid;
-  grid-template-columns: minmax(220px, 0.45fr) minmax(0, 1fr);
-  gap: 14px;
-}
-
-.tree-host {
-  height: 430px;
-  overflow: hidden;
-  border: 1px solid #d9e1eb;
-  border-radius: 10px;
-  background: #fbfcfe;
-  --trees-border-color-override: #d9e1eb;
-  --trees-selected-bg-override: #e8f2ff;
-  --trees-fg-override: #253244;
-  --trees-muted-fg-override: #687386;
-}
-
-.file-preview {
-  min-height: 210px;
-  overflow: auto;
-  margin: 0;
-  border: 1px solid #1b2636;
-  border-radius: 10px;
-  background: #101725;
-  color: #dbe8ff;
-  font-size: 13px;
-  line-height: 1.6;
-  padding: 16px;
-  white-space: pre-wrap;
-}
-
-.diff-panel {
-  overflow: hidden;
-  margin-top: 14px;
-  border: 1px solid #d9e1eb;
-  border-radius: 10px;
-  background: #ffffff;
-}
-
-.diff-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid #e4eaf2;
-  padding: 10px 12px;
-}
-
-.diff-header span {
-  color: #657386;
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.review-diff {
-  max-height: 260px;
-  overflow: auto;
-  font-size: 12px;
 }
 
 .intelligence-panel dl {
@@ -371,24 +309,18 @@ dd {
   font-weight: 800;
 }
 
-.pull-list,
-.check-list,
 .extension-registry,
 .event-list,
 .compact-list,
-.commit-list,
-.blob-list {
+.commit-list {
   display: grid;
   gap: 10px;
 }
 
-.pull-list article,
-.check-list article,
 .extension-registry article,
 .event-list li,
 .compact-list li,
 .commit-list li,
-.blob-list article,
 .extension-surface article {
   display: grid;
   align-items: center;
@@ -397,22 +329,6 @@ dd {
   border-radius: 9px;
   background: #fbfcfe;
   padding: 12px;
-}
-
-.pull-list article {
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-}
-
-.avatar {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border-radius: 50%;
-  background: #203248;
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 900;
 }
 
 mark {
@@ -441,10 +357,6 @@ mark.draft {
   color: #51359a;
 }
 
-.check-list article {
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-}
-
 .compact-list,
 .commit-list {
   list-style: none;
@@ -461,48 +373,11 @@ mark.draft {
   grid-template-columns: 96px minmax(0, 1fr);
 }
 
-.commit-list span,
-.blob-list span {
+.commit-list span {
   display: block;
   color: #657386;
   font-size: 12px;
   font-weight: 700;
-}
-
-.blob-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.blob-list article {
-  align-items: start;
-}
-
-.blob-list pre {
-  max-height: 150px;
-  overflow: auto;
-  margin: 0;
-  border-radius: 8px;
-  background: #101725;
-  color: #dbe8ff;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 10px;
-  white-space: pre-wrap;
-}
-
-.check-icon {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #cbd5e1;
-}
-
-.check-icon.success {
-  background: #16a34a;
-}
-
-.check-icon.action_required {
-  background: #d97706;
 }
 
 .extension-registry {
@@ -554,20 +429,37 @@ mark.draft {
   color: #9a3412;
 }
 
-.extension-grid,
 .activity-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.activity-grid {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 12px;
 }
 
 .extension-frame {
   display: block;
   min-height: 220px;
+}
+
+.extension-slot-mount {
+  min-height: 180px;
+}
+
+.extension-placeholder {
+  display: grid;
+  min-height: 180px;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed #b9c7d8;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 18px;
+}
+
+.extension-placeholder span {
+  color: #657386;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .extension-surface {
@@ -649,14 +541,18 @@ mark.draft {
 }
 
 @media (max-width: 1180px) {
-  .extension-grid,
-  .extension-registry {
+  .extension-registry,
+  .repo-context-grid,
+  .extension-surfaces {
     grid-template-columns: 1fr;
   }
 
-  .workbench,
   .activity-grid {
     grid-template-columns: 1fr;
+  }
+
+  .extension-zone:first-child {
+    grid-column: auto;
   }
 }
 
@@ -679,18 +575,9 @@ mark.draft {
     flex-direction: column;
   }
 
-  .repo-actions,
-  .repo-workspace {
-    grid-template-columns: 1fr;
-  }
-
   .repo-actions {
     display: grid;
     width: 100%;
-  }
-
-  .tree-host {
-    height: 320px;
   }
 
   .content {
