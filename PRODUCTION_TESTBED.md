@@ -4,6 +4,9 @@ The production testbed runtime is a safe, runnable single-node target for exerci
 
 It is intentionally fail-closed: unsupported SPEC surfaces do not return fake success. Readiness reports those unsupported surfaces explicitly.
 
+See `ARCHITECTURE.md` for the current runtime map and `DEMO_RUNBOOK.md` for
+operator commands and inspection steps.
+
 ## Run
 
 For the normal end-to-end smoke path:

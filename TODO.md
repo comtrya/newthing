@@ -317,14 +317,14 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 ## 15. Documentation Needed
 
 - Update `PRODUCTION_TESTBED.md` every time a shortcut is removed or added.
-- Add an architecture doc for:
+- Real: `ARCHITECTURE.md` documents:
   - Rust host,
   - Astro shell,
   - extension package layout,
   - Wasmtime invocation path,
   - extension storage,
   - Git storage/protocol adapter.
-- Add a demo operator runbook:
+- Real: `DEMO_RUNBOOK.md` documents:
   - clean reset,
   - start,
   - URLs,
@@ -333,7 +333,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
   - where data lives,
   - how to inspect seeded Git repository,
   - how to inspect extension storage.
-- Add a "known not real yet" section and keep it current until empty.
+- Real: `ARCHITECTURE.md` and `DEMO_RUNBOOK.md` include "known not real yet" sections.
 
 ## Immediate Next Steps
 
