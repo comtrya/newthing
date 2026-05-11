@@ -69,6 +69,7 @@ Ready means the runtime is safe to run as a production-style test bed:
 - data directories initialized
 - event and audit logs are durable JSONL files
 - a real local bare Git repository is seeded or opened under `$FORGEPOINT_DATA_DIR/repositories`
+- the seeded bare Git repository HEAD and expected demo branch refs validate at startup
 - browser CORS checks are enforced
 - operator-code based testbed token exchange issues five-minute scoped credentials
 - SSE and extension asset session tokens are single-use

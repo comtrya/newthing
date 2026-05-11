@@ -224,6 +224,8 @@ impl Runtime {
         let audit_path = options.data_dir.join("metadata/audit.jsonl");
         let demo_repository = ensure_demo_repository(&options.data_dir)
             .map_err(|error| format!("failed to seed/open demo repository: {error}"))?;
+        validate_demo_repository_refs(&demo_repository)
+            .map_err(|error| format!("demo repository validation failed: {error}"))?;
         let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
         let extension_runtime = load_extension_runtime(&options.extension_dir)
@@ -287,6 +289,10 @@ impl Runtime {
         checks.insert(
             "demoBareRepository".to_string(),
             self.demo_repository.git_dir.join("HEAD").is_file(),
+        );
+        checks.insert(
+            "demoRepositoryRefs".to_string(),
+            validate_demo_repository_refs(&self.demo_repository).is_ok(),
         );
         checks.insert(
             "extensionStorageSchema".to_string(),
@@ -1270,6 +1276,11 @@ fn typed_repository_payload(demo: &Value) -> Value {
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
+const DEMO_EXPECTED_REFS: &[&str] = &[
+    "refs/heads/main",
+    "refs/heads/extensions/checks-dashboard",
+    "refs/heads/ui/repository-intelligence",
+];
 
 #[derive(Debug, Clone)]
 struct GitDemoSnapshot {
@@ -1488,6 +1499,30 @@ fn git_ref_exists(git_dir: &Path, reference: &str) -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+fn validate_demo_repository_refs(repo: &DemoRepositoryRuntime) -> Result<(), String> {
+    let head = git_text(&repo.git_dir, &["symbolic-ref", "HEAD"])?;
+    if head.trim() != "refs/heads/main" {
+        return Err(format!(
+            "HEAD points to {}, expected refs/heads/main",
+            head.trim()
+        ));
+    }
+
+    let missing_refs = DEMO_EXPECTED_REFS
+        .iter()
+        .copied()
+        .filter(|reference| !git_ref_exists(&repo.git_dir, reference))
+        .collect::<Vec<_>>();
+    if !missing_refs.is_empty() {
+        return Err(format!(
+            "missing expected refs: {}",
+            missing_refs.join(", ")
+        ));
+    }
+
+    Ok(())
 }
 
 fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, String> {
@@ -2938,6 +2973,7 @@ mod tests {
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
         assert_eq!(payload["ready"], true);
+        assert_eq!(payload["checks"]["demoRepositoryRefs"], true);
         assert_eq!(
             payload["unsupported"].as_array().unwrap().len(),
             UNSUPPORTED_SURFACES.len()
@@ -2955,6 +2991,27 @@ mod tests {
                     })
             );
         }
+    }
+
+    #[test]
+    fn demo_repository_validation_rejects_missing_seed_ref() {
+        let data_dir = temp_dir("demo-repository-refs");
+        let repo = ensure_demo_repository(&data_dir).unwrap();
+        validate_demo_repository_refs(&repo).unwrap();
+
+        run_command(
+            Command::new("git")
+                .arg("--git-dir")
+                .arg(&repo.git_dir)
+                .arg("branch")
+                .arg("-D")
+                .arg("ui/repository-intelligence"),
+            "delete seeded UI demo branch",
+        )
+        .unwrap();
+
+        let error = validate_demo_repository_refs(&repo).unwrap_err();
+        assert!(error.contains("refs/heads/ui/repository-intelligence"));
     }
 
     #[tokio::test]

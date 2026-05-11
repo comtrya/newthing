@@ -21,6 +21,7 @@ This file is intentionally blunt. The current demo has some real paths, but it i
 - Real: startup validates first-party backend extension manifests against their UI manifests and entry asset paths.
 - Real: GraphQL exposes typed `workspace`, `repository`, `extensionInstallations`, `extensionResolvers`, and `activityEvents` roots; the Astro frontend and first-party extension UI assets consume those roots instead of the generic `demo` aggregate.
 - Real: startup computes SHA-256 for first-party extension entry assets and rejects stale UI manifest `entryIntegrity` values.
+- Real: startup validates the seeded bare Git repository HEAD and expected demo branch refs.
 - Real: visible repository metric cards use live Git/storage counts, and seed metadata cannot override derived repository metrics, language, license, or update timestamp.
 - Not real enough: the host page is still mostly Astro/TypeScript host UI, not a shell composed from real extension-provided surfaces.
 - Not real enough: pull request, checks, extension registry, and activity data are storage documents seeded from `fixtures/demo/conference.json`, but typed first-party extension resolvers still do not own the product behavior.
@@ -245,7 +246,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Add startup validation that first-party extension files exist before starting the server.
 - Add startup validation that Wasmtime components export the expected typed resolvers.
 - Startup validates extension UI manifests and backend extension manifests agree.
-- Add startup validation that the Git repo has expected refs and HEAD.
+- Real: startup validates that the Git repo has expected refs and HEAD.
 - Add startup validation that `.envrc` has a non-default operator code if this is used for external demos.
 
 ## 11. Smoke Test Coverage Gaps

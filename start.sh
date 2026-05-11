@@ -305,7 +305,7 @@ expect_contains "rendered UI through Astro" "$TMP_DIR/frontend.html" 'data-smoke
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
-  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.wasmtimeResolversExecuted === true && json.unsupported.some((surface) => surface.id === "legacy_v1_api" && surface.pathPrefix === "/api/v1/") && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
+  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.wasmtimeResolversExecuted === true && json.checks.demoRepositoryRefs === true && json.unsupported.some((surface) => surface.id === "legacy_v1_api" && surface.pathPrefix === "/api/v1/") && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
 
 expect_status "unsupported legacy v1 route fails explicitly through Astro" 501 "$TMP_DIR/legacy-v1.json" \
   "$FRONTEND_URL/api/v1/repositories"
