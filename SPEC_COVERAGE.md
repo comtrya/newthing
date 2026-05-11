@@ -42,6 +42,7 @@ cargo fmt --all -- --check
 cargo test --workspace
 cd frontend && ~/.bun/bin/bun run typecheck
 cargo run -p forgepoint-server -- --check
+FORGEPOINT_CONFIG=config/production-testbed.cue FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed FORGEPOINT_TLS_TERMINATED=true FORGEPOINT_OPERATOR_TOKEN="$(openssl rand -hex 32)" cargo run -p forgepoint-server -- --check
 cargo run -p forgepoint-cli -- capabilities
 cargo run -p forgepoint-cli -- backup
 cargo run -p forgepoint-cli -- restore
@@ -52,5 +53,6 @@ Current expected results:
 - Rust format check passes.
 - Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, 4 server route tests.
 - Frontend typecheck passes through Bun's TypeScript runtime.
-- Server check returns `forgepoint-server ready status=200`.
+- Development server check returns `forgepoint-server ready=true mode=development ...`.
+- Production-testbed server check returns `forgepoint-server ready=true mode=production-testbed ...` when production gates are configured.
 - CLI commands return v1 capabilities, backup summary, and restore completion event.
