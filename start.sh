@@ -203,6 +203,202 @@ extract_json_string() {
   json_value "$body_file" "json[\"$field\"]"
 }
 
+assert_extension_surfaces_render() {
+  local graphql_file="$1"
+  local code_asset="$2"
+  local pulls_asset="$3"
+  local checks_asset="$4"
+
+  if ! "$BUN" --eval '
+const fs = require("fs");
+const [graphqlFile, codeAsset, pullsAsset, checksAsset] = process.argv.slice(1);
+
+class FakeElement {
+  constructor(tagName = "element") {
+    this.tagName = String(tagName).toLowerCase();
+    this.children = [];
+    this.attributes = new Map();
+    this.dataset = {};
+    this.className = "";
+    this.textContent = "";
+  }
+
+  append(...children) {
+    for (const child of children.flat()) {
+      if (child === undefined || child === null) {
+        continue;
+      }
+      this.children.push(typeof child === "string" ? new FakeText(child) : child);
+    }
+  }
+
+  replaceChildren(...children) {
+    this.children = [];
+    this.textContent = "";
+    this.append(...children);
+  }
+
+  setAttribute(name, value) {
+    const stringValue = String(value);
+    this.attributes.set(name, stringValue);
+    if (name.startsWith("data-")) {
+      const key = name
+        .slice("data-".length)
+        .replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+      this.dataset[key] = stringValue;
+    }
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  addEventListener() {}
+
+  querySelectorAll(selector) {
+    const matches = [];
+    visit(this, (node) => {
+      if (node !== this && node.tagName === selector.toLowerCase()) {
+        matches.push(node);
+      }
+    });
+    return matches;
+  }
+}
+
+class FakeText {
+  constructor(value) {
+    this.textContent = String(value);
+    this.children = [];
+  }
+}
+
+const registry = new Map();
+globalThis.HTMLElement = FakeElement;
+globalThis.document = {
+  createElement(tagName) {
+    return new FakeElement(tagName);
+  },
+};
+globalThis.customElements = {
+  define(name, constructor) {
+    registry.set(name, constructor);
+  },
+  get(name) {
+    return registry.get(name);
+  },
+};
+
+function visit(node, callback) {
+  callback(node);
+  for (const child of node.children ?? []) {
+    visit(child, callback);
+  }
+}
+
+function textOf(node) {
+  let value = node.textContent ?? "";
+  for (const child of node.children ?? []) {
+    value += textOf(child);
+  }
+  return value;
+}
+
+function findSurface(root, smokeSelector) {
+  let found;
+  visit(root, (node) => {
+    if (!found && node.getAttribute?.("data-smoke") === smokeSelector) {
+      found = node;
+    }
+  });
+  return found;
+}
+
+function loadAsset(path) {
+  const source = fs.readFileSync(path, "utf8");
+  Function(source)();
+}
+
+async function mountCase(testCase, graphql) {
+  loadAsset(testCase.asset);
+  const constructor = customElements.get(testCase.element);
+  if (!constructor) {
+    throw new Error(`${testCase.element} was not registered`);
+  }
+  const extensionResolver = graphql.extensionResolvers.find(
+    (resolver) => resolver.id === testCase.extensionId,
+  );
+  const element = new constructor();
+  element.comtryaData = {
+    repository: graphql.repository,
+    extensionResolver,
+    extensionResolvers: graphql.extensionResolvers,
+  };
+  element.comtryaClient = {
+    async query() {
+      return {
+        repository: graphql.repository,
+        extensionResolvers: graphql.extensionResolvers,
+      };
+    },
+  };
+  await element.connectedCallback();
+
+  const surface = findSurface(element, testCase.smoke);
+  if (!surface) {
+    throw new Error(`${testCase.element} did not render ${testCase.smoke}`);
+  }
+  if (surface.dataset.extensionRendered !== "non-empty") {
+    throw new Error(
+      `${testCase.element} rendered ${surface.dataset.extensionRendered ?? "without"} non-empty evidence`,
+    );
+  }
+  const renderedText = textOf(surface);
+  for (const expectedText of testCase.expectedText.filter(Boolean)) {
+    if (!renderedText.includes(expectedText)) {
+      throw new Error(`${testCase.element} output did not include ${expectedText}`);
+    }
+  }
+}
+
+const graphql = JSON.parse(fs.readFileSync(graphqlFile, "utf8")).data;
+const cases = [
+  {
+    asset: codeAsset,
+    element: "comtrya-code-browser",
+    extensionId: "ext_code_browser",
+    smoke: "extension-surface-code-browser",
+    expectedText: [
+      graphql.repository.files[0]?.path,
+      graphql.repository.diff?.path,
+      `${graphql.repository.treeEntries.length} tree entries`,
+    ],
+  },
+  {
+    asset: pullsAsset,
+    element: "comtrya-pull-requests",
+    extensionId: "ext_pull_requests",
+    smoke: "extension-surface-pull-requests",
+    expectedText: [graphql.repository.pullRequests[0]?.title, "active reviews"],
+  },
+  {
+    asset: checksAsset,
+    element: "comtrya-checks-board",
+    extensionId: "ext_checks",
+    smoke: "extension-surface-checks",
+    expectedText: [graphql.repository.checks[0]?.name, "passing"],
+  },
+];
+
+for (const testCase of cases) {
+  await mountCase(testCase, graphql);
+}
+' "$graphql_file" "$code_asset" "$pulls_asset" "$checks_asset"; then
+    fail "extension mounted surface smoke failed"
+  fi
+  log "ok - extension mounted surfaces render non-empty runtime evidence"
+}
+
 wait_for_url() {
   local label="$1"
   local url="$2"
@@ -505,6 +701,12 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
     "$FRONTEND_URL/_extensions/${extension_id}/assets/index.js?session=$EXTENSION_ASSET_SESSION"
   expect_contains "extension ${extension_id} asset through Astro" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
+
+assert_extension_surfaces_render \
+  "$TMP_DIR/graphql.json" \
+  "$TMP_DIR/ext_code_browser-asset.js" \
+  "$TMP_DIR/ext_pull_requests-asset.js" \
+  "$TMP_DIR/ext_checks-asset.js"
 
 expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"

@@ -132,8 +132,11 @@ indexed fields, version, update timestamp, and data payload.
 ## Known Not Real Yet
 
 - The Wasmtime resolver ABI is still a minimal proof ABI.
-- The host still renders major code browser, pull request, and checks panels.
+- The host still provides repository layout/context, while code browser, pull
+  request, and checks product surfaces are composed through extension slots.
 - PR/check business behavior is not yet resolver-owned against real Git refs.
 - Receive-pack/push is disabled.
-- Browser-rendered extension smoke still needs a Playwright or Browser-plugin
-  automation path in this repo/session.
+- Full browser automation still needs a Playwright or Browser-plugin path, but
+  `start.sh` now runs a DOM/custom-elements runtime smoke that mounts the
+  served first-party code-browser, pull-request, and checks elements and checks
+  for non-empty output.

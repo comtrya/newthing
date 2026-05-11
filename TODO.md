@@ -103,8 +103,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Make those resolvers read from the real bare Git repository through the host Git API.
 - Return typed data to the extension UI instead of having the UI query generic `demo`.
 - Remove host-rendered code browser panels that duplicate extension-owned behavior.
-- Keep the file tree rendered with `@pierre/trees`.
-- Keep diffs rendered with `@pierre/diffs`.
+- Keep the extension-rendered code surface above POC quality with tree, blob,
+  and diff context until richer extension-owned tree/diff components are added.
 - Add UI loading, empty, denied, and resolver-error states.
 - Add smoke validation that the code browser extension route renders a known commit/tree/blob read from Git.
 - Add tests proving the code browser updates when the underlying Git repo changes.
@@ -227,7 +227,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Real: extension asset imports include the manifest integrity as a version key, and the Rust asset route returns content-hash ETags with immutable private cache headers.
 - Real: frontend validates UI manifest schema version, id, entry integrity, reserved routes, and slot declarations before mounting.
 - Real: the frontend renders visible extension-panel error states for load failure, resolver failure, and permission denial.
-- Add smoke validation that dynamically imported extension elements render non-empty content.
+- Real: `start.sh` executes the served first-party extension assets in a DOM/custom-elements runtime harness and asserts code-browser, pull-request, and checks surfaces render non-empty mounted evidence.
 - Add browser-level UI tests if Playwright or the Browser plugin is available in the environment.
 
 ## 9. Remove Fake Metrics And Metadata
@@ -261,10 +261,10 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 - Current smoke uses structured JSON assertions for GraphQL Git/storage/resolver coverage, but not yet for every endpoint response.
 - Current smoke checks typed resolver summaries for all first-party extensions; real WIT resolver execution coverage is still needed once the ABI is implemented.
-- Current smoke checks extension assets contain `customElements.define`. Also verify the imported elements render content in the browser.
+- Real: current smoke checks extension assets contain `customElements.define` and executes the served first-party assets in a DOM/custom-elements runtime harness to prove code-browser, PR, and checks elements mount with non-empty output.
 - Current smoke validates Git clone/fetch, `git ls-remote`, branch-specific fetch, and cloned commit equality with GraphQL.
 - Real: smoke validates that the cloned commit equals the commit shown in the SSR-rendered UI shell.
-- Real: smoke validates the GraphQL diff patch comes from `git diff --patch --find-renames HEAD~1 HEAD`; browser-level proof that the rendered diff widget consumes that patch is still needed.
+- Real: smoke validates the GraphQL diff patch comes from `git diff --patch --find-renames HEAD~1 HEAD`, and the extension-surface runtime smoke asserts the mounted code-browser output includes diff evidence.
 - Add smoke validation that deleting or changing runtime PR/check storage changes UI output.
 - Smoke validates receive-pack fails with the documented explicit `UNSUPPORTED` error until push is implemented.
 - Real: smoke validates unsupported old/v1 routes return explicit `UNSUPPORTED` errors, not fake success.
@@ -302,7 +302,8 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 - Rust tests for checks resolver behavior against real commit oids.
 - Frontend typecheck.
 - Astro build.
-- Browser-rendered smoke for extension elements and repository UI.
+- DOM/custom-elements runtime smoke for extension elements, plus browser-rendered
+  smoke for repository UI when browser automation is available.
 - End-to-end `start.sh` smoke with:
   - readiness,
   - auth,
