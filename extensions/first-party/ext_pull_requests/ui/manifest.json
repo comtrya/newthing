@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "forgepoint.ui-extension/v1",
+  "id": "ext_pull_requests",
+  "extension": "pull-requests",
+  "assets": {
+    "entry": "/_extensions/ext_pull_requests/assets/index.js",
+    "entryIntegrity": "sha256-d282c6c8fc89e43a75dafde441001a80952a565b7bb2af9f1bff74448aafbbb3",
+    "styles": []
+  },
+  "routes": [
+    {
+      "path": "/forgepoint/forgepoint",
+      "element": "forgepoint-pull-requests",
+      "requiredPermission": "pull-requests.read"
+    }
+  ],
+  "slots": [
+    {
+      "slot": "repository.overview",
+      "element": "forgepoint-pull-requests",
+      "requiredPermission": "pull-requests.read"
+    }
+  ]
+}

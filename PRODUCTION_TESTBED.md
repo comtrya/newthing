@@ -6,27 +6,45 @@ It is intentionally fail-closed: unsupported SPEC surfaces do not return fake su
 
 ## Run
 
+For the normal end-to-end smoke path:
+
+```sh
+cp .envrc.example .envrc
+./start.sh
+```
+
+`.envrc` supplies the seeded production-testbed operator code. The script builds
+the Rust server and Astro frontend, validates production-testbed startup gates,
+starts both processes, probes the frontend health/readiness/Auth/GraphQL/events/
+extensions/Git boundaries, and then keeps the stack running for manual browser
+testing. Use
+`FORGEPOINT_ONESHOT=1 ./start.sh` when you want the same smoke test to stop the
+server and exit after the probes pass.
+
+`./start.sh` seeds demo input into
+`$FORGEPOINT_DATA_DIR/metadata/demo-state.json` from
+`fixtures/demo/conference.json`; server startup imports that input into the
+versioned extension storage tables under `$FORGEPOINT_DATA_DIR/extensions/storage`.
+Set `FORGEPOINT_RESET_DEMO_DATA=0` if you want to keep edits in that data
+directory between runs. Explicit environment values passed to `./start.sh` win
+over values loaded from `.envrc`.
+
 ```sh
 mkdir -p /private/tmp/forgepoint-production-testbed
 FORGEPOINT_CONFIG=config/production-testbed.cue \
 FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed \
 FORGEPOINT_TLS_TERMINATED=true \
-FORGEPOINT_OPERATOR_TOKEN="$(openssl rand -hex 32)" \
+FORGEPOINT_OPERATOR_CODE="forgepoint-local-operator-code" \
 cargo run -p forgepoint-server -- --check
 ```
 
-Start the server:
+Start the full stack:
 
 ```sh
-FORGEPOINT_CONFIG=config/production-testbed.cue \
-FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed \
-FORGEPOINT_TLS_TERMINATED=true \
-FORGEPOINT_OPERATOR_TOKEN="<same-token>" \
-FORGEPOINT_LISTEN=127.0.0.1:8080 \
-cargo run -p forgepoint-server
+./start.sh
 ```
 
-The server is designed to sit behind a TLS-terminating reverse proxy. In `environment: "production"`, startup fails unless `FORGEPOINT_TLS_TERMINATED=true`, `FORGEPOINT_OPERATOR_TOKEN` is set to at least 32 characters, `FORGEPOINT_DATA_DIR` is absolute, allowed origins are HTTPS, and local repository storage paths are absolute.
+The server is designed to sit behind a TLS-terminating reverse proxy. In `environment: "production"`, startup fails unless `FORGEPOINT_TLS_TERMINATED=true`, `FORGEPOINT_OPERATOR_CODE` is set to at least 12 characters, `FORGEPOINT_DATA_DIR` is absolute, allowed origins are HTTPS, and local repository storage paths are absolute.
 
 ## Endpoints
 
@@ -50,13 +68,20 @@ Ready means the runtime is safe to run as a production-style test bed:
 - production startup gates enforced
 - data directories initialized
 - event and audit logs are durable JSONL files
+- a real local bare Git repository is seeded or opened under `$FORGEPOINT_DATA_DIR/repositories`
 - browser CORS checks are enforced
-- operator-token based testbed token exchange issues five-minute scoped credentials
+- operator-code based testbed token exchange issues five-minute scoped credentials
 - SSE and extension asset session tokens are single-use
-- unsupported Git pack execution fails closed after authentication
+- the Astro frontend fronts the Rust API without injecting credentials
+- the repository UI renders live Git refs, branches, commits, tree entries, blob previews, and diffs; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
+- first-party pull request, code browser, and checks extensions are loaded from disk, compiled/instantiated as Component Model components through Wasmtime, and exposed through `/_extensions/...` with typed resolver output summaries
+- extension-owned pull request/check/activity state is persisted in the versioned `$FORGEPOINT_DATA_DIR/extensions/storage` schema and document tables
+- Git upload-pack clone/fetch works through the Astro origin with a scoped Forgepoint credential
+- unsupported runtime surfaces are listed from one registry in `/readyz` and return `UNSUPPORTED` JSON errors
+- Git receive-pack write surfaces fail closed after authentication
 
 It does **not** mean full Forgepoint v1 production completeness. `/readyz` reports these unsupported areas until they are replaced with real implementations:
 
 - full OIDC browser callback validation
-- native `gix` smart-HTTP pack execution
-- Wasmtime component execution
+- git receive-pack writes in the production-testbed demo
+- legacy Forgepoint v1 API routes in the v2 production-testbed runtime

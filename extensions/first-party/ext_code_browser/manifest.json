@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "forgepoint.extension/v1",
+  "id": "ext_code_browser",
+  "name": "code-browser",
+  "displayName": "Code Browser",
+  "version": "0.1.0",
+  "publisher": "forgepoint-dev",
+  "wasmComponent": "component.wat",
+  "witWorld": "forgepoint:extension/extension",
+  "ui": {
+    "manifest": "ui/manifest.json"
+  },
+  "runtime": {
+    "resolver": "resolve",
+    "outputType": "forgepoint.code-browser/summary.v1"
+  }
+}

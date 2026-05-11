@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "forgepoint.extension/v1",
+  "id": "ext_pull_requests",
+  "name": "pull-requests",
+  "displayName": "Pull Requests",
+  "version": "0.1.0",
+  "publisher": "forgepoint-dev",
+  "wasmComponent": "component.wat",
+  "witWorld": "forgepoint:extension/extension",
+  "ui": {
+    "manifest": "ui/manifest.json"
+  },
+  "runtime": {
+    "resolver": "resolve",
+    "outputType": "forgepoint.pull-requests/summary.v1"
+  }
+}

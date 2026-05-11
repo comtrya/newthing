@@ -3,8 +3,16 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "dev": "astro dev --host 127.0.0.1",
     "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
-    "build": "bun ./node_modules/typescript/bin/tsc --noEmit"
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/node": "latest",
+    "@pierre/diffs": "^1.1.21",
+    "@pierre/trees": "^1.0.0-beta.3",
+    "astro": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest"

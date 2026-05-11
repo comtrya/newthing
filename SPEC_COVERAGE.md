@@ -30,8 +30,8 @@ This repository implements the Forgepoint v2 specification as a buildable kernel
 | Install local extension | `extensions/examples/pull-requests/manifest.json`, `ExtensionHost::activate` |
 | Compose GraphQL schema | `GraphqlComposer`, SDL conflict tests |
 | Activate WASM component contract | `ExtensionManifest`, `WIT_SKETCH`, `wit/forgepoint-extension.wit` |
-| Serve ESM UI assets | `frontend_contracts::extension_asset_response`, server `/_extensions/...` route |
-| Render extension UI in frontend | `frontend/src/extension-host.ts`, example extension asset |
+| Serve ESM UI assets | `frontend_contracts::extension_asset_response`, server `/_extensions/...` route, `ext_pull_requests`/`ext_code_browser`/`ext_checks` demo assets |
+| Render extension UI in frontend | `frontend/src/extension-host.ts`, example extension assets, Astro repo UI |
 | Enforce authorization adapter | `InMemoryAuthorizer`, authz visibility tests |
 | Audit sensitive operations | auth login, credential issue, secret access, restore event tests |
 
@@ -41,8 +41,10 @@ This repository implements the Forgepoint v2 specification as a buildable kernel
 cargo fmt --all -- --check
 cargo test --workspace
 cd frontend && ~/.bun/bin/bun run typecheck
+cd frontend && ~/.bun/bin/bun run build
 cargo run -p forgepoint-server -- --check
-FORGEPOINT_CONFIG=config/production-testbed.cue FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed FORGEPOINT_TLS_TERMINATED=true FORGEPOINT_OPERATOR_TOKEN="$(openssl rand -hex 32)" cargo run -p forgepoint-server -- --check
+FORGEPOINT_CONFIG=config/production-testbed.cue FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed FORGEPOINT_TLS_TERMINATED=true FORGEPOINT_OPERATOR_CODE="forgepoint-local-operator-code" cargo run -p forgepoint-server -- --check
+FORGEPOINT_ONESHOT=1 FORGEPOINT_OPERATOR_CODE="forgepoint-local-operator-code" ./start.sh
 cargo run -p forgepoint-cli -- capabilities
 cargo run -p forgepoint-cli -- backup
 cargo run -p forgepoint-cli -- restore
@@ -51,8 +53,11 @@ cargo run -p forgepoint-cli -- restore
 Current expected results:
 
 - Rust format check passes.
-- Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, 4 server route tests.
+- Rust workspace tests pass: 77 core unit tests, 1 MVP integration test, 7 server route tests.
 - Frontend typecheck passes through Bun's TypeScript runtime.
+- Astro frontend build passes and emits a server-rendered frontend artifact.
 - Development server check returns `forgepoint-server ready=true mode=development ...`.
 - Production-testbed server check returns `forgepoint-server ready=true mode=production-testbed ...` when production gates are configured.
+- `start.sh` seeds demo input into versioned extension storage document tables, opens a real local bare Git repository, runs the Astro frontend in front of the Rust server, and verifies operator-code exchange, GraphQL live Git data, events, extension manifest/asset sessions, typed Wasmtime resolver summaries, Git clone/fetch, and receive-pack fail-closed behavior through that frontend origin.
+- The Astro repository UI renders live refs, branches, commits, tree entries, blobs, file previews, and diffs from the server; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff panel.
 - CLI commands return v1 capabilities, backup summary, and restore completion event.

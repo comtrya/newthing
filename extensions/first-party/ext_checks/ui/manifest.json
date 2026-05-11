@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "forgepoint.ui-extension/v1",
+  "id": "ext_checks",
+  "extension": "checks",
+  "assets": {
+    "entry": "/_extensions/ext_checks/assets/index.js",
+    "entryIntegrity": "sha256-6e2c1e9b85871af9c39c748616c3a3db4f3a9832dab99ad6c49d5bb0307d63fe",
+    "styles": []
+  },
+  "routes": [
+    {
+      "path": "/forgepoint/forgepoint",
+      "element": "forgepoint-checks-board",
+      "requiredPermission": "checks:read"
+    }
+  ],
+  "slots": [
+    {
+      "slot": "repository.checks",
+      "element": "forgepoint-checks-board",
+      "requiredPermission": "checks:read"
+    }
+  ]
+}

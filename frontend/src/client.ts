@@ -6,10 +6,18 @@ type GraphqlEnvelope<TData> = {
 };
 
 export class HttpForgepointClient implements ForgepointClient {
+  private accessToken?: string;
+
   constructor(
     private readonly baseURL: string,
-    private readonly eventSessionFactory: () => Promise<string>,
-  ) {}
+    accessToken?: string,
+  ) {
+    this.accessToken = accessToken;
+  }
+
+  setAccessToken(accessToken: string): void {
+    this.accessToken = accessToken;
+  }
 
   async query<TData = unknown, TVars = Record<string, unknown>>(
     document: string,
@@ -32,7 +40,7 @@ export class HttpForgepointClient implements ForgepointClient {
     variables?: TVars,
     opts?: { signal?: AbortSignal; operationName?: string },
   ): AsyncIterable<TData> {
-    const session = await this.eventSessionFactory();
+    const session = await this.issueSession("/events/session");
     const url = new URL("/graphql/stream", this.baseURL);
     url.searchParams.set("session", session);
     url.searchParams.set("query", document);
@@ -57,7 +65,7 @@ export class HttpForgepointClient implements ForgepointClient {
     filter?: EventFilter,
     opts?: { signal?: AbortSignal },
   ): AsyncIterable<ForgepointEvent> {
-    const session = await this.eventSessionFactory();
+    const session = await this.issueSession("/events/session");
     const url = new URL("/events", this.baseURL);
     url.searchParams.set("session", session);
     if (filter?.resource) {
@@ -81,6 +89,10 @@ export class HttpForgepointClient implements ForgepointClient {
     window.dispatchEvent(new CustomEvent("forgepoint:toast", { detail: { level, message } }));
   }
 
+  async issueExtensionSession(): Promise<string> {
+    return this.issueSession("/_extensions/session");
+  }
+
   private async graphql<TData, TVars>(
     document: string,
     variables?: TVars,
@@ -89,7 +101,7 @@ export class HttpForgepointClient implements ForgepointClient {
     const response = await fetch(new URL("/graphql", this.baseURL), {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ query: document, variables, operationName: opts?.operationName }),
       signal: opts?.signal,
     });
@@ -105,6 +117,28 @@ export class HttpForgepointClient implements ForgepointClient {
       });
     }
     return envelope.data;
+  }
+
+  private async issueSession(pathname: string): Promise<string> {
+    const response = await fetch(new URL(pathname, this.baseURL), {
+      method: "POST",
+      credentials: "include",
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
+      body: "{}",
+    });
+    const body = (await response.json()) as { session?: string; errors?: Array<{ message: string }> };
+    if (!response.ok || !body.session) {
+      throw new Error(body.errors?.[0]?.message ?? "session issuance failed");
+    }
+    return body.session;
+  }
+
+  private authHeaders(init?: HeadersInit): Headers {
+    const headers = new Headers(init);
+    if (this.accessToken) {
+      headers.set("Authorization", `Bearer ${this.accessToken}`);
+    }
+    return headers;
   }
 
   private async *eventSource<TData>(url: URL, signal?: AbortSignal): AsyncIterable<TData> {

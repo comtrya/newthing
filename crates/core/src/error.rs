@@ -14,6 +14,7 @@ pub enum ErrorCode {
     ExtensionActivationFailed,
     StorageUnavailable,
     RateLimited,
+    Unsupported,
     InternalServerError,
     SchemaChanged,
 }
@@ -31,6 +32,7 @@ impl ErrorCode {
             Self::ExtensionActivationFailed => "EXTENSION_ACTIVATION_FAILED",
             Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
             Self::RateLimited => "RATE_LIMITED",
+            Self::Unsupported => "UNSUPPORTED",
             Self::InternalServerError => "INTERNAL_SERVER_ERROR",
             Self::SchemaChanged => "SCHEMA_CHANGED",
         }
@@ -127,7 +129,9 @@ mod tests {
             ),
             (ErrorCode::StorageUnavailable, "STORAGE_UNAVAILABLE"),
             (ErrorCode::RateLimited, "RATE_LIMITED"),
+            (ErrorCode::Unsupported, "UNSUPPORTED"),
             (ErrorCode::InternalServerError, "INTERNAL_SERVER_ERROR"),
+            (ErrorCode::SchemaChanged, "SCHEMA_CHANGED"),
         ];
 
         for (code, expected) in required {

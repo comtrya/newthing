@@ -1,8 +1,8 @@
-use axum::body::Body;
-use axum::extract::{Query, State};
-use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
+use axum::body::{Body, Bytes};
+use axum::extract::{Path as AxumPath, Query, RawQuery, State};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, options, post};
+use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
 use forgepoint_core::{
     ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, InstanceCapabilities,
@@ -10,14 +10,18 @@ use forgepoint_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
+use wasmtime::component::{Component, Linker};
+use wasmtime::{Engine, Store};
 
 #[tokio::main]
 async fn main() {
@@ -68,6 +72,7 @@ fn router(state: AppState) -> Router {
         .route("/events", get(events))
         .route("/events/session", post(events_session))
         .route("/auth/token-exchange", post(token_exchange))
+        .route("/auth/oidc/*path", any(unsupported_route))
         .route("/_extensions/session", post(extension_session))
         .route(
             "/_extensions/:extension/manifest.json",
@@ -75,7 +80,9 @@ fn router(state: AppState) -> Router {
         )
         .route("/_extensions/:extension/assets/*path", get(extension_asset))
         .route("/git/*path", get(git_endpoint).post(git_endpoint))
+        .route("/api/v1/*path", any(unsupported_route))
         .route("/*path", options(preflight))
+        .fallback(any(not_found_or_unsupported))
         .with_state(state)
 }
 
@@ -88,10 +95,11 @@ struct AppState {
 struct StartupOptions {
     config_path: Option<PathBuf>,
     data_dir: PathBuf,
+    extension_dir: PathBuf,
     listen: SocketAddr,
     check: bool,
     tls_terminated: bool,
-    operator_token: Option<String>,
+    operator_code: Option<String>,
 }
 
 impl StartupOptions {
@@ -100,6 +108,9 @@ impl StartupOptions {
         let mut data_dir = std::env::var_os("FORGEPOINT_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("./data"));
+        let mut extension_dir = std::env::var_os("FORGEPOINT_EXTENSION_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("extensions/first-party"));
         let mut listen = std::env::var("FORGEPOINT_LISTEN")
             .ok()
             .and_then(|value| value.parse().ok())
@@ -120,6 +131,11 @@ impl StartupOptions {
                         data_dir = PathBuf::from(path);
                     }
                 }
+                "--extension-dir" => {
+                    if let Some(path) = args.next() {
+                        extension_dir = PathBuf::from(path);
+                    }
+                }
                 "--listen" => {
                     if let Some(addr) = args.next().and_then(|value| value.parse().ok()) {
                         listen = addr;
@@ -132,10 +148,11 @@ impl StartupOptions {
         Self {
             config_path,
             data_dir,
+            extension_dir: absolute_path(extension_dir),
             listen,
             check,
             tls_terminated: env_truthy("FORGEPOINT_TLS_TERMINATED"),
-            operator_token: std::env::var("FORGEPOINT_OPERATOR_TOKEN").ok(),
+            operator_code: std::env::var("FORGEPOINT_OPERATOR_CODE").ok(),
         }
     }
 }
@@ -145,12 +162,32 @@ struct Runtime {
     options: StartupOptions,
     config: InstanceConfig,
     data_dir: PathBuf,
+    extension_storage: ExtensionRuntimeStore,
+    demo_repository: DemoRepositoryRuntime,
+    extension_runtime: BTreeMap<String, WasmtimeResolverRecord>,
     events_path: PathBuf,
     audit_path: PathBuf,
     sessions: Mutex<HashMap<String, SessionRecord>>,
     credentials: Mutex<HashMap<String, CredentialRecord>>,
     rate_limits: Mutex<HashMap<(String, u64), u32>>,
     token_counter: AtomicU64,
+}
+
+#[derive(Debug, Clone)]
+struct DemoRepositoryRuntime {
+    git_dir: PathBuf,
+    project_root: PathBuf,
+    http_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WasmtimeResolverRecord {
+    id: String,
+    component: String,
+    resolver: String,
+    output_type: String,
+    status: String,
 }
 
 impl Runtime {
@@ -185,6 +222,12 @@ impl Runtime {
 
         let events_path = options.data_dir.join("metadata/events.jsonl");
         let audit_path = options.data_dir.join("metadata/audit.jsonl");
+        let demo_repository = ensure_demo_repository(&options.data_dir)
+            .map_err(|error| format!("failed to seed/open demo repository: {error}"))?;
+        let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
+            .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
+        let extension_runtime = load_extension_runtime(&options.extension_dir)
+            .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -192,6 +235,9 @@ impl Runtime {
             data_dir: options.data_dir.clone(),
             options,
             config,
+            extension_storage,
+            demo_repository,
+            extension_runtime,
             events_path,
             audit_path,
             sessions: Mutex::new(HashMap::new()),
@@ -205,6 +251,20 @@ impl Runtime {
                 json!({"mode": runtime.mode()}),
             )
             .map_err(|error| format!("failed to append startup event: {error}"))?;
+        for resolver in runtime.extension_runtime.values() {
+            runtime
+                .append_event(
+                    "dev.forgepoint.extension.resolver.executed",
+                    json!({
+                        "extension": resolver.id,
+                        "component": resolver.component,
+                        "resolver": resolver.resolver,
+                        "outputType": resolver.output_type,
+                        "status": resolver.status
+                    }),
+                )
+                .map_err(|error| format!("failed to append extension resolver event: {error}"))?;
+        }
         Ok(runtime)
     }
 
@@ -225,25 +285,159 @@ impl Runtime {
         checks.insert("eventLogWritable".to_string(), self.events_path.is_file());
         checks.insert("auditLogWritable".to_string(), self.audit_path.is_file());
         checks.insert(
+            "demoBareRepository".to_string(),
+            self.demo_repository.git_dir.join("HEAD").is_file(),
+        );
+        checks.insert(
+            "extensionStorageSchema".to_string(),
+            self.extension_storage.schema_path().is_file(),
+        );
+        checks.insert(
+            "extensionStorageDocuments".to_string(),
+            self.extension_storage.documents_path().is_file(),
+        );
+        checks.insert(
+            "wasmtimeResolversExecuted".to_string(),
+            ["ext_pull_requests", "ext_code_browser", "ext_checks"]
+                .iter()
+                .all(|id| self.extension_runtime.contains_key(*id)),
+        );
+        checks.insert(
             "productionTlsTerminated".to_string(),
             self.config.environment != Environment::Production || self.options.tls_terminated,
         );
         checks.insert(
-            "operatorTokenConfigured".to_string(),
+            "operatorCodeConfigured".to_string(),
             self.config.environment != Environment::Production
-                || self.options.operator_token.is_some(),
+                || self.options.operator_code.is_some(),
         );
         let ready = checks.values().all(|value| *value);
         Readiness {
             ready,
             mode: self.mode().to_string(),
             checks,
-            unsupported: vec![
-                "full OIDC browser callback validation".to_string(),
-                "native gix smart-HTTP pack execution".to_string(),
-                "Wasmtime component execution".to_string(),
-            ],
+            unsupported: UNSUPPORTED_SURFACES.to_vec(),
         }
+    }
+
+    fn demo_payload(&self) -> Result<Value, String> {
+        let workspace = self
+            .extension_storage
+            .single_document_data("workspaces")?
+            .unwrap_or_else(|| {
+                json!({
+                    "id": "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                    "slug": "forgepoint",
+                    "name": "Forgepoint Labs",
+                    "visibility": "PRIVATE",
+                    "members": 0
+                })
+            });
+        let repository = self
+            .extension_storage
+            .single_document_data("repositories")?;
+        let git = self.git_snapshot()?;
+        let repository = merge_repository_metadata(git.repository.clone(), repository.as_ref());
+        let pull_requests = self.extension_storage.collection_data("pull_requests")?;
+        let checks = self.extension_storage.collection_data("check_runs")?;
+        let extensions = self
+            .extension_storage
+            .collection_data("extension_installations")?;
+        let activity = self.extension_storage.collection_data("activity_events")?;
+        let extension_resolvers = self.extension_resolver_payload(&git, &pull_requests, &checks);
+        Ok(json!({
+            "generatedBy": "forgepoint-runtime/v1",
+            "workspace": workspace,
+            "repository": repository,
+            "refs": git.refs,
+            "branches": git.branches,
+            "commits": git.commits,
+            "treeEntries": git.tree_entries,
+            "files": git.files,
+            "blobs": git.blobs,
+            "diff": git.diff,
+            "pullRequests": pull_requests,
+            "checks": checks,
+            "extensions": extensions,
+            "activity": activity,
+            "extensionResolvers": extension_resolvers
+        }))
+    }
+
+    fn git_snapshot(&self) -> Result<GitDemoSnapshot, String> {
+        git_demo_snapshot(&self.demo_repository)
+    }
+
+    fn extension_resolver_payload(
+        &self,
+        git: &GitDemoSnapshot,
+        pull_requests: &Value,
+        checks: &Value,
+    ) -> Vec<Value> {
+        self.extension_runtime
+            .values()
+            .map(|resolver| {
+                let output = match resolver.id.as_str() {
+                    "ext_code_browser" => code_browser_resolver_output(git),
+                    "ext_pull_requests" => pull_request_resolver_output(pull_requests, checks),
+                    "ext_checks" => checks_resolver_output(checks),
+                    _ => json!({"error": "unknown resolver output"}),
+                };
+                json!({
+                    "id": resolver.id.clone(),
+                    "component": resolver.component.clone(),
+                    "resolver": resolver.resolver.clone(),
+                    "status": resolver.status.clone(),
+                    "outputType": resolver.output_type.clone(),
+                    "output": output
+                })
+            })
+            .collect()
+    }
+
+    fn extension_manifest_body(&self, extension: &str) -> Result<Option<String>, String> {
+        let Some(root) = self.extension_root(extension) else {
+            return Ok(None);
+        };
+        fs::read_to_string(root.join("ui/manifest.json"))
+            .map(Some)
+            .map_err(|error| format!("failed to read UI manifest for {extension}: {error}"))
+    }
+
+    fn extension_asset_body(
+        &self,
+        extension: &str,
+        asset_path: &str,
+    ) -> Result<Option<(&'static str, Vec<u8>)>, String> {
+        if asset_path.contains("..") {
+            return Ok(None);
+        }
+        let Some(root) = self.extension_root(extension) else {
+            return Ok(None);
+        };
+        let path = root.join("assets").join(asset_path);
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let content_type = match path.extension().and_then(|extension| extension.to_str()) {
+            Some("css") => "text/css",
+            Some("js") => "text/javascript",
+            Some("json") => "application/json",
+            _ => "application/octet-stream",
+        };
+        fs::read(&path)
+            .map(|body| Some((content_type, body)))
+            .map_err(|error| format!("failed to read extension asset {}: {error}", path.display()))
+    }
+
+    fn extension_root(&self, extension: &str) -> Option<PathBuf> {
+        if extension == "ext_01hv" {
+            return self.extension_root("ext_pull_requests");
+        }
+        if !self.extension_runtime.contains_key(extension) {
+            return None;
+        }
+        Some(self.options.extension_dir.join(extension))
     }
 
     fn check_boundary(&self, headers: &HeaderMap, route: &str) -> Result<HeaderMap, Response> {
@@ -304,24 +498,14 @@ impl Runtime {
             return PrincipalStatus::Anonymous;
         };
 
-        if self
-            .options
-            .operator_token
-            .as_deref()
-            .is_some_and(|operator| operator == token)
-        {
-            return PrincipalStatus::Operator;
-        }
-
         let credentials = self
             .credentials
             .lock()
             .expect("credential lock not poisoned");
-        if credentials
-            .get(token)
-            .is_some_and(|credential| credential.expires_at > now_seconds())
-        {
-            return PrincipalStatus::Credential;
+        if let Some(credential) = credentials.get(token) {
+            if credential.expires_at > now_seconds() {
+                return credential.principal;
+            }
         }
 
         PrincipalStatus::Invalid
@@ -342,7 +526,6 @@ impl Runtime {
             .get(token)
             .is_some_and(|credential| {
                 credential.expires_at > now_seconds()
-                    && credential.resource.starts_with("forgepoint://repository/")
                     && credential.actions.iter().any(|granted| granted == action)
             })
     }
@@ -384,7 +567,12 @@ impl Runtime {
         Ok(session.principal)
     }
 
-    fn issue_credential(&self, resource: String, actions: Vec<String>) -> String {
+    fn issue_credential(
+        &self,
+        resource: String,
+        actions: Vec<String>,
+        principal: PrincipalStatus,
+    ) -> String {
         let token = self.next_token("fp");
         self.credentials
             .lock()
@@ -392,8 +580,8 @@ impl Runtime {
             .insert(
                 token.clone(),
                 CredentialRecord {
-                    resource: resource.clone(),
                     actions: actions.clone(),
+                    principal,
                     expires_at: now_seconds() + 300,
                 },
             );
@@ -449,7 +637,7 @@ impl Runtime {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum PrincipalStatus {
     Anonymous,
-    Operator,
+    OperatorCredential,
     Credential,
     Invalid,
 }
@@ -463,8 +651,8 @@ struct SessionRecord {
 
 #[derive(Debug, Clone)]
 struct CredentialRecord {
-    resource: String,
     actions: Vec<String>,
+    principal: PrincipalStatus,
     expires_at: u64,
 }
 
@@ -473,8 +661,34 @@ struct Readiness {
     ready: bool,
     mode: String,
     checks: BTreeMap<String, bool>,
-    unsupported: Vec<String>,
+    unsupported: Vec<UnsupportedSurface>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UnsupportedSurface {
+    id: &'static str,
+    path_prefix: &'static str,
+    message: &'static str,
+}
+
+const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
+    UnsupportedSurface {
+        id: "oidc_browser_callback",
+        path_prefix: "/auth/oidc/",
+        message: "full OIDC browser callback validation is not implemented in the production-testbed runtime",
+    },
+    UnsupportedSurface {
+        id: "git_receive_pack",
+        path_prefix: "/git/",
+        message: "git receive-pack writes are disabled in the production-testbed demo",
+    },
+    UnsupportedSurface {
+        id: "legacy_v1_api",
+        path_prefix: "/api/v1/",
+        message: "legacy Forgepoint v1 API routes are intentionally unsupported by this v2 production-testbed runtime",
+    },
+];
 
 async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match state.runtime.check_boundary(&headers, "/healthz") {
@@ -488,6 +702,44 @@ async fn readyz(State(state): State<AppState>, headers: HeaderMap) -> Response {
         Ok(cors) => json_response(StatusCode::OK, json!(state.runtime.readiness()), cors),
         Err(response) => response,
     }
+}
+
+async fn unsupported_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, uri.path()) {
+        Ok(cors) => cors,
+        Err(response) => return response,
+    };
+    let Some(surface) = unsupported_surface_for_path(uri.path()) else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "route was not found",
+        );
+    };
+    unsupported_response(surface, cors)
+}
+
+async fn not_found_or_unsupported(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, uri.path()) {
+        Ok(cors) => cors,
+        Err(response) => return response,
+    };
+    if let Some(surface) = unsupported_surface_for_path(uri.path()) {
+        return unsupported_response(surface, cors);
+    }
+    json_response(
+        StatusCode::NOT_FOUND,
+        json!({"errors": [{"message": "route was not found", "extensions": {"code": ErrorCode::NotFound.as_str()}}]}),
+        cors,
+    )
 }
 
 async fn graphql_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -522,6 +774,17 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
             "invalid bearer token",
         );
     }
+    let demo = match state.runtime.demo_payload() {
+        Ok(demo) => demo,
+        Err(error) => {
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                &error,
+            );
+        }
+    };
+    let repository = typed_repository_payload(&demo);
     let capabilities = InstanceCapabilities::v1();
     json_response(
         StatusCode::OK,
@@ -529,8 +792,15 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
             "data": {
                 "viewer": {
                     "authenticated": principal != PrincipalStatus::Anonymous,
-                    "permissions": if principal == PrincipalStatus::Operator {
-                        vec!["instance.admin", "graphql:read", "graphql:write", "events:read"]
+                    "permissions": if principal == PrincipalStatus::OperatorCredential {
+                        vec![
+                            "instance.admin",
+                            "graphql:read",
+                            "graphql:write",
+                            "events:read",
+                            "git:read",
+                            "checks:read",
+                        ]
                     } else {
                         Vec::<&str>::new()
                     }
@@ -546,7 +816,13 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
                         "graphqlSubscriptions": capabilities.graphql_subscriptions,
                         "extensionRuntime": capabilities.extension_runtime
                     }
-                }
+                },
+                "workspace": demo.get("workspace").cloned().unwrap_or_else(|| json!(null)),
+                "repository": repository,
+                "extensionInstallations": demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
+                "extensionResolvers": demo.get("extensionResolvers").cloned().unwrap_or_else(|| json!([])),
+                "activityEvents": demo.get("activity").cloned().unwrap_or_else(|| json!([])),
+                "demo": demo
             }
         }),
         cors,
@@ -585,7 +861,7 @@ fn event_stream_response(
     };
     if !matches!(
         principal,
-        PrincipalStatus::Operator | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -626,7 +902,7 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::Operator | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -664,26 +940,26 @@ async fn token_exchange(
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    if request.grant_type != "urn:forgepoint:grant:oidc-token-exchange"
-        || request.subject_token_type != "urn:ietf:params:oauth:token-type:jwt"
+    if request.grant_type != "urn:forgepoint:grant:operator-code"
+        || request.subject_token_type != "urn:forgepoint:token-type:operator-code"
     {
         return error_response(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
-            "unsupported token exchange grant",
+            "unsupported production-testbed token exchange grant",
         );
     }
     if state
         .runtime
         .options
-        .operator_token
+        .operator_code
         .as_deref()
-        .is_none_or(|token| token != request.subject_token)
+        .is_none_or(|code| code != request.subject_token)
     {
         return error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
-            "subject token did not validate against the production testbed operator token",
+            "subject token did not validate against the seeded production-testbed operator code",
         );
     }
     if let Err(error) = ResourceRef::parse(&request.requested_resource) {
@@ -697,6 +973,7 @@ async fn token_exchange(
     let token = state.runtime.issue_credential(
         request.requested_resource.clone(),
         request.requested_actions.clone(),
+        PrincipalStatus::OperatorCredential,
     );
     json_response(
         StatusCode::OK,
@@ -711,7 +988,12 @@ async fn token_exchange(
     )
 }
 
-async fn extension_manifest(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn extension_manifest(
+    State(state): State<AppState>,
+    AxumPath(extension): AxumPath<String>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     let cors = match state
         .runtime
         .check_boundary(&headers, "/_extensions/ext_01hv/manifest.json")
@@ -719,15 +1001,30 @@ async fn extension_manifest(State(state): State<AppState>, headers: HeaderMap) -
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    text_response(
-        StatusCode::OK,
-        "application/json",
-        include_str!("../../../extensions/examples/pull-requests/ui/manifest.json"),
-        cors,
-    )
+    if let Err(response) = extension_asset_principal(&state, &headers, query.get("session")) {
+        return response;
+    }
+    match state.runtime.extension_manifest_body(&extension) {
+        Ok(Some(body)) => text_response(StatusCode::OK, "application/json", body, cors),
+        Ok(None) => error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "extension manifest was not found",
+        ),
+        Err(error) => error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            &error,
+        ),
+    }
 }
 
-async fn extension_asset(State(state): State<AppState>, headers: HeaderMap) -> Response {
+async fn extension_asset(
+    State(state): State<AppState>,
+    AxumPath((extension, asset_path)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
     let cors = match state
         .runtime
         .check_boundary(&headers, "/_extensions/ext_01hv/assets/index.js")
@@ -735,12 +1032,27 @@ async fn extension_asset(State(state): State<AppState>, headers: HeaderMap) -> R
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    let mut response = text_response(
-        StatusCode::OK,
-        "text/javascript",
-        include_str!("../../../extensions/examples/pull-requests/assets/index.js"),
-        cors,
-    );
+    if let Err(response) = extension_asset_principal(&state, &headers, query.get("session")) {
+        return response;
+    }
+    let (content_type, body) = match state.runtime.extension_asset_body(&extension, &asset_path) {
+        Ok(Some(asset)) => asset,
+        Ok(None) => {
+            return error_response(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                "extension asset was not found",
+            );
+        }
+        Err(error) => {
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                &error,
+            );
+        }
+    };
+    let mut response = bytes_response(StatusCode::OK, content_type, body, cors);
     response.headers_mut().insert(
         "Content-Security-Policy",
         HeaderValue::from_static(
@@ -749,7 +1061,7 @@ async fn extension_asset(State(state): State<AppState>, headers: HeaderMap) -> R
     );
     response
         .headers_mut()
-        .insert("ETag", HeaderValue::from_static("\"development\""));
+        .insert("ETag", HeaderValue::from_static("\"runtime\""));
     response
 }
 
@@ -757,6 +1069,9 @@ async fn git_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
     method: Method,
+    AxumPath(path): AxumPath<String>,
+    RawQuery(raw_query): RawQuery,
+    body: Bytes,
 ) -> Response {
     let cors = match state.runtime.check_boundary(&headers, "/git/*") {
         Ok(cors) => cors,
@@ -765,7 +1080,7 @@ async fn git_endpoint(
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::Operator | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
     ) {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
@@ -778,35 +1093,67 @@ async fn git_endpoint(
         );
         return response;
     }
-    let required_action = if method == Method::GET {
-        "git:read"
-    } else {
-        "git:write"
-    };
-    if principal == PrincipalStatus::Credential
-        && !state.runtime.credential_allows(&headers, required_action)
-    {
+    if path.contains("..") || !path.starts_with(&state.runtime.demo_repository.http_path) {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "Git repository was not found",
+        );
+    }
+    if is_receive_pack(&path, raw_query.as_deref()) {
+        return unsupported_response(
+            unsupported_surface_by_id("git_receive_pack")
+                .expect("git_receive_pack unsupported surface is registered"),
+            cors,
+        );
+    }
+    if !state.runtime.credential_allows(&headers, "git:read") {
         return error_response(
             StatusCode::FORBIDDEN,
             ErrorCode::Forbidden.as_str(),
             "credential scope does not allow requested Git operation",
         );
     }
-    let status = if method == Method::GET {
-        StatusCode::NOT_IMPLEMENTED
-    } else {
-        StatusCode::NOT_IMPLEMENTED
-    };
-    json_response(
-        status,
-        json!({
-            "errors": [{
-                "message": "native gix smart-HTTP pack execution is not enabled in the production testbed runtime",
-                "extensions": {"code": "STORAGE_UNAVAILABLE"}
-            }]
-        }),
+    match run_git_http_backend(
+        &state.runtime.demo_repository.project_root,
+        &path,
+        raw_query.as_deref().unwrap_or_default(),
+        &method,
+        &headers,
+        body,
         cors,
-    )
+    ) {
+        Ok(response) => response,
+        Err(error) => error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            &error,
+        ),
+    }
+}
+
+fn extension_asset_principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    session: Option<&String>,
+) -> Result<PrincipalStatus, Response> {
+    let principal = if let Some(session) = session {
+        state.runtime.consume_session(session)?
+    } else {
+        state.runtime.principal_from_headers(headers)
+    };
+    if matches!(
+        principal,
+        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+    ) {
+        Ok(principal)
+    } else {
+        Err(error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "extension assets require a bearer token or single-use asset session",
+        ))
+    }
 }
 
 async fn preflight(
@@ -847,12 +1194,1500 @@ fn text_response(
     response
 }
 
+fn bytes_response(
+    status: StatusCode,
+    content_type: &'static str,
+    body: Vec<u8>,
+    headers: HeaderMap,
+) -> Response {
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    response
+        .headers_mut()
+        .insert("Content-Type", HeaderValue::from_static(content_type));
+    response.headers_mut().extend(headers);
+    response
+}
+
 fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
     json_response(
         status,
         json!({"errors": [{"message": message, "extensions": {"code": code}}]}),
         HeaderMap::new(),
     )
+}
+
+fn unsupported_surface_for_path(path: &str) -> Option<&'static UnsupportedSurface> {
+    UNSUPPORTED_SURFACES
+        .iter()
+        .find(|surface| path.starts_with(surface.path_prefix))
+}
+
+fn unsupported_surface_by_id(id: &str) -> Option<&'static UnsupportedSurface> {
+    UNSUPPORTED_SURFACES.iter().find(|surface| surface.id == id)
+}
+
+fn unsupported_response(surface: &UnsupportedSurface, headers: HeaderMap) -> Response {
+    json_response(
+        StatusCode::NOT_IMPLEMENTED,
+        json!({
+            "errors": [{
+                "message": surface.message,
+                "extensions": {
+                    "code": ErrorCode::Unsupported.as_str(),
+                    "surface": surface.id
+                }
+            }]
+        }),
+        headers,
+    )
+}
+
+fn typed_repository_payload(demo: &Value) -> Value {
+    let mut repository = demo.get("repository").cloned().unwrap_or_else(|| json!({}));
+    if let Some(repository) = repository.as_object_mut() {
+        for (field, source) in [
+            ("refs", "refs"),
+            ("branches", "branches"),
+            ("commits", "commits"),
+            ("treeEntries", "treeEntries"),
+            ("files", "files"),
+            ("blobs", "blobs"),
+            ("pullRequests", "pullRequests"),
+            ("checks", "checks"),
+        ] {
+            repository.insert(
+                field.to_string(),
+                demo.get(source).cloned().unwrap_or_else(|| json!([])),
+            );
+        }
+        repository.insert(
+            "diff".to_string(),
+            demo.get("diff").cloned().unwrap_or_else(|| json!(null)),
+        );
+    }
+    repository
+}
+
+const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
+
+#[derive(Debug, Clone)]
+struct GitDemoSnapshot {
+    repository: Value,
+    refs: Vec<Value>,
+    branches: Vec<Value>,
+    commits: Vec<Value>,
+    tree_entries: Vec<Value>,
+    files: Vec<Value>,
+    blobs: Vec<Value>,
+    diff: Value,
+}
+
+fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, String> {
+    let project_root = data_dir.join("repositories");
+    let git_dir = project_root.join("forgepoint/forgepoint.git");
+    fs::create_dir_all(git_dir.parent().expect("demo repo has parent"))
+        .map_err(|error| format!("failed to create repository root: {error}"))?;
+
+    if git_ref_exists(&git_dir, "refs/heads/main") {
+        return Ok(DemoRepositoryRuntime {
+            git_dir,
+            project_root,
+            http_path: "forgepoint/forgepoint.git".to_string(),
+        });
+    }
+    if git_dir.exists() {
+        return Err(format!(
+            "{} exists but does not contain refs/heads/main",
+            git_dir.display()
+        ));
+    }
+
+    let workdir = data_dir.join("metadata/demo-repository-workdir");
+    if workdir.exists() {
+        fs::remove_dir_all(&workdir)
+            .map_err(|error| format!("failed to reset demo workdir: {error}"))?;
+    }
+    fs::create_dir_all(&workdir)
+        .map_err(|error| format!("failed to create demo workdir: {error}"))?;
+
+    run_command(
+        Command::new("git")
+            .arg("init")
+            .arg("--initial-branch=main")
+            .arg(&workdir),
+        "git init demo repository",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("config")
+            .arg("user.name")
+            .arg("Forgepoint Demo"),
+        "git config user.name",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("config")
+            .arg("user.email")
+            .arg("demo@forgepoint.local"),
+        "git config user.email",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("config")
+            .arg("commit.gpgsign")
+            .arg("false"),
+        "git disable commit signing",
+    )?;
+
+    write_seed_file(
+        &workdir,
+        "README.md",
+        "# Forgepoint\n\nForgepoint is a self-hosted code forge built around a Rust kernel and extension-delivered product surfaces.\n",
+    )?;
+    write_seed_file(
+        &workdir,
+        "SPEC.md",
+        "## Frontend\n\nThe frontend discovers backend capabilities through GraphQL, core capability manifests, and extension UI manifests.\n",
+    )?;
+    write_seed_file(
+        &workdir,
+        "crates/server/src/main.rs",
+        "fn router() {\n    // Rust server routes GraphQL, events, Git smart HTTP, and extension assets.\n}\n",
+    )?;
+    write_seed_file(
+        &workdir,
+        "frontend/src/main.ts",
+        "export function mountRepository() {\n  return \"live forgepoint repository\";\n}\n",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("add")
+            .arg("."),
+        "git add initial demo files",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("commit")
+            .arg("--no-gpg-sign")
+            .arg("-m")
+            .arg("Seed Forgepoint demo repository"),
+        "git commit initial demo files",
+    )?;
+
+    write_seed_file(
+        &workdir,
+        "README.md",
+        "# Forgepoint\n\nForgepoint is a self-hosted code forge built around a Rust kernel, live Git storage, and Wasmtime-loaded product extensions.\n\nThis repository is a real bare Git repository opened by the local Forgepoint server and cloned through the Astro origin during smoke validation.\n",
+    )?;
+    write_seed_file(
+        &workdir,
+        "crates/core/src/extensions.rs",
+        "pub fn resolver_surface() -> &'static str {\n    \"component-model\"\n}\n",
+    )?;
+    write_seed_file(
+        &workdir,
+        "frontend/src/main.ts",
+        "export function mountRepository() {\n  return \"live refs, commits, trees, blobs, and diffs\";\n}\n\nexport const extensions = [\"pull-requests\", \"code-browser\", \"checks\"];\n",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("add")
+            .arg("."),
+        "git add live demo changes",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("commit")
+            .arg("--no-gpg-sign")
+            .arg("-m")
+            .arg("Wire live Git and extension demo data"),
+        "git commit live demo changes",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("branch")
+            .arg("extensions/checks-dashboard")
+            .arg("HEAD~1"),
+        "git branch checks demo",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("branch")
+            .arg("ui/repository-intelligence")
+            .arg("HEAD"),
+        "git branch UI demo",
+    )?;
+    run_command(
+        Command::new("git").arg("init").arg("--bare").arg(&git_dir),
+        "git init bare demo repository",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("remote")
+            .arg("add")
+            .arg("origin")
+            .arg(&git_dir),
+        "git remote add demo origin",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("-C")
+            .arg(&workdir)
+            .arg("push")
+            .arg("origin")
+            .arg("main")
+            .arg("extensions/checks-dashboard")
+            .arg("ui/repository-intelligence"),
+        "git push demo branches",
+    )?;
+    run_command(
+        Command::new("git")
+            .arg("--git-dir")
+            .arg(&git_dir)
+            .arg("symbolic-ref")
+            .arg("HEAD")
+            .arg("refs/heads/main"),
+        "git set bare HEAD",
+    )?;
+
+    Ok(DemoRepositoryRuntime {
+        git_dir,
+        project_root,
+        http_path: "forgepoint/forgepoint.git".to_string(),
+    })
+}
+
+fn git_ref_exists(git_dir: &Path, reference: &str) -> bool {
+    Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .arg("rev-parse")
+        .arg("--verify")
+        .arg(reference)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, String> {
+    let head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"])?;
+    let head = head.trim().to_string();
+    let short_head = head.chars().take(12).collect::<String>();
+    let refs = git_refs(&repo.git_dir)?;
+    let branches = git_branches(&repo.git_dir)?;
+    let commits = git_commits(&repo.git_dir)?;
+    let (tree_entries, files, blobs) = git_tree(&repo.git_dir)?;
+    let language = dominant_language(&files);
+    let license = detected_license(&files);
+    let diff_patch = git_text(
+        &repo.git_dir,
+        &["diff", "--patch", "--find-renames", "main~1", "main"],
+    )
+    .unwrap_or_default();
+    Ok(GitDemoSnapshot {
+        repository: json!({
+            "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "owner": "forgepoint",
+            "name": "forgepoint",
+            "path": "forgepoint/forgepoint",
+            "gitHttpPath": "/git/forgepoint/forgepoint.git",
+            "visibility": "PRIVATE",
+            "description": "Local bare Git repository opened by the Forgepoint production-testbed runtime.",
+            "defaultBranch": "main",
+            "currentCommit": short_head,
+            "headOid": head,
+            "stars": 0,
+            "forks": 0,
+            "watchers": 0,
+            "language": language,
+            "license": license,
+            "updated": commits.first().and_then(|commit| commit.get("time")).cloned().unwrap_or_else(|| json!("unknown"))
+        }),
+        refs,
+        branches,
+        commits,
+        tree_entries,
+        files,
+        blobs,
+        diff: json!({
+            "path": "main~1...main",
+            "language": "diff",
+            "patch": diff_patch
+        }),
+    })
+}
+
+fn merge_repository_metadata(mut live_repository: Value, metadata: Option<&Value>) -> Value {
+    let Some(metadata) = metadata.and_then(Value::as_object) else {
+        return live_repository;
+    };
+    let Some(live_object) = live_repository.as_object_mut() else {
+        return live_repository;
+    };
+    for key in [
+        "id",
+        "owner",
+        "name",
+        "path",
+        "visibility",
+        "description",
+        "stars",
+        "forks",
+        "watchers",
+        "language",
+        "license",
+    ] {
+        if let Some(value) = metadata.get(key) {
+            live_object.insert(key.to_string(), value.clone());
+        }
+    }
+    live_repository
+}
+
+fn dominant_language(files: &[Value]) -> String {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for kind in files
+        .iter()
+        .filter_map(|file| file.get("kind").and_then(Value::as_str))
+        .filter(|kind| *kind != "markdown" && *kind != "file")
+    {
+        *counts.entry(kind.to_string()).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(kind, _)| match kind.as_str() {
+            "rust" => "Rust".to_string(),
+            "typescript" => "TypeScript".to_string(),
+            "javascript" => "JavaScript".to_string(),
+            "json" => "JSON".to_string(),
+            "cue" => "CUE".to_string(),
+            "toml" => "TOML".to_string(),
+            other => other.to_string(),
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn detected_license(files: &[Value]) -> String {
+    files
+        .iter()
+        .filter_map(|file| file.get("path").and_then(Value::as_str))
+        .find(|path| {
+            let normalized = path.to_ascii_lowercase();
+            normalized == "license"
+                || normalized == "license.md"
+                || normalized == "license.txt"
+                || normalized.starts_with("license.")
+        })
+        .map(|_| "detected".to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn code_browser_resolver_output(git: &GitDemoSnapshot) -> Value {
+    json!({
+        "methods": [
+            "repository_refs",
+            "repository_branches",
+            "commit_history",
+            "tree_entries",
+            "blob_preview",
+            "diff_between"
+        ],
+        "repositoryRefs": git.refs.len(),
+        "repositoryBranches": git.branches.len(),
+        "commitHistory": git.commits.len(),
+        "treeEntries": git.tree_entries.len(),
+        "blobPreviews": git.blobs.len(),
+        "headOid": git.repository.get("headOid").cloned().unwrap_or_else(|| json!(null)),
+        "firstBlobPath": git.blobs.first().and_then(|blob| blob.get("path")).cloned().unwrap_or_else(|| json!(null)),
+        "diffPath": git.diff.get("path").cloned().unwrap_or_else(|| json!(null))
+    })
+}
+
+fn pull_request_resolver_output(pull_requests: &Value, checks: &Value) -> Value {
+    let pulls = pull_requests.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    let ready = pulls
+        .iter()
+        .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("READY"))
+        .count();
+    let draft = pulls
+        .iter()
+        .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("DRAFT"))
+        .count();
+    let check_summary = check_summary(checks);
+    json!({
+        "methods": [
+            "list_pull_requests",
+            "get_pull_request",
+            "compute_changed_files",
+            "compute_diff",
+            "compute_ahead_behind",
+            "compute_merge_readiness"
+        ],
+        "pullRequests": pulls.len(),
+        "ready": ready,
+        "draft": draft,
+        "mergeReadiness": {
+            "requiredChecksPassing": check_summary.passing,
+            "requiredChecksTotal": check_summary.total,
+            "blocked": check_summary.action_required > 0 || check_summary.failures > 0
+        }
+    })
+}
+
+fn checks_resolver_output(checks: &Value) -> Value {
+    let summary = check_summary(checks);
+    json!({
+        "methods": [
+            "list_check_runs",
+            "summarize_branch_protection",
+            "list_required_checks",
+            "compute_aggregate_status"
+        ],
+        "checkRuns": summary.total,
+        "success": summary.passing,
+        "failure": summary.failures,
+        "actionRequired": summary.action_required,
+        "aggregateStatus": if summary.action_required > 0 || summary.failures > 0 {
+            "ACTION_REQUIRED"
+        } else {
+            "SUCCESS"
+        }
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CheckSummary {
+    total: usize,
+    passing: usize,
+    failures: usize,
+    action_required: usize,
+}
+
+fn check_summary(checks: &Value) -> CheckSummary {
+    let checks = checks.as_array().map(Vec::as_slice).unwrap_or(&[]);
+    CheckSummary {
+        total: checks.len(),
+        passing: checks
+            .iter()
+            .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("SUCCESS"))
+            .count(),
+        failures: checks
+            .iter()
+            .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("FAILURE"))
+            .count(),
+        action_required: checks
+            .iter()
+            .filter(|check| {
+                check.get("conclusion").and_then(Value::as_str) == Some("ACTION_REQUIRED")
+            })
+            .count(),
+    }
+}
+
+fn git_refs(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let output = git_text(
+        git_dir,
+        &[
+            "for-each-ref",
+            "--format=%(refname)%00%(objectname)",
+            "refs",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\0');
+            let name = parts.next()?;
+            let target = parts.next()?;
+            Some(json!({
+                "name": name,
+                "target": target,
+                "shortTarget": target.chars().take(12).collect::<String>()
+            }))
+        })
+        .collect())
+}
+
+fn git_branches(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let output = git_text(
+        git_dir,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)%00%(objectname)",
+            "refs/heads",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\0');
+            let name = parts.next()?;
+            let commit = parts.next()?;
+            let (behind, ahead) = branch_distance(git_dir, name).unwrap_or((0, 0));
+            Some(json!({
+                "name": name,
+                "commit": commit.chars().take(12).collect::<String>(),
+                "oid": commit,
+                "ahead": ahead,
+                "behind": behind
+            }))
+        })
+        .collect())
+}
+
+fn branch_distance(git_dir: &Path, branch: &str) -> Result<(u32, u32), String> {
+    if branch == "main" {
+        return Ok((0, 0));
+    }
+    let range = format!("main...{branch}");
+    let output = git_text(git_dir, &["rev-list", "--left-right", "--count", &range])?;
+    let mut parts = output.split_whitespace();
+    let behind = parts.next().unwrap_or("0").parse().unwrap_or(0);
+    let ahead = parts.next().unwrap_or("0").parse().unwrap_or(0);
+    Ok((behind, ahead))
+}
+
+fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let output = git_text(
+        git_dir,
+        &[
+            "log",
+            "--date=relative",
+            "--format=%H%x00%h%x00%s%x00%an%x00%cr",
+            "-n",
+            "8",
+            "main",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let fields = line.split('\0').collect::<Vec<_>>();
+            if fields.len() != 5 {
+                return None;
+            }
+            Some(json!({
+                "oid": fields[0],
+                "shortOid": fields[1],
+                "subject": fields[2],
+                "author": fields[3],
+                "time": fields[4]
+            }))
+        })
+        .collect())
+}
+
+fn git_tree(git_dir: &Path) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), String> {
+    let output = git_bytes(git_dir, &["ls-tree", "-r", "-z", "--long", "main"])?;
+    let mut entries = Vec::new();
+    let mut files = Vec::new();
+    let mut blobs = Vec::new();
+    for raw in output
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+    {
+        let entry = String::from_utf8_lossy(raw);
+        let Some((meta, path)) = entry.split_once('\t') else {
+            continue;
+        };
+        let parts = meta.split_whitespace().collect::<Vec<_>>();
+        if parts.len() < 4 {
+            continue;
+        }
+        let mode = parts[0];
+        let kind = parts[1];
+        let oid = parts[2];
+        let size = parts[3].parse::<u64>().unwrap_or_default();
+        let preview = if is_text_preview_path(path) {
+            git_text(git_dir, &["show", &format!("main:{path}")])
+                .unwrap_or_default()
+                .chars()
+                .take(4096)
+                .collect::<String>()
+        } else {
+            String::new()
+        };
+        entries.push(json!({
+            "path": path,
+            "mode": mode,
+            "kind": kind,
+            "oid": oid,
+            "size": size
+        }));
+        blobs.push(json!({
+            "path": path,
+            "oid": oid,
+            "size": size,
+            "preview": preview
+        }));
+        files.push(json!({
+            "path": path,
+            "kind": file_kind(path),
+            "status": format!("blob {}", oid.chars().take(12).collect::<String>()),
+            "mode": mode,
+            "oid": oid,
+            "size": size,
+            "preview": preview
+        }));
+    }
+    Ok((entries, files, blobs))
+}
+
+fn is_text_preview_path(path: &str) -> bool {
+    matches!(
+        Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str()),
+        Some("md" | "rs" | "ts" | "js" | "json" | "toml" | "cue" | "txt")
+    )
+}
+
+fn file_kind(path: &str) -> &'static str {
+    match Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+    {
+        Some("md") => "markdown",
+        Some("rs") => "rust",
+        Some("ts") => "typescript",
+        Some("js") => "javascript",
+        Some("json") => "json",
+        Some("cue") => "cue",
+        Some("toml") => "toml",
+        _ => "file",
+    }
+}
+
+fn git_text(git_dir: &Path, args: &[&str]) -> Result<String, String> {
+    String::from_utf8(git_bytes(git_dir, args)?)
+        .map_err(|error| format!("git output was not utf-8: {error}"))
+}
+
+fn git_bytes(git_dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let mut command = Command::new("git");
+    command.arg("--git-dir").arg(git_dir).args(args);
+    let output = command
+        .output()
+        .map_err(|error| format!("failed to run git {}: {error}", args.join(" ")))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+const EXTENSION_STORAGE_SCHEMA_VERSION: &str = "forgepoint.extension-storage/v1";
+const EXTENSION_STORAGE_MIGRATIONS: &[&str] = &["001_extension_documents"];
+
+#[derive(Debug, Clone)]
+struct ExtensionRuntimeStore {
+    root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionDocumentRecord {
+    schema_version: String,
+    owner_extension: String,
+    collection: String,
+    id: String,
+    resource: String,
+    resource_refs: Vec<String>,
+    visibility: String,
+    indexed_fields: BTreeMap<String, Value>,
+    version: u64,
+    updated_at: String,
+    data: Value,
+}
+
+impl ExtensionRuntimeStore {
+    fn open(data_dir: &Path) -> Result<Self, String> {
+        let root = data_dir.join("extensions/storage");
+        fs::create_dir_all(&root)
+            .map_err(|error| format!("failed to create extension storage dir: {error}"))?;
+        let store = Self { root };
+        store.ensure_schema()?;
+        if !store.documents_path().is_file() {
+            store.seed_from_demo_payload(data_dir)?;
+        }
+        touch(&store.events_path()).map_err(|error| {
+            format!("failed to initialize extension storage event log: {error}")
+        })?;
+        Ok(store)
+    }
+
+    fn schema_path(&self) -> PathBuf {
+        self.root.join("schema.json")
+    }
+
+    fn documents_path(&self) -> PathBuf {
+        self.root.join("documents.jsonl")
+    }
+
+    fn events_path(&self) -> PathBuf {
+        self.root.join("events.jsonl")
+    }
+
+    fn ensure_schema(&self) -> Result<(), String> {
+        let schema_path = self.schema_path();
+        if schema_path.is_file() {
+            return Ok(());
+        }
+        let schema = json!({
+            "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
+            "migrationsApplied": EXTENSION_STORAGE_MIGRATIONS,
+            "collections": [
+                {
+                    "name": "workspaces",
+                    "ownerExtension": "core",
+                    "indexes": [
+                        { "name": "by_slug", "fields": ["slug"], "unique": true }
+                    ]
+                },
+                {
+                    "name": "repositories",
+                    "ownerExtension": "core",
+                    "indexes": [
+                        { "name": "by_path", "fields": ["path"], "unique": true },
+                        { "name": "by_workspace", "fields": ["workspaceID", "path"], "unique": false }
+                    ]
+                },
+                {
+                    "name": "pull_requests",
+                    "ownerExtension": "ext_pull_requests",
+                    "indexes": [
+                        { "name": "by_repository_state_updated", "fields": ["repositoryID", "state", "updatedAt"], "unique": false },
+                        { "name": "by_repository_number", "fields": ["repositoryID", "number"], "unique": true }
+                    ]
+                },
+                {
+                    "name": "check_runs",
+                    "ownerExtension": "ext_checks",
+                    "indexes": [
+                        { "name": "by_repository_commit_name", "fields": ["repositoryID", "commitOID", "name"], "unique": true },
+                        { "name": "by_repository_required", "fields": ["repositoryID", "required"], "unique": false }
+                    ]
+                },
+                {
+                    "name": "extension_installations",
+                    "ownerExtension": "core",
+                    "indexes": [
+                        { "name": "by_extension_status", "fields": ["extensionID", "status"], "unique": true }
+                    ]
+                },
+                {
+                    "name": "activity_events",
+                    "ownerExtension": "core",
+                    "indexes": [
+                        { "name": "by_repository_time", "fields": ["repositoryID", "time"], "unique": false },
+                        { "name": "by_type_time", "fields": ["type", "time"], "unique": false }
+                    ]
+                }
+            ]
+        });
+        fs::write(
+            &schema_path,
+            serde_json::to_vec_pretty(&schema)
+                .map_err(|error| format!("failed to encode extension storage schema: {error}"))?,
+        )
+        .map_err(|error| format!("failed to write {}: {error}", schema_path.display()))
+    }
+
+    fn seed_from_demo_payload(&self, data_dir: &Path) -> Result<(), String> {
+        let seed = read_demo_seed_payload(data_dir)?;
+        let records = seed_extension_documents(&seed)?;
+        let document_count = records.len();
+        for record in records {
+            self.create_document(record)?;
+        }
+        self.append_storage_event(
+            "dev.forgepoint.extension_storage.seeded",
+            json!({
+                "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
+                "documents": document_count
+            }),
+        )
+    }
+
+    fn collection_data(&self, collection: &str) -> Result<Value, String> {
+        let values = self
+            .query_documents_by_index(collection, &[])?
+            .into_iter()
+            .map(|record| record.data)
+            .collect::<Vec<_>>();
+        Ok(Value::Array(values))
+    }
+
+    fn single_document_data(&self, collection: &str) -> Result<Option<Value>, String> {
+        Ok(self
+            .load_records()?
+            .into_iter()
+            .find(|record| record.collection == collection)
+            .map(|record| record.data))
+    }
+
+    fn query_documents_by_index(
+        &self,
+        collection: &str,
+        index_fields: &[(&str, Value)],
+    ) -> Result<Vec<ExtensionDocumentRecord>, String> {
+        Ok(self
+            .load_records()?
+            .into_iter()
+            .filter(|record| {
+                record.collection == collection
+                    && index_fields.iter().all(|(field, expected)| {
+                        record.indexed_fields.get(*field) == Some(expected)
+                    })
+            })
+            .collect())
+    }
+
+    fn create_document(&self, record: ExtensionDocumentRecord) -> Result<(), String> {
+        let mut records = self.load_records()?;
+        if records
+            .iter()
+            .any(|existing| existing.collection == record.collection && existing.id == record.id)
+        {
+            return Err(format!(
+                "extension document already exists: {}/{}",
+                record.collection, record.id
+            ));
+        }
+        records.push(record);
+        self.write_records_atomically(&records)
+    }
+
+    #[allow(dead_code)]
+    fn update_document_atomically(
+        &self,
+        collection: &str,
+        id: &str,
+        update: impl FnOnce(&mut Value),
+    ) -> Result<(), String> {
+        let mut records = self.load_records()?;
+        let version = {
+            let Some(record) = records
+                .iter_mut()
+                .find(|record| record.collection == collection && record.id == id)
+            else {
+                return Err(format!("extension document not found: {collection}/{id}"));
+            };
+            update(&mut record.data);
+            record.version += 1;
+            record.updated_at = now_seconds().to_string();
+            record.version
+        };
+        self.write_records_atomically(&records)?;
+        self.append_storage_event(
+            "dev.forgepoint.extension_storage.document_updated",
+            json!({"collection": collection, "id": id, "version": version}),
+        )
+    }
+
+    fn load_records(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
+        let path = self.documents_path();
+        if !path.is_file() {
+            return Ok(Vec::new());
+        }
+        let source = fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        source
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| {
+                serde_json::from_str::<ExtensionDocumentRecord>(line).map_err(|error| {
+                    format!(
+                        "failed to parse extension document from {}: {error}",
+                        path.display()
+                    )
+                })
+            })
+            .collect()
+    }
+
+    fn write_records_atomically(&self, records: &[ExtensionDocumentRecord]) -> Result<(), String> {
+        let path = self.documents_path();
+        let tmp_path = self.root.join("documents.jsonl.tmp");
+        let mut body = Vec::new();
+        for record in records {
+            serde_json::to_writer(&mut body, record)
+                .map_err(|error| format!("failed to encode extension document: {error}"))?;
+            body.push(b'\n');
+        }
+        fs::write(&tmp_path, body)
+            .map_err(|error| format!("failed to write {}: {error}", tmp_path.display()))?;
+        fs::rename(&tmp_path, &path).map_err(|error| {
+            format!(
+                "failed to replace extension document table {}: {error}",
+                path.display()
+            )
+        })
+    }
+
+    fn append_storage_event(&self, event_type: &str, data: Value) -> Result<(), String> {
+        append_jsonl(
+            &self.events_path(),
+            json!({
+                "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
+                "type": event_type,
+                "time": now_seconds(),
+                "data": data
+            }),
+        )
+        .map_err(|error| format!("failed to append extension storage event: {error}"))
+    }
+}
+
+fn read_demo_seed_payload(data_dir: &Path) -> Result<Value, String> {
+    let seed_path = data_dir.join("metadata/demo-state.json");
+    let source = if seed_path.is_file() {
+        fs::read_to_string(&seed_path)
+            .map_err(|error| format!("failed to read {}: {error}", seed_path.display()))?
+    } else {
+        include_str!("../../../fixtures/demo/conference.json").to_string()
+    };
+    serde_json::from_str::<Value>(&source)
+        .map_err(|error| format!("failed to parse demo seed payload: {error}"))
+}
+
+fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>, String> {
+    let generated_at = seed
+        .get("generatedAt")
+        .and_then(Value::as_str)
+        .unwrap_or("seed")
+        .to_string();
+    let repo_id = seed
+        .pointer("/repository/id")
+        .and_then(Value::as_str)
+        .unwrap_or("repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
+    let repo_ref = format!("forgepoint://repository/{repo_id}");
+    let workspace_id = seed
+        .pointer("/workspace/id")
+        .and_then(Value::as_str)
+        .unwrap_or("ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
+    let workspace_ref = format!("forgepoint://workspace/{workspace_id}");
+    let mut records = Vec::new();
+
+    if let Some(workspace) = seed.get("workspace").cloned() {
+        let id = document_id("workspace", &workspace, 0);
+        records.push(extension_document_record(
+            "core",
+            "workspaces",
+            &id,
+            &workspace_ref,
+            vec![workspace_ref.clone()],
+            workspace,
+            &generated_at,
+        ));
+    }
+    if let Some(repository) = seed.get("repository").cloned() {
+        let id = document_id("repository", &repository, 0);
+        records.push(extension_document_record(
+            "core",
+            "repositories",
+            &id,
+            &repo_ref,
+            vec![repo_ref.clone(), workspace_ref],
+            repository,
+            &generated_at,
+        ));
+    }
+
+    seed_array(seed, "pullRequests")
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, pull)| {
+            let id = document_id("pull_request", &pull, index);
+            records.push(extension_document_record(
+                "ext_pull_requests",
+                "pull_requests",
+                &id,
+                &repo_ref,
+                vec![repo_ref.clone()],
+                with_repository_id(pull, repo_id),
+                &generated_at,
+            ));
+        });
+    seed_array(seed, "checks")
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, check)| {
+            let id = document_id("check_run", &check, index);
+            records.push(extension_document_record(
+                "ext_checks",
+                "check_runs",
+                &id,
+                &repo_ref,
+                vec![repo_ref.clone()],
+                with_repository_id(check, repo_id),
+                &generated_at,
+            ));
+        });
+    seed_array(seed, "extensions")
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, extension)| {
+            let id = document_id("extension_installation", &extension, index);
+            records.push(extension_document_record(
+                "core",
+                "extension_installations",
+                &id,
+                &repo_ref,
+                vec![repo_ref.clone()],
+                extension,
+                &generated_at,
+            ));
+        });
+    seed_array(seed, "activity")
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, event)| {
+            let id = document_id("activity_event", &event, index);
+            records.push(extension_document_record(
+                "core",
+                "activity_events",
+                &id,
+                &repo_ref,
+                vec![repo_ref.clone()],
+                with_repository_id(event, repo_id),
+                &generated_at,
+            ));
+        });
+
+    if records.is_empty() {
+        return Err("demo seed payload did not contain extension storage documents".to_string());
+    }
+    Ok(records)
+}
+
+fn seed_array(seed: &Value, key: &str) -> Vec<Value> {
+    seed.get(key)
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn extension_document_record(
+    owner_extension: &str,
+    collection: &str,
+    id: &str,
+    resource: &str,
+    resource_refs: Vec<String>,
+    data: Value,
+    updated_at: &str,
+) -> ExtensionDocumentRecord {
+    ExtensionDocumentRecord {
+        schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+        owner_extension: owner_extension.to_string(),
+        collection: collection.to_string(),
+        id: id.to_string(),
+        resource: resource.to_string(),
+        resource_refs,
+        visibility: data
+            .get("visibility")
+            .and_then(Value::as_str)
+            .unwrap_or("PRIVATE")
+            .to_string(),
+        indexed_fields: indexed_fields(&data),
+        version: 1,
+        updated_at: updated_at.to_string(),
+        data,
+    }
+}
+
+fn indexed_fields(data: &Value) -> BTreeMap<String, Value> {
+    let mut fields = BTreeMap::new();
+    if let Some(object) = data.as_object() {
+        for key in [
+            "id",
+            "repositoryID",
+            "workspaceID",
+            "path",
+            "slug",
+            "state",
+            "status",
+            "type",
+            "time",
+            "number",
+            "name",
+            "provider",
+            "commitOID",
+            "required",
+        ] {
+            if let Some(value) = object.get(key) {
+                fields.insert(key.to_string(), value.clone());
+            }
+        }
+        if let Some(value) = object.get("repositoryId") {
+            fields.insert("repositoryID".to_string(), value.clone());
+        }
+        if let Some(value) = object.get("id") {
+            fields.insert("extensionID".to_string(), value.clone());
+        }
+        if let Some(value) = object.get("updatedAt").or_else(|| object.get("time")) {
+            fields.insert("updatedAt".to_string(), value.clone());
+        }
+    }
+    fields
+}
+
+fn with_repository_id(mut value: Value, repository_id: &str) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object
+            .entry("repositoryID")
+            .or_insert_with(|| json!(repository_id));
+    }
+    value
+}
+
+fn document_id(prefix: &str, data: &Value, index: usize) -> String {
+    if let Some(id) = data.get("id").and_then(Value::as_str) {
+        return id.to_string();
+    }
+    if let Some(number) = data.get("number").and_then(Value::as_u64) {
+        return format!("{prefix}_{number}");
+    }
+    if let Some(name) = data.get("name").and_then(Value::as_str) {
+        return format!("{prefix}_{}", stable_slug(name));
+    }
+    if let Some(event_type) = data.get("type").and_then(Value::as_str) {
+        return format!("{prefix}_{}_{}", index + 1, stable_slug(event_type));
+    }
+    format!("{prefix}_{}", index + 1)
+}
+
+fn stable_slug(value: &str) -> String {
+    let mut slug = String::new();
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+        } else if !slug.ends_with('_') {
+            slug.push('_');
+        }
+    }
+    slug.trim_matches('_').to_string()
+}
+
+fn validate_extension_manifest_pair(id: &str, root: &Path, manifest: &Value) -> Result<(), String> {
+    if manifest.get("schemaVersion").and_then(Value::as_str) != Some("forgepoint.extension/v1") {
+        return Err(format!(
+            "{id} backend manifest has unsupported schemaVersion"
+        ));
+    }
+    if manifest.get("id").and_then(Value::as_str) != Some(id) {
+        return Err(format!("{id} backend manifest id does not match directory"));
+    }
+    let name = manifest
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{id} backend manifest missing name"))?;
+    let ui_manifest_rel = manifest
+        .pointer("/ui/manifest")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{id} backend manifest missing ui.manifest"))?;
+    if ui_manifest_rel.starts_with('/') || ui_manifest_rel.contains("..") {
+        return Err(format!(
+            "{id} UI manifest path must stay within extension root"
+        ));
+    }
+    let ui_manifest_path = root.join(ui_manifest_rel);
+    let ui_source = fs::read_to_string(&ui_manifest_path)
+        .map_err(|error| format!("failed to read {}: {error}", ui_manifest_path.display()))?;
+    let ui_manifest = serde_json::from_str::<Value>(&ui_source)
+        .map_err(|error| format!("failed to parse {}: {error}", ui_manifest_path.display()))?;
+    if ui_manifest.get("schemaVersion").and_then(Value::as_str)
+        != Some("forgepoint.ui-extension/v1")
+    {
+        return Err(format!("{id} UI manifest has unsupported schemaVersion"));
+    }
+    if ui_manifest.get("id").and_then(Value::as_str) != Some(id) {
+        return Err(format!(
+            "{id} UI manifest id does not match backend manifest"
+        ));
+    }
+    if ui_manifest.get("extension").and_then(Value::as_str) != Some(name) {
+        return Err(format!(
+            "{id} UI manifest extension name does not match backend manifest"
+        ));
+    }
+    let entry = ui_manifest
+        .pointer("/assets/entry")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{id} UI manifest missing assets.entry"))?;
+    let expected_prefix = format!("/_extensions/{id}/assets/");
+    if !entry.starts_with(&expected_prefix) {
+        return Err(format!(
+            "{id} UI entry must be served from {expected_prefix}"
+        ));
+    }
+    let entry_rel = entry.trim_start_matches(&expected_prefix);
+    if entry_rel.is_empty()
+        || entry_rel.contains("..")
+        || !root.join("assets").join(entry_rel).is_file()
+    {
+        return Err(format!("{id} UI entry asset was not found"));
+    }
+    let entry_integrity = ui_manifest
+        .pointer("/assets/entryIntegrity")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{id} UI manifest missing assets.entryIntegrity"))?;
+    let entry_body = fs::read(root.join("assets").join(entry_rel))
+        .map_err(|error| format!("failed to read {id} UI entry asset: {error}"))?;
+    let expected_integrity = asset_integrity(&entry_body);
+    if entry_integrity != expected_integrity {
+        return Err(format!(
+            "{id} UI entryIntegrity {entry_integrity} did not match computed {expected_integrity}"
+        ));
+    }
+    if ui_manifest
+        .get("routes")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty)
+    {
+        return Err(format!("{id} UI manifest must declare at least one route"));
+    }
+    if ui_manifest
+        .get("slots")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty)
+    {
+        return Err(format!("{id} UI manifest must declare at least one slot"));
+    }
+    Ok(())
+}
+
+fn asset_integrity(body: &[u8]) -> String {
+    let digest = Sha256::digest(body);
+    let mut out = String::from("sha256-");
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+fn load_extension_runtime(
+    extension_dir: &Path,
+) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+    let engine = Engine::default();
+    let mut loaded = BTreeMap::new();
+    for id in FIRST_PARTY_EXTENSIONS {
+        let root = extension_dir.join(id);
+        let manifest_path = root.join("manifest.json");
+        let manifest_source = fs::read_to_string(&manifest_path)
+            .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
+        let manifest = serde_json::from_str::<Value>(&manifest_source)
+            .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
+        validate_extension_manifest_pair(id, &root, &manifest)?;
+        let component_name = manifest
+            .get("wasmComponent")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
+        let resolver = manifest
+            .pointer("/runtime/resolver")
+            .and_then(Value::as_str)
+            .unwrap_or("resolve");
+        let output_type = manifest
+            .pointer("/runtime/outputType")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} missing runtime.outputType", manifest_path.display()))?;
+        let component_path = root.join(component_name);
+        let component_bytes = fs::read(&component_path)
+            .map_err(|error| format!("failed to read {}: {error}", component_path.display()))?;
+        let component = Component::new(&engine, component_bytes)
+            .map_err(|error| format!("failed to compile {}: {error}", component_path.display()))?;
+        let linker = Linker::<()>::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate(&mut store, &component)
+            .map_err(|error| {
+                format!(
+                    "failed to instantiate {}: {error}",
+                    component_path.display()
+                )
+            })?;
+        let func = instance
+            .get_typed_func::<(), (u32,)>(&mut store, resolver)
+            .map_err(|error| format!("{id} did not export resolver {resolver}: {error}"))?;
+        let _ = func
+            .call(&mut store, ())
+            .map_err(|error| format!("{id} resolver failed: {error}"))?;
+        loaded.insert(
+            (*id).to_string(),
+            WasmtimeResolverRecord {
+                id: (*id).to_string(),
+                component: component_name.to_string(),
+                resolver: resolver.to_string(),
+                output_type: output_type.to_string(),
+                status: "executed".to_string(),
+            },
+        );
+    }
+    Ok(loaded)
+}
+
+fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
+    path.ends_with("/git-receive-pack")
+        || query
+            .map(|query| query.contains("service=git-receive-pack"))
+            .unwrap_or(false)
+}
+
+fn run_git_http_backend(
+    project_root: &Path,
+    path: &str,
+    query: &str,
+    method: &Method,
+    headers: &HeaderMap,
+    body: Bytes,
+    cors: HeaderMap,
+) -> Result<Response, String> {
+    if !matches!(method, &Method::GET | &Method::POST) {
+        return Err(format!("unsupported Git HTTP method: {method}"));
+    }
+    let mut child = Command::new("git")
+        .arg("http-backend")
+        .env("GIT_PROJECT_ROOT", project_root)
+        .env("GIT_HTTP_EXPORT_ALL", "1")
+        .env("PATH_INFO", format!("/{path}"))
+        .env("QUERY_STRING", query)
+        .env("REQUEST_METHOD", method.as_str())
+        .env(
+            "CONTENT_TYPE",
+            header_str(headers, "content-type").unwrap_or(""),
+        )
+        .env("CONTENT_LENGTH", body.len().to_string())
+        .env("GATEWAY_INTERFACE", "CGI/1.1")
+        .env("SERVER_PROTOCOL", "HTTP/1.1")
+        .env("REMOTE_ADDR", "127.0.0.1")
+        .env("REMOTE_USER", "forgepoint")
+        .env(
+            "HTTP_GIT_PROTOCOL",
+            header_str(headers, "git-protocol").unwrap_or(""),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("failed to spawn git http-backend: {error}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(&body)
+            .map_err(|error| format!("failed to write git request body: {error}"))?;
+    }
+    let output = child
+        .wait_with_output()
+        .map_err(|error| format!("failed to wait for git http-backend: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git http-backend failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    cgi_response(output.stdout, cors)
+}
+
+fn cgi_response(stdout: Vec<u8>, cors: HeaderMap) -> Result<Response, String> {
+    let Some((header_end, separator_len)) = find_cgi_header_end(&stdout) else {
+        return Err("git http-backend returned no CGI headers".to_string());
+    };
+    let headers_text = String::from_utf8_lossy(&stdout[..header_end]);
+    let body = stdout[header_end + separator_len..].to_vec();
+    let mut status = StatusCode::OK;
+    let mut headers = HeaderMap::new();
+    for line in headers_text.lines().map(|line| line.trim_end_matches('\r')) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("Status") {
+            if let Some(code) = value
+                .split_whitespace()
+                .next()
+                .and_then(|code| code.parse::<u16>().ok())
+                .and_then(|code| StatusCode::from_u16(code).ok())
+            {
+                status = code;
+            }
+            continue;
+        }
+        if let (Ok(name), Ok(value)) = (
+            HeaderName::from_bytes(name.trim().as_bytes()),
+            HeaderValue::from_str(value.trim()),
+        ) {
+            headers.insert(name, value);
+        }
+    }
+    headers.extend(cors);
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
+    *response.headers_mut() = headers;
+    Ok(response)
+}
+
+fn find_cgi_header_end(bytes: &[u8]) -> Option<(usize, usize)> {
+    bytes
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|idx| (idx, 4))
+        .or_else(|| {
+            bytes
+                .windows(2)
+                .position(|window| window == b"\n\n")
+                .map(|idx| (idx, 2))
+        })
+}
+
+fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+fn write_seed_file(root: &Path, relative: &str, body: &str) -> Result<(), String> {
+    let path = root.join(relative);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    fs::write(&path, body).map_err(|error| format!("failed to write {}: {error}", path.display()))
+}
+
+fn run_command(command: &mut Command, label: &str) -> Result<(), String> {
+    let output = command
+        .output()
+        .map_err(|error| format!("{label} could not start: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{label} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
 }
 
 fn validate_production_testbed(
@@ -866,17 +2701,20 @@ fn validate_production_testbed(
         return Err("production mode requires FORGEPOINT_TLS_TERMINATED=true".to_string());
     }
     if options
-        .operator_token
+        .operator_code
         .as_deref()
-        .is_none_or(|token| token.len() < 32 || token == "dev-secret")
+        .is_none_or(|code| code.len() < 12 || code == "dev-secret")
     {
         return Err(
-            "production testbed requires FORGEPOINT_OPERATOR_TOKEN with at least 32 characters"
+            "production testbed requires FORGEPOINT_OPERATOR_CODE with at least 12 characters"
                 .to_string(),
         );
     }
     if !options.data_dir.is_absolute() {
         return Err("production mode requires an absolute FORGEPOINT_DATA_DIR".to_string());
+    }
+    if !options.extension_dir.is_dir() {
+        return Err("production testbed requires FORGEPOINT_EXTENSION_DIR to exist".to_string());
     }
     if config
         .allowed_origins
@@ -1027,6 +2865,16 @@ fn now_seconds() -> u64 {
         .unwrap_or_default()
 }
 
+fn absolute_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    }
+}
+
 fn env_truthy(name: &str) -> bool {
     std::env::var(name)
         .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
@@ -1038,10 +2886,14 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use forgepoint_core::OidcIssuerConfig;
+    use std::sync::atomic::AtomicU64;
+
+    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn temp_dir(name: &str) -> PathBuf {
+        let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(
-            "forgepoint-testbed-{name}-{}",
+            "forgepoint-testbed-{name}-{}-{counter}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .expect("time works")
@@ -1051,15 +2903,36 @@ mod tests {
         dir
     }
 
+    fn test_extension_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("extensions/first-party")
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) {
+        fs::create_dir_all(dst).unwrap();
+        for entry in fs::read_dir(src).unwrap() {
+            let entry = entry.unwrap();
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+            if src_path.is_dir() {
+                copy_dir_recursive(&src_path, &dst_path);
+            } else {
+                fs::copy(&src_path, &dst_path).unwrap();
+            }
+        }
+    }
+
     fn dev_runtime() -> Arc<Runtime> {
         Arc::new(
             Runtime::start(StartupOptions {
                 config_path: None,
                 data_dir: temp_dir("dev"),
+                extension_dir: test_extension_dir(),
                 listen: "127.0.0.1:0".parse().unwrap(),
                 check: false,
                 tls_terminated: false,
-                operator_token: Some("testbed-operator-token-000000000000".to_string()),
+                operator_code: Some("testbed-operator-code".to_string()),
             })
             .unwrap(),
         )
@@ -1074,7 +2947,57 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("\"ready\":true"));
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        assert_eq!(payload["ready"], true);
+        assert_eq!(
+            payload["unsupported"].as_array().unwrap().len(),
+            UNSUPPORTED_SURFACES.len()
+        );
+        for surface in UNSUPPORTED_SURFACES {
+            assert!(
+                payload["unsupported"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|entry| {
+                        entry["id"] == surface.id
+                            && entry["pathPrefix"] == surface.path_prefix
+                            && entry["message"] == surface.message
+                    })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn unsupported_routes_return_registry_errors() {
+        let state = AppState {
+            runtime: dev_runtime(),
+        };
+
+        for (path, expected_surface) in [
+            ("/auth/oidc/prod/callback", "oidc_browser_callback"),
+            ("/api/v1/repositories", "legacy_v1_api"),
+        ] {
+            let response = unsupported_route(
+                State(state.clone()),
+                HeaderMap::new(),
+                Uri::from_static(path),
+            )
+            .await;
+
+            assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            let payload = serde_json::from_slice::<Value>(&body).unwrap();
+            assert_eq!(
+                payload["errors"][0]["extensions"]["code"],
+                ErrorCode::Unsupported.as_str()
+            );
+            assert_eq!(
+                payload["errors"][0]["extensions"]["surface"],
+                expected_surface
+            );
+        }
     }
 
     #[tokio::test]
@@ -1092,7 +3015,7 @@ mod tests {
     #[tokio::test]
     async fn session_token_is_single_use_for_events() {
         let runtime = dev_runtime();
-        let token = runtime.issue_session(PrincipalStatus::Operator);
+        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
         let mut query = HashMap::new();
         query.insert("session".to_string(), token.clone());
 
@@ -1107,7 +3030,7 @@ mod tests {
     }
 
     #[test]
-    fn production_mode_requires_tls_operator_token_and_absolute_paths() {
+    fn production_mode_requires_tls_operator_code_and_absolute_paths() {
         let mut config = InstanceConfig::minimal_dev();
         config.environment = Environment::Production;
         config.public_url = "https://forgepoint.example.test".to_string();
@@ -1135,10 +3058,11 @@ mod tests {
         let options = StartupOptions {
             config_path: None,
             data_dir: temp_dir("prod"),
+            extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
             check: false,
             tls_terminated: false,
-            operator_token: Some("operator-token-with-enough-length".to_string()),
+            operator_code: Some("operator-code".to_string()),
         };
 
         assert!(
@@ -1194,9 +3118,9 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     async fn token_exchange_issues_short_lived_testbed_credential() {
         let runtime = dev_runtime();
         let request = TokenExchangeRequest {
-            grant_type: "urn:forgepoint:grant:oidc-token-exchange".to_string(),
-            subject_token: "testbed-operator-token-000000000000".to_string(),
-            subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
+            grant_type: "urn:forgepoint:grant:operator-code".to_string(),
+            subject_token: "testbed-operator-code".to_string(),
+            subject_token_type: "urn:forgepoint:token-type:operator-code".to_string(),
             requested_resource: "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
                 .to_string(),
             requested_actions: vec!["git:read".to_string()],
@@ -1211,16 +3135,299 @@ storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
     }
 
     #[tokio::test]
-    async fn git_endpoint_fails_closed_after_auth_until_native_pack_execution_exists() {
+    async fn git_endpoint_serves_upload_pack_after_auth() {
         let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",
-            HeaderValue::from_static("Bearer testbed-operator-token-000000000000"),
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
         );
 
-        let response = git_endpoint(State(AppState { runtime }), headers, Method::GET).await;
+        let response = git_endpoint(
+            State(AppState { runtime }),
+            headers,
+            Method::GET,
+            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-upload-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("git-upload-pack"));
+    }
+
+    #[tokio::test]
+    async fn git_receive_pack_returns_unsupported_registry_error() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+
+        let response = git_endpoint(
+            State(AppState { runtime }),
+            headers,
+            Method::GET,
+            AxumPath("forgepoint/forgepoint.git/info/refs".to_string()),
+            RawQuery(Some("service=git-receive-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
 
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::Unsupported.as_str()
+        );
+        assert_eq!(
+            payload["errors"][0]["extensions"]["surface"],
+            "git_receive_pack"
+        );
+    }
+
+    #[tokio::test]
+    async fn graphql_response_exposes_typed_repository_fields() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+
+        let response = graphql_post(
+            State(AppState { runtime }),
+            headers,
+            json!({"query": "{ repository { refs commits pullRequests checks } }"}).to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        assert_eq!(
+            payload["data"]["repository"]["path"],
+            "forgepoint/forgepoint"
+        );
+        assert!(
+            payload["data"]["repository"]["refs"]
+                .as_array()
+                .unwrap()
+                .len()
+                > 0
+        );
+        assert!(
+            payload["data"]["repository"]["pullRequests"]
+                .as_array()
+                .unwrap()
+                .len()
+                > 0
+        );
+        assert_eq!(
+            payload["data"]["repository"]["headOid"],
+            payload["data"]["demo"]["repository"]["headOid"]
+        );
+    }
+
+    #[test]
+    fn extension_storage_seeds_documents_and_survives_fixture_deletion() {
+        let data_dir = temp_dir("extension-storage");
+        let seed_path = data_dir.join("metadata/demo-state.json");
+        fs::create_dir_all(seed_path.parent().unwrap()).unwrap();
+        fs::write(
+            &seed_path,
+            serde_json::to_vec_pretty(&json!({
+                "generatedAt": "2026-05-11T00:00:00Z",
+                "workspace": {
+                    "id": "ws_test",
+                    "slug": "forgepoint",
+                    "name": "Forgepoint Labs",
+                    "visibility": "PRIVATE",
+                    "members": 3
+                },
+                "repository": {
+                    "id": "repo_test",
+                    "owner": "forgepoint",
+                    "name": "forgepoint",
+                    "path": "forgepoint/forgepoint",
+                    "visibility": "PRIVATE",
+                    "description": "Runtime storage test",
+                    "stars": 9,
+                    "forks": 2,
+                    "watchers": 5,
+                    "language": "Rust",
+                    "license": "Apache-2.0"
+                },
+                "pullRequests": [
+                    {
+                        "number": 7,
+                        "title": "Seed through runtime storage",
+                        "state": "READY",
+                        "base": "main",
+                        "head": "storage/runtime"
+                    }
+                ],
+                "checks": [],
+                "extensions": [],
+                "activity": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = ExtensionRuntimeStore::open(&data_dir).unwrap();
+        assert!(store.schema_path().is_file());
+        assert!(store.documents_path().is_file());
+        assert!(!data_dir.join("extensions/runtime-state.json").exists());
+        fs::remove_file(seed_path).unwrap();
+
+        let reopened = ExtensionRuntimeStore::open(&data_dir).unwrap();
+        let pulls = reopened
+            .query_documents_by_index(
+                "pull_requests",
+                &[
+                    ("repositoryID", json!("repo_test")),
+                    ("state", json!("READY")),
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(pulls.len(), 1);
+        assert_eq!(pulls[0].data["title"], "Seed through runtime storage");
+
+        reopened
+            .create_document(extension_document_record(
+                "ext_checks",
+                "check_runs",
+                "check_runtime_mutation",
+                "forgepoint://repository/repo_test",
+                vec!["forgepoint://repository/repo_test".to_string()],
+                json!({
+                    "repositoryID": "repo_test",
+                    "name": "runtime mutation",
+                    "provider": "Forge CI",
+                    "conclusion": "SUCCESS",
+                    "duration": "1s"
+                }),
+                "2026-05-11T00:00:00Z",
+            ))
+            .unwrap();
+        let checks = reopened
+            .query_documents_by_index("check_runs", &[("name", json!("runtime mutation"))])
+            .unwrap();
+        assert_eq!(checks.len(), 1);
+    }
+
+    #[test]
+    fn demo_payload_reflects_runtime_storage_updates() {
+        let runtime = dev_runtime();
+        let check = runtime
+            .extension_storage
+            .query_documents_by_index("check_runs", &[("provider", json!("Forge CI"))])
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("seeded check document");
+
+        runtime
+            .extension_storage
+            .update_document_atomically("check_runs", &check.id, |data| {
+                data["conclusion"] = json!("FAILURE");
+                data["duration"] = json!("99s");
+            })
+            .unwrap();
+
+        let demo = runtime.demo_payload().unwrap();
+        let checks = demo["checks"].as_array().expect("checks array");
+
+        assert!(
+            checks
+                .iter()
+                .any(|check| check["conclusion"] == "FAILURE" && check["duration"] == "99s")
+        );
+    }
+
+    #[test]
+    fn demo_payload_exposes_typed_extension_resolver_outputs() {
+        let runtime = dev_runtime();
+        let demo = runtime.demo_payload().unwrap();
+        let resolvers = demo["extensionResolvers"]
+            .as_array()
+            .expect("extension resolvers array");
+        let code_browser = resolvers
+            .iter()
+            .find(|resolver| resolver["id"] == "ext_code_browser")
+            .expect("code browser resolver");
+
+        assert_eq!(
+            code_browser["outputType"],
+            "forgepoint.code-browser/summary.v1"
+        );
+        assert!(
+            code_browser["output"]["methods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|method| method == "repository_refs")
+        );
+        assert!(code_browser.as_object().unwrap().get("result").is_none());
+    }
+
+    #[test]
+    fn extension_runtime_rejects_backend_ui_manifest_mismatch() {
+        let extension_dir = temp_dir("extension-manifest-mismatch");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let ui_manifest = extension_dir
+            .join("ext_checks")
+            .join("ui")
+            .join("manifest.json");
+        let mut ui =
+            serde_json::from_str::<Value>(&fs::read_to_string(&ui_manifest).unwrap()).unwrap();
+        ui["extension"] = json!("wrong-extension-name");
+        fs::write(&ui_manifest, serde_json::to_vec_pretty(&ui).unwrap()).unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("UI manifest extension name does not match"));
+    }
+
+    #[test]
+    fn extension_runtime_rejects_stale_ui_entry_integrity() {
+        let extension_dir = temp_dir("extension-integrity-mismatch");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let entry = extension_dir
+            .join("ext_code_browser")
+            .join("assets")
+            .join("index.js");
+        fs::write(
+            &entry,
+            "customElements.define('stale-integrity', class extends HTMLElement {})",
+        )
+        .unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("entryIntegrity"));
+        assert!(error.contains("did not match computed"));
     }
 }

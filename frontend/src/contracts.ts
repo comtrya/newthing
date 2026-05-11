@@ -63,6 +63,9 @@ export function validateUiManifest(manifest: ExtensionUiManifest): void {
   if (!manifest.assets.entry.startsWith("/_extensions/")) {
     throw new Error("extension entry must be served by the Rust asset API");
   }
+  if (!manifest.assets.entryIntegrity?.startsWith("sha256-")) {
+    throw new Error("extension entry must advertise a sha256 integrity value");
+  }
   for (const route of manifest.routes) {
     if (route.path.startsWith("/_")) {
       throw new Error("extension routes cannot use reserved paths");

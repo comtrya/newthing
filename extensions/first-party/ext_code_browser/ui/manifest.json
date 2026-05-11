@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "forgepoint.ui-extension/v1",
+  "id": "ext_code_browser",
+  "extension": "code-browser",
+  "assets": {
+    "entry": "/_extensions/ext_code_browser/assets/index.js",
+    "entryIntegrity": "sha256-a60f735fcd56e9854b75d4ccae973d343285f3f2a337e88176c4aedaba3a5ea9",
+    "styles": []
+  },
+  "routes": [
+    {
+      "path": "/forgepoint/forgepoint",
+      "element": "forgepoint-code-browser",
+      "requiredPermission": "code.read"
+    }
+  ],
+  "slots": [
+    {
+      "slot": "repository.code",
+      "element": "forgepoint-code-browser",
+      "requiredPermission": "code.read"
+    }
+  ]
+}
