@@ -503,6 +503,7 @@ impl Runtime {
                     "ext_code_browser" => code_browser_resolver_output(git),
                     "ext_pull_requests" => pull_request_resolver_output(pull_requests, checks),
                     "ext_checks" => checks_resolver_output(checks),
+                    "ext_workspace_home" => json!({}),
                     _ => json!({"error": "unknown resolver output"}),
                 };
                 json!({
@@ -1828,7 +1829,7 @@ pub fn filter_events_for_viewer(events: &serde_json::Value, visible_repo_ids: &[
         .collect()
 }
 
-const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
+const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks", "ext_workspace_home"];
 const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "comtrya-local-operator-code"];
 const DEMO_EXPECTED_REFS: &[&str] = &[
     "refs/heads/main",

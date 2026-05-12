@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_workspace_home",
+  "name": "workspace-home",
+  "displayName": "Workspace Home",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "wasmComponent": "component.wat",
+  "witWorld": "comtrya:extension/extension",
+  "routePrefix": null,
+  "ui": { "manifest": "ui/manifest.json" },
+  "runtime": { "resolver": "resolve", "outputType": "comtrya.workspace-home/summary.v1" }
+}
