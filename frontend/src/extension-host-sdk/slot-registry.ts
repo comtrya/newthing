@@ -26,14 +26,20 @@ export class SlotRegistry {
     };
   }
 
+  private toResolved(e: Entry): ResolvedSlot {
+    const { insertionOrder: _drop, ...resolved } = e;
+    return resolved;
+  }
+
   winner(name: SlotName): ResolvedSlot | undefined {
-    return this.entries.get(name)?.[0];
+    const e = this.entries.get(name)?.[0];
+    return e ? this.toResolved(e) : undefined;
   }
 
   shadowed(name: SlotName): ResolvedSlot[] {
     const list = this.entries.get(name);
     if (!list || list.length <= 1) return [];
-    return list.slice(1);
+    return list.slice(1).map((e) => this.toResolved(e));
   }
 
   listSlots(): SlotName[] {

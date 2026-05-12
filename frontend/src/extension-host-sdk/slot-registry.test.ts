@@ -44,4 +44,19 @@ describe("SlotRegistry", () => {
     registry.add({ extensionId: "ext_a", element: "el-a2", requiredPermission: "p", priority: 100 }, "home.activity");
     expect(new Set(registry.listSlots())).toEqual(new Set(["home.your-work", "home.activity"]));
   });
+
+  test("winner does not leak insertionOrder field", () => {
+    registry.add({ extensionId: "ext_a", element: "el-a", requiredPermission: "p", priority: 100 }, "home.your-work");
+    const w = registry.winner("home.your-work");
+    expect(w).toBeDefined();
+    expect((w as unknown as Record<string, unknown>).insertionOrder).toBeUndefined();
+  });
+
+  test("shadowed entries do not leak insertionOrder field", () => {
+    registry.add({ extensionId: "ext_a", element: "el-a", requiredPermission: "p", priority: 100 }, "home.your-work");
+    registry.add({ extensionId: "ext_b", element: "el-b", requiredPermission: "p", priority: 1000 }, "home.your-work");
+    const s = registry.shadowed("home.your-work");
+    expect(s).toHaveLength(1);
+    expect((s[0] as unknown as Record<string, unknown>).insertionOrder).toBeUndefined();
+  });
 });
