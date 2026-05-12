@@ -6,7 +6,8 @@
     "dev": "astro dev --host 127.0.0.1",
     "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "bun test src/extension-host-sdk src/shell"
   },
   "dependencies": {
     "@astrojs/node": "latest",

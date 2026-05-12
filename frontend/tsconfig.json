@@ -24,7 +24,13 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+
+    // Path aliases
+    "baseUrl": ".",
+    "paths": {
+      "@comtrya/extension-host": ["./src/extension-host-sdk/index.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }
