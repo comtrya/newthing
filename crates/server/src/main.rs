@@ -984,7 +984,21 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         resolve_repository_by_path(&repositories_value, &path_segments)
             .unwrap_or(json!(null));
 
-    // Build the workspace object enriched with the repositoryByPath resolver result.
+    // Enrich repositories with groups[], openPullRequests, checkSummary, lastCommitAt.
+    let pull_requests_for_summary = demo.get("pullRequests").cloned().unwrap_or_else(|| json!([]));
+    let checks_for_summary = demo.get("checks").cloned().unwrap_or_else(|| json!([]));
+    let enriched_repositories: Value = Value::Array(
+        repositories_value
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+            .iter()
+            .map(|repo| build_repository_summary(repo, &pull_requests_for_summary, &checks_for_summary))
+            .collect(),
+    );
+
+    // Build the workspace object enriched with the repositoryByPath resolver result
+    // and the enriched repositories list.
     let workspace = {
         let mut ws = demo
             .get("workspace")
@@ -992,6 +1006,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .unwrap_or_else(|| json!({}));
         if let Some(obj) = ws.as_object_mut() {
             obj.insert("repositoryByPath".to_string(), repository_by_path);
+            obj.insert("repositories".to_string(), enriched_repositories);
         }
         ws
     };
@@ -1589,6 +1604,99 @@ pub fn resolve_repository_by_path(repositories: &Value, segments: &[String]) -> 
             .map(|p| p == path)
             .unwrap_or(false)
     }).cloned()
+}
+
+/// Split a repository `path` (slash-joined segments) into `(groups, name)`.
+///
+/// The last segment becomes the repository name; all preceding segments become
+/// the groups array.  Examples:
+/// - `"comtrya/comtrya"` → `(["comtrya"], "comtrya")`
+/// - `"comtrya"` → `([], "comtrya")`
+/// - `"public/internal/obs"` → `(["public", "internal"], "obs")`
+pub fn split_repo_path(path: &str) -> (Vec<String>, String) {
+    let mut segments: Vec<String> = path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect();
+    let name = segments.pop().unwrap_or_default();
+    (segments, name)
+}
+
+/// Derive the set of open pull-request states that count toward the
+/// `openPullRequests` summary counter.
+const OPEN_PR_STATES: &[&str] = &["READY", "REVIEW", "DRAFT"];
+
+/// Build an enriched repository summary object with `groups`, `openPullRequests`,
+/// `checkSummary`, and `lastCommitAt` derived from the raw repository document
+/// plus the workspace-level pull-request and check-run collections.
+///
+/// All existing fields from `repo` are preserved; new fields are injected.
+/// Fields that cannot be derived default to safe zero-values so the shape is
+/// always complete.
+pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Value) -> Value {
+    let repo_id = repo.get("id").and_then(Value::as_str).unwrap_or("");
+    let path = repo.get("path").and_then(Value::as_str).unwrap_or("");
+    let (groups, _derived_name) = split_repo_path(path);
+
+    // Count open pull-requests for this repository.
+    let open_prs = pull_requests
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|pr| {
+            let pr_repo = pr.get("repositoryID").and_then(Value::as_str).unwrap_or("");
+            let state = pr.get("state").and_then(Value::as_str).unwrap_or("");
+            (pr_repo.is_empty() || pr_repo == repo_id)
+                && OPEN_PR_STATES.contains(&state)
+        })
+        .count();
+
+    // Compute check summary for this repository.
+    let repo_checks: Vec<&Value> = checks
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter(|c| {
+            let c_repo = c.get("repositoryID").and_then(Value::as_str).unwrap_or("");
+            c_repo.is_empty() || c_repo == repo_id
+        })
+        .collect();
+    let checks_total = repo_checks.len();
+    let checks_passed = repo_checks
+        .iter()
+        .filter(|c| c.get("conclusion").and_then(Value::as_str) == Some("SUCCESS"))
+        .count();
+
+    // lastCommitAt: prefer field already on the document; fall back to null.
+    let last_commit_at = repo
+        .get("lastCommitAt")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    // Start from the existing document fields, then overlay new ones.
+    let mut summary = repo.clone();
+    if let Some(obj) = summary.as_object_mut() {
+        obj.insert(
+            "groups".to_string(),
+            Value::Array(groups.into_iter().map(Value::String).collect()),
+        );
+        obj.insert(
+            "openPullRequests".to_string(),
+            Value::Number(serde_json::Number::from(open_prs)),
+        );
+        obj.insert(
+            "checkSummary".to_string(),
+            json!({
+                "passed": checks_passed,
+                "total": checks_total
+            }),
+        );
+        obj.insert("lastCommitAt".to_string(), last_commit_at);
+    }
+    summary
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
@@ -5488,6 +5596,150 @@ extensions: {
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["routePrefix"], "pulls");
         assert!(items[1]["routePrefix"].is_null());
+    }
+
+    // ── Task 24: workspace.repositories groups + summary ─────────────────────
+
+    #[test]
+    fn split_repo_path_two_segments() {
+        let (groups, name) = split_repo_path("comtrya/comtrya");
+        assert_eq!(groups, vec!["comtrya".to_string()]);
+        assert_eq!(name, "comtrya");
+    }
+
+    #[test]
+    fn split_repo_path_single_segment() {
+        let (groups, name) = split_repo_path("comtrya");
+        assert!(groups.is_empty(), "single-segment path has no groups");
+        assert_eq!(name, "comtrya");
+    }
+
+    #[test]
+    fn split_repo_path_three_segments() {
+        let (groups, name) = split_repo_path("public/internal/observability");
+        assert_eq!(groups, vec!["public".to_string(), "internal".to_string()]);
+        assert_eq!(name, "observability");
+    }
+
+    #[test]
+    fn split_repo_path_empty_string() {
+        let (groups, name) = split_repo_path("");
+        assert!(groups.is_empty());
+        assert_eq!(name, "");
+    }
+
+    #[test]
+    fn build_repository_summary_derives_groups_from_path() {
+        let repo = json!({
+            "id": "repo_x",
+            "name": "comtrya",
+            "path": "public/internal/comtrya",
+            "visibility": "PRIVATE"
+        });
+        let summary = build_repository_summary(&repo, &json!([]), &json!([]));
+        assert_eq!(summary["groups"], json!(["public", "internal"]));
+        assert_eq!(summary["name"], "comtrya");
+        assert_eq!(summary["id"], "repo_x");
+    }
+
+    #[test]
+    fn build_repository_summary_two_segment_path() {
+        let repo = json!({
+            "id": "repo_y",
+            "name": "comtrya",
+            "path": "comtrya/comtrya",
+            "visibility": "PRIVATE"
+        });
+        let summary = build_repository_summary(&repo, &json!([]), &json!([]));
+        assert_eq!(summary["groups"], json!(["comtrya"]));
+    }
+
+    #[test]
+    fn build_repository_summary_open_pull_requests_counts_open_states() {
+        let pulls = json!([
+            { "repositoryID": "repo_x", "state": "READY" },
+            { "repositoryID": "repo_x", "state": "REVIEW" },
+            { "repositoryID": "repo_x", "state": "DRAFT" },
+            { "repositoryID": "repo_x", "state": "MERGED" },
+        ]);
+        let repo = json!({ "id": "repo_x", "name": "x", "path": "x" });
+        let summary = build_repository_summary(&repo, &pulls, &json!([]));
+        // READY + REVIEW + DRAFT = 3 open (MERGED is closed)
+        assert_eq!(summary["openPullRequests"], 3);
+    }
+
+    #[test]
+    fn build_repository_summary_check_summary_counts_pass_total() {
+        let checks = json!([
+            { "repositoryID": "repo_x", "conclusion": "SUCCESS" },
+            { "repositoryID": "repo_x", "conclusion": "SUCCESS" },
+            { "repositoryID": "repo_x", "conclusion": "FAILURE" },
+        ]);
+        let repo = json!({ "id": "repo_x", "name": "x", "path": "x" });
+        let summary = build_repository_summary(&repo, &json!([]), &checks);
+        assert_eq!(summary["checkSummary"]["passed"], 2);
+        assert_eq!(summary["checkSummary"]["total"], 3);
+    }
+
+    #[test]
+    fn build_repository_summary_last_commit_at_falls_back_to_null() {
+        let repo = json!({ "id": "repo_x", "name": "x", "path": "x" });
+        let summary = build_repository_summary(&repo, &json!([]), &json!([]));
+        // Without a lastCommitAt field in the repo JSON, the field must still be present.
+        assert!(
+            summary.get("lastCommitAt").is_some(),
+            "lastCommitAt must always be present in the summary"
+        );
+    }
+
+    #[tokio::test]
+    async fn graphql_workspace_repositories_exposes_groups_and_summary_fields() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({"query": "{ workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } } }"}).to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        let repos = payload["data"]["workspace"]["repositories"]
+            .as_array()
+            .expect("workspace.repositories must be an array");
+        assert!(!repos.is_empty(), "expected at least one seeded repository");
+        for repo in repos {
+            assert!(repo.get("id").is_some(), "each repository must have id");
+            assert!(repo.get("name").is_some(), "each repository must have name");
+            assert!(
+                repo.get("groups").and_then(|g| g.as_array()).is_some(),
+                "groups must be an array, got: {:?}",
+                repo.get("groups")
+            );
+            assert!(
+                repo.get("openPullRequests").and_then(|n| n.as_u64()).is_some(),
+                "openPullRequests must be an unsigned integer"
+            );
+            assert!(
+                repo.get("checkSummary").and_then(|c| c.as_object()).is_some(),
+                "checkSummary must be an object"
+            );
+            assert!(
+                repo.get("lastCommitAt").is_some(),
+                "lastCommitAt must be present"
+            );
+        }
     }
 
     #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: requires loaded extension to assert routePrefix in GraphQL response"]
