@@ -1011,25 +1011,36 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         ws
     };
 
+    // Build the viewer object with host-side aggregated fields.
+    // v1: aggregated:true flag signals federated planner (V3_PLAN item 9) can replace later.
+    let viewer_stub = json!({
+        "id": "viewer",
+        "permissions": if principal == PrincipalStatus::OperatorCredential {
+            vec![
+                "instance.admin",
+                "graphql:read",
+                "graphql:write",
+                "events:read",
+                "git:read",
+                "checks:read",
+            ]
+        } else {
+            Vec::<&str>::new()
+        }
+    });
+    let viewer = json!({
+        "authenticated": principal != PrincipalStatus::Anonymous,
+        "permissions": viewer_stub["permissions"].clone(),
+        "reviewQueue": build_review_queue(&viewer_stub, &pull_requests_for_summary, 10),
+        "authoredPulls": build_authored_pulls(&viewer_stub, &pull_requests_for_summary, 10),
+        "failingChecks": build_failing_checks(&viewer_stub, &checks_for_summary, 10),
+    });
+
     json_response(
         StatusCode::OK,
         json!({
             "data": {
-                "viewer": {
-                    "authenticated": principal != PrincipalStatus::Anonymous,
-                    "permissions": if principal == PrincipalStatus::OperatorCredential {
-                        vec![
-                            "instance.admin",
-                            "graphql:read",
-                            "graphql:write",
-                            "events:read",
-                            "git:read",
-                            "checks:read",
-                        ]
-                    } else {
-                        Vec::<&str>::new()
-                    }
-                },
+                "viewer": viewer,
                 "instance": {
                     "id": state.runtime.config.id,
                     "name": state.runtime.config.name,
@@ -1696,6 +1707,77 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         obj.insert("lastCommitAt".to_string(), last_commit_at);
     }
     summary
+}
+
+/// Build viewer.reviewQueue: PRs in state REVIEW or READY where the viewer is listed
+/// in the `reviewers` array (if present), otherwise all PRs in those states.
+/// Returns `{ aggregated: true, items: [...] }`.
+pub fn build_review_queue(viewer: &Value, pulls: &Value, limit: usize) -> Value {
+    let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
+    let items: Vec<Value> = pulls
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|pr| {
+            let state = pr.get("state").and_then(Value::as_str).unwrap_or("");
+            if state != "REVIEW" && state != "READY" {
+                return false;
+            }
+            // If a `reviewers` array is present, filter to viewer's entries only.
+            match pr.get("reviewers").and_then(Value::as_array) {
+                Some(reviewers) => reviewers
+                    .iter()
+                    .any(|r| r.as_str() == Some(viewer_id)),
+                // No reviewers field: include all REVIEW/READY PRs.
+                None => true,
+            }
+        })
+        .take(limit)
+        .collect();
+    json!({ "aggregated": true, "items": items })
+}
+
+/// Build viewer.authoredPulls: PRs whose `author` field matches the viewer id.
+/// Returns `{ aggregated: true, items: [...] }`.
+pub fn build_authored_pulls(viewer: &Value, pulls: &Value, limit: usize) -> Value {
+    let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
+    let items: Vec<Value> = pulls
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|pr| pr.get("author").and_then(Value::as_str) == Some(viewer_id))
+        .take(limit)
+        .collect();
+    json!({ "aggregated": true, "items": items })
+}
+
+/// Build viewer.failingChecks: check runs whose `conclusion` is "FAILURE".
+/// When a check carries an `author` field, additionally restrict to the viewer.
+/// Returns `{ aggregated: true, items: [...] }`.
+pub fn build_failing_checks(viewer: &Value, checks: &Value, limit: usize) -> Value {
+    let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
+    let items: Vec<Value> = checks
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|c| {
+            let conclusion = c.get("conclusion").and_then(Value::as_str).unwrap_or("");
+            if conclusion != "FAILURE" {
+                return false;
+            }
+            // If an `author` field is present, restrict to viewer.
+            match c.get("author").and_then(Value::as_str) {
+                Some(author) => author == viewer_id,
+                // No author field: include all FAILURE checks.
+                None => true,
+            }
+        })
+        .take(limit)
+        .collect();
+    json!({ "aggregated": true, "items": items })
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
@@ -5805,5 +5887,166 @@ extensions: {
                 "each entry must carry routePrefix"
             );
         }
+    }
+
+    // ── Viewer aggregate field unit tests ─────────────────────────────────────
+
+    #[test]
+    fn build_review_queue_marks_aggregated_true_and_filters_review_state() {
+        let viewer = json!({ "id": "david.flanagan", "permissions": ["pull-requests.read"] });
+        let pulls = json!([
+            { "id": "1", "reviewers": ["david.flanagan"], "state": "REVIEW", "title": "PR 1" },
+            { "id": "2", "reviewers": ["alice"], "state": "REVIEW", "title": "PR 2" },
+            { "id": "3", "reviewers": ["david.flanagan"], "state": "MERGED", "title": "PR 3" },
+        ]);
+        let result = build_review_queue(&viewer, &pulls, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        let items = result["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], json!("1"));
+    }
+
+    #[test]
+    fn build_review_queue_includes_all_review_ready_prs_when_no_reviewers_field() {
+        let viewer = json!({ "id": "david.flanagan" });
+        let pulls = json!([
+            { "number": 1, "state": "READY", "title": "A" },
+            { "number": 2, "state": "REVIEW", "title": "B" },
+            { "number": 3, "state": "DRAFT", "title": "C" },
+            { "number": 4, "state": "MERGED", "title": "D" },
+        ]);
+        let result = build_review_queue(&viewer, &pulls, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        let items = result["items"].as_array().expect("items array");
+        // READY and REVIEW only (no reviewers field → include all of those states)
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn build_review_queue_respects_limit() {
+        let viewer = json!({ "id": "v" });
+        let pulls = json!([
+            { "number": 1, "state": "READY" },
+            { "number": 2, "state": "READY" },
+            { "number": 3, "state": "READY" },
+        ]);
+        let result = build_review_queue(&viewer, &pulls, 2);
+        assert_eq!(result["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn build_authored_pulls_filters_by_viewer_author() {
+        let viewer = json!({ "id": "david.flanagan", "permissions": [] });
+        let pulls = json!([
+            { "id": "1", "author": "david.flanagan", "state": "REVIEW" },
+            { "id": "2", "author": "alice", "state": "REVIEW" },
+        ]);
+        let result = build_authored_pulls(&viewer, &pulls, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        let items = result["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["author"], json!("david.flanagan"));
+    }
+
+    #[test]
+    fn build_authored_pulls_returns_empty_when_no_match() {
+        let viewer = json!({ "id": "david.flanagan" });
+        let pulls = json!([
+            { "id": "1", "author": "alice", "state": "REVIEW" },
+        ]);
+        let result = build_authored_pulls(&viewer, &pulls, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        assert_eq!(result["items"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn build_authored_pulls_respects_limit() {
+        let viewer = json!({ "id": "v" });
+        let pulls = json!([
+            { "id": "1", "author": "v" },
+            { "id": "2", "author": "v" },
+            { "id": "3", "author": "v" },
+        ]);
+        let result = build_authored_pulls(&viewer, &pulls, 2);
+        assert_eq!(result["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn build_failing_checks_returns_failed_checks_for_viewer_branches() {
+        let viewer = json!({ "id": "david.flanagan", "permissions": [] });
+        let checks = json!([
+            { "id": "c1", "author": "david.flanagan", "conclusion": "FAILURE", "name": "test" },
+            { "id": "c2", "author": "david.flanagan", "conclusion": "SUCCESS", "name": "lint" },
+            { "id": "c3", "author": "alice", "conclusion": "FAILURE", "name": "test" },
+        ]);
+        let result = build_failing_checks(&viewer, &checks, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        let items = result["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], json!("c1"));
+    }
+
+    #[test]
+    fn build_failing_checks_includes_all_failures_when_no_author_field() {
+        let viewer = json!({ "id": "david.flanagan" });
+        let checks = json!([
+            { "name": "nix flake check", "conclusion": "FAILURE" },
+            { "name": "cargo test", "conclusion": "SUCCESS" },
+            { "name": "astro build", "conclusion": "FAILURE" },
+        ]);
+        let result = build_failing_checks(&viewer, &checks, 10);
+        assert_eq!(result["aggregated"], json!(true));
+        let items = result["items"].as_array().expect("items array");
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn build_failing_checks_respects_limit() {
+        let viewer = json!({ "id": "v" });
+        let checks = json!([
+            { "name": "a", "conclusion": "FAILURE" },
+            { "name": "b", "conclusion": "FAILURE" },
+            { "name": "c", "conclusion": "FAILURE" },
+        ]);
+        let result = build_failing_checks(&viewer, &checks, 1);
+        assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn graphql_viewer_exposes_aggregate_fields() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({"query": "{ viewer { reviewQueue { aggregated items } authoredPulls { aggregated items } failingChecks { aggregated items } } }"}).to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        let viewer = &payload["data"]["viewer"];
+
+        // reviewQueue
+        assert_eq!(viewer["reviewQueue"]["aggregated"], json!(true));
+        assert!(viewer["reviewQueue"]["items"].is_array(), "reviewQueue.items must be array");
+
+        // authoredPulls
+        assert_eq!(viewer["authoredPulls"]["aggregated"], json!(true));
+        assert!(viewer["authoredPulls"]["items"].is_array(), "authoredPulls.items must be array");
+
+        // failingChecks
+        assert_eq!(viewer["failingChecks"]["aggregated"], json!(true));
+        assert!(viewer["failingChecks"]["items"].is_array(), "failingChecks.items must be array");
     }
 }
