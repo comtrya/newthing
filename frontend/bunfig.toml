@@ -1,0 +1,2 @@
+[test]
+preload = ["./src/shell/dom-test-setup.ts"]
