@@ -73,3 +73,22 @@ Current expected results:
 | Typed extension host WIT | `wit/comtrya-extension.wit` defines `host-log`, `host-events`, `host-storage`, `host-git`, `host-http`, `host-secrets`, and `host-jobs` |
 | OCI extension distribution contract | `crates/extension-oci`, `ExtensionCache`, `OciExtensionFetcher`, and `ExtensionInstallConfig` with local/OCI source validation |
 | POC run posture | `start.sh --reset --oneshot` builds Rust + Astro, exercises Auth/GraphQL/events/extensions/Git clone/fetch, and proves receive-pack fails closed |
+
+## Workspace homepage (2026-05-12 design)
+
+| Surface                    | Source                                  | Verified by |
+| --- | --- | --- |
+| `home.your-work` widget    | `ext_workspace_home` → viewer aggregates  | `start.sh` smoke + `cargo test build_review_queue` |
+| `home.repositories` widget | `ext_workspace_home` → `workspace.repositories` with `groups[]` | `start.sh` smoke + `cargo test build_repository_summary` |
+| `home.activity` widget     | `ext_workspace_home` → `workspace.events` (scope-filtered) | `start.sh` smoke + `cargo test filter_events_for_viewer` |
+| `home.instance` widget     | `ext_workspace_home` → `/readyz`            | `start.sh` smoke |
+| `/r/<...>/<repo>` dashboard | host shell + `repository.*` slots         | `start.sh` smoke `repo-dashboard` |
+| `/x/<prefix>/<...>` extension page | host shell + extension SDK route     | `start.sh` smoke `extension-page` |
+| `/instance` route          | redirect stub to `/#instance`              | `start.sh` smoke `Location` header |
+| Manifest v2 schema         | `crates/server` `validate_ui_manifest_from_value` | `cargo test manifest_v2` |
+| route_prefix uniqueness    | `crates/server` `validate_route_prefix_uniqueness` | `cargo test duplicate_route_prefixes` |
+| SDK slot contention        | `frontend/extension-host-sdk/slot-registry.test.ts` | `bun test` |
+| SDK allowlist enforcement  | `frontend/extension-host-sdk/host-facade.test.ts` | `bun test` |
+| SDK manifest parser        | `frontend/extension-host-sdk/manifest.test.ts` | `bun test` |
+| Theme persistence (6 palettes) | `frontend/src/shell/theme.test.ts` | `bun test` |
+| DOM helper                 | `frontend/src/shell/dom.test.ts` | `bun test` |
