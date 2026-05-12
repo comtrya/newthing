@@ -1648,8 +1648,7 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         .filter(|pr| {
             let pr_repo = pr.get("repositoryID").and_then(Value::as_str).unwrap_or("");
             let state = pr.get("state").and_then(Value::as_str).unwrap_or("");
-            (pr_repo.is_empty() || pr_repo == repo_id)
-                && OPEN_PR_STATES.contains(&state)
+            !pr_repo.is_empty() && pr_repo == repo_id && OPEN_PR_STATES.contains(&state)
         })
         .count();
 
@@ -1661,7 +1660,7 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         .iter()
         .filter(|c| {
             let c_repo = c.get("repositoryID").and_then(Value::as_str).unwrap_or("");
-            c_repo.is_empty() || c_repo == repo_id
+            !c_repo.is_empty() && c_repo == repo_id
         })
         .collect();
     let checks_total = repo_checks.len();
@@ -5692,6 +5691,33 @@ extensions: {
         );
     }
 
+    #[test]
+    fn build_repository_summary_isolates_pulls_by_repository_id() {
+        let repo_x = json!({ "id": "repo_x", "name": "x", "path": "x" });
+        let pulls = json!([
+            { "repositoryID": "repo_x", "state": "READY" },
+            { "repositoryID": "repo_y", "state": "READY" },
+            { "state": "READY" },  // no repositoryID — must NOT be counted
+        ]);
+        let checks = json!([]);
+        let summary = build_repository_summary(&repo_x, &pulls, &checks);
+        assert_eq!(summary["openPullRequests"], json!(1));
+    }
+
+    #[test]
+    fn build_repository_summary_isolates_checks_by_repository_id() {
+        let repo_x = json!({ "id": "repo_x", "name": "x", "path": "x" });
+        let pulls = json!([]);
+        let checks = json!([
+            { "repositoryID": "repo_x", "conclusion": "SUCCESS" },
+            { "repositoryID": "repo_y", "conclusion": "SUCCESS" },
+            { "conclusion": "SUCCESS" },  // no repositoryID — must NOT be counted
+        ]);
+        let summary = build_repository_summary(&repo_x, &pulls, &checks);
+        let cs = &summary["checkSummary"];
+        assert_eq!(cs["total"], json!(1));
+    }
+
     #[tokio::test]
     async fn graphql_workspace_repositories_exposes_groups_and_summary_fields() {
         let runtime = dev_runtime_no_extensions();
@@ -5729,12 +5755,14 @@ extensions: {
             );
             assert!(
                 repo.get("openPullRequests").and_then(|n| n.as_u64()).is_some(),
-                "openPullRequests must be an unsigned integer"
+                "openPullRequests must be a u64"
             );
-            assert!(
-                repo.get("checkSummary").and_then(|c| c.as_object()).is_some(),
-                "checkSummary must be an object"
-            );
+            let cs = repo.get("checkSummary").and_then(|c| c.as_object())
+                .expect("checkSummary must be an object");
+            assert!(cs.get("passed").and_then(|v| v.as_u64()).is_some(),
+                "checkSummary.passed must be an integer");
+            assert!(cs.get("total").and_then(|v| v.as_u64()).is_some(),
+                "checkSummary.total must be an integer");
             assert!(
                 repo.get("lastCommitAt").is_some(),
                 "lastCommitAt must be present"
