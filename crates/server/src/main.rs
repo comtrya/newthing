@@ -324,6 +324,8 @@ impl Runtime {
             .map_err(|error| format!("demo repository validation failed: {error}"))?;
         let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
+        validate_route_prefix_uniqueness(&config.extensions)
+            .map_err(|error| format!("extension config invalid: {error}"))?;
         let extension_runtime = load_configured_extension_runtime(
             &options.extension_dir,
             extension_config_declared,
@@ -2824,6 +2826,23 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
 
 // ---------------------------------------------------------------------------
 
+pub fn validate_route_prefix_uniqueness(
+    configs: &[ExtensionInstallConfig],
+) -> Result<(), String> {
+    let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for cfg in configs {
+        if let Some(prefix) = &cfg.route_prefix {
+            if let Some(prev) = seen.insert(prefix.as_str(), cfg.id.as_str()) {
+                return Err(format!(
+                    "route_prefix '{prefix}' is claimed by both '{prev}' and '{}'",
+                    cfg.id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 struct ExtensionPackageRoot {
     configured_id: String,
@@ -5215,5 +5234,27 @@ extensions: {
         let result = validate_ui_manifest_from_value(&v2);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("bogus"));
+    }
+
+    #[test]
+    fn duplicate_route_prefixes_rejected_at_install() {
+        let configs = vec![
+            ExtensionInstallConfig {
+                id: "ext_a".into(),
+                source: ExtensionSource::Local { path: "/tmp/a".into() },
+                enabled: true,
+                route_prefix: Some("pulls".into()),
+            },
+            ExtensionInstallConfig {
+                id: "ext_b".into(),
+                source: ExtensionSource::Local { path: "/tmp/b".into() },
+                enabled: true,
+                route_prefix: Some("pulls".into()),
+            },
+        ];
+        let result = validate_route_prefix_uniqueness(&configs);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("pulls"), "error should name the duplicated prefix, got: {msg}");
     }
 }
