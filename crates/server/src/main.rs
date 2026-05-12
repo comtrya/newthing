@@ -1013,6 +1013,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
 
     // Build the viewer object with host-side aggregated fields.
     // v1: aggregated:true flag signals federated planner (V3_PLAN item 9) can replace later.
+    // TODO: v1 stub — `viewer.id` is a placeholder. Once real OIDC auth flows through
+    // the GraphQL handler, replace with the authenticated subject. Until then,
+    // `build_authored_pulls` will always return empty because seed PRs use
+    // real-looking author names like "rawkode"/"alice"/"mira".
     let viewer_stub = json!({
         "id": "viewer",
         "permissions": if principal == PrincipalStatus::OperatorCredential {
@@ -1031,6 +1035,8 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     let viewer = json!({
         "authenticated": principal != PrincipalStatus::Anonymous,
         "permissions": viewer_stub["permissions"].clone(),
+        // limit hardcoded to 10 in v1: the JSON-shaped GraphQL handler doesn't parse
+        // field arguments. Real argument parsing arrives with the federated planner.
         "reviewQueue": build_review_queue(&viewer_stub, &pull_requests_for_summary, 10),
         "authoredPulls": build_authored_pulls(&viewer_stub, &pull_requests_for_summary, 10),
         "failingChecks": build_failing_checks(&viewer_stub, &checks_for_summary, 10),
@@ -1709,9 +1715,9 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
     summary
 }
 
-/// Build viewer.reviewQueue: PRs in state REVIEW or READY where the viewer is listed
-/// in the `reviewers` array (if present), otherwise all PRs in those states.
-/// Returns `{ aggregated: true, items: [...] }`.
+/// Returns pulls in REVIEW/READY where the viewer appears in `reviewers[]`.
+/// When `reviewers` is absent (current seed shape), includes all REVIEW/READY pulls.
+/// v1 fallback — federated planner (V3_PLAN item 9) will provide typed reviewer state.
 pub fn build_review_queue(viewer: &Value, pulls: &Value, limit: usize) -> Value {
     let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
     let items: Vec<Value> = pulls
@@ -1738,8 +1744,14 @@ pub fn build_review_queue(viewer: &Value, pulls: &Value, limit: usize) -> Value 
     json!({ "aggregated": true, "items": items })
 }
 
-/// Build viewer.authoredPulls: PRs whose `author` field matches the viewer id.
-/// Returns `{ aggregated: true, items: [...] }`.
+/// Filters pulls to those whose `author` matches the viewer id.
+///
+/// Unlike `build_review_queue` and `build_failing_checks`, this does NOT fall
+/// back to "include all" when `author` is absent — that would expose every PR
+/// to every viewer. The trade-off: in v1 the viewer stub has `id: "viewer"`
+/// and seed PRs have no `author`, so this is effectively empty until either
+/// real auth lands or the federated planner (V3_PLAN item 9) provides typed
+/// authorship data.
 pub fn build_authored_pulls(viewer: &Value, pulls: &Value, limit: usize) -> Value {
     let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
     let items: Vec<Value> = pulls
@@ -1753,9 +1765,9 @@ pub fn build_authored_pulls(viewer: &Value, pulls: &Value, limit: usize) -> Valu
     json!({ "aggregated": true, "items": items })
 }
 
-/// Build viewer.failingChecks: check runs whose `conclusion` is "FAILURE".
-/// When a check carries an `author` field, additionally restrict to the viewer.
-/// Returns `{ aggregated: true, items: [...] }`.
+/// Returns check_runs with conclusion FAILURE whose `author` matches viewer.
+/// When `author` is absent (current seed shape), includes all FAILUREs.
+/// v1 fallback — federated planner (V3_PLAN item 9) will provide branch-author attribution.
 pub fn build_failing_checks(viewer: &Value, checks: &Value, limit: usize) -> Value {
     let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
     let items: Vec<Value> = checks
