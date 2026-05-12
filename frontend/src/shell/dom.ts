@@ -24,7 +24,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
     for (const [k, v] of Object.entries(props.attrs)) node.setAttribute(k, v);
   }
   if (props.type && "type" in node) (node as HTMLInputElement).type = props.type;
-  if (props.onClick) node.addEventListener("click", props.onClick);
+  if (props.onClick) node.addEventListener("click", props.onClick as EventListener);
   for (const child of children) {
     if (child == null) continue;
     node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
