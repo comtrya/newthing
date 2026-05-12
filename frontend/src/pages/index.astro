@@ -1,121 +1,22 @@
 ---
 import "../styles.css";
-
 export const prerender = false;
-
-const backend = process.env.COMTRYA_SERVER_URL ?? "http://127.0.0.1:8080";
-const operatorCode = process.env.PUBLIC_COMTRYA_OPERATOR_CODE ?? "";
-let initialRepo:
-  | {
-      title: string;
-      commit: string;
-      headOid: string;
-      refs: number;
-      files: number;
-      resolvers: number;
-    }
-  | undefined;
-
-try {
-  if (operatorCode) {
-    const tokenResponse = await fetch(new URL("/auth/token-exchange", backend), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        grantType: "urn:comtrya:grant:operator-code",
-        subjectToken: operatorCode,
-        subjectTokenType: "urn:comtrya:token-type:operator-code",
-        requestedResource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-        requestedActions: ["graphql:read", "events:read", "git:read", "checks:read"],
-      }),
-    });
-    const token = await tokenResponse.json();
-    if (tokenResponse.ok && token.accessToken) {
-      const graphqlResponse = await fetch(new URL("/graphql", backend), {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: "{ repository { owner name currentCommit headOid refs files } extensionResolvers }",
-        }),
-      });
-      const graphql = await graphqlResponse.json();
-      const repository = graphql?.data?.repository;
-      if (graphqlResponse.ok && repository) {
-        initialRepo = {
-          title: `${repository.owner} / ${repository.name}`,
-          commit: repository.currentCommit,
-          headOid: repository.headOid,
-          refs: repository.refs?.length ?? 0,
-          files: repository.files?.length ?? 0,
-          resolvers: graphql?.data?.extensionResolvers?.length ?? 0,
-        };
-      }
-    }
-  }
-} catch {
-  initialRepo = undefined;
-}
 ---
-
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="print">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
-    <title>Comtrya</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@1,500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
     />
+    <title>Comtrya — Workspace</title>
   </head>
   <body>
-    <main id="app" class="app-shell">
-      <section class="boot-screen" aria-live="polite">
-        <div class="boot-mark" aria-hidden="true">
-          <span class="boot-mark-glyph">c</span>
-          <span class="boot-mark-pulse"></span>
-        </div>
-        <div class="boot-meta">
-          <span class="boot-eyebrow">Comtrya</span>
-          <h1 class="boot-title">Self-hosted code forge</h1>
-          {
-            initialRepo ? (
-              <p
-                class="boot-status"
-                data-smoke="rendered-ui-live"
-                data-smoke-head-oid={initialRepo.headOid}
-              >
-                <span class="boot-status-dot boot-status-live" />
-                <code>{initialRepo.title}</code>
-                <span class="boot-status-sep">·</span>
-                <code>{initialRepo.commit}</code>
-                <span class="boot-status-sep">·</span>
-                <span>
-                  {initialRepo.refs} refs · {initialRepo.files} files · {initialRepo.resolvers}{" "}
-                  resolvers
-                </span>
-              </p>
-            ) : (
-              <p class="boot-status">
-                <span class="boot-status-dot" />
-                <span>Booting interface — establishing operator session.</span>
-              </p>
-            )
-          }
-        </div>
-        <div class="boot-keys" aria-hidden="true">
-          <span><kbd>⌘</kbd><kbd>K</kbd> Command</span>
-          <span><kbd>g</kbd><kbd>c</kbd> Code</span>
-          <span><kbd>g</kbd><kbd>p</kbd> Pulls</span>
-        </div>
-      </section>
-    </main>
-    <script src="../main.ts"></script>
+    <main id="app" data-smoke="home-shell"></main>
+    <script src="../shell/page-home.ts"></script>
   </body>
 </html>
