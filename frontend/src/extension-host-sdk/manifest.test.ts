@@ -43,4 +43,14 @@ describe("parseManifest", () => {
     expect(() => parseManifest({ ...VALID, contributes: { slots: [], routes: false } }))
       .toThrow(/must declare at least one of slots or routes/);
   });
+
+  test("rejects non-string id", () => {
+    expect(() => parseManifest({ ...VALID, id: 42 as never }))
+      .toThrow(/non-empty string id/);
+  });
+
+  test("rejects non-string permission entries", () => {
+    expect(() => parseManifest({ ...VALID, permissions: ["valid", 42 as never] }))
+      .toThrow(/permissions must be an array of strings/);
+  });
 });
