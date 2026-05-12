@@ -13,13 +13,14 @@ export interface UiManifestV2 {
 
 export function parseManifest(input: unknown): UiManifestV2 {
   if (!input || typeof input !== "object") throw new Error("manifest must be an object");
-  const m = input as UiManifestV2;
-  if (m.schemaVersion === "comtrya.ui-extension/v1") {
+  const raw = input as Record<string, unknown>;
+  if (raw.schemaVersion === "comtrya.ui-extension/v1") {
     throw new Error("v1 manifest is deprecated — migrate to comtrya.ui-extension/v2");
   }
-  if (m.schemaVersion !== "comtrya.ui-extension/v2") {
-    throw new Error(`unsupported manifest schemaVersion: ${m.schemaVersion}`);
+  if (raw.schemaVersion !== "comtrya.ui-extension/v2") {
+    throw new Error(`unsupported manifest schemaVersion: ${String(raw.schemaVersion)}`);
   }
+  const m = input as UiManifestV2;
   if (typeof m.id !== "string" || m.id.length === 0) {
     throw new Error("manifest must include a non-empty string id");
   }
