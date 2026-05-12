@@ -3368,6 +3368,7 @@ fn cue_extension_install_config(id: String, block: &str) -> Result<ExtensionInst
         id,
         source,
         enabled: cue_field_bool(block, "enabled").unwrap_or(true),
+        route_prefix: None,
     })
 }
 
@@ -4894,6 +4895,7 @@ extensions: {
                     path: "ext_checks".to_string(),
                 },
                 enabled: true,
+                route_prefix: None,
             },
             ExtensionInstallConfig {
                 id: "code-browser".to_string(),
@@ -4901,6 +4903,7 @@ extensions: {
                     path: "ext_code_browser".to_string(),
                 },
                 enabled: false,
+                route_prefix: None,
             },
         ];
 
@@ -4919,6 +4922,7 @@ extensions: {
                 path: temp_dir("absolute-extension-path").display().to_string(),
             },
             enabled: true,
+            route_prefix: None,
         };
         let traversal = ExtensionInstallConfig {
             id: "checks".to_string(),
@@ -4926,6 +4930,7 @@ extensions: {
                 path: "../ext_checks".to_string(),
             },
             enabled: true,
+            route_prefix: None,
         };
 
         let absolute_error =
@@ -4947,6 +4952,7 @@ extensions: {
                 path: "ext_checks".to_string(),
             },
             enabled: false,
+            route_prefix: None,
         }];
 
         let runtime =
@@ -4975,6 +4981,7 @@ extensions: {
                 reference: OciReference::Tag("v1.0.0".to_string()),
             },
             enabled: true,
+            route_prefix: None,
         }];
 
         let error =

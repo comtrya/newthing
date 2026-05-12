@@ -698,6 +698,7 @@ mod tests {
                 reference: OciReference::Tag("v1.0.0".to_string()),
             },
             enabled: true,
+            route_prefix: None,
         });
         config.validate().unwrap();
     }
@@ -712,6 +713,7 @@ mod tests {
                     path: "extensions/first-party/ext_checks".to_string(),
                 },
                 enabled: true,
+                route_prefix: None,
             });
         }
         let err = config.validate().unwrap_err();
@@ -729,6 +731,7 @@ mod tests {
                 reference: OciReference::Tag("".to_string()),
             },
             enabled: true,
+            route_prefix: None,
         };
         let err = cfg.validate().unwrap_err();
         assert_eq!(err.code, ErrorCode::ConfigInvalid);

@@ -44,6 +44,31 @@ pub struct ExtensionInstallConfig {
     pub id: String,
     pub source: ExtensionSource,
     pub enabled: bool,
+    /// Optional URL route prefix under `/x/<prefix>/` for this extension's UI.
+    /// Must match `[a-z][a-z0-9-]*` and must not be a reserved host prefix.
+    pub route_prefix: Option<String>,
+}
+
+pub const RESERVED_ROUTE_PREFIXES: &[&str] = &[
+    "r", "x", "_extensions", "api", "auth", "git",
+    "graphql", "events", "readyz", "healthz", "instance",
+];
+
+fn validate_route_prefix(prefix: &str) -> Result<(), String> {
+    let mut chars = prefix.chars();
+    let first = chars.next().ok_or_else(|| "route_prefix must not be empty".to_string())?;
+    if !first.is_ascii_lowercase() {
+        return Err(format!("route_prefix must start with a-z, got '{first}'"));
+    }
+    for c in chars {
+        if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+            return Err(format!("route_prefix must match [a-z][a-z0-9-]*, found '{c}'"));
+        }
+    }
+    if RESERVED_ROUTE_PREFIXES.contains(&prefix) {
+        return Err(format!("route_prefix '{prefix}' is reserved by the host"));
+    }
+    Ok(())
 }
 
 impl ExtensionInstallConfig {
@@ -52,9 +77,11 @@ impl ExtensionInstallConfig {
             return Err(CoreError::config_invalid("extension id must be non-empty"));
         }
         match &self.source {
-            ExtensionSource::Local { path } if path.trim().is_empty() => Err(
-                CoreError::config_invalid("extension local path must be non-empty"),
-            ),
+            ExtensionSource::Local { path } if path.trim().is_empty() => {
+                return Err(CoreError::config_invalid(
+                    "extension local path must be non-empty",
+                ));
+            }
             ExtensionSource::Oci {
                 registry,
                 image,
@@ -70,10 +97,14 @@ impl ExtensionInstallConfig {
                         "extension OCI reference (tag or digest) must be non-empty",
                     ));
                 }
-                Ok(())
             }
-            _ => Ok(()),
+            _ => {}
         }
+        if let Some(prefix) = &self.route_prefix {
+            validate_route_prefix(prefix)
+                .map_err(|e| CoreError::config_invalid(e))?;
+        }
+        Ok(())
     }
 }
 
@@ -2621,5 +2652,60 @@ mod tests {
         assert!(WIT_SKETCH.contains("host-git"));
         assert!(WIT_SKETCH.contains("host-secrets"));
         assert!(WIT_SKETCH.contains("host-jobs"));
+    }
+
+    #[test]
+    fn route_prefix_accepts_valid_slug() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: Some("pulls".into()),
+        };
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn route_prefix_rejects_reserved_name() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: Some("r".into()),
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn route_prefix_rejects_invalid_chars() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: Some("With/Slash".into()),
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn route_prefix_rejects_starting_with_digit() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: Some("9abc".into()),
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn route_prefix_allows_none() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: None,
+        };
+        assert!(cfg.validate().is_ok());
     }
 }
