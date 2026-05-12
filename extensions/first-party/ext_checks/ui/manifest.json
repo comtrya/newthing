@@ -1,24 +1,17 @@
 {
-  "schemaVersion": "comtrya.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v2",
   "id": "ext_checks",
   "extension": "checks",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_checks/assets/index.js",
-    "entryIntegrity": "sha256-45cb417aaefdd7313491220036b8f96873b815d6d9f033474fbf0c58dadd4b3e",
+    "entryIntegrity": "sha256-0ac0019628747cd96260d3835f8603433fe75c7ae9a15dc83f26246da8e015e5",
     "styles": []
   },
-  "routes": [
-    {
-      "path": "/comtrya/comtrya",
-      "element": "comtrya-checks-board",
-      "requiredPermission": "checks:read"
-    }
-  ],
-  "slots": [
-    {
-      "slot": "repository.checks",
-      "element": "comtrya-checks-board",
-      "requiredPermission": "checks:read"
-    }
-  ]
+  "permissions": ["checks.read"],
+  "contributes": {
+    "slots": ["repository.checks"],
+    "routes": true
+  }
 }

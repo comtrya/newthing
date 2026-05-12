@@ -10,6 +10,7 @@
   "ui": {
     "manifest": "ui/manifest.json"
   },
+  "routePrefix": "checks",
   "runtime": {
     "resolver": "resolve",
     "outputType": "comtrya.checks/summary.v1"
