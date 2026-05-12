@@ -847,6 +847,45 @@ expect_status "Git receive-pack fails closed through Astro" 501 "$TMP_DIR/git-re
 json_assert "Git receive-pack fails closed through Astro" "$TMP_DIR/git-receive-pack.json" \
   'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "git_receive_pack" && json.errors[0].message.includes("receive-pack")'
 
+expect_status "workspace homepage renders" 200 "$TMP_DIR/home.html" \
+  "$FRONTEND_URL/"
+expect_contains "workspace homepage has home-shell mount" "$TMP_DIR/home.html" \
+  'data-smoke="home-shell"'
+
+REPO_STATUS="$(curl -sS -o "$TMP_DIR/repo-two-segment.html" -w '%{http_code}' "$FRONTEND_URL/r/comtrya/comtrya")" \
+  || fail "repo route request failed"
+if [[ "$REPO_STATUS" == "200" ]]; then
+  expect_contains "/r/comtrya/comtrya has repo-dashboard mount" "$TMP_DIR/repo-two-segment.html" \
+    'data-smoke="repo-dashboard"'
+  log "ok - /r/comtrya/comtrya returns 200 (seed two-segment)"
+elif [[ "$REPO_STATUS" == "404" ]]; then
+  expect_status "/r/comtrya resolves (single-segment fallback)" 200 "$TMP_DIR/repo-one-segment.html" \
+    "$FRONTEND_URL/r/comtrya"
+  expect_contains "/r/comtrya has repo-dashboard mount" "$TMP_DIR/repo-one-segment.html" \
+    'data-smoke="repo-dashboard"'
+  log "ok - /r/comtrya returns 200 (single-segment)"
+else
+  fail "unexpected status from /r/comtrya/comtrya: $REPO_STATUS"
+fi
+
+expect_status "unknown repo path returns 404" 404 "$TMP_DIR/repo-unknown.html" \
+  "$FRONTEND_URL/r/no-such-repo-anywhere"
+
+expect_status "/x/pulls/ mounts extension page" 200 "$TMP_DIR/ext-pulls.html" \
+  "$FRONTEND_URL/x/pulls/"
+expect_contains "/x/pulls/ has extension-page mount" "$TMP_DIR/ext-pulls.html" \
+  'data-smoke="extension-page"'
+
+expect_status "unknown /x/ prefix returns 404" 404 "$TMP_DIR/ext-bogus.html" \
+  "$FRONTEND_URL/x/bogus-not-installed/"
+
+INSTANCE_LOCATION="$(curl -sSI "$FRONTEND_URL/instance" -w '' 2>/dev/null | grep -i '^location:' | awk '{print $2}' | tr -d '\r\n')" \
+  || true
+if ! echo "$INSTANCE_LOCATION" | grep -q '#instance'; then
+  fail "/instance did not redirect to /#instance, got location: $INSTANCE_LOCATION"
+fi
+log "ok - /instance redirects to /#instance"
+
 log "end-to-end production-testbed smoke passed"
 
 if [[ "$ONESHOT" == "1" ]]; then
