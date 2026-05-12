@@ -2784,13 +2784,6 @@ pub struct UiContributesV2 {
     pub routes: bool,
 }
 
-pub fn validate_ui_manifest_at(path: &std::path::Path) -> Result<UiManifestV2, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)
-        .map_err(|e| format!("parse {}: {e}", path.display()))?;
-    validate_ui_manifest_from_value(&value)
-}
-
 pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiManifestV2, String> {
     // Probe schema version first via the raw value so we can produce a
     // version-specific error even if the rest of the shape doesn't match v2.
@@ -3805,6 +3798,36 @@ mod tests {
         )
     }
 
+    /// Like `dev_runtime` but with an empty extensions config so the on-disk
+    /// v1 manifests are never loaded.  Use this for tests that exercise auth,
+    /// CORS, git, GraphQL core fields, or other concerns orthogonal to the
+    /// extension manifest format.
+    fn dev_runtime_no_extensions() -> Arc<Runtime> {
+        dev_runtime_no_extensions_with_session_ttl(300)
+    }
+
+    fn dev_runtime_no_extensions_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
+        // Write a minimal config with an explicit (empty) extensions block so
+        // that extension_config_declared = true and no WASM packages are loaded.
+        let config_dir = temp_dir("dev-no-ext-cfg");
+        let config_path = config_dir.join("config.cue");
+        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
+        Arc::new(
+            Runtime::start(StartupOptions {
+                config_path: Some(config_path),
+                data_dir: temp_dir("dev-no-ext"),
+                extension_dir: test_extension_dir(),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                check: false,
+                tls_terminated: false,
+                operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds,
+                external_demo: false,
+            })
+            .unwrap(),
+        )
+    }
+
     fn bearer_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -3815,10 +3838,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn readyz_reports_runtime_checks() {
         let state = AppState {
-            runtime: dev_runtime(),
+            runtime: dev_runtime_no_extensions(),
             git_state: PureRustGitState::test_default(),
         };
         let response = readyz(State(state), HeaderMap::new()).await;
@@ -3927,10 +3949,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn unsupported_routes_return_registry_errors() {
         let state = AppState {
-            runtime: dev_runtime(),
+            runtime: dev_runtime_no_extensions(),
             git_state: PureRustGitState::test_default(),
         };
 
@@ -3960,10 +3981,9 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn disallowed_origin_is_forbidden() {
         let state = AppState {
-            runtime: dev_runtime(),
+            runtime: dev_runtime_no_extensions(),
             git_state: PureRustGitState::test_default(),
         };
         let mut headers = HeaderMap::new();
@@ -3974,9 +3994,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn session_token_is_single_use_for_events() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
         let mut query = HashMap::new();
         query.insert("session".to_string(), token.clone());
@@ -4080,9 +4099,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn expired_session_token_fails_closed_for_events() {
-        let runtime = dev_runtime_with_session_ttl(0);
+        let runtime = dev_runtime_no_extensions_with_session_ttl(0);
         let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
         let mut query = HashMap::new();
         query.insert("session".to_string(), token);
@@ -4387,9 +4405,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn token_exchange_issues_short_lived_testbed_credential() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let request = TokenExchangeRequest {
             grant_type: "urn:comtrya:grant:operator-code".to_string(),
             subject_token: "testbed-operator-code".to_string(),
@@ -4414,9 +4431,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn git_endpoint_serves_upload_pack_after_auth() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let git_state = PureRustGitState::from_runtime(&runtime);
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
@@ -4440,9 +4456,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn git_upload_pack_fails_closed_without_auth_or_scope() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let no_token_response = git_endpoint(
             State(AppState {
                 runtime: runtime.clone(),
@@ -4524,9 +4539,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn git_endpoint_rejects_path_traversal_after_auth() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
@@ -4556,9 +4570,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn git_receive_pack_returns_unsupported_registry_error() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["git:read".to_string()],
@@ -4610,9 +4623,8 @@ extensions: {}
     }
 
     #[tokio::test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn graphql_response_exposes_typed_repository_fields() {
-        let runtime = dev_runtime();
+        let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["graphql:read".to_string()],
