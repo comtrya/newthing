@@ -905,7 +905,7 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     graphql_response(state, headers, payload)
 }
 
-fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Response {
+fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match state.runtime.check_boundary(&headers, "/graphql") {
         Ok(cors) => cors,
         Err(response) => return response,
@@ -936,6 +936,36 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
     };
     let repository = typed_repository_payload(&demo);
     let capabilities = InstanceCapabilities::v1();
+
+    // Resolve workspace.repositoryByPath from query variables if provided.
+    let repositories_value = demo.get("repositories").cloned().unwrap_or_else(|| json!([]));
+    let path_segments: Vec<String> = payload
+        .get("variables")
+        .and_then(|v| v.get("segments"))
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    let repository_by_path =
+        resolve_repository_by_path(&repositories_value, &path_segments)
+            .unwrap_or(json!(null));
+
+    // Build the workspace object enriched with the repositoryByPath resolver result.
+    let workspace = {
+        let mut ws = demo
+            .get("workspace")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if let Some(obj) = ws.as_object_mut() {
+            obj.insert("repositoryByPath".to_string(), repository_by_path);
+        }
+        ws
+    };
+
     json_response(
         StatusCode::OK,
         json!({
@@ -967,9 +997,9 @@ fn graphql_response(state: AppState, headers: HeaderMap, _payload: Value) -> Res
                         "extensionRuntime": capabilities.extension_runtime
                     }
                 },
-                "workspace": demo.get("workspace").cloned().unwrap_or_else(|| json!(null)),
+                "workspace": workspace,
                 "repository": repository,
-                "repositories": demo.get("repositories").cloned().unwrap_or_else(|| json!([])),
+                "repositories": repositories_value,
                 "extensionInstallations": demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
                 "extensionResolvers": demo.get("extensionResolvers").cloned().unwrap_or_else(|| json!([])),
                 "activityEvents": demo.get("activity").cloned().unwrap_or_else(|| json!([])),
@@ -1507,6 +1537,25 @@ fn repository_collection_payload(live_repository: &Value, stored_repositories: &
     }
 
     Value::Array(repositories)
+}
+
+/// Resolve a repository from a flat JSON repositories array by URL path segments.
+///
+/// `repositories` must be a `Value::Array` of repository objects each carrying
+/// a `"path"` field (e.g. `"comtrya/comtrya"`).  The segments slice is joined
+/// with `/` and compared against that field.  Returns `None` when `segments` is
+/// empty, when `repositories` is not an array, or when no match is found.
+pub fn resolve_repository_by_path(repositories: &Value, segments: &[String]) -> Option<Value> {
+    if segments.is_empty() {
+        return None;
+    }
+    let path = segments.join("/");
+    repositories.as_array()?.iter().find(|repo| {
+        repo.get("path")
+            .and_then(Value::as_str)
+            .map(|p| p == path)
+            .unwrap_or(false)
+    }).cloned()
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
@@ -5256,5 +5305,114 @@ extensions: {
         assert!(result.is_err());
         let msg = result.unwrap_err();
         assert!(msg.contains("pulls"), "error should name the duplicated prefix, got: {msg}");
+    }
+
+    /// Build a minimal repositories JSON array that mirrors the demo seed shape.
+    fn demo_repositories() -> Value {
+        json!([
+            {
+                "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                "owner": "comtrya",
+                "name": "comtrya",
+                "path": "comtrya/comtrya",
+                "visibility": "PRIVATE"
+            }
+        ])
+    }
+
+    #[test]
+    fn repository_by_path_resolves_demo_repo() {
+        let repos = demo_repositories();
+        let resolved = resolve_repository_by_path(
+            &repos,
+            &["comtrya".to_string(), "comtrya".to_string()],
+        );
+        assert!(resolved.is_some(), "expected to find comtrya/comtrya");
+        assert_eq!(
+            resolved.as_ref().unwrap().get("name").and_then(Value::as_str),
+            Some("comtrya")
+        );
+    }
+
+    #[test]
+    fn repository_by_path_returns_none_for_unknown_path() {
+        let repos = demo_repositories();
+        let resolved = resolve_repository_by_path(
+            &repos,
+            &["nothing".to_string()],
+        );
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn repository_by_path_returns_none_for_empty_segments() {
+        let repos = demo_repositories();
+        let resolved = resolve_repository_by_path(&repos, &[]);
+        assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn graphql_workspace_repository_by_path_resolves_via_variables() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($segments: [String!]!) { workspace { repositoryByPath(segments: $segments) { id name } } }",
+                "variables": { "segments": ["comtrya", "comtrya"] }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        let repo = &payload["data"]["workspace"]["repositoryByPath"];
+        assert!(!repo.is_null(), "repositoryByPath should resolve for comtrya/comtrya");
+        assert_eq!(repo["name"], "comtrya");
+    }
+
+    #[tokio::test]
+    async fn graphql_workspace_repository_by_path_returns_null_for_unknown() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($segments: [String!]!) { workspace { repositoryByPath(segments: $segments) { id } } }",
+                "variables": { "segments": ["does-not-exist"] }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        assert!(
+            payload["data"]["workspace"]["repositoryByPath"].is_null(),
+            "repositoryByPath should be null for an unknown path"
+        );
     }
 }
