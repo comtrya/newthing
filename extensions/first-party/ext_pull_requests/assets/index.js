@@ -52,10 +52,18 @@ class ComtryaPullsOverview extends HTMLElement {
   }
 }
 
-customElements.define("comtrya-pulls-queue", ComtryaPullsQueue);
-customElements.define("comtrya-pulls-detail", ComtryaPullsDetail);
-customElements.define("comtrya-pulls-your-work", ComtryaPullsYourWork);
-customElements.define("comtrya-pulls-overview", ComtryaPullsOverview);
+if (!customElements.get("comtrya-pulls-queue")) {
+  customElements.define("comtrya-pulls-queue", ComtryaPullsQueue);
+}
+if (!customElements.get("comtrya-pulls-detail")) {
+  customElements.define("comtrya-pulls-detail", ComtryaPullsDetail);
+}
+if (!customElements.get("comtrya-pulls-your-work")) {
+  customElements.define("comtrya-pulls-your-work", ComtryaPullsYourWork);
+}
+if (!customElements.get("comtrya-pulls-overview")) {
+  customElements.define("comtrya-pulls-overview", ComtryaPullsOverview);
+}
 
 export default defineExtension({
   id: "ext_pull_requests",
