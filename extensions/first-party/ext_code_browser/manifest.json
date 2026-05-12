@@ -5,6 +5,7 @@
   "displayName": "Code Browser",
   "version": "0.1.0",
   "publisher": "comtrya-dev",
+  "routePrefix": "code",
   "wasmComponent": "component.wat",
   "witWorld": "comtrya:extension/extension",
   "ui": {
