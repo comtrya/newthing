@@ -111,6 +111,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 ## 4. Build Real Pull Request Extension
 
+- **Partial**: first-party `ext_pull_requests` UI and SDK bindings are wired; OCI distribution of the extension package is still pending.
 - Define a pull request data model in runtime storage:
   - repository id,
   - PR number,
@@ -216,6 +217,7 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 
 ## 8. Make The Frontend A Real Extension Host
 
+- ~~Astro shell → real extension host~~ **Done**: extension host elements are created from runtime extension installations and UI manifest slot declarations; the workspace homepage (`/`) composes from slot contributions; the `/r/<group>/<...>/<repo>` and `/x/<prefix>/<...>` route namespaces are active.
 - Reduce host UI to navigation, layout, auth/session management, extension loading, and shared primitives.
 - Move code browser surface rendering into the code browser extension.
 - Move PR surface rendering into the pull request extension.
@@ -344,3 +346,13 @@ No visible product data should come from inline JS constants, fixture-only JSON,
 5. Add structured smoke assertions that prove UI data matches Git/storage/resolver output.
 6. Decide whether stage demo remains read-only Git or must support push/receive-pack.
 7. Remove remaining fixture-only product paths after seeding writes through real storage.
+
+## V3 Follow-Up Items
+
+- **Per-viewer slot-binding override config (v2)**: allow operators to remap which extension fills a given slot at config time without redeploying.
+- **Full `/instance` page with `instance.*` slot taxonomy**: define the canonical slot names for the workspace/instance homepage and document expected contributor contracts.
+- **Command palette (⌘K) contribution kind via SDK**: add a `commandPalette` contribution kind so extensions can register commands discoverable through ⌘K.
+- **Federated GraphQL planner (V3_PLAN item 9)**: flip `aggregated: true` → `aggregated: false` on the repository query once the federated planner lands and the field is stitched at the gateway layer.
+- **Reactivate 15 ignored server tests**: after smoke verifies extensions load correctly from disk under the new host, re-enable the tests currently marked `#[ignore]`.
+- **Serve `@comtrya/extension-host` SDK to the browser**: currently each extension inlines its own copy of `defineExtension`; publish the SDK as a shared module served by the host to avoid version skew.
+- **Migrate seed repo path from `comtrya/comtrya` to single-segment `comtrya`**: the demo seed uses a two-segment `comtrya/comtrya` path; migrate to a top-level single-segment `comtrya` repo once multi-segment routing is fully exercised.

@@ -1,5 +1,7 @@
 # Production Testbed
 
+> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>` (single-tenant, infinitely nested groups). Extension-owned pages at `/x/<prefix>/<...>`. Workspace homepage at `/`.
+
 The production testbed runtime is a safe, runnable single-node target for exercising Comtrya's production posture while the full v1 implementation is still being built.
 
 It is intentionally fail-closed: unsupported SPEC surfaces do not return fake success. Readiness reports those unsupported surfaces explicitly.

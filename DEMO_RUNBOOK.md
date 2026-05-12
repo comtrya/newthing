@@ -1,5 +1,7 @@
 # Comtrya Demo Operator Runbook
 
+> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>` (single-tenant, infinitely nested groups). Extension-owned pages at `/x/<prefix>/<...>`. Workspace homepage at `/`.
+
 This runbook is for the local production-testbed demo.
 
 ## Clean Reset
@@ -47,7 +49,9 @@ COMTRYA_FRONTEND_LISTEN=127.0.0.1:4321 \
 
 ## URLs
 
-- Frontend: `http://127.0.0.1:4321/`
+- Workspace homepage: `http://127.0.0.1:4321/`
+- Seeded repository: `http://127.0.0.1:4321/r/comtrya/comtrya`
+- Extension-owned pages: `http://127.0.0.1:4321/x/<prefix>/<...>`
 - Rust server: `http://127.0.0.1:8080/`
 - Server readiness through the frontend: `http://127.0.0.1:4321/readyz`
 - Direct server readiness: `http://127.0.0.1:8080/readyz`
@@ -95,7 +99,7 @@ Important generated paths:
 - `metadata/demo-state.json`: copied seed input.
 - `metadata/events.jsonl`: runtime event log.
 - `metadata/audit.jsonl`: runtime audit log.
-- `repositories/comtrya/comtrya.git`: seeded bare Git repository.
+- `repositories/comtrya/comtrya.git`: seeded bare Git repository (served at `/r/comtrya/comtrya`).
 - `metadata/demo-repository-workdir`: temporary seed worktree.
 - `extensions/storage/schema.json`: extension storage schema.
 - `extensions/storage/documents.jsonl`: extension storage documents.
