@@ -47,9 +47,10 @@ export function createHostFacade(
       if (!allowlist.permissions.has(contribution.requiredPermission)) {
         throw new Error(`permission "${contribution.requiredPermission}" is not declared by ${allowlist.extensionId}`);
       }
+      const routePrefix = allowlist.routePrefix;
       const route: ResolvedRoute = {
         extensionId: allowlist.extensionId,
-        routePrefix: allowlist.routePrefix,
+        routePrefix,
         path,
         element: contribution.element,
         requiredPermission: contribution.requiredPermission,

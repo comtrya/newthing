@@ -82,4 +82,28 @@ describe("createHostFacade", () => {
     expect(KNOWN_SLOT_NAMES.has("home.your-work")).toBe(true);
     expect(KNOWN_SLOT_NAMES.has("bogus" as never)).toBe(false);
   });
+
+  test("registerRoute dispose removes route from sink", () => {
+    const routes: import("./types").ResolvedRoute[] = [];
+    const facade = createHostFacade(
+      allowlist({ routePrefix: "pulls", routesAllowed: true, permissions: new Set(["pull-requests.read"]) }),
+      registry, routes, STUB_CLIENT, STUB_VIEWER, STUB_CAPS
+    );
+    const disp = facade.registerRoute("/:id", { element: "x", requiredPermission: "pull-requests.read" });
+    expect(routes).toHaveLength(1);
+    disp.dispose();
+    expect(routes).toHaveLength(0);
+  });
+
+  test("registerRoute double-dispose is safe", () => {
+    const routes: import("./types").ResolvedRoute[] = [];
+    const facade = createHostFacade(
+      allowlist({ routePrefix: "pulls", routesAllowed: true, permissions: new Set(["pull-requests.read"]) }),
+      registry, routes, STUB_CLIENT, STUB_VIEWER, STUB_CAPS
+    );
+    const disp = facade.registerRoute("/:id", { element: "x", requiredPermission: "pull-requests.read" });
+    disp.dispose();
+    expect(() => disp.dispose()).not.toThrow();
+    expect(routes).toHaveLength(0);
+  });
 });
