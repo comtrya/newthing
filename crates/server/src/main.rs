@@ -784,6 +784,36 @@ fn filter_extension_installations(
     )
 }
 
+/// Enrich an `extensionInstallations` array with the `routePrefix` field
+/// sourced from the server-side [`ExtensionInstallConfig`] for each extension.
+/// Extensions without a configured `route_prefix` receive `null`.
+fn inject_route_prefix(
+    extensions: Value,
+    configs: &[ExtensionInstallConfig],
+) -> Value {
+    let Value::Array(items) = extensions else {
+        return extensions;
+    };
+    Value::Array(
+        items
+            .into_iter()
+            .map(|mut ext| {
+                let route_prefix = ext
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|id| configs.iter().find(|c| c.id == id))
+                    .and_then(|c| c.route_prefix.as_deref())
+                    .map(|p| json!(p))
+                    .unwrap_or(json!(null));
+                if let Some(obj) = ext.as_object_mut() {
+                    obj.insert("routePrefix".to_string(), route_prefix);
+                }
+                ext
+            })
+            .collect(),
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum PrincipalStatus {
     Anonymous,
@@ -1000,7 +1030,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 "workspace": workspace,
                 "repository": repository,
                 "repositories": repositories_value,
-                "extensionInstallations": demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
+                "extensionInstallations": inject_route_prefix(
+                    demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
+                    &state.runtime.config.extensions,
+                ),
                 "extensionResolvers": demo.get("extensionResolvers").cloned().unwrap_or_else(|| json!([])),
                 "activityEvents": demo.get("activity").cloned().unwrap_or_else(|| json!([])),
                 "demo": demo
@@ -5414,5 +5447,83 @@ extensions: {
             payload["data"]["workspace"]["repositoryByPath"].is_null(),
             "repositoryByPath should be null for an unknown path"
         );
+    }
+
+    #[test]
+    fn inject_route_prefix_adds_null_when_no_config() {
+        let extensions = json!([
+            { "id": "ext_checks", "status": "enabled" },
+            { "id": "ext_pull_requests", "status": "enabled" }
+        ]);
+        let configs: Vec<ExtensionInstallConfig> = vec![];
+        let result = inject_route_prefix(extensions, &configs);
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items[0]["routePrefix"].is_null());
+        assert!(items[1]["routePrefix"].is_null());
+    }
+
+    #[test]
+    fn inject_route_prefix_adds_configured_value() {
+        let extensions = json!([
+            { "id": "ext_a", "status": "enabled" },
+            { "id": "ext_b", "status": "enabled" }
+        ]);
+        let configs = vec![
+            ExtensionInstallConfig {
+                id: "ext_a".into(),
+                source: ExtensionSource::Local { path: "ext_a".into() },
+                enabled: true,
+                route_prefix: Some("pulls".into()),
+            },
+            ExtensionInstallConfig {
+                id: "ext_b".into(),
+                source: ExtensionSource::Local { path: "ext_b".into() },
+                enabled: true,
+                route_prefix: None,
+            },
+        ];
+        let result = inject_route_prefix(extensions, &configs);
+        let items = result.as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["routePrefix"], "pulls");
+        assert!(items[1]["routePrefix"].is_null());
+    }
+
+    #[tokio::test]
+    async fn graphql_extension_installations_exposes_route_prefix() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({"query": "{ extensionInstallations { id routePrefix } }"}).to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+
+        // dev_runtime_no_extensions has extensions: {} so the list is empty.
+        // The field must be present (an array) and every entry (if any) must
+        // have a "routePrefix" key.
+        let installs = payload["data"]["extensionInstallations"]
+            .as_array()
+            .expect("extensionInstallations should be an array");
+        for item in installs {
+            assert!(
+                item.as_object().unwrap().contains_key("routePrefix"),
+                "each entry must carry routePrefix"
+            );
+        }
     }
 }
