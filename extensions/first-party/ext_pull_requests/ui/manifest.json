@@ -1,24 +1,17 @@
 {
-  "schemaVersion": "comtrya.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v2",
   "id": "ext_pull_requests",
   "extension": "pull-requests",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_pull_requests/assets/index.js",
-    "entryIntegrity": "sha256-77316efd86a5135ac78306401cd2567fd591646bb123da799d86d1fe3165ade8",
+    "entryIntegrity": "sha256-eb4bb5bcff725cc86698212c988553bd776e82f07485c3ddd08f37345b04393c",
     "styles": []
   },
-  "routes": [
-    {
-      "path": "/comtrya/comtrya",
-      "element": "comtrya-pull-requests",
-      "requiredPermission": "pull-requests.read"
-    }
-  ],
-  "slots": [
-    {
-      "slot": "repository.overview",
-      "element": "comtrya-pull-requests",
-      "requiredPermission": "pull-requests.read"
-    }
-  ]
+  "permissions": ["pull-requests.read"],
+  "contributes": {
+    "slots": ["home.your-work", "repository.overview"],
+    "routes": true
+  }
 }

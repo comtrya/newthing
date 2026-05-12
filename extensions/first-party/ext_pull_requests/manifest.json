@@ -7,11 +7,7 @@
   "publisher": "comtrya-dev",
   "wasmComponent": "component.wat",
   "witWorld": "comtrya:extension/extension",
-  "ui": {
-    "manifest": "ui/manifest.json"
-  },
-  "runtime": {
-    "resolver": "resolve",
-    "outputType": "comtrya.pull-requests/summary.v1"
-  }
+  "routePrefix": "pulls",
+  "ui": { "manifest": "ui/manifest.json" },
+  "runtime": { "resolver": "resolve", "outputType": "comtrya.pull-requests/summary.v1" }
 }
