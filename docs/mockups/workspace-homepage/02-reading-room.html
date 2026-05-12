@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comtrya · Reading Room · workspace homepage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #fafaf7;
+        --bg-paper: #ffffff;
+        --bg-sunk: #f1efe9;
+        --rule: #e6e1d6;
+        --rule-strong: #c8c2b3;
+        --ink: #1a1b1e;
+        --ink-soft: #4a4c52;
+        --ink-faint: #7c7e84;
+        --serif-tint: #6a4a2e;
+        --ok: #1f7a3a;
+        --warn: #a3621a;
+        --err: #a82b2b;
+        --info: #2e5fb8;
+
+        --sans: "IBM Plex Sans", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+        --serif: "Fraunces", "IBM Plex Serif", serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+      a { color: var(--ink); text-decoration: none; }
+      a:hover { color: var(--info); }
+      code, .mono { font-family: var(--mono); font-size: 12.5px; font-weight: 400; }
+      kbd { font-family: var(--mono); font-size: 11px; border: 1px solid var(--rule); padding: 1px 5px; border-radius: 2px; color: var(--ink-soft); background: var(--bg-paper); }
+      .eyebrow { font-family: var(--serif); font-style: italic; font-weight: 500; font-size: 13px; color: var(--serif-tint); font-variation-settings: "opsz" 14; }
+
+      .shell { display: grid; grid-template-rows: 56px 1fr; min-height: 100vh; }
+
+      /* Topbar */
+      .topbar { display: grid; grid-template-columns: 300px 1fr auto; align-items: center; padding: 0 28px; border-bottom: 1px solid var(--rule); background: var(--bg-paper); gap: 28px; }
+      .brand { display: flex; align-items: baseline; gap: 12px; }
+      .brand .wordmark { font-family: var(--serif); font-weight: 500; font-size: 22px; font-variation-settings: "opsz" 144; letter-spacing: -0.01em; }
+      .brand .wordmark span { color: var(--serif-tint); font-style: italic; }
+      .brand .meta { color: var(--ink-faint); font-size: 12px; }
+      .cmdk { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--rule-strong); padding: 6px 4px; max-width: 540px; }
+      .cmdk input { background: transparent; border: 0; outline: none; flex: 1; font-family: var(--sans); font-size: 14px; color: var(--ink); }
+      .cmdk input::placeholder { color: var(--ink-faint); font-style: italic; font-family: var(--serif); font-weight: 400; }
+      .cmdk .label { font-family: var(--serif); font-style: italic; color: var(--serif-tint); font-size: 13px; }
+      .topbar-actions { display: flex; gap: 14px; align-items: center; }
+      .state { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+      .state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+      .state.warn::before { background: var(--warn); }
+      .state.err::before { background: var(--err); }
+
+      /* Layout */
+      .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 56px); }
+      .sidebar { padding: 28px 22px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 30px; background: var(--bg); }
+      .sidebar h4 { font-family: var(--serif); font-weight: 500; font-style: italic; font-size: 14px; margin: 0; color: var(--serif-tint); font-variation-settings: "opsz" 14; }
+      .workspace { display: flex; flex-direction: column; gap: 4px; }
+      .workspace strong { font-size: 18px; font-family: var(--serif); font-weight: 500; font-variation-settings: "opsz" 36"; letter-spacing: -0.005em; }
+      .workspace span { color: var(--ink-faint); font-size: 12px; }
+      .nav { display: flex; flex-direction: column; gap: 0; }
+      .nav-section { display: flex; flex-direction: column; gap: 0; }
+      .nav-section + .nav-section { margin-top: 18px; }
+      .nav-section .label { font-family: var(--serif); font-style: italic; font-size: 12px; color: var(--serif-tint); padding: 6px 0 4px; }
+      .nav a { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; color: var(--ink-soft); border-bottom: 1px solid transparent; }
+      .nav a.active { color: var(--ink); border-bottom-color: var(--rule); }
+      .nav a:hover { color: var(--ink); }
+      .nav a .k { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+
+      .viewer { margin-top: auto; }
+      .viewer .name { font-family: var(--serif); font-weight: 500; font-size: 15px; }
+      .viewer .perms { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); }
+
+      /* Main */
+      .main { padding: 38px 48px 80px; max-width: 1480px; }
+
+      .ds-header { margin-bottom: 36px; display: flex; align-items: baseline; gap: 18px; }
+      .ds-header .num { font-family: var(--serif); font-style: italic; font-weight: 500; color: var(--serif-tint); font-size: 22px; font-variation-settings: "opsz" 24; }
+      .ds-header .title { font-family: var(--serif); font-weight: 500; font-size: 28px; font-variation-settings: "opsz" 36; letter-spacing: -0.01em; }
+      .ds-header .kind { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-left: auto; letter-spacing: 0.08em; text-transform: uppercase; }
+
+      .pagehead { border-top: 1px solid var(--rule-strong); border-bottom: 1px solid var(--rule); padding: 22px 0 18px; margin-bottom: 26px; display: flex; align-items: flex-end; justify-content: space-between; }
+      .pagehead .title-block { display: flex; flex-direction: column; gap: 4px; }
+      .pagehead h1 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 36px; line-height: 1.05; font-variation-settings: "opsz" 96; letter-spacing: -0.015em; }
+      .pagehead .lede { color: var(--ink-faint); font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 15px; }
+      .pagehead .meta { display: flex; flex-direction: column; gap: 3px; text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+
+      .grid { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: 36px; align-items: start; }
+
+      .section { display: flex; flex-direction: column; gap: 0; }
+      .section + .section { margin-top: 28px; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; padding: 0 0 8px; border-bottom: 1px solid var(--rule-strong); }
+      .section-head .lhs { display: flex; align-items: baseline; gap: 14px; }
+      .section-head .roman { font-family: var(--serif); font-style: italic; font-size: 18px; color: var(--serif-tint); font-variation-settings: "opsz" 24; }
+      .section-head h2 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 21px; font-variation-settings: "opsz" 36; letter-spacing: -0.005em; }
+      .section-head .count { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+
+      .row { display: grid; grid-template-columns: 1fr auto auto; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+      .row .title { font-size: 14.5px; line-height: 1.35; }
+      .row .sub { color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; margin-top: 3px; }
+      .row .sub .author { color: var(--ink-soft); }
+      .row .time { color: var(--ink-faint); font-family: var(--mono); font-size: 11.5px; min-width: 38px; text-align: right; }
+      .check { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+      .check::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+      .check.warn::before { background: var(--warn); }
+      .check.err::before { background: var(--err); }
+      .check.info::before { background: var(--info); }
+
+      /* Right rail */
+      .rail { display: flex; flex-direction: column; gap: 28px; }
+      .rail .card { display: flex; flex-direction: column; }
+      .rail .card-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 0 8px; border-bottom: 1px solid var(--rule-strong); }
+      .rail .card-head h3 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 18px; font-variation-settings: "opsz" 24; letter-spacing: -0.005em; }
+      .rail .card-head .count { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
+
+      .filter { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+      .filter input { background: transparent; border: 0; outline: none; flex: 1; font-family: var(--mono); font-size: 12.5px; }
+      .filter input::placeholder { color: var(--ink-faint); font-family: var(--serif); font-style: italic; }
+
+      .repo { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+      .repo .name { font-family: var(--mono); font-size: 12.5px; }
+      .repo .name .prefix { color: var(--ink-faint); }
+      .repo .name .leaf { color: var(--ink); font-weight: 500; }
+      .repo .stats { display: flex; gap: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+      .repo .stats .ok { color: var(--ok); }
+      .repo .stats .warn { color: var(--warn); }
+
+      .activity .day { font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--serif-tint); padding: 14px 0 6px; border-bottom: 1px solid var(--rule); }
+      .activity .ev { display: grid; grid-template-columns: 1fr auto; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+      .activity .ev .summary { font-size: 13.5px; }
+      .activity .ev .src { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-left: 6px; }
+      .activity .ev .t { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+
+      .instance { margin-top: 28px; border-top: 1px solid var(--rule-strong); padding-top: 18px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+      .instance .header { display: flex; align-items: baseline; gap: 12px; }
+      .instance h3 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 18px; font-variation-settings: "opsz" 24; }
+      .instance .roman { color: var(--serif-tint); font-style: italic; font-family: var(--serif); font-size: 14px; }
+      .instance .stats { display: flex; gap: 22px; font-family: var(--mono); font-size: 12.5px; color: var(--ink-soft); }
+      .instance .stats .ok { color: var(--ok); }
+      .instance .clone { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: var(--bg-paper); border: 1px solid var(--rule); padding: 5px 9px; }
+
+      .ds-footer { margin-top: 56px; padding: 26px 0 0; border-top: 2px solid var(--ink); display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; }
+      .ds-footer h4 { font-family: var(--serif); font-weight: 500; font-style: italic; margin: 0 0 8px; font-size: 16px; color: var(--serif-tint); }
+      .ds-footer p { margin: 0; color: var(--ink-soft); font-size: 13px; }
+      .ds-footer .palette { display: flex; gap: 8px; margin-top: 10px; }
+      .ds-footer .swatch { width: 24px; height: 24px; border: 1px solid var(--rule-strong); }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="wordmark">Comtrya<span>.</span></span>
+          <span class="meta">a quiet forge</span>
+        </div>
+        <label class="cmdk">
+          <span class="label">Jump to</span>
+          <input type="search" placeholder="a repository, a pull, a ref…" />
+          <kbd>⌘K</kbd>
+        </label>
+        <div class="topbar-actions">
+          <span class="state">ready · 3 extensions</span>
+          <code>localhost:8443</code>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="workspace">
+            <span class="eyebrow">Workspace</span>
+            <strong>Comtrya Labs</strong>
+            <span>Single tenant · 8 repositories</span>
+          </div>
+
+          <nav class="nav">
+            <div class="nav-section">
+              <div class="label">workspace</div>
+              <a class="active" href="#"><span>Home</span><span class="k">g h</span></a>
+              <a href="#"><span>Activity</span><span class="k">g a</span></a>
+              <a href="#"><span>Extensions</span><span class="k">g e</span></a>
+              <a href="#"><span>Instance</span><span class="k">g i</span></a>
+            </div>
+            <div class="nav-section">
+              <div class="label">extensions</div>
+              <a href="#"><span>Pulls</span><span class="k">g p</span></a>
+              <a href="#"><span>Code</span><span class="k">g c</span></a>
+              <a href="#"><span>Checks</span><span class="k">g k</span></a>
+            </div>
+          </nav>
+
+          <div class="viewer">
+            <span class="eyebrow">Viewer</span>
+            <div class="name">David Flanagan</div>
+            <div class="perms">instance.admin · workspace.read</div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="ds-header">
+            <span class="num">02</span>
+            <span class="title">Reading Room</span>
+            <span class="kind">light · editorial · Fraunces / Plex Sans / JetBrains Mono</span>
+          </div>
+
+          <section class="pagehead">
+            <div class="title-block">
+              <h1>Workspace home</h1>
+              <span class="lede">Three reviews are waiting on you. Two checks are red on your branches.</span>
+            </div>
+            <div class="meta">
+              <span>/ · home</span>
+              <span>refreshed 14s ago</span>
+              <span>viewer: david@rawkode.academy</span>
+            </div>
+          </section>
+
+          <section class="grid">
+            <!-- Spine -->
+            <div>
+              <div class="section">
+                <div class="section-head">
+                  <div class="lhs"><span class="roman">i</span><h2>Review queue</h2></div>
+                  <span class="count">3 pull requests · ext_pull_requests</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">Compose extension GraphQL SDL across resolvers</div>
+                    <div class="sub"><span class="author">@sandra</span> · comtrya · #482</div>
+                  </div>
+                  <span class="check">14/14 checks</span>
+                  <span class="time">1h</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">Reject GraphQL SDL ellipsis tokens</div>
+                    <div class="sub"><span class="author">@alex</span> · comtrya · #479</div>
+                  </div>
+                  <span class="check warn">7/8 checks</span>
+                  <span class="time">3h</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">OCI cache: handle 503 from registry</div>
+                    <div class="sub"><span class="author">@maria</span> · comtrya/ext-pull-requests · #41</div>
+                  </div>
+                  <span class="check">9/9 checks</span>
+                  <span class="time">7h</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-head">
+                  <div class="lhs"><span class="roman">ii</span><h2>Your pulls</h2></div>
+                  <span class="count">2 authored</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">Wire pure-Rust Smart HTTP v2 into server</div>
+                    <div class="sub">comtrya · draft · #468</div>
+                  </div>
+                  <span class="check">14/14 checks</span>
+                  <span class="time">4h</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">Workspace homepage extension scaffold</div>
+                    <div class="sub">comtrya · ready · #491</div>
+                  </div>
+                  <span class="check warn">1 conflict</span>
+                  <span class="time">2d</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-head">
+                  <div class="lhs"><span class="roman">iii</span><h2>Failing on your branches</h2></div>
+                  <span class="count">2 checks · ext_checks</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">smoke / extension-host</div>
+                    <div class="sub">comtrya · v3/homepage-spike</div>
+                  </div>
+                  <span class="check err">failing</span>
+                  <span class="time">12m</span>
+                </div>
+                <div class="row">
+                  <div>
+                    <div class="title">lint / biome</div>
+                    <div class="sub">comtrya/ext-checks · v3/oci-503-handling</div>
+                  </div>
+                  <span class="check err">failing</span>
+                  <span class="time">34m</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rail -->
+            <aside class="rail">
+              <div class="card">
+                <div class="card-head">
+                  <h3>Repositories</h3>
+                  <span class="count">8 total</span>
+                </div>
+                <div class="filter">
+                  <span style="color: var(--ink-faint); font-family: var(--mono);">/</span>
+                  <input placeholder="filter by group or name" />
+                </div>
+                <div class="repo"><span class="name"><span class="leaf">comtrya</span></span><span class="stats"><span>12 pr</span><span class="ok">142 ✓</span><span>4m</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-checks</span></span><span class="stats"><span>0 pr</span><span class="warn">11/12</span><span>3d</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-code-browser</span></span><span class="stats"><span>1 pr</span><span class="ok">14 ✓</span><span>1d</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-pull-requests</span></span><span class="stats"><span>3 pr</span><span class="ok">28 ✓</span><span>2h</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">infra/</span><span class="leaf">cluster-state</span></span><span class="stats"><span>0 pr</span><span class="ok">33 ✓</span><span>9d</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">infra/</span><span class="leaf">secrets</span></span><span class="stats"><span>2 pr</span><span class="ok">19 ✓</span><span>22h</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">public/internal/</span><span class="leaf">observability</span></span><span class="stats"><span>7 pr</span><span class="ok">56 ✓</span><span>18m</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">public/playground/</span><span class="leaf">wit-experiments</span></span><span class="stats"><span>1 pr</span><span class="warn">4/8</span><span>6h</span></span></div>
+              </div>
+
+              <div class="card activity">
+                <div class="card-head">
+                  <h3>Activity</h3>
+                  <span class="count">live</span>
+                </div>
+                <div class="day">Today</div>
+                <div class="ev"><span class="summary">@sandra pushed 3 commits<span class="src">comtrya/main</span></span><span class="t">4m</span></div>
+                <div class="ev"><span class="summary">PR opened: Compose extension GraphQL SDL<span class="src">comtrya · #482</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="summary">Checks passed on comtrya/v3<span class="src">14/14</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="summary">PR merged: ExtensionInstallConfig in core<span class="src">#475</span></span><span class="t">3h</span></div>
+                <div class="ev"><span class="summary">Extension resolver 200 OK<span class="src">ext_checks</span></span><span class="t">5h</span></div>
+                <div class="day">Yesterday</div>
+                <div class="ev"><span class="summary">@maria pushed 1 commit<span class="src">public/internal/observability</span></span><span class="t">18h</span></div>
+                <div class="ev"><span class="summary">PR opened: OCI cache handle 503<span class="src">ext-pull-requests · #41</span></span><span class="t">19h</span></div>
+                <div class="ev"><span class="summary">CloudEvent: comtrya.repository.ref.updated<span class="src">infra/cluster-state</span></span><span class="t">22h</span></div>
+              </div>
+            </aside>
+          </section>
+
+          <section class="instance">
+            <div class="header">
+              <span class="roman">iv</span>
+              <h3>Instance</h3>
+            </div>
+            <div class="stats">
+              <span class="ok">● ready</span>
+              <span>boundaries 0</span>
+              <span>extensions 3/3 executed</span>
+              <span>pure-rust git active</span>
+            </div>
+            <code class="clone">git clone https://localhost:8443/git/comtrya.git</code>
+            <a href="#" style="font-family: var(--serif); font-style: italic; color: var(--serif-tint);">view full →</a>
+          </section>
+
+          <section class="ds-footer">
+            <div>
+              <h4>Aesthetic</h4>
+              <p>A quiet, editorial light theme — closer to a quarterly report than a dashboard. Information density preserved; pacing relaxed.</p>
+            </div>
+            <div>
+              <h4>Palette</h4>
+              <p>Warm paper neutrals, saturated state accents kept sparing.</p>
+              <div class="palette">
+                <div class="swatch" style="background: #fafaf7;"></div>
+                <div class="swatch" style="background: #f1efe9;"></div>
+                <div class="swatch" style="background: #1a1b1e;"></div>
+                <div class="swatch" style="background: #6a4a2e;"></div>
+                <div class="swatch" style="background: #1f7a3a;"></div>
+                <div class="swatch" style="background: #a82b2b;"></div>
+              </div>
+            </div>
+            <div>
+              <h4>Typography</h4>
+              <p><strong style="font-family: var(--serif); font-weight: 500;">Fraunces</strong> display + section headings · <strong>IBM Plex Sans</strong> body · <code>JetBrains Mono</code> data. Italic Fraunces for editorial labels.</p>
+            </div>
+            <div>
+              <h4>Density</h4>
+              <p>14px body. 12px row padding. Heavier section rules at 2px. Roman numerals mark section structure.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

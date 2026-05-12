@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comtrya · Operator Console · workspace homepage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@1,500&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #0a0b0d;
+        --bg-elev: #0f1014;
+        --bg-elev-2: #14161b;
+        --border: #1e2026;
+        --border-strong: #2b2e36;
+        --text: #e6e7e9;
+        --text-muted: #9aa0a6;
+        --text-faint: #6a6e76;
+        --accent-ok: #4cc585;
+        --accent-warn: #d99548;
+        --accent-err: #df5a5a;
+        --accent-info: #5a8bd6;
+        --accent-cool: #6e6cd6;
+        --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+        --font-serif: "IBM Plex Serif", ui-serif, serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+      a { color: var(--text); text-decoration: none; }
+      a:hover { color: var(--accent-info); }
+      code, kbd, .mono { font-family: var(--font-mono); font-size: 12px; }
+      kbd { background: var(--bg-elev); border: 1px solid var(--border); padding: 1px 5px; border-radius: 2px; font-size: 11px; color: var(--text-muted); }
+      .eyebrow { font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: 11px; letter-spacing: 0.04em; color: var(--text-faint); text-transform: lowercase; }
+
+      /* Layout */
+      .shell { display: grid; grid-template-rows: 44px 1fr; min-height: 100vh; }
+      .topbar { display: grid; grid-template-columns: 320px 1fr auto; align-items: center; border-bottom: 1px solid var(--border); background: var(--bg); padding: 0 20px; gap: 24px; }
+      .brand { display: flex; align-items: center; gap: 10px; }
+      .brand-mark { width: 22px; height: 22px; display: grid; place-items: center; background: var(--text); color: var(--bg); font-family: var(--font-mono); font-weight: 600; font-size: 13px; letter-spacing: -0.04em; }
+      .brand strong { font-weight: 600; letter-spacing: -0.01em; }
+      .brand small { color: var(--text-faint); margin-left: 4px; font-size: 11px; }
+      .cmdk { display: flex; align-items: center; gap: 8px; background: var(--bg-elev); border: 1px solid var(--border); padding: 5px 10px; max-width: 520px; }
+      .cmdk input { flex: 1; background: transparent; border: 0; color: var(--text); font-family: inherit; font-size: 13px; outline: none; }
+      .cmdk input::placeholder { color: var(--text-faint); }
+      .cmdk .label { color: var(--text-faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+      .topbar-actions { display: flex; align-items: center; gap: 14px; }
+      .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-family: var(--font-mono); padding: 2px 8px; border: 1px solid var(--border); color: var(--text-muted); }
+      .pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+      .pill.ok::before { background: var(--accent-ok); }
+      .pill.warn::before { background: var(--accent-warn); }
+      .pill.err::before { background: var(--accent-err); }
+      .pill.info::before { background: var(--accent-info); }
+      .pill.bare { padding: 2px 6px; }
+      .pill.bare::before { display: none; }
+
+      .layout { display: grid; grid-template-columns: 260px 1fr; min-height: calc(100vh - 44px); }
+      .sidebar { border-right: 1px solid var(--border); padding: 18px 16px; display: flex; flex-direction: column; gap: 22px; }
+      .sidebar .workspace { display: flex; flex-direction: column; gap: 4px; }
+      .sidebar .workspace strong { font-size: 14px; letter-spacing: -0.005em; }
+      .sidebar .workspace span { color: var(--text-faint); font-size: 11px; }
+      .nav { display: flex; flex-direction: column; gap: 1px; }
+      .nav-group { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
+      .nav-group-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.12em; padding: 6px 6px 4px; }
+      .nav-item { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 8px; padding: 5px 6px; color: var(--text-muted); font-size: 12.5px; }
+      .nav-item.active { background: var(--bg-elev); color: var(--text); }
+      .nav-item .glyph { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; text-align: center; }
+      .nav-item .key { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+      .nav-item:hover { color: var(--text); }
+
+      .main { padding: 24px 28px 60px; display: flex; flex-direction: column; gap: 22px; max-width: 1480px; }
+      .pagehead { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+      .pagehead h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+      .pagehead .crumbs { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; }
+      .pagehead .meta { display: flex; gap: 14px; color: var(--text-faint); font-size: 11px; font-family: var(--font-mono); }
+
+      .grid { display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 18px; align-items: start; }
+
+      .panel { border: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; }
+      .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg-elev); }
+      .panel-head h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
+      .panel-head .panel-meta { font-size: 11px; font-family: var(--font-mono); color: var(--text-faint); display: flex; gap: 8px; align-items: center; }
+
+      .yourwork { display: flex; flex-direction: column; }
+      .yw-section { padding: 0; }
+      .yw-section-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: var(--bg); border-bottom: 1px solid var(--border); }
+      .yw-section-head h3 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+      .yw-section-head .count { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+      .row { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--border); align-items: center; }
+      .row:last-child { border-bottom: 0; }
+      .row:hover { background: var(--bg-elev); }
+      .row-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+      .row-title .t { font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .row-title .sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+      .row-title .sub .author { color: var(--text-muted); }
+      .row-title .sub .path { color: var(--text-faint); }
+      .row .time { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+
+      .repolist { display: flex; flex-direction: column; }
+      .repolist .filter { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+      .repolist input { background: transparent; border: 0; color: var(--text); font-family: var(--font-mono); font-size: 12px; flex: 1; outline: none; }
+      .repolist input::placeholder { color: var(--text-faint); }
+      .repo-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 7px 12px; border-bottom: 1px solid var(--border); }
+      .repo-row:last-child { border-bottom: 0; }
+      .repo-row:hover { background: var(--bg-elev); }
+      .repo-row .name { display: flex; align-items: baseline; gap: 1px; min-width: 0; font-family: var(--font-mono); font-size: 12px; }
+      .repo-row .name .prefix { color: var(--text-faint); }
+      .repo-row .name .leaf { color: var(--text); font-weight: 600; }
+      .repo-row .stats { display: flex; gap: 10px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+      .repo-row .stats .ok { color: var(--accent-ok); }
+      .repo-row .stats .warn { color: var(--accent-warn); }
+
+      .activity { display: flex; flex-direction: column; }
+      .activity-day { font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-faint); padding: 10px 14px 6px; border-bottom: 1px solid var(--border); }
+      .activity .ev { display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--border); align-items: center; }
+      .activity .ev:last-child { border-bottom: 0; }
+      .activity .ev .g { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; text-align: center; }
+      .activity .ev .summary { font-size: 12.5px; }
+      .activity .ev .summary .src { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-left: 6px; }
+      .activity .ev .t { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); }
+
+      .instance { display: grid; grid-template-columns: auto 1fr auto auto auto; gap: 18px; align-items: center; padding: 10px 14px; border: 1px solid var(--border); background: var(--bg-elev); }
+      .instance .leftlabel { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+      .instance .stats { display: flex; gap: 18px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+      .instance .stats .ok { color: var(--accent-ok); }
+      .instance .clone { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: var(--bg); border: 1px solid var(--border); padding: 4px 8px; }
+      .instance .expand { color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; cursor: pointer; }
+      .instance .expand:hover { color: var(--text); }
+
+      /* Design-system footer */
+      .ds-footer { margin-top: 30px; padding: 20px 28px 40px; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; font-size: 11.5px; }
+      .ds-footer h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+      .ds-footer p { margin: 0; color: var(--text-muted); }
+      .ds-footer .palette { display: flex; gap: 6px; margin-top: 8px; }
+      .ds-footer .swatch { width: 22px; height: 22px; border: 1px solid var(--border-strong); }
+      .ds-name { padding: 24px 28px 0; }
+      .ds-name strong { font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: 18px; letter-spacing: 0.01em; color: var(--text-muted); }
+      .ds-name span { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-left: 12px; letter-spacing: 0.04em; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">c</div>
+          <div>
+            <strong>comtrya</strong>
+            <small>operator console</small>
+          </div>
+        </div>
+        <label class="cmdk">
+          <span class="label">jump</span>
+          <input type="search" placeholder="repository, file, ref, pull request…" />
+          <kbd>⌘K</kbd>
+        </label>
+        <div class="topbar-actions">
+          <span class="pill ok">ready</span>
+          <code style="color: var(--text-faint); font-size: 11px;">https://localhost:8443</code>
+        </div>
+      </header>
+
+      <div class="ds-name">
+        <strong>Operator Console</strong>
+        <span>direction 01 · dark · IBM Plex · hairline density</span>
+      </div>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="workspace">
+            <span class="eyebrow">workspace</span>
+            <strong>Comtrya Labs</strong>
+            <span>single tenant · 8 repositories</span>
+          </div>
+
+          <nav class="nav">
+            <div class="nav-group">
+              <div class="nav-group-label">workspace</div>
+              <a class="nav-item active" href="#"><span class="glyph">◆</span><span>Home</span><span class="key">g h</span></a>
+              <a class="nav-item" href="#"><span class="glyph">≋</span><span>Activity</span><span class="key">g a</span></a>
+              <a class="nav-item" href="#"><span class="glyph">◇</span><span>Extensions</span><span class="key">g e</span></a>
+              <a class="nav-item" href="#"><span class="glyph">⌬</span><span>Instance</span><span class="key">g i</span></a>
+            </div>
+            <div class="nav-group">
+              <div class="nav-group-label">extensions</div>
+              <a class="nav-item" href="#"><span class="glyph">⇄</span><span>Pulls</span><span class="key">g p</span></a>
+              <a class="nav-item" href="#"><span class="glyph">{}</span><span>Code</span><span class="key">g c</span></a>
+              <a class="nav-item" href="#"><span class="glyph">✓</span><span>Checks</span><span class="key">g k</span></a>
+            </div>
+          </nav>
+
+          <div style="margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px;">
+            <span class="eyebrow">viewer</span>
+            <span style="font-size: 12px;">David Flanagan</span>
+            <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);">instance.admin · workspace.read</span>
+          </div>
+        </aside>
+
+        <main class="main">
+          <section class="pagehead">
+            <div>
+              <div class="crumbs">/ · home</div>
+              <h1>Workspace home</h1>
+            </div>
+            <div class="meta">
+              <span>3 reviews waiting</span>
+              <span>·</span>
+              <span>2 failing checks</span>
+              <span>·</span>
+              <span>refreshed 14s ago</span>
+            </div>
+          </section>
+
+          <section class="grid">
+            <!-- LEFT SPINE: your work -->
+            <div class="panel yourwork">
+              <div class="panel-head">
+                <h2>Your work</h2>
+                <div class="panel-meta"><span>ext_pull_requests</span><span>·</span><span>ext_checks</span></div>
+              </div>
+
+              <div class="yw-section">
+                <div class="yw-section-head">
+                  <h3>Review queue</h3>
+                  <span class="count">3 pull requests</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">Compose extension GraphQL SDL across resolvers</span>
+                    <span class="sub"><span class="author">@sandra</span> · <span class="path">comtrya</span> · #482</span>
+                  </div>
+                  <span class="pill ok">14/14 checks</span>
+                  <span class="time">1h</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">Reject GraphQL SDL ellipsis tokens</span>
+                    <span class="sub"><span class="author">@alex</span> · <span class="path">comtrya</span> · #479</span>
+                  </div>
+                  <span class="pill warn">7/8 checks</span>
+                  <span class="time">3h</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">OCI cache: handle 503 from registry</span>
+                    <span class="sub"><span class="author">@maria</span> · <span class="path">comtrya/ext-pull-requests</span> · #41</span>
+                  </div>
+                  <span class="pill ok">9/9 checks</span>
+                  <span class="time">7h</span>
+                </div>
+              </div>
+
+              <div class="yw-section">
+                <div class="yw-section-head">
+                  <h3>Your pulls</h3>
+                  <span class="count">2 authored</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">Wire pure-Rust Smart HTTP v2 into server</span>
+                    <span class="sub"><span class="path">comtrya · draft</span> · #468</span>
+                  </div>
+                  <span class="pill ok">14/14 checks</span>
+                  <span class="time">4h</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">Workspace homepage extension scaffold</span>
+                    <span class="sub"><span class="path">comtrya · ready</span> · #491</span>
+                  </div>
+                  <span class="pill warn">1 conflict</span>
+                  <span class="time">2d</span>
+                </div>
+              </div>
+
+              <div class="yw-section">
+                <div class="yw-section-head">
+                  <h3>Failing on your branches</h3>
+                  <span class="count">2 checks</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">smoke / extension-host</span>
+                    <span class="sub"><span class="path">comtrya · v3/homepage-spike</span></span>
+                  </div>
+                  <span class="pill err">failing</span>
+                  <span class="time">12m</span>
+                </div>
+                <div class="row">
+                  <div class="row-title">
+                    <span class="t">lint / biome</span>
+                    <span class="sub"><span class="path">comtrya/ext-checks · v3/oci-503-handling</span></span>
+                  </div>
+                  <span class="pill err">failing</span>
+                  <span class="time">34m</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- RIGHT RAIL -->
+            <div style="display: flex; flex-direction: column; gap: 18px;">
+              <div class="panel repolist">
+                <div class="panel-head">
+                  <h2>Repositories</h2>
+                  <div class="panel-meta"><span>8 total</span></div>
+                </div>
+                <div class="filter">
+                  <span style="color: var(--text-faint);">/</span>
+                  <input placeholder="filter by group or name…" />
+                </div>
+                <div class="repo-row"><span class="name"><span class="leaf">comtrya</span></span><span class="stats"><span>12 PR</span><span class="ok">142 ✓</span><span>4m</span></span></div>
+                <div class="repo-row"><span class="name"><span class="leaf">ext-checks</span></span><span class="stats"><span>0 PR</span><span class="warn">11/12</span><span>3d</span></span></div>
+                <div class="repo-row"><span class="name"><span class="leaf">ext-code-browser</span></span><span class="stats"><span>1 PR</span><span class="ok">14 ✓</span><span>1d</span></span></div>
+                <div class="repo-row"><span class="name"><span class="leaf">ext-pull-requests</span></span><span class="stats"><span>3 PR</span><span class="ok">28 ✓</span><span>2h</span></span></div>
+                <div class="repo-row"><span class="name"><span class="prefix">infra/</span><span class="leaf">cluster-state</span></span><span class="stats"><span>0 PR</span><span class="ok">33 ✓</span><span>9d</span></span></div>
+                <div class="repo-row"><span class="name"><span class="prefix">infra/</span><span class="leaf">secrets</span></span><span class="stats"><span>2 PR</span><span class="ok">19 ✓</span><span>22h</span></span></div>
+                <div class="repo-row"><span class="name"><span class="prefix">public/internal/</span><span class="leaf">observability</span></span><span class="stats"><span>7 PR</span><span class="ok">56 ✓</span><span>18m</span></span></div>
+                <div class="repo-row"><span class="name"><span class="prefix">public/playground/</span><span class="leaf">wit-experiments</span></span><span class="stats"><span>1 PR</span><span class="warn">4/8</span><span>6h</span></span></div>
+              </div>
+
+              <div class="panel activity">
+                <div class="panel-head">
+                  <h2>Activity</h2>
+                  <div class="panel-meta"><span class="pill ok bare">live</span></div>
+                </div>
+                <div class="activity-day">today</div>
+                <div class="ev"><span class="g">↑</span><span class="summary">@sandra pushed 3 commits<span class="src">comtrya/main</span></span><span class="t">4m</span></div>
+                <div class="ev"><span class="g">⇄</span><span class="summary">PR opened: Compose extension GraphQL SDL<span class="src">comtrya · #482</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="g">✓</span><span class="summary">Checks passed on <span class="src">comtrya/v3 · 14/14</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="g">●</span><span class="summary">PR merged: ExtensionInstallConfig in core<span class="src">comtrya · #475</span></span><span class="t">3h</span></div>
+                <div class="ev"><span class="g">◇</span><span class="summary">Extension resolver returned 200<span class="src">ext_checks · 5h ago</span></span><span class="t">5h</span></div>
+                <div class="activity-day">yesterday</div>
+                <div class="ev"><span class="g">↑</span><span class="summary">@maria pushed 1 commit<span class="src">public/internal/observability/main</span></span><span class="t">18h</span></div>
+                <div class="ev"><span class="g">⇄</span><span class="summary">PR opened: OCI cache handle 503<span class="src">comtrya/ext-pull-requests · #41</span></span><span class="t">19h</span></div>
+                <div class="ev"><span class="g">≋</span><span class="summary">CloudEvent: comtrya.repository.ref.updated<span class="src">infra/cluster-state</span></span><span class="t">22h</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="instance">
+            <span class="leftlabel">instance</span>
+            <div class="stats">
+              <span class="ok">● ready</span>
+              <span>boundaries 0</span>
+              <span>extensions 3/3 executed</span>
+              <span>pure-rust git active</span>
+              <span>federated GraphQL: not yet</span>
+            </div>
+            <code class="clone">git clone https://localhost:8443/git/comtrya.git</code>
+            <a href="#" class="pill bare" style="color: var(--text-muted);">/instance →</a>
+            <span class="expand">expand ⌄</span>
+          </section>
+
+          <!-- Design system summary -->
+          <section class="ds-footer">
+            <div>
+              <h4>Aesthetic</h4>
+              <p>Dark operator console. Hairline borders, no shadows, no gradients. Density-first. Continues the direction set in <code>ff5223f</code>.</p>
+            </div>
+            <div>
+              <h4>Palette</h4>
+              <p>Near-black background, low-sat foreground. Accents reserved for state only.</p>
+              <div class="palette">
+                <div class="swatch" style="background: #0a0b0d;"></div>
+                <div class="swatch" style="background: #14161b;"></div>
+                <div class="swatch" style="background: #e6e7e9;"></div>
+                <div class="swatch" style="background: #4cc585;"></div>
+                <div class="swatch" style="background: #d99548;"></div>
+                <div class="swatch" style="background: #df5a5a;"></div>
+              </div>
+            </div>
+            <div>
+              <h4>Typography</h4>
+              <p><strong style="color: var(--text);">IBM Plex Sans</strong> for UI · <code>IBM Plex Mono</code> for data · <em style="font-family: var(--font-serif); font-style: italic;">IBM Plex Serif italic</em> for editorial labels.</p>
+            </div>
+            <div>
+              <h4>Density</h4>
+              <p>13px body. 9px row padding. 1px borders. Rhythm 8/14/22.<br/>Status communicated via inline pills; never decorative.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
