@@ -997,8 +997,8 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .collect(),
     );
 
-    // Build the workspace object enriched with the repositoryByPath resolver result
-    // and the enriched repositories list.
+    // Build the workspace object enriched with the repositoryByPath resolver result,
+    // the enriched repositories list, and workspace.events filtered to viewer-accessible repos.
     let workspace = {
         let mut ws = demo
             .get("workspace")
@@ -1007,6 +1007,20 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         if let Some(obj) = ws.as_object_mut() {
             obj.insert("repositoryByPath".to_string(), repository_by_path);
             obj.insert("repositories".to_string(), enriched_repositories);
+
+            // Compute viewer-visible repository IDs: v1 = all repos in workspace.
+            // TODO: restrict to per-viewer access when auth is real (V3_PLAN federated planner).
+            let all_repo_ids: Vec<String> = repositories_value
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
+                .collect();
+            let activity_events = demo.get("activity").cloned().unwrap_or_else(|| json!([]));
+            let filtered_events = filter_events_for_viewer(&activity_events, &all_repo_ids);
+            // workspace.events: scoped, filtered activity feed (scope fixed to WORKSPACE in v1).
+            obj.insert("events".to_string(), serde_json::Value::Array(filtered_events));
         }
         ws
     };
@@ -1790,6 +1804,28 @@ pub fn build_failing_checks(viewer: &Value, checks: &Value, limit: usize) -> Val
         .take(limit)
         .collect();
     json!({ "aggregated": true, "items": items })
+}
+
+/// Filter an `activityEvents` array to only include events whose `repositoryID`
+/// is present in `visible_repo_ids`.  Events without a `repositoryID` field are
+/// excluded (defensive: unknown provenance).
+///
+/// # Scope argument note
+/// The JSON-shaped GraphQL handler does not parse field arguments, so the
+/// `scope: WORKSPACE | REPOSITORY` enum described in the plan is not yet wired.
+/// TODO: parse scope argument when the federated planner lands; for now scope is
+/// fixed to WORKSPACE (all viewer-accessible repos in the workspace).
+pub fn filter_events_for_viewer(events: &serde_json::Value, visible_repo_ids: &[String]) -> Vec<serde_json::Value> {
+    events
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|ev| {
+            let repo = ev.get("repositoryID").and_then(|v| v.as_str()).unwrap_or("");
+            !repo.is_empty() && visible_repo_ids.iter().any(|id| id == repo)
+        })
+        .collect()
 }
 
 const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks"];
@@ -6022,6 +6058,34 @@ extensions: {
         ]);
         let result = build_failing_checks(&viewer, &checks, 1);
         assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn filter_events_for_viewer_includes_only_accessible_repos() {
+        let events = serde_json::json!([
+            { "id": "ev1", "repositoryID": "repo_a", "type": "push", "summary": "pushed" },
+            { "id": "ev2", "repositoryID": "repo_b", "type": "push", "summary": "pushed" },
+            { "id": "ev3", "repositoryID": "repo_a", "type": "pr", "summary": "opened PR" },
+        ]);
+        let visible: Vec<String> = vec!["repo_a".into()];
+        let result = filter_events_for_viewer(&events, &visible);
+        assert_eq!(result.len(), 2);
+        for ev in &result {
+            let repo = ev.get("repositoryID").and_then(|v| v.as_str()).unwrap_or("");
+            assert!(visible.iter().any(|id| id == repo));
+        }
+    }
+
+    #[test]
+    fn filter_events_for_viewer_excludes_events_without_repository_id() {
+        let events = serde_json::json!([
+            { "id": "ev1", "type": "system" },
+            { "id": "ev2", "repositoryID": "repo_a", "type": "push" },
+        ]);
+        let visible: Vec<String> = vec!["repo_a".into()];
+        let result = filter_events_for_viewer(&events, &visible);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0]["id"], serde_json::json!("ev2"));
     }
 
     #[tokio::test]
