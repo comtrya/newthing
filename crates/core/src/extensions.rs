@@ -49,6 +49,14 @@ pub struct ExtensionInstallConfig {
     pub route_prefix: Option<String>,
 }
 
+/// Names the host owns at the top of the URL space — `/r/`, `/x/`, `/_extensions/`, etc.
+/// An extension's `route_prefix` cannot equal any of these.
+///
+/// Note: `_extensions` is unreachable via `validate_route_prefix` today because the slug
+/// constraint rejects any prefix starting with `_`. The entry remains in this list so the
+/// canonical set is documented in one place — if the slug constraint is ever relaxed, the
+/// reserved check still applies. Tests pin the character-constraint path; this entry
+/// is defensive only.
 pub const RESERVED_ROUTE_PREFIXES: &[&str] = &[
     "r", "x", "_extensions", "api", "auth", "git",
     "graphql", "events", "readyz", "healthz", "instance",
@@ -2707,5 +2715,18 @@ mod tests {
             route_prefix: None,
         };
         assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn route_prefix_rejects_empty_string() {
+        let cfg = ExtensionInstallConfig {
+            id: "ext_x".into(),
+            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            enabled: true,
+            route_prefix: Some("".into()),
+        };
+        let err = cfg.validate().unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("must not be empty"), "got: {msg}");
     }
 }
