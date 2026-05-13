@@ -28,6 +28,7 @@ use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
 
 mod wasm_host;
+mod wasm_registry;
 
 /// Build-script-generated extension dispatch table. Maps the
 /// `<extension-id>.<interface>.<op>` GraphQL routes to `DispatchInfo`
@@ -254,6 +255,7 @@ struct Runtime {
     extension_storage: ExtensionRuntimeStore,
     demo_repository: DemoRepositoryRuntime,
     extension_runtime: BTreeMap<String, WasmtimeResolverRecord>,
+    wasm_registry: wasm_registry::WasmRegistry,
     events_path: PathBuf,
     audit_path: PathBuf,
     sessions: Mutex<HashMap<String, SessionRecord>>,
@@ -337,7 +339,10 @@ impl Runtime {
             .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
         validate_route_prefix_uniqueness(&config.extensions)
             .map_err(|error| format!("extension config invalid: {error}"))?;
-        let extension_runtime = load_configured_extension_runtime(
+        let ExtensionRuntimeOutput {
+            records: extension_runtime,
+            registry: wasm_registry,
+        } = load_configured_extension_runtime(
             &options.extension_dir,
             extension_config_declared,
             &config.extensions,
@@ -354,6 +359,7 @@ impl Runtime {
             extension_storage,
             demo_repository,
             extension_runtime,
+            wasm_registry,
             events_path,
             audit_path,
             sessions: Mutex::new(HashMap::new()),
@@ -5994,7 +6000,7 @@ struct ExtensionPackageRoot {
 
 fn load_extension_runtime(
     extension_dir: &Path,
-) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+) -> Result<ExtensionRuntimeOutput, String> {
     let packages = FIRST_PARTY_EXTENSIONS
         .iter()
         .map(|id| ExtensionPackageRoot {
@@ -6009,7 +6015,7 @@ fn load_configured_extension_runtime(
     extension_dir: &Path,
     extension_config_declared: bool,
     configs: &[ExtensionInstallConfig],
-) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+) -> Result<ExtensionRuntimeOutput, String> {
     if !extension_config_declared {
         return load_extension_runtime(extension_dir);
     }
@@ -6018,7 +6024,11 @@ fn load_configured_extension_runtime(
         .filter(|config| config.enabled)
         .collect::<Vec<_>>();
     if enabled.is_empty() {
-        return Ok(BTreeMap::new());
+        return Ok(ExtensionRuntimeOutput {
+            records: BTreeMap::new(),
+            registry: wasm_registry::WasmRegistry::new()
+                .map_err(|e| format!("failed to build wasm registry: {e}"))?,
+        });
     }
 
     let mut packages = Vec::new();
@@ -6081,8 +6091,10 @@ fn unsupported_oci_extension(
 
 fn load_extension_packages(
     packages: Vec<ExtensionPackageRoot>,
-) -> Result<BTreeMap<String, WasmtimeResolverRecord>, String> {
+) -> Result<ExtensionRuntimeOutput, String> {
     let engine = Engine::default();
+    let registry = wasm_registry::WasmRegistry::new()
+        .map_err(|error| format!("failed to build wasm registry: {error}"))?;
     let mut loaded = BTreeMap::new();
     for package in packages {
         let root = package.root;
@@ -6109,14 +6121,6 @@ fn load_extension_packages(
             ));
         }
         let ui_manifest = validate_extension_manifest_pair(id, &root, &manifest)?;
-        let component_name = manifest
-            .get("wasmComponent")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
-        let resolver = manifest
-            .pointer("/runtime/resolver")
-            .and_then(Value::as_str)
-            .unwrap_or("resolve");
         let output_type = manifest
             .pointer("/runtime/outputType")
             .and_then(Value::as_str)
@@ -6125,46 +6129,81 @@ fn load_extension_packages(
             .get("routePrefix")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let component_path = root.join(component_name);
-        let component_bytes = fs::read(&component_path)
-            .map_err(|error| format!("failed to read {}: {error}", component_path.display()))?;
-        let component = Component::new(&engine, component_bytes)
-            .map_err(|error| format!("failed to compile {}: {error}", component_path.display()))?;
-        // Phase 2 — the platform-world linker is built unconditionally so
-        // it's exercised at startup. The legacy resolver path below uses
-        // `Linker::<()>` because today's component.wat stubs export a
-        // bare `resolve()` and don't import any platform interfaces. When
-        // an extension targets `comtrya:platform/extension`, the platform
-        // linker takes over via wasm_host::host_state_for_op.
-        let _platform_linker_check =
-            wasm_host::make_platform_linker(&engine).map_err(|error| {
-                format!("failed to build platform linker for {id}: {error}")
-            })?;
-        let linker = Linker::<()>::new(&engine);
-        let mut store = Store::new(&engine, ());
-        let instance = linker
-            .instantiate(&mut store, &component)
-            .map_err(|error| {
-                format!(
-                    "failed to instantiate {}: {error}",
-                    component_path.display()
+        let platform_wit_version = manifest
+            .get("platformWitVersion")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let platform_wasm = root.join(format!("dist/{}.wasm", id));
+
+        let (component_name, resolver, status) =
+            if platform_wit_version.is_some() && platform_wasm.is_file() {
+                // Platform-WIT extension: load into the registry. Skip
+                // the legacy `resolve()` call — platform extensions
+                // don't export it.
+                registry.register_from_manifest(&root)?;
+                (
+                    format!("dist/{}.wasm", id),
+                    String::from("platform-wit-extension"),
+                    String::from("platform-loaded"),
                 )
-            })?;
-        let func = instance
-            .get_typed_func::<(), (u32,)>(&mut store, resolver)
-            .map_err(|error| format!("{id} did not export resolver {resolver}: {error}"))?;
-        let _ = func
-            .call(&mut store, ())
-            .map_err(|error| format!("{id} resolver failed: {error}"))?;
+            } else {
+                // Legacy resolver path. Reads manifest.wasmComponent
+                // (usually `component.wat` stub) and calls its
+                // `resolve()` export. Dies in M11.
+                let component_name = manifest
+                    .get("wasmComponent")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| {
+                        format!("{} missing wasmComponent", manifest_path.display())
+                    })?;
+                let resolver = manifest
+                    .pointer("/runtime/resolver")
+                    .and_then(Value::as_str)
+                    .unwrap_or("resolve");
+                let component_path = root.join(component_name);
+                let component_bytes = fs::read(&component_path)
+                    .map_err(|error| {
+                        format!("failed to read {}: {error}", component_path.display())
+                    })?;
+                let component = Component::new(&engine, component_bytes).map_err(|error| {
+                    format!(
+                        "failed to compile {}: {error}",
+                        component_path.display()
+                    )
+                })?;
+                let linker = Linker::<()>::new(&engine);
+                let mut store = Store::new(&engine, ());
+                let instance = linker
+                    .instantiate(&mut store, &component)
+                    .map_err(|error| {
+                        format!(
+                            "failed to instantiate {}: {error}",
+                            component_path.display()
+                        )
+                    })?;
+                let func = instance
+                    .get_typed_func::<(), (u32,)>(&mut store, resolver)
+                    .map_err(|error| {
+                        format!("{id} did not export resolver {resolver}: {error}")
+                    })?;
+                let _ = func
+                    .call(&mut store, ())
+                    .map_err(|error| format!("{id} resolver failed: {error}"))?;
+                (
+                    component_name.to_string(),
+                    resolver.to_string(),
+                    String::from("executed"),
+                )
+            };
         if loaded
             .insert(
                 id.to_string(),
                 WasmtimeResolverRecord {
                     id: id.to_string(),
-                    component: component_name.to_string(),
-                    resolver: resolver.to_string(),
+                    component: component_name,
+                    resolver,
                     output_type: output_type.to_string(),
-                    status: "executed".to_string(),
+                    status,
                     root,
                     ui_manifest,
                     route_prefix,
@@ -6175,7 +6214,44 @@ fn load_extension_packages(
             return Err(format!("duplicate extension package id {id}"));
         }
     }
-    Ok(loaded)
+    Ok(ExtensionRuntimeOutput {
+        records: loaded,
+        registry,
+    })
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ExtensionRuntimeOutput {
+    pub(crate) records: BTreeMap<String, WasmtimeResolverRecord>,
+    pub(crate) registry: wasm_registry::WasmRegistry,
+}
+
+impl ExtensionRuntimeOutput {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.records.is_empty()
+    }
+    pub(crate) fn len(&self) -> usize {
+        self.records.len()
+    }
+    pub(crate) fn get(&self, id: &str) -> Option<&WasmtimeResolverRecord> {
+        self.records.get(id)
+    }
+    pub(crate) fn contains_key(&self, id: &str) -> bool {
+        self.records.contains_key(id)
+    }
+    pub(crate) fn values(&self) -> std::collections::btree_map::Values<'_, String, WasmtimeResolverRecord> {
+        self.records.values()
+    }
+    pub(crate) fn iter(&self) -> std::collections::btree_map::Iter<'_, String, WasmtimeResolverRecord> {
+        self.records.iter()
+    }
+}
+
+impl std::ops::Index<&str> for ExtensionRuntimeOutput {
+    type Output = WasmtimeResolverRecord;
+    fn index(&self, key: &str) -> &Self::Output {
+        &self.records[key]
+    }
 }
 
 fn is_receive_pack(path: &str, query: Option<&str>) -> bool {

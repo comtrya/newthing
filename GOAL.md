@@ -54,11 +54,11 @@ Settled in `docs/v3-decisions.md`. Summary:
 ## M2 — Host wiring + codegen build integration
 - [x] Add `crates/server/build.rs` that discovers installed extensions and runs `comtrya-wit-codegen` per extension
 - [x] `build.rs` emits handler files to `OUT_DIR`; `main.rs` includes them via `include!`
-- [ ] Replace the `Linker::<()>::new` block at `main.rs:6077`: extensions declaring `platformWitVersion` use `Linker<HostState>`
-- [ ] When an extension declares `platformWitVersion`, the loader reads the real component from `<ext_root>/dist/<ext_id>.wasm` and updates the manifest's `wasmComponent` field (or stops reading `wasmComponent` and synthesises the path from convention)
-- [ ] Implement the kernel-side `OpsDispatcher` that holds the loaded-component registry and dispatches by `extension_id`
+- [x] Replace the `Linker::<()>::new` block at `main.rs:6077`: extensions declaring `platformWitVersion` use `Linker<HostState>`
+- [x] When an extension declares `platformWitVersion`, the loader reads the real component from `<ext_root>/dist/<ext_id>.wasm` and updates the manifest's `wasmComponent` field (or stops reading `wasmComponent` and synthesises the path from convention)
+- [x] Implement the kernel-side `OpsDispatcher` that holds the loaded-component registry and dispatches by `extension_id`
 - [ ] Wire `wasm_host::host_state_for_op` into the live request path with real extension id / principal / manifest values
-- [ ] Parse `manifest.json` fields (`hostImports`, `allowedEmits`, `allowedEventReads`, `allowedCrossCalls`, `reactor.allowedMutations`, `reactor.allowedEmits`, `contributes.resourceKinds`) into `HostManifest` at load time
+- [x] Parse `manifest.json` fields (`hostImports`, `allowedEmits`, `allowedEventReads`, `allowedCrossCalls`, `reactor.allowedMutations`, `reactor.allowedEmits`, `contributes.resourceKinds`) into `HostManifest` at load time
 - [ ] Add a JSON Schema for the manifest at `docs/manifest.schema.json` and validate every installed manifest at load
 - [ ] Enforce the `ids.mint` → `storage.create` registry contract that's currently documented in `storage.wit` but not implemented (per-extension minted-id set, `storage.create` rejects ids not in it)
 - [ ] Extract a `mint_internal(kind)` helper in `wasm_host.rs` for kernel-initiated mints (`relations.create`, `comments.post`, `events.append`) so the manifest-check / no-manifest-check split is explicit, not implicit at call sites

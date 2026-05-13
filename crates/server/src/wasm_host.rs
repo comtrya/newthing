@@ -110,6 +110,11 @@ pub trait Clock {
 
 pub trait IdMinter {
     fn mint(&self, kind: &str) -> Result<String, MintError>;
+    /// Register a new mintable kind at runtime. The registry calls this
+    /// at extension load time so each extension's declared kinds
+    /// become mintable. Idempotent — registering an existing kind
+    /// does not overwrite the prefix.
+    fn register_kind(&self, _kind: &str, _prefix: &str) {}
 }
 
 #[derive(Debug)]
@@ -236,6 +241,14 @@ impl UlidMinter {
 }
 
 impl IdMinter for UlidMinter {
+    fn register_kind(&self, kind: &str, prefix: &str) {
+        if let Ok(mut kinds) = self.kinds.write() {
+            kinds
+                .entry(kind.to_string())
+                .or_insert_with(|| prefix.to_string());
+        }
+    }
+
     fn mint(&self, kind: &str) -> Result<String, MintError> {
         let kinds = self.kinds.read().map_err(|e| MintError::Internal(e.to_string()))?;
         let prefix = kinds
@@ -345,23 +358,19 @@ impl wit_identity::Host for HostState {
 }
 
 fn is_valid_permission_grammar(s: &str) -> bool {
-    if s.is_empty() {
+    // Grammar: <extension-id>.<verb> — both halves required, both
+    // non-empty, both built from `[a-z0-9_-]`. A leading dot, trailing
+    // dot, multiple dots, or empty string all return false.
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 2 {
         return false;
     }
-    let mut saw_dot = false;
-    for ch in s.chars() {
-        match ch {
-            'a'..='z' | '0'..='9' | '-' | '_' => {}
-            '.' => {
-                if saw_dot {
-                    return false;
-                }
-                saw_dot = true;
-            }
-            _ => return false,
-        }
+    let (prefix, verb) = (parts[0], parts[1]);
+    if prefix.is_empty() || verb.is_empty() {
+        return false;
     }
-    saw_dot
+    let valid_char = |ch: char| matches!(ch, 'a'..='z' | '0'..='9' | '-' | '_');
+    prefix.chars().all(valid_char) && verb.chars().all(valid_char)
 }
 
 // ---- ids ----
