@@ -122,6 +122,7 @@ pub fn dispatch(
             cors,
         ));
     }
+    let bridge_pull_merge = should_bridge_legacy_pull_merge(state, info, &call);
     let dispatcher = RegistryDispatcher {
         registry: state.runtime.wasm_registry.clone(),
         store: Arc::new(state.runtime.extension_storage.clone()),
@@ -156,6 +157,7 @@ pub fn dispatch(
             cors,
         ));
     }
+    bridge_legacy_pull_side_effects(state, info, &value, bridge_pull_merge);
     match graphql_body_for_result(state, info, value, &call) {
         Ok(body) => Some(json_success_response(body, cors)),
         Err(message) => Some(crate::graphql_error_response(
@@ -948,6 +950,107 @@ fn link_issue_to_epic_if_requested(
         .runtime
         .create_relation(&issue_ref, epic_ref, "comtrya://rel/part-of", None)?;
     Ok(())
+}
+
+fn should_bridge_legacy_pull_merge(
+    state: &crate::AppState,
+    info: &crate::generated_dispatch::DispatchInfo,
+    call: &PreparedCall,
+) -> bool {
+    if info.extension_id != "ext_pull_requests" || info.op_name != "merge-pull" {
+        return false;
+    }
+    let Some(pull_id) = serde_json::from_slice::<Value>(&call.payload)
+        .ok()
+        .and_then(|payload| {
+            payload
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+    else {
+        return false;
+    };
+    let Ok(pulls) = state
+        .runtime
+        .extension_storage
+        .collection_data("pull_requests")
+    else {
+        return false;
+    };
+    pulls
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|pull| pull.get("id").and_then(Value::as_str) == Some(pull_id.as_str()))
+        })
+        .and_then(|pull| pull.get("state").and_then(Value::as_str))
+        .map(|state| state != "MERGED")
+        .unwrap_or(false)
+}
+
+fn bridge_legacy_pull_side_effects(
+    state: &crate::AppState,
+    info: &crate::generated_dispatch::DispatchInfo,
+    value: &Value,
+    should_run: bool,
+) {
+    if !should_run
+        || !value.is_object()
+        || info.extension_id != "ext_pull_requests"
+        || info.op_name != "merge-pull"
+    {
+        return;
+    }
+    let merged = value
+        .get("state")
+        .and_then(Value::as_str)
+        .map(|state| state == "MERGED")
+        .unwrap_or(false);
+    if !merged {
+        return;
+    }
+    let Some(pull_id) = value.get("id").and_then(Value::as_str) else {
+        eprintln!("WASM pull merge bridge: merged result missing id, skipping issue auto-close");
+        return;
+    };
+    let pull_ref = format!("comtrya://pull_request/{pull_id}");
+    // M5 compatibility bridge: WIT events do not dispatch legacy in-process
+    // reactors yet, so mirror the old PR merge reactor without failing the
+    // original pull merge when linked issue closure has stale data.
+    let relations = match state
+        .runtime
+        .relations_outgoing(&pull_ref, Some("comtrya://rel/com.comtrya.pulls/closes"))
+    {
+        Ok(relations) => relations,
+        Err(error) => {
+            eprintln!(
+                "WASM pull merge bridge: failed to read closes relations for {pull_ref}: {error}"
+            );
+            return;
+        }
+    };
+    for relation in relations {
+        let Some(issue_ref) = relation
+            .get("to")
+            .or_else(|| relation.get("target"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(issue_id) = issue_ref.strip_prefix("comtrya://issue/") else {
+            continue;
+        };
+        if let Err(error) = state
+            .runtime
+            .close_issue(issue_id, Some("completed"), Some(&pull_ref))
+        {
+            eprintln!(
+                "WASM pull merge bridge: failed to close linked issue {issue_id} for {pull_ref}: {error}"
+            );
+        }
+    }
 }
 
 fn graphql_body_for_result(

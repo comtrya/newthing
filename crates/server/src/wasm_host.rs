@@ -798,8 +798,8 @@ impl wit_relations::Host for HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         if let Some(existing) = records.iter().find(|r| {
             r.collection == "relations"
-                && r.data.get("source").and_then(Value::as_str) == Some(&source)
-                && r.data.get("target").and_then(Value::as_str) == Some(&target)
+                && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
+                && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
                 && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
         }) {
             return Ok(wit_relations::CreateResult::AlreadyExisted(
@@ -812,6 +812,8 @@ impl wit_relations::Host for HostState {
             "id": id,
             "source": source,
             "target": target,
+            "from": source,
+            "to": target,
             "kind": kind,
             "attributes": attributes.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok()),
             "createdAt": created_at,
@@ -891,7 +893,7 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && r.data.get("source").and_then(Value::as_str) == Some(&source)
+                    && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -922,7 +924,7 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && r.data.get("target").and_then(Value::as_str) == Some(&target)
+                    && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -954,8 +956,8 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && r.data.get("source").and_then(Value::as_str) == Some(&source)
-                    && r.data.get("target").and_then(Value::as_str) == Some(&target)
+                    && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
+                    && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -1056,12 +1058,14 @@ fn record_to_relation(record: &crate::ExtensionDocumentRecord) -> wit_relations:
         source: record
             .data
             .get("source")
+            .or_else(|| record.data.get("from"))
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
         target: record
             .data
             .get("target")
+            .or_else(|| record.data.get("to"))
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
@@ -1077,10 +1081,18 @@ fn record_to_relation(record: &crate::ExtensionDocumentRecord) -> wit_relations:
     }
 }
 
+fn relation_endpoint<'a>(data: &'a Value, primary: &str, legacy: &str) -> Option<&'a str> {
+    data.get(primary)
+        .or_else(|| data.get(legacy))
+        .and_then(Value::as_str)
+}
+
 fn relation_indexed_fields(source: &str, target: &str, kind: &str) -> BTreeMap<String, Value> {
     let mut out = BTreeMap::new();
     out.insert("source".to_string(), Value::String(source.to_string()));
     out.insert("target".to_string(), Value::String(target.to_string()));
+    out.insert("from".to_string(), Value::String(source.to_string()));
+    out.insert("to".to_string(), Value::String(target.to_string()));
     out.insert("kind".to_string(), Value::String(kind.to_string()));
     out
 }

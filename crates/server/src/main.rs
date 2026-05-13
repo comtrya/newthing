@@ -595,7 +595,7 @@ impl Runtime {
     /// Relations whose `from` endpoint is `ref_uri`. For symmetric verbs,
     /// also includes relations whose `to` endpoint is `ref_uri` (since
     /// canonical-direction storage may have swapped them).
-    fn relations_outgoing(
+    pub(crate) fn relations_outgoing(
         &self,
         ref_uri: &str,
         kind_filter: Option<&str>,
@@ -677,7 +677,7 @@ impl Runtime {
     }
 
     // ── Issues (legacy reactor bridge; ext_issues owns new writes) ──
-    fn close_issue(
+    pub(crate) fn close_issue(
         &self,
         id: &str,
         reason: Option<&str>,
@@ -8191,6 +8191,42 @@ extensions: {
         assert_eq!(by_ref_status, StatusCode::OK, "{payload}");
         assert_eq!(payload["data"]["epics"]["byRef"]["id"], epic_id);
 
+        let issue_a_ref = "comtrya://issue/iss_00000000000S8VK3JG0HZG0011";
+        let issue_b_ref = "comtrya://issue/iss_00000000000S8VK3JG0HZG0012";
+        state
+            .runtime
+            .create_relation(issue_a_ref, &epic_ref, "comtrya://rel/part-of", None)
+            .unwrap();
+        state
+            .runtime
+            .create_relation(issue_b_ref, &epic_ref, "comtrya://rel/part-of", None)
+            .unwrap();
+        let issues_in_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($ref: ResourceURN!) {{ {}(ref: $ref) }}",
+                    epics_route("issuesIn")
+                ),
+                "variables": { "ref": epic_ref }
+            })
+            .to_string(),
+        )
+        .await;
+        let issues_in_status = issues_in_response.status();
+        let body = to_bytes(issues_in_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(issues_in_status, StatusCode::OK, "{payload}");
+        let linked_issues = payload["data"]["epics"]["issuesIn"]
+            .as_array()
+            .expect("linked issues");
+        assert_eq!(linked_issues.len(), 2, "{payload}");
+        assert!(linked_issues.iter().any(|issue| issue == issue_a_ref));
+        assert!(linked_issues.iter().any(|issue| issue == issue_b_ref));
+
         let change_response = graphql_post(
             State(state),
             bearer_headers(&token),
@@ -8335,8 +8371,39 @@ extensions: {
                 .any(|pull| pull["title"] == "seed-shaped pull before WASM cutover")
         );
 
+        let linked_issue = create_legacy_issue_record(
+            &state.runtime,
+            "ws_pulls_wasm",
+            Some("repo_pulls_wasm"),
+            "issue closed by WASM pull merge",
+            "",
+            "comtrya://user/usr_00000000000000000000000000",
+            &[],
+        );
+        let linked_issue_id = linked_issue["id"].as_str().unwrap().to_string();
+        let linked_issue_ref = format!("comtrya://issue/{linked_issue_id}");
+        let pull_ref = format!("comtrya://pull_request/{pull_id}");
+        state
+            .runtime
+            .create_relation(
+                &pull_ref,
+                &linked_issue_ref,
+                "comtrya://rel/com.comtrya.pulls/closes",
+                None,
+            )
+            .unwrap();
+        state
+            .runtime
+            .create_relation(
+                &pull_ref,
+                "comtrya://issue/iss_00000000000S8VK3JG0HZG0999",
+                "comtrya://rel/com.comtrya.pulls/closes",
+                None,
+            )
+            .unwrap();
+
         let merge_response = graphql_post(
-            State(state),
+            State(state.clone()),
             bearer_headers(&token),
             json!({
                 "query": format!(
@@ -8360,6 +8427,47 @@ extensions: {
                 .as_str()
                 .is_some()
         );
+        let closed_issue = state
+            .runtime
+            .issue_by_id(&linked_issue_id)
+            .unwrap()
+            .expect("linked issue still exists");
+        assert_eq!(closed_issue["state"], "CLOSED");
+        assert_eq!(closed_issue["stateReason"], "completed");
+        assert_eq!(closed_issue["closedByRef"], pull_ref);
+        let closed_at = closed_issue["closedAt"].clone();
+        assert!(closed_at.as_str().is_some(), "{closed_issue}");
+
+        let merge_again_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: MergePullInput!) {{ {}(input: $input) {{ id state mergedAt }} }}",
+                    pulls_route("merge")
+                ),
+                "variables": { "input": { "id": pull_id } }
+            })
+            .to_string(),
+        )
+        .await;
+        let merge_again_status = merge_again_response.status();
+        let body = to_bytes(merge_again_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(merge_again_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["pulls"]["merge"]["state"], "MERGED");
+
+        let closed_issue_again = state
+            .runtime
+            .issue_by_id(&linked_issue_id)
+            .unwrap()
+            .expect("linked issue still exists");
+        assert_eq!(closed_issue_again["state"], "CLOSED");
+        assert_eq!(closed_issue_again["stateReason"], "completed");
+        assert_eq!(closed_issue_again["closedByRef"], pull_ref);
+        assert_eq!(closed_issue_again["closedAt"], closed_at);
     }
 
     #[tokio::test]

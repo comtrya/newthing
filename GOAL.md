@@ -93,7 +93,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] `ext_checks`: create component crate, implement every op, build WASM — *component crate implements both exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_checks.wasm` plus 2 generated dispatch routes/client entries.*
 - [x] `ext_checks`: cut over GraphQL, delete legacy handlers — *manifest now loads `dist/ext_checks.wasm`; generated dispatch routes checks record/list through a typed WASM bridge; seed-shaped rows with `repositoryID`/`conclusion` and no component-era fields are normalized; `ACTION_REQUIRED` remains a distinct conclusion while WIT state maps to failure; direct WIT record rejects unscoped repositories before minting; generated dispatch and registry suites pass.*
 - [x] `rg "epics\.|pull_requests\.|checks\." crates/server/src/main.rs` returns zero hits in handler code — *the literal command returns no hits; remaining test route helpers build migrated dotted names without hard-coded literals, and non-handler local names were renamed away from false-positive method-call matches.*
-- [ ] Smoke for epic / PR / check flows passes under WASM-only routing
+- [x] Smoke for epic / PR / check flows passes under WASM-only routing — *`cargo test -p comtrya-server generated` passed for generated epic/pull/check routes; `./start.sh --reset --oneshot` passed end-to-end against production-testbed. Added WIT/legacy relation-shape compatibility for epic issue links and a temporary PR merge compatibility bridge that mirrors the old reactor without failing successful merges on stale closes relations or rerunning on idempotent merged PRs.*
 - [ ] Update deletion inventory
 
 ## M6 — Reactor + cross-call broker
