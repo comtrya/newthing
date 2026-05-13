@@ -97,7 +97,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update deletion inventory — *refreshed `docs/v3-deletion-inventory.md` after the M5 cutover: struck deleted epics/pulls fallback rows, recorded that checks has no residual match arm, updated current line/function counts and anchors, and deferred snapshot resolver helpers to M9 because Astro still consumes `extensionResolvers`.*
 
 ## M6 — Reactor + cross-call broker
-- [ ] Implement `OpsDispatcher::dispatch` with real WASM-to-WASM routing through the linker
+- [x] Implement `OpsDispatcher::dispatch` with real WASM-to-WASM routing through the linker — *live `HostState::invoke` routes through `RegistryDispatcher::dispatch`, resolves canonical WIT routes via generated dispatch, and invokes the target component through the typed invoker/linker path. `generated_epics_routes_to_wasm` now proves `ext_epics` `epics.progress` invokes `ext_issues/issues.state-counts-for-refs-issue` and returns the expected open/closed issue counts.*
 - [ ] Thread `ops_invoke_depth` through dispatcher; enforce cap of 32 across nested calls
 - [ ] Enforce manifest `allowedCrossCalls` at dispatch time
 - [ ] Implement reactor subscription registration at extension load; route appended events to subscribers

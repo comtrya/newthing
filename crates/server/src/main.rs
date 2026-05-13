@@ -8191,15 +8191,39 @@ extensions: {
         assert_eq!(by_ref_status, StatusCode::OK, "{payload}");
         assert_eq!(payload["data"]["epics"]["byRef"]["id"], epic_id);
 
-        let issue_a_ref = "comtrya://issue/iss_00000000000S8VK3JG0HZG0011";
-        let issue_b_ref = "comtrya://issue/iss_00000000000S8VK3JG0HZG0012";
+        let issue_a = create_legacy_issue_record(
+            &state.runtime,
+            "ws_epics_wasm",
+            Some("repo_epics_wasm"),
+            "open issue counted by WASM epic progress",
+            "",
+            "comtrya://user/usr_00000000000000000000000000",
+            &[],
+        );
+        let issue_a_id = issue_a["id"].as_str().unwrap().to_string();
+        let issue_a_ref = format!("comtrya://issue/{issue_a_id}");
+        let issue_b = create_legacy_issue_record(
+            &state.runtime,
+            "ws_epics_wasm",
+            Some("repo_epics_wasm"),
+            "closed issue counted by WASM epic progress",
+            "",
+            "comtrya://user/usr_00000000000000000000000000",
+            &[],
+        );
+        let issue_b_id = issue_b["id"].as_str().unwrap().to_string();
+        let issue_b_ref = format!("comtrya://issue/{issue_b_id}");
         state
             .runtime
-            .create_relation(issue_a_ref, &epic_ref, "comtrya://rel/part-of", None)
+            .close_issue(&issue_b_id, Some("completed"), None)
             .unwrap();
         state
             .runtime
-            .create_relation(issue_b_ref, &epic_ref, "comtrya://rel/part-of", None)
+            .create_relation(&issue_a_ref, &epic_ref, "comtrya://rel/part-of", None)
+            .unwrap();
+        state
+            .runtime
+            .create_relation(&issue_b_ref, &epic_ref, "comtrya://rel/part-of", None)
             .unwrap();
         let issues_in_response = graphql_post(
             State(state.clone()),
@@ -8224,8 +8248,42 @@ extensions: {
             .as_array()
             .expect("linked issues");
         assert_eq!(linked_issues.len(), 2, "{payload}");
-        assert!(linked_issues.iter().any(|issue| issue == issue_a_ref));
-        assert!(linked_issues.iter().any(|issue| issue == issue_b_ref));
+        assert!(
+            linked_issues
+                .iter()
+                .any(|issue| issue.as_str() == Some(issue_a_ref.as_str()))
+        );
+        assert!(
+            linked_issues
+                .iter()
+                .any(|issue| issue.as_str() == Some(issue_b_ref.as_str()))
+        );
+
+        let progress_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($ref: ResourceURN!) {{ {}(ref: $ref) {{ issuesOpen issuesClosed childEpicsOpen childEpicsClosed percentComplete }} }}",
+                    epics_route("progress")
+                ),
+                "variables": { "ref": epic_ref }
+            })
+            .to_string(),
+        )
+        .await;
+        let progress_status = progress_response.status();
+        let body = to_bytes(progress_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(progress_status, StatusCode::OK, "{payload}");
+        let progress = &payload["data"]["epics"]["progress"];
+        assert_eq!(progress["issuesOpen"], 1);
+        assert_eq!(progress["issuesClosed"], 1);
+        assert_eq!(progress["childEpicsOpen"], 0);
+        assert_eq!(progress["childEpicsClosed"], 0);
+        assert_eq!(progress["percentComplete"], 50);
 
         let change_response = graphql_post(
             State(state),
