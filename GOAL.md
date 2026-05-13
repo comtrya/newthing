@@ -68,9 +68,9 @@ Settled in `docs/v3-decisions.md`. Summary:
 ## M3 — GraphQL dispatch routing
 - [x] Compose the per-extension `dispatch_route_<ext_id>()` functions into one root dispatch table at startup *(done in M2 build.rs)*
 - [x] Codegen emits a parallel `graphql_field_to_route` lookup so the GraphQL handler can map e.g. `closeIssue` → `ext_issues.issues.close-issue` — *implemented as additional match arms in `dispatch_route` keyed by the legacy `<interface><Verb>` alias (e.g. `issuesClose`); the dispatch table accepts both the WIT route and the legacy GraphQL field name.*
-- [ ] GraphQL mutation/query handler consults the dispatch table first
-- [ ] On hit, route to WASM via `host_state_for_op` + linker
-- [ ] On miss, fall back to legacy handler (temporary, only through M5)
+- [x] GraphQL mutation/query handler consults the dispatch table first
+- [x] On hit, route to WASM via `host_state_for_op` + linker
+- [x] On miss, fall back to legacy handler (temporary, only through M5)
 - [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms)
 - [ ] All 128 existing `start.sh` smoke checks still pass
 

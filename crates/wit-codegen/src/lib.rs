@@ -233,11 +233,10 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
         .next()
         .unwrap_or("unknown");
     let fn_name = format!("dispatch_route_{}", ext_id.replace('-', "_"));
-    out.push_str(&format!(
-        "pub fn {}(route: &str) -> Option<super::DispatchInfo> {{\n",
-        fn_name
-    ));
-    out.push_str("    match route {\n");
+    // Collect (route_key, info_body, alias_key?) tuples so we can
+    // emit both the match arms and a flat ROUTES constant for the
+    // GraphQL handler's query-substring scan.
+    let mut routes: Vec<(String, String, Option<String>)> = Vec::new();
     for op in ops {
         let kind = match op.kind {
             OpKind::Query => "query",
@@ -247,23 +246,45 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
             "extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",",
             op.extension_id, op.interface_name, op.op_name, kind
         );
+        let alias = legacy_graphql_field(&op.interface_name, &op.op_name)
+            .filter(|a| a != &op.route);
+        routes.push((op.route.clone(), info_body, alias));
+    }
+
+    out.push_str(&format!(
+        "pub fn {}(route: &str) -> Option<super::DispatchInfo> {{\n",
+        fn_name
+    ));
+    out.push_str("    match route {\n");
+    for (route_key, info_body, alias) in &routes {
         out.push_str(&format!(
             "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
-            op.route, info_body
+            route_key, info_body
         ));
-        // Legacy GraphQL alias: <interface><Verb>. Lets the existing
-        // Astro frontend keep firing closeIssue / issuesClose without
-        // a schema migration.
-        if let Some(alias) = legacy_graphql_field(&op.interface_name, &op.op_name) {
-            if alias != op.route {
-                out.push_str(&format!(
-                    "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
-                    alias, info_body
-                ));
-            }
+        if let Some(alias_key) = alias {
+            out.push_str(&format!(
+                "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
+                alias_key, info_body
+            ));
         }
     }
-    out.push_str("        _ => None,\n    }\n}\n");
+    out.push_str("        _ => None,\n    }\n}\n\n");
+
+    // ROUTES: every key the dispatch_route function will accept. The
+    // GraphQL handler scans an incoming query for any of these names
+    // (substring match with boundary checks) to decide whether to
+    // route to WASM.
+    out.push_str(&format!(
+        "pub const ROUTES_{}: &[&str] = &[\n",
+        fn_name.trim_start_matches("dispatch_route_").to_uppercase()
+    ));
+    for (route_key, _, alias) in &routes {
+        out.push_str(&format!("    \"{}\",\n", route_key));
+        if let Some(alias_key) = alias {
+            out.push_str(&format!("    \"{}\",\n", alias_key));
+        }
+    }
+    out.push_str("];\n");
     out
 }
 

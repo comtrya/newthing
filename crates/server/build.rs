@@ -123,7 +123,26 @@ fn main() {
             fn_name
         ));
     }
-    table.push_str("    None\n}\n");
+    table.push_str("    None\n}\n\n");
+
+    // Flat list of every route the dispatcher will accept. The
+    // GraphQL handler scans incoming query strings for any of these
+    // names (substring with boundary check) to decide whether to
+    // route to WASM. Composed from each per-extension ROUTES_*.
+    table.push_str("pub fn all_routes() -> Vec<&'static str> {\n");
+    table.push_str("    let mut out = Vec::new();\n");
+    for (ext_id, fn_name) in &all_routes {
+        let const_name = format!(
+            "ROUTES_{}",
+            fn_name.trim_start_matches("dispatch_route_").to_uppercase()
+        );
+        table.push_str(&format!(
+            "    out.extend_from_slice(ext_{}::{});\n",
+            safe_ident(ext_id),
+            const_name
+        ));
+    }
+    table.push_str("    out\n}\n");
 
     let table_path = out_dir.join("dispatch_table.rs");
     fs::write(&table_path, table).unwrap_or_else(|e| {

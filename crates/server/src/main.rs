@@ -27,6 +27,7 @@ use tokio::sync::Semaphore;
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
 
+mod wasm_dispatch;
 mod wasm_host;
 mod wasm_registry;
 
@@ -2231,6 +2232,17 @@ async fn graphql_get(State(state): State<AppState>, headers: HeaderMap) -> Respo
 async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
     let payload = serde_json::from_str::<Value>(&body).unwrap_or_else(|_| json!({}));
     let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
+    // Generated dispatch table consulted first. On hit, route into
+    // WASM via `wasm_dispatch`. On miss, fall through to the legacy
+    // hand-written handlers below (which M4/M5 delete extension-
+    // by-extension as their WASM components ship).
+    if let Some(info) = identify_wasm_op(query) {
+        if let Some(response) =
+            wasm_dispatch::dispatch(&state, &info, payload.clone(), headers.clone())
+        {
+            return response;
+        }
+    }
     if matches_op(query, "createRepository") {
         return create_repository_mutation(state, headers, payload);
     }
@@ -2415,6 +2427,20 @@ fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
             cors,
         ),
     }
+}
+
+/// Scan the GraphQL query for any name in the generated dispatch
+/// table. Returns the matching `DispatchInfo` on the first hit, so
+/// the WASM router can take over before the legacy match arms.
+fn identify_wasm_op(query: &str) -> Option<crate::generated_dispatch::DispatchInfo> {
+    for route in crate::generated_dispatch::all_routes() {
+        if matches_op(query, route) {
+            if let Some(info) = crate::generated_dispatch::dispatch_route(route) {
+                return Some(info);
+            }
+        }
+    }
+    None
 }
 
 /// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
