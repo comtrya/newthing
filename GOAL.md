@@ -69,10 +69,10 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Compose the per-extension `dispatch_route_<ext_id>()` functions into one root dispatch table at startup *(done in M2 build.rs)*
 - [x] Codegen emits a parallel `graphql_field_to_route` lookup so the GraphQL handler can map e.g. `closeIssue` → `ext_issues.issues.close-issue` — *implemented as additional match arms in `dispatch_route` keyed by the legacy `<interface><Verb>` alias (e.g. `issuesClose`); the dispatch table accepts both the WIT route and the legacy GraphQL field name.*
 - [x] GraphQL mutation/query handler consults the dispatch table first
-- [x] On hit, route to WASM via `host_state_for_op` + linker
+- [ ] On hit, route to WASM via `host_state_for_op` + linker — *framework wired (`wasm_dispatch::dispatch` is the entry point); currently returns `None` for every call because the legacy and WIT data shapes diverge for `issues.*` (legacy stores `workspaceID`-shaped JSON, WIT stores `repository`-shaped JSON). Coexistence requires either translation or a swap. M4 makes the swap atomic by deleting the legacy handlers and the WASM dispatcher taking over.*
 - [x] On miss, fall back to legacy handler (temporary, only through M5)
-- [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms)
-- [ ] All 128 existing `start.sh` smoke checks still pass
+- [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms) — *deferred with the route box above to M4*
+- [x] All 128 existing `start.sh` smoke checks still pass
 
 ## M4 — `ext_issues` legacy handlers deleted
 - [ ] Audit business logic in existing `issues.*` handlers in `main.rs`; copy any rule not yet in WASM into the component (revalidation, derived fields, event side effects)

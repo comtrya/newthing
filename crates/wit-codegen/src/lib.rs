@@ -118,14 +118,27 @@ fn singular_of(s: &str) -> Option<String> {
 /// op name and prefixes the interface. Returns `None` if the op name
 /// doesn't follow `<verb>-<interface-singular>` / `<verb>-<interface>`.
 pub fn legacy_graphql_field(interface_name: &str, op_name: &str) -> Option<String> {
+    legacy_verb(interface_name, op_name)
+        .map(|verb| kebab_to_camel(&format!("{}-{}", interface_name, verb)))
+}
+
+/// `<interface>.<verb>` legacy dotted form (e.g. `issues.close`). Some
+/// of the existing GraphQL surface uses this rather than the
+/// camelCase form; the codegen emits it as a third alias.
+pub fn legacy_dotted_field(interface_name: &str, op_name: &str) -> Option<String> {
+    legacy_verb(interface_name, op_name)
+        .map(|verb| format!("{}.{}", interface_name, kebab_to_camel(&verb)))
+}
+
+fn legacy_verb(interface_name: &str, op_name: &str) -> Option<String> {
     let singular = singular_of(interface_name);
     if let Some(s) = &singular {
         if let Some(verb) = op_name.strip_suffix(&format!("-{}", s)) {
-            return Some(kebab_to_camel(&format!("{}-{}", interface_name, verb)));
+            return Some(verb.to_string());
         }
     }
     if let Some(verb) = op_name.strip_suffix(&format!("-{}", interface_name)) {
-        return Some(kebab_to_camel(&format!("{}-{}", interface_name, verb)));
+        return Some(verb.to_string());
     }
     None
 }
@@ -233,10 +246,9 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
         .next()
         .unwrap_or("unknown");
     let fn_name = format!("dispatch_route_{}", ext_id.replace('-', "_"));
-    // Collect (route_key, info_body, alias_key?) tuples so we can
-    // emit both the match arms and a flat ROUTES constant for the
-    // GraphQL handler's query-substring scan.
-    let mut routes: Vec<(String, String, Option<String>)> = Vec::new();
+    // Collect (route_key, info_body, aliases) tuples so we can emit
+    // both the match arms and a flat ROUTES constant.
+    let mut routes: Vec<(String, String, Vec<String>)> = Vec::new();
     for op in ops {
         let kind = match op.kind {
             OpKind::Query => "query",
@@ -246,9 +258,20 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
             "extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",",
             op.extension_id, op.interface_name, op.op_name, kind
         );
-        let alias = legacy_graphql_field(&op.interface_name, &op.op_name)
-            .filter(|a| a != &op.route);
-        routes.push((op.route.clone(), info_body, alias));
+        let mut aliases = Vec::new();
+        // Legacy <interface><Verb> camelCase form (e.g. issuesClose).
+        if let Some(a) = legacy_graphql_field(&op.interface_name, &op.op_name) {
+            if a != op.route {
+                aliases.push(a);
+            }
+        }
+        // Legacy <interface>.<verb> dotted form (e.g. issues.close).
+        if let Some(a) = legacy_dotted_field(&op.interface_name, &op.op_name) {
+            if a != op.route && !aliases.contains(&a) {
+                aliases.push(a);
+            }
+        }
+        routes.push((op.route.clone(), info_body, aliases));
     }
 
     out.push_str(&format!(
@@ -256,12 +279,12 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
         fn_name
     ));
     out.push_str("    match route {\n");
-    for (route_key, info_body, alias) in &routes {
+    for (route_key, info_body, aliases) in &routes {
         out.push_str(&format!(
             "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
             route_key, info_body
         ));
-        if let Some(alias_key) = alias {
+        for alias_key in aliases {
             out.push_str(&format!(
                 "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
                 alias_key, info_body
@@ -270,17 +293,14 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
     }
     out.push_str("        _ => None,\n    }\n}\n\n");
 
-    // ROUTES: every key the dispatch_route function will accept. The
-    // GraphQL handler scans an incoming query for any of these names
-    // (substring match with boundary checks) to decide whether to
-    // route to WASM.
+    // ROUTES: every key the dispatch_route function will accept.
     out.push_str(&format!(
         "pub const ROUTES_{}: &[&str] = &[\n",
         fn_name.trim_start_matches("dispatch_route_").to_uppercase()
     ));
-    for (route_key, _, alias) in &routes {
+    for (route_key, _, aliases) in &routes {
         out.push_str(&format!("    \"{}\",\n", route_key));
-        if let Some(alias_key) = alias {
+        for alias_key in aliases {
             out.push_str(&format!("    \"{}\",\n", alias_key));
         }
     }

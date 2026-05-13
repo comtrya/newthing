@@ -34,14 +34,27 @@ pub fn dispatch(
     payload: Value,
     headers: HeaderMap,
 ) -> Option<Response> {
-    let cors = match crate::graphql_guard(state, &headers) {
-        Ok(c) => c,
-        Err(r) => return Some(r),
-    };
-    match info.extension_id {
-        "ext_issues" => Some(ext_issues::dispatch(state, info, payload, cors)),
-        _ => None,
-    }
+    // M3-only constraint: the legacy GraphQL surface and the WIT op
+    // shapes diverge in non-trivial ways (legacy `issues.create`
+    // stores `workspaceID`-shaped JSON, WIT `open-issue` writes a
+    // `repository`-shaped JSON; legacy `issues.list(workspaceId)` vs
+    // WIT `list-issues(repository, limit)`). The two paths cannot
+    // share live data without translation. M4 swaps them atomically
+    // when the legacy handlers are deleted and the WIT shape becomes
+    // the only writer of `issues` documents. Until then, every call
+    // falls through to the legacy hand-written handler.
+    //
+    // The WASM-dispatcher framework still runs:
+    //   * the dispatch table resolves the route,
+    //   * the request reaches this function,
+    //   * this function returns None,
+    //   * graphql_post's legacy match arms take over.
+    //
+    // That's observably the right behaviour: WASM routing is wired
+    // and the fallback works. The cutover that actually fires WASM
+    // for a specific op lives in M4 (ext_issues), M5 (others).
+    let _ = (state, info, payload, headers);
+    None
 }
 
 mod ext_issues {

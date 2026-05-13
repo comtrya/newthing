@@ -2429,18 +2429,82 @@ fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
     }
 }
 
-/// Scan the GraphQL query for any name in the generated dispatch
-/// table. Returns the matching `DispatchInfo` on the first hit, so
-/// the WASM router can take over before the legacy match arms.
+/// Extract the GraphQL operation's root field name (the first selection
+/// inside the outermost `{ ... }`) and look it up in the generated
+/// dispatch table. Returns the matching `DispatchInfo` on hit.
+///
+/// We can't substring-scan the whole query for known route names —
+/// that produces false positives when an unrelated query contains a
+/// known field as a *subfield* (e.g. `issuesOpen` appearing inside an
+/// `epicsProgress` selection). Only the root field decides routing.
 fn identify_wasm_op(query: &str) -> Option<crate::generated_dispatch::DispatchInfo> {
-    for route in crate::generated_dispatch::all_routes() {
-        if matches_op(query, route) {
-            if let Some(info) = crate::generated_dispatch::dispatch_route(route) {
-                return Some(info);
-            }
+    let field = extract_root_operation_field(query)?;
+    crate::generated_dispatch::dispatch_route(&field)
+}
+
+fn extract_root_operation_field(query: &str) -> Option<String> {
+    // Skip a leading `mutation` / `query` / `subscription` keyword and
+    // any operation name + variable list, then the first `{`, then
+    // whitespace, then read identifier chars.
+    let mut chars = query.chars().peekable();
+    // Skip leading whitespace.
+    while let Some(c) = chars.peek().copied() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
         }
     }
-    None
+    // Optional operation kind keyword.
+    for kind in ["mutation", "query", "subscription"] {
+        if query
+            .trim_start()
+            .starts_with(kind)
+        {
+            // Advance the iterator past the keyword.
+            for _ in 0..kind.len() {
+                chars.next();
+            }
+            break;
+        }
+    }
+    // Skip until the first `{` (handles operation names and
+    // variable declarations between the kind and the selection set).
+    let mut found = false;
+    for c in chars.by_ref() {
+        if c == '{' {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        // Selection-only query (e.g. `{ foo }`); the loop above
+        // consumes the brace.
+    }
+    // Skip whitespace inside the brace.
+    while let Some(c) = chars.peek().copied() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    // Read identifier characters, including the legacy dotted form
+    // (e.g. `issues.close`) used by some existing GraphQL surfaces.
+    let mut ident = String::new();
+    while let Some(c) = chars.peek().copied() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+            ident.push(c);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if ident.is_empty() {
+        None
+    } else {
+        Some(ident)
+    }
 }
 
 /// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
