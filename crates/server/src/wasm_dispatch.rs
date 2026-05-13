@@ -174,6 +174,9 @@ fn prepare_graphql_call(
     if info.extension_id == "ext_epics" && info.interface_name == "epics" {
         return prepare_epics_graphql_call(info, payload);
     }
+    if info.extension_id == "ext_pull_requests" && info.interface_name == "pulls" {
+        return prepare_pulls_graphql_call(info, payload);
+    }
     if info.extension_id != "ext_issues" || info.interface_name != "issues" {
         return Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for {}.{}.{}",
@@ -387,6 +390,136 @@ fn prepare_graphql_call(
         }
         other => Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for ext_issues.issues.{other}"
+        ))),
+    }
+}
+
+fn prepare_pulls_graphql_call(
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &Value,
+) -> BridgeResult<PreparedCall> {
+    let op_route = format!("{}.{}", info.interface_name, info.op_name);
+    match info.op_name {
+        "create-pull" => {
+            let input = input_object(payload, "pulls.create")?;
+            let workspace_id = required_string(input, "workspaceId", "pulls.create")?;
+            let repository_id = optional_string(input, "repositoryId");
+            let title = required_string(input, "title", "pulls.create")?;
+            let body_markdown = optional_string(input, "bodyMarkdown").unwrap_or_default();
+            let base_ref = optional_string(input, "base").unwrap_or_else(|| "main".to_string());
+            let head_ref = required_string(input, "head", "pulls.create")?;
+            let author_ref = optional_string(input, "authorRef")
+                .or_else(|| Some("comtrya://user/usr_00000000000000000000000000".to_string()));
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "repository": pull_repository_uri(Some(&workspace_id), repository_id.as_deref()),
+                    "title": title,
+                    "bodyMarkdown": body_markdown,
+                    "baseRef": base_ref,
+                    "headRef": head_ref,
+                    "authorRef": author_ref,
+                }))?,
+                issue_id: None,
+                workspace_id: Some(workspace_id),
+                repository_id,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "merge-pull" => {
+            let input = input_object(payload, "pulls.merge")?;
+            let id = required_string(input, "id", "pulls.merge")?;
+            let merged_by_ref = optional_string(input, "mergedByRef");
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({ "id": id, "mergedByRef": merged_by_ref }))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "close-pull" => {
+            let input = input_object(payload, "pulls.close")?;
+            let id = required_string(input, "id", "pulls.close")?;
+            let closed_by_ref = optional_string(input, "closedByRef");
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({ "id": id, "closedByRef": closed_by_ref }))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "get-pull" => {
+            let id = required_variable_string(payload, "id", "pulls.get")?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::String(id))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "list-pulls" => {
+            let repository = payload
+                .pointer("/variables/repository")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    let workspace_id = payload
+                        .pointer("/variables/workspaceId")
+                        .and_then(Value::as_str);
+                    let repository_id = payload
+                        .pointer("/variables/repositoryId")
+                        .and_then(Value::as_str);
+                    pull_repository_uri(workspace_id, repository_id)
+                });
+            let limit = payload
+                .pointer("/variables/limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(1024)
+                .min(u32::MAX as u64);
+            let state_filter = payload
+                .pointer("/variables/state")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "repository": repository,
+                    "limit": limit,
+                }))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        other => Err(GraphqlBridgeError::unavailable(format!(
+            "no GraphQL payload bridge for ext_pull_requests.pulls.{other}"
         ))),
     }
 }
@@ -733,6 +866,9 @@ fn graphql_body_for_result(
     if info.extension_id == "ext_epics" && info.interface_name == "epics" {
         return graphql_epics_body_for_result(info, value, call);
     }
+    if info.extension_id == "ext_pull_requests" && info.interface_name == "pulls" {
+        return graphql_pulls_body_for_result(info, value, call);
+    }
     match info.op_name {
         "open-issue" => Ok(json!({
             "data": { "issues": { "create": response_issue_value(state, value, call)? } }
@@ -816,6 +952,46 @@ fn graphql_body_for_result(
         }
         other => Err(format!(
             "no GraphQL result bridge for ext_issues.issues.{other}"
+        )),
+    }
+}
+
+fn graphql_pulls_body_for_result(
+    info: &crate::generated_dispatch::DispatchInfo,
+    value: Value,
+    call: &PreparedCall,
+) -> Result<Value, String> {
+    match info.op_name {
+        "create-pull" => Ok(json!({ "data": { "pulls": { "create": value } } })),
+        "merge-pull" => Ok(json!({ "data": { "pulls": { "merge": value } } })),
+        "close-pull" => Ok(json!({ "data": { "pulls": { "close": value } } })),
+        "get-pull" => Ok(json!({ "data": { "pulls": { "get": value } } })),
+        "list-pulls" => {
+            let mut pulls: Vec<Value> = value
+                .as_array()
+                .ok_or_else(|| "list-pulls returned non-array JSON".to_string())?
+                .iter()
+                .filter(|pull| {
+                    let Some(filter) = &call.state_filter else {
+                        return true;
+                    };
+                    pull.get("state")
+                        .and_then(Value::as_str)
+                        .map(|state| state == filter)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            pulls.sort_by(|a, b| {
+                b.get("number")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .cmp(&a.get("number").and_then(Value::as_u64).unwrap_or(0))
+            });
+            Ok(json!({ "data": { "pulls": { "list": pulls } } }))
+        }
+        other => Err(format!(
+            "no GraphQL result bridge for ext_pull_requests.pulls.{other}"
         )),
     }
 }
@@ -1200,6 +1376,17 @@ fn workspace_uri(workspace_id: &str) -> String {
         workspace_id.to_string()
     } else {
         format!("comtrya://workspace/{workspace_id}")
+    }
+}
+
+fn pull_repository_uri(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
+    match (workspace_id, repository_id) {
+        (Some(workspace), Some(repository)) => {
+            format!("comtrya://workspace/{workspace}/repository/{repository}")
+        }
+        (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
+        (None, Some(repository)) => format!("comtrya://repository/{repository}"),
+        (None, None) => "comtrya://pulls".to_string(),
     }
 }
 

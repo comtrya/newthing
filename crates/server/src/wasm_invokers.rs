@@ -56,6 +56,19 @@ use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
 };
 
+#[allow(warnings)]
+mod ext_pull_requests_bindings {
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_pull_requests/wit",
+        world: "ext-pull-requests",
+    });
+}
+
+use ext_pull_requests_bindings::ExtPullRequests;
+use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
+    ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
+};
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenIssueInputJson {
@@ -96,6 +109,31 @@ struct CreateEpicInputJson {
 struct ChangeStateEpicInputJson {
     id: String,
     state: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreatePullInputJson {
+    repository: String,
+    title: String,
+    body_markdown: String,
+    head_ref: String,
+    base_ref: String,
+    author_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergePullInputJson {
+    id: String,
+    merged_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClosePullInputJson {
+    id: String,
+    closed_by_ref: Option<String>,
 }
 
 pub fn dispatch_ext_issues(
@@ -560,6 +598,179 @@ pub fn dispatch_ext_epics(
     })
 }
 
+pub fn dispatch_ext_pull_requests(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    current_principal: &str,
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &[u8],
+    depth: u32,
+) -> Result<Vec<u8>, wit_types::Error> {
+    if info.extension_id != "ext_pull_requests" || info.interface_name != "pulls" {
+        return Err(wit_error(
+            wit_types::ErrorCode::Internal,
+            format!(
+                "ext_pull_requests invoker received wrong route: {}.{}.{}",
+                info.extension_id, info.interface_name, info.op_name
+            ),
+        ));
+    }
+    let input = parse_payload(payload)?;
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (host_state, ext) = build_host_state(
+        registry,
+        info.extension_id,
+        current_principal,
+        store,
+        dispatcher,
+        depth,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_pull_requests: {e}"),
+            )
+        })?;
+    let ext_pull_requests = ExtPullRequests::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-pull-requests world: {e}"),
+        )
+    })?;
+    let pulls = ext_pull_requests.comtrya_ext_pull_requests_pulls();
+
+    let value = match info.op_name {
+        "create-pull" => {
+            let parsed: CreatePullInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse create-pull input: {e}"),
+                )
+            })?;
+            let wit_input = CreatePullInput {
+                repository: parsed.repository,
+                title: parsed.title,
+                body_markdown: parsed.body_markdown,
+                head_ref: parsed.head_ref,
+                base_ref: parsed.base_ref,
+                author_ref: parsed.author_ref,
+            };
+            let result = pulls
+                .call_create_pull(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("create-pull call: {e}"),
+                    )
+                })?;
+            pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "merge-pull" => {
+            let parsed: MergePullInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse merge-pull input: {e}"),
+                )
+            })?;
+            let wit_input = MergePullInput {
+                id: parsed.id,
+                merged_by_ref: parsed.merged_by_ref,
+            };
+            let result = pulls
+                .call_merge_pull(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("merge-pull call: {e}"),
+                    )
+                })?;
+            pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "close-pull" => {
+            let parsed: ClosePullInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse close-pull input: {e}"),
+                )
+            })?;
+            let wit_input = ClosePullInput {
+                id: parsed.id,
+                closed_by_ref: parsed.closed_by_ref,
+            };
+            let result = pulls
+                .call_close_pull(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("close-pull call: {e}"),
+                    )
+                })?;
+            pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "get-pull" => {
+            let id = string_payload(&input, "get-pull")?;
+            let result = pulls.call_get_pull(&mut wasm_store, &id).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::Internal,
+                    format!("get-pull call: {e}"),
+                )
+            })?;
+            match result.map_err(pulls_error_to_canonical)? {
+                Some(pull) => pull_request_to_json(&pull),
+                None => Value::Null,
+            }
+        }
+        "list-pulls" => {
+            let repository = input
+                .get("repository")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        "list-pulls requires payload.repository",
+                    )
+                })?
+                .to_string();
+            let limit = u32_field(&input, "limit", "list-pulls")?;
+            let result = pulls
+                .call_list_pulls(&mut wasm_store, &repository, limit)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-pulls call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(pulls_error_to_canonical)?
+                    .iter()
+                    .map(pull_request_to_json)
+                    .collect(),
+            )
+        }
+        other => {
+            return Err(wit_error(
+                wit_types::ErrorCode::NotFound,
+                format!("ext_pull_requests has no op named '{other}'"),
+            ));
+        }
+    };
+    serde_json::to_vec(&value).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("encode result: {e}"),
+        )
+    })
+}
+
 fn parse_payload(payload: &[u8]) -> Result<Value, wit_types::Error> {
     if payload.is_empty() {
         return Ok(Value::Null);
@@ -719,6 +930,57 @@ fn workspace_id_from_uri(workspace: &str) -> Option<String> {
         })
 }
 
+fn pull_request_to_json(pull: &PullRequest) -> Value {
+    let (workspace_id, repository_id) = pull_repository_scope(&pull.repository);
+    serde_json::json!({
+        "id": pull.id,
+        "repository": pull.repository,
+        "workspace": pull.workspace,
+        "workspaceId": pull.workspace.as_ref().and_then(|w| workspace_id_from_uri(w)).or(workspace_id),
+        "repositoryId": repository_id,
+        "number": pull.number,
+        "title": pull.title,
+        "bodyMarkdown": pull.body_markdown,
+        "state": pull_state_to_graphql(pull.state),
+        "authorRef": pull.author_ref,
+        "head": pull.head_ref,
+        "headRef": pull.head_ref,
+        "base": pull.base_ref,
+        "baseRef": pull.base_ref,
+        "createdAt": pull.created_at,
+        "updatedAt": pull.updated_at,
+        "mergedAt": pull.merged_at,
+        "mergedByRef": pull.merged_by_ref,
+        "closedAt": pull.closed_at,
+        "closedByRef": pull.closed_by_ref,
+    })
+}
+
+fn pull_state_to_graphql(state: PrState) -> &'static str {
+    match state {
+        PrState::Draft => "DRAFT",
+        PrState::Ready => "READY",
+        PrState::Merged => "MERGED",
+        PrState::Closed => "CLOSED",
+    }
+}
+
+fn pull_repository_scope(repository: &str) -> (Option<String>, Option<String>) {
+    let Some(rest) = repository.strip_prefix("comtrya://") else {
+        return (None, None);
+    };
+    if let Some(rest) = rest.strip_prefix("workspace/") {
+        if let Some((workspace, repository)) = rest.split_once("/repository/") {
+            return (Some(workspace.to_string()), Some(repository.to_string()));
+        }
+        return (Some(rest.to_string()), None);
+    }
+    if let Some(repository) = rest.strip_prefix("repository/") {
+        return (None, Some(repository.to_string()));
+    }
+    (None, None)
+}
+
 fn local_error_to_canonical(
     e: ext_issues_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
@@ -743,6 +1005,26 @@ fn epic_error_to_canonical(
     e: ext_epics_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
     use ext_epics_bindings::comtrya::platform::types as local;
+    let code = match e.code {
+        local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
+        local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
+        local::ErrorCode::Forbidden => wit_types::ErrorCode::Forbidden,
+        local::ErrorCode::Unauthenticated => wit_types::ErrorCode::Unauthenticated,
+        local::ErrorCode::BadInput => wit_types::ErrorCode::BadInput,
+        local::ErrorCode::Internal => wit_types::ErrorCode::Internal,
+        local::ErrorCode::Unavailable => wit_types::ErrorCode::Unavailable,
+    };
+    wit_types::Error {
+        code,
+        message: e.message,
+        path: e.path,
+    }
+}
+
+fn pulls_error_to_canonical(
+    e: ext_pull_requests_bindings::comtrya::platform::types::Error,
+) -> wit_types::Error {
+    use ext_pull_requests_bindings::comtrya::platform::types as local;
     let code = match e.code {
         local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
         local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,

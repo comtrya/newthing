@@ -676,203 +676,6 @@ impl Runtime {
         Ok(out)
     }
 
-    // ── Pull requests (ext_pull_requests-owned) ────────────────────────
-    fn next_pull_request_number(&self, workspace_id: &str) -> Result<u64, String> {
-        let prs = self.extension_storage.collection_data("pull_requests")?;
-        let max = prs
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|p| {
-                        // Either explicitly carry workspaceId, or are seeded
-                        // demo PRs that we treat as belonging to the singleton
-                        // workspace.
-                        p.get("workspaceId")
-                            .and_then(Value::as_str)
-                            .map(|w| w == workspace_id)
-                            .unwrap_or(true)
-                    })
-                    .filter_map(|p| p.get("number").and_then(Value::as_u64))
-                    .max()
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-        Ok(max + 1)
-    }
-
-    fn create_pull_request(
-        &self,
-        workspace_id: &str,
-        repository_id: Option<&str>,
-        title: &str,
-        body_markdown: &str,
-        base: &str,
-        head: &str,
-        author_ref: &str,
-    ) -> Result<Value, String> {
-        const MAX_TITLE: usize = 512;
-        const MAX_BODY: usize = 64 * 1024;
-        let title = title.trim();
-        if title.is_empty() {
-            return Err("pull-request title must not be empty".to_string());
-        }
-        if title.len() > MAX_TITLE {
-            return Err(format!("title must be at most {MAX_TITLE} bytes"));
-        }
-        if body_markdown.len() > MAX_BODY {
-            return Err(format!("body must be at most {MAX_BODY} bytes"));
-        }
-        if base.is_empty() || head.is_empty() {
-            return Err("base and head branches must be non-empty".to_string());
-        }
-        let pr_id = OpaqueId::new(IdPrefix::Owned("pul_".to_string()));
-        let number = self.next_pull_request_number(workspace_id)?;
-        let now_iso = chrono_now_iso();
-        let pr_ref = format!("comtrya://pull_request/{}", pr_id.as_str());
-        let data = json!({
-            "id": pr_id.as_str(),
-            "workspaceId": workspace_id,
-            "repositoryId": repository_id,
-            "number": number,
-            "title": title,
-            "bodyMarkdown": body_markdown,
-            "state": "DRAFT",
-            "base": base,
-            "head": head,
-            "authorRef": author_ref,
-            "createdAt": now_iso,
-            "updatedAt": now_iso,
-            "mergedAt": Value::Null,
-            "closedAt": Value::Null,
-        });
-        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
-        let mut refs = vec![pr_ref.clone(), workspace_uri];
-        if let Some(repo) = repository_id {
-            refs.push(format!("comtrya://repository/{}", repo));
-        }
-        let record = extension_document_record(
-            "ext_pull_requests",
-            "pull_requests",
-            pr_id.as_str(),
-            &pr_ref,
-            refs,
-            data.clone(),
-            &now_iso,
-        );
-        self.extension_storage.create_document(record)?;
-        let _ = self.append_event(
-            "dev.comtrya.pull-request.created",
-            json!({
-                "pullRequestRef": pr_ref,
-                "workspaceId": workspace_id,
-                "number": number,
-            }),
-        );
-        Ok(data)
-    }
-
-    fn pull_request_by_id(&self, id: &str) -> Result<Option<Value>, String> {
-        let prs = self.extension_storage.collection_data("pull_requests")?;
-        Ok(prs.as_array().and_then(|arr| {
-            arr.iter()
-                .find(|p| p.get("id").and_then(Value::as_str) == Some(id))
-                .cloned()
-        }))
-    }
-
-    fn merge_pull_request(&self, id: &str, merged_by_ref: Option<&str>) -> Result<Value, String> {
-        let existing = self
-            .pull_request_by_id(id)?
-            .ok_or_else(|| format!("pull request {id:?} not found"))?;
-        let current_state = existing
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or("DRAFT");
-        if current_state == "MERGED" {
-            return Ok(existing);
-        }
-        if current_state == "CLOSED" {
-            return Err("cannot merge a CLOSED pull request".to_string());
-        }
-        let now_iso = chrono_now_iso();
-        let merged_by_owned = merged_by_ref.map(|s| s.to_string());
-        let now_for_closure = now_iso.clone();
-        self.extension_storage
-            .update_document_atomically("pull_requests", id, move |data| {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("state".to_string(), Value::String("MERGED".to_string()));
-                    obj.insert(
-                        "mergedAt".to_string(),
-                        Value::String(now_for_closure.clone()),
-                    );
-                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
-                    if let Some(merged_by) = &merged_by_owned {
-                        obj.insert("mergedByRef".to_string(), Value::String(merged_by.clone()));
-                    }
-                }
-            })?;
-        let updated = self
-            .pull_request_by_id(id)?
-            .ok_or_else(|| format!("pr {id:?} not found after merge"))?;
-        let pr_ref = format!("comtrya://pull_request/{}", id);
-        // Emit the merge event AFTER persistence so reactors observe
-        // committed state (and the kernel's reactor dispatcher fires
-        // synchronously from inside append_event).
-        let _ = self.append_event(
-            "dev.comtrya.pull-request.merged",
-            json!({
-                "pullRequestRef": pr_ref,
-                "mergedAt": now_iso,
-                "mergedByRef": merged_by_ref,
-            }),
-        );
-        Ok(updated)
-    }
-
-    fn close_pull_request(&self, id: &str, closed_by_ref: Option<&str>) -> Result<Value, String> {
-        let existing = self
-            .pull_request_by_id(id)?
-            .ok_or_else(|| format!("pull request {id:?} not found"))?;
-        let current_state = existing
-            .get("state")
-            .and_then(Value::as_str)
-            .unwrap_or("DRAFT");
-        if current_state == "MERGED" {
-            return Err("cannot close a MERGED pull request".to_string());
-        }
-        if current_state == "CLOSED" {
-            return Ok(existing);
-        }
-        let now_iso = chrono_now_iso();
-        let closed_by_owned = closed_by_ref.map(|s| s.to_string());
-        let now_for_closure = now_iso.clone();
-        self.extension_storage
-            .update_document_atomically("pull_requests", id, move |data| {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
-                    obj.insert(
-                        "closedAt".to_string(),
-                        Value::String(now_for_closure.clone()),
-                    );
-                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
-                    if let Some(closed_by) = &closed_by_owned {
-                        obj.insert("closedByRef".to_string(), Value::String(closed_by.clone()));
-                    }
-                }
-            })?;
-        let updated = self
-            .pull_request_by_id(id)?
-            .ok_or_else(|| format!("pr {id:?} not found after close"))?;
-        let _ = self.append_event(
-            "dev.comtrya.pull-request.closed",
-            json!({
-                "pullRequestRef": format!("comtrya://pull_request/{id}"),
-                "closedByRef": closed_by_ref,
-            }),
-        );
-        Ok(updated)
-    }
-
     // ── Issues (legacy reactor bridge; ext_issues owns new writes) ──
     fn close_issue(
         &self,
@@ -1900,148 +1703,7 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     if matches_op(query, "comments.delete") {
         return comments_delete_mutation(state, headers, payload);
     }
-    if matches_op(query, "pulls.create") {
-        return pulls_create_mutation(state, headers, payload);
-    }
-    if matches_op(query, "pulls.merge") {
-        return pulls_merge_mutation(state, headers, payload);
-    }
-    if matches_op(query, "pulls.close") {
-        return pulls_close_mutation(state, headers, payload);
-    }
     graphql_response(state, headers, payload)
-}
-
-fn pulls_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ws = payload
-        .pointer("/variables/input/workspaceId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let title = payload
-        .pointer("/variables/input/title")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let body = payload
-        .pointer("/variables/input/bodyMarkdown")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let base = payload
-        .pointer("/variables/input/base")
-        .and_then(Value::as_str)
-        .unwrap_or("main");
-    let head = payload
-        .pointer("/variables/input/head")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let repository_id = payload
-        .pointer("/variables/input/repositoryId")
-        .and_then(Value::as_str);
-    let author_ref = payload
-        .pointer("/variables/input/authorRef")
-        .and_then(Value::as_str)
-        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
-    if ws.is_empty() || title.is_empty() || head.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "pulls.create requires variables.input.{workspaceId, title, head}",
-            cors,
-        );
-    }
-    match state
-        .runtime
-        .create_pull_request(ws, repository_id, title, body, base, head, author_ref)
-    {
-        Ok(pr) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "pulls": { "create": pr } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn pulls_merge_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let id = payload
-        .pointer("/variables/input/id")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if id.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "pulls.merge requires variables.input.id",
-            cors,
-        );
-    }
-    let merged_by = payload
-        .pointer("/variables/input/mergedByRef")
-        .and_then(Value::as_str);
-    match state.runtime.merge_pull_request(id, merged_by) {
-        Ok(pr) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "pulls": { "merge": pr } } }),
-            cors,
-        ),
-        Err(message) => {
-            let status = if message.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else if message.contains("cannot merge") {
-                StatusCode::CONFLICT
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            graphql_error_response(status, ErrorCode::BadUserInput.as_str(), &message, cors)
-        }
-    }
-}
-
-fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let id = payload
-        .pointer("/variables/input/id")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if id.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "pulls.close requires variables.input.id",
-            cors,
-        );
-    }
-    let closed_by = payload
-        .pointer("/variables/input/closedByRef")
-        .and_then(Value::as_str);
-    match state.runtime.close_pull_request(id, closed_by) {
-        Ok(pr) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "pulls": { "close": pr } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::CONFLICT,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
 }
 
 /// Extract the GraphQL operation's root field name (the first selection
@@ -6310,6 +5972,10 @@ mod tests {
         format!("epics.{op}")
     }
 
+    fn pulls_route(op: &str) -> String {
+        format!("pulls.{op}")
+    }
+
     fn issue_event(action: &str) -> String {
         format!("dev.comtrya.issues.{action}")
     }
@@ -7667,7 +7333,7 @@ extensions: {
         for id in FIRST_PARTY_EXTENSIONS {
             let resolver = runtime.get(*id).expect("first-party resolver loaded");
             assert_eq!(resolver.id, *id);
-            if matches!(*id, "ext_issues" | "ext_epics") {
+            if matches!(*id, "ext_issues" | "ext_epics" | "ext_pull_requests") {
                 assert_eq!(resolver.component, format!("dist/{id}.wasm"));
                 assert_eq!(resolver.resolver, "platform-wit-extension");
                 assert_eq!(resolver.status, "platform-loaded");
@@ -8406,6 +8072,39 @@ extensions: {
             git_state: PureRustGitState::test_default(),
         };
 
+        let dispatcher = crate::wasm_registry::RegistryDispatcher {
+            registry: state.runtime.wasm_registry.clone(),
+            store: Arc::new(state.runtime.extension_storage.clone()),
+        };
+        let unscoped = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_pull_requests",
+            &pulls_route("create-pull"),
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://repository/repo_pulls_wasm",
+                "title": "unscoped direct WIT pull",
+                "bodyMarkdown": "",
+                "headRef": "feature/unscoped",
+                "baseRef": "main",
+                "authorRef": "comtrya://user/usr_00000000000000000000000000",
+            }))
+            .unwrap(),
+            "comtrya://user/usr_00000000000000000000000000",
+            0,
+        )
+        .expect_err("direct WIT create-pull must reject unscoped repositories");
+        assert!(
+            matches!(
+                unscoped.code,
+                crate::wasm_host::wit_types::ErrorCode::BadInput
+            ),
+            "{unscoped:?}"
+        );
+        assert!(
+            unscoped.message.contains("workspace-scoped repository"),
+            "{unscoped:?}"
+        );
+
         let create_response = graphql_post(
             State(state.clone()),
             bearer_headers(&token),
@@ -8507,6 +8206,150 @@ extensions: {
         assert_eq!(payload["data"]["epics"]["changeState"]["state"], "DONE");
         assert!(
             payload["data"]["epics"]["changeState"]["closedAt"]
+                .as_str()
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_pull_routes_to_wasm() {
+        let runtime = dev_runtime();
+        let legacy_id = OpaqueId::new(IdPrefix::Owned("pul_".to_string()));
+        let legacy_ref = format!("comtrya://pull_request/{}", legacy_id.as_str());
+        let now_iso = chrono_now_iso();
+        runtime
+            .extension_storage
+            .create_document(extension_document_record(
+                "ext_pull_requests",
+                "pull_requests",
+                legacy_id.as_str(),
+                &legacy_ref,
+                vec![
+                    legacy_ref.clone(),
+                    "comtrya://repository/repo_pulls_wasm".to_string(),
+                ],
+                json!({
+                    "id": legacy_id.as_str(),
+                    "repositoryID": "repo_pulls_wasm",
+                    "number": 7,
+                    "title": "seed-shaped pull before WASM cutover",
+                    "state": "READY",
+                    "base": "main",
+                    "head": "legacy/branch",
+                    "mergedAt": Value::Null,
+                    "closedAt": Value::Null,
+                }),
+                &now_iso,
+            ))
+            .unwrap();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: CreatePullInput!) {{ {}(input: $input) {{ id workspaceId repositoryId number title state authorRef head base }} }}",
+                    pulls_route("create")
+                ),
+                "variables": {
+                    "input": {
+                        "workspaceId": "ws_pulls_wasm",
+                        "repositoryId": "repo_pulls_wasm",
+                        "title": "WASM pull",
+                        "bodyMarkdown": "created by ext_pull_requests",
+                        "head": "feature/wasm-pull",
+                        "base": "main"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let create_status = create_response.status();
+        let body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(create_status, StatusCode::OK, "{payload}");
+        let created = &payload["data"]["pulls"]["create"];
+        assert!(
+            created["id"].as_str().unwrap().starts_with("pul_"),
+            "{created}"
+        );
+        assert_eq!(created["workspaceId"], "ws_pulls_wasm");
+        assert_eq!(created["repositoryId"], "repo_pulls_wasm");
+        assert_eq!(created["number"], 43);
+        assert_eq!(created["state"], "DRAFT");
+        assert_eq!(
+            created["authorRef"],
+            "comtrya://user/usr_00000000000000000000000000"
+        );
+        assert_eq!(created["head"], "feature/wasm-pull");
+        assert_eq!(created["base"], "main");
+        let pull_id = created["id"].as_str().unwrap().to_string();
+
+        let list_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($workspaceId: ID!, $repositoryId: ID!) {{ {}(workspaceId: $workspaceId, repositoryId: $repositoryId) {{ id number title }} }}",
+                    pulls_route("list")
+                ),
+                "variables": {
+                    "workspaceId": "ws_pulls_wasm",
+                    "repositoryId": "repo_pulls_wasm"
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let list_status = list_response.status();
+        let body = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(list_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["pulls"]["list"][0]["id"], pull_id);
+        assert!(
+            payload["data"]["pulls"]["list"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|pull| pull["title"] == "seed-shaped pull before WASM cutover")
+        );
+
+        let merge_response = graphql_post(
+            State(state),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: MergePullInput!) {{ {}(input: $input) {{ id state mergedAt }} }}",
+                    pulls_route("merge")
+                ),
+                "variables": { "input": { "id": pull_id } }
+            })
+            .to_string(),
+        )
+        .await;
+        let merge_status = merge_response.status();
+        let body = to_bytes(merge_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(merge_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["pulls"]["merge"]["state"], "MERGED");
+        assert!(
+            payload["data"]["pulls"]["merge"]["mergedAt"]
                 .as_str()
                 .is_some()
         );
