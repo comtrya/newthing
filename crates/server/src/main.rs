@@ -1812,12 +1812,16 @@ impl Runtime {
     }
 
     fn principal_from_headers(&self, headers: &HeaderMap) -> PrincipalStatus {
+        self.principal_context_from_headers(headers).status
+    }
+
+    pub(crate) fn principal_context_from_headers(&self, headers: &HeaderMap) -> PrincipalContext {
         let Some(token) = headers
             .get("authorization")
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
         else {
-            return PrincipalStatus::Anonymous;
+            return PrincipalContext::anonymous();
         };
 
         let credentials = self
@@ -1826,11 +1830,14 @@ impl Runtime {
             .expect("credential lock not poisoned");
         if let Some(credential) = credentials.get(token) {
             if credential.expires_at > now_seconds() {
-                return credential.principal;
+                return PrincipalContext {
+                    status: credential.principal,
+                    uri: credential.principal_uri.clone(),
+                };
             }
         }
 
-        PrincipalStatus::Invalid
+        PrincipalContext::invalid()
     }
 
     fn credential_allows(&self, headers: &HeaderMap, action: &str) -> bool {
@@ -1896,6 +1903,7 @@ impl Runtime {
         principal: PrincipalStatus,
     ) -> String {
         let token = self.next_token("fp");
+        let principal_uri = format!("comtrya://credential/{}", self.next_token("prn"));
         self.credentials
             .lock()
             .expect("credential lock not poisoned")
@@ -1904,12 +1912,13 @@ impl Runtime {
                 CredentialRecord {
                     actions: actions.clone(),
                     principal,
+                    principal_uri: principal_uri.clone(),
                     expires_at: now_seconds() + 300,
                 },
             );
         let _ = self.append_event(
             "dev.comtrya.auth.credential.issued",
-            json!({"resource": resource, "scope": actions}),
+            json!({"resource": resource, "scope": actions, "principal": principal_uri}),
         );
         token
     }
@@ -2123,6 +2132,28 @@ enum PrincipalStatus {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct PrincipalContext {
+    pub(crate) status: PrincipalStatus,
+    pub(crate) uri: String,
+}
+
+impl PrincipalContext {
+    fn anonymous() -> Self {
+        Self {
+            status: PrincipalStatus::Anonymous,
+            uri: "comtrya://principal/anonymous".to_string(),
+        }
+    }
+
+    fn invalid() -> Self {
+        Self {
+            status: PrincipalStatus::Invalid,
+            uri: "comtrya://principal/invalid".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct SessionRecord {
     principal: PrincipalStatus,
     expires_at: u64,
@@ -2133,6 +2164,7 @@ struct SessionRecord {
 struct CredentialRecord {
     actions: Vec<String>,
     principal: PrincipalStatus,
+    principal_uri: String,
     expires_at: u64,
 }
 
@@ -2783,6 +2815,10 @@ fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) 
 // ── issues GraphQL dispatch ────────────────────────────────────────────────
 fn issues_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    issues_create_response(state, payload, cors)
+}
+
+fn issues_create_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
     let workspace_id = payload
         .pointer("/variables/input/workspaceId")
         .and_then(Value::as_str)
@@ -2839,6 +2875,10 @@ fn issues_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -
 
 fn issues_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    issues_close_response(state, payload, cors)
+}
+
+fn issues_close_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
     let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
@@ -2869,6 +2909,10 @@ fn issues_close_mutation(state: AppState, headers: HeaderMap, payload: Value) ->
 
 fn issues_reopen_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    issues_reopen_response(state, payload, cors)
+}
+
+fn issues_reopen_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
     let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
@@ -2895,6 +2939,10 @@ fn issues_reopen_mutation(state: AppState, headers: HeaderMap, payload: Value) -
 
 fn issues_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    issues_list_response(state, payload, cors)
+}
+
+fn issues_list_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
     let ws = payload.pointer("/variables/workspaceId").and_then(Value::as_str);
     let repo = payload.pointer("/variables/repositoryId").and_then(Value::as_str);
     let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
@@ -2910,6 +2958,27 @@ fn issues_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Res
             &message,
             cors,
         ),
+    }
+}
+
+pub(crate) fn legacy_wasm_route_response(
+    state: AppState,
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: Value,
+    cors: HeaderMap,
+) -> Option<Response> {
+    match (info.extension_id, info.interface_name, info.op_name) {
+        ("ext_issues", "issues", "open-issue") => {
+            Some(issues_create_response(state, payload, cors))
+        }
+        ("ext_issues", "issues", "close-issue") => {
+            Some(issues_close_response(state, payload, cors))
+        }
+        ("ext_issues", "issues", "reopen-issue") => {
+            Some(issues_reopen_response(state, payload, cors))
+        }
+        ("ext_issues", "issues", "list-issues") => Some(issues_list_response(state, payload, cors)),
+        _ => None,
     }
 }
 
@@ -3186,7 +3255,7 @@ fn cors_or_response(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, 
     state.runtime.check_boundary(headers, "/graphql")
 }
 
-fn graphql_guard(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
+pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
     let cors = cors_or_response(state, headers)?;
     state
         .runtime
@@ -3433,7 +3502,7 @@ fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Valu
     }
 }
 
-fn graphql_error_response(
+pub(crate) fn graphql_error_response(
     status: StatusCode,
     code: &str,
     message: &str,
@@ -8519,6 +8588,185 @@ extensions: {
         assert_eq!(issue.data.get("state").and_then(Value::as_str), Some("CLOSED"));
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
         assert!(event_log.contains("dev.comtrya.issues.closed"));
+    }
+
+    #[test]
+    fn live_wasm_dispatch_prepares_host_state_from_request_context() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+        let info = crate::generated_dispatch::dispatch_route("issuesClose")
+            .expect("issuesClose routes to ext_issues");
+
+        let (host_state, loaded) =
+            crate::wasm_dispatch::prepare_live_host_state(&state, &info, &headers)
+                .expect("live dispatch context builds");
+
+        assert_eq!(loaded.id, "ext_issues");
+        assert_eq!(host_state.extension_id, "ext_issues");
+        assert_eq!(
+            host_state.extension_principal,
+            "comtrya://extension/ext_issues"
+        );
+        assert!(host_state
+            .current_principal
+            .starts_with("comtrya://credential/prn_"));
+        assert!(host_state
+            .manifest
+            .host_imports
+            .iter()
+            .any(|import| import == "storage.write"));
+
+        assert!(
+            crate::wasm_dispatch::dispatch(
+                &state,
+                &info,
+                json!({
+                    "query": "mutation { issuesClose(input: { id: \"iss_1\" }) { id } }",
+                    "variables": { "input": { "id": "iss_1" } }
+                }),
+                headers,
+            )
+            .is_some(),
+            "M2 prepares live HostState context, then delegates to legacy response until the WASM cutover"
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_wasm_hit_uses_one_graphql_guard_before_legacy_fallback() {
+        let mut runtime = Runtime::start(StartupOptions {
+            config_path: None,
+            data_dir: temp_dir("generated-wasm-hit-single-guard"),
+            extension_dir: test_extension_dir(),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            check: false,
+            tls_terminated: false,
+            operator_code: Some("testbed-operator-code".to_string()),
+            session_ttl_seconds: 300,
+            external_demo: false,
+        })
+        .unwrap();
+        runtime.config.rate_limits.graphql_per_principal = 1;
+        let runtime = Arc::new(runtime);
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            bearer_headers(&token),
+            json!({"query": "query { issuesList { id } }"}).to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn generated_wasm_hit_fails_closed_when_live_host_state_cannot_build() {
+        let runtime = Arc::new(
+            Runtime::start(StartupOptions {
+                config_path: Some({
+                    let config_dir = temp_dir("wasm-hit-no-ext-cfg");
+                    let config_path = config_dir.join("config.cue");
+                    fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
+                    config_path
+                }),
+                data_dir: temp_dir("wasm-hit-no-ext-data"),
+                extension_dir: test_extension_dir(),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                check: false,
+                tls_terminated: false,
+                operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds: 300,
+                external_demo: false,
+            })
+            .unwrap(),
+        );
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            bearer_headers(&token),
+            json!({
+                "query": "mutation { issuesClose(input: { id: \"iss_1\" }) { id } }",
+                "variables": { "input": { "id": "iss_1" } }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            "WASM_DISPATCH_UNAVAILABLE"
+        );
+        assert!(
+            payload["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("unknown extension: ext_issues")
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_wasm_hit_without_legacy_bridge_still_prepares_and_fails_closed() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            bearer_headers(&token),
+            json!({
+                "query": "query { issuesGet(id: \"iss_1\") { id } }",
+                "variables": { "id": "iss_1" }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            "WASM_CUTOVER_PENDING"
+        );
+        assert!(
+            payload["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("ext_issues.issues.get-issue")
+        );
     }
 
     #[test]
