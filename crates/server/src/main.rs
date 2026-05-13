@@ -29,6 +29,13 @@ use wasmtime::{Engine, Store};
 
 mod wasm_host;
 
+/// Build-script-generated extension dispatch table. Maps the
+/// `<extension-id>.<interface>.<op>` GraphQL routes to `DispatchInfo`
+/// records the kernel uses to route into WASM. See `crates/server/build.rs`.
+mod generated_dispatch {
+    include!(concat!(env!("OUT_DIR"), "/dispatch_table.rs"));
+}
+
 #[derive(Clone)]
 struct PureRustGitState {
     project_root: PathBuf,
@@ -6911,6 +6918,26 @@ mod tests {
     use axum::body::to_bytes;
     use comtrya_core::OidcIssuerConfig;
     use std::sync::atomic::AtomicU64;
+
+    /// build.rs codegen → main.rs include pipeline works end-to-end.
+    #[test]
+    fn dispatch_table_routes_ext_issues_close() {
+        let info = crate::generated_dispatch::dispatch_route(
+            "ext_issues.issues.close-issue",
+        )
+        .expect("route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "close-issue");
+        assert_eq!(info.kind, "mutation");
+    }
+
+    #[test]
+    fn dispatch_table_returns_none_for_unknown_routes() {
+        assert!(
+            crate::generated_dispatch::dispatch_route("nope.nope.nope").is_none()
+        );
+    }
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 

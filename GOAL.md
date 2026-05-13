@@ -52,8 +52,8 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Wasmtime integration test in `crates/server`: load the wasm, call `close-issue` through `Linker<HostState>`, assert storage state
 
 ## M2 — Host wiring + codegen build integration
-- [ ] Add `crates/server/build.rs` that discovers installed extensions and runs `comtrya-wit-codegen` per extension
-- [ ] `build.rs` emits handler files to `OUT_DIR`; `main.rs` includes them via `include!`
+- [x] Add `crates/server/build.rs` that discovers installed extensions and runs `comtrya-wit-codegen` per extension
+- [x] `build.rs` emits handler files to `OUT_DIR`; `main.rs` includes them via `include!`
 - [ ] Replace the `Linker::<()>::new` block at `main.rs:6077`: extensions declaring `platformWitVersion` use `Linker<HostState>`
 - [ ] When an extension declares `platformWitVersion`, the loader reads the real component from `<ext_root>/dist/<ext_id>.wasm` and updates the manifest's `wasmComponent` field (or stops reading `wasmComponent` and synthesises the path from convention)
 - [ ] Implement the kernel-side `OpsDispatcher` that holds the loaded-component registry and dispatches by `extension_id`

@@ -332,6 +332,7 @@ dependencies = [
  "bytes",
  "comtrya-core",
  "comtrya-git-http",
+ "comtrya-wit-codegen",
  "serde",
  "serde_json",
  "sha2",
