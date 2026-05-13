@@ -59,7 +59,7 @@ pub fn classify_op_name(name: &str) -> OpKind {
     let read_prefixes = ["get-", "list-", "query-", "fetch-", "find-", "search-"];
     let mutation_prefixes = [
         "create-", "update-", "delete-", "close-", "open-", "merge-", "post-", "edit-", "set-",
-        "add-", "remove-", "reopen-", "cancel-", "approve-", "reject-",
+        "add-", "remove-", "reopen-", "change-", "record-", "cancel-", "approve-", "reject-",
     ];
     if read_prefixes.iter().any(|p| lower.starts_with(p)) {
         OpKind::Query
@@ -511,6 +511,8 @@ mod tests {
         assert_eq!(classify_op_name("get-issue"), OpKind::Query);
         assert_eq!(classify_op_name("list-pulls"), OpKind::Query);
         assert_eq!(classify_op_name("reopen-issue"), OpKind::Mutation);
+        assert_eq!(classify_op_name("change-state-epic"), OpKind::Mutation);
+        assert_eq!(classify_op_name("record-check"), OpKind::Mutation);
         assert_eq!(classify_op_name("notify-someone"), OpKind::Query);
     }
 

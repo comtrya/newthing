@@ -23,25 +23,46 @@ interface epics {
     title: string,
     body-markdown: string,
     state: epic-state,
+    target-date: option<string>,
+    owner-ref: option<uri>,
+    labels: list<string>,
     created-at: iso-timestamp,
     updated-at: iso-timestamp,
+    closed-at: option<iso-timestamp>,
   }
 
   record create-epic-input {
     workspace: uri,
     title: string,
     body-markdown: string,
+    owner-ref: option<uri>,
+    target-date: option<string>,
+    labels: list<string>,
+    parent-epic-ref: option<uri>,
   }
 
-  record transition-epic-input {
+  record change-state-epic-input {
     %id: id,
-    %to: epic-state,
+    state: epic-state,
+  }
+
+  record epic-progress {
+    issues-open: u64,
+    issues-closed: u64,
+    child-epics-open: u64,
+    child-epics-closed: u64,
+    percent-complete: u64,
   }
 
   create-epic: func(input: create-epic-input) -> result<epic, error>;
-  transition-epic: func(input: transition-epic-input) -> result<epic, error>;
+  change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   get-epic: func(%id: id) -> result<option<epic>, error>;
   list-epics: func(workspace: uri, %limit: u32) -> result<list<epic>, error>;
+  by-ref-epic: func(ref: uri) -> result<option<epic>, error>;
+  by-refs-epic: func(refs: list<uri>) -> result<list<option<epic>>, error>;
+  progress-epic: func(ref: uri) -> result<epic-progress, error>;
+  issues-in-epic: func(ref: uri) -> result<list<uri>, error>;
+  children-of-epic: func(ref: uri) -> result<list<uri>, error>;
 }
 
 world ext-epics {

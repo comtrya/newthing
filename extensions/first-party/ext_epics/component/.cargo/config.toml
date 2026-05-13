@@ -1,0 +1,4 @@
+# Pin the build target so `cargo component build` produces a component
+# without WASI adapter imports; the kernel only provides comtrya:platform.
+[build]
+target = "wasm32-unknown-unknown"

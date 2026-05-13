@@ -86,11 +86,11 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update `docs/v3-deletion-inventory.md` — mark items removed — *struck the deleted `ext_issues` dispatch rows, refreshed shifted `main.rs` line anchors, recorded the current line/function counts, and explicitly deferred `issues_resolver_output` because the legacy snapshot still uses it until M9.*
 
 ## M5 — `ext_epics`, `ext_pull_requests`, `ext_checks` migrated
-- [ ] `ext_epics`: create component crate, implement every op, build WASM
+- [x] `ext_epics`: create component crate, implement every op, build WASM — *component crate implements all 9 exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_epics.wasm` plus 9 generated dispatch routes/client entries.*
 - [ ] `ext_epics`: cut over GraphQL, delete legacy handlers
-- [ ] `ext_pull_requests`: create component crate, implement every op, build WASM
+- [x] `ext_pull_requests`: create component crate, implement every op, build WASM — *component crate implements all 5 exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_pull_requests.wasm` plus 5 generated dispatch routes/client entries.*
 - [ ] `ext_pull_requests`: cut over GraphQL, delete legacy handlers
-- [ ] `ext_checks`: create component crate, implement every op, build WASM
+- [x] `ext_checks`: create component crate, implement every op, build WASM — *component crate implements both exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_checks.wasm` plus 2 generated dispatch routes/client entries.*
 - [ ] `ext_checks`: cut over GraphQL, delete legacy handlers
 - [ ] `rg "epics\.|pull_requests\.|checks\." crates/server/src/main.rs` returns zero hits in handler code
 - [ ] Smoke for epic / PR / check flows passes under WASM-only routing

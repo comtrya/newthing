@@ -17,3 +17,4 @@ extensions/first-party/*/dist/*
 # cargo-component regenerates this from the WIT on every build; treat
 # it as generated, not source.
 extensions/first-party/*/component/src/bindings.rs
+extensions/first-party/*/wit/deps/

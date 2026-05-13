@@ -7,7 +7,7 @@
 
 package comtrya:ext-pull-requests@0.1.0;
 
-interface pull-requests {
+interface pulls {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
 
   variant pr-state {
@@ -20,8 +20,10 @@ interface pull-requests {
   record pull-request {
     %id: id,
     repository: uri,
+    workspace: option<uri>,
     number: u64,
     title: string,
+    body-markdown: string,
     state: pr-state,
     author-ref: uri,
     head-ref: string,
@@ -29,27 +31,38 @@ interface pull-requests {
     created-at: iso-timestamp,
     updated-at: iso-timestamp,
     merged-at: option<iso-timestamp>,
+    merged-by-ref: option<uri>,
+    closed-at: option<iso-timestamp>,
+    closed-by-ref: option<uri>,
   }
 
-  record open-pr-input {
+  record create-pull-input {
     repository: uri,
     title: string,
+    body-markdown: string,
     head-ref: string,
     base-ref: string,
+    author-ref: option<uri>,
   }
 
-  record transition-pr-input {
+  record merge-pull-input {
     %id: id,
-    %to: pr-state,
+    merged-by-ref: option<uri>,
   }
 
-  open-pr: func(input: open-pr-input) -> result<pull-request, error>;
-  transition-pr: func(input: transition-pr-input) -> result<pull-request, error>;
-  get-pr: func(%id: id) -> result<option<pull-request>, error>;
-  list-prs: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
+  record close-pull-input {
+    %id: id,
+    closed-by-ref: option<uri>,
+  }
+
+  create-pull: func(input: create-pull-input) -> result<pull-request, error>;
+  merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
+  close-pull: func(input: close-pull-input) -> result<pull-request, error>;
+  get-pull: func(%id: id) -> result<option<pull-request>, error>;
+  list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
 }
 
 world ext-pull-requests {
   include comtrya:platform/extension@0.1.0;
-  export pull-requests;
+  export pulls;
 }
