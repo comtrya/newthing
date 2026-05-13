@@ -375,8 +375,37 @@ fn is_valid_permission_grammar(s: &str) -> bool {
 
 // ---- ids ----
 
+impl HostState {
+    /// Kernel-initiated mint. Used by host imports that mint on the
+    /// extension's behalf (events.append, relations.create,
+    /// comments.post) without consulting the extension's manifest —
+    /// the manifest gates EXTENSION-initiated mints, not kernel ones.
+    /// The split is explicit here so call sites in the host trait
+    /// impls don't accidentally read like they're enforcing the
+    /// manifest when they aren't.
+    pub(crate) fn mint_internal(
+        &self,
+        kind_name: &str,
+    ) -> Result<wit_types::Id, wit_types::Error> {
+        match self.id_minter.mint(kind_name) {
+            Ok(id) => Ok(id),
+            Err(MintError::UnknownKind(k)) => Err(err(
+                wit_types::ErrorCode::Internal,
+                format!("kernel-internal kind '{}' not registered with the minter", k),
+            )),
+            Err(MintError::Forbidden(reason)) => {
+                Err(err(wit_types::ErrorCode::Internal, reason))
+            }
+            Err(MintError::Internal(reason)) => {
+                Err(err(wit_types::ErrorCode::Internal, reason))
+            }
+        }
+    }
+}
+
 impl wit_ids::Host for HostState {
     fn mint(&mut self, kind_name: String) -> Result<wit_types::Id, wit_types::Error> {
+        // Extension-initiated mint — must be in the manifest.
         if !self
             .manifest
             .contributes_resource_kinds
@@ -645,10 +674,7 @@ impl wit_relations::Host for HostState {
                 record_to_relation(existing),
             ));
         }
-        let id = self
-            .id_minter
-            .mint("relation")
-            .map_err(|e| err(wit_types::ErrorCode::Internal, format!("{:?}", e)))?;
+        let id = self.mint_internal("relation")?;
         let created_at = self.clock.now_iso();
         let data = serde_json::json!({
             "id": id,
@@ -982,10 +1008,7 @@ impl wit_comments::Host for HostState {
                 ));
             }
         }
-        let id = self
-            .id_minter
-            .mint("comment")
-            .map_err(|e| err(wit_types::ErrorCode::Internal, format!("{:?}", e)))?;
+        let id = self.mint_internal("comment")?;
         let created_at = self.clock.now_iso();
         let data = serde_json::json!({
             "id": id,
@@ -1129,10 +1152,7 @@ impl wit_events::Host for HostState {
         // valid JSON.
         let payload_b64 = base64_encode(&payload);
         let source = source_uri.unwrap_or_else(|| self.extension_principal.clone());
-        let id = self
-            .id_minter
-            .mint("event")
-            .map_err(|e| err(wit_types::ErrorCode::Internal, format!("{:?}", e)))?;
+        let id = self.mint_internal("event")?;
         let timestamp_ms = self.clock.now_millis();
         let event = wit_types::Event {
             id: id.clone(),

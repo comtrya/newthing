@@ -50,6 +50,16 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 #    features).
 component_dir="$root/component"
 if [[ -f "$component_dir/Cargo.toml" ]]; then
+  # The .cargo/config.toml locks the build target to
+  # wasm32-unknown-unknown. Without it cargo-component picks
+  # wasm32-wasip1 by default, which drags wasi:* imports into the
+  # component — nothing on the kernel side provides those.
+  if [[ ! -f "$component_dir/.cargo/config.toml" ]]; then
+    echo "FATAL: $component_dir/.cargo/config.toml missing." >&2
+    echo "  Add: [build]\\n  target = \"wasm32-unknown-unknown\"" >&2
+    echo "  Otherwise wasm32-wasip1 leaks WASI imports the kernel can't satisfy." >&2
+    exit 1
+  fi
   echo "==> cargo-component build $ext_id"
   if ! (cd "$component_dir" && cargo component build --release --quiet); then
     echo "cargo-component build failed for $ext_id" >&2

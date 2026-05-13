@@ -61,8 +61,8 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Parse `manifest.json` fields (`hostImports`, `allowedEmits`, `allowedEventReads`, `allowedCrossCalls`, `reactor.allowedMutations`, `reactor.allowedEmits`, `contributes.resourceKinds`) into `HostManifest` at load time
 - [ ] Add a JSON Schema for the manifest at `docs/manifest.schema.json` and validate every installed manifest at load
 - [ ] Enforce the `ids.mint` → `storage.create` registry contract that's currently documented in `storage.wit` but not implemented (per-extension minted-id set, `storage.create` rejects ids not in it)
-- [ ] Extract a `mint_internal(kind)` helper in `wasm_host.rs` for kernel-initiated mints (`relations.create`, `comments.post`, `events.append`) so the manifest-check / no-manifest-check split is explicit, not implicit at call sites
-- [ ] Add a build-extension.sh guard that warns if a component crate lacks `.cargo/config.toml` (the file that locks `wasm32-unknown-unknown`); without it, `wasm32-wasip1` leaks WASI imports
+- [x] Extract a `mint_internal(kind)` helper in `wasm_host.rs` for kernel-initiated mints (`relations.create`, `comments.post`, `events.append`) so the manifest-check / no-manifest-check split is explicit, not implicit at call sites
+- [x] Add a build-extension.sh guard that warns if a component crate lacks `.cargo/config.toml` (the file that locks `wasm32-unknown-unknown`); without it, `wasm32-wasip1` leaks WASI imports
 - [ ] Integration test: kernel starts, loads `ext_issues.wasm`, calls `close-issue` via the linker, asserts persistence + event emission
 
 ## M3 — GraphQL dispatch routing
