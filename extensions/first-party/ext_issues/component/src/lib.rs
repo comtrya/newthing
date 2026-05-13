@@ -39,6 +39,10 @@ struct Component;
 struct StoredIssue {
     id: String,
     repository: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    repository_id: Option<String>,
     title: String,
     body_markdown: String,
     /// Uppercase ("OPEN" / "CLOSED" / "REOPENED") to match the legacy
@@ -113,13 +117,79 @@ struct RepoCounter {
     next: u64,
 }
 
-/// Return the next sequential issue number for `repository` and
+struct IssueScope {
+    workspace_id: Option<String>,
+    repository_id: Option<String>,
+}
+
+fn issue_scope(repository: &str) -> IssueScope {
+    let Some(rest) = repository.strip_prefix("comtrya://") else {
+        return IssueScope {
+            workspace_id: None,
+            repository_id: None,
+        };
+    };
+    if let Some(rest) = rest.strip_prefix("workspace/") {
+        if let Some((workspace, repository)) = rest.split_once("/repository/") {
+            return IssueScope {
+                workspace_id: Some(workspace.to_string()),
+                repository_id: Some(repository.to_string()),
+            };
+        }
+        return IssueScope {
+            workspace_id: Some(rest.to_string()),
+            repository_id: None,
+        };
+    }
+    if let Some(repository) = rest.strip_prefix("repository/") {
+        return IssueScope {
+            workspace_id: None,
+            repository_id: Some(repository.to_string()),
+        };
+    }
+    IssueScope {
+        workspace_id: None,
+        repository_id: None,
+    }
+}
+
+fn issue_counter_key(repository: &str, scope: &IssueScope) -> String {
+    scope
+        .workspace_id
+        .as_ref()
+        .map(|workspace| format!("comtrya://workspace/{workspace}"))
+        .unwrap_or_else(|| repository.to_string())
+}
+
+fn repository_filter_matches(stored: &StoredIssue, filter: &str) -> bool {
+    if filter == "comtrya://issues" {
+        return true;
+    }
+    let filter_scope = issue_scope(filter);
+    if let Some(workspace) = filter_scope.workspace_id.as_deref() {
+        if stored.workspace_id.as_deref() != Some(workspace) {
+            return false;
+        }
+    }
+    if let Some(repository) = filter_scope.repository_id.as_deref() {
+        if stored.repository_id.as_deref() != Some(repository) {
+            return false;
+        }
+    }
+    filter_scope.workspace_id.is_some()
+        || filter_scope.repository_id.is_some()
+        || stored.repository == filter
+}
+
+/// Return the next sequential issue number for `scope_key` and
 /// increment the persisted counter atomically. Uses the OCC two-step
 /// update on a `_meta`-collection counter document keyed by the
-/// repository URI so two concurrent `open-issue` calls cannot collide
-/// on a number, and there's no O(N) scan or 1024-row cap.
-fn next_issue_number(repository: &str) -> Result<u64, Error> {
-    let counter_id = format!("issue-number:{}", repository);
+/// workspace URI when one exists, preserving legacy workspace-scoped
+/// issue numbers; repository-only callers fall back to the repository
+/// URI. This avoids O(N) scans while keeping `issues.byNumber` unique
+/// within the existing GraphQL workspace boundary.
+fn next_issue_number(scope_key: &str) -> Result<u64, Error> {
+    let counter_id = format!("issue-number:{}", scope_key);
     match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
         Ok(snap) => {
             let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
@@ -131,7 +201,10 @@ fn next_issue_number(repository: &str) -> Result<u64, Error> {
             storage::update_commit(COUNTER_COLLECTION, &counter_id, &snap.version, &bytes)?;
             Ok(assigned)
         }
-        Err(Error { code: ErrorCode::NotFound, .. }) => {
+        Err(Error {
+            code: ErrorCode::NotFound,
+            ..
+        }) => {
             // First issue in this repo — seed the counter at 2, return 1.
             let counter = RepoCounter { next: 2 };
             let bytes = serde_json::to_vec(&counter)
@@ -142,7 +215,7 @@ fn next_issue_number(repository: &str) -> Result<u64, Error> {
                 &bytes,
                 &storage::DocumentMetadata {
                     resource_uri: format!("comtrya://_meta/{}", counter_id),
-                    resource_refs: vec![repository.to_string()],
+                    resource_refs: vec![scope_key.to_string()],
                 },
             )?;
             Ok(1)
@@ -152,16 +225,22 @@ fn next_issue_number(repository: &str) -> Result<u64, Error> {
 }
 
 fn persist_new(stored: &StoredIssue) -> Result<(), Error> {
-    let data = serde_json::to_vec(stored).map_err(|e| {
-        err(ErrorCode::Internal, format!("serialise issue: {e}"))
-    })?;
+    let data = serde_json::to_vec(stored)
+        .map_err(|e| err(ErrorCode::Internal, format!("serialise issue: {e}")))?;
+    let mut resource_refs = vec![stored.repository.clone()];
+    if let Some(workspace_id) = &stored.workspace_id {
+        resource_refs.push(format!("comtrya://workspace/{workspace_id}"));
+    }
+    if let Some(repository_id) = &stored.repository_id {
+        resource_refs.push(format!("comtrya://repository/{repository_id}"));
+    }
     storage::create(
         COLLECTION,
         &stored.id,
         &data,
         &storage::DocumentMetadata {
             resource_uri: format!("comtrya://issue/{}", stored.id),
-            resource_refs: vec![stored.repository.clone()],
+            resource_refs,
         },
     )
 }
@@ -170,9 +249,8 @@ fn read_stored(id: &str) -> Result<Option<StoredIssue>, Error> {
     let Some(snap) = storage::get(COLLECTION, id)? else {
         return Ok(None);
     };
-    let stored: StoredIssue = serde_json::from_slice(&snap.data).map_err(|e| {
-        err(ErrorCode::Internal, format!("parse issue {}: {e}", id))
-    })?;
+    let stored: StoredIssue = serde_json::from_slice(&snap.data)
+        .map_err(|e| err(ErrorCode::Internal, format!("parse issue {}: {e}", id)))?;
     Ok(Some(stored))
 }
 
@@ -193,10 +271,13 @@ impl IssuesGuest for Component {
         let id = ids::mint("issue")?;
         let now = time::now_iso();
         let author = identity::current_principal()?;
-        let number = next_issue_number(&input.repository)?;
+        let scope = issue_scope(&input.repository);
+        let number = next_issue_number(&issue_counter_key(&input.repository, &scope))?;
         let stored = StoredIssue {
             id: id.clone(),
             repository: input.repository.clone(),
+            workspace_id: scope.workspace_id,
+            repository_id: scope.repository_id,
             title: input.title.clone(),
             body_markdown: input.body_markdown,
             state: state_to_str(IssueState::Open).to_string(),
@@ -287,12 +368,15 @@ impl IssuesGuest for Component {
         // truncated — Issue tracker rendering must handle pagination
         // when the new query lands.
         let limit = limit.min(1024);
-        let page = storage::list_all(COLLECTION, limit, None)?;
+        let page = storage::list_all(COLLECTION, 1024, None)?;
         let mut out = Vec::new();
         for bytes in page.docs {
             if let Ok(stored) = serde_json::from_slice::<StoredIssue>(&bytes) {
-                if stored.repository == repository {
+                if repository_filter_matches(&stored, &repository) {
                     out.push(stored.to_wit());
+                    if out.len() >= limit as usize {
+                        break;
+                    }
                 }
             }
         }

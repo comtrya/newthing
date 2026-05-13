@@ -15,7 +15,9 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use comtrya_wit_codegen::{parse_extension_wit, render_rust_handlers};
+use comtrya_wit_codegen::{
+    legacy_dotted_field, legacy_graphql_field, parse_extension_wit, render_rust_handlers,
+};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
@@ -34,6 +36,7 @@ fn main() {
     let mut per_extension_files: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut all_routes: Vec<(String, String)> = Vec::new(); // (ext_id, fn_name)
     let mut canonical_routes: Vec<CanonicalRoute> = Vec::new();
+    let mut global_route_keys: BTreeMap<String, String> = BTreeMap::new();
 
     for ext in &installed {
         // Tell cargo to re-run if the WIT or manifest changes.
@@ -75,6 +78,25 @@ fn main() {
             panic!("wit-codegen failed for {}: {e}", ext.id);
         });
         for op in &ops {
+            let descriptor = format!("{}.{}.{}", op.extension_id, op.interface_name, op.op_name);
+            let mut keys = vec![op.route.clone()];
+            if let Some(alias) = legacy_graphql_field(&op.interface_name, &op.op_name) {
+                keys.push(alias);
+            }
+            if let Some(alias) = legacy_dotted_field(&op.interface_name, &op.op_name) {
+                keys.push(alias);
+            }
+            for key in keys {
+                if let Some(previous) = global_route_keys.get(&key) {
+                    if previous != &descriptor {
+                        panic!(
+                            "duplicate generated GraphQL route key '{key}' maps to both {previous} and {descriptor}"
+                        );
+                    }
+                } else {
+                    global_route_keys.insert(key, descriptor.clone());
+                }
+            }
             canonical_routes.push(CanonicalRoute {
                 extension_id: op.extension_id.clone(),
                 interface_name: op.interface_name.clone(),

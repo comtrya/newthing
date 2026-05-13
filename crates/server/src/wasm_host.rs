@@ -21,9 +21,10 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
+use comtrya_core::{IdPrefix, OpaqueId};
 use serde_json::Value;
-use wasmtime::Engine;
 use wasmtime::component::Linker;
+use wasmtime::Engine;
 
 use crate::ExtensionRuntimeStore;
 
@@ -277,30 +278,13 @@ impl IdMinter for UlidMinter {
         let prefix = kinds
             .get(kind)
             .ok_or_else(|| MintError::UnknownKind(kind.to_string()))?;
-        // Timestamp + per-process counter + thread-randomish. Avoids
-        // millisecond collisions; the kernel's `IdPrefix` machinery in
-        // `crates/core/src/ids.rs` (real ULID) replaces this once both
-        // call sites are unified.
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static MONOTONIC: AtomicU64 = AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        let counter = MONOTONIC.fetch_add(1, Ordering::Relaxed);
-        // Mix in a per-thread random-ish component derived from the
-        // thread id hash so concurrent threads cannot collide.
-        let tid_mix = {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut h = DefaultHasher::new();
-            std::thread::current().id().hash(&mut h);
-            h.finish()
+        let id_prefix = match prefix.as_str() {
+            "evt" => IdPrefix::Event,
+            "rel" => IdPrefix::Relation,
+            "cmt" => IdPrefix::Comment,
+            value => IdPrefix::Owned(format!("{value}_")),
         };
-        Ok(format!(
-            "{}_{:013X}{:08X}{:08X}",
-            prefix, now, counter as u32, tid_mix as u32
-        ))
+        Ok(OpaqueId::new(id_prefix).as_str().to_string())
     }
 }
 

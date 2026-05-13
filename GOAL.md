@@ -69,14 +69,16 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Compose the per-extension `dispatch_route_<ext_id>()` functions into one root dispatch table at startup *(done in M2 build.rs)*
 - [x] Codegen emits a parallel `graphql_field_to_route` lookup so the GraphQL handler can map e.g. `closeIssue` → `ext_issues.issues.close-issue` — *implemented as additional match arms in `dispatch_route` keyed by the legacy `<interface><Verb>` alias (e.g. `issuesClose`); the dispatch table accepts both the WIT route and the legacy GraphQL field name.*
 - [x] GraphQL mutation/query handler consults the dispatch table first
-- [ ] On hit, route to WASM via `host_state_for_op` + linker — *framework wired (`wasm_dispatch::dispatch` is the entry point); currently returns `None` for every call because the legacy and WIT data shapes diverge for `issues.*` (legacy stores `workspaceID`-shaped JSON, WIT stores `repository`-shaped JSON). Coexistence requires either translation or a swap. M4 makes the swap atomic by deleting the legacy handlers and the WASM dispatcher taking over.*
+- [x] On hit, route to WASM via `host_state_for_op` + linker — *`wasm_dispatch::dispatch` now translates the existing `issues.*` GraphQL payload/response shape, calls `RegistryDispatcher` for `ext_issues`, and returns WASM-backed create/close/reopen/get/list responses.*
 - [x] On miss, fall back to legacy handler (temporary, only through M5)
-- [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms) — *deferred with the route box above to M4*
+- [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms)
 - [x] All 128 existing `start.sh` smoke checks still pass
 
 ## M4 — `ext_issues` legacy handlers deleted
 - [ ] Audit business logic in existing `issues.*` handlers in `main.rs`; copy any rule not yet in WASM into the component (revalidation, derived fields, event side effects)
-- [ ] Persist `close-issue` `reason` field — today the component discards it with `let _ = input.reason;` because no audit-row schema exists; M4 either stores it on the issue record or writes an audit row referencing it
+- [x] Persist `close-issue` `reason` field — stored as `stateReason` by the component and asserted through the M3 GraphQL/WASM close test
+- [ ] Add WIT/GraphQL replacements for legacy-only issue lookup/count fields: `issues.byRef`, `issues.byRefs`, `issues.byNumber`, and `issues.stateCountsForRefs`
+- [ ] Update the `ext_issues` UI to stop depending on legacy-only issue lookup fields, or back those fields with generated WASM routes before deletion
 - [ ] Re-verify smoke for issue flows under WASM-only routing
 - [ ] Delete every `matches_op` arm for `issues.*` in `main.rs`
 - [ ] Delete helper functions exclusive to issues handlers

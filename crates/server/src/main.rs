@@ -2533,6 +2533,37 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
             break;
         }
     }
+    // GraphQL aliases are shaped `alias: field(...)`. The dispatch
+    // decision belongs to the actual field, not the alias token.
+    while let Some(c) = chars.peek().copied() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    if matches!(chars.peek(), Some(':')) {
+        chars.next();
+        while let Some(c) = chars.peek().copied() {
+            if c.is_whitespace() {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        let mut aliased_ident = String::new();
+        while let Some(c) = chars.peek().copied() {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
+                aliased_ident.push(c);
+                chars.next();
+            } else {
+                break;
+            }
+        }
+        if !aliased_ident.is_empty() {
+            ident = aliased_ident;
+        }
+    }
     if ident.is_empty() {
         None
     } else {
@@ -2958,27 +2989,6 @@ fn issues_list_response(state: AppState, payload: Value, cors: HeaderMap) -> Res
             &message,
             cors,
         ),
-    }
-}
-
-pub(crate) fn legacy_wasm_route_response(
-    state: AppState,
-    info: &crate::generated_dispatch::DispatchInfo,
-    payload: Value,
-    cors: HeaderMap,
-) -> Option<Response> {
-    match (info.extension_id, info.interface_name, info.op_name) {
-        ("ext_issues", "issues", "open-issue") => {
-            Some(issues_create_response(state, payload, cors))
-        }
-        ("ext_issues", "issues", "close-issue") => {
-            Some(issues_close_response(state, payload, cors))
-        }
-        ("ext_issues", "issues", "reopen-issue") => {
-            Some(issues_reopen_response(state, payload, cors))
-        }
-        ("ext_issues", "issues", "list-issues") => Some(issues_list_response(state, payload, cors)),
-        _ => None,
     }
 }
 
@@ -7215,6 +7225,30 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_table_legacy_create_alias_resolves_to_open_issue() {
+        let dotted = crate::generated_dispatch::dispatch_route("issues.create")
+            .expect("legacy dotted create alias should resolve");
+        let camel = crate::generated_dispatch::dispatch_route("issuesCreate")
+            .expect("legacy camel create alias should resolve");
+
+        assert_eq!(dotted.extension_id, "ext_issues");
+        assert_eq!(dotted.op_name, "open-issue");
+        assert_eq!(camel.extension_id, "ext_issues");
+        assert_eq!(camel.op_name, "open-issue");
+    }
+
+    #[test]
+    fn identify_wasm_op_uses_aliased_root_field_not_alias_name() {
+        let info = identify_wasm_op(
+            "mutation { closeIt: issues.close(input: { id: \"iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3\" }) { id } }",
+        )
+        .expect("aliased issues.close should still route to generated dispatch");
+
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.op_name, "close-issue");
+    }
+
+    #[test]
     fn dispatch_table_returns_none_for_unknown_routes() {
         assert!(
             crate::generated_dispatch::dispatch_route("nope.nope.nope").is_none()
@@ -8636,12 +8670,12 @@ extensions: {
                 headers,
             )
             .is_some(),
-            "M2 prepares live HostState context, then delegates to legacy response until the WASM cutover"
+            "dispatch builds the live request context and returns a GraphQL response"
         );
     }
 
     #[tokio::test]
-    async fn generated_wasm_hit_uses_one_graphql_guard_before_legacy_fallback() {
+    async fn generated_wasm_hit_uses_one_graphql_guard() {
         let mut runtime = Runtime::start(StartupOptions {
             config_path: None,
             data_dir: temp_dir("generated-wasm-hit-single-guard"),
@@ -8668,11 +8702,322 @@ extensions: {
                 git_state: PureRustGitState::test_default(),
             }),
             bearer_headers(&token),
-            json!({"query": "query { issuesList { id } }"}).to_string(),
+            json!({
+                "query": "query { issuesList(workspaceId: \"ws_rate_guard\") { id } }",
+                "variables": { "workspaceId": "ws_rate_guard" }
+            })
+            .to_string(),
         )
         .await;
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn generated_issues_create_and_close_route_to_wasm() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "mutation($input: CreateIssueInput!) { issues.create(input: $input) { id workspaceId repositoryId number title state authorRef } }",
+                "variables": {
+                    "input": {
+                        "workspaceId": "ws_wasm_graphql",
+                        "repositoryId": "repo_wasm_graphql",
+                        "title": "created through generated WASM route",
+                        "bodyMarkdown": "then closed through WASM",
+                        "labels": ["wasm"],
+                        "epicRef": "comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+
+        let create_status = create_response.status();
+        let body = to_bytes(create_response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(create_status, StatusCode::OK, "{payload}");
+        let created = &payload["data"]["issues"]["create"];
+        assert_eq!(created["workspaceId"], "ws_wasm_graphql");
+        assert_eq!(created["repositoryId"], "repo_wasm_graphql");
+        assert_eq!(created["number"], 1);
+        assert_eq!(created["state"], "OPEN");
+        assert!(created["authorRef"]
+            .as_str()
+            .unwrap()
+            .starts_with("comtrya://credential/prn_"));
+        let issue_id = created["id"].as_str().unwrap().to_string();
+        let create_second_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "mutation($input: CreateIssueInput!) { issues.create(input: $input) { id workspaceId repositoryId number } }",
+                "variables": {
+                    "input": {
+                        "workspaceId": "ws_wasm_graphql",
+                        "repositoryId": "repo_wasm_graphql_two",
+                        "title": "second repo same workspace",
+                        "bodyMarkdown": "number must remain workspace scoped"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let create_second_status = create_second_response.status();
+        let body = to_bytes(create_second_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(create_second_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["create"]["number"], 2);
+        let by_number = runtime
+            .issue_by_number("ws_wasm_graphql", 1)
+            .unwrap()
+            .expect("legacy byNumber can read the WASM-created issue");
+        assert_eq!(by_number["id"], issue_id);
+        assert_eq!(by_number["labels"], json!(["wasm"]));
+        let issue_ref = format!("comtrya://issue/{issue_id}");
+        let outgoing = runtime
+            .relations_outgoing(&issue_ref, Some("comtrya://rel/part-of"))
+            .unwrap();
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(
+            outgoing[0]["to"],
+            "comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0"
+        );
+
+        let close_response = graphql_post(
+            State(state),
+            bearer_headers(&token),
+            json!({
+                "query": "mutation($input: CloseIssueInput!) { issues.close(input: $input) { id state stateReason closedAt closedByRef } }",
+                "variables": {
+                    "input": {
+                        "id": issue_id.clone(),
+                        "reason": "covered by generated WASM dispatch"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+
+        let close_status = close_response.status();
+        let body = to_bytes(close_response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(close_status, StatusCode::OK, "{payload}");
+        let closed = &payload["data"]["issues"]["close"];
+        assert_eq!(closed["id"], issue_id);
+        assert_eq!(closed["state"], "CLOSED");
+        assert_eq!(closed["stateReason"], "covered by generated WASM dispatch");
+        assert!(closed["closedAt"].as_str().is_some());
+        assert!(closed["closedByRef"]
+            .as_str()
+            .unwrap()
+            .starts_with("comtrya://credential/prn_"));
+
+        let records = runtime.extension_storage.load_records().unwrap();
+        let stored = records
+            .iter()
+            .find(|record| record.collection == "issues" && record.id == issue_id)
+            .expect("WASM-created issue persisted");
+        assert_eq!(stored.owner_extension, "ext_issues");
+        assert_eq!(stored.data["state"], "CLOSED");
+        assert_eq!(stored.data["workspaceId"], "ws_wasm_graphql");
+        assert_eq!(stored.data["repositoryId"], "repo_wasm_graphql");
+        let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
+        assert!(event_log.contains("dev.comtrya.issues.opened"));
+        assert!(event_log.contains("dev.comtrya.issues.closed"));
+        assert!(!event_log.contains("dev.comtrya.issue.closed"));
+    }
+
+    #[tokio::test]
+    async fn generated_issues_routes_preserve_legacy_issue_coexistence() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string(), "graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let legacy = runtime
+            .create_issue(
+                "ws_legacy_wasm",
+                Some("repo_legacy_wasm"),
+                "legacy issue before WASM cutover",
+                "legacy body",
+                "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                &["legacy-label".to_string()],
+                None,
+            )
+            .unwrap();
+        let issue_id = legacy["id"].as_str().unwrap().to_string();
+        assert!(legacy.get("repository").is_none());
+        let app_state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let dispatcher = crate::wasm_registry::RegistryDispatcher {
+            registry: runtime.wasm_registry.clone(),
+            store: Arc::new(runtime.extension_storage.clone()),
+        };
+        let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://workspace/ws_wit_list/repository/repo_wit_list",
+                "title": "direct WIT issue list coverage",
+                "bodyMarkdown": "created without GraphQL augmentation",
+            }))
+            .unwrap(),
+            "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            0,
+        )
+        .expect("direct WIT issue create");
+        let wit_issue: Value = serde_json::from_slice(&opened_bytes).unwrap();
+        let wit_issue_id = wit_issue["id"].as_str().unwrap().to_string();
+
+        let workspace_list = graphql_post(
+            State(app_state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($workspaceId: ID) { issues.list(workspaceId: $workspaceId) { id labels } }",
+                "variables": { "workspaceId": "ws_legacy_wasm" }
+            })
+            .to_string(),
+        )
+        .await;
+        let status = workspace_list.status();
+        let body = to_bytes(workspace_list.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["list"][0]["id"], issue_id);
+        assert_eq!(
+            payload["data"]["issues"]["list"][0]["labels"],
+            json!(["legacy-label"])
+        );
+
+        let wit_workspace_list = graphql_post(
+            State(app_state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($workspaceId: ID) { issues.list(workspaceId: $workspaceId) { id workspaceId repositoryId } }",
+                "variables": { "workspaceId": "ws_wit_list" }
+            })
+            .to_string(),
+        )
+        .await;
+        let status = wit_workspace_list.status();
+        let body = to_bytes(wit_workspace_list.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["list"][0]["id"], wit_issue_id);
+        assert_eq!(
+            payload["data"]["issues"]["list"][0]["workspaceId"],
+            "ws_wit_list"
+        );
+        assert_eq!(
+            payload["data"]["issues"]["list"][0]["repositoryId"],
+            "repo_wit_list"
+        );
+
+        let repository_list = graphql_post(
+            State(app_state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($repositoryId: ID) { issues.list(repositoryId: $repositoryId) { id } }",
+                "variables": { "repositoryId": "repo_legacy_wasm" }
+            })
+            .to_string(),
+        )
+        .await;
+        let status = repository_list.status();
+        let body = to_bytes(repository_list.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["list"][0]["id"], issue_id);
+
+        let wit_repository_list = graphql_post(
+            State(app_state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($repositoryId: ID) { issues.list(repositoryId: $repositoryId) { id } }",
+                "variables": { "repositoryId": "repo_wit_list" }
+            })
+            .to_string(),
+        )
+        .await;
+        let status = wit_repository_list.status();
+        let body = to_bytes(wit_repository_list.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["list"][0]["id"], wit_issue_id);
+
+        let close_response = graphql_post(
+            State(app_state),
+            bearer_headers(&token),
+            json!({
+                "query": "mutation($input: CloseIssueInput!) { issues.close(input: $input) { id state labels } }",
+                "variables": {
+                    "input": {
+                        "id": issue_id.clone(),
+                        "reason": "normalized through WASM"
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let status = close_response.status();
+        let body = to_bytes(close_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["close"]["state"], "CLOSED");
+        assert_eq!(
+            payload["data"]["issues"]["close"]["labels"],
+            json!(["legacy-label"])
+        );
+
+        let stored = runtime
+            .extension_storage
+            .load_records()
+            .unwrap()
+            .into_iter()
+            .find(|record| record.collection == "issues" && record.id == issue_id)
+            .expect("legacy issue still exists");
+        assert_eq!(
+            stored.data["repository"],
+            "comtrya://workspace/ws_legacy_wasm/repository/repo_legacy_wasm"
+        );
+        assert_eq!(stored.data["workspaceId"], "ws_legacy_wasm");
+        assert_eq!(stored.data["repositoryId"], "repo_legacy_wasm");
+        assert_eq!(stored.data["state"], "CLOSED");
+        let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
+        assert!(event_log.contains("dev.comtrya.issues.closed"));
     }
 
     #[tokio::test]
@@ -8727,12 +9072,12 @@ extensions: {
             payload["errors"][0]["message"]
                 .as_str()
                 .unwrap()
-                .contains("unknown extension: ext_issues")
+                .contains("extension 'ext_issues' not registered")
         );
     }
 
     #[tokio::test]
-    async fn generated_wasm_hit_without_legacy_bridge_still_prepares_and_fails_closed() {
+    async fn generated_wasm_hit_without_legacy_bridge_routes_to_wasm() {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
@@ -8754,19 +9099,10 @@ extensions: {
         )
         .await;
 
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
-        assert_eq!(
-            payload["errors"][0]["extensions"]["code"],
-            "WASM_CUTOVER_PENDING"
-        );
-        assert!(
-            payload["errors"][0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("ext_issues.issues.get-issue")
-        );
+        assert!(payload["data"]["issues"]["get"].is_null());
     }
 
     #[test]

@@ -58,9 +58,8 @@ pub fn classify_op_name(name: &str) -> OpKind {
     let lower = name.to_lowercase();
     let read_prefixes = ["get-", "list-", "query-", "fetch-", "find-", "search-"];
     let mutation_prefixes = [
-        "create-", "update-", "delete-", "close-", "open-", "merge-", "post-",
-        "edit-", "set-", "add-", "remove-", "reopen-", "cancel-", "approve-",
-        "reject-",
+        "create-", "update-", "delete-", "close-", "open-", "merge-", "post-", "edit-", "set-",
+        "add-", "remove-", "reopen-", "cancel-", "approve-", "reject-",
     ];
     if read_prefixes.iter().any(|p| lower.starts_with(p)) {
         OpKind::Query
@@ -131,6 +130,9 @@ pub fn legacy_dotted_field(interface_name: &str, op_name: &str) -> Option<String
 }
 
 fn legacy_verb(interface_name: &str, op_name: &str) -> Option<String> {
+    if interface_name == "issues" && op_name == "open-issue" {
+        return Some("create".to_string());
+    }
     let singular = singular_of(interface_name);
     if let Some(s) = &singular {
         if let Some(verb) = op_name.strip_suffix(&format!("-{}", s)) {
@@ -249,6 +251,7 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
     // Collect (route_key, info_body, aliases) tuples so we can emit
     // both the match arms and a flat ROUTES constant.
     let mut routes: Vec<(String, String, Vec<String>)> = Vec::new();
+    let mut seen_route_keys: BTreeMap<String, String> = BTreeMap::new();
     for op in ops {
         let kind = match op.kind {
             OpKind::Query => "query",
@@ -269,6 +272,15 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
         if let Some(a) = legacy_dotted_field(&op.interface_name, &op.op_name) {
             if a != op.route && !aliases.contains(&a) {
                 aliases.push(a);
+            }
+        }
+        for key in std::iter::once(&op.route).chain(aliases.iter()) {
+            if let Some(previous) = seen_route_keys.get(key) {
+                if previous != &info_body {
+                    panic!("duplicate generated route key '{key}' maps to multiple WIT ops");
+                }
+            } else {
+                seen_route_keys.insert(key.clone(), info_body.clone());
             }
         }
         routes.push((op.route.clone(), info_body, aliases));
@@ -368,7 +380,9 @@ fn ty_to_schema_guarded(
     use wit_parser::Type;
     match ty {
         Type::Bool => serde_json::json!({"type": "boolean"}),
-        Type::U8 | Type::U16 | Type::U32 | Type::U64 => serde_json::json!({"type": "integer", "minimum": 0}),
+        Type::U8 | Type::U16 | Type::U32 | Type::U64 => {
+            serde_json::json!({"type": "integer", "minimum": 0})
+        }
         Type::S8 | Type::S16 | Type::S32 | Type::S64 => serde_json::json!({"type": "integer"}),
         Type::F32 | Type::F64 => serde_json::json!({"type": "number"}),
         Type::Char => serde_json::json!({"type": "string", "minLength": 1, "maxLength": 1}),
@@ -396,11 +410,10 @@ fn ty_to_schema_guarded(
                     "oneOf": [{"type": "null"}, ty_to_schema_guarded(resolve, inner, visiting)],
                 }),
                 TypeDefKind::Result(r) => {
-                    let ok = r
-                        .ok
-                        .as_ref()
-                        .map(|t| ty_to_schema_guarded(resolve, t, visiting))
-                        .unwrap_or_else(|| serde_json::json!({"type": "null"}));
+                    let ok =
+                        r.ok.as_ref()
+                            .map(|t| ty_to_schema_guarded(resolve, t, visiting))
+                            .unwrap_or_else(|| serde_json::json!({"type": "null"}));
                     let err = r
                         .err
                         .as_ref()
@@ -417,7 +430,10 @@ fn ty_to_schema_guarded(
                     let mut props = serde_json::Map::new();
                     let mut required = Vec::new();
                     for field in &r.fields {
-                        props.insert(kebab_to_camel(&field.name), ty_to_schema_guarded(resolve, &field.ty, visiting));
+                        props.insert(
+                            kebab_to_camel(&field.name),
+                            ty_to_schema_guarded(resolve, &field.ty, visiting),
+                        );
                         required.push(kebab_to_camel(&field.name));
                     }
                     serde_json::json!({
@@ -462,8 +478,11 @@ fn ty_to_schema_guarded(
                     })
                 }
                 TypeDefKind::Tuple(t) => {
-                    let items: Vec<serde_json::Value> =
-                        t.types.iter().map(|ty| ty_to_schema_guarded(resolve, ty, visiting)).collect();
+                    let items: Vec<serde_json::Value> = t
+                        .types
+                        .iter()
+                        .map(|ty| ty_to_schema_guarded(resolve, ty, visiting))
+                        .collect();
                     serde_json::json!({
                         "type": "array",
                         "prefixItems": items,
@@ -543,6 +562,14 @@ mod tests {
             Some("issuesList")
         );
         assert_eq!(
+            legacy_graphql_field("issues", "open-issue").as_deref(),
+            Some("issuesCreate")
+        );
+        assert_eq!(
+            legacy_dotted_field("issues", "open-issue").as_deref(),
+            Some("issues.create")
+        );
+        assert_eq!(
             legacy_graphql_field("epics", "transition-epic").as_deref(),
             Some("epicsTransition")
         );
@@ -575,5 +602,34 @@ mod tests {
         );
         // ...and every reference to it should be via the parent path.
         assert!(out.contains("Option<super::DispatchInfo>"));
+    }
+
+    #[test]
+    #[should_panic(expected = "duplicate generated route key")]
+    fn render_rust_handlers_rejects_legacy_alias_collision() {
+        let ops = vec![
+            OpSpec {
+                route: "ext_issues.issues.open-issue".to_string(),
+                extension_id: "ext_issues".to_string(),
+                interface_name: "issues".to_string(),
+                op_name: "open-issue".to_string(),
+                graphql_name: "openIssue".to_string(),
+                kind: OpKind::Mutation,
+                input_schema: None,
+                output_schema: None,
+            },
+            OpSpec {
+                route: "ext_issues.issues.create-issue".to_string(),
+                extension_id: "ext_issues".to_string(),
+                interface_name: "issues".to_string(),
+                op_name: "create-issue".to_string(),
+                graphql_name: "createIssue".to_string(),
+                kind: OpKind::Mutation,
+                input_schema: None,
+                output_schema: None,
+            },
+        ];
+
+        let _ = render_rust_handlers(&ops);
     }
 }
