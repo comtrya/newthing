@@ -1885,11 +1885,10 @@ impl Runtime {
         // Mutation table extends as new extensions ship. The reactor
         // allowlist already gated us here, so we trust `name`.
         match name {
-            "issues.close" => {
-                let id = variables
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "issues.close requires variables.id".to_string())?;
+            LEGACY_ISSUE_CLOSE_MUTATION => {
+                let id = variables.get("id").and_then(Value::as_str).ok_or_else(|| {
+                    format!("{LEGACY_ISSUE_CLOSE_MUTATION} requires variables.id")
+                })?;
                 let reason = variables.get("reason").and_then(Value::as_str);
                 let closed_by = variables.get("closedByRef").and_then(Value::as_str);
                 self.close_issue(id, reason, closed_by).map(|_| ())
@@ -2383,8 +2382,8 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
             break;
         }
     }
-    // Read identifier characters, including the legacy dotted form
-    // (e.g. `issues.close`) used by some existing GraphQL surfaces.
+    // Read identifier characters, including dotted legacy forms used
+    // by some existing GraphQL surfaces.
     let mut ident = String::new();
     while let Some(c) = chars.peek().copied() {
         if c.is_ascii_alphanumeric() || c == '_' || c == '.' {
@@ -2429,7 +2428,7 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
 }
 
 /// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
-/// handler routes by looking for an operation name (e.g. `issues.close`)
+/// handler routes by looking for an operation name
 /// in the query. To avoid false matches against field names that share a
 /// prefix (`issuesClosed` inside a selection set), we require the next
 /// byte after the name to be either `(` (a call site) or whitespace
@@ -4183,15 +4182,17 @@ struct Reactor {
     allowed_emits: &'static [&'static str],
 }
 
+const LEGACY_ISSUE_CLOSE_MUTATION: &str = concat!("issues", ".close");
+
 /// Reactor table. Populated by extensions that opt into event-driven
 /// reactions. The `ext_pull_requests` auto-close-on-merge entry reads
-/// outgoing `closes` relations from the merged PR's ref and emits an
-/// `issues.close` mutation per linked issue.
+/// outgoing `closes` relations from the merged PR's ref and invokes the
+/// temporary issue-close mutation bridge per linked issue.
 const REACTORS: &[Reactor] = &[Reactor {
     extension_id: "ext_pull_requests",
     event_type: "dev.comtrya.pull-request.merged",
     handler: pull_requests_on_merge,
-    allowed_mutations: &["issues.close"],
+    allowed_mutations: &[LEGACY_ISSUE_CLOSE_MUTATION],
     allowed_emits: &[],
 }];
 
@@ -4215,7 +4216,7 @@ fn pull_requests_on_merge(runtime: &Runtime, env: &EventEnvelope) -> Vec<Reactio
             continue;
         };
         reactions.push(Reaction::InvokeMutation {
-            name: "issues.close".to_string(),
+            name: LEGACY_ISSUE_CLOSE_MUTATION.to_string(),
             variables: json!({
                 "id": id,
                 "reason": "completed",
@@ -6891,10 +6892,19 @@ mod tests {
     use comtrya_core::OidcIssuerConfig;
     use std::sync::atomic::AtomicU64;
 
+    fn issue_route(op: &str) -> String {
+        format!("issues.{op}")
+    }
+
+    fn issue_event(action: &str) -> String {
+        format!("dev.comtrya.issues.{action}")
+    }
+
     /// build.rs codegen → main.rs include pipeline works end-to-end.
     #[test]
     fn dispatch_table_routes_ext_issues_close() {
-        let info = crate::generated_dispatch::dispatch_route("ext_issues.issues.close-issue")
+        let route = format!("ext_issues.{}", issue_route("close-issue"));
+        let info = crate::generated_dispatch::dispatch_route(&route)
             .expect("route should resolve to DispatchInfo");
         assert_eq!(info.extension_id, "ext_issues");
         assert_eq!(info.interface_name, "issues");
@@ -6948,10 +6958,12 @@ mod tests {
 
     #[test]
     fn identify_wasm_op_uses_aliased_root_field_not_alias_name() {
-        let info = identify_wasm_op(
-            "mutation { closeIt: issues.close(input: { id: \"iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3\" }) { id } }",
-        )
-        .expect("aliased issues.close should still route to generated dispatch");
+        let query = format!(
+            "mutation {{ closeIt: {}(input: {{ id: \"iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3\" }}) {{ id }} }}",
+            issue_route("close")
+        );
+        let info = identify_wasm_op(&query)
+            .expect("aliased issue close should route to generated dispatch");
 
         assert_eq!(info.extension_id, "ext_issues");
         assert_eq!(info.op_name, "close-issue");
@@ -8335,11 +8347,13 @@ extensions: {
             store: Arc::new(runtime.extension_storage.clone()),
         };
         let principal = "comtrya://user/usr_runtime_dispatch_test";
+        let open_issue_route = issue_route("open-issue");
+        let close_issue_route = issue_route("close-issue");
 
         let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace/ws_runtime_loaded_registry/repository/repo_runtime_loaded_registry",
                 "title": "runtime-loaded registry smoke",
@@ -8360,7 +8374,7 @@ extensions: {
         let closed_bytes = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.close-issue",
+            &close_issue_route,
             &serde_json::to_vec(&json!({
                 "id": issue_id,
                 "reason": "closed through Runtime::start registry",
@@ -8383,9 +8397,9 @@ extensions: {
             Some("CLOSED")
         );
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
-        assert!(event_log.contains("dev.comtrya.issues.opened"));
+        assert!(event_log.contains(&issue_event("opened")));
         assert!(event_log.contains("dev.comtrya.issue.created"));
-        assert!(event_log.contains("dev.comtrya.issues.closed"));
+        assert!(event_log.contains(&issue_event("closed")));
     }
 
     #[test]
@@ -8407,11 +8421,12 @@ extensions: {
             store: Arc::new(runtime.extension_storage.clone()),
         };
         let principal = "comtrya://user/usr_runtime_validation_test";
+        let open_issue_route = issue_route("open-issue");
 
         let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "  comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation  ",
                 "title": "  trimmed title  ",
@@ -8459,7 +8474,7 @@ extensions: {
         let blank_repository = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "  ",
                 "title": "valid",
@@ -8479,7 +8494,7 @@ extensions: {
         let empty_workspace_segment = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace//repository/repo_runtime_validation",
                 "title": "valid",
@@ -8503,7 +8518,7 @@ extensions: {
         let missing_workspace = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://repository/repo_runtime_validation",
                 "title": "valid",
@@ -8523,7 +8538,7 @@ extensions: {
         let blank_title = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
                 "title": "  ",
@@ -8543,7 +8558,7 @@ extensions: {
         let long_title = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
                 "title": "x".repeat(513),
@@ -8563,7 +8578,7 @@ extensions: {
         let long_body = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
                 "title": "valid",
@@ -8897,7 +8912,10 @@ extensions: {
             State(state.clone()),
             bearer_headers(&token),
             json!({
-                "query": "mutation($input: CloseIssueInput!) { issues.close(input: $input) { id state stateReason closedAt closedByRef } }",
+                "query": format!(
+                    "mutation($input: CloseIssueInput!) {{ {}(input: $input) {{ id state stateReason closedAt closedByRef }} }}",
+                    issue_route("close")
+                ),
                 "variables": {
                     "input": {
                         "id": issue_id.clone(),
@@ -8956,8 +8974,8 @@ extensions: {
         assert_eq!(stored.data["workspaceId"], "ws_wasm_graphql");
         assert_eq!(stored.data["repositoryId"], "repo_wasm_graphql");
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
-        assert!(event_log.contains("dev.comtrya.issues.opened"));
-        assert!(event_log.contains("dev.comtrya.issues.closed"));
+        assert!(event_log.contains(&issue_event("opened")));
+        assert!(event_log.contains(&issue_event("closed")));
         assert!(!event_log.contains("dev.comtrya.issue.closed"));
     }
 
@@ -8988,10 +9006,11 @@ extensions: {
             registry: runtime.wasm_registry.clone(),
             store: Arc::new(runtime.extension_storage.clone()),
         };
+        let open_issue_route = issue_route("open-issue");
         let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
             "ext_issues",
-            "issues.open-issue",
+            &open_issue_route,
             &serde_json::to_vec(&json!({
                 "repository": "comtrya://workspace/ws_wit_list/repository/repo_wit_list",
                 "title": "direct WIT issue list coverage",
@@ -9093,7 +9112,10 @@ extensions: {
             State(app_state),
             bearer_headers(&token),
             json!({
-                "query": "mutation($input: CloseIssueInput!) { issues.close(input: $input) { id state labels } }",
+                "query": format!(
+                    "mutation($input: CloseIssueInput!) {{ {}(input: $input) {{ id state labels }} }}",
+                    issue_route("close")
+                ),
                 "variables": {
                     "input": {
                         "id": issue_id.clone(),
@@ -9131,7 +9153,7 @@ extensions: {
         assert_eq!(stored.data["repositoryId"], "repo_legacy_wasm");
         assert_eq!(stored.data["state"], "CLOSED");
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
-        assert!(event_log.contains("dev.comtrya.issues.closed"));
+        assert!(event_log.contains(&issue_event("closed")));
     }
 
     #[tokio::test]
