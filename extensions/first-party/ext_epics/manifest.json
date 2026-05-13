@@ -5,8 +5,10 @@
   "displayName": "Epics",
   "version": "0.1.0",
   "publisher": "comtrya-dev",
-  "wasmComponent": "component.wat",
-  "witWorld": "comtrya:extension/extension",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_epics.wasm",
+  "witWorld": "ext-epics",
   "ui": { "manifest": "ui/manifest.json" },
   "routePrefix": "epics",
   "runtime": {
@@ -24,15 +26,17 @@
   "hostImports": [
     "storage.read", "storage.write",
     "relations.read", "relations.write",
-    "events.read", "events.write",
-    "identity", "time", "ids", "log"
+    "events.write",
+    "time", "ids", "ops", "log"
   ],
   "allowedEmits": [
-    "dev.comtrya.epics.created",
-    "dev.comtrya.epics.transitioned"
+    "dev.comtrya.epic.created",
+    "dev.comtrya.epic.state-changed"
   ],
   "allowedEventReads": ["ext_issues"],
-  "allowedCrossCalls": [],
+  "allowedCrossCalls": [
+    "ext_issues/issues.state-counts-for-refs-issue"
+  ],
   "reactor": {
     "allowedMutations": [],
     "allowedEmits": []

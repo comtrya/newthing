@@ -87,7 +87,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 
 ## M5 — `ext_epics`, `ext_pull_requests`, `ext_checks` migrated
 - [x] `ext_epics`: create component crate, implement every op, build WASM — *component crate implements all 9 exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_epics.wasm` plus 9 generated dispatch routes/client entries.*
-- [ ] `ext_epics`: cut over GraphQL, delete legacy handlers
+- [x] `ext_epics`: cut over GraphQL, delete legacy handlers — *manifest now loads `dist/ext_epics.wasm`; generated dispatch routes all epics GraphQL fields through a typed WASM bridge; legacy epics match arms, handler functions, and dead runtime helpers are deleted; `generated_epics_routes_to_wasm` plus the generated dispatch suite pass.*
 - [x] `ext_pull_requests`: create component crate, implement every op, build WASM — *component crate implements all 5 exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_pull_requests.wasm` plus 5 generated dispatch routes/client entries.*
 - [ ] `ext_pull_requests`: cut over GraphQL, delete legacy handlers
 - [x] `ext_checks`: create component crate, implement every op, build WASM — *component crate implements both exported ops; `cargo component build --release` passed; bundler emitted `dist/ext_checks.wasm` plus 2 generated dispatch routes/client entries.*

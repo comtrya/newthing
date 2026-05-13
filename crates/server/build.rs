@@ -311,6 +311,7 @@ fn typed_invoker_fn(id: &str) -> Option<&'static str> {
         // M2 canary. M5 moves the remaining first-party extensions
         // onto typed WASM invokers as their component crates land.
         "ext_issues" => Some("dispatch_ext_issues"),
+        "ext_epics" => Some("dispatch_ext_epics"),
         _ => None,
     }
 }

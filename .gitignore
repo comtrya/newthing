@@ -13,6 +13,8 @@ data/
 extensions/first-party/*/dist/*
 !extensions/first-party/ext_issues/dist/
 !extensions/first-party/ext_issues/dist/ext_issues.wasm
+!extensions/first-party/ext_epics/dist/
+!extensions/first-party/ext_epics/dist/ext_epics.wasm
 
 # cargo-component regenerates this from the WIT on every build; treat
 # it as generated, not source.

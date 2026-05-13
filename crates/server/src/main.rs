@@ -873,222 +873,7 @@ impl Runtime {
         Ok(updated)
     }
 
-    // ── Epics (ext_epics-owned) ────────────────────────────────────────
-    fn create_epic(
-        &self,
-        workspace_id: &str,
-        title: &str,
-        body_markdown: &str,
-        owner_ref: Option<&str>,
-        target_date: Option<&str>,
-        labels: &[String],
-        parent_epic_ref: Option<&str>,
-    ) -> Result<Value, String> {
-        const MAX_TITLE: usize = 512;
-        const MAX_BODY: usize = 64 * 1024;
-        let title = title.trim();
-        if title.is_empty() {
-            return Err("epic title must not be empty".to_string());
-        }
-        if title.len() > MAX_TITLE {
-            return Err(format!("epic title must be at most {MAX_TITLE} bytes"));
-        }
-        if body_markdown.len() > MAX_BODY {
-            return Err(format!("epic body must be at most {MAX_BODY} bytes"));
-        }
-        if workspace_id.is_empty() {
-            return Err("epic requires workspaceId".to_string());
-        }
-        let epic_id = OpaqueId::new(IdPrefix::Owned("epc_".to_string()));
-        let now_iso = chrono_now_iso();
-        let epic_ref = format!("comtrya://epic/{}", epic_id.as_str());
-        let data = json!({
-            "id": epic_id.as_str(),
-            "workspaceId": workspace_id,
-            "title": title,
-            "bodyMarkdown": body_markdown,
-            "state": "PLANNED",
-            "targetDate": target_date,
-            "ownerRef": owner_ref,
-            "labels": labels,
-            "createdAt": now_iso,
-            "updatedAt": now_iso,
-            "closedAt": Value::Null,
-        });
-        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
-        let refs = vec![epic_ref.clone(), workspace_uri];
-        let record = extension_document_record(
-            "ext_epics",
-            "epics",
-            epic_id.as_str(),
-            &epic_ref,
-            refs,
-            data.clone(),
-            &now_iso,
-        );
-        self.extension_storage.create_document(record)?;
-        if let Some(parent) = parent_epic_ref {
-            self.create_relation(&epic_ref, parent, "comtrya://rel/part-of", None)?;
-        }
-        let _ = self.append_event(
-            "dev.comtrya.epic.created",
-            json!({
-                "epicID": epic_id.as_str(),
-                "workspaceId": workspace_id,
-                "title": title,
-            }),
-        );
-        Ok(data)
-    }
-
-    fn change_epic_state(&self, id: &str, target_state: &str) -> Result<Value, String> {
-        const STATES: &[&str] = &["PLANNED", "IN_PROGRESS", "AT_RISK", "DONE", "CANCELED"];
-        if !STATES.contains(&target_state) {
-            return Err(format!(
-                "epic state {target_state:?} is not one of {STATES:?}"
-            ));
-        }
-        let now_iso = chrono_now_iso();
-        let target_owned = target_state.to_string();
-        let now_for_closure = now_iso.clone();
-        self.extension_storage
-            .update_document_atomically("epics", id, move |data| {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("state".to_string(), Value::String(target_owned.clone()));
-                    if target_owned == "DONE" || target_owned == "CANCELED" {
-                        obj.insert(
-                            "closedAt".to_string(),
-                            Value::String(now_for_closure.clone()),
-                        );
-                    } else {
-                        obj.insert("closedAt".to_string(), Value::Null);
-                    }
-                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
-                }
-            })?;
-        let updated = self
-            .epic_by_id(id)?
-            .ok_or_else(|| format!("epic {id:?} not found after state change"))?;
-        let _ = self.append_event(
-            "dev.comtrya.epic.state-changed",
-            json!({ "epicID": id, "state": target_state }),
-        );
-        Ok(updated)
-    }
-
-    fn epic_by_id(&self, id: &str) -> Result<Option<Value>, String> {
-        let epics = self.extension_storage.collection_data("epics")?;
-        Ok(epics.as_array().and_then(|arr| {
-            arr.iter()
-                .find(|e| e.get("id").and_then(Value::as_str) == Some(id))
-                .cloned()
-        }))
-    }
-
-    fn epics_list(&self, workspace_id: &str, state: Option<&str>) -> Result<Vec<Value>, String> {
-        let epics = self.extension_storage.collection_data("epics")?;
-        Ok(epics
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|e| {
-                        e.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
-                            && state
-                                .map(|s| e.get("state").and_then(Value::as_str) == Some(s))
-                                .unwrap_or(true)
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default())
-    }
-
-    fn epics_by_refs(&self, refs: &[String]) -> Result<Vec<Value>, String> {
-        let epics = self.extension_storage.collection_data("epics")?;
-        let by_id: HashMap<String, Value> = epics
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|e| {
-                        let id = e.get("id").and_then(Value::as_str)?.to_string();
-                        Some((id, e.clone()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut out = Vec::with_capacity(refs.len());
-        for r in refs {
-            let parsed =
-                ResourceRef::parse(r).map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
-            let id = parsed
-                .id
-                .as_ref()
-                .ok_or_else(|| format!("ref {r:?} is missing an id"))?
-                .as_str()
-                .to_string();
-            out.push(by_id.get(&id).cloned().unwrap_or(Value::Null));
-        }
-        Ok(out)
-    }
-
-    /// Returns URIs of resources linked to this epic via the canonical
-    /// `part-of` verb, filtered to the given kind name (`issue` or `epic`).
-    fn epic_member_uris(&self, epic_ref: &str, kind: &str) -> Result<Vec<String>, String> {
-        let kind_prefix = format!("comtrya://{kind}/");
-        let rels = self.relations_incoming(epic_ref, Some("comtrya://rel/part-of"))?;
-        Ok(rels
-            .into_iter()
-            .filter_map(|rel| {
-                let from = rel.get("from").and_then(Value::as_str)?.to_string();
-                if from.starts_with(&kind_prefix) {
-                    Some(from)
-                } else {
-                    None
-                }
-            })
-            .collect())
-    }
-
-    fn epic_progress(&self, epic_ref: &str) -> Result<Value, String> {
-        let issue_uris = self.epic_member_uris(epic_ref, "issue")?;
-        let issue_states = self.issue_state_counts_for_refs(&issue_uris)?;
-        let issues_open = issue_states
-            .get("open")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let issues_closed = issue_states
-            .get("closed")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-
-        let child_epic_uris = self.epic_member_uris(epic_ref, "epic")?;
-        let child_epics = self.epics_by_refs(&child_epic_uris)?;
-        let mut child_open = 0u64;
-        let mut child_closed = 0u64;
-        for epic in &child_epics {
-            match epic.get("state").and_then(Value::as_str) {
-                Some("DONE") | Some("CANCELED") => child_closed += 1,
-                Some(_) => child_open += 1,
-                None => {}
-            }
-        }
-        let total_units = issues_open + issues_closed + child_open + child_closed;
-        let completed_units = issues_closed + child_closed;
-        let percent_complete = if total_units == 0 {
-            0
-        } else {
-            ((completed_units as f64) * 100.0 / (total_units as f64)).round() as u64
-        };
-        Ok(json!({
-            "issuesOpen": issues_open,
-            "issuesClosed": issues_closed,
-            "childEpicsOpen": child_open,
-            "childEpicsClosed": child_closed,
-            "percentComplete": percent_complete,
-        }))
-    }
-
-    // ── Issues (legacy reactor / epics bridge; ext_issues owns new writes) ──
+    // ── Issues (legacy reactor bridge; ext_issues owns new writes) ──
     fn close_issue(
         &self,
         id: &str,
@@ -1145,48 +930,6 @@ impl Runtime {
                 .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
                 .cloned()
         }))
-    }
-
-    fn issues_by_refs(&self, refs: &[String]) -> Result<Vec<Value>, String> {
-        let issues = self.extension_storage.collection_data("issues")?;
-        let by_id: HashMap<String, Value> = issues
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|i| {
-                        let id = i.get("id").and_then(Value::as_str)?.to_string();
-                        Some((id, i.clone()))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let mut out = Vec::with_capacity(refs.len());
-        for r in refs {
-            let parsed =
-                ResourceRef::parse(r).map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
-            let id = parsed
-                .id
-                .as_ref()
-                .ok_or_else(|| format!("ref {r:?} is missing an id"))?
-                .as_str()
-                .to_string();
-            out.push(by_id.get(&id).cloned().unwrap_or(Value::Null));
-        }
-        Ok(out)
-    }
-
-    fn issue_state_counts_for_refs(&self, refs: &[String]) -> Result<Value, String> {
-        let issues = self.issues_by_refs(refs)?;
-        let mut open = 0u64;
-        let mut closed = 0u64;
-        for issue in issues {
-            match issue.get("state").and_then(Value::as_str) {
-                Some("OPEN") => open += 1,
-                Some("CLOSED") => closed += 1,
-                _ => {}
-            }
-        }
-        Ok(json!({ "open": open, "closed": closed }))
     }
 
     // ── Comments (core-owned, nested-threaded) ─────────────────────────
@@ -2157,30 +1900,6 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     if matches_op(query, "comments.delete") {
         return comments_delete_mutation(state, headers, payload);
     }
-    if matches_op(query, "epics.create") {
-        return epics_create_mutation(state, headers, payload);
-    }
-    if matches_op(query, "epics.changeState") {
-        return epics_change_state_mutation(state, headers, payload);
-    }
-    if matches_op(query, "epics.list") {
-        return epics_list_query(state, headers, payload);
-    }
-    if matches_op(query, "epics.byRefs") {
-        return epics_by_refs_query(state, headers, payload);
-    }
-    if matches_op(query, "epics.byRef") {
-        return epics_by_ref_query(state, headers, payload);
-    }
-    if matches_op(query, "epics.progress") {
-        return epics_progress_query(state, headers, payload);
-    }
-    if matches_op(query, "epics.issuesIn") {
-        return epics_issues_in_query(state, headers, payload);
-    }
-    if matches_op(query, "epics.childrenOf") {
-        return epics_children_of_query(state, headers, payload);
-    }
     if matches_op(query, "pulls.create") {
         return pulls_create_mutation(state, headers, payload);
     }
@@ -2461,315 +2180,6 @@ fn matches_op(query: &str, op: &str) -> bool {
         }
     }
     false
-}
-
-// ── epics GraphQL dispatch ─────────────────────────────────────────────────
-fn epics_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ws = payload
-        .pointer("/variables/input/workspaceId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let title = payload
-        .pointer("/variables/input/title")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let body = payload
-        .pointer("/variables/input/bodyMarkdown")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let owner = payload
-        .pointer("/variables/input/ownerRef")
-        .and_then(Value::as_str);
-    let target_date = payload
-        .pointer("/variables/input/targetDate")
-        .and_then(Value::as_str);
-    let labels: Vec<String> = payload
-        .pointer("/variables/input/labels")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    let parent_ref = payload
-        .pointer("/variables/input/parentEpicRef")
-        .and_then(Value::as_str);
-    if ws.is_empty() || title.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.create requires variables.input.{workspaceId, title}",
-            cors,
-        );
-    }
-    match state
-        .runtime
-        .create_epic(ws, title, body, owner, target_date, &labels, parent_ref)
-    {
-        Ok(epic) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "create": epic } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_change_state_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let id = payload
-        .pointer("/variables/input/id")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let target = payload
-        .pointer("/variables/input/state")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if id.is_empty() || target.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.changeState requires variables.input.{id, state}",
-            cors,
-        );
-    }
-    match state.runtime.change_epic_state(id, target) {
-        Ok(epic) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "changeState": epic } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ws = payload
-        .pointer("/variables/workspaceId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
-    if ws.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.list requires variables.workspaceId",
-            cors,
-        );
-    }
-    match state.runtime.epics_list(ws, state_filter) {
-        Ok(epics) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "list": epics } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ref_uri = payload
-        .pointer("/variables/ref")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if ref_uri.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.byRef requires variables.ref",
-            cors,
-        );
-    }
-    let parsed = match ResourceRef::parse(ref_uri) {
-        Ok(p) => p,
-        Err(e) => {
-            return graphql_error_response(
-                StatusCode::BAD_REQUEST,
-                ErrorCode::BadUserInput.as_str(),
-                &e.message,
-                cors,
-            );
-        }
-    };
-    let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.byRef requires an id in the URI",
-            cors,
-        );
-    };
-    match state.runtime.epic_by_id(&id) {
-        Ok(found) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "byRef": found } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let refs: Vec<String> = payload
-        .pointer("/variables/refs")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    match state.runtime.epics_by_refs(&refs) {
-        Ok(epics) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "byRefs": epics } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_progress_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ref_uri = payload
-        .pointer("/variables/ref")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if ref_uri.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.progress requires variables.ref",
-            cors,
-        );
-    }
-    match state.runtime.epic_progress(ref_uri) {
-        Ok(progress) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "progress": progress } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_issues_in_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ref_uri = payload
-        .pointer("/variables/ref")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if ref_uri.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.issuesIn requires variables.ref",
-            cors,
-        );
-    }
-    match state.runtime.epic_member_uris(ref_uri, "issue") {
-        Ok(uris) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "issuesIn": uris } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ref_uri = payload
-        .pointer("/variables/ref")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if ref_uri.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "epics.childrenOf requires variables.ref",
-            cors,
-        );
-    }
-    match state.runtime.epic_member_uris(ref_uri, "epic") {
-        Ok(uris) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "epics": { "childrenOf": uris } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
 }
 
 fn comments_thread_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
@@ -6896,6 +6306,10 @@ mod tests {
         format!("issues.{op}")
     }
 
+    fn epics_route(op: &str) -> String {
+        format!("epics.{op}")
+    }
+
     fn issue_event(action: &str) -> String {
         format!("dev.comtrya.issues.{action}")
     }
@@ -8253,8 +7667,8 @@ extensions: {
         for id in FIRST_PARTY_EXTENSIONS {
             let resolver = runtime.get(*id).expect("first-party resolver loaded");
             assert_eq!(resolver.id, *id);
-            if *id == "ext_issues" {
-                assert_eq!(resolver.component, "dist/ext_issues.wasm");
+            if matches!(*id, "ext_issues" | "ext_epics") {
+                assert_eq!(resolver.component, format!("dist/{id}.wasm"));
                 assert_eq!(resolver.resolver, "platform-wit-extension");
                 assert_eq!(resolver.status, "platform-loaded");
             } else {
@@ -8977,6 +8391,125 @@ extensions: {
         assert!(event_log.contains(&issue_event("opened")));
         assert!(event_log.contains(&issue_event("closed")));
         assert!(!event_log.contains("dev.comtrya.issue.closed"));
+    }
+
+    #[tokio::test]
+    async fn generated_epics_routes_to_wasm() {
+        let runtime = dev_runtime();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: CreateEpicInput!) {{ {}(input: $input) {{ id workspaceId title state labels }} }}",
+                    epics_route("create")
+                ),
+                "variables": {
+                    "input": {
+                        "workspaceId": "ws_epics_wasm",
+                        "title": "WASM epic",
+                        "bodyMarkdown": "created by ext_epics",
+                        "labels": ["roadmap"]
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let create_status = create_response.status();
+        let body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(create_status, StatusCode::OK, "{payload}");
+        let created = &payload["data"]["epics"]["create"];
+        assert!(
+            created["id"].as_str().unwrap().starts_with("epc_"),
+            "{created}"
+        );
+        assert_eq!(created["workspaceId"], "ws_epics_wasm");
+        assert_eq!(created["state"], "PLANNED");
+        assert_eq!(created["labels"], json!(["roadmap"]));
+        let epic_id = created["id"].as_str().unwrap().to_string();
+        let epic_ref = format!("comtrya://epic/{epic_id}");
+
+        let list_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($workspaceId: ID!) {{ {}(workspaceId: $workspaceId) {{ id title }} }}",
+                    epics_route("list")
+                ),
+                "variables": { "workspaceId": "ws_epics_wasm" }
+            })
+            .to_string(),
+        )
+        .await;
+        let list_status = list_response.status();
+        let body = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(list_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["epics"]["list"][0]["id"], epic_id);
+
+        let by_ref_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($ref: ResourceURN!) {{ {}(ref: $ref) {{ id state }} }}",
+                    epics_route("byRef")
+                ),
+                "variables": { "ref": epic_ref }
+            })
+            .to_string(),
+        )
+        .await;
+        let by_ref_status = by_ref_response.status();
+        let body = to_bytes(by_ref_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(by_ref_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["epics"]["byRef"]["id"], epic_id);
+
+        let change_response = graphql_post(
+            State(state),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: ChangeEpicStateInput!) {{ {}(input: $input) {{ id state closedAt }} }}",
+                    epics_route("changeState")
+                ),
+                "variables": { "input": { "id": epic_id, "state": "DONE" } }
+            })
+            .to_string(),
+        )
+        .await;
+        let change_status = change_response.status();
+        let body = to_bytes(change_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(change_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["epics"]["changeState"]["state"], "DONE");
+        assert!(
+            payload["data"]["epics"]["changeState"]["closedAt"]
+                .as_str()
+                .is_some()
+        );
     }
 
     #[tokio::test]

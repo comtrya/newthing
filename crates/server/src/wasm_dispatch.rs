@@ -171,6 +171,9 @@ fn prepare_graphql_call(
     info: &crate::generated_dispatch::DispatchInfo,
     payload: &Value,
 ) -> BridgeResult<PreparedCall> {
+    if info.extension_id == "ext_epics" && info.interface_name == "epics" {
+        return prepare_epics_graphql_call(info, payload);
+    }
     if info.extension_id != "ext_issues" || info.interface_name != "issues" {
         return Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for {}.{}.{}",
@@ -388,6 +391,146 @@ fn prepare_graphql_call(
     }
 }
 
+fn prepare_epics_graphql_call(
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &Value,
+) -> BridgeResult<PreparedCall> {
+    let op_route = format!("{}.{}", info.interface_name, info.op_name);
+    match info.op_name {
+        "create-epic" => {
+            let input = input_object(payload, "epics.create")?;
+            let workspace_id = required_string(input, "workspaceId", "epics.create")?;
+            let title = required_string(input, "title", "epics.create")?;
+            let body_markdown = optional_string(input, "bodyMarkdown").unwrap_or_default();
+            let owner_ref = optional_string(input, "ownerRef");
+            let target_date = optional_string(input, "targetDate");
+            let labels = optional_string_array(input, "labels");
+            let parent_epic_ref = optional_string(input, "parentEpicRef");
+            let payload = json!({
+                "workspace": workspace_uri(&workspace_id),
+                "title": title,
+                "bodyMarkdown": body_markdown,
+                "ownerRef": owner_ref,
+                "targetDate": target_date,
+                "labels": labels,
+                "parentEpicRef": parent_epic_ref,
+            });
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(payload)?,
+                issue_id: None,
+                workspace_id: Some(workspace_id),
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "change-state-epic" => {
+            let input = input_object(payload, "epics.changeState")?;
+            let id = required_string(input, "id", "epics.changeState")?;
+            let state = required_string(input, "state", "epics.changeState")?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({ "id": id, "state": state }))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "get-epic" => {
+            let id = required_variable_string(payload, "id", "epics.get")?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::String(id))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "list-epics" => {
+            let workspace_id = required_variable_string(payload, "workspaceId", "epics.list")?;
+            let state_filter = payload
+                .pointer("/variables/state")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let limit = payload
+                .pointer("/variables/limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(1024)
+                .min(u32::MAX as u64);
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "workspace": workspace_uri(&workspace_id),
+                    "limit": limit,
+                }))?,
+                issue_id: None,
+                workspace_id: Some(workspace_id),
+                repository_id: None,
+                state_filter,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "by-ref-epic" | "progress-epic" | "issues-in-epic" | "children-of-epic" => {
+            let op = match info.op_name {
+                "by-ref-epic" => "epics.byRef",
+                "progress-epic" => "epics.progress",
+                "issues-in-epic" => "epics.issuesIn",
+                _ => "epics.childrenOf",
+            };
+            let ref_uri = required_variable_string(payload, "ref", op)?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::String(ref_uri.clone()))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: Some(ref_uri),
+                author_ref: None,
+            })
+        }
+        "by-refs-epic" => {
+            let refs = optional_variable_string_array(payload, "refs");
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::Array(
+                    refs.iter().cloned().map(Value::String).collect(),
+                ))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        other => Err(GraphqlBridgeError::unavailable(format!(
+            "no GraphQL payload bridge for ext_epics.epics.{other}"
+        ))),
+    }
+}
+
 fn normalize_legacy_issue_for_wasm(
     state: &crate::AppState,
     info: &crate::generated_dispatch::DispatchInfo,
@@ -587,6 +730,9 @@ fn graphql_body_for_result(
     value: Value,
     call: &PreparedCall,
 ) -> Result<Value, String> {
+    if info.extension_id == "ext_epics" && info.interface_name == "epics" {
+        return graphql_epics_body_for_result(info, value, call);
+    }
     match info.op_name {
         "open-issue" => Ok(json!({
             "data": { "issues": { "create": response_issue_value(state, value, call)? } }
@@ -670,6 +816,50 @@ fn graphql_body_for_result(
         }
         other => Err(format!(
             "no GraphQL result bridge for ext_issues.issues.{other}"
+        )),
+    }
+}
+
+fn graphql_epics_body_for_result(
+    info: &crate::generated_dispatch::DispatchInfo,
+    value: Value,
+    call: &PreparedCall,
+) -> Result<Value, String> {
+    match info.op_name {
+        "create-epic" => Ok(json!({ "data": { "epics": { "create": value } } })),
+        "change-state-epic" => Ok(json!({ "data": { "epics": { "changeState": value } } })),
+        "get-epic" => Ok(json!({ "data": { "epics": { "get": value } } })),
+        "list-epics" => {
+            let mut epics: Vec<Value> = value
+                .as_array()
+                .ok_or_else(|| "list-epics returned non-array JSON".to_string())?
+                .iter()
+                .filter(|epic| {
+                    let Some(filter) = &call.state_filter else {
+                        return true;
+                    };
+                    epic.get("state")
+                        .and_then(Value::as_str)
+                        .map(|state| state == filter)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+            epics.sort_by(|a, b| {
+                b.get("updatedAt")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .cmp(a.get("updatedAt").and_then(Value::as_str).unwrap_or(""))
+            });
+            Ok(json!({ "data": { "epics": { "list": epics } } }))
+        }
+        "by-ref-epic" => Ok(json!({ "data": { "epics": { "byRef": value } } })),
+        "by-refs-epic" => Ok(json!({ "data": { "epics": { "byRefs": value } } })),
+        "progress-epic" => Ok(json!({ "data": { "epics": { "progress": value } } })),
+        "issues-in-epic" => Ok(json!({ "data": { "epics": { "issuesIn": value } } })),
+        "children-of-epic" => Ok(json!({ "data": { "epics": { "childrenOf": value } } })),
+        other => Err(format!(
+            "no GraphQL result bridge for ext_epics.epics.{other}"
         )),
     }
 }
@@ -1003,6 +1193,14 @@ fn issue_repository_uri(
 fn issue_list_repository_uri(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
     issue_repository_uri(workspace_id, repository_id)
         .unwrap_or_else(|_| "comtrya://issues".to_string())
+}
+
+fn workspace_uri(workspace_id: &str) -> String {
+    if workspace_id.starts_with("comtrya://workspace/") {
+        workspace_id.to_string()
+    } else {
+        format!("comtrya://workspace/{workspace_id}")
+    }
 }
 
 fn parse_issue_repository_uri(repository: &str) -> (Option<String>, Option<String>) {
