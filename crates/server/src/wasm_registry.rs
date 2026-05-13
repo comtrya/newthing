@@ -185,6 +185,17 @@ impl WasmRegistry {
             for pattern in &patterns {
                 validate_event_pattern(pattern)
                     .map_err(|error| format!("{} reactor pattern {pattern:?}: {error}", ext.id))?;
+                if !ext
+                    .manifest
+                    .reactor_subscribes
+                    .iter()
+                    .any(|allowed| allowed == pattern)
+                {
+                    return Err(format!(
+                        "{} reactor returned subscription pattern {pattern:?} not declared in manifest reactor.subscribes",
+                        ext.id
+                    ));
+                }
             }
             if !patterns.is_empty() {
                 subscriptions.insert(ext.id.clone(), patterns);
@@ -239,10 +250,7 @@ impl WasmRegistry {
             ) {
                 Ok(reactions) if reactions.is_empty() => {}
                 Ok(reactions) => {
-                    eprintln!(
-                        "reactor {extension_id}: {} reaction(s) returned; reaction execution lands in the next M6 task",
-                        reactions.len()
-                    );
+                    self.apply_reactor_reactions(store.clone(), &extension_id, reactions);
                 }
                 Err(error) => {
                     eprintln!(
@@ -254,6 +262,103 @@ impl WasmRegistry {
         }
         count
     }
+
+    fn apply_reactor_reactions(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+        reactor_extension_id: &str,
+        reactions: Vec<WasmReaction>,
+    ) {
+        let Some(reactor_extension) = self.get(reactor_extension_id) else {
+            eprintln!("reactor {reactor_extension_id}: extension disappeared during dispatch");
+            return;
+        };
+        for reaction in reactions {
+            match reaction {
+                WasmReaction::InvokeMutation { name, payload } => {
+                    if !reactor_extension
+                        .manifest
+                        .reactor_allowed_mutations
+                        .iter()
+                        .any(|allowed| allowed == &name)
+                    {
+                        eprintln!(
+                            "reactor {reactor_extension_id}: mutation {name:?} is not in reactor.allowedMutations, skipping"
+                        );
+                        continue;
+                    }
+                    let (target_extension, op) = match parse_reactor_mutation_name(
+                        reactor_extension_id,
+                        &name,
+                    ) {
+                        Ok(route) => route,
+                        Err(error) => {
+                            eprintln!(
+                                "reactor {reactor_extension_id}: mutation {name:?} is invalid: {}",
+                                error.message
+                            );
+                            continue;
+                        }
+                    };
+                    let dispatcher = RegistryDispatcher {
+                        registry: self.clone(),
+                        store: store.clone(),
+                    };
+                    if let Err(error) = OpsDispatcher::dispatch(
+                        &dispatcher,
+                        &target_extension,
+                        &op,
+                        &payload,
+                        &reactor_extension.principal,
+                        0,
+                    ) {
+                        eprintln!(
+                            "reactor {reactor_extension_id}: mutation {name} failed: {}",
+                            error.message
+                        );
+                    }
+                }
+                WasmReaction::EmitEvent {
+                    event_type,
+                    payload: _,
+                } => {
+                    if !reactor_extension
+                        .manifest
+                        .reactor_allowed_emits
+                        .iter()
+                        .any(|allowed| allowed == &event_type)
+                    {
+                        eprintln!(
+                            "reactor {reactor_extension_id}: emit {event_type:?} is not in reactor.allowedEmits, skipping"
+                        );
+                        continue;
+                    }
+                    eprintln!(
+                        "reactor {reactor_extension_id}: emit-event reaction for {event_type:?} deferred until the reactor recursion cap task"
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn parse_reactor_mutation_name(
+    reactor_extension_id: &str,
+    name: &str,
+) -> Result<(String, String), wit_types::Error> {
+    if let Some((target_extension, op)) = name.split_once('/') {
+        if target_extension.is_empty() || op.is_empty() || op.contains('/') {
+            return Err(wit_types::Error {
+                code: wit_types::ErrorCode::BadInput,
+                message: format!(
+                    "reactor mutation name must be '<extension-id>/<interface>.<op>', got '{name}'"
+                ),
+                path: Some("name".to_string()),
+            });
+        }
+        return Ok((target_extension.to_string(), op.to_string()));
+    }
+    Ok((reactor_extension_id.to_string(), name.to_string()))
 }
 
 /// Embedded copy of `docs/manifest.schema.json`. Compiled into the
@@ -322,6 +427,7 @@ fn parse_host_manifest(json: &Value) -> Result<HostManifest, String> {
         allowed_emits: strings_at("/allowedEmits"),
         allowed_event_reads: strings_at("/allowedEventReads"),
         allowed_cross_calls: strings_at("/allowedCrossCalls"),
+        reactor_subscribes: strings_at("/reactor/subscribes"),
         reactor_allowed_mutations: strings_at("/reactor/allowedMutations"),
         reactor_allowed_emits: strings_at("/reactor/allowedEmits"),
         contributes_resource_kinds,
@@ -505,6 +611,7 @@ mod tests {
         let minimal = serde_json::json!({ "id": "ext_minimal" });
         let manifest = parse_host_manifest(&minimal).expect("parse");
         assert!(manifest.allowed_emits.is_empty());
+        assert!(manifest.reactor_subscribes.is_empty());
         assert!(manifest.contributes_resource_kinds.is_empty());
         assert!(manifest.host_imports.is_empty());
     }
@@ -665,12 +772,82 @@ mod tests {
         let event = wit_types::Event {
             id: "evt_reactor_test".to_string(),
             event_type: "dev.comtrya.pull-request.merged".to_string(),
-            payload: b"{}".to_vec(),
+            payload: serde_json::to_vec(&serde_json::json!({
+                "pullRequestRef": "comtrya://pull_request/pul_reactor_test"
+            }))
+            .expect("encode event payload"),
             timestamp_ms: 1,
             source_uri: "comtrya://pull_request/pul_reactor_test".to_string(),
             emitter_extension: "ext_pull_requests".to_string(),
         };
         assert_eq!(OpsDispatcher::dispatch_event(&dispatcher, &event, 0), 1);
+    }
+
+    #[test]
+    fn registry_rejects_reactor_subscriptions_not_declared_in_manifest() {
+        let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        let source_wasm = source_root.join("dist/ext_pull_requests.wasm");
+        assert!(
+            source_wasm.is_file(),
+            "{} missing; run `bash extensions/bundler/build-extension.sh \
+             extensions/first-party/ext_pull_requests` before this test",
+            source_wasm.display()
+        );
+
+        let tmp = tempdir_for_test("comtrya-reactor-subscription-manifest-gate");
+        let ext_root = tmp.join("ext_pull_requests");
+        std::fs::create_dir_all(ext_root.join("dist")).expect("mkdir fixture extension");
+        let mut manifest: Value = serde_json::from_str(
+            &std::fs::read_to_string(source_root.join("manifest.json")).expect("read manifest"),
+        )
+        .expect("parse manifest");
+        manifest["reactor"]["subscribes"] = serde_json::json!([]);
+        std::fs::write(
+            ext_root.join("manifest.json"),
+            serde_json::to_vec_pretty(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+        std::fs::copy(source_wasm, ext_root.join("dist/ext_pull_requests.wasm"))
+            .expect("copy wasm fixture");
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&ext_root)
+            .expect("register ext_pull_requests fixture");
+        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let err = registry
+            .register_reactor_subscriptions(store)
+            .expect_err("component subscriptions must be declared in manifest");
+        assert!(
+            err.contains("not declared in manifest reactor.subscribes"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn reactor_mutation_names_support_cross_extension_and_local_forms() {
+        let cross =
+            parse_reactor_mutation_name("ext_pull_requests", "ext_issues/issues.close-issue")
+                .expect("cross-extension mutation name");
+        assert_eq!(
+            cross,
+            ("ext_issues".to_string(), "issues.close-issue".to_string())
+        );
+
+        let local = parse_reactor_mutation_name("ext_pull_requests", "pulls.close-pull")
+            .expect("local mutation name");
+        assert_eq!(
+            local,
+            (
+                "ext_pull_requests".to_string(),
+                "pulls.close-pull".to_string()
+            )
+        );
+
+        let err = parse_reactor_mutation_name("ext_pull_requests", "ext_issues/issues.close/issue")
+            .expect_err("multiple slash separators are invalid");
+        assert!(matches!(err.code, wit_types::ErrorCode::BadInput));
     }
 
     #[test]

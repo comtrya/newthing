@@ -6,17 +6,24 @@ mod bindings;
 use bindings::comtrya::platform::events;
 use bindings::comtrya::platform::identity;
 use bindings::comtrya::platform::ids;
+use bindings::comtrya::platform::relations;
 use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
     ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput, PrState, PullRequest,
 };
-use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
+use bindings::exports::comtrya::platform::reactor::{
+    Guest as ReactorGuest, MutationCall, Reaction,
+};
 
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "pull_requests";
+const PULL_MERGED_EVENT: &str = "dev.comtrya.pull-request.merged";
+const CLOSES_RELATION: &str = "comtrya://rel/com.comtrya.pulls/closes";
+const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
+const CLOSE_ISSUE_MUTATION: &str = "ext_issues/issues.close-issue";
 const MAX_TITLE_LEN: usize = 512;
 const MAX_BODY_LEN: usize = 64 * 1024;
 const LEGACY_DEFAULT_AUTHOR: &str = "comtrya://user/usr_00000000000000000000000000";
@@ -384,6 +391,20 @@ struct PullEventPayload<'a> {
     closed_by_ref: Option<&'a str>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullMergedEventPayload {
+    pull_request_ref: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CloseIssueReactionPayload<'a> {
+    id: &'a str,
+    reason: &'a str,
+    closed_by_ref: &'a str,
+}
+
 fn pull_request_uri(id: &str) -> String {
     format!("comtrya://pull_request/{id}")
 }
@@ -488,7 +509,7 @@ impl PullsGuest for Component {
         commit_update(&input.id, &stored, &snap.version)?;
         let pr_ref = pull_request_uri(&input.id);
         emit(
-            "dev.comtrya.pull-request.merged",
+            PULL_MERGED_EVENT,
             &PullEventPayload {
                 pull_request_ref: &pr_ref,
                 workspace_id: stored.workspace_id.as_deref(),
@@ -559,11 +580,50 @@ impl PullsGuest for Component {
 
 impl ReactorGuest for Component {
     fn subscribed_event_types() -> Result<Vec<String>, Error> {
-        Ok(vec!["dev.comtrya.pull-request.merged".to_string()])
+        Ok(vec![PULL_MERGED_EVENT.to_string()])
     }
 
-    fn on_event(_triggering_event: Event) -> Result<Vec<Reaction>, Error> {
-        Ok(Vec::new())
+    fn on_event(triggering_event: Event) -> Result<Vec<Reaction>, Error> {
+        if triggering_event.event_type != PULL_MERGED_EVENT {
+            return Ok(Vec::new());
+        }
+        let payload: PullMergedEventPayload = serde_json::from_slice(&triggering_event.payload)
+            .map_err(|error| {
+                err(
+                    ErrorCode::BadInput,
+                    format!("parse pull request merged event: {error}"),
+                )
+            })?;
+        if payload.pull_request_ref.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let page =
+            relations::outgoing(&payload.pull_request_ref, Some(CLOSES_RELATION), 1024, None)?;
+        let mut reactions = Vec::new();
+        for relation in page.relations {
+            let Some(issue_id) = relation.target.strip_prefix(ISSUE_REF_PREFIX) else {
+                continue;
+            };
+            if issue_id.trim().is_empty() {
+                continue;
+            }
+            let reaction_payload = serde_json::to_vec(&CloseIssueReactionPayload {
+                id: issue_id,
+                reason: "completed",
+                closed_by_ref: &payload.pull_request_ref,
+            })
+            .map_err(|error| {
+                err(
+                    ErrorCode::Internal,
+                    format!("serialise close issue reaction: {error}"),
+                )
+            })?;
+            reactions.push(Reaction::InvokeMutation(MutationCall {
+                name: CLOSE_ISSUE_MUTATION.to_string(),
+                payload: reaction_payload,
+            }));
+        }
+        Ok(reactions)
     }
 }
 

@@ -599,7 +599,7 @@ impl Runtime {
     /// Relations whose `from` endpoint is `ref_uri`. For symmetric verbs,
     /// also includes relations whose `to` endpoint is `ref_uri` (since
     /// canonical-direction storage may have swapped them).
-    pub(crate) fn relations_outgoing(
+    fn relations_outgoing(
         &self,
         ref_uri: &str,
         kind_filter: Option<&str>,
@@ -681,7 +681,7 @@ impl Runtime {
     }
 
     // ── Issues (legacy reactor bridge; ext_issues owns new writes) ──
-    pub(crate) fn close_issue(
+    fn close_issue(
         &self,
         id: &str,
         reason: Option<&str>,

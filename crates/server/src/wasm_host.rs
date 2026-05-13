@@ -98,6 +98,8 @@ pub struct HostManifest {
     pub allowed_event_reads: Vec<String>,
     /// `<target>/<op>` strings this extension may `ops.invoke`.
     pub allowed_cross_calls: Vec<String>,
+    /// Event patterns this extension's reactor may subscribe to.
+    pub reactor_subscribes: Vec<String>,
     /// `<target>/<op>` strings reactions may invoke from `on-event`.
     pub reactor_allowed_mutations: Vec<String>,
     /// Event types reactions may emit from `on-event`.
@@ -1919,6 +1921,7 @@ mod m1_ext_issues_smoke {
             ],
             allowed_event_reads: vec![],
             allowed_cross_calls: vec![],
+            reactor_subscribes: vec![],
             reactor_allowed_mutations: vec![],
             reactor_allowed_emits: vec![],
             contributes_resource_kinds: vec!["issue".into()],

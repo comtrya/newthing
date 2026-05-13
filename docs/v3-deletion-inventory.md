@@ -82,7 +82,7 @@ Everything in this section is replaced by real WASM reactors in **M6**.
 | `const REACTORS` | 3263 | hardcoded `ext_pull_requests` auto-close-on-merge wired in code |
 | `fn pull_requests_on_merge` | 3271 | reimplemented inside `ext_pull_requests` WASM in M6 |
 
-M5 added a temporary `wasm_dispatch::bridge_legacy_pull_side_effects` compatibility bridge so generated `pulls.merge` keeps the old auto-close behaviour while WIT events do not dispatch reactors. M6 deletes that bridge when real WASM reactors and cross-extension `ops.invoke` land.
+M5 added a temporary `wasm_dispatch::bridge_legacy_pull_side_effects` compatibility bridge so generated `pulls.merge` kept the old auto-close behaviour while WIT events did not dispatch reactors. M6 removed that bridge once `ext_pull_requests` could return real WASM reactor mutations and the registry could route them through the cross-extension dispatcher.
 
 ## Legacy resolver path
 
