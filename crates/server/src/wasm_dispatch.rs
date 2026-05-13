@@ -177,6 +177,9 @@ fn prepare_graphql_call(
     if info.extension_id == "ext_pull_requests" && info.interface_name == "pulls" {
         return prepare_pulls_graphql_call(info, payload);
     }
+    if info.extension_id == "ext_checks" && info.interface_name == "checks" {
+        return prepare_checks_graphql_call(info, payload);
+    }
     if info.extension_id != "ext_issues" || info.interface_name != "issues" {
         return Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for {}.{}.{}",
@@ -520,6 +523,96 @@ fn prepare_pulls_graphql_call(
         }
         other => Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for ext_pull_requests.pulls.{other}"
+        ))),
+    }
+}
+
+fn prepare_checks_graphql_call(
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &Value,
+) -> BridgeResult<PreparedCall> {
+    let op_route = format!("{}.{}", info.interface_name, info.op_name);
+    match info.op_name {
+        "record-check" => {
+            let input = input_object(payload, "checks.record")?;
+            let workspace_id = optional_string(input, "workspaceId");
+            let repository_id = optional_string(input, "repositoryId");
+            let repository = optional_string(input, "repository").unwrap_or_else(|| {
+                check_record_repository_uri(workspace_id.as_deref(), repository_id.as_deref())
+            });
+            let commit_oid = optional_string_any(input, &["commitOID", "commitOid"])
+                .ok_or_else(|| "checks.record requires variables.input.commitOID".to_string())?;
+            let name = required_string(input, "name", "checks.record")?;
+            let conclusion = optional_string(input, "conclusion");
+            let state = optional_string(input, "state")
+                .or_else(|| conclusion.clone())
+                .unwrap_or_else(|| "PENDING".to_string());
+            let required = input
+                .get("required")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "repository": repository,
+                    "commitOID": commit_oid,
+                    "name": name,
+                    "state": state,
+                    "conclusion": conclusion,
+                    "required": required,
+                }))?,
+                issue_id: None,
+                workspace_id,
+                repository_id,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "list-checks" => {
+            let repository = payload
+                .pointer("/variables/repository")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    let workspace_id = payload
+                        .pointer("/variables/workspaceId")
+                        .and_then(Value::as_str);
+                    let repository_id = payload
+                        .pointer("/variables/repositoryId")
+                        .and_then(Value::as_str);
+                    check_list_repository_uri(workspace_id, repository_id)
+                });
+            let limit = payload
+                .pointer("/variables/limit")
+                .and_then(Value::as_u64)
+                .unwrap_or(1024)
+                .min(u32::MAX as u64);
+            let state_filter = payload
+                .pointer("/variables/state")
+                .or_else(|| payload.pointer("/variables/conclusion"))
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "repository": repository,
+                    "limit": limit,
+                }))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        other => Err(GraphqlBridgeError::unavailable(format!(
+            "no GraphQL payload bridge for ext_checks.checks.{other}"
         ))),
     }
 }
@@ -869,6 +962,9 @@ fn graphql_body_for_result(
     if info.extension_id == "ext_pull_requests" && info.interface_name == "pulls" {
         return graphql_pulls_body_for_result(info, value, call);
     }
+    if info.extension_id == "ext_checks" && info.interface_name == "checks" {
+        return graphql_checks_body_for_result(info, value, call);
+    }
     match info.op_name {
         "open-issue" => Ok(json!({
             "data": { "issues": { "create": response_issue_value(state, value, call)? } }
@@ -952,6 +1048,54 @@ fn graphql_body_for_result(
         }
         other => Err(format!(
             "no GraphQL result bridge for ext_issues.issues.{other}"
+        )),
+    }
+}
+
+fn graphql_checks_body_for_result(
+    info: &crate::generated_dispatch::DispatchInfo,
+    value: Value,
+    call: &PreparedCall,
+) -> Result<Value, String> {
+    match info.op_name {
+        "record-check" => Ok(json!({ "data": { "checks": { "record": value } } })),
+        "list-checks" => {
+            let filter = call
+                .state_filter
+                .as_ref()
+                .map(|state| state.to_ascii_uppercase());
+            let mut checks: Vec<Value> = value
+                .as_array()
+                .ok_or_else(|| "list-checks returned non-array JSON".to_string())?
+                .iter()
+                .filter(|check| {
+                    let Some(filter) = &filter else {
+                        return true;
+                    };
+                    let state_matches = check
+                        .get("state")
+                        .and_then(Value::as_str)
+                        .map(|state| state.to_ascii_uppercase() == *filter)
+                        .unwrap_or(false);
+                    let conclusion_matches = check
+                        .get("conclusion")
+                        .and_then(Value::as_str)
+                        .map(|conclusion| conclusion.to_ascii_uppercase() == *filter)
+                        .unwrap_or(false);
+                    state_matches || conclusion_matches
+                })
+                .cloned()
+                .collect();
+            checks.sort_by(|a, b| {
+                a.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .cmp(b.get("name").and_then(Value::as_str).unwrap_or(""))
+            });
+            Ok(json!({ "data": { "checks": { "list": checks } } }))
+        }
+        other => Err(format!(
+            "no GraphQL result bridge for ext_checks.checks.{other}"
         )),
     }
 }
@@ -1154,6 +1298,12 @@ fn optional_string(input: &Map<String, Value>, field: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .filter(|value| !value.is_empty())
+}
+
+fn optional_string_any(input: &Map<String, Value>, fields: &[&str]) -> Option<String> {
+    fields
+        .iter()
+        .find_map(|field| optional_string(input, field))
 }
 
 fn optional_string_array(input: &Map<String, Value>, field: &str) -> Vec<String> {
@@ -1387,6 +1537,28 @@ fn pull_repository_uri(workspace_id: Option<&str>, repository_id: Option<&str>) 
         (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
         (None, Some(repository)) => format!("comtrya://repository/{repository}"),
         (None, None) => "comtrya://pulls".to_string(),
+    }
+}
+
+fn check_record_repository_uri(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
+    match (workspace_id, repository_id) {
+        (Some(workspace), Some(repository)) => {
+            format!("comtrya://workspace/{workspace}/repository/{repository}")
+        }
+        (None, Some(repository)) => format!("comtrya://repository/{repository}"),
+        (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
+        (None, None) => "comtrya://checks".to_string(),
+    }
+}
+
+fn check_list_repository_uri(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
+    match (workspace_id, repository_id) {
+        (Some(workspace), Some(repository)) => {
+            format!("comtrya://workspace/{workspace}/repository/{repository}")
+        }
+        (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
+        (None, Some(repository)) => format!("comtrya://repository/{repository}"),
+        (None, None) => "comtrya://checks".to_string(),
     }
 }
 

@@ -69,6 +69,19 @@ use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
 };
 
+#[allow(warnings)]
+mod ext_checks_bindings {
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_checks/wit",
+        world: "ext-checks",
+    });
+}
+
+use ext_checks_bindings::ExtChecks;
+use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
+    CheckRun, CheckState, RecordCheckInput,
+};
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenIssueInputJson {
@@ -134,6 +147,18 @@ struct MergePullInputJson {
 struct ClosePullInputJson {
     id: String,
     closed_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordCheckInputJson {
+    repository: String,
+    #[serde(rename = "commitOID", alias = "commitOid")]
+    commit_oid: String,
+    name: String,
+    state: String,
+    conclusion: Option<String>,
+    required: bool,
 }
 
 pub fn dispatch_ext_issues(
@@ -771,6 +796,124 @@ pub fn dispatch_ext_pull_requests(
     })
 }
 
+pub fn dispatch_ext_checks(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    current_principal: &str,
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &[u8],
+    depth: u32,
+) -> Result<Vec<u8>, wit_types::Error> {
+    if info.extension_id != "ext_checks" || info.interface_name != "checks" {
+        return Err(wit_error(
+            wit_types::ErrorCode::Internal,
+            format!(
+                "ext_checks invoker received wrong route: {}.{}.{}",
+                info.extension_id, info.interface_name, info.op_name
+            ),
+        ));
+    }
+    let input = parse_payload(payload)?;
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (host_state, ext) = build_host_state(
+        registry,
+        info.extension_id,
+        current_principal,
+        store,
+        dispatcher,
+        depth,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_checks: {e}"),
+            )
+        })?;
+    let ext_checks = ExtChecks::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-checks world: {e}"),
+        )
+    })?;
+    let checks = ext_checks.comtrya_ext_checks_checks();
+
+    let value = match info.op_name {
+        "record-check" => {
+            let parsed: RecordCheckInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse record-check input: {e}"),
+                )
+            })?;
+            let wit_input = RecordCheckInput {
+                repository: parsed.repository,
+                commit_oid: parsed.commit_oid,
+                name: parsed.name,
+                state: check_state_from_json(&parsed.state)?,
+                conclusion: parsed.conclusion,
+                required: parsed.required,
+            };
+            let result = checks
+                .call_record_check(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("record-check call: {e}"),
+                    )
+                })?;
+            check_run_to_json(&result.map_err(checks_error_to_canonical)?)
+        }
+        "list-checks" => {
+            let repository = input
+                .get("repository")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        "list-checks requires payload.repository",
+                    )
+                })?
+                .to_string();
+            let limit = u32_field(&input, "limit", "list-checks")?;
+            let result = checks
+                .call_list_checks(&mut wasm_store, &repository, limit)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-checks call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(checks_error_to_canonical)?
+                    .iter()
+                    .map(check_run_to_json)
+                    .collect(),
+            )
+        }
+        other => {
+            return Err(wit_error(
+                wit_types::ErrorCode::NotFound,
+                format!("ext_checks has no op named '{other}'"),
+            ));
+        }
+    };
+    serde_json::to_vec(&value).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("encode result: {e}"),
+        )
+    })
+}
+
 fn parse_payload(payload: &[u8]) -> Result<Value, wit_types::Error> {
     if payload.is_empty() {
         return Ok(Value::Null);
@@ -981,6 +1124,49 @@ fn pull_repository_scope(repository: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+fn check_run_to_json(check: &CheckRun) -> Value {
+    let (workspace_id, repository_id) = pull_repository_scope(&check.repository);
+    serde_json::json!({
+        "id": check.id,
+        "repository": check.repository,
+        "workspaceId": workspace_id,
+        "repositoryId": repository_id,
+        "commitOID": check.commit_oid,
+        "commitOid": check.commit_oid,
+        "name": check.name,
+        "state": check_state_to_graphql(check.state),
+        "conclusion": check.conclusion,
+        "required": check.required,
+        "createdAt": check.created_at,
+        "updatedAt": check.updated_at,
+    })
+}
+
+fn check_state_to_graphql(state: CheckState) -> &'static str {
+    match state {
+        CheckState::Pending => "PENDING",
+        CheckState::Running => "RUNNING",
+        CheckState::Succeeded => "SUCCESS",
+        CheckState::Failed => "FAILURE",
+        CheckState::Skipped => "SKIPPED",
+    }
+}
+
+fn check_state_from_json(state: &str) -> Result<CheckState, wit_types::Error> {
+    match state {
+        "PENDING" | "pending" => Ok(CheckState::Pending),
+        "RUNNING" | "running" => Ok(CheckState::Running),
+        "SUCCESS" | "SUCCEEDED" | "success" | "succeeded" => Ok(CheckState::Succeeded),
+        "FAILURE" | "FAILED" | "failure" | "failed" => Ok(CheckState::Failed),
+        "ACTION_REQUIRED" | "action-required" | "action_required" => Ok(CheckState::Failed),
+        "SKIPPED" | "skipped" => Ok(CheckState::Skipped),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown check state '{other}'"),
+        )),
+    }
+}
+
 fn local_error_to_canonical(
     e: ext_issues_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
@@ -1025,6 +1211,26 @@ fn pulls_error_to_canonical(
     e: ext_pull_requests_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
     use ext_pull_requests_bindings::comtrya::platform::types as local;
+    let code = match e.code {
+        local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
+        local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
+        local::ErrorCode::Forbidden => wit_types::ErrorCode::Forbidden,
+        local::ErrorCode::Unauthenticated => wit_types::ErrorCode::Unauthenticated,
+        local::ErrorCode::BadInput => wit_types::ErrorCode::BadInput,
+        local::ErrorCode::Internal => wit_types::ErrorCode::Internal,
+        local::ErrorCode::Unavailable => wit_types::ErrorCode::Unavailable,
+    };
+    wit_types::Error {
+        code,
+        message: e.message,
+        path: e.path,
+    }
+}
+
+fn checks_error_to_canonical(
+    e: ext_checks_bindings::comtrya::platform::types::Error,
+) -> wit_types::Error {
+    use ext_checks_bindings::comtrya::platform::types as local;
     let code = match e.code {
         local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
         local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,

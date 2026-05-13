@@ -5976,6 +5976,10 @@ mod tests {
         format!("pulls.{op}")
     }
 
+    fn checks_route(op: &str) -> String {
+        ["checks", op].join(".")
+    }
+
     fn issue_event(action: &str) -> String {
         format!("dev.comtrya.issues.{action}")
     }
@@ -7333,7 +7337,10 @@ extensions: {
         for id in FIRST_PARTY_EXTENSIONS {
             let resolver = runtime.get(*id).expect("first-party resolver loaded");
             assert_eq!(resolver.id, *id);
-            if matches!(*id, "ext_issues" | "ext_epics" | "ext_pull_requests") {
+            if matches!(
+                *id,
+                "ext_issues" | "ext_epics" | "ext_pull_requests" | "ext_checks"
+            ) {
                 assert_eq!(resolver.component, format!("dist/{id}.wasm"));
                 assert_eq!(resolver.resolver, "platform-wit-extension");
                 assert_eq!(resolver.status, "platform-loaded");
@@ -8352,6 +8359,181 @@ extensions: {
             payload["data"]["pulls"]["merge"]["mergedAt"]
                 .as_str()
                 .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_check_routes_to_wasm() {
+        let runtime = dev_runtime();
+        let legacy_id = OpaqueId::new(IdPrefix::Owned("chk_".to_string()));
+        let legacy_ref = format!("comtrya://check/{}", legacy_id.as_str());
+        let now_iso = chrono_now_iso();
+        runtime
+            .extension_storage
+            .create_document(extension_document_record(
+                "ext_checks",
+                "check_runs",
+                legacy_id.as_str(),
+                &legacy_ref,
+                vec![
+                    legacy_ref.clone(),
+                    "comtrya://repository/repo_checks_wasm".to_string(),
+                ],
+                json!({
+                    "repositoryID": "repo_checks_wasm",
+                    "name": "seed-shaped check before WASM cutover",
+                    "provider": "Comtrya CI",
+                    "conclusion": "ACTION_REQUIRED",
+                    "duration": "3s",
+                }),
+                &now_iso,
+            ))
+            .unwrap();
+        let token = runtime.issue_credential(
+            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let dispatcher = crate::wasm_registry::RegistryDispatcher {
+            registry: state.runtime.wasm_registry.clone(),
+            store: Arc::new(state.runtime.extension_storage.clone()),
+        };
+        let unscoped = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_checks",
+            &checks_route("record-check"),
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://checks",
+                "commitOID": "abc123",
+                "name": "unscoped direct WIT check",
+                "state": "SUCCESS",
+                "required": true,
+            }))
+            .unwrap(),
+            "comtrya://user/usr_00000000000000000000000000",
+            0,
+        )
+        .expect_err("direct WIT record-check must reject unscoped repositories");
+        assert!(
+            matches!(
+                unscoped.code,
+                crate::wasm_host::wit_types::ErrorCode::BadInput
+            ),
+            "{unscoped:?}"
+        );
+        assert!(
+            unscoped.message.contains("repository-scoped"),
+            "{unscoped:?}"
+        );
+
+        let record_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "mutation($input: RecordCheckInput!) {{ {}(input: $input) {{ id workspaceId repositoryId commitOID name state conclusion required }} }}",
+                    checks_route("record")
+                ),
+                "variables": {
+                    "input": {
+                        "workspaceId": "ws_checks_wasm",
+                        "repositoryId": "repo_checks_wasm",
+                        "commitOID": "abc123",
+                        "name": "WASM check",
+                        "conclusion": "ACTION_REQUIRED",
+                        "required": true
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let record_status = record_response.status();
+        let body = to_bytes(record_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(record_status, StatusCode::OK, "{payload}");
+        let recorded = &payload["data"]["checks"]["record"];
+        assert!(
+            recorded["id"].as_str().unwrap().starts_with("chk_"),
+            "{recorded}"
+        );
+        assert_eq!(recorded["workspaceId"], "ws_checks_wasm");
+        assert_eq!(recorded["repositoryId"], "repo_checks_wasm");
+        assert_eq!(recorded["commitOID"], "abc123");
+        assert_eq!(recorded["state"], "FAILURE");
+        assert_eq!(recorded["conclusion"], "ACTION_REQUIRED");
+        assert_eq!(recorded["required"], true);
+
+        let list_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($workspaceId: ID!, $repositoryId: ID!) {{ {}(workspaceId: $workspaceId, repositoryId: $repositoryId) {{ id repositoryId name state conclusion required }} }}",
+                    checks_route("list")
+                ),
+                "variables": {
+                    "workspaceId": "ws_checks_wasm",
+                    "repositoryId": "repo_checks_wasm"
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let list_status = list_response.status();
+        let body = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(list_status, StatusCode::OK, "{payload}");
+        let checks = payload["data"]["checks"]["list"]
+            .as_array()
+            .expect("check list");
+        assert!(checks.iter().any(|check| check["name"] == "WASM check"));
+        let legacy = checks
+            .iter()
+            .find(|check| check["name"] == "seed-shaped check before WASM cutover")
+            .expect("seed-shaped check survives WASM list");
+        assert_eq!(legacy["repositoryId"], "repo_checks_wasm");
+        assert_eq!(legacy["conclusion"], "ACTION_REQUIRED");
+
+        let filtered_response = graphql_post(
+            State(state),
+            bearer_headers(&token),
+            json!({
+                "query": format!(
+                    "query($repositoryId: ID!, $conclusion: String) {{ {}(repositoryId: $repositoryId, conclusion: $conclusion) {{ name state conclusion }} }}",
+                    checks_route("list")
+                ),
+                "variables": {
+                    "repositoryId": "repo_checks_wasm",
+                    "conclusion": "ACTION_REQUIRED"
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let filtered_status = filtered_response.status();
+        let body = to_bytes(filtered_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(filtered_status, StatusCode::OK, "{payload}");
+        let filtered = payload["data"]["checks"]["list"]
+            .as_array()
+            .expect("filtered check list");
+        assert!(filtered.iter().any(|check| check["name"] == "WASM check"));
+        assert!(
+            filtered
+                .iter()
+                .any(|check| check["name"] == "seed-shaped check before WASM cutover")
         );
     }
 

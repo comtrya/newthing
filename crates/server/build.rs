@@ -313,6 +313,7 @@ fn typed_invoker_fn(id: &str) -> Option<&'static str> {
         "ext_issues" => Some("dispatch_ext_issues"),
         "ext_epics" => Some("dispatch_ext_epics"),
         "ext_pull_requests" => Some("dispatch_ext_pull_requests"),
+        "ext_checks" => Some("dispatch_ext_checks"),
         _ => None,
     }
 }

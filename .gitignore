@@ -17,6 +17,8 @@ extensions/first-party/*/dist/*
 !extensions/first-party/ext_epics/dist/ext_epics.wasm
 !extensions/first-party/ext_pull_requests/dist/
 !extensions/first-party/ext_pull_requests/dist/ext_pull_requests.wasm
+!extensions/first-party/ext_checks/dist/
+!extensions/first-party/ext_checks/dist/ext_checks.wasm
 
 # cargo-component regenerates this from the WIT on every build; treat
 # it as generated, not source.

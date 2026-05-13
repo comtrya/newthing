@@ -19,6 +19,7 @@ interface checks {
     commit-oid: string,
     name: string,
     state: check-state,
+    conclusion: string,
     required: bool,
     created-at: iso-timestamp,
     updated-at: iso-timestamp,
@@ -29,6 +30,7 @@ interface checks {
     commit-oid: string,
     name: string,
     state: check-state,
+    conclusion: option<string>,
     required: bool,
   }
 

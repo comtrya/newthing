@@ -5,8 +5,10 @@
   "displayName": "Checks",
   "version": "0.1.0",
   "publisher": "comtrya-dev",
-  "wasmComponent": "component.wat",
-  "witWorld": "comtrya:extension/extension",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_checks.wasm",
+  "witWorld": "ext-checks",
   "ui": {
     "manifest": "ui/manifest.json"
   },
@@ -14,5 +16,22 @@
   "runtime": {
     "resolver": "resolve",
     "outputType": "comtrya.checks/summary.v1"
+  },
+  "contributes": {
+    "resourceKinds": [{ "name": "check-run", "prefix": "chk" }],
+    "slots": [
+      { "slot": "repository.checks", "element": "comtrya-checks-board", "priority": 100 }
+    ]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "time", "ids", "log"
+  ],
+  "allowedEmits": [],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
   }
 }
