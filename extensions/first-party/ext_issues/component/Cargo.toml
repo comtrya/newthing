@@ -1,0 +1,35 @@
+# Standalone Component-Model crate — NOT a member of the main
+# workspace (different target, different toolchain features). The
+# empty `[workspace]` below stops Cargo from auto-attaching this
+# package to a parent workspace.
+[workspace]
+
+[package]
+name = "ext_issues_component"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen-rt = { version = "0.44", features = ["bitflags"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[package.metadata.component]
+package = "comtrya:ext-issues"
+
+[package.metadata.component.target]
+path = "../wit"
+world = "ext-issues"
+
+[package.metadata.component.target.dependencies]
+"comtrya:platform" = { path = "../../../wit/comtrya/platform" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

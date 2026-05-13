@@ -44,23 +44,36 @@ mkdir -p "$out_dir"
 
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 
-# 1) Build the WASM component (if Cargo.toml + cargo-component present).
-if [[ -f "$root/Cargo.toml" ]]; then
+# 1) Build the WASM component. Components live under
+#    <extension_root>/component/ and are standalone cargo packages
+#    (not workspace members — different target, different toolchain
+#    features).
+component_dir="$root/component"
+if [[ -f "$component_dir/Cargo.toml" ]]; then
   echo "==> cargo-component build $ext_id"
-  (cd "$root" && cargo component build --release --quiet || {
-    echo "cargo-component build failed for $ext_id (continuing without WASM)" >&2
-  })
-  found_wasm="$(find "$root/target" -maxdepth 4 -name '*.wasm' -path '*release*' 2>/dev/null | head -n 1 || true)"
-  if [[ -n "$found_wasm" ]]; then
-    cp "$found_wasm" "$out_dir/$ext_id.wasm"
-    echo "    wrote $out_dir/$ext_id.wasm"
+  if ! (cd "$component_dir" && cargo component build --release --quiet); then
+    echo "cargo-component build failed for $ext_id" >&2
+    exit 1
   fi
+  found_wasm="$(find "$component_dir/target/wasm32-unknown-unknown/release" -maxdepth 1 -name '*.wasm' 2>/dev/null | head -n 1 || true)"
+  if [[ -z "$found_wasm" ]]; then
+    echo "no .wasm artifact found under $component_dir/target/ after build" >&2
+    exit 1
+  fi
+  cp "$found_wasm" "$out_dir/$ext_id.wasm"
+  echo "    wrote $out_dir/$ext_id.wasm"
+else
+  echo "no $component_dir/Cargo.toml — skipping WASM build for $ext_id"
 fi
 
-# 2) Generate handlers + client from the WIT.
+# 2) Generate handlers + client from the WIT. The per-extension WIT
+#    depends on `comtrya:platform`, so we pass the platform WIT dir as
+#    an additional dep to wit-codegen.
 if [[ -d "$wit_dir" ]]; then
   echo "==> wit-codegen $ext_id $wit_dir → $out_dir"
-  (cd "$repo_root" && cargo run --quiet -p comtrya-wit-codegen -- "$ext_id" "$wit_dir" "$out_dir")
+  platform_wit="$repo_root/extensions/wit/comtrya/platform"
+  (cd "$repo_root" && cargo run --quiet -p comtrya-wit-codegen -- \
+    "$ext_id" "$wit_dir" "$out_dir" "$platform_wit")
 fi
 
 # 3) Build the UI bundle (if a package.json exists).

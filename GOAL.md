@@ -40,15 +40,15 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Confirm all five pre-flight decisions are settled before starting M1
 
 ## M1 — Real WASM for `ext_issues` (canary)
-- [ ] Create `extensions/first-party/ext_issues/component/Cargo.toml` using cargo-component
-- [ ] Wire `[package.metadata.component.target]` to the platform WIT + `wit/issues.wit`
-- [ ] Implement `open-issue`: mint id via `ids.mint`, persist via `storage.create`, emit `dev.comtrya.issues.opened`
-- [ ] Implement `close-issue`: `update-begin` / `update-commit`, set state, emit `dev.comtrya.issues.closed`
-- [ ] Implement `reopen-issue`
-- [ ] Implement `get-issue` / `list-issues` via `storage.get` / `storage.query`
-- [ ] Implement the `reactor` export (empty `subscribed-event-types`, no-op `on-event`)
-- [ ] `extensions/bundler/build-extension.sh extensions/first-party/ext_issues` produces a real `.wasm`
-- [ ] `wasm-tools component wit dist/ext_issues.wasm` reports world `ext-issues`
+- [x] Create `extensions/first-party/ext_issues/component/Cargo.toml` using cargo-component
+- [x] Wire `[package.metadata.component.target]` to the platform WIT + `wit/issues.wit`
+- [x] Implement `open-issue`: mint id via `ids.mint`, persist via `storage.create`, emit `dev.comtrya.issues.opened`
+- [x] Implement `close-issue`: `update-begin` / `update-commit`, set state, emit `dev.comtrya.issues.closed`
+- [x] Implement `reopen-issue`
+- [x] Implement `get-issue` / `list-issues` via `storage.get` / `storage.query`
+- [x] Implement the `reactor` export (empty `subscribed-event-types`, no-op `on-event`)
+- [x] `extensions/bundler/build-extension.sh extensions/first-party/ext_issues` produces a real `.wasm`
+- [x] `wasm-tools component wit dist/ext_issues.wasm` reports world `ext-issues`
 - [ ] Wasmtime integration test in `crates/server`: load the wasm, call `close-issue` through `Linker<HostState>`, assert storage state
 
 ## M2 — Host wiring + codegen build integration

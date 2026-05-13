@@ -1,0 +1,7 @@
+# Pin the build target so `cargo component build` (without --target)
+# produces a clean component with no WASI adapter imports. The default
+# `wasm32-wasip1` target would embed wasi-preview1-component-adapter
+# which then drags every wasi:* interface into the component's import
+# set — nothing on the kernel side provides those.
+[build]
+target = "wasm32-unknown-unknown"

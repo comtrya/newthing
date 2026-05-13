@@ -5,3 +5,12 @@ data/
 .env
 .env.*
 .envrc
+
+# Per-extension build outputs from extensions/bundler/build-extension.sh.
+# The bundler writes here on every build; the artifacts are derived
+# from the component's Cargo.toml + wit/ inputs.
+extensions/first-party/*/dist/
+
+# cargo-component regenerates this from the WIT on every build; treat
+# it as generated, not source.
+extensions/first-party/*/component/src/bindings.rs

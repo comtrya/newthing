@@ -100,14 +100,30 @@ pub fn kebab_to_pascal(s: &str) -> String {
 /// Walk a per-extension WIT package and produce one `OpSpec` per
 /// exported op found in any `ops`-shaped interface. The `extension_id`
 /// is the manifest's id; it's used to build the dispatch route.
-pub fn parse_extension_wit(wit_path: &Path, extension_id: &str) -> Result<Vec<OpSpec>> {
+///
+/// `dep_paths` lists additional WIT package directories the resolver
+/// must know about — at minimum, the `comtrya:platform` package the
+/// per-extension WIT depends on via `use` and `include`.
+pub fn parse_extension_wit(
+    wit_path: &Path,
+    extension_id: &str,
+    dep_paths: &[&Path],
+) -> Result<Vec<OpSpec>> {
     let mut resolve = Resolve::default();
+    // Push dependencies first so the main package can resolve `use`
+    // references to them.
+    for dep in dep_paths {
+        resolve
+            .push_dir(dep)
+            .with_context(|| format!("failed to parse dep WIT at {}", dep.display()))?;
+    }
     let (package_id, _) = resolve
         .push_dir(wit_path)
         .with_context(|| format!("failed to parse WIT at {}", wit_path.display()))?;
     let package = &resolve.packages[package_id];
 
     let mut ops = Vec::new();
+    let main_package_name = package.name.clone();
     for (_world_name, world_id) in &package.worlds {
         let world = &resolve.worlds[*world_id];
         for (key, item) in &world.exports {
@@ -116,6 +132,16 @@ pub fn parse_extension_wit(wit_path: &Path, extension_id: &str) -> Result<Vec<Op
                 _ => continue,
             };
             let iface = &resolve.interfaces[*iface_id];
+            // Skip exports that come from a different package than the
+            // per-extension package — these are kernel-callable exports
+            // (e.g. `reactor` from `comtrya:platform`) that the kernel
+            // invokes directly via `on-event` / `subscribed-event-types`,
+            // not via the GraphQL dispatch table.
+            if let Some(pkg_id) = iface.package {
+                if resolve.packages[pkg_id].name != main_package_name {
+                    continue;
+                }
+            }
             let iface_name = match key {
                 WorldKey::Name(n) => n.clone(),
                 WorldKey::Interface(id) => resolve.interfaces[*id]

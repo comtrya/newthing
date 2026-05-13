@@ -52,8 +52,8 @@ For the duration of the cutover:
 
 - **Wasmtime:** `43.0.2` (already in `crates/server/Cargo.toml`)
 - **wit-parser:** `0.235` (codegen crate)
-- **cargo-component:** whatever ships at the time of first M1 use — pin in `rust-toolchain.toml` once chosen, record the exact version here.
-- **wit-bindgen:** the version `cargo-component` brings in transitively — record once observed.
+- **cargo-component:** `0.21.1` (pinned at M1 first use, installed via `cargo install cargo-component --locked --version 0.21.1`)
+- **wit-bindgen-rt:** `0.44` (used by each per-extension component crate; matches cargo-component 0.21.1's generator)
 
 **Why:** Toolchain churn during a multi-milestone migration is the fastest way to lose a day to a bindgen regression. We pin, we ship, we upgrade in a separate workstream after M13.
 
