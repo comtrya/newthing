@@ -46,6 +46,7 @@ pub struct WasmRegistry {
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
     pub occ_tokens: Arc<RwLock<BTreeMap<(String, String, String), String>>>,
+    pub minted_ids: Arc<RwLock<BTreeMap<String, std::collections::BTreeSet<String>>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -77,6 +78,7 @@ impl WasmRegistry {
             log_sink: Arc::new(StderrLogSink),
             id_minter,
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
         })
     }
 
@@ -219,6 +221,7 @@ pub fn build_host_state(
         registry.authz.clone(),
         dispatcher,
         registry.occ_tokens.clone(),
+        registry.minted_ids.clone(),
     );
     state.ops_invoke_depth = parent_depth;
     Ok((state, ext))

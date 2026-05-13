@@ -72,6 +72,13 @@ pub struct HostState {
     /// Current synchronous depth of `ops.invoke` chains. Incremented
     /// before each call, decremented after.
     pub ops_invoke_depth: u32,
+    /// Per-extension set of IDs that `ids.mint` has handed out but
+    /// `storage.create` has not yet consumed. `storage.create` checks
+    /// membership before persisting and removes on success — an
+    /// extension cannot forge an ID it didn't mint. Shared across
+    /// HostState instances because the kernel re-instantiates per
+    /// call but the minted-ID set must outlive any single invocation.
+    pub minted_ids: Arc<RwLock<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>>,
 }
 
 /// Parsed extension manifest — only the fields the host enforces.
@@ -420,15 +427,32 @@ impl wit_ids::Host for HostState {
                 ),
             ));
         }
-        match self.id_minter.mint(&kind_name) {
-            Ok(id) => Ok(id),
-            Err(MintError::UnknownKind(k)) => Err(err(
-                wit_types::ErrorCode::BadInput,
-                format!("unknown resource kind: {}", k),
-            )),
-            Err(MintError::Forbidden(reason)) => Err(err(wit_types::ErrorCode::Forbidden, reason)),
-            Err(MintError::Internal(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
+        let id = match self.id_minter.mint(&kind_name) {
+            Ok(id) => id,
+            Err(MintError::UnknownKind(k)) => {
+                return Err(err(
+                    wit_types::ErrorCode::BadInput,
+                    format!("unknown resource kind: {}", k),
+                ));
+            }
+            Err(MintError::Forbidden(reason)) => {
+                return Err(err(wit_types::ErrorCode::Forbidden, reason));
+            }
+            Err(MintError::Internal(reason)) => {
+                return Err(err(wit_types::ErrorCode::Internal, reason));
+            }
+        };
+        // Record the mint so storage.create can verify the id came
+        // from us. The set is per-extension and never trimmed
+        // automatically — every successful storage.create removes the
+        // id from the set; abandoned mints accumulate. TODO(M5+):
+        // bound or persist this set.
+        if let Ok(mut all) = self.minted_ids.write() {
+            all.entry(self.extension_id.clone())
+                .or_default()
+                .insert(id.clone());
         }
+        Ok(id)
     }
 }
 
@@ -442,6 +466,30 @@ impl wit_storage::Host for HostState {
         data: Vec<u8>,
         metadata: wit_storage::DocumentMetadata,
     ) -> Result<(), wit_types::Error> {
+        // Enforce the WIT contract: the id MUST have been minted via
+        // ids.mint for this extension. The `_meta` collection is the
+        // one exception — counter rows there use a synthetic key
+        // (e.g. `issue-number:<repo-uri>`) and aren't extension
+        // resources. Treat that collection as kernel-internal.
+        let exempt_collection = collection == "_meta";
+        if !exempt_collection {
+            let in_set = self
+                .minted_ids
+                .read()
+                .ok()
+                .and_then(|all| all.get(&self.extension_id).map(|s| s.contains(&id)))
+                .unwrap_or(false);
+            if !in_set {
+                return Err(err(
+                    wit_types::ErrorCode::Forbidden,
+                    format!(
+                        "id '{}' was not minted via ids.mint for extension '{}' — \
+                         the kernel rejects storage.create with forged ids",
+                        id, self.extension_id
+                    ),
+                ));
+            }
+        }
         let json: Value = serde_json::from_slice(&data).map_err(|e| {
             err(wit_types::ErrorCode::BadInput, format!("invalid JSON: {}", e))
         })?;
@@ -464,7 +512,17 @@ impl wit_storage::Host for HostState {
             } else {
                 err(wit_types::ErrorCode::Internal, e)
             }
-        })
+        })?;
+        // Consume the mint — successful storage.create transfers
+        // ownership from "minted but un-persisted" to "persisted".
+        if !exempt_collection {
+            if let Ok(mut all) = self.minted_ids.write() {
+                if let Some(set) = all.get_mut(&self.extension_id) {
+                    set.remove(&id);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn get(
@@ -1394,6 +1452,7 @@ pub fn host_state_for_op(
     authz: Arc<dyn AuthzLayer + Send + Sync>,
     ops_dispatcher: Arc<dyn OpsDispatcher>,
     occ_tokens: Arc<RwLock<BTreeMap<(String, String, String), String>>>,
+    minted_ids: Arc<RwLock<BTreeMap<String, std::collections::BTreeSet<String>>>>,
 ) -> HostState {
     HostState {
         extension_id: extension_id.into(),
@@ -1408,6 +1467,7 @@ pub fn host_state_for_op(
         occ_tokens,
         ops_dispatcher,
         ops_invoke_depth: 0,
+        minted_ids,
     }
 }
 
@@ -1428,6 +1488,57 @@ mod tests {
         assert!(!is_valid_permission_grammar("Issues.Write"));
         assert!(!is_valid_permission_grammar("issues.a.b"));
         assert!(!is_valid_permission_grammar(".write"));
+    }
+
+    #[test]
+    fn storage_create_rejects_unminted_id() {
+        use std::sync::{Arc, RwLock};
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-mint-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap());
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("issue".to_string(), "iss".to_string());
+        let mut host = host_state_for_op(
+            "ext_issues",
+            "comtrya://extension/ext_issues",
+            "comtrya://user/usr_test",
+            store,
+            Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["issue".to_string()],
+                ..HostManifest::default()
+            }),
+            Arc::new(SystemClock),
+            Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            Arc::new(StderrLogSink),
+            Arc::new(DefaultAuthz),
+            Arc::new(NoopDispatcher),
+            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+        );
+        let result = <HostState as wit_storage::Host>::create(
+            &mut host,
+            "issues".to_string(),
+            "iss_FAKE_ID_NOT_MINTED".to_string(),
+            b"{\"id\":\"iss_FAKE_ID_NOT_MINTED\"}".to_vec(),
+            wit_storage::DocumentMetadata {
+                resource_uri: "comtrya://issue/iss_FAKE_ID_NOT_MINTED".to_string(),
+                resource_refs: vec![],
+            },
+        );
+        match result {
+            Err(e) if matches!(e.code, wit_types::ErrorCode::Forbidden) => {}
+            other => panic!(
+                "expected Forbidden for unminted id, got: {:?}",
+                other
+            ),
+        }
     }
 
     #[test]
@@ -1516,6 +1627,7 @@ mod m1_ext_issues_smoke {
             Arc::new(StderrLogSink),
             Arc::new(DefaultAuthz),
             Arc::new(NoopDispatcher),
+            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             Arc::new(RwLock::new(std::collections::BTreeMap::new())),
         )
     }
