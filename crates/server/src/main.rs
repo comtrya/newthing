@@ -468,11 +468,7 @@ impl Runtime {
 
     /// Canonical direction for symmetric verbs: lex-smaller URI as `from`.
     /// Asymmetric verbs pass through unchanged.
-    fn canonicalize_relation_endpoints(
-        from: &str,
-        to: &str,
-        verb_uri: &str,
-    ) -> (String, String) {
+    fn canonicalize_relation_endpoints(from: &str, to: &str, verb_uri: &str) -> (String, String) {
         if Self::verb_is_symmetric(verb_uri) && from > to {
             (to.to_string(), from.to_string())
         } else {
@@ -526,7 +522,8 @@ impl Runtime {
         let existing = self.extension_storage.collection_data("relations")?;
         if let Some(array) = existing.as_array() {
             for rel in array {
-                let same_from = rel.get("from").and_then(Value::as_str) == Some(canon_from.as_str());
+                let same_from =
+                    rel.get("from").and_then(Value::as_str) == Some(canon_from.as_str());
                 let same_to = rel.get("to").and_then(Value::as_str) == Some(canon_to.as_str());
                 let same_kind = rel.get("kind").and_then(Value::as_str) == Some(verb_uri);
                 if same_from && same_to && same_kind {
@@ -572,16 +569,17 @@ impl Runtime {
 
     fn delete_relation(&self, id: &str) -> Result<bool, String> {
         let relations = self.extension_storage.collection_data("relations")?;
-        let target = relations
-            .as_array()
-            .and_then(|array| {
-                array
-                    .iter()
-                    .find(|rel| rel.get("id").and_then(Value::as_str) == Some(id))
-                    .cloned()
-            });
-        let Some(target) = target else { return Ok(false); };
-        self.extension_storage.delete_document("core", "relations", id)?;
+        let target = relations.as_array().and_then(|array| {
+            array
+                .iter()
+                .find(|rel| rel.get("id").and_then(Value::as_str) == Some(id))
+                .cloned()
+        });
+        let Some(target) = target else {
+            return Ok(false);
+        };
+        self.extension_storage
+            .delete_document("core", "relations", id)?;
         let _ = self.append_event(
             "dev.comtrya.relation.deleted",
             json!({
@@ -597,7 +595,11 @@ impl Runtime {
     /// Relations whose `from` endpoint is `ref_uri`. For symmetric verbs,
     /// also includes relations whose `to` endpoint is `ref_uri` (since
     /// canonical-direction storage may have swapped them).
-    fn relations_outgoing(&self, ref_uri: &str, kind_filter: Option<&str>) -> Result<Vec<Value>, String> {
+    fn relations_outgoing(
+        &self,
+        ref_uri: &str,
+        kind_filter: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
         let relations = self.extension_storage.collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
@@ -619,7 +621,11 @@ impl Runtime {
         Ok(out)
     }
 
-    fn relations_incoming(&self, ref_uri: &str, kind_filter: Option<&str>) -> Result<Vec<Value>, String> {
+    fn relations_incoming(
+        &self,
+        ref_uri: &str,
+        kind_filter: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
         let relations = self.extension_storage.collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
@@ -795,13 +801,13 @@ impl Runtime {
             .update_document_atomically("pull_requests", id, move |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("state".to_string(), Value::String("MERGED".to_string()));
-                    obj.insert("mergedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert(
+                        "mergedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                     if let Some(merged_by) = &merged_by_owned {
-                        obj.insert(
-                            "mergedByRef".to_string(),
-                            Value::String(merged_by.clone()),
-                        );
+                        obj.insert("mergedByRef".to_string(), Value::String(merged_by.clone()));
                     }
                 }
             })?;
@@ -844,13 +850,13 @@ impl Runtime {
             .update_document_atomically("pull_requests", id, move |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
-                    obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert(
+                        "closedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                     if let Some(closed_by) = &closed_by_owned {
-                        obj.insert(
-                            "closedByRef".to_string(),
-                            Value::String(closed_by.clone()),
-                        );
+                        obj.insert("closedByRef".to_string(), Value::String(closed_by.clone()));
                     }
                 }
             })?;
@@ -950,7 +956,10 @@ impl Runtime {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("state".to_string(), Value::String(target_owned.clone()));
                     if target_owned == "DONE" || target_owned == "CANCELED" {
-                        obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                        obj.insert(
+                            "closedAt".to_string(),
+                            Value::String(now_for_closure.clone()),
+                        );
                     } else {
                         obj.insert("closedAt".to_string(), Value::Null);
                     }
@@ -1009,8 +1018,8 @@ impl Runtime {
             .unwrap_or_default();
         let mut out = Vec::with_capacity(refs.len());
         for r in refs {
-            let parsed = ResourceRef::parse(r)
-                .map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
+            let parsed =
+                ResourceRef::parse(r).map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
             let id = parsed
                 .id
                 .as_ref()
@@ -1043,7 +1052,10 @@ impl Runtime {
     fn epic_progress(&self, epic_ref: &str) -> Result<Value, String> {
         let issue_uris = self.epic_member_uris(epic_ref, "issue")?;
         let issue_states = self.issue_state_counts_for_refs(&issue_uris)?;
-        let issues_open = issue_states.get("open").and_then(Value::as_u64).unwrap_or(0);
+        let issues_open = issue_states
+            .get("open")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         let issues_closed = issue_states
             .get("closed")
             .and_then(Value::as_u64)
@@ -1083,9 +1095,7 @@ impl Runtime {
             .as_array()
             .map(|arr| {
                 arr.iter()
-                    .filter(|i| {
-                        i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
-                    })
+                    .filter(|i| i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id))
                     .filter_map(|i| i.get("number").and_then(Value::as_u64))
                     .max()
                     .unwrap_or(0)
@@ -1114,9 +1124,7 @@ impl Runtime {
             return Err(format!("issue title must be at most {MAX_TITLE_LEN} bytes"));
         }
         if body_markdown.len() > MAX_BODY_LEN {
-            return Err(format!(
-                "issue body must be at most {MAX_BODY_LEN} bytes"
-            ));
+            return Err(format!("issue body must be at most {MAX_BODY_LEN} bytes"));
         }
         if workspace_id.is_empty() {
             return Err("issue requires a workspaceId".to_string());
@@ -1173,7 +1181,12 @@ impl Runtime {
         Ok(data)
     }
 
-    fn close_issue(&self, id: &str, reason: Option<&str>, closed_by: Option<&str>) -> Result<Value, String> {
+    fn close_issue(
+        &self,
+        id: &str,
+        reason: Option<&str>,
+        closed_by: Option<&str>,
+    ) -> Result<Value, String> {
         let now_iso = chrono_now_iso();
         let reason_owned = reason.map(|s| s.to_string());
         let closed_by_owned = closed_by.map(|s| s.to_string());
@@ -1189,7 +1202,10 @@ impl Runtime {
                             .map(|r| Value::String(r.clone()))
                             .unwrap_or(Value::Null),
                     );
-                    obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert(
+                        "closedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                     obj.insert(
                         "closedByRef".to_string(),
@@ -1200,7 +1216,9 @@ impl Runtime {
                     );
                 }
             })?;
-        let updated = self.issue_by_id(id)?.ok_or_else(|| format!("issue {id:?} not found after close"))?;
+        let updated = self
+            .issue_by_id(id)?
+            .ok_or_else(|| format!("issue {id:?} not found after close"))?;
         let _ = self.append_event(
             "dev.comtrya.issue.closed",
             json!({
@@ -1225,23 +1243,20 @@ impl Runtime {
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                 }
             })?;
-        let updated = self.issue_by_id(id)?.ok_or_else(|| format!("issue {id:?} not found after reopen"))?;
-        let _ = self.append_event(
-            "dev.comtrya.issue.reopened",
-            json!({ "issueID": id }),
-        );
+        let updated = self
+            .issue_by_id(id)?
+            .ok_or_else(|| format!("issue {id:?} not found after reopen"))?;
+        let _ = self.append_event("dev.comtrya.issue.reopened", json!({ "issueID": id }));
         Ok(updated)
     }
 
     fn issue_by_id(&self, id: &str) -> Result<Option<Value>, String> {
         let issues = self.extension_storage.collection_data("issues")?;
-        Ok(issues
-            .as_array()
-            .and_then(|arr| {
-                arr.iter()
-                    .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
-                    .cloned()
-            }))
+        Ok(issues.as_array().and_then(|arr| {
+            arr.iter()
+                .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
+                .cloned()
+        }))
     }
 
     fn issues_list(
@@ -1301,8 +1316,8 @@ impl Runtime {
             .unwrap_or_default();
         let mut out = Vec::with_capacity(refs.len());
         for r in refs {
-            let parsed = ResourceRef::parse(r)
-                .map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
+            let parsed =
+                ResourceRef::parse(r).map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
             let id = parsed
                 .id
                 .as_ref()
@@ -1330,16 +1345,14 @@ impl Runtime {
 
     fn issue_by_number(&self, workspace_id: &str, number: u64) -> Result<Option<Value>, String> {
         let issues = self.extension_storage.collection_data("issues")?;
-        Ok(issues
-            .as_array()
-            .and_then(|arr| {
-                arr.iter()
-                    .find(|i| {
-                        i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
-                            && i.get("number").and_then(Value::as_u64) == Some(number)
-                    })
-                    .cloned()
-            }))
+        Ok(issues.as_array().and_then(|arr| {
+            arr.iter()
+                .find(|i| {
+                    i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
+                        && i.get("number").and_then(Value::as_u64) == Some(number)
+                })
+                .cloned()
+        }))
     }
 
     // ── Comments (core-owned, nested-threaded) ─────────────────────────
@@ -1388,8 +1401,8 @@ impl Runtime {
                         .find(|c| c.get("id").and_then(Value::as_str) == Some(parent_id))
                         .cloned()
                 });
-            let parent_doc = parent_doc
-                .ok_or_else(|| format!("parent comment {parent_id:?} not found"))?;
+            let parent_doc =
+                parent_doc.ok_or_else(|| format!("parent comment {parent_id:?} not found"))?;
             let parent_target = parent_doc
                 .get("target")
                 .and_then(Value::as_str)
@@ -1457,7 +1470,10 @@ impl Runtime {
             .update_document_atomically("comments", id, move |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("bodyMarkdown".to_string(), Value::String(body_owned));
-                    obj.insert("editedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert(
+                        "editedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                 }
             })?;
@@ -1490,11 +1506,9 @@ impl Runtime {
         if !exists {
             return Ok(false);
         }
-        self.extension_storage.delete_document("core", "comments", id)?;
-        let _ = self.append_event(
-            "dev.comtrya.comment.deleted",
-            json!({ "commentID": id }),
-        );
+        self.extension_storage
+            .delete_document("core", "comments", id)?;
+        let _ = self.append_event("dev.comtrya.comment.deleted", json!({ "commentID": id }));
         Ok(true)
     }
 
@@ -1526,12 +1540,11 @@ impl Runtime {
         let (segments, canonical) = validate_repo_path(path)?;
         let existing = self.extension_storage.collection_data("repositories")?;
         if let Some(array) = existing.as_array() {
-            if array.iter().any(|repo| {
-                repo.get("path").and_then(Value::as_str) == Some(canonical.as_str())
-            }) {
-                return Err(format!(
-                    "repository at path {canonical:?} already exists"
-                ));
+            if array
+                .iter()
+                .any(|repo| repo.get("path").and_then(Value::as_str) == Some(canonical.as_str()))
+            {
+                return Err(format!("repository at path {canonical:?} already exists"));
             }
         }
         if let Some(url) = clone_from_url {
@@ -1542,7 +1555,12 @@ impl Runtime {
         let workspace_id = self
             .extension_storage
             .single_document_data("workspaces")?
-            .and_then(|workspace| workspace.get("id").and_then(Value::as_str).map(str::to_owned))
+            .and_then(|workspace| {
+                workspace
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
             .unwrap_or_else(|| "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string());
         let name = segments
             .last()
@@ -2042,7 +2060,9 @@ impl Runtime {
                 let closed_by = variables.get("closedByRef").and_then(Value::as_str);
                 self.close_issue(id, reason, closed_by).map(|_| ())
             }
-            other => Err(format!("kernel has no in-process router for mutation {other:?}")),
+            other => Err(format!(
+                "kernel has no in-process router for mutation {other:?}"
+            )),
         }
     }
 
@@ -2111,9 +2131,7 @@ fn inject_route_prefix(
                         .and_then(|c| c.route_prefix.clone())
                         .or_else(|| runtime.get(id).and_then(|r| r.route_prefix.clone()))
                 });
-                let value = route_prefix
-                    .map(|p| json!(p))
-                    .unwrap_or(json!(null));
+                let value = route_prefix.map(|p| json!(p)).unwrap_or(json!(null));
                 if let Some(obj) = ext.as_object_mut() {
                     obj.insert("routePrefix".to_string(), value);
                 }
@@ -2367,13 +2385,33 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
 }
 
 fn pulls_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ws = payload.pointer("/variables/input/workspaceId").and_then(Value::as_str).unwrap_or("");
-    let title = payload.pointer("/variables/input/title").and_then(Value::as_str).unwrap_or("");
-    let body = payload.pointer("/variables/input/bodyMarkdown").and_then(Value::as_str).unwrap_or("");
-    let base = payload.pointer("/variables/input/base").and_then(Value::as_str).unwrap_or("main");
-    let head = payload.pointer("/variables/input/head").and_then(Value::as_str).unwrap_or("");
-    let repository_id = payload.pointer("/variables/input/repositoryId").and_then(Value::as_str);
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ws = payload
+        .pointer("/variables/input/workspaceId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title = payload
+        .pointer("/variables/input/title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let body = payload
+        .pointer("/variables/input/bodyMarkdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let base = payload
+        .pointer("/variables/input/base")
+        .and_then(Value::as_str)
+        .unwrap_or("main");
+    let head = payload
+        .pointer("/variables/input/head")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let repository_id = payload
+        .pointer("/variables/input/repositoryId")
+        .and_then(Value::as_str);
     let author_ref = payload
         .pointer("/variables/input/authorRef")
         .and_then(Value::as_str)
@@ -2405,8 +2443,14 @@ fn pulls_create_mutation(state: AppState, headers: HeaderMap, payload: Value) ->
 }
 
 fn pulls_merge_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2415,7 +2459,9 @@ fn pulls_merge_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
             cors,
         );
     }
-    let merged_by = payload.pointer("/variables/input/mergedByRef").and_then(Value::as_str);
+    let merged_by = payload
+        .pointer("/variables/input/mergedByRef")
+        .and_then(Value::as_str);
     match state.runtime.merge_pull_request(id, merged_by) {
         Ok(pr) => json_response(
             StatusCode::OK,
@@ -2436,8 +2482,14 @@ fn pulls_merge_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
 }
 
 fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2446,7 +2498,9 @@ fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
             cors,
         );
     }
-    let closed_by = payload.pointer("/variables/input/closedByRef").and_then(Value::as_str);
+    let closed_by = payload
+        .pointer("/variables/input/closedByRef")
+        .and_then(Value::as_str);
     match state.runtime.close_pull_request(id, closed_by) {
         Ok(pr) => json_response(
             StatusCode::OK,
@@ -2490,10 +2544,7 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
     }
     // Optional operation kind keyword.
     for kind in ["mutation", "query", "subscription"] {
-        if query
-            .trim_start()
-            .starts_with(kind)
-        {
+        if query.trim_start().starts_with(kind) {
             // Advance the iterator past the keyword.
             for _ in 0..kind.len() {
                 chars.next();
@@ -2564,11 +2615,7 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
             ident = aliased_ident;
         }
     }
-    if ident.is_empty() {
-        None
-    } else {
-        Some(ident)
-    }
+    if ident.is_empty() { None } else { Some(ident) }
 }
 
 /// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
@@ -2609,18 +2656,41 @@ fn matches_op(query: &str, op: &str) -> bool {
 
 // ── epics GraphQL dispatch ─────────────────────────────────────────────────
 fn epics_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ws = payload.pointer("/variables/input/workspaceId").and_then(Value::as_str).unwrap_or("");
-    let title = payload.pointer("/variables/input/title").and_then(Value::as_str).unwrap_or("");
-    let body = payload.pointer("/variables/input/bodyMarkdown").and_then(Value::as_str).unwrap_or("");
-    let owner = payload.pointer("/variables/input/ownerRef").and_then(Value::as_str);
-    let target_date = payload.pointer("/variables/input/targetDate").and_then(Value::as_str);
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ws = payload
+        .pointer("/variables/input/workspaceId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title = payload
+        .pointer("/variables/input/title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let body = payload
+        .pointer("/variables/input/bodyMarkdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let owner = payload
+        .pointer("/variables/input/ownerRef")
+        .and_then(Value::as_str);
+    let target_date = payload
+        .pointer("/variables/input/targetDate")
+        .and_then(Value::as_str);
     let labels: Vec<String> = payload
         .pointer("/variables/input/labels")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
-    let parent_ref = payload.pointer("/variables/input/parentEpicRef").and_then(Value::as_str);
+    let parent_ref = payload
+        .pointer("/variables/input/parentEpicRef")
+        .and_then(Value::as_str);
     if ws.is_empty() || title.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2629,7 +2699,10 @@ fn epics_create_mutation(state: AppState, headers: HeaderMap, payload: Value) ->
             cors,
         );
     }
-    match state.runtime.create_epic(ws, title, body, owner, target_date, &labels, parent_ref) {
+    match state
+        .runtime
+        .create_epic(ws, title, body, owner, target_date, &labels, parent_ref)
+    {
         Ok(epic) => json_response(
             StatusCode::OK,
             json!({ "data": { "epics": { "create": epic } } }),
@@ -2645,9 +2718,18 @@ fn epics_create_mutation(state: AppState, headers: HeaderMap, payload: Value) ->
 }
 
 fn epics_change_state_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
-    let target = payload.pointer("/variables/input/state").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let target = payload
+        .pointer("/variables/input/state")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if id.is_empty() || target.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2672,8 +2754,14 @@ fn epics_change_state_mutation(state: AppState, headers: HeaderMap, payload: Val
 }
 
 fn epics_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ws = payload.pointer("/variables/workspaceId").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ws = payload
+        .pointer("/variables/workspaceId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
     if ws.is_empty() {
         return graphql_error_response(
@@ -2699,8 +2787,14 @@ fn epics_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Resp
 }
 
 fn epics_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ref_uri = payload
+        .pointer("/variables/ref")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ref_uri.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2744,11 +2838,19 @@ fn epics_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Re
 }
 
 fn epics_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     let refs: Vec<String> = payload
         .pointer("/variables/refs")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     match state.runtime.epics_by_refs(&refs) {
         Ok(epics) => json_response(
@@ -2766,8 +2868,14 @@ fn epics_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> R
 }
 
 fn epics_progress_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ref_uri = payload
+        .pointer("/variables/ref")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ref_uri.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2792,8 +2900,14 @@ fn epics_progress_query(state: AppState, headers: HeaderMap, payload: Value) -> 
 }
 
 fn epics_issues_in_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ref_uri = payload
+        .pointer("/variables/ref")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ref_uri.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2818,8 +2932,14 @@ fn epics_issues_in_query(state: AppState, headers: HeaderMap, payload: Value) ->
 }
 
 fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ref_uri = payload
+        .pointer("/variables/ref")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ref_uri.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2845,7 +2965,10 @@ fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) 
 
 // ── issues GraphQL dispatch ────────────────────────────────────────────────
 fn issues_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     issues_create_response(state, payload, cors)
 }
 
@@ -2872,7 +2995,12 @@ fn issues_create_response(state: AppState, payload: Value, cors: HeaderMap) -> R
     let labels: Vec<String> = payload
         .pointer("/variables/input/labels")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     let epic_ref = payload
         .pointer("/variables/input/epicRef")
@@ -2886,10 +3014,15 @@ fn issues_create_response(state: AppState, payload: Value, cors: HeaderMap) -> R
             cors,
         );
     }
-    match state
-        .runtime
-        .create_issue(workspace_id, repository_id, title, body, author_ref, &labels, epic_ref)
-    {
+    match state.runtime.create_issue(
+        workspace_id,
+        repository_id,
+        title,
+        body,
+        author_ref,
+        &labels,
+        epic_ref,
+    ) {
         Ok(issue) => json_response(
             StatusCode::OK,
             json!({ "data": { "issues": { "create": issue } } }),
@@ -2905,12 +3038,18 @@ fn issues_create_response(state: AppState, payload: Value, cors: HeaderMap) -> R
 }
 
 fn issues_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     issues_close_response(state, payload, cors)
 }
 
 fn issues_close_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2919,7 +3058,9 @@ fn issues_close_response(state: AppState, payload: Value, cors: HeaderMap) -> Re
             cors,
         );
     }
-    let reason = payload.pointer("/variables/input/reason").and_then(Value::as_str);
+    let reason = payload
+        .pointer("/variables/input/reason")
+        .and_then(Value::as_str);
     let closed_by = payload
         .pointer("/variables/input/closedByRef")
         .and_then(Value::as_str);
@@ -2929,22 +3070,23 @@ fn issues_close_response(state: AppState, payload: Value, cors: HeaderMap) -> Re
             json!({ "data": { "issues": { "close": issue } } }),
             cors,
         ),
-        Err(message) => graphql_error_response(
-            StatusCode::NOT_FOUND,
-            "NOT_FOUND",
-            &message,
-            cors,
-        ),
+        Err(message) => graphql_error_response(StatusCode::NOT_FOUND, "NOT_FOUND", &message, cors),
     }
 }
 
 fn issues_reopen_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     issues_reopen_response(state, payload, cors)
 }
 
 fn issues_reopen_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if id.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -2959,23 +3101,25 @@ fn issues_reopen_response(state: AppState, payload: Value, cors: HeaderMap) -> R
             json!({ "data": { "issues": { "reopen": issue } } }),
             cors,
         ),
-        Err(message) => graphql_error_response(
-            StatusCode::NOT_FOUND,
-            "NOT_FOUND",
-            &message,
-            cors,
-        ),
+        Err(message) => graphql_error_response(StatusCode::NOT_FOUND, "NOT_FOUND", &message, cors),
     }
 }
 
 fn issues_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     issues_list_response(state, payload, cors)
 }
 
 fn issues_list_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let ws = payload.pointer("/variables/workspaceId").and_then(Value::as_str);
-    let repo = payload.pointer("/variables/repositoryId").and_then(Value::as_str);
+    let ws = payload
+        .pointer("/variables/workspaceId")
+        .and_then(Value::as_str);
+    let repo = payload
+        .pointer("/variables/repositoryId")
+        .and_then(Value::as_str);
     let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
     match state.runtime.issues_list(ws, repo, state_filter) {
         Ok(issues) => json_response(
@@ -2993,8 +3137,14 @@ fn issues_list_response(state: AppState, payload: Value, cors: HeaderMap) -> Res
 }
 
 fn issues_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
-    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let ref_uri = payload
+        .pointer("/variables/ref")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if ref_uri.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -3038,11 +3188,19 @@ fn issues_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> R
 }
 
 fn issues_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     let refs: Vec<String> = payload
         .pointer("/variables/refs")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     match state.runtime.issues_by_refs(&refs) {
         Ok(issues) => json_response(
@@ -3060,7 +3218,10 @@ fn issues_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> 
 }
 
 fn issues_by_number_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     let ws = payload
         .pointer("/variables/workspaceId")
         .and_then(Value::as_str)
@@ -3090,11 +3251,19 @@ fn issues_by_number_query(state: AppState, headers: HeaderMap, payload: Value) -
 }
 
 fn issues_state_counts_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
     let refs: Vec<String> = payload
         .pointer("/variables/refs")
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(|s| s.to_string())
+                .collect()
+        })
         .unwrap_or_default();
     match state.runtime.issue_state_counts_for_refs(&refs) {
         Ok(counts) => json_response(
@@ -3171,7 +3340,10 @@ fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value)
             cors,
         );
     }
-    match state.runtime.create_comment(target, parent, body, author_ref) {
+    match state
+        .runtime
+        .create_comment(target, parent, body, author_ref)
+    {
         Ok(comment) => json_response(
             StatusCode::OK,
             json!({ "data": { "comments": { "create": comment } } }),
@@ -3269,7 +3441,10 @@ pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> Result<Hea
     let cors = cors_or_response(state, headers)?;
     state
         .runtime
-        .rate_limit("graphql", state.runtime.config.rate_limits.graphql_per_principal)
+        .rate_limit(
+            "graphql",
+            state.runtime.config.rate_limits.graphql_per_principal,
+        )
         .map_err(|response| response)?;
     Ok(cors)
 }
@@ -3480,7 +3655,10 @@ fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Valu
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    match state.runtime.create_repository_document(path, clone_from_url) {
+    match state
+        .runtime
+        .create_repository_document(path, clone_from_url)
+    {
         Ok(repository) => json_response(
             StatusCode::OK,
             json!({
@@ -3563,7 +3741,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     let capabilities = InstanceCapabilities::v1();
 
     // Resolve workspace.repositoryByPath from query variables if provided.
-    let repositories_value = demo.get("repositories").cloned().unwrap_or_else(|| json!([]));
+    let repositories_value = demo
+        .get("repositories")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let path_segments: Vec<String> = payload
         .get("variables")
         .and_then(|v| v.get("segments"))
@@ -3576,12 +3757,15 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         })
         .unwrap_or_default();
     let mut repository_by_path =
-        resolve_repository_by_path(&repositories_value, &path_segments)
-            .unwrap_or(json!(null));
+        resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
     // so the code-browser widget can render any repo, not just the demo one.
     if let Some(repo_obj) = repository_by_path.as_object_mut() {
-        if let Some(canonical) = repo_obj.get("path").and_then(Value::as_str).map(str::to_owned) {
+        if let Some(canonical) = repo_obj
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+        {
             let (groups, _name) = split_repo_path(&canonical);
             repo_obj.insert("groups".to_string(), json!(groups));
             let git_dir = state
@@ -3601,7 +3785,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     }
 
     // Enrich repositories with groups[], openPullRequests, checkSummary, lastCommitAt.
-    let pull_requests_for_summary = demo.get("pullRequests").cloned().unwrap_or_else(|| json!([]));
+    let pull_requests_for_summary = demo
+        .get("pullRequests")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let checks_for_summary = demo.get("checks").cloned().unwrap_or_else(|| json!([]));
     let enriched_repositories: Value = Value::Array(
         repositories_value
@@ -3609,17 +3796,16 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .map(Vec::as_slice)
             .unwrap_or(&[])
             .iter()
-            .map(|repo| build_repository_summary(repo, &pull_requests_for_summary, &checks_for_summary))
+            .map(|repo| {
+                build_repository_summary(repo, &pull_requests_for_summary, &checks_for_summary)
+            })
             .collect(),
     );
 
     // Build the workspace object enriched with the repositoryByPath resolver result,
     // the enriched repositories list, and workspace.events filtered to viewer-accessible repos.
     let workspace = {
-        let mut ws = demo
-            .get("workspace")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
+        let mut ws = demo.get("workspace").cloned().unwrap_or_else(|| json!({}));
         if let Some(obj) = ws.as_object_mut() {
             obj.insert("repositoryByPath".to_string(), repository_by_path);
             obj.insert("repositories".to_string(), enriched_repositories);
@@ -3636,7 +3822,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             let activity_events = demo.get("activity").cloned().unwrap_or_else(|| json!([]));
             let filtered_events = filter_events_for_viewer(&activity_events, &all_repo_ids);
             // workspace.events: scoped, filtered activity feed (scope fixed to WORKSPACE in v1).
-            obj.insert("events".to_string(), serde_json::Value::Array(filtered_events));
+            obj.insert(
+                "events".to_string(),
+                serde_json::Value::Array(filtered_events),
+            );
         }
         ws
     };
@@ -4210,12 +4399,16 @@ pub fn resolve_repository_by_path(repositories: &Value, segments: &[String]) -> 
         return None;
     }
     let path = segments.join("/");
-    repositories.as_array()?.iter().find(|repo| {
-        repo.get("path")
-            .and_then(Value::as_str)
-            .map(|p| p == path)
-            .unwrap_or(false)
-    }).cloned()
+    repositories
+        .as_array()?
+        .iter()
+        .find(|repo| {
+            repo.get("path")
+                .and_then(Value::as_str)
+                .map(|p| p == path)
+                .unwrap_or(false)
+        })
+        .cloned()
 }
 
 /// Split a repository `path` (slash-joined segments) into `(groups, name)`.
@@ -4303,10 +4496,7 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         .count();
 
     // lastCommitAt: prefer field already on the document; fall back to null.
-    let last_commit_at = repo
-        .get("lastCommitAt")
-        .cloned()
-        .unwrap_or(Value::Null);
+    let last_commit_at = repo.get("lastCommitAt").cloned().unwrap_or(Value::Null);
 
     // Start from the existing document fields, then overlay new ones.
     let mut summary = repo.clone();
@@ -4348,9 +4538,7 @@ pub fn build_review_queue(viewer: &Value, pulls: &Value, limit: usize) -> Value 
             }
             // If a `reviewers` array is present, filter to viewer's entries only.
             match pr.get("reviewers").and_then(Value::as_array) {
-                Some(reviewers) => reviewers
-                    .iter()
-                    .any(|r| r.as_str() == Some(viewer_id)),
+                Some(reviewers) => reviewers.iter().any(|r| r.as_str() == Some(viewer_id)),
                 // No reviewers field: include all REVIEW/READY PRs.
                 None => true,
             }
@@ -4417,14 +4605,20 @@ pub fn build_failing_checks(viewer: &Value, checks: &Value, limit: usize) -> Val
 /// `scope: WORKSPACE | REPOSITORY` enum described in the plan is not yet wired.
 /// TODO: parse scope argument when the federated planner lands; for now scope is
 /// fixed to WORKSPACE (all viewer-accessible repos in the workspace).
-pub fn filter_events_for_viewer(events: &serde_json::Value, visible_repo_ids: &[String]) -> Vec<serde_json::Value> {
+pub fn filter_events_for_viewer(
+    events: &serde_json::Value,
+    visible_repo_ids: &[String],
+) -> Vec<serde_json::Value> {
     events
         .as_array()
         .cloned()
         .unwrap_or_default()
         .into_iter()
         .filter(|ev| {
-            let repo = ev.get("repositoryID").and_then(|v| v.as_str()).unwrap_or("");
+            let repo = ev
+                .get("repositoryID")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             !repo.is_empty() && visible_repo_ids.iter().any(|id| id == repo)
         })
         .collect()
@@ -4448,11 +4642,26 @@ struct CoreVerb {
 }
 
 const CORE_VERBS: &[CoreVerb] = &[
-    CoreVerb { uri: "comtrya://rel/part-of",    symmetric: false },
-    CoreVerb { uri: "comtrya://rel/blocks",     symmetric: false },
-    CoreVerb { uri: "comtrya://rel/relates-to", symmetric: true  },
-    CoreVerb { uri: "comtrya://rel/duplicates", symmetric: false },
-    CoreVerb { uri: "comtrya://rel/mentions",   symmetric: false },
+    CoreVerb {
+        uri: "comtrya://rel/part-of",
+        symmetric: false,
+    },
+    CoreVerb {
+        uri: "comtrya://rel/blocks",
+        symmetric: false,
+    },
+    CoreVerb {
+        uri: "comtrya://rel/relates-to",
+        symmetric: true,
+    },
+    CoreVerb {
+        uri: "comtrya://rel/duplicates",
+        symmetric: false,
+    },
+    CoreVerb {
+        uri: "comtrya://rel/mentions",
+        symmetric: false,
+    },
 ];
 
 // ── Reactor surface ───────────────────────────────────────────────────────
@@ -4469,14 +4678,8 @@ pub struct EventEnvelope {
 }
 
 pub enum Reaction {
-    InvokeMutation {
-        name: String,
-        variables: Value,
-    },
-    EmitEvent {
-        event_type: String,
-        payload: Value,
-    },
+    InvokeMutation { name: String, variables: Value },
+    EmitEvent { event_type: String, payload: Value },
 }
 
 struct Reactor {
@@ -4575,7 +4778,10 @@ struct GitDemoSnapshot {
     diff: Value,
 }
 
-fn init_bare_repository_on_disk(project_root: &Path, canonical_path: &str) -> Result<PathBuf, String> {
+fn init_bare_repository_on_disk(
+    project_root: &Path,
+    canonical_path: &str,
+) -> Result<PathBuf, String> {
     let git_dir = project_root.join(format!("{canonical_path}.git"));
     if git_dir.exists() {
         return Err(format!("{} already exists on disk", git_dir.display()));
@@ -5266,7 +5472,9 @@ fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
 /// `repositoryByPath` resolver so the code-browser widget can render any repo.
 fn repo_git_data(git_dir: &Path) -> Value {
     let default_branch = read_default_branch(git_dir).unwrap_or_else(|| "main".to_string());
-    let head_oid = git_text(git_dir, &["rev-parse", "HEAD"]).ok().map(|s| s.trim().to_string());
+    let head_oid = git_text(git_dir, &["rev-parse", "HEAD"])
+        .ok()
+        .map(|s| s.trim().to_string());
     let refs = git_refs(git_dir).unwrap_or_default();
     let branches = git_branches(git_dir).unwrap_or_default();
     let commits = git_text(
@@ -5296,8 +5504,8 @@ fn repo_git_data(git_dir: &Path) -> Value {
         }))
     })
     .collect::<Vec<_>>();
-    let (tree_entries, files, blobs) =
-        git_tree_at_ref(git_dir, &default_branch).unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
+    let (tree_entries, files, blobs) = git_tree_at_ref(git_dir, &default_branch)
+        .unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
     json!({
         "defaultBranch": default_branch,
         "headOid": head_oid,
@@ -6136,8 +6344,8 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
     if schema_version == "comtrya.ui-extension/v1" {
         return Err("v1 manifest is deprecated; migrate to comtrya.ui-extension/v2".into());
     }
-    let m: UiManifestV2 = serde_json::from_value(value.clone())
-        .map_err(|e| format!("manifest shape: {e}"))?;
+    let m: UiManifestV2 =
+        serde_json::from_value(value.clone()).map_err(|e| format!("manifest shape: {e}"))?;
     if m.schema_version != UI_MANIFEST_SCHEMA_V2 {
         return Err(format!(
             "unsupported manifest schemaVersion: {}",
@@ -6166,9 +6374,7 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
 
 // ---------------------------------------------------------------------------
 
-pub fn validate_route_prefix_uniqueness(
-    configs: &[ExtensionInstallConfig],
-) -> Result<(), String> {
+pub fn validate_route_prefix_uniqueness(configs: &[ExtensionInstallConfig]) -> Result<(), String> {
     let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
     for cfg in configs {
         if let Some(prefix) = &cfg.route_prefix {
@@ -6189,9 +6395,7 @@ struct ExtensionPackageRoot {
     root: PathBuf,
 }
 
-fn load_extension_runtime(
-    extension_dir: &Path,
-) -> Result<ExtensionRuntimeOutput, String> {
+fn load_extension_runtime(extension_dir: &Path) -> Result<ExtensionRuntimeOutput, String> {
     let packages = FIRST_PARTY_EXTENSIONS
         .iter()
         .map(|id| ExtensionPackageRoot {
@@ -6326,80 +6530,70 @@ fn load_extension_packages(
             .map(str::to_owned);
         let platform_wasm = root.join(format!("dist/{}.wasm", id));
 
-        let (component_name, resolver, status) =
-            if platform_wit_version.is_some() {
-                if crate::generated_dispatch::invoker_for_extension(id).is_none() {
-                    return Err(format!(
-                        "{} declares platformWitVersion, but this server binary has no generated typed WASM invoker for extension {}. M2 supports platform-WIT startup only for extensions discovered under extensions/first-party at server build time.",
-                        manifest_path.display(),
-                        id
-                    ));
-                }
-                if !platform_wasm.is_file() {
-                    return Err(format!(
-                        "{} declares platformWitVersion but {} is missing",
-                        manifest_path.display(),
-                        platform_wasm.display()
-                    ));
-                }
-                // Platform-WIT extension: load into the registry. Skip
-                // the legacy `resolve()` call — platform extensions
-                // don't export it.
-                registry.register_from_manifest(&root)?;
-                (
-                    format!("dist/{}.wasm", id),
-                    String::from("platform-wit-extension"),
-                    String::from("platform-loaded"),
-                )
-            } else {
-                // Legacy resolver path. Reads manifest.wasmComponent
-                // (usually `component.wat` stub) and calls its
-                // `resolve()` export. Dies in M11.
-                let component_name = manifest
-                    .get("wasmComponent")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        format!("{} missing wasmComponent", manifest_path.display())
-                    })?;
-                let resolver = manifest
-                    .pointer("/runtime/resolver")
-                    .and_then(Value::as_str)
-                    .unwrap_or("resolve");
-                let component_path = root.join(component_name);
-                let component_bytes = fs::read(&component_path)
-                    .map_err(|error| {
-                        format!("failed to read {}: {error}", component_path.display())
-                    })?;
-                let component = Component::new(&engine, component_bytes).map_err(|error| {
+        let (component_name, resolver, status) = if platform_wit_version.is_some() {
+            if crate::generated_dispatch::invoker_for_extension(id).is_none() {
+                return Err(format!(
+                    "{} declares platformWitVersion, but this server binary has no generated typed WASM invoker for extension {}. M2 supports platform-WIT startup only for extensions discovered under extensions/first-party at server build time.",
+                    manifest_path.display(),
+                    id
+                ));
+            }
+            if !platform_wasm.is_file() {
+                return Err(format!(
+                    "{} declares platformWitVersion but {} is missing",
+                    manifest_path.display(),
+                    platform_wasm.display()
+                ));
+            }
+            // Platform-WIT extension: load into the registry. Skip
+            // the legacy `resolve()` call — platform extensions
+            // don't export it.
+            registry.register_from_manifest(&root)?;
+            (
+                format!("dist/{}.wasm", id),
+                String::from("platform-wit-extension"),
+                String::from("platform-loaded"),
+            )
+        } else {
+            // Legacy resolver path. Reads manifest.wasmComponent
+            // (usually `component.wat` stub) and calls its
+            // `resolve()` export. Dies in M11.
+            let component_name = manifest
+                .get("wasmComponent")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
+            let resolver = manifest
+                .pointer("/runtime/resolver")
+                .and_then(Value::as_str)
+                .unwrap_or("resolve");
+            let component_path = root.join(component_name);
+            let component_bytes = fs::read(&component_path)
+                .map_err(|error| format!("failed to read {}: {error}", component_path.display()))?;
+            let component = Component::new(&engine, component_bytes).map_err(|error| {
+                format!("failed to compile {}: {error}", component_path.display())
+            })?;
+            let linker = Linker::<()>::new(&engine);
+            let mut store = Store::new(&engine, ());
+            let instance = linker
+                .instantiate(&mut store, &component)
+                .map_err(|error| {
                     format!(
-                        "failed to compile {}: {error}",
+                        "failed to instantiate {}: {error}",
                         component_path.display()
                     )
                 })?;
-                let linker = Linker::<()>::new(&engine);
-                let mut store = Store::new(&engine, ());
-                let instance = linker
-                    .instantiate(&mut store, &component)
-                    .map_err(|error| {
-                        format!(
-                            "failed to instantiate {}: {error}",
-                            component_path.display()
-                        )
-                    })?;
-                let func = instance
-                    .get_typed_func::<(), (u32,)>(&mut store, resolver)
-                    .map_err(|error| {
-                        format!("{id} did not export resolver {resolver}: {error}")
-                    })?;
-                let _ = func
-                    .call(&mut store, ())
-                    .map_err(|error| format!("{id} resolver failed: {error}"))?;
-                (
-                    component_name.to_string(),
-                    resolver.to_string(),
-                    String::from("executed"),
-                )
-            };
+            let func = instance
+                .get_typed_func::<(), (u32,)>(&mut store, resolver)
+                .map_err(|error| format!("{id} did not export resolver {resolver}: {error}"))?;
+            let _ = func
+                .call(&mut store, ())
+                .map_err(|error| format!("{id} resolver failed: {error}"))?;
+            (
+                component_name.to_string(),
+                resolver.to_string(),
+                String::from("executed"),
+            )
+        };
         if loaded
             .insert(
                 id.to_string(),
@@ -6444,10 +6638,14 @@ impl ExtensionRuntimeOutput {
     pub(crate) fn contains_key(&self, id: &str) -> bool {
         self.records.contains_key(id)
     }
-    pub(crate) fn values(&self) -> std::collections::btree_map::Values<'_, String, WasmtimeResolverRecord> {
+    pub(crate) fn values(
+        &self,
+    ) -> std::collections::btree_map::Values<'_, String, WasmtimeResolverRecord> {
         self.records.values()
     }
-    pub(crate) fn iter(&self) -> std::collections::btree_map::Iter<'_, String, WasmtimeResolverRecord> {
+    pub(crate) fn iter(
+        &self,
+    ) -> std::collections::btree_map::Iter<'_, String, WasmtimeResolverRecord> {
         self.records.iter()
     }
 }
@@ -7203,10 +7401,8 @@ mod tests {
     /// build.rs codegen → main.rs include pipeline works end-to-end.
     #[test]
     fn dispatch_table_routes_ext_issues_close() {
-        let info = crate::generated_dispatch::dispatch_route(
-            "ext_issues.issues.close-issue",
-        )
-        .expect("route should resolve to DispatchInfo");
+        let info = crate::generated_dispatch::dispatch_route("ext_issues.issues.close-issue")
+            .expect("route should resolve to DispatchInfo");
         assert_eq!(info.extension_id, "ext_issues");
         assert_eq!(info.interface_name, "issues");
         assert_eq!(info.op_name, "close-issue");
@@ -7238,6 +7434,26 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_table_legacy_lookup_aliases_resolve_to_issue_wasm_ops() {
+        for (route, expected_op) in [
+            ("issues.byRef", "by-ref-issue"),
+            ("issuesByRef", "by-ref-issue"),
+            ("issues.byRefs", "by-refs-issue"),
+            ("issuesByRefs", "by-refs-issue"),
+            ("issues.byNumber", "by-number-issue"),
+            ("issuesByNumber", "by-number-issue"),
+            ("issues.stateCountsForRefs", "state-counts-for-refs-issue"),
+            ("issuesStateCountsForRefs", "state-counts-for-refs-issue"),
+        ] {
+            let info = crate::generated_dispatch::dispatch_route(route)
+                .unwrap_or_else(|| panic!("{route} should resolve"));
+            assert_eq!(info.extension_id, "ext_issues");
+            assert_eq!(info.op_name, expected_op);
+            assert_eq!(info.kind, "query");
+        }
+    }
+
+    #[test]
     fn identify_wasm_op_uses_aliased_root_field_not_alias_name() {
         let info = identify_wasm_op(
             "mutation { closeIt: issues.close(input: { id: \"iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3\" }) { id } }",
@@ -7250,9 +7466,7 @@ mod tests {
 
     #[test]
     fn dispatch_table_returns_none_for_unknown_routes() {
-        assert!(
-            crate::generated_dispatch::dispatch_route("nope.nope.nope").is_none()
-        );
+        assert!(crate::generated_dispatch::dispatch_route("nope.nope.nope").is_none());
     }
 
     static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -8524,7 +8738,11 @@ extensions: {
         manifest["id"] = json!("ext_local_wit");
         manifest["name"] = json!("local-wit");
         manifest["routePrefix"] = json!("local-wit");
-        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+        fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
 
         let ui_manifest_path = root.join("ui/manifest.json");
         let mut ui =
@@ -8542,8 +8760,7 @@ extensions: {
             enabled: true,
             route_prefix: None,
         }];
-        let error =
-            load_configured_extension_runtime(&extension_dir, true, &configs).unwrap_err();
+        let error = load_configured_extension_runtime(&extension_dir, true, &configs).unwrap_err();
 
         assert!(error.contains("no generated typed WASM invoker"));
         assert!(error.contains("extensions/first-party"));
@@ -8619,7 +8836,10 @@ extensions: {
             .iter()
             .find(|record| record.collection == "issues" && record.id == issue_id)
             .expect("issue persisted by runtime-loaded registry");
-        assert_eq!(issue.data.get("state").and_then(Value::as_str), Some("CLOSED"));
+        assert_eq!(
+            issue.data.get("state").and_then(Value::as_str),
+            Some("CLOSED")
+        );
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
         assert!(event_log.contains("dev.comtrya.issues.opened"));
         assert!(event_log.contains("dev.comtrya.issue.created"));
@@ -8675,9 +8895,7 @@ extensions: {
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .find(|event| {
-                event
-                    .pointer("/data/eventType")
-                    .and_then(Value::as_str)
+                event.pointer("/data/eventType").and_then(Value::as_str)
                     == Some("dev.comtrya.issue.created")
             })
             .and_then(|event| {
@@ -8689,7 +8907,10 @@ extensions: {
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             .expect("legacy issue-created payload is decoded JSON");
         assert_eq!(created_event_payload["issueID"], opened["id"]);
-        assert_eq!(created_event_payload["workspaceId"], "ws_runtime_validation");
+        assert_eq!(
+            created_event_payload["workspaceId"],
+            "ws_runtime_validation"
+        );
         assert_eq!(created_event_payload["number"], 1);
         assert_eq!(created_event_payload["title"], "trimmed title");
 
@@ -8731,9 +8952,11 @@ extensions: {
             empty_workspace_segment.code,
             crate::wasm_host::wit_types::ErrorCode::BadInput
         ));
-        assert!(empty_workspace_segment
-            .message
-            .contains("requires a workspace"));
+        assert!(
+            empty_workspace_segment
+                .message
+                .contains("requires a workspace")
+        );
 
         let missing_workspace = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
@@ -8821,7 +9044,7 @@ extensions: {
         let runtime = dev_runtime();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["graphql:write".to_string()],
+            vec!["graphql:write".to_string(), "graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
         let headers = bearer_headers(&token);
@@ -8842,14 +9065,18 @@ extensions: {
             host_state.extension_principal,
             "comtrya://extension/ext_issues"
         );
-        assert!(host_state
-            .current_principal
-            .starts_with("comtrya://credential/prn_"));
-        assert!(host_state
-            .manifest
-            .host_imports
-            .iter()
-            .any(|import| import == "storage.write"));
+        assert!(
+            host_state
+                .current_principal
+                .starts_with("comtrya://credential/prn_")
+        );
+        assert!(
+            host_state
+                .manifest
+                .host_imports
+                .iter()
+                .any(|import| import == "storage.write")
+        );
 
         assert!(
             crate::wasm_dispatch::dispatch(
@@ -8939,7 +9166,9 @@ extensions: {
         .await;
 
         let create_status = create_response.status();
-        let body = to_bytes(create_response.into_body(), usize::MAX).await.unwrap();
+        let body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(create_status, StatusCode::OK, "{payload}");
         let created = &payload["data"]["issues"]["create"];
@@ -8947,10 +9176,12 @@ extensions: {
         assert_eq!(created["repositoryId"], "repo_wasm_graphql");
         assert_eq!(created["number"], 1);
         assert_eq!(created["state"], "OPEN");
-        assert!(created["authorRef"]
-            .as_str()
-            .unwrap()
-            .starts_with("comtrya://credential/prn_"));
+        assert!(
+            created["authorRef"]
+                .as_str()
+                .unwrap()
+                .starts_with("comtrya://credential/prn_")
+        );
         let issue_id = created["id"].as_str().unwrap().to_string();
         let create_second_response = graphql_post(
             State(state.clone()),
@@ -8983,6 +9214,140 @@ extensions: {
         assert_eq!(by_number["id"], issue_id);
         assert_eq!(by_number["labels"], json!(["wasm"]));
         let issue_ref = format!("comtrya://issue/{issue_id}");
+
+        let by_ref_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($ref: ResourceURN!) { issues.byRef(ref: $ref) { id state labels } }",
+                "variables": { "ref": issue_ref.clone() }
+            })
+            .to_string(),
+        )
+        .await;
+        let by_ref_status = by_ref_response.status();
+        let body = to_bytes(by_ref_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(by_ref_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["byRef"]["id"], issue_id);
+        assert_eq!(payload["data"]["issues"]["byRef"]["state"], "OPEN");
+        assert_eq!(
+            payload["data"]["issues"]["byRef"]["labels"],
+            json!(["wasm"])
+        );
+
+        let by_refs_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($refs: [ResourceURN!]!) { issues.byRefs(refs: $refs) { id title } }",
+                "variables": {
+                    "refs": [
+                        issue_ref.clone(),
+                        "comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B4"
+                    ]
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        let by_refs_status = by_refs_response.status();
+        let body = to_bytes(by_refs_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(by_refs_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["byRefs"][0]["id"], issue_id);
+        assert!(payload["data"]["issues"]["byRefs"][1].is_null());
+
+        let invalid_ref_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($ref: ResourceURN!) { issues.byRef(ref: $ref) { id } }",
+                "variables": { "ref": "comtrya://issue/iss_missing_wasm_lookup" }
+            })
+            .to_string(),
+        )
+        .await;
+        let invalid_ref_status = invalid_ref_response.status();
+        let body = to_bytes(invalid_ref_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(invalid_ref_status, StatusCode::BAD_REQUEST, "{payload}");
+        assert_eq!(payload["errors"][0]["extensions"]["code"], "BAD_USER_INPUT");
+        assert!(
+            payload["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("opaque ID body must be 26 Crockford-base32 characters")
+        );
+
+        let mismatched_ref_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($ref: ResourceURN!) { issues.byRef(ref: $ref) { id } }",
+                "variables": { "ref": "comtrya://user/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3" }
+            })
+            .to_string(),
+        )
+        .await;
+        let mismatched_ref_status = mismatched_ref_response.status();
+        let body = to_bytes(mismatched_ref_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(mismatched_ref_status, StatusCode::BAD_REQUEST, "{payload}");
+        assert_eq!(payload["errors"][0]["extensions"]["code"], "BAD_USER_INPUT");
+        assert!(
+            payload["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("resource kind user does not match ID prefix kind repository")
+        );
+
+        let by_number_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($workspaceId: ID!, $number: Int!) { issues.byNumber(workspaceId: $workspaceId, number: $number) { id number } }",
+                "variables": { "workspaceId": "ws_wasm_graphql", "number": 1 }
+            })
+            .to_string(),
+        )
+        .await;
+        let by_number_status = by_number_response.status();
+        let body = to_bytes(by_number_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(by_number_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["byNumber"]["id"], issue_id);
+        assert_eq!(payload["data"]["issues"]["byNumber"]["number"], 1);
+
+        let counts_response = graphql_post(
+            State(state.clone()),
+            bearer_headers(&token),
+            json!({
+                "query": "query($refs: [ResourceURN!]!) { issues.stateCountsForRefs(refs: $refs) { open closed } }",
+                "variables": { "refs": [issue_ref.clone()] }
+            })
+            .to_string(),
+        )
+        .await;
+        let counts_status = counts_response.status();
+        let body = to_bytes(counts_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(counts_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["stateCountsForRefs"]["open"], 1);
+        assert_eq!(payload["data"]["issues"]["stateCountsForRefs"]["closed"], 0);
+
         let outgoing = runtime
             .relations_outgoing(&issue_ref, Some("comtrya://rel/part-of"))
             .unwrap();
@@ -8993,7 +9358,7 @@ extensions: {
         );
 
         let close_response = graphql_post(
-            State(state),
+            State(state.clone()),
             bearer_headers(&token),
             json!({
                 "query": "mutation($input: CloseIssueInput!) { issues.close(input: $input) { id state stateReason closedAt closedByRef } }",
@@ -9009,7 +9374,9 @@ extensions: {
         .await;
 
         let close_status = close_response.status();
-        let body = to_bytes(close_response.into_body(), usize::MAX).await.unwrap();
+        let body = to_bytes(close_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(close_status, StatusCode::OK, "{payload}");
         let closed = &payload["data"]["issues"]["close"];
@@ -9017,10 +9384,31 @@ extensions: {
         assert_eq!(closed["state"], "CLOSED");
         assert_eq!(closed["stateReason"], "covered by generated WASM dispatch");
         assert!(closed["closedAt"].as_str().is_some());
-        assert!(closed["closedByRef"]
-            .as_str()
-            .unwrap()
-            .starts_with("comtrya://credential/prn_"));
+        assert!(
+            closed["closedByRef"]
+                .as_str()
+                .unwrap()
+                .starts_with("comtrya://credential/prn_")
+        );
+
+        let closed_counts_response = graphql_post(
+            State(state),
+            bearer_headers(&token),
+            json!({
+                "query": "query($refs: [ResourceURN!]!) { issues.stateCountsForRefs(refs: $refs) { open closed } }",
+                "variables": { "refs": [issue_ref.clone()] }
+            })
+            .to_string(),
+        )
+        .await;
+        let closed_counts_status = closed_counts_response.status();
+        let body = to_bytes(closed_counts_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(closed_counts_status, StatusCode::OK, "{payload}");
+        assert_eq!(payload["data"]["issues"]["stateCountsForRefs"]["open"], 0);
+        assert_eq!(payload["data"]["issues"]["stateCountsForRefs"]["closed"], 1);
 
         let records = runtime.extension_storage.load_records().unwrap();
         let stored = records
@@ -9498,7 +9886,10 @@ extensions: {
             "contributes": { "slots": ["repository.overview"], "routes": true }
         });
         let result = validate_ui_manifest_from_value(&v2);
-        assert!(result.is_ok(), "expected v2 manifest to validate: {result:?}");
+        assert!(
+            result.is_ok(),
+            "expected v2 manifest to validate: {result:?}"
+        );
     }
 
     #[test]
@@ -9512,7 +9903,10 @@ extensions: {
             "slots": [{ "slot": "repository.code", "element": "x-el", "requiredPermission": "code.read" }]
         });
         let result = validate_ui_manifest_from_value(&v1);
-        assert!(result.is_err(), "v1 manifest should be rejected; got {result:?}");
+        assert!(
+            result.is_err(),
+            "v1 manifest should be rejected; got {result:?}"
+        );
     }
 
     #[test]
@@ -9534,13 +9928,17 @@ extensions: {
         let configs = vec![
             ExtensionInstallConfig {
                 id: "ext_a".into(),
-                source: ExtensionSource::Local { path: "/tmp/a".into() },
+                source: ExtensionSource::Local {
+                    path: "/tmp/a".into(),
+                },
                 enabled: true,
                 route_prefix: Some("pulls".into()),
             },
             ExtensionInstallConfig {
                 id: "ext_b".into(),
-                source: ExtensionSource::Local { path: "/tmp/b".into() },
+                source: ExtensionSource::Local {
+                    path: "/tmp/b".into(),
+                },
                 enabled: true,
                 route_prefix: Some("pulls".into()),
             },
@@ -9548,7 +9946,10 @@ extensions: {
         let result = validate_route_prefix_uniqueness(&configs);
         assert!(result.is_err());
         let msg = result.unwrap_err();
-        assert!(msg.contains("pulls"), "error should name the duplicated prefix, got: {msg}");
+        assert!(
+            msg.contains("pulls"),
+            "error should name the duplicated prefix, got: {msg}"
+        );
     }
 
     /// Build a minimal repositories JSON array that mirrors the demo seed shape.
@@ -9567,13 +9968,15 @@ extensions: {
     #[test]
     fn repository_by_path_resolves_demo_repo() {
         let repos = demo_repositories();
-        let resolved = resolve_repository_by_path(
-            &repos,
-            &["comtrya".to_string(), "comtrya".to_string()],
-        );
+        let resolved =
+            resolve_repository_by_path(&repos, &["comtrya".to_string(), "comtrya".to_string()]);
         assert!(resolved.is_some(), "expected to find comtrya/comtrya");
         assert_eq!(
-            resolved.as_ref().unwrap().get("name").and_then(Value::as_str),
+            resolved
+                .as_ref()
+                .unwrap()
+                .get("name")
+                .and_then(Value::as_str),
             Some("comtrya")
         );
     }
@@ -9581,10 +9984,7 @@ extensions: {
     #[test]
     fn repository_by_path_returns_none_for_unknown_path() {
         let repos = demo_repositories();
-        let resolved = resolve_repository_by_path(
-            &repos,
-            &["nothing".to_string()],
-        );
+        let resolved = resolve_repository_by_path(&repos, &["nothing".to_string()]);
         assert!(resolved.is_none());
     }
 
@@ -9623,7 +10023,10 @@ extensions: {
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
         let repo = &payload["data"]["workspace"]["repositoryByPath"];
-        assert!(!repo.is_null(), "repositoryByPath should resolve for comtrya/comtrya");
+        assert!(
+            !repo.is_null(),
+            "repositoryByPath should resolve for comtrya/comtrya"
+        );
         assert_eq!(repo["name"], "comtrya");
     }
 
@@ -9684,13 +10087,17 @@ extensions: {
         let configs = vec![
             ExtensionInstallConfig {
                 id: "ext_a".into(),
-                source: ExtensionSource::Local { path: "ext_a".into() },
+                source: ExtensionSource::Local {
+                    path: "ext_a".into(),
+                },
                 enabled: true,
                 route_prefix: Some("pulls".into()),
             },
             ExtensionInstallConfig {
                 id: "ext_b".into(),
-                source: ExtensionSource::Local { path: "ext_b".into() },
+                source: ExtensionSource::Local {
+                    path: "ext_b".into(),
+                },
                 enabled: true,
                 route_prefix: None,
             },
@@ -9885,15 +10292,23 @@ extensions: {
                 repo.get("groups")
             );
             assert!(
-                repo.get("openPullRequests").and_then(|n| n.as_u64()).is_some(),
+                repo.get("openPullRequests")
+                    .and_then(|n| n.as_u64())
+                    .is_some(),
                 "openPullRequests must be a u64"
             );
-            let cs = repo.get("checkSummary").and_then(|c| c.as_object())
+            let cs = repo
+                .get("checkSummary")
+                .and_then(|c| c.as_object())
                 .expect("checkSummary must be an object");
-            assert!(cs.get("passed").and_then(|v| v.as_u64()).is_some(),
-                "checkSummary.passed must be an integer");
-            assert!(cs.get("total").and_then(|v| v.as_u64()).is_some(),
-                "checkSummary.total must be an integer");
+            assert!(
+                cs.get("passed").and_then(|v| v.as_u64()).is_some(),
+                "checkSummary.passed must be an integer"
+            );
+            assert!(
+                cs.get("total").and_then(|v| v.as_u64()).is_some(),
+                "checkSummary.total must be an integer"
+            );
             assert!(
                 repo.get("lastCommitAt").is_some(),
                 "lastCommitAt must be present"
@@ -10072,7 +10487,10 @@ extensions: {
         let result = filter_events_for_viewer(&events, &visible);
         assert_eq!(result.len(), 2);
         for ev in &result {
-            let repo = ev.get("repositoryID").and_then(|v| v.as_str()).unwrap_or("");
+            let repo = ev
+                .get("repositoryID")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             assert!(visible.iter().any(|id| id == repo));
         }
     }
@@ -10116,14 +10534,23 @@ extensions: {
 
         // reviewQueue
         assert_eq!(viewer["reviewQueue"]["aggregated"], json!(true));
-        assert!(viewer["reviewQueue"]["items"].is_array(), "reviewQueue.items must be array");
+        assert!(
+            viewer["reviewQueue"]["items"].is_array(),
+            "reviewQueue.items must be array"
+        );
 
         // authoredPulls
         assert_eq!(viewer["authoredPulls"]["aggregated"], json!(true));
-        assert!(viewer["authoredPulls"]["items"].is_array(), "authoredPulls.items must be array");
+        assert!(
+            viewer["authoredPulls"]["items"].is_array(),
+            "authoredPulls.items must be array"
+        );
 
         // failingChecks
         assert_eq!(viewer["failingChecks"]["aggregated"], json!(true));
-        assert!(viewer["failingChecks"]["items"].is_array(), "failingChecks.items must be array");
+        assert!(
+            viewer["failingChecks"]["items"].is_array(),
+            "failingChecks.items must be array"
+        );
     }
 }

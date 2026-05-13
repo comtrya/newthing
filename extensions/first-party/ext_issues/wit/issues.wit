@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.1;
+package comtrya:ext-issues@0.1.2;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -34,6 +34,11 @@ interface issues {
     reopened,
   }
 
+  record issue-state-counts {
+    open: u64,
+    closed: u64,
+  }
+
   record open-issue-input {
     repository: uri,
     title: string,
@@ -53,6 +58,10 @@ interface issues {
   reopen-issue: func(%id: id) -> result<issue, error>;
   get-issue: func(%id: id) -> result<option<issue>, error>;
   list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
+  by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
+  by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
+  by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;
+  state-counts-for-refs-issue: func(refs: list<uri>) -> result<issue-state-counts, error>;
 }
 
 world ext-issues {

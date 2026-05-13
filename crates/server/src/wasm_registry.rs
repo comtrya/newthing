@@ -17,13 +17,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
-use wasmtime::component::{Component, Linker};
 use wasmtime::Engine;
+use wasmtime::component::{Component, Linker};
 
 use crate::wasm_host::{
-    host_state_for_op, make_platform_linker, wit_types, AuthzLayer, Clock, DefaultAuthz,
-    HostManifest, HostState, IdMinter, LogSink, OpsDispatcher, StderrLogSink, SystemClock,
-    UlidMinter,
+    AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, IdMinter, LogSink, OpsDispatcher,
+    StderrLogSink, SystemClock, UlidMinter, host_state_for_op, make_platform_linker, wit_types,
 };
 
 /// One loaded extension. The `Component` is compiled once at kernel
@@ -328,10 +327,11 @@ mod tests {
         assert_eq!(id, "ext_issues");
         let ext = registry.get("ext_issues").expect("get ext_issues");
         assert_eq!(ext.principal, "comtrya://extension/ext_issues");
-        assert!(ext
-            .manifest
-            .contributes_resource_kinds
-            .contains(&"issue".to_string()));
+        assert!(
+            ext.manifest
+                .contributes_resource_kinds
+                .contains(&"issue".to_string())
+        );
         // Should have parsed allowedEmits from the manifest.
         assert!(
             ext.manifest

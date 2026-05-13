@@ -22,7 +22,7 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    CloseIssueInput, Guest as IssuesGuest, Issue, IssueState, OpenIssueInput,
+    CloseIssueInput, Guest as IssuesGuest, Issue, IssueState, IssueStateCounts, OpenIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -40,6 +40,7 @@ struct Component;
 #[serde(rename_all = "camelCase")]
 struct StoredIssue {
     id: String,
+    #[serde(default)]
     repository: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     workspace_id: Option<String>,
@@ -65,10 +66,24 @@ struct StoredIssue {
 }
 
 impl StoredIssue {
+    fn repository_uri(&self) -> String {
+        if !self.repository.is_empty() {
+            return self.repository.clone();
+        }
+        match (self.workspace_id.as_deref(), self.repository_id.as_deref()) {
+            (Some(workspace), Some(repository)) => {
+                format!("comtrya://workspace/{workspace}/repository/{repository}")
+            }
+            (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
+            (None, Some(repository)) => format!("comtrya://repository/{repository}"),
+            (None, None) => String::new(),
+        }
+    }
+
     fn to_wit(&self) -> Issue {
         Issue {
             id: self.id.clone(),
-            repository: self.repository.clone(),
+            repository: self.repository_uri(),
             title: self.title.clone(),
             body_markdown: self.body_markdown.clone(),
             state: state_from_str(&self.state),
@@ -280,13 +295,242 @@ fn validated_open_issue(input: &OpenIssueInput) -> Result<(String, String), Erro
     Ok((repository.to_string(), title.to_string()))
 }
 
+fn decode_stored_issue(id: &str, bytes: &[u8]) -> Result<StoredIssue, Error> {
+    let mut stored: StoredIssue = serde_json::from_slice(bytes)
+        .map_err(|e| err(ErrorCode::Internal, format!("parse issue {}: {e}", id)))?;
+    if stored.repository.is_empty() {
+        stored.repository = stored.repository_uri();
+    }
+    Ok(stored)
+}
+
 fn read_stored(id: &str) -> Result<Option<StoredIssue>, Error> {
     let Some(snap) = storage::get(COLLECTION, id)? else {
         return Ok(None);
     };
-    let stored: StoredIssue = serde_json::from_slice(&snap.data)
-        .map_err(|e| err(ErrorCode::Internal, format!("parse issue {}: {e}", id)))?;
-    Ok(Some(stored))
+    Ok(Some(decode_stored_issue(id, &snap.data)?))
+}
+
+fn issue_id_from_ref(ref_uri: &str) -> Result<String, Error> {
+    let ref_uri = ref_uri.trim();
+    if ref_uri.is_empty() {
+        return Err(err(ErrorCode::BadInput, "issues.byRef requires a ref"));
+    }
+    let rest = ref_uri.strip_prefix("comtrya://").ok_or_else(|| {
+        err(
+            ErrorCode::BadInput,
+            "resource reference must use comtrya://",
+        )
+    })?;
+    let Some((kind, id)) = rest.split_once('/') else {
+        return Err(err(
+            ErrorCode::BadInput,
+            "issues.byRef requires an id in the URI",
+        ));
+    };
+    if !valid_resource_kind(kind) {
+        return Err(err(
+            ErrorCode::BadInput,
+            "resource reference has unknown kind",
+        ));
+    }
+    if id.trim().is_empty() {
+        return Err(err(
+            ErrorCode::BadInput,
+            "issues.byRef requires an id in the URI",
+        ));
+    }
+    let prefix_len = validate_opaque_id(id)?;
+    validate_resource_kind_matches_id(kind, id, prefix_len)?;
+    Ok(id.to_string())
+}
+
+fn valid_resource_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
+        })
+}
+
+fn validate_opaque_id(id: &str) -> Result<usize, Error> {
+    let prefix_len = opaque_id_prefix_len(id)
+        .ok_or_else(|| err(ErrorCode::BadInput, "opaque ID has an unknown prefix"))?;
+    let body = &id[prefix_len..];
+    if body.len() != 26 {
+        return Err(err(
+            ErrorCode::BadInput,
+            "opaque ID body must be 26 Crockford-base32 characters",
+        ));
+    }
+    if !body.bytes().all(is_crockford_base32) {
+        return Err(err(
+            ErrorCode::BadInput,
+            "opaque ID body contains non-Crockford-base32 characters",
+        ));
+    }
+    Ok(prefix_len)
+}
+
+fn validate_resource_kind_matches_id(kind: &str, id: &str, prefix_len: usize) -> Result<(), Error> {
+    let Some(kind_from_prefix) = core_kind_for_prefix(&id[..prefix_len]) else {
+        return Ok(());
+    };
+    if is_core_kind(kind) && kind != kind_from_prefix {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("resource kind {kind} does not match ID prefix kind {kind_from_prefix}"),
+        ));
+    }
+    Ok(())
+}
+
+fn opaque_id_prefix_len(id: &str) -> Option<usize> {
+    const CORE_PREFIXES: &[&str] = &[
+        "repo_", "ws_", "ext_", "proj_", "rel_", "cmt_", "grp_", "team_", "sec_", "chk_", "evt_",
+        "usr_", "job_",
+    ];
+    if let Some(prefix) = CORE_PREFIXES.iter().find(|prefix| id.starts_with(**prefix)) {
+        return Some(prefix.len());
+    }
+    let underscore = id.find('_')?;
+    if !(2..=8).contains(&underscore) {
+        return None;
+    }
+    if !id[..underscore]
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase())
+    {
+        return None;
+    }
+    Some(underscore + 1)
+}
+
+fn is_core_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "user"
+            | "team"
+            | "workspace"
+            | "group"
+            | "repository"
+            | "project"
+            | "extension"
+            | "check"
+            | "job"
+            | "event"
+            | "secret"
+            | "relation"
+            | "comment"
+    )
+}
+
+fn core_kind_for_prefix(prefix: &str) -> Option<&'static str> {
+    Some(match prefix {
+        "usr_" => "user",
+        "team_" => "team",
+        "ws_" => "workspace",
+        "grp_" => "group",
+        "repo_" => "repository",
+        "proj_" => "project",
+        "ext_" => "extension",
+        "chk_" => "check",
+        "job_" => "job",
+        "evt_" => "event",
+        "sec_" => "secret",
+        "rel_" => "relation",
+        "cmt_" => "comment",
+        _ => return None,
+    })
+}
+
+fn is_crockford_base32(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'0'..=b'9'
+            | b'A'
+            | b'B'
+            | b'C'
+            | b'D'
+            | b'E'
+            | b'F'
+            | b'G'
+            | b'H'
+            | b'J'
+            | b'K'
+            | b'M'
+            | b'N'
+            | b'P'
+            | b'Q'
+            | b'R'
+            | b'S'
+            | b'T'
+            | b'V'
+            | b'W'
+            | b'X'
+            | b'Y'
+            | b'Z'
+    )
+}
+
+fn read_by_ref(ref_uri: &str) -> Result<Option<StoredIssue>, Error> {
+    let id = issue_id_from_ref(ref_uri)?;
+    read_stored(&id)
+}
+
+fn read_by_refs(refs: &[String]) -> Result<Vec<Option<StoredIssue>>, Error> {
+    refs.iter().map(|ref_uri| read_by_ref(ref_uri)).collect()
+}
+
+fn scan_stored_issues(
+    mut visit: impl FnMut(StoredIssue) -> Result<bool, Error>,
+) -> Result<(), Error> {
+    let mut after = None;
+    loop {
+        let page = storage::list_all(COLLECTION, 1024, after.as_ref())?;
+        for bytes in page.docs {
+            let stored = decode_stored_issue("<list>", &bytes)?;
+            if visit(stored)? {
+                return Ok(());
+            }
+        }
+        match page.next_page {
+            Some(next) => after = Some(next),
+            None => return Ok(()),
+        }
+    }
+}
+
+fn read_by_number(workspace_id: &str, number: u64) -> Result<Option<StoredIssue>, Error> {
+    if workspace_id.trim().is_empty() {
+        return Err(err(
+            ErrorCode::BadInput,
+            "issues.byNumber requires a workspaceId",
+        ));
+    }
+    let mut found = None;
+    scan_stored_issues(|stored| {
+        if stored.workspace_id.as_deref() == Some(workspace_id) && stored.number == number {
+            found = Some(stored);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })?;
+    Ok(found)
+}
+
+fn state_counts_for_refs(refs: &[String]) -> Result<IssueStateCounts, Error> {
+    let issues = read_by_refs(refs)?;
+    let mut open = 0u64;
+    let mut closed = 0u64;
+    for issue in issues.into_iter().flatten() {
+        match issue.state.as_str() {
+            "OPEN" => open += 1,
+            "CLOSED" => closed += 1,
+            _ => {}
+        }
+    }
+    Ok(IssueStateCounts { open, closed })
 }
 
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
@@ -364,8 +608,7 @@ impl IssuesGuest for Component {
 
     fn close_issue(input: CloseIssueInput) -> Result<Issue, Error> {
         let snap = storage::update_begin(COLLECTION, &input.id)?;
-        let mut stored: StoredIssue = serde_json::from_slice(&snap.data)
-            .map_err(|e| err(ErrorCode::Internal, format!("parse issue: {e}")))?;
+        let mut stored = decode_stored_issue(&input.id, &snap.data)?;
         let now = time::now_iso();
         // Caller can override the recorded actor via input.closed-by-ref;
         // otherwise the request principal is used.
@@ -392,8 +635,7 @@ impl IssuesGuest for Component {
 
     fn reopen_issue(id: String) -> Result<Issue, Error> {
         let snap = storage::update_begin(COLLECTION, &id)?;
-        let mut stored: StoredIssue = serde_json::from_slice(&snap.data)
-            .map_err(|e| err(ErrorCode::Internal, format!("parse issue: {e}")))?;
+        let mut stored = decode_stored_issue(&id, &snap.data)?;
         let now = time::now_iso();
         // The legacy GraphQL surface returns state=OPEN on reopen (not
         // a separate REOPENED). Match that so frontend filters keep
@@ -424,26 +666,40 @@ impl IssuesGuest for Component {
         // repository, replace this list-and-filter scan with an indexed
         // query. Today's host-side `storage.query` returns all docs in
         // the collection up to `limit` without filtering, so the
-        // in-component filter is the only option. Cap at 1024 matches
-        // the kernel's `storage.list_all` cap; the caller-supplied
-        // limit is honoured beneath that. When `limit` is too low to
-        // hold all of `repository`'s issues, the result is silently
-        // truncated — Issue tracker rendering must handle pagination
-        // when the new query lands.
+        // in-component filter is the only option.
         let limit = limit.min(1024);
-        let page = storage::list_all(COLLECTION, 1024, None)?;
         let mut out = Vec::new();
-        for bytes in page.docs {
-            if let Ok(stored) = serde_json::from_slice::<StoredIssue>(&bytes) {
-                if repository_filter_matches(&stored, &repository) {
-                    out.push(stored.to_wit());
-                    if out.len() >= limit as usize {
-                        break;
-                    }
+        scan_stored_issues(|stored| {
+            if repository_filter_matches(&stored, &repository) {
+                out.push(stored.to_wit());
+                if out.len() >= limit as usize {
+                    return Ok(true);
                 }
             }
-        }
+            Ok(false)
+        })?;
         Ok(out)
+    }
+
+    fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
+        Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
+    }
+
+    fn by_refs_issue(refs: Vec<String>) -> Result<Vec<Option<Issue>>, Error> {
+        read_by_refs(&refs).map(|issues| {
+            issues
+                .into_iter()
+                .map(|issue| issue.map(|issue| issue.to_wit()))
+                .collect()
+        })
+    }
+
+    fn by_number_issue(workspace_id: String, number: u64) -> Result<Option<Issue>, Error> {
+        Ok(read_by_number(&workspace_id, number)?.map(|issue| issue.to_wit()))
+    }
+
+    fn state_counts_for_refs_issue(refs: Vec<String>) -> Result<IssueStateCounts, Error> {
+        state_counts_for_refs(&refs)
     }
 }
 

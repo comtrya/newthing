@@ -40,7 +40,7 @@ mod ext_issues_bindings {
 
 use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
-    CloseIssueInput, Issue, IssueState, OpenIssueInput,
+    CloseIssueInput, Issue, IssueState, IssueStateCounts, OpenIssueInput,
 };
 
 #[derive(serde::Deserialize)]
@@ -57,6 +57,13 @@ struct CloseIssueInputJson {
     id: String,
     reason: Option<String>,
     closed_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ByNumberIssueInputJson {
+    workspace_id: String,
+    number: u64,
 }
 
 pub fn dispatch_ext_issues(
@@ -206,6 +213,71 @@ pub fn dispatch_ext_issues(
                     .collect(),
             )
         }
+        "by-ref-issue" => {
+            let ref_uri = string_payload(&input, "by-ref-issue")?;
+            let result = issues
+                .call_by_ref_issue(&mut wasm_store, &ref_uri)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("by-ref-issue call: {e}"),
+                    )
+                })?;
+            match result.map_err(local_error_to_canonical)? {
+                Some(issue) => issue_to_json(&issue),
+                None => Value::Null,
+            }
+        }
+        "by-refs-issue" => {
+            let refs = string_vec_payload(&input, "by-refs-issue")?;
+            let result = issues
+                .call_by_refs_issue(&mut wasm_store, &refs)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("by-refs-issue call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(local_error_to_canonical)?
+                    .iter()
+                    .map(|issue| issue.as_ref().map(issue_to_json).unwrap_or(Value::Null))
+                    .collect(),
+            )
+        }
+        "by-number-issue" => {
+            let parsed: ByNumberIssueInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse by-number-issue input: {e}"),
+                )
+            })?;
+            let result = issues
+                .call_by_number_issue(&mut wasm_store, &parsed.workspace_id, parsed.number)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("by-number-issue call: {e}"),
+                    )
+                })?;
+            match result.map_err(local_error_to_canonical)? {
+                Some(issue) => issue_to_json(&issue),
+                None => Value::Null,
+            }
+        }
+        "state-counts-for-refs-issue" => {
+            let refs = string_vec_payload(&input, "state-counts-for-refs-issue")?;
+            let result = issues
+                .call_state_counts_for_refs_issue(&mut wasm_store, &refs)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("state-counts-for-refs-issue call: {e}"),
+                    )
+                })?;
+            issue_state_counts_to_json(&result.map_err(local_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -242,6 +314,27 @@ fn string_payload(input: &Value, op: &str) -> Result<String, wit_types::Error> {
     })
 }
 
+fn string_vec_payload(input: &Value, op: &str) -> Result<Vec<String>, wit_types::Error> {
+    input
+        .as_array()
+        .ok_or_else(|| {
+            wit_error(
+                wit_types::ErrorCode::BadInput,
+                format!("{op} requires a JSON string array payload"),
+            )
+        })?
+        .iter()
+        .map(|value| {
+            value.as_str().map(str::to_string).ok_or_else(|| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("{op} payload entries must be strings"),
+                )
+            })
+        })
+        .collect()
+}
+
 fn u32_field(input: &Value, field: &str, op: &str) -> Result<u32, wit_types::Error> {
     let value = input.get(field).ok_or_else(|| {
         wit_error(
@@ -260,6 +353,13 @@ fn u32_field(input: &Value, field: &str, op: &str) -> Result<u32, wit_types::Err
             wit_types::ErrorCode::BadInput,
             format!("{op} payload.{field} must be <= {}", u32::MAX),
         )
+    })
+}
+
+fn issue_state_counts_to_json(counts: &IssueStateCounts) -> Value {
+    serde_json::json!({
+        "open": counts.open,
+        "closed": counts.closed,
     })
 }
 

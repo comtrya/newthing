@@ -23,8 +23,8 @@ use std::sync::{Arc, RwLock};
 
 use comtrya_core::{IdPrefix, OpaqueId};
 use serde_json::Value;
-use wasmtime::component::Linker;
 use wasmtime::Engine;
+use wasmtime::component::Linker;
 
 use crate::ExtensionRuntimeStore;
 

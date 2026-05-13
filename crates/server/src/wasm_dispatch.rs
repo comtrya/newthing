@@ -5,15 +5,15 @@
 //! WASM invoker, routed through the live registry/linker path, then wrapped
 //! back into the existing GraphQL response shape.
 
+use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::sync::Arc;
 
 #[cfg(test)]
 use crate::wasm_host::HostState;
-use crate::wasm_host::{wit_types, OpsDispatcher};
+use crate::wasm_host::{OpsDispatcher, wit_types};
 #[cfg(test)]
 use crate::wasm_registry::LoadedExtension;
 use crate::wasm_registry::RegistryDispatcher;
@@ -308,6 +308,80 @@ fn prepare_graphql_call(
                 author_ref: None,
             })
         }
+        "by-ref-issue" => {
+            let ref_uri = required_variable_string(payload, "ref", "issues.byRef")?;
+            let issue_id = issue_id_from_ref_uri(&ref_uri)?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::String(ref_uri))?,
+                issue_id: Some(issue_id),
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "by-refs-issue" => {
+            let refs = optional_variable_string_array(payload, "refs");
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::Array(
+                    refs.iter().cloned().map(Value::String).collect(),
+                ))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "by-number-issue" => {
+            let workspace_id = required_variable_string(payload, "workspaceId", "issues.byNumber")?;
+            let number = payload
+                .pointer("/variables/number")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    "issues.byNumber requires variables.workspaceId and .number".to_string()
+                })?;
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(json!({
+                    "workspaceId": workspace_id,
+                    "number": number,
+                }))?,
+                issue_id: None,
+                workspace_id: Some(workspace_id),
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
+        "state-counts-for-refs-issue" => {
+            let refs = optional_variable_string_array(payload, "refs");
+            Ok(PreparedCall {
+                op_route,
+                payload: json_bytes(Value::Array(
+                    refs.iter().cloned().map(Value::String).collect(),
+                ))?,
+                issue_id: None,
+                workspace_id: None,
+                repository_id: None,
+                state_filter: None,
+                labels: Vec::new(),
+                assignee_refs: Vec::new(),
+                epic_ref: None,
+                author_ref: None,
+            })
+        }
         other => Err(GraphqlBridgeError::unavailable(format!(
             "no GraphQL payload bridge for ext_issues.issues.{other}"
         ))),
@@ -322,7 +396,10 @@ fn normalize_legacy_issue_for_wasm(
     if info.op_name == "list-issues" {
         return normalize_legacy_issues_for_list(state, call);
     }
-    if !matches!(info.op_name, "close-issue" | "reopen-issue" | "get-issue") {
+    if !matches!(
+        info.op_name,
+        "close-issue" | "reopen-issue" | "get-issue" | "by-ref-issue"
+    ) {
         return Ok(());
     }
     let Some(id) = call.issue_id.as_deref() else {
@@ -556,6 +633,41 @@ fn graphql_body_for_result(
             });
             Ok(json!({ "data": { "issues": { "list": issues } } }))
         }
+        "by-ref-issue" => {
+            let issue = if value.is_null() {
+                Value::Null
+            } else {
+                response_issue_value(state, value, call)?
+            };
+            Ok(json!({ "data": { "issues": { "byRef": issue } } }))
+        }
+        "by-refs-issue" => {
+            let issues = value
+                .as_array()
+                .ok_or_else(|| "by-refs-issue returned non-array JSON".to_string())?
+                .iter()
+                .cloned()
+                .map(|issue| {
+                    if issue.is_null() {
+                        Ok(Value::Null)
+                    } else {
+                        response_issue_value(state, issue, call)
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({ "data": { "issues": { "byRefs": issues } } }))
+        }
+        "by-number-issue" => {
+            let issue = if value.is_null() {
+                Value::Null
+            } else {
+                response_issue_value(state, value, call)?
+            };
+            Ok(json!({ "data": { "issues": { "byNumber": issue } } }))
+        }
+        "state-counts-for-refs-issue" => {
+            Ok(json!({ "data": { "issues": { "stateCountsForRefs": value } } }))
+        }
         other => Err(format!(
             "no GraphQL result bridge for ext_issues.issues.{other}"
         )),
@@ -692,6 +804,29 @@ fn optional_string_array(input: &Map<String, Value>, field: &str) -> Vec<String>
         .unwrap_or_default()
 }
 
+fn required_variable_string(payload: &Value, field: &str, op: &str) -> Result<String, String> {
+    payload
+        .pointer(&format!("/variables/{field}"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{op} requires variables.{field}"))
+}
+
+fn optional_variable_string_array(payload: &Value, field: &str) -> Vec<String> {
+    payload
+        .pointer(&format!("/variables/{field}"))
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn string_array_field(value: &Value, field: &str) -> Vec<String> {
     value
         .get(field)
@@ -704,6 +839,149 @@ fn string_array_field(value: &Value, field: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn issue_id_from_ref_uri(ref_uri: &str) -> Result<String, String> {
+    let rest = ref_uri
+        .trim()
+        .strip_prefix("comtrya://")
+        .ok_or_else(|| "resource reference must use comtrya://".to_string())?;
+    let Some((kind, id)) = rest.split_once('/') else {
+        return Err("issues.byRef requires an id in the URI".to_string());
+    };
+    if !valid_resource_kind(kind) {
+        return Err("resource reference has unknown kind".to_string());
+    }
+    if id.trim().is_empty() {
+        return Err("issues.byRef requires an id in the URI".to_string());
+    }
+    let prefix_len = validate_opaque_id(id)?;
+    validate_resource_kind_matches_id(kind, id, prefix_len)?;
+    Ok(id.to_string())
+}
+
+fn valid_resource_kind(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-' || byte == b'_'
+        })
+}
+
+fn validate_opaque_id(id: &str) -> Result<usize, String> {
+    let prefix_len =
+        opaque_id_prefix_len(id).ok_or_else(|| "opaque ID has an unknown prefix".to_string())?;
+    let body = &id[prefix_len..];
+    if body.len() != 26 {
+        return Err("opaque ID body must be 26 Crockford-base32 characters".to_string());
+    }
+    if !body.bytes().all(is_crockford_base32) {
+        return Err("opaque ID body contains non-Crockford-base32 characters".to_string());
+    }
+    Ok(prefix_len)
+}
+
+fn validate_resource_kind_matches_id(
+    kind: &str,
+    id: &str,
+    prefix_len: usize,
+) -> Result<(), String> {
+    let Some(kind_from_prefix) = core_kind_for_prefix(&id[..prefix_len]) else {
+        return Ok(());
+    };
+    if is_core_kind(kind) && kind != kind_from_prefix {
+        return Err(format!(
+            "resource kind {kind} does not match ID prefix kind {kind_from_prefix}"
+        ));
+    }
+    Ok(())
+}
+
+fn opaque_id_prefix_len(id: &str) -> Option<usize> {
+    const CORE_PREFIXES: &[&str] = &[
+        "repo_", "ws_", "ext_", "proj_", "rel_", "cmt_", "grp_", "team_", "sec_", "chk_", "evt_",
+        "usr_", "job_",
+    ];
+    if let Some(prefix) = CORE_PREFIXES.iter().find(|prefix| id.starts_with(**prefix)) {
+        return Some(prefix.len());
+    }
+    let underscore = id.find('_')?;
+    if !(2..=8).contains(&underscore) {
+        return None;
+    }
+    if !id[..underscore]
+        .bytes()
+        .all(|byte| byte.is_ascii_lowercase())
+    {
+        return None;
+    }
+    Some(underscore + 1)
+}
+
+fn is_core_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "user"
+            | "team"
+            | "workspace"
+            | "group"
+            | "repository"
+            | "project"
+            | "extension"
+            | "check"
+            | "job"
+            | "event"
+            | "secret"
+            | "relation"
+            | "comment"
+    )
+}
+
+fn core_kind_for_prefix(prefix: &str) -> Option<&'static str> {
+    Some(match prefix {
+        "usr_" => "user",
+        "team_" => "team",
+        "ws_" => "workspace",
+        "grp_" => "group",
+        "repo_" => "repository",
+        "proj_" => "project",
+        "ext_" => "extension",
+        "chk_" => "check",
+        "job_" => "job",
+        "evt_" => "event",
+        "sec_" => "secret",
+        "rel_" => "relation",
+        "cmt_" => "comment",
+        _ => return None,
+    })
+}
+
+fn is_crockford_base32(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'0'..=b'9'
+            | b'A'
+            | b'B'
+            | b'C'
+            | b'D'
+            | b'E'
+            | b'F'
+            | b'G'
+            | b'H'
+            | b'J'
+            | b'K'
+            | b'M'
+            | b'N'
+            | b'P'
+            | b'Q'
+            | b'R'
+            | b'S'
+            | b'T'
+            | b'V'
+            | b'W'
+            | b'X'
+            | b'Y'
+            | b'Z'
+    )
 }
 
 fn issue_repository_uri(
