@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { openPalette } from "@comtrya/sdk-core";
+import { onMounted, onUnmounted, ref } from "vue";
+import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import CommandPalette from "./components/CommandPalette.vue";
 
 const workspace = {
@@ -14,6 +15,27 @@ const navItems = [
   { to: "/x/issues/", number: "03", label: "Issues" },
   { to: "/x/pulls/", number: "04", label: "Pull requests" },
 ];
+
+const liveState = ref<"connecting" | "live" | "idle" | "error">("connecting");
+const liveEvents = ref(0);
+let unsubscribeLiveEvents: (() => void) | undefined;
+
+onMounted(() => {
+  unsubscribeLiveEvents = subscribeLiveEvents({
+    onEvent: () => {
+      liveEvents.value += 1;
+      liveState.value = "live";
+    },
+    onError: () => {
+      liveState.value = "error";
+    },
+  });
+  window.setTimeout(() => {
+    if (liveState.value === "connecting") liveState.value = "idle";
+  }, 1500);
+});
+
+onUnmounted(() => unsubscribeLiveEvents?.());
 </script>
 
 <template>
@@ -32,7 +54,8 @@ const navItems = [
         <kbd>CMD K</kbd>
       </button>
       <div class="topbar-actions">
-        <span class="chip ok">ready</span>
+        <span class="chip ok">{{ liveState }}</span>
+        <span class="chip bare">{{ liveEvents }} events</span>
         <code>{{ workspace.serverURL }}</code>
       </div>
     </header>
