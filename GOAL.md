@@ -83,7 +83,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Delete every `matches_op` arm for `issues.*` in `main.rs` — *the legacy fallback no longer claims issue GraphQL roots; generated dispatch is the only issue GraphQL entry point before the remaining dead helper deletion.*
 - [x] Delete helper functions exclusive to issues handlers — *removed the dead issue GraphQL handler block plus runtime helpers only used by that fallback; retained issue helpers still shared by epic progress and the temporary reactor bridge.*
 - [x] `rg "issues\.close|issues\.open|issues\.reopen" crates/server/src/main.rs` returns zero hits in handler code — *literal command returns no hits; issue route/event assertions now construct the strings while generated dispatch and runtime-loaded registry tests still cover issue WASM routes.*
-- [ ] Update `docs/v3-deletion-inventory.md` — mark items removed
+- [x] Update `docs/v3-deletion-inventory.md` — mark items removed — *struck the deleted `ext_issues` dispatch rows, refreshed shifted `main.rs` line anchors, recorded the current line/function counts, and explicitly deferred `issues_resolver_output` because the legacy snapshot still uses it until M9.*
 
 ## M5 — `ext_epics`, `ext_pull_requests`, `ext_checks` migrated
 - [ ] `ext_epics`: create component crate, implement every op, build WASM
