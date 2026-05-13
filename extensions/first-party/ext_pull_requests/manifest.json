@@ -6,8 +6,41 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "wasmComponent": "component.wat",
-  "witWorld": "comtrya:extension/extension",
+  "platformWitVersion": "0.1.0",
+  "witWorld": "comtrya:platform/extension@0.1.0",
+  "perExtensionWit": "wit",
   "routePrefix": "pulls",
   "ui": { "manifest": "ui/manifest.json" },
-  "runtime": { "resolver": "resolve", "outputType": "comtrya.pull-requests/summary.v1" }
+  "runtime": {
+    "resolver": "resolve",
+    "outputType": "comtrya.pull-requests/summary.v1"
+  },
+  "contributes": {
+    "resourceKinds": [{ "name": "pull-request", "prefix": "pr" }],
+    "cards": [{ "kind": "pull-request", "element": "comtrya-pr-card" }],
+    "slots": [
+      { "slot": "workspace.home.right", "element": "comtrya-prs-list", "priority": 300 }
+    ],
+    "routes": [{ "path": "/r/*/pulls", "element": "comtrya-prs-page" }]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "relations.read", "relations.write",
+    "events.read", "events.write",
+    "identity", "time", "ids", "ops", "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.pull-requests.opened",
+    "dev.comtrya.pull-requests.merged",
+    "dev.comtrya.pull-requests.closed"
+  ],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [
+    "ext_issues/issues.close-issue"
+  ],
+  "reactor": {
+    "subscribes": ["dev.comtrya.pull-requests.merged"],
+    "allowedMutations": ["ext_issues/issues.close-issue"],
+    "allowedEmits": []
+  }
 }

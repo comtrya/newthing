@@ -1,0 +1,50 @@
+// ext_epics — per-extension WIT.
+//
+// Epics are work-tracking aggregates that contain issues. The epic state
+// machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
+// transitions modelled explicitly in the `epic-state` variant.
+
+package comtrya:ext-epics@0.1.0;
+
+interface epics {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  variant epic-state {
+    planned,
+    in-progress,
+    at-risk,
+    done,
+    canceled,
+  }
+
+  record epic {
+    %id: id,
+    workspace: uri,
+    title: string,
+    body-markdown: string,
+    state: epic-state,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+  }
+
+  record create-epic-input {
+    workspace: uri,
+    title: string,
+    body-markdown: string,
+  }
+
+  record transition-epic-input {
+    %id: id,
+    %to: epic-state,
+  }
+
+  create-epic: func(input: create-epic-input) -> result<epic, error>;
+  transition-epic: func(input: transition-epic-input) -> result<epic, error>;
+  get-epic: func(%id: id) -> result<option<epic>, error>;
+  list-epics: func(workspace: uri, %limit: u32) -> result<list<epic>, error>;
+}
+
+world ext-epics {
+  include comtrya:platform/extension@0.1.0;
+  export epics;
+}

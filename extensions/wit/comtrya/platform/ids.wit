@@ -1,0 +1,19 @@
+// Opaque-id minting. Extensions don't construct ids by hand; they ask
+// the kernel for one with the kind name they want, and the kernel
+// validates that the extension is allowed to mint that kind (per its
+// manifest's `contributes.resource-kinds`).
+//
+// The kernel records every minted id; subsequent `storage.create` calls
+// MUST use an id produced by this mint or be rejected with `forbidden`.
+// This prevents extensions from spoofing ids belonging to another
+// extension's kind.
+
+interface ids {
+  use types.{id, error};
+
+  /// Mint a new opaque id for the given kind. The kind name must be one
+  /// the extension declared in its manifest. The kernel returns an id
+  /// shaped like `<prefix>_<ulid>` where `<prefix>` was supplied at
+  /// registration time.
+  mint: func(kind-name: string) -> result<id, error>;
+}

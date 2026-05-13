@@ -1,5 +1,10 @@
 import { KNOWN_SLOT_NAMES, type SlotName } from "./types";
 
+export interface UiManifestCardEntry {
+  resourceKind: string;
+  element: string;
+}
+
 export interface UiManifestV2 {
   schemaVersion: "comtrya.ui-extension/v2";
   id: string;
@@ -8,7 +13,11 @@ export interface UiManifestV2 {
   publisher: string;
   assets: { entry: string; entryIntegrity: string; styles: string[] };
   permissions: string[];
-  contributes: { slots: string[]; routes: boolean };
+  contributes: {
+    slots: string[];
+    routes: boolean;
+    cards?: UiManifestCardEntry[];
+  };
 }
 
 export function parseManifest(input: unknown): UiManifestV2 {
@@ -36,12 +45,32 @@ export function parseManifest(input: unknown): UiManifestV2 {
   if (!m.contributes || typeof m.contributes !== "object") throw new Error("contributes block is required");
   if (!Array.isArray(m.contributes.slots)) throw new Error("contributes.slots must be an array of slot names");
   if (typeof m.contributes.routes !== "boolean") throw new Error("contributes.routes must be a boolean");
-  if (m.contributes.slots.length === 0 && !m.contributes.routes) {
-    throw new Error("manifest must declare at least one of slots or routes in contributes");
+  const hasCards = Array.isArray(m.contributes.cards) && m.contributes.cards.length > 0;
+  if (m.contributes.slots.length === 0 && !m.contributes.routes && !hasCards) {
+    throw new Error("manifest must declare at least one of slots, routes, or cards in contributes");
   }
   for (const slot of m.contributes.slots) {
     if (!KNOWN_SLOT_NAMES.has(slot as SlotName)) {
       throw new Error(`unknown slot name "${slot}" in contributes.slots`);
+    }
+  }
+  if (m.contributes.cards !== undefined) {
+    if (!Array.isArray(m.contributes.cards)) {
+      throw new Error("contributes.cards must be an array");
+    }
+    for (const card of m.contributes.cards) {
+      if (
+        !card ||
+        typeof card !== "object" ||
+        typeof card.resourceKind !== "string" ||
+        typeof card.element !== "string" ||
+        card.resourceKind.length === 0 ||
+        card.element.length === 0
+      ) {
+        throw new Error(
+          'each contributes.cards entry must be { resourceKind: string, element: string }',
+        );
+      }
     }
   }
   return m;

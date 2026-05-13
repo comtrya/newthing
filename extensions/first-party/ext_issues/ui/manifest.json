@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_issues",
+  "extension": "issues",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_issues/assets/index.js",
+    "entryIntegrity": "sha256-b7679a0ab5b827583b99945573a58aaff78ea02527f8ed75dd85086e3c441a8c",
+    "styles": []
+  },
+  "permissions": ["issues.read", "issues.write"],
+  "contributes": {
+    "slots": ["repository.issues"],
+    "cards": [{ "resourceKind": "issue", "element": "comtrya-issue-card" }],
+    "routes": true
+  }
+}

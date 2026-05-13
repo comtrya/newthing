@@ -3,12 +3,18 @@ import { el, text } from "./dom";
 import { applyStoredTheme } from "./theme";
 import { renderChrome, type ChromeContext } from "./chrome";
 import { loadExtensions } from "./extension-loader";
+import { CORE_CODE_BROWSER_ELEMENT, defineCoreCodeBrowser } from "./core-widgets/code-browser";
+import { defineCommentThread } from "./core-widgets/comment-thread";
+import { defineResourceCard, setActiveCardRegistry } from "./core-widgets/resource-card";
 import type { SlotName, ViewerHandle } from "../extension-host-sdk/types";
 
 const REPO_SLOTS: SlotName[] = ["repository.overview", "repository.code", "repository.checks"];
 
 async function boot() {
   applyStoredTheme();
+  defineCoreCodeBrowser();
+  defineResourceCard();
+  defineCommentThread();
   const app = document.querySelector<HTMLElement>("#app");
   if (!app) return;
   const body = document.body;
@@ -46,9 +52,24 @@ async function boot() {
     manifestUrl: `${serverURL}/_extensions/${e.id}/manifest.json`,
     routePrefix: e.routePrefix,
   }));
-  const { registry } = await loadExtensions(
+  const { registry, cards } = await loadExtensions(
     descriptors, client, graphql.viewer,
     { extensionRuntime: graphql.instance.capabilities.extensionRuntime },
+  );
+  setActiveCardRegistry(cards);
+
+  // Core defaults are registered AFTER extension loading so that any extension
+  // claim on the slot is already present in the extension tier; the registry's
+  // winner() resolves the extension tier first and falls back to core defaults
+  // only when no extension has claimed the slot.
+  registry.registerCoreDefault(
+    {
+      extensionId: "core",
+      element: CORE_CODE_BROWSER_ELEMENT,
+      requiredPermission: "code.read",
+      priority: 0,
+    },
+    "repository.code",
   );
 
   for (const slot of REPO_SLOTS) {

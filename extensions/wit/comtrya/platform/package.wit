@@ -1,0 +1,80 @@
+// comtrya:platform — the WIT contract every extension implements.
+//
+// An extension is a Component Model component that:
+//   * imports the kernel-provided interfaces declared in this package
+//     (storage, relations, comments, events, identity, time, ids, ops,
+//     log);
+//   * exports the `reactor` interface and, in its own per-extension WIT,
+//     one or more `ops` interfaces that declare its mutations and queries.
+//
+// The kernel generates the public GraphQL surface and the TypeScript client
+// from each installed extension's WIT. There is no kernel-side string-match
+// dispatch and no kernel-resident behaviour for extension-owned resources;
+// the WASM component is the single source of truth.
+//
+// Three worlds are exported so that an extension can declare its
+// minimum-capability shape at the WIT level (not just in the manifest):
+//
+//   * `reader-extension`  — imports read-only host interfaces; cannot
+//     write to storage, relations, comments, or events. Used by audit
+//     viewers, search backends, dashboards.
+//   * `reactor-extension` — adds the writes a reactor needs
+//     (`events.append`, `ops.invoke`) but no direct storage write.
+//   * `extension`         — full-capability world. Imports every host
+//     interface.
+//
+// The manifest's `host-imports` allowlist is still authoritative at
+// runtime — the world choice is a documentation + codegen optimisation,
+// not a security boundary.
+
+package comtrya:platform@0.1.0;
+
+world reader-extension {
+  import types;
+  import storage;
+  import relations;
+  // `events` is imported so reader-shaped extensions can call
+  // `events.read-recent` to build activity feeds; `events.append`
+  // remains blocked at runtime by the manifest `host-imports`
+  // allowlist for any extension declaring this world.
+  import events;
+  import identity;
+  import time;
+  import log;
+
+  export reactor;
+}
+
+world reactor-extension {
+  // Adds write paths a reactor needs (`events.append`, `ops.invoke`,
+  // `ids.mint`) over `reader-extension`. Storage write functions are
+  // imported but blocked at runtime by the manifest's `host-imports`
+  // allowlist; the world choice is documentation + codegen, not the
+  // security boundary.
+  import types;
+  import storage;
+  import relations;
+  import events;
+  import identity;
+  import time;
+  import ids;
+  import ops;
+  import log;
+
+  export reactor;
+}
+
+world extension {
+  import types;
+  import storage;
+  import relations;
+  import comments;
+  import events;
+  import identity;
+  import time;
+  import ids;
+  import ops;
+  import log;
+
+  export reactor;
+}

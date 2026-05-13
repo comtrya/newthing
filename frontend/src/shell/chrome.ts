@@ -59,6 +59,7 @@ function buildSidebar(ctx: ChromeContext): HTMLElement {
     el("h4", { textContent: "Workspace nav" }),
     buildNav([
       { href: "/", num: "01", label: "Home" },
+      { href: "/new", num: "+", label: "New repository" },
       { href: "/#activity", num: "02", label: "Activity" },
       { href: "/#extensions", num: "03", label: "Extensions" },
       ...(ctx.isOperator ? [{ href: "/instance", num: "04", label: "Instance" }] : []),

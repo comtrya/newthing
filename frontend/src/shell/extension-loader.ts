@@ -1,5 +1,6 @@
 import { parseManifest } from "../extension-host-sdk/manifest";
 import { createHostFacade } from "../extension-host-sdk/host-facade";
+import { CardRegistry } from "../extension-host-sdk/card-registry";
 import { SlotRegistry } from "../extension-host-sdk/slot-registry";
 import {
   KNOWN_SLOT_NAMES,
@@ -13,6 +14,7 @@ import type { ComtryaClient } from "../contracts";
 
 export interface ExtensionLoadResult {
   registry: SlotRegistry;
+  cards: CardRegistry;
   routes: ResolvedRoute[];
   failures: ExtensionLoadFailure[];
 }
@@ -36,6 +38,7 @@ export async function loadExtensions(
   capabilities: Record<string, boolean>,
 ): Promise<ExtensionLoadResult> {
   const registry = new SlotRegistry();
+  const cards = new CardRegistry();
   const routes: ResolvedRoute[] = [];
   const failures: ExtensionLoadFailure[] = [];
 
@@ -57,6 +60,7 @@ export async function loadExtensions(
       slots: new Set(
         manifest.contributes.slots.filter((s): s is SlotName => KNOWN_SLOT_NAMES.has(s as SlotName)),
       ),
+      cardKinds: new Set((manifest.contributes.cards ?? []).map((c) => c.resourceKind)),
       routesAllowed: manifest.contributes.routes && desc.routePrefix !== null,
     };
 
@@ -73,13 +77,21 @@ export async function loadExtensions(
     }
 
     try {
-      const facade = createHostFacade(allowlist, registry, routes, client, viewer, capabilities);
+      const facade = createHostFacade(
+        allowlist,
+        registry,
+        cards,
+        routes,
+        client,
+        viewer,
+        capabilities,
+      );
       await definition.setup(facade);
     } catch (e) {
       failures.push({ extensionId: desc.id, kind: "setup", message: describe(e) });
     }
   }
-  return { registry, routes, failures };
+  return { registry, cards, routes, failures };
 }
 
 function describe(e: unknown): string {

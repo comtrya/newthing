@@ -39,9 +39,34 @@ describe("parseManifest", () => {
       .toThrow(/entryIntegrity/);
   });
 
-  test("requires at least one of slots or routes in contributes", () => {
+  test("requires at least one of slots, routes, or cards in contributes", () => {
     expect(() => parseManifest({ ...VALID, contributes: { slots: [], routes: false } }))
-      .toThrow(/must declare at least one of slots or routes/);
+      .toThrow(/must declare at least one of slots, routes, or cards/);
+  });
+
+  test("accepts cards contribution", () => {
+    const m = parseManifest({
+      ...VALID,
+      contributes: {
+        slots: [],
+        routes: false,
+        cards: [{ resourceKind: "issue", element: "comtrya-issue-card" }],
+      },
+    });
+    expect(m.contributes.cards?.length).toBe(1);
+  });
+
+  test("rejects cards entries missing resourceKind or element", () => {
+    expect(() =>
+      parseManifest({
+        ...VALID,
+        contributes: {
+          slots: [],
+          routes: false,
+          cards: [{ resourceKind: "", element: "x" }] as never,
+        },
+      }),
+    ).toThrow(/contributes\.cards/);
   });
 
   test("rejects non-string id", () => {

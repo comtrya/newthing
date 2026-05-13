@@ -1,0 +1,17 @@
+{
+  "name": "@comtrya/sdk-preact",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@comtrya/sdk-core": "*"
+  },
+  "peerDependencies": {
+    "preact": "^10.0.0",
+    "@preact/signals": "^1.0.0"
+  },
+  "private": true
+}

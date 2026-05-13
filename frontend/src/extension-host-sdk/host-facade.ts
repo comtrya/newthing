@@ -1,4 +1,5 @@
 import type { ComtryaClient } from "../contracts";
+import type { CardRegistry } from "./card-registry";
 import type { SlotRegistry } from "./slot-registry";
 import {
   KNOWN_SLOT_NAMES,
@@ -10,7 +11,8 @@ import {
 
 export function createHostFacade(
   allowlist: ExtensionAllowlist,
-  registry: SlotRegistry,
+  slotRegistry: SlotRegistry,
+  cardRegistry: CardRegistry,
   routeSink: ResolvedRoute[],
   client: ComtryaClient,
   viewer: ViewerHandle,
@@ -30,7 +32,7 @@ export function createHostFacade(
       if (!allowlist.permissions.has(contribution.requiredPermission)) {
         throw new Error(`permission "${contribution.requiredPermission}" is not declared by ${allowlist.extensionId}`);
       }
-      return registry.add({
+      return slotRegistry.add({
         extensionId: allowlist.extensionId,
         element: contribution.element,
         requiredPermission: contribution.requiredPermission,
@@ -65,6 +67,22 @@ export function createHostFacade(
           if (i >= 0) routeSink.splice(i, 1);
         },
       };
+    },
+    registerCard(contribution) {
+      if (!allowlist.cardKinds.has(contribution.resourceKind)) {
+        throw new Error(
+          `card kind "${contribution.resourceKind}" is not in allowlist for ${allowlist.extensionId}`,
+        );
+      }
+      if (!allowlist.permissions.has(contribution.requiredPermission)) {
+        throw new Error(`permission "${contribution.requiredPermission}" is not declared by ${allowlist.extensionId}`);
+      }
+      return cardRegistry.add({
+        extensionId: allowlist.extensionId,
+        resourceKind: contribution.resourceKind,
+        element: contribution.element,
+        requiredPermission: contribution.requiredPermission,
+      });
     },
   };
 }

@@ -1,0 +1,21 @@
+// ext_workspace_home — per-extension WIT.
+//
+// Hosts the workspace home dashboard slots. Owns no resource kinds;
+// purely a layout extension that registers four slot contributions
+// (`workspace.home.{top,left,center,right}`) for other extensions to
+// target.
+
+package comtrya:ext-workspace-home@0.1.0;
+
+interface home {
+  use comtrya:platform/types@0.1.0.{error};
+
+  /// No ops in 0.1.0 — the extension is layout-only. Ops surface in
+  /// 0.2.0 when we add user-configurable slot reordering.
+  ping: func() -> result<string, error>;
+}
+
+world ext-workspace-home {
+  include comtrya:platform/extension@0.1.0;
+  export home;
+}

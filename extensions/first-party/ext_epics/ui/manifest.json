@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_epics",
+  "extension": "epics",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_epics/assets/index.js",
+    "entryIntegrity": "sha256-01a12175944ed1f1a049ca8764ce91339bb3730364735fc1285620563be37c7d",
+    "styles": []
+  },
+  "permissions": ["epics.read", "epics.write"],
+  "contributes": {
+    "slots": ["workspace.epics"],
+    "cards": [{ "resourceKind": "epic", "element": "comtrya-epic-card" }],
+    "routes": true
+  }
+}

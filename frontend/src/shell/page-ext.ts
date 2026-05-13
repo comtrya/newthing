@@ -3,10 +3,14 @@ import { el, text } from "./dom";
 import { applyStoredTheme } from "./theme";
 import { renderChrome, type ChromeContext } from "./chrome";
 import { loadExtensions } from "./extension-loader";
+import { defineCommentThread } from "./core-widgets/comment-thread";
+import { defineResourceCard, setActiveCardRegistry } from "./core-widgets/resource-card";
 import type { ResolvedRoute, ViewerHandle } from "../extension-host-sdk/types";
 
 async function boot() {
   applyStoredTheme();
+  defineResourceCard();
+  defineCommentThread();
   const app = document.querySelector<HTMLElement>("#app");
   if (!app) return;
   const prefix = document.body.dataset.routePrefix ?? "";
@@ -44,9 +48,10 @@ async function boot() {
     manifestUrl: `${serverURL}/_extensions/${e.id}/manifest.json`,
     routePrefix: e.routePrefix,
   }));
-  const { routes } = await loadExtensions(descriptors, client, graphql.viewer, {
+  const { routes, cards } = await loadExtensions(descriptors, client, graphql.viewer, {
     extensionRuntime: graphql.instance.capabilities.extensionRuntime,
   });
+  setActiveCardRegistry(cards);
 
   const match = pickRoute(routes, prefix, subPath);
   const mount = document.querySelector<HTMLElement>("[data-extension-route-mount]");

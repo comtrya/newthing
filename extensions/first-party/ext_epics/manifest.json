@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_epics",
+  "name": "epics",
+  "displayName": "Epics",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "wasmComponent": "component.wat",
+  "platformWitVersion": "0.1.0",
+  "witWorld": "comtrya:platform/extension@0.1.0",
+  "perExtensionWit": "wit",
+  "ui": { "manifest": "ui/manifest.json" },
+  "routePrefix": "epics",
+  "runtime": {
+    "resolver": "resolve",
+    "outputType": "comtrya.epics/summary.v1"
+  },
+  "contributes": {
+    "resourceKinds": [{ "name": "epic", "prefix": "epc" }],
+    "cards": [{ "kind": "epic", "element": "comtrya-epic-card" }],
+    "slots": [
+      { "slot": "workspace.home.left", "element": "comtrya-epics-board", "priority": 100 }
+    ],
+    "routes": [{ "path": "/r/*/epics", "element": "comtrya-epics-page" }]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "relations.read", "relations.write",
+    "events.read", "events.write",
+    "identity", "time", "ids", "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.epics.created",
+    "dev.comtrya.epics.transitioned"
+  ],
+  "allowedEventReads": ["ext_issues"],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

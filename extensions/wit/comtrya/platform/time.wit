@@ -1,0 +1,17 @@
+// Time. Extensions use these instead of system time to keep determinism
+// reproducible inside the WASM sandbox (the host can substitute a fake
+// clock in tests).
+//
+// The kernel guarantees `now-iso` and `now-millis` agree to within one
+// second *within a single invocation* — both are derived from one
+// monotonic clock read per call.
+
+interface time {
+  use types.{iso-timestamp};
+
+  /// Current wall-clock UTC time in ISO-8601 (second precision).
+  now-iso: func() -> iso-timestamp;
+
+  /// Unix epoch milliseconds. For event timestamps and cache TTLs.
+  now-millis: func() -> u64;
+}

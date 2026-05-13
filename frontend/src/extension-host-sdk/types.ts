@@ -2,21 +2,31 @@ import type { ComtryaClient } from "../contracts";
 
 export type SlotName =
   | "home.your-work"
+  | "home.your-issues"
+  | "home.your-epics"
   | "home.repositories"
   | "home.activity"
   | "home.instance"
   | "repository.overview"
   | "repository.code"
-  | "repository.checks";
+  | "repository.checks"
+  | "repository.issues"
+  | "workspace.issues"
+  | "workspace.epics";
 
 export const KNOWN_SLOT_NAMES: ReadonlySet<SlotName> = new Set([
   "home.your-work",
+  "home.your-issues",
+  "home.your-epics",
   "home.repositories",
   "home.activity",
   "home.instance",
   "repository.overview",
   "repository.code",
   "repository.checks",
+  "repository.issues",
+  "workspace.issues",
+  "workspace.epics",
 ]);
 
 export interface SlotContribution {
@@ -26,6 +36,17 @@ export interface SlotContribution {
 }
 
 export interface RouteContribution {
+  element: string;
+  requiredPermission: string;
+}
+
+/**
+ * A resource-card renderer. One contribution per `resourceKind` per
+ * extension; the kernel picks one winner per kind (extension override
+ * beats core default; see CardRegistry).
+ */
+export interface CardContribution {
+  resourceKind: string;
   element: string;
   requiredPermission: string;
 }
@@ -45,6 +66,7 @@ export interface ExtensionHost {
   readonly capabilities: Record<string, boolean>;
   registerSlot(name: SlotName, contribution: SlotContribution): Disposable;
   registerRoute(path: string, contribution: RouteContribution): Disposable;
+  registerCard(contribution: CardContribution): Disposable;
 }
 
 export interface ExtensionDefinition {
@@ -57,6 +79,8 @@ export interface ExtensionAllowlist {
   routePrefix: string | null;
   permissions: ReadonlySet<string>;
   slots: ReadonlySet<SlotName>;
+  /** Resource kinds the extension is allowed to register card renderers for. */
+  cardKinds: ReadonlySet<string>;
   routesAllowed: boolean;
 }
 
@@ -71,6 +95,13 @@ export interface ResolvedRoute {
   extensionId: string;
   routePrefix: string;
   path: string;
+  element: string;
+  requiredPermission: string;
+}
+
+export interface ResolvedCard {
+  extensionId: string;
+  resourceKind: string;
   element: string;
   requiredPermission: string;
 }

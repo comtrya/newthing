@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_issues",
+  "name": "issues",
+  "displayName": "Issues",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "wasmComponent": "component.wat",
+  "platformWitVersion": "0.1.0",
+  "witWorld": "comtrya:platform/extension@0.1.0",
+  "perExtensionWit": "wit",
+  "ui": {
+    "manifest": "ui/manifest.json"
+  },
+  "routePrefix": "issues",
+  "runtime": {
+    "resolver": "resolve",
+    "outputType": "comtrya.issues/summary.v1"
+  },
+  "contributes": {
+    "resourceKinds": [
+      { "name": "issue", "prefix": "iss" }
+    ],
+    "cards": [
+      { "kind": "issue", "element": "comtrya-issue-card" }
+    ],
+    "slots": [
+      { "slot": "workspace.home.right", "element": "comtrya-issues-list", "priority": 200 }
+    ],
+    "routes": [
+      { "path": "/r/*/issues", "element": "comtrya-issues-page" }
+    ]
+  },
+  "hostImports": [
+    "storage.read",
+    "storage.write",
+    "relations.read",
+    "relations.write",
+    "events.read",
+    "events.write",
+    "identity",
+    "time",
+    "ids",
+    "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened"
+  ],
+  "allowedEventReads": [
+    "ext_pull_requests"
+  ],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

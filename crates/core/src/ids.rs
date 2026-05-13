@@ -7,7 +7,13 @@ const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Closed set of *core* ID prefixes, plus an `Owned` open variant for
+/// extension-owned kinds (e.g. `iss_`, `epc_`). The kernel never bakes in
+/// extension-owned prefixes; it just recognises the shape and treats them
+/// generically. (Note: `Check` is a pre-existing leak from before this
+/// model existed; a follow-up should move it to `Owned` once `ext_checks`
+/// is treated as a true extension-owned kind.)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IdPrefix {
     User,
     Team,
@@ -20,10 +26,15 @@ pub enum IdPrefix {
     Job,
     Event,
     Secret,
+    Relation,
+    Comment,
+    /// Extension-owned prefix, e.g. `iss_` or `epc_`. The trailing `_` is
+    /// part of the stored string.
+    Owned(String),
 }
 
 impl IdPrefix {
-    pub const fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Self::User => "usr_",
             Self::Team => "team_",
@@ -36,10 +47,17 @@ impl IdPrefix {
             Self::Job => "job_",
             Self::Event => "evt_",
             Self::Secret => "sec_",
+            Self::Relation => "rel_",
+            Self::Comment => "cmt_",
+            Self::Owned(value) => value.as_str(),
         }
     }
 
-    pub const fn resource_kind(self) -> &'static str {
+    /// The bare kind name (no trailing underscore). For `Owned("iss_")`
+    /// this is `"iss"` — the kernel doesn't know the human-facing kind
+    /// name for owned prefixes; the extension manifest carries that
+    /// mapping. Use only for diagnostics, not as a stable identifier.
+    pub fn resource_kind(&self) -> &str {
         match self {
             Self::User => "user",
             Self::Team => "team",
@@ -52,15 +70,20 @@ impl IdPrefix {
             Self::Job => "job",
             Self::Event => "event",
             Self::Secret => "secret",
+            Self::Relation => "relation",
+            Self::Comment => "comment",
+            Self::Owned(value) => value.strip_suffix('_').unwrap_or(value.as_str()),
         }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        let prefixes = [
+        let core: &[Self] = &[
             Self::Repository,
             Self::Workspace,
             Self::Extension,
             Self::Project,
+            Self::Relation,
+            Self::Comment,
             Self::Group,
             Self::Team,
             Self::Secret,
@@ -69,9 +92,18 @@ impl IdPrefix {
             Self::User,
             Self::Job,
         ];
-        prefixes
-            .into_iter()
-            .find(|prefix| value.starts_with(prefix.as_str()))
+        if let Some(found) = core.iter().find(|prefix| value.starts_with(prefix.as_str())) {
+            return Some(found.clone());
+        }
+        // Owned prefix: 2-8 lowercase ASCII letters followed by `_`.
+        let underscore = value.find('_')?;
+        if !(2..=8).contains(&underscore) {
+            return None;
+        }
+        if !value[..underscore].bytes().all(|b| b.is_ascii_lowercase()) {
+            return None;
+        }
+        Some(Self::Owned(value[..=underscore].to_string()))
     }
 }
 
@@ -111,6 +143,13 @@ impl OpaqueId {
 
     pub fn prefix(&self) -> IdPrefix {
         IdPrefix::parse(&self.0).expect("OpaqueId is validated at construction")
+    }
+
+    /// Convenience: just the prefix string, without re-allocating an
+    /// `IdPrefix` for `Owned` cases.
+    pub fn prefix_str(&self) -> &str {
+        let underscore = self.0.find('_').unwrap_or(0);
+        &self.0[..=underscore]
     }
 
     pub fn as_str(&self) -> &str {
@@ -256,5 +295,36 @@ mod tests {
         assert!(Slug::new(".git").is_err());
         assert!(Slug::new("Mixed").is_err());
         assert!(Slug::new("a/b").is_err());
+    }
+
+    #[test]
+    fn id_prefix_parses_owned_prefixes() {
+        let parsed = IdPrefix::parse("iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        assert_eq!(parsed, IdPrefix::Owned("iss_".to_string()));
+        assert_eq!(parsed.as_str(), "iss_");
+        assert_eq!(parsed.resource_kind(), "iss");
+    }
+
+    #[test]
+    fn opaque_id_accepts_owned_prefix_and_round_trips() {
+        let id = OpaqueId::from_str("epc_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        assert_eq!(id.prefix(), IdPrefix::Owned("epc_".to_string()));
+        assert_eq!(id.prefix_str(), "epc_");
+        // Round-trip a fresh id with the same prefix.
+        let fresh = OpaqueId::new(IdPrefix::Owned("epc_".to_string()));
+        assert!(fresh.as_str().starts_with("epc_"));
+        assert_eq!(OpaqueId::from_str(fresh.as_str()).unwrap(), fresh);
+    }
+
+    #[test]
+    fn id_prefix_parse_rejects_malformed_owned() {
+        // Too short (1 letter before `_`):
+        assert!(IdPrefix::parse("a_01HV0K4XAVE2H6R5M8KJZ8Q1A3").is_none());
+        // Too long (>8 letters):
+        assert!(IdPrefix::parse("verylongname_01HV0K4XAVE2H6R5M8KJZ8Q1A3").is_none());
+        // Non-lowercase:
+        assert!(IdPrefix::parse("Iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3").is_none());
+        // Missing underscore:
+        assert!(IdPrefix::parse("iss01HV0K4XAVE2H6R5M8KJZ8Q1A3").is_none());
     }
 }

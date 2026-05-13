@@ -1,0 +1,55 @@
+// ext_issues — per-extension WIT package.
+//
+// Depends on `comtrya:platform@0.1.0` for host imports. Exports an
+// `issues` interface declaring the ops this extension supports.
+// The kernel codegen reads this file at install time and produces the
+// GraphQL dispatch table + a typed TS client.
+
+package comtrya:ext-issues@0.1.0;
+
+interface issues {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  record issue {
+    %id: id,
+    repository: uri,
+    title: string,
+    body-markdown: string,
+    state: issue-state,
+    number: u64,
+    author-ref: uri,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+    closed-at: option<iso-timestamp>,
+    closed-by-ref: option<uri>,
+  }
+
+  variant issue-state {
+    open,
+    closed,
+    reopened,
+  }
+
+  record open-issue-input {
+    repository: uri,
+    title: string,
+    body-markdown: string,
+  }
+
+  record close-issue-input {
+    %id: id,
+    reason: option<string>,
+  }
+
+  open-issue: func(input: open-issue-input) -> result<issue, error>;
+  close-issue: func(input: close-issue-input) -> result<issue, error>;
+  reopen-issue: func(%id: id) -> result<issue, error>;
+  get-issue: func(%id: id) -> result<option<issue>, error>;
+  list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
+}
+
+world ext-issues {
+  // Inherit every host import + the reactor export from the platform.
+  include comtrya:platform/extension@0.1.0;
+  export issues;
+}

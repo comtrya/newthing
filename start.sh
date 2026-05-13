@@ -246,7 +246,7 @@ find_headless_browser() {
 assert_extension_browser_surfaces_render() {
   local evidence_file="$1"
   local browser_log="$2"
-  local graphql_file="$3"
+  local repo_path="$3"
   local browser_bin
   browser_bin="$(find_headless_browser)" || fail "extension browser smoke requires Chrome/Chromium or COMTRYA_BROWSER_BIN"
 
@@ -288,15 +288,12 @@ assert_extension_browser_surfaces_render() {
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [port, pageUrl, graphqlFile, outputFile] = process.argv.slice(1);
-const graphql = JSON.parse(fs.readFileSync(graphqlFile, "utf8")).data;
+const [port, pageUrl, outputFile] = process.argv.slice(1);
 
-const expected = {
-  filePath: graphql.repository.files[0]?.path,
-  diffPath: graphql.repository.diff?.path,
-  treeEntries: `${graphql.repository.treeEntries.length} tree entries`,
-  pullTitle: graphql.repository.pullRequests[0]?.title,
-  checkName: graphql.repository.checks[0]?.name,
+const expectedWidgets = {
+  "repository.overview": { tagName: "comtrya-pulls-overview",    label: "Repo · pulls overview", origin: "extension" },
+  "repository.code":     { tagName: "comtrya-core-code-browser", label: "Code · ",               origin: "core" },
+  "repository.checks":   { tagName: "comtrya-checks-board",      label: "Checks board",          origin: "extension" },
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -348,51 +345,40 @@ async function connect(target) {
   };
 }
 
-function collectExpression() {
-  return `(() => {
-    const surfaces = {};
-    for (const name of [
-      "extension-surface-code-browser",
-      "extension-surface-pull-requests",
-      "extension-surface-checks",
-    ]) {
-      const element = document.querySelector("[data-smoke=\\\"" + name + "\\\"]");
-      surfaces[name] = {
-        rendered: element?.dataset.extensionRendered ?? null,
-        text: element?.innerText || element?.textContent || "",
-      };
+const COLLECT_EXPRESSION = `(() => {
+  const slots = {};
+  for (const slot of ["repository.overview", "repository.code", "repository.checks"]) {
+    const mount = document.querySelector("[data-extension-slot-mount=\\\"" + slot + "\\\"]");
+    if (!mount) {
+      slots[slot] = { mounted: false };
+      continue;
     }
-    return {
-      mountedSlots: document.querySelector("#extension-slots")?.dataset.mountedSlots ?? null,
-      extensionIssues: document.querySelector("#extension-slots")?.dataset.extensionIssues ?? null,
-      hosts: Array.from(document.querySelectorAll("comtrya-extension-host")).map((host) => ({
-        slot: host.dataset.extensionSlot ?? null,
-        extension: host.dataset.extensionId ?? null,
-      })),
-      surfaces,
-      extensionPill: document.querySelector("#extension-pill")?.textContent ?? "",
-      readyPill: document.querySelector("#ready-pill")?.textContent ?? "",
+    const child = mount.firstElementChild;
+    slots[slot] = {
+      mounted: true,
+      tagName: child ? child.tagName.toLowerCase() : null,
+      text: (child && (child.innerText || child.textContent) || "").trim(),
     };
-  })()`;
-}
+  }
+  return {
+    bodyScope: document.body.dataset.scope ?? null,
+    repoId: document.body.dataset.repoId ?? null,
+    pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
+    slots,
+  };
+})()`;
 
 function evidenceIsReady(evidence) {
-  const slots = new Set(evidence.hosts.map((host) => host.slot));
-  return (
-    evidence.mountedSlots === "3" &&
-    evidence.extensionIssues === "0" &&
-    slots.has("repository.code") &&
-    slots.has("repository.overview") &&
-    slots.has("repository.checks") &&
-    evidence.surfaces["extension-surface-code-browser"]?.rendered === "non-empty" &&
-    evidence.surfaces["extension-surface-pull-requests"]?.rendered === "non-empty" &&
-    evidence.surfaces["extension-surface-checks"]?.rendered === "non-empty" &&
-    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.filePath) &&
-    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.diffPath) &&
-    evidence.surfaces["extension-surface-code-browser"]?.text.includes(expected.treeEntries) &&
-    evidence.surfaces["extension-surface-pull-requests"]?.text.includes(expected.pullTitle) &&
-    evidence.surfaces["extension-surface-checks"]?.text.includes(expected.checkName)
-  );
+  if (evidence.bodyScope !== "repository") return false;
+  if (!evidence.repoId) return false;
+  if (evidence.pageHeadSmoke !== "present") return false;
+  for (const [slot, expected] of Object.entries(expectedWidgets)) {
+    const got = evidence.slots?.[slot];
+    if (!got?.mounted) return false;
+    if (got.tagName !== expected.tagName) return false;
+    if (!got.text.includes(expected.label)) return false;
+  }
+  return true;
 }
 
 const target = await pageTarget();
@@ -406,7 +392,7 @@ try {
   const deadline = Date.now() + 20000;
   while (Date.now() < deadline) {
     const result = await cdp.send("Runtime.evaluate", {
-      expression: collectExpression(),
+      expression: COLLECT_EXPRESSION,
       returnByValue: true,
     });
     if (result.exceptionDetails) {
@@ -428,14 +414,14 @@ try {
     await sleep(250);
   }
   fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
-  throw new Error("mounted extension surfaces did not become ready");
+  throw new Error("repo dashboard extension slots did not become ready");
 } finally {
   cdp.close();
 }
-' "$debugging_port" "$FRONTEND_URL/" "$graphql_file" "$evidence_file"; then
+' "$debugging_port" "$FRONTEND_URL/r/$repo_path" "$evidence_file"; then
     kill "$browser_pid" >/dev/null 2>&1 || true
     wait "$browser_pid" >/dev/null 2>&1 || true
-    printf '\n[comtrya] headless browser host-path smoke failed with %s\n' "$browser_bin" >&2
+    printf '\n[comtrya] headless browser repo-dashboard smoke failed with %s\n' "$browser_bin" >&2
     printf '[comtrya] browser evidence:\n' >&2
     sed -n '1,220p' "$evidence_file" >&2 || true
     printf '[comtrya] browser log:\n' >&2
@@ -446,7 +432,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser host path mounted non-empty extension surfaces"
+  log "ok - browser repo dashboard mounted repository.* slot widgets"
 }
 
 wait_for_url() {
@@ -564,7 +550,7 @@ mkdir -p "$DATA_DIR/metadata"
 DEMO_STATE="$DATA_DIR/metadata/demo-state.json"
 if [[ "$RESET_DEMO_DATA" == "1" || ! -f "$DEMO_STATE" ]]; then
   cp "$DEMO_FIXTURE" "$DEMO_STATE"
-  reset_generated_path "$DATA_DIR/repositories/comtrya/comtrya.git"
+  reset_generated_path "$DATA_DIR/repositories"
   reset_generated_path "$DATA_DIR/metadata/demo-repository-workdir"
   reset_generated_path "$DATA_DIR/extensions/storage"
   log "seeded demo state: $DEMO_STATE"
@@ -580,6 +566,21 @@ if [[ "$TARGET_DIR" == /* ]]; then
 else
   SERVER_BIN="$ROOT_DIR/$TARGET_DIR/debug/comtrya-server"
 fi
+
+free_port() {
+  local addr="$1"
+  local pids
+  pids="$(lsof -t -nP -iTCP@"$addr" -sTCP:LISTEN 2>/dev/null || true)"
+  if [[ -n "$pids" ]]; then
+    log "killing leftover process on $addr: $pids"
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+    sleep 0.5
+  fi
+}
+
+free_port "$BACKEND_LISTEN"
+free_port "$FRONTEND_LISTEN"
 
 log "building comtrya-server"
 cargo build -p comtrya-server
@@ -614,7 +615,7 @@ wait_for_url "frontend shell" "$FRONTEND_URL/" 200
 expect_status "frontend shell" 200 "$TMP_DIR/frontend.html" \
   "$FRONTEND_URL/"
 expect_contains "frontend shell" "$TMP_DIR/frontend.html" "Comtrya"
-expect_contains "rendered UI through Astro" "$TMP_DIR/frontend.html" 'data-smoke="rendered-ui-live"'
+expect_contains "frontend shell mounts home-shell" "$TMP_DIR/frontend.html" 'data-smoke="home-shell"'
 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
@@ -651,9 +652,9 @@ json_assert "GraphQL viewer through Astro" "$TMP_DIR/graphql.json" \
 json_assert "GraphQL Git data through Astro" "$TMP_DIR/graphql.json" \
   'json.data.repository.path === "comtrya/comtrya" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
 json_assert "GraphQL storage data through Astro" "$TMP_DIR/graphql.json" \
-  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 3 && json.data.activityEvents.length > 0'
+  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 4 && json.data.activityEvents.length > 0'
 json_assert "GraphQL typed resolver data through Astro" "$TMP_DIR/graphql.json" \
-  'json.data.extensionResolvers.length === 3 && json.data.extensionResolvers.every((resolver) => resolver.status === "executed" && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_code_browser" && resolver.outputType === "comtrya.code-browser/summary.v1" && resolver.output.methods.includes("repository_refs") && resolver.output.blobPreviews === json.data.repository.blobs.length)'
+  'json.data.extensionResolvers.length === 5 && json.data.extensionResolvers.every((resolver) => resolver.status === "executed" && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_pull_requests" && resolver.outputType === "comtrya.pull-requests/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_workspace_home" && resolver.outputType === "comtrya.workspace-home/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_issues" && resolver.outputType === "comtrya.issues/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_epics" && resolver.outputType === "comtrya.epics/summary.v1")'
 json_assert "GraphQL demo convenience aggregate through Astro" "$TMP_DIR/graphql.json" \
   'json.data.demo.repository.headOid === json.data.repository.headOid'
 GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.headOid')"
@@ -666,10 +667,6 @@ log "seeded repository path: $DATA_DIR/repositories/comtrya/comtrya.git"
 log "seeded branches: $GRAPHQL_BRANCHES"
 log "installed extensions: $GRAPHQL_EXTENSIONS"
 json_value "$TMP_DIR/graphql.json" 'json.data.repository.diff.patch' >"$TMP_DIR/graphql-diff.patch"
-SSR_HEAD_OID="$(sed -n 's/.*data-smoke-head-oid="\([^"]*\)".*/\1/p' "$TMP_DIR/frontend.html" | head -n 1)"
-if [[ "$SSR_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
-  fail "rendered frontend headOid $SSR_HEAD_OID did not match GraphQL headOid $GRAPHQL_HEAD_OID"
-fi
 
 expect_status "event session through Astro" 200 "$TMP_DIR/events-session.json" \
   -X POST \
@@ -706,7 +703,7 @@ if (( SESSION_TTL_SECONDS <= 5 )); then
   if [[ -z "$EXPIRING_EVENT_SESSION" ]]; then
     fail "short-lived event session request did not return session"
   fi
-  sleep "$((SESSION_TTL_SECONDS + 1))"
+  sleep "$((SESSION_TTL_SECONDS + 2))"
   expect_status "expired event session fails closed through Astro" 401 "$TMP_DIR/events-expired.json" \
     "$FRONTEND_URL/events?session=$EXPIRING_EVENT_SESSION"
   json_assert "expired event session fails closed through Astro" "$TMP_DIR/events-expired.json" \
@@ -715,7 +712,7 @@ else
   log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
 fi
 
-for extension_id in ext_pull_requests ext_code_browser ext_checks; do
+for extension_id in ext_pull_requests ext_checks ext_issues ext_epics; do
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
@@ -731,9 +728,9 @@ for extension_id in ext_pull_requests ext_code_browser ext_checks; do
 
   expect_status "extension ${extension_id} manifest through Astro" 200 "$TMP_DIR/${extension_id}-manifest.json" \
     "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
-  expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v1"'
+  expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
   json_assert "extension ${extension_id} manifest declares mountable slots" "$TMP_DIR/${extension_id}-manifest.json" \
-    "json.id === \"$extension_id\" && json.slots.length > 0 && json.slots.every((slot) => slot.slot.startsWith(\"repository.\") && typeof slot.element === \"string\" && slot.element.length > 0)"
+    "json.id === \"$extension_id\" && Array.isArray(json.contributes && json.contributes.slots) && json.contributes.slots.length > 0 && json.contributes.slots.every((slot) => typeof slot === \"string\" && slot.length > 0)"
 
   expect_status "extension ${extension_id} asset session" 200 "$TMP_DIR/${extension_id}-asset-session.json" \
     -X POST \
@@ -757,9 +754,9 @@ if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \
     "$TMP_DIR/frontend-browser.log" \
-    "$TMP_DIR/graphql.json"
+    "comtrya/comtrya"
 else
-  log "skipping browser host path smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
+  log "skipping browser repo dashboard smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi
 
 expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
@@ -812,9 +809,6 @@ test -f "$GIT_SMOKE_CLONE/README.md" || fail "git clone did not fetch README.md"
 CLONED_HEAD_OID="$(git -C "$GIT_SMOKE_CLONE" rev-parse HEAD)"
 if [[ "$CLONED_HEAD_OID" != "$GRAPHQL_HEAD_OID" ]]; then
   fail "git clone HEAD $CLONED_HEAD_OID did not match GraphQL headOid $GRAPHQL_HEAD_OID"
-fi
-if [[ "$CLONED_HEAD_OID" != "$SSR_HEAD_OID" ]]; then
-  fail "git clone HEAD $CLONED_HEAD_OID did not match rendered frontend headOid $SSR_HEAD_OID"
 fi
 git -C "$GIT_SMOKE_CLONE" diff --patch --find-renames HEAD~1 HEAD \
   >"$TMP_DIR/git-diff.patch" || fail "git diff against cloned repository failed"
@@ -876,6 +870,16 @@ expect_status "/x/pulls/ mounts extension page" 200 "$TMP_DIR/ext-pulls.html" \
 expect_contains "/x/pulls/ has extension-page mount" "$TMP_DIR/ext-pulls.html" \
   'data-smoke="extension-page"'
 
+expect_status "/x/issues/ mounts extension page" 200 "$TMP_DIR/ext-issues.html" \
+  "$FRONTEND_URL/x/issues/"
+expect_contains "/x/issues/ has extension-page mount" "$TMP_DIR/ext-issues.html" \
+  'data-smoke="extension-page"'
+
+expect_status "/x/epics/ mounts extension page" 200 "$TMP_DIR/ext-epics.html" \
+  "$FRONTEND_URL/x/epics/"
+expect_contains "/x/epics/ has extension-page mount" "$TMP_DIR/ext-epics.html" \
+  'data-smoke="extension-page"'
+
 expect_status "unknown /x/ prefix returns 404" 404 "$TMP_DIR/ext-bogus.html" \
   "$FRONTEND_URL/x/bogus-not-installed/"
 
@@ -885,6 +889,391 @@ if ! echo "$INSTANCE_LOCATION" | grep -q '#instance'; then
   fail "/instance did not redirect to /#instance, got location: $INSTANCE_LOCATION"
 fi
 log "ok - /instance redirects to /#instance"
+
+expect_status "new-repo page renders" 200 "$TMP_DIR/new-repo.html" \
+  "$FRONTEND_URL/new"
+expect_contains "/new has new-repo-shell mount" "$TMP_DIR/new-repo.html" \
+  'data-smoke="new-repo-shell"'
+
+NEW_REPO_PATH="rawkode/hello/rawkode"
+expect_status "createRepository mutation through Astro" 200 "$TMP_DIR/create-repo.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path } } }\",\"variables\":{\"input\":{\"path\":\"$NEW_REPO_PATH\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "createRepository mutation returns nested-path repo" "$TMP_DIR/create-repo.json" \
+  "json.data.createRepository.repository.path === \"$NEW_REPO_PATH\" && json.data.createRepository.repository.id.startsWith(\"repo_\")"
+
+expect_status "newly-created nested repo path resolves" 200 "$TMP_DIR/new-repo-resolved.html" \
+  "$FRONTEND_URL/r/$NEW_REPO_PATH"
+expect_contains "newly-created nested repo path has repo-dashboard mount" "$TMP_DIR/new-repo-resolved.html" \
+  'data-smoke="repo-dashboard"'
+
+expect_status "createRepository conflict on duplicate path" 409 "$TMP_DIR/create-repo-dup.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id } } }\",\"variables\":{\"input\":{\"path\":\"$NEW_REPO_PATH\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "createRepository conflict carries CONFLICT code" "$TMP_DIR/create-repo-dup.json" \
+  'json.errors[0].extensions.code === "CONFLICT"'
+
+expect_status "createRepository rejects invalid path segment" 400 "$TMP_DIR/create-repo-bad.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"mutation($input: CreateRepositoryInput!) { createRepository(input: $input) { repository { id } } }","variables":{"input":{"path":"Bad/Segment"}}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "createRepository invalid-path carries BAD_USER_INPUT code" "$TMP_DIR/create-repo-bad.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+# ── Relations API ──────────────────────────────────────────────────────────
+RELATION_FROM="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B1"
+RELATION_TO="comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1B2"
+expect_status "relations.create writes a relation" 200 "$TMP_DIR/rel-create.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind from to } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.create returns the relation with rel_ id" "$TMP_DIR/rel-create.json" \
+  "json.data.relations.create.kind === \"comtrya://rel/part-of\" && json.data.relations.create.from === \"$RELATION_FROM\" && json.data.relations.create.to === \"$RELATION_TO\" && json.data.relations.create.id.startsWith(\"rel_\")"
+RELATION_ID="$(json_value "$TMP_DIR/rel-create.json" 'json.data.relations.create.id')"
+
+expect_status "relations.create is idempotent on (from,to,kind)" 200 "$TMP_DIR/rel-create-again.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.create is idempotent" "$TMP_DIR/rel-create-again.json" \
+  "json.data.relations.create.id === \"$RELATION_ID\""
+
+expect_status "relations.outgoing returns the relation" 200 "$TMP_DIR/rel-outgoing.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id to } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.outgoing is non-empty" "$TMP_DIR/rel-outgoing.json" \
+  "json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === \"$RELATION_TO\""
+
+expect_status "relations.incoming returns the relation" 200 "$TMP_DIR/rel-incoming.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$to: ResourceURN!) { relations.incoming(to: \$to) { id from } }\",\"variables\":{\"to\":\"$RELATION_TO\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.incoming is non-empty" "$TMP_DIR/rel-incoming.json" \
+  "json.data.relations.incoming.length === 1 && json.data.relations.incoming[0].from === \"$RELATION_FROM\""
+
+expect_status "relations.create rejects malformed verb URI" 400 "$TMP_DIR/rel-bad-verb.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"not-a-verb-uri\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "malformed verb is BAD_USER_INPUT" "$TMP_DIR/rel-bad-verb.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+expect_status "relations.create rejects self-link" 400 "$TMP_DIR/rel-self.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_FROM\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+
+SYM_LOW="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1A1"
+SYM_HIGH="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B9"
+expect_status "relations.create symmetric verb stores canonical direction" 200 "$TMP_DIR/rel-sym.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id from to } }\",\"variables\":{\"input\":{\"from\":\"$SYM_HIGH\",\"to\":\"$SYM_LOW\",\"kind\":\"comtrya://rel/relates-to\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "symmetric verb canonicalised (lex-smaller as from)" "$TMP_DIR/rel-sym.json" \
+  "json.data.relations.create.from === \"$SYM_LOW\" && json.data.relations.create.to === \"$SYM_HIGH\""
+
+expect_status "outgoing for symmetric verb finds the relation from either side" 200 "$TMP_DIR/rel-sym-outgoing.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/relates-to\\\") { id } }\",\"variables\":{\"from\":\"$SYM_HIGH\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "symmetric outgoing from non-canonical side still returns one" "$TMP_DIR/rel-sym-outgoing.json" \
+  'json.data.relations.outgoing.length === 1'
+
+expect_status "relations.delete removes the relation" 200 "$TMP_DIR/rel-delete.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: DeleteRelationInput!) { relations.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$RELATION_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.delete reports true" "$TMP_DIR/rel-delete.json" \
+  'json.data.relations.delete === true'
+
+expect_status "relations.outgoing after delete is empty" 200 "$TMP_DIR/rel-outgoing-after.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.outgoing now empty for the deleted side" "$TMP_DIR/rel-outgoing-after.json" \
+  'json.data.relations.outgoing.length === 0'
+
+# ── Comments API ────────────────────────────────────────────────────────────
+COMMENT_TARGET="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1C9"
+expect_status "comments.create on a target" 200 "$TMP_DIR/cmt-create.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id target parent bodyMarkdown } }\",\"variables\":{\"input\":{\"target\":\"$COMMENT_TARGET\",\"bodyMarkdown\":\"top-level comment\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "comment created with cmt_ id and matching target" "$TMP_DIR/cmt-create.json" \
+  "json.data.comments.create.target === \"$COMMENT_TARGET\" && json.data.comments.create.parent === null && json.data.comments.create.id.startsWith(\"cmt_\")"
+COMMENT_TOP_ID="$(json_value "$TMP_DIR/cmt-create.json" 'json.data.comments.create.id')"
+COMMENT_TOP_REF="comtrya://comment/$COMMENT_TOP_ID"
+
+expect_status "comments.create reply (nested)" 200 "$TMP_DIR/cmt-reply.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id parent } }\",\"variables\":{\"input\":{\"target\":\"$COMMENT_TARGET\",\"parent\":\"$COMMENT_TOP_REF\",\"bodyMarkdown\":\"reply body\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "reply carries the parent ref" "$TMP_DIR/cmt-reply.json" \
+  "json.data.comments.create.parent === \"$COMMENT_TOP_REF\""
+
+expect_status "comments.create rejects parent on a different target" 400 "$TMP_DIR/cmt-bad-parent.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"target\":\"comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1DD\",\"parent\":\"$COMMENT_TOP_REF\",\"bodyMarkdown\":\"wrong\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "wrong-target parent rejected" "$TMP_DIR/cmt-bad-parent.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+expect_status "comments.thread returns both comments in order" 200 "$TMP_DIR/cmt-thread.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$target: ResourceURN!) { comments.thread(target: \$target) { id parent bodyMarkdown } }\",\"variables\":{\"target\":\"$COMMENT_TARGET\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "thread has two comments, parent is the top one" "$TMP_DIR/cmt-thread.json" \
+  "json.data.comments.thread.length === 2 && json.data.comments.thread[0].id === \"$COMMENT_TOP_ID\" && json.data.comments.thread[1].parent === \"$COMMENT_TOP_REF\""
+
+expect_status "comments.update edits body" 200 "$TMP_DIR/cmt-update.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: UpdateCommentInput!) { comments.update(input: \$input) { id bodyMarkdown editedAt } }\",\"variables\":{\"input\":{\"id\":\"$COMMENT_TOP_ID\",\"bodyMarkdown\":\"edited body\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "comment body updated and editedAt set" "$TMP_DIR/cmt-update.json" \
+  'json.data.comments.update.bodyMarkdown === "edited body" && typeof json.data.comments.update.editedAt === "string"'
+
+expect_status "comments.delete removes the comment" 200 "$TMP_DIR/cmt-delete.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: DeleteCommentInput!) { comments.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$COMMENT_TOP_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "comments.delete returns true" "$TMP_DIR/cmt-delete.json" \
+  'json.data.comments.delete === true'
+
+# ── ext_issues end-to-end ──────────────────────────────────────────────────
+expect_status "issues.create with workspace + title" 200 "$TMP_DIR/iss-create.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id workspaceId number title state } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"first issue\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
+  'json.data.issues.create.id.startsWith("iss_") && json.data.issues.create.number === 1 && json.data.issues.create.state === "OPEN"'
+ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.data.issues.create.id')"
+
+expect_status "issues.create increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id number } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"second issue\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
+  'json.data.issues.create.number === 2'
+
+expect_status "issues.create rejects empty title" 400 "$TMP_DIR/iss-bad.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"   "}}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "empty title is BAD_USER_INPUT" "$TMP_DIR/iss-bad.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+expect_status "issues.list returns the issues, newest first" 200 "$TMP_DIR/iss-list.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"query($workspaceId: ID) { issues.list(workspaceId: $workspaceId) { id number state } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "list returns 2 OPEN issues, latest number first" "$TMP_DIR/iss-list.json" \
+  'json.data.issues.list.length === 2 && json.data.issues.list[0].number === 2 && json.data.issues.list[1].number === 1 && json.data.issues.list.every((i) => i.state === "OPEN")'
+
+expect_status "issues.byNumber resolves" 200 "$TMP_DIR/iss-by-num.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"query($workspaceId: ID!, $number: Int!) { issues.byNumber(workspaceId: $workspaceId, number: $number) { id title } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","number":1}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "byNumber returns the first issue by id" "$TMP_DIR/iss-by-num.json" \
+  "json.data.issues.byNumber.id === \"$ISSUE_ONE_ID\""
+
+expect_status "issues.close transitions to CLOSED" 200 "$TMP_DIR/iss-close.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CloseIssueInput!) { issues.close(input: \$input) { id state stateReason closedAt } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_ONE_ID\",\"reason\":\"completed\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "issue is now CLOSED with reason completed and closedAt set" "$TMP_DIR/iss-close.json" \
+  'json.data.issues.close.state === "CLOSED" && json.data.issues.close.stateReason === "completed" && typeof json.data.issues.close.closedAt === "string"'
+
+expect_status "issues.reopen returns to OPEN" 200 "$TMP_DIR/iss-reopen.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: ReopenIssueInput!) { issues.reopen(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_ONE_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "issue is back to OPEN" "$TMP_DIR/iss-reopen.json" \
+  'json.data.issues.reopen.state === "OPEN"'
+
+expect_status "issues.byRefs batch returns parallel array" 200 "$TMP_DIR/iss-by-refs.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$refs: [ResourceURN!]!) { issues.byRefs(refs: \$refs) { id state } }\",\"variables\":{\"refs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"]}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "batch is two entries, first found, second null" "$TMP_DIR/iss-by-refs.json" \
+  "json.data.issues.byRefs.length === 2 && json.data.issues.byRefs[0].id === \"$ISSUE_ONE_ID\" && json.data.issues.byRefs[1] === null"
+
+expect_status "issues.stateCountsForRefs aggregates" 200 "$TMP_DIR/iss-counts.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$refs: [ResourceURN!]!) { issues.stateCountsForRefs(refs: \$refs) { open closed } }\",\"variables\":{\"refs\":[\"comtrya://issue/$ISSUE_ONE_ID\"]}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "counts: 1 open, 0 closed" "$TMP_DIR/iss-counts.json" \
+  'json.data.issues.stateCountsForRefs.open === 1 && json.data.issues.stateCountsForRefs.closed === 0'
+
+expect_status "issues.create with atomic part-of link to an epic" 200 "$TMP_DIR/iss-with-epic.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"linked to epic\",\"epicRef\":\"comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0\"}}}" \
+  "$FRONTEND_URL/graphql"
+ISSUE_LINKED_ID="$(json_value "$TMP_DIR/iss-with-epic.json" 'json.data.issues.create.id')"
+
+expect_status "relations.outgoing shows the atomic part-of link" 200 "$TMP_DIR/iss-rel.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/part-of\\\") { to } }\",\"variables\":{\"from\":\"comtrya://issue/$ISSUE_LINKED_ID\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "outgoing part-of points at the epic URI" "$TMP_DIR/iss-rel.json" \
+  'json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === "comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0"'
+
+# ── ext_epics end-to-end + cross-extension composition ─────────────────────
+expect_status "epics.create" 200 "$TMP_DIR/epc-create.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"mutation($input: CreateEpicInput!) { epics.create(input: $input) { id workspaceId title state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"Q4 platform launch","bodyMarkdown":"big stuff"}}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "epic created with epc_ id, state=PLANNED" "$TMP_DIR/epc-create.json" \
+  'json.data.epics.create.id.startsWith("epc_") && json.data.epics.create.state === "PLANNED"'
+EPIC_ROOT_ID="$(json_value "$TMP_DIR/epc-create.json" 'json.data.epics.create.id')"
+EPIC_ROOT_REF="comtrya://epic/$EPIC_ROOT_ID"
+
+expect_status "epics.create with parentEpicRef writes atomic part-of" 200 "$TMP_DIR/epc-child.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateEpicInput!) { epics.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"child epic\",\"parentEpicRef\":\"$EPIC_ROOT_REF\"}}}" \
+  "$FRONTEND_URL/graphql"
+EPIC_CHILD_ID="$(json_value "$TMP_DIR/epc-child.json" 'json.data.epics.create.id')"
+
+expect_status "epics.childrenOf returns the child epic" 200 "$TMP_DIR/epc-children.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.childrenOf(ref: \$ref) }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "childrenOf has the child epic URI" "$TMP_DIR/epc-children.json" \
+  "json.data.epics.childrenOf.length === 1 && json.data.epics.childrenOf[0] === \"comtrya://epic/$EPIC_CHILD_ID\""
+
+# Link two new issues (one OPEN, one will be CLOSED) into the root epic
+expect_status "issue A linked to root epic" 200 "$TMP_DIR/epc-iss-a.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"A\",\"epicRef\":\"$EPIC_ROOT_REF\"}}}" \
+  "$FRONTEND_URL/graphql"
+ISSUE_A_ID="$(json_value "$TMP_DIR/epc-iss-a.json" 'json.data.issues.create.id')"
+expect_status "issue B linked to root epic" 200 "$TMP_DIR/epc-iss-b.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"B\",\"epicRef\":\"$EPIC_ROOT_REF\"}}}" \
+  "$FRONTEND_URL/graphql"
+ISSUE_B_ID="$(json_value "$TMP_DIR/epc-iss-b.json" 'json.data.issues.create.id')"
+
+expect_status "close issue B" 200 "$TMP_DIR/epc-close-b.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CloseIssueInput!) { issues.close(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_B_ID\",\"reason\":\"completed\"}}}" \
+  "$FRONTEND_URL/graphql"
+
+expect_status "epics.issuesIn returns both linked issues" 200 "$TMP_DIR/epc-issues-in.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.issuesIn(ref: \$ref) }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "issuesIn has the two issue URIs" "$TMP_DIR/epc-issues-in.json" \
+  "json.data.epics.issuesIn.length === 2 && json.data.epics.issuesIn.includes(\"comtrya://issue/$ISSUE_A_ID\") && json.data.epics.issuesIn.includes(\"comtrya://issue/$ISSUE_B_ID\")"
+
+expect_status "epics.progress aggregates across issues and child epics" 200 "$TMP_DIR/epc-progress.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.progress(ref: \$ref) { issuesOpen issuesClosed childEpicsOpen childEpicsClosed percentComplete } }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "progress is 1 open issue + 1 closed issue + 1 open child epic = 33%" "$TMP_DIR/epc-progress.json" \
+  'json.data.epics.progress.issuesOpen === 1 && json.data.epics.progress.issuesClosed === 1 && json.data.epics.progress.childEpicsOpen === 1 && json.data.epics.progress.childEpicsClosed === 0 && json.data.epics.progress.percentComplete === 33'
+
+expect_status "epics.changeState to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: ChangeEpicStateInput!) { epics.changeState(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "child epic state is DONE" "$TMP_DIR/epc-state.json" \
+  'json.data.epics.changeState.state === "DONE"'
+
+expect_status "epics.list returns both epics for the workspace" 200 "$TMP_DIR/epc-list.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"query($workspaceId: ID!) { epics.list(workspaceId: $workspaceId) { id state } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "list has 2 epics" "$TMP_DIR/epc-list.json" \
+  'json.data.epics.list.length === 2'
+
+expect_status "epics.changeState rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: ChangeEpicStateInput!) { epics.changeState(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$EPIC_ROOT_ID\",\"state\":\"GREEN\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "unknown state rejected as BAD_USER_INPUT" "$TMP_DIR/epc-bad-state.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+# ── ext_pull_requests upgrade + auto-close-on-merge reactor ───────────────
+expect_status "issues.create for reactor target" 200 "$TMP_DIR/rx-issue.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor target"}}}' \
+  "$FRONTEND_URL/graphql"
+REACTOR_ISSUE_ID="$(json_value "$TMP_DIR/rx-issue.json" 'json.data.issues.create.id')"
+
+expect_status "pulls.create" 200 "$TMP_DIR/rx-pr.json" \
+  -H "content-type: application/json" \
+  --data '{"query":"mutation($input: CreatePullRequestInput!) { pulls.create(input: $input) { id state head } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor PR","head":"feature/x"}}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "pr created with pul_ id and DRAFT state" "$TMP_DIR/rx-pr.json" \
+  'json.data.pulls.create.id.startsWith("pul_") && json.data.pulls.create.state === "DRAFT"'
+REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.data.pulls.create.id')"
+REACTOR_PR_REF="comtrya://pull_request/$REACTOR_PR_ID"
+REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
+
+expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind } }\",\"variables\":{\"input\":{\"from\":\"$REACTOR_PR_REF\",\"to\":\"$REACTOR_ISSUE_REF\",\"kind\":\"comtrya://rel/com.comtrya.pulls/closes\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "closes relation written" "$TMP_DIR/rx-rel.json" \
+  'json.data.relations.create.kind === "comtrya://rel/com.comtrya.pulls/closes"'
+
+expect_status "pulls.merge transitions to MERGED" 200 "$TMP_DIR/rx-merge.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: MergePullRequestInput!) { pulls.merge(input: \$input) { id state mergedAt } }\",\"variables\":{\"input\":{\"id\":\"$REACTOR_PR_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "pr is MERGED with mergedAt timestamp" "$TMP_DIR/rx-merge.json" \
+  'json.data.pulls.merge.state === "MERGED" && typeof json.data.pulls.merge.mergedAt === "string"'
+
+# Reactor dispatch is synchronous (in-process) inside append_event, so by
+# the time the merge mutation has returned, the auto-close has happened.
+expect_status "issues.byRef shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$ref: ResourceURN!) { issues.byRef(ref: \$ref) { id state stateReason closedByRef } }\",\"variables\":{\"ref\":\"$REACTOR_ISSUE_REF\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "issue is now CLOSED with reason=completed and closedByRef=PR" "$TMP_DIR/rx-issue-after.json" \
+  "json.data.issues.byRef.state === \"CLOSED\" && json.data.issues.byRef.stateReason === \"completed\" && json.data.issues.byRef.closedByRef === \"$REACTOR_PR_REF\""
+
+expect_status "pulls.close rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: ClosePullRequestInput!) { pulls.close(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$REACTOR_PR_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+
+IMPORT_REPO_PATH="imported/comtrya-mirror"
+IMPORT_SOURCE_URL="file://$DATA_DIR/repositories/comtrya/comtrya.git"
+expect_status "importRepository (clone) mutation through Astro" 200 "$TMP_DIR/import-repo.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path defaultBranch importedFrom } } }\",\"variables\":{\"input\":{\"path\":\"$IMPORT_REPO_PATH\",\"cloneFromUrl\":\"$IMPORT_SOURCE_URL\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "imported repo carries clone source and inferred default branch" "$TMP_DIR/import-repo.json" \
+  "json.data.createRepository.repository.path === \"$IMPORT_REPO_PATH\" && json.data.createRepository.repository.defaultBranch === \"main\" && json.data.createRepository.repository.importedFrom === \"$IMPORT_SOURCE_URL\""
+
+expect_status "imported repo path resolves" 200 "$TMP_DIR/import-repo-resolved.html" \
+  "$FRONTEND_URL/r/$IMPORT_REPO_PATH"
+expect_contains "imported repo path has repo-dashboard mount" "$TMP_DIR/import-repo-resolved.html" \
+  'data-smoke="repo-dashboard"'
+
+log "checking imported repo is reachable through Git smart HTTP"
+git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
+  ls-remote "$FRONTEND_URL/git/$IMPORT_REPO_PATH.git" \
+  >"$TMP_DIR/git-imported-ls-remote.log" 2>&1 || {
+  sed -n '1,160p' "$TMP_DIR/git-imported-ls-remote.log" >&2 || true
+  fail "git ls-remote on imported repo failed"
+}
+if ! grep -Fq $'\trefs/heads/main' "$TMP_DIR/git-imported-ls-remote.log"; then
+  printf '[comtrya] imported repo missing refs/heads/main:\n' >&2
+  sed -n '1,160p' "$TMP_DIR/git-imported-ls-remote.log" >&2 || true
+  exit 1
+fi
+log "ok - imported repo serves refs via /git/$IMPORT_REPO_PATH.git"
+
+expect_status "repositoryByPath returns code-browser data for imported repo" 200 "$TMP_DIR/imported-repo-files.json" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$segments: [String!]!) { workspace { repositoryByPath(segments: \$segments) { id path defaultBranch files { path size kind } } } }\",\"variables\":{\"segments\":[\"imported\",\"comtrya-mirror\"]}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "imported repo exposes a non-empty file tree via repositoryByPath" "$TMP_DIR/imported-repo-files.json" \
+  'json.data.workspace.repositoryByPath && Array.isArray(json.data.workspace.repositoryByPath.files) && json.data.workspace.repositoryByPath.files.length > 0 && json.data.workspace.repositoryByPath.files.some((f) => f.path === "README.md")'
 
 log "end-to-end production-testbed smoke passed"
 

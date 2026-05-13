@@ -1,0 +1,55 @@
+// ext_pull_requests — per-extension WIT.
+//
+// PR state machine: DRAFT → READY → MERGED | CLOSED. The reactor
+// listens for `dev.comtrya.pull-requests.merged` events emitted by this
+// extension and calls `ext_issues/issues/close-issue` for every linked
+// issue via `ops.invoke` (the auto-close-on-merge story).
+
+package comtrya:ext-pull-requests@0.1.0;
+
+interface pull-requests {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  variant pr-state {
+    draft,
+    ready,
+    merged,
+    closed,
+  }
+
+  record pull-request {
+    %id: id,
+    repository: uri,
+    number: u64,
+    title: string,
+    state: pr-state,
+    author-ref: uri,
+    head-ref: string,
+    base-ref: string,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+    merged-at: option<iso-timestamp>,
+  }
+
+  record open-pr-input {
+    repository: uri,
+    title: string,
+    head-ref: string,
+    base-ref: string,
+  }
+
+  record transition-pr-input {
+    %id: id,
+    %to: pr-state,
+  }
+
+  open-pr: func(input: open-pr-input) -> result<pull-request, error>;
+  transition-pr: func(input: transition-pr-input) -> result<pull-request, error>;
+  get-pr: func(%id: id) -> result<option<pull-request>, error>;
+  list-prs: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
+}
+
+world ext-pull-requests {
+  include comtrya:platform/extension@0.1.0;
+  export pull-requests;
+}

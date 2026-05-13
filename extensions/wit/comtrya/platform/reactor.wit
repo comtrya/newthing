@@ -1,0 +1,62 @@
+// Reactor — the only export the platform world requires. Extensions
+// that don't react return an empty list from `subscribed-event-types`;
+// the kernel skips them entirely for dispatch.
+//
+// Reactions in 0.1.0 are *independent*: failures are logged and the next
+// reaction proceeds; later reactions cannot observe the outcomes of
+// earlier ones. Multi-step pipelines should be modelled by emitting an
+// event from one reaction that a downstream extension subscribes to.
+
+interface reactor {
+  use types.{event, event-pattern, op-name, error};
+
+  record mutation-call {
+    /// Either `<extension-id>/<op-name>` (cross-extension) or just
+    /// `<op-name>` (calling an op on the same extension).
+    name: op-name,
+    /// JSON-encoded input matching the target op's WIT input record.
+    /// Named `payload` for consistency with `ops.invoke`.
+    payload: list<u8>,
+  }
+
+  record emit-call {
+    event-type: string,
+    payload: list<u8>,
+  }
+
+  /// A reaction the extension wants the kernel to perform. An empty
+  /// reaction list means "this event is acknowledged but I have nothing
+  /// to do" — there is no explicit no-op marker.
+  variant reaction {
+    invoke-mutation(mutation-call),
+    emit-event(emit-call),
+  }
+
+  /// Called once at extension load time. Returned patterns become the
+  /// kernel's dispatch filter for this extension; the kernel rejects an
+  /// extension whose patterns do not parse (`bad-input`). To change
+  /// subscriptions an extension must be reloaded.
+  ///
+  /// The kernel invokes this on a dedicated init-time component
+  /// instance whose result is cached for the lifetime of the
+  /// installation.
+  subscribed-event-types: func() -> result<list<event-pattern>, error>;
+
+  /// Called once per matching event.
+  ///
+  /// Returning `err(...)` signals a processing failure: the kernel logs
+  /// the error and may schedule a retry depending on its delivery
+  /// policy. Returning `ok([])` signals successful acknowledgement with
+  /// no reactions.
+  ///
+  /// Kernel-enforced contract:
+  ///   * each `invoke-mutation.name` is in the manifest's
+  ///     `reactor.allowed-mutations`;
+  ///   * each `emit-event.event-type` is in `reactor.allowed-emits`;
+  ///   * the per-event reactor recursion depth (events emitted by
+  ///     reactions that themselves have reactors) is capped at 8;
+  ///     reactions emitted at depth 8 are dropped and a
+  ///     `comtrya.kernel.reaction-depth-exceeded` event is appended for
+  ///     observability.
+  on-event: func(triggering-event: event) -> result<list<reaction>, error>;
+}

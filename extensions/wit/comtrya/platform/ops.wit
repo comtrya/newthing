@@ -1,0 +1,38 @@
+// Cross-extension op invocation. Extension A calls an op exported by
+// extension B by name; the kernel acts as broker:
+//
+//   1. checks A's manifest declares `allowed-cross-calls` containing
+//      `<target>/<op-name>`;
+//   2. validates the payload bytes against B's WIT-declared input
+//      schema for that op;
+//   3. invokes B's WASM with the validated input;
+//   4. returns the result bytes (validated against B's output schema).
+//
+// This is how the auto-close-on-merge reactor in ext_pull_requests calls
+// `issues.close` in ext_issues.
+//
+// The payload erasure (`list<u8>`) is deliberate — it keeps the kernel
+// as the sole trust boundary for cross-extension dispatch. Phase 3
+// codegen produces a typed wrapper per entry in `allowed-cross-calls`
+// in each language SDK, so authors never call `invoke` raw; the wrapper
+// serialises a typed input record on the way in and deserialises the
+// typed output record on the way out.
+//
+// The kernel enforces a synchronous-call-stack depth cap of 32 across
+// nested `ops.invoke` chains. Exceeding it returns `unavailable`. The
+// cap is independent of the reactor recursion cap.
+
+interface ops {
+  use types.{extension-id, op-name, error};
+
+  /// Invoke a named op on another extension. `target-extension` is the
+  /// extension id (e.g. `ext_issues`); `op` is the kebab-case op name
+  /// as declared in the target's WIT (e.g. `issues.close`). `payload`
+  /// is JSON bytes matching the target's input record. Returns JSON
+  /// bytes matching the target's output record.
+  invoke: func(
+    target-extension: extension-id,
+    %op: op-name,
+    payload: list<u8>,
+  ) -> result<list<u8>, error>;
+}

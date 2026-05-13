@@ -7,8 +7,8 @@ use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
 use comtrya_core::{
     ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, ExtensionInstallConfig,
-    ExtensionSource, InstanceCapabilities, InstanceConfig, OciReference, RepoStorageBackend,
-    ResourceRef, TokenAction, allowed_methods_for_route,
+    ExtensionSource, IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId,
+    RepoStorageBackend, ResourceKind, ResourceRef, Slug, TokenAction, allowed_methods_for_route,
 };
 use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 use wasmtime::component::{Component, Linker};
 use wasmtime::{Engine, Store};
+
+mod wasm_host;
 
 #[derive(Clone)]
 struct PureRustGitState {
@@ -272,6 +274,8 @@ struct WasmtimeResolverRecord {
     root: PathBuf,
     #[serde(skip)]
     ui_manifest: PathBuf,
+    #[serde(skip)]
+    route_prefix: Option<String>,
 }
 
 #[derive(Debug)]
@@ -437,6 +441,1166 @@ impl Runtime {
         }
     }
 
+    /// Look up the verb's symmetry rule, falling back to asymmetric for
+    /// extension-minted verbs the kernel doesn't know.
+    fn verb_is_symmetric(verb_uri: &str) -> bool {
+        CORE_VERBS
+            .iter()
+            .find(|v| v.uri == verb_uri)
+            .map(|v| v.symmetric)
+            .unwrap_or(false)
+    }
+
+    /// Canonical direction for symmetric verbs: lex-smaller URI as `from`.
+    /// Asymmetric verbs pass through unchanged.
+    fn canonicalize_relation_endpoints(
+        from: &str,
+        to: &str,
+        verb_uri: &str,
+    ) -> (String, String) {
+        if Self::verb_is_symmetric(verb_uri) && from > to {
+            (to.to_string(), from.to_string())
+        } else {
+            (from.to_string(), to.to_string())
+        }
+    }
+
+    fn create_relation(
+        &self,
+        from: &str,
+        to: &str,
+        verb_uri: &str,
+        attributes: Option<&Value>,
+    ) -> Result<Value, String> {
+        // Adversarial-input caps.
+        const MAX_URI_LEN: usize = 2048;
+        const MAX_ATTRIBUTES_BYTES: usize = 16 * 1024;
+        if from.len() > MAX_URI_LEN || to.len() > MAX_URI_LEN || verb_uri.len() > MAX_URI_LEN {
+            return Err(format!(
+                "relation URIs and verbs must each be at most {MAX_URI_LEN} bytes"
+            ));
+        }
+        if let Some(attrs) = attributes {
+            let serialized = serde_json::to_vec(attrs)
+                .map_err(|e| format!("relation attributes are not serializable: {e}"))?;
+            if serialized.len() > MAX_ATTRIBUTES_BYTES {
+                return Err(format!(
+                    "relation attributes must be at most {MAX_ATTRIBUTES_BYTES} bytes when serialised"
+                ));
+            }
+        }
+        // Validate URIs and verb shape.
+        ResourceRef::parse(from)
+            .map_err(|e| format!("relation `from` is not a valid URI: {}", e.message))?;
+        ResourceRef::parse(to)
+            .map_err(|e| format!("relation `to` is not a valid URI: {}", e.message))?;
+        validate_verb_uri(verb_uri)?;
+        if from == to {
+            return Err("relation `from` and `to` must differ".to_string());
+        }
+        // NOTE (deferred): the dedup check below is racy across concurrent
+        // creates because load_records → check → write_records_atomically
+        // isn't a single transaction. In production-testbed (single
+        // operator, low concurrency) duplicates are very unlikely; a
+        // proper fix moves the (from,to,kind) uniqueness invariant into
+        // the storage layer behind the write lock.
+
+        let (canon_from, canon_to) = Self::canonicalize_relation_endpoints(from, to, verb_uri);
+
+        // Idempotency: return any existing relation matching (canon_from, canon_to, verb).
+        let existing = self.extension_storage.collection_data("relations")?;
+        if let Some(array) = existing.as_array() {
+            for rel in array {
+                let same_from = rel.get("from").and_then(Value::as_str) == Some(canon_from.as_str());
+                let same_to = rel.get("to").and_then(Value::as_str) == Some(canon_to.as_str());
+                let same_kind = rel.get("kind").and_then(Value::as_str) == Some(verb_uri);
+                if same_from && same_to && same_kind {
+                    return Ok(rel.clone());
+                }
+            }
+        }
+
+        let rel_id = OpaqueId::new(IdPrefix::Relation);
+        let now_iso = chrono_now_iso();
+        let data = json!({
+            "id": rel_id.as_str(),
+            "kind": verb_uri,
+            "from": canon_from,
+            "to": canon_to,
+            "attributes": attributes.cloned().unwrap_or_else(|| json!({})),
+            "createdAt": now_iso,
+        });
+        let rel_ref = format!("comtrya://relation/{}", rel_id.as_str());
+        let record = extension_document_record(
+            "core",
+            "relations",
+            rel_id.as_str(),
+            &rel_ref,
+            vec![rel_ref.clone(), canon_from.clone(), canon_to.clone()],
+            data.clone(),
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)?;
+
+        let _ = self.append_event(
+            "dev.comtrya.relation.created",
+            json!({
+                "relationID": rel_id.as_str(),
+                "kind": verb_uri,
+                "from": canon_from,
+                "to": canon_to,
+            }),
+        );
+
+        Ok(data)
+    }
+
+    fn delete_relation(&self, id: &str) -> Result<bool, String> {
+        let relations = self.extension_storage.collection_data("relations")?;
+        let target = relations
+            .as_array()
+            .and_then(|array| {
+                array
+                    .iter()
+                    .find(|rel| rel.get("id").and_then(Value::as_str) == Some(id))
+                    .cloned()
+            });
+        let Some(target) = target else { return Ok(false); };
+        self.extension_storage.delete_document("relations", id)?;
+        let _ = self.append_event(
+            "dev.comtrya.relation.deleted",
+            json!({
+                "relationID": id,
+                "kind": target.get("kind"),
+                "from": target.get("from"),
+                "to": target.get("to"),
+            }),
+        );
+        Ok(true)
+    }
+
+    /// Relations whose `from` endpoint is `ref_uri`. For symmetric verbs,
+    /// also includes relations whose `to` endpoint is `ref_uri` (since
+    /// canonical-direction storage may have swapped them).
+    fn relations_outgoing(&self, ref_uri: &str, kind_filter: Option<&str>) -> Result<Vec<Value>, String> {
+        let relations = self.extension_storage.collection_data("relations")?;
+        let mut out = Vec::new();
+        if let Some(array) = relations.as_array() {
+            for rel in array {
+                let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
+                if let Some(filter) = kind_filter {
+                    if verb != filter {
+                        continue;
+                    }
+                }
+                let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
+                let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
+                let symmetric = Self::verb_is_symmetric(verb);
+                if from == ref_uri || (symmetric && to == ref_uri) {
+                    out.push(rel.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn relations_incoming(&self, ref_uri: &str, kind_filter: Option<&str>) -> Result<Vec<Value>, String> {
+        let relations = self.extension_storage.collection_data("relations")?;
+        let mut out = Vec::new();
+        if let Some(array) = relations.as_array() {
+            for rel in array {
+                let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
+                if let Some(filter) = kind_filter {
+                    if verb != filter {
+                        continue;
+                    }
+                }
+                let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
+                let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
+                let symmetric = Self::verb_is_symmetric(verb);
+                if to == ref_uri || (symmetric && from == ref_uri) {
+                    out.push(rel.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    fn relations_between(
+        &self,
+        from: &str,
+        to: &str,
+        kind_filter: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        let relations = self.extension_storage.collection_data("relations")?;
+        let mut out = Vec::new();
+        if let Some(array) = relations.as_array() {
+            for rel in array {
+                let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
+                if let Some(filter) = kind_filter {
+                    if verb != filter {
+                        continue;
+                    }
+                }
+                let rfrom = rel.get("from").and_then(Value::as_str).unwrap_or("");
+                let rto = rel.get("to").and_then(Value::as_str).unwrap_or("");
+                let symmetric = Self::verb_is_symmetric(verb);
+                let matches_forward = rfrom == from && rto == to;
+                let matches_reverse = symmetric && rfrom == to && rto == from;
+                if matches_forward || matches_reverse {
+                    out.push(rel.clone());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    // ── Pull requests (ext_pull_requests-owned) ────────────────────────
+    fn next_pull_request_number(&self, workspace_id: &str) -> Result<u64, String> {
+        let prs = self.extension_storage.collection_data("pull_requests")?;
+        let max = prs
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|p| {
+                        // Either explicitly carry workspaceId, or are seeded
+                        // demo PRs that we treat as belonging to the singleton
+                        // workspace.
+                        p.get("workspaceId")
+                            .and_then(Value::as_str)
+                            .map(|w| w == workspace_id)
+                            .unwrap_or(true)
+                    })
+                    .filter_map(|p| p.get("number").and_then(Value::as_u64))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        Ok(max + 1)
+    }
+
+    fn create_pull_request(
+        &self,
+        workspace_id: &str,
+        repository_id: Option<&str>,
+        title: &str,
+        body_markdown: &str,
+        base: &str,
+        head: &str,
+        author_ref: &str,
+    ) -> Result<Value, String> {
+        const MAX_TITLE: usize = 512;
+        const MAX_BODY: usize = 64 * 1024;
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("pull-request title must not be empty".to_string());
+        }
+        if title.len() > MAX_TITLE {
+            return Err(format!("title must be at most {MAX_TITLE} bytes"));
+        }
+        if body_markdown.len() > MAX_BODY {
+            return Err(format!("body must be at most {MAX_BODY} bytes"));
+        }
+        if base.is_empty() || head.is_empty() {
+            return Err("base and head branches must be non-empty".to_string());
+        }
+        let pr_id = OpaqueId::new(IdPrefix::Owned("pul_".to_string()));
+        let number = self.next_pull_request_number(workspace_id)?;
+        let now_iso = chrono_now_iso();
+        let pr_ref = format!("comtrya://pull_request/{}", pr_id.as_str());
+        let data = json!({
+            "id": pr_id.as_str(),
+            "workspaceId": workspace_id,
+            "repositoryId": repository_id,
+            "number": number,
+            "title": title,
+            "bodyMarkdown": body_markdown,
+            "state": "DRAFT",
+            "base": base,
+            "head": head,
+            "authorRef": author_ref,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "mergedAt": Value::Null,
+            "closedAt": Value::Null,
+        });
+        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
+        let mut refs = vec![pr_ref.clone(), workspace_uri];
+        if let Some(repo) = repository_id {
+            refs.push(format!("comtrya://repository/{}", repo));
+        }
+        let record = extension_document_record(
+            "ext_pull_requests",
+            "pull_requests",
+            pr_id.as_str(),
+            &pr_ref,
+            refs,
+            data.clone(),
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)?;
+        let _ = self.append_event(
+            "dev.comtrya.pull-request.created",
+            json!({
+                "pullRequestRef": pr_ref,
+                "workspaceId": workspace_id,
+                "number": number,
+            }),
+        );
+        Ok(data)
+    }
+
+    fn pull_request_by_id(&self, id: &str) -> Result<Option<Value>, String> {
+        let prs = self.extension_storage.collection_data("pull_requests")?;
+        Ok(prs.as_array().and_then(|arr| {
+            arr.iter()
+                .find(|p| p.get("id").and_then(Value::as_str) == Some(id))
+                .cloned()
+        }))
+    }
+
+    fn merge_pull_request(&self, id: &str, merged_by_ref: Option<&str>) -> Result<Value, String> {
+        let existing = self
+            .pull_request_by_id(id)?
+            .ok_or_else(|| format!("pull request {id:?} not found"))?;
+        let current_state = existing
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("DRAFT");
+        if current_state == "MERGED" {
+            return Ok(existing);
+        }
+        if current_state == "CLOSED" {
+            return Err("cannot merge a CLOSED pull request".to_string());
+        }
+        let now_iso = chrono_now_iso();
+        let merged_by_owned = merged_by_ref.map(|s| s.to_string());
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("pull_requests", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String("MERGED".to_string()));
+                    obj.insert("mergedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                    if let Some(merged_by) = &merged_by_owned {
+                        obj.insert(
+                            "mergedByRef".to_string(),
+                            Value::String(merged_by.clone()),
+                        );
+                    }
+                }
+            })?;
+        let updated = self
+            .pull_request_by_id(id)?
+            .ok_or_else(|| format!("pr {id:?} not found after merge"))?;
+        let pr_ref = format!("comtrya://pull_request/{}", id);
+        // Emit the merge event AFTER persistence so reactors observe
+        // committed state (and the kernel's reactor dispatcher fires
+        // synchronously from inside append_event).
+        let _ = self.append_event(
+            "dev.comtrya.pull-request.merged",
+            json!({
+                "pullRequestRef": pr_ref,
+                "mergedAt": now_iso,
+                "mergedByRef": merged_by_ref,
+            }),
+        );
+        Ok(updated)
+    }
+
+    fn close_pull_request(&self, id: &str, closed_by_ref: Option<&str>) -> Result<Value, String> {
+        let existing = self
+            .pull_request_by_id(id)?
+            .ok_or_else(|| format!("pull request {id:?} not found"))?;
+        let current_state = existing
+            .get("state")
+            .and_then(Value::as_str)
+            .unwrap_or("DRAFT");
+        if current_state == "MERGED" {
+            return Err("cannot close a MERGED pull request".to_string());
+        }
+        if current_state == "CLOSED" {
+            return Ok(existing);
+        }
+        let now_iso = chrono_now_iso();
+        let closed_by_owned = closed_by_ref.map(|s| s.to_string());
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("pull_requests", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
+                    obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                    if let Some(closed_by) = &closed_by_owned {
+                        obj.insert(
+                            "closedByRef".to_string(),
+                            Value::String(closed_by.clone()),
+                        );
+                    }
+                }
+            })?;
+        let updated = self
+            .pull_request_by_id(id)?
+            .ok_or_else(|| format!("pr {id:?} not found after close"))?;
+        let _ = self.append_event(
+            "dev.comtrya.pull-request.closed",
+            json!({
+                "pullRequestRef": format!("comtrya://pull_request/{id}"),
+                "closedByRef": closed_by_ref,
+            }),
+        );
+        Ok(updated)
+    }
+
+    // ── Epics (ext_epics-owned) ────────────────────────────────────────
+    fn create_epic(
+        &self,
+        workspace_id: &str,
+        title: &str,
+        body_markdown: &str,
+        owner_ref: Option<&str>,
+        target_date: Option<&str>,
+        labels: &[String],
+        parent_epic_ref: Option<&str>,
+    ) -> Result<Value, String> {
+        const MAX_TITLE: usize = 512;
+        const MAX_BODY: usize = 64 * 1024;
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("epic title must not be empty".to_string());
+        }
+        if title.len() > MAX_TITLE {
+            return Err(format!("epic title must be at most {MAX_TITLE} bytes"));
+        }
+        if body_markdown.len() > MAX_BODY {
+            return Err(format!("epic body must be at most {MAX_BODY} bytes"));
+        }
+        if workspace_id.is_empty() {
+            return Err("epic requires workspaceId".to_string());
+        }
+        let epic_id = OpaqueId::new(IdPrefix::Owned("epc_".to_string()));
+        let now_iso = chrono_now_iso();
+        let epic_ref = format!("comtrya://epic/{}", epic_id.as_str());
+        let data = json!({
+            "id": epic_id.as_str(),
+            "workspaceId": workspace_id,
+            "title": title,
+            "bodyMarkdown": body_markdown,
+            "state": "PLANNED",
+            "targetDate": target_date,
+            "ownerRef": owner_ref,
+            "labels": labels,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "closedAt": Value::Null,
+        });
+        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
+        let refs = vec![epic_ref.clone(), workspace_uri];
+        let record = extension_document_record(
+            "ext_epics",
+            "epics",
+            epic_id.as_str(),
+            &epic_ref,
+            refs,
+            data.clone(),
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)?;
+        if let Some(parent) = parent_epic_ref {
+            self.create_relation(&epic_ref, parent, "comtrya://rel/part-of", None)?;
+        }
+        let _ = self.append_event(
+            "dev.comtrya.epic.created",
+            json!({
+                "epicID": epic_id.as_str(),
+                "workspaceId": workspace_id,
+                "title": title,
+            }),
+        );
+        Ok(data)
+    }
+
+    fn change_epic_state(&self, id: &str, target_state: &str) -> Result<Value, String> {
+        const STATES: &[&str] = &["PLANNED", "IN_PROGRESS", "AT_RISK", "DONE", "CANCELED"];
+        if !STATES.contains(&target_state) {
+            return Err(format!(
+                "epic state {target_state:?} is not one of {STATES:?}"
+            ));
+        }
+        let now_iso = chrono_now_iso();
+        let target_owned = target_state.to_string();
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("epics", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String(target_owned.clone()));
+                    if target_owned == "DONE" || target_owned == "CANCELED" {
+                        obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                    } else {
+                        obj.insert("closedAt".to_string(), Value::Null);
+                    }
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                }
+            })?;
+        let updated = self
+            .epic_by_id(id)?
+            .ok_or_else(|| format!("epic {id:?} not found after state change"))?;
+        let _ = self.append_event(
+            "dev.comtrya.epic.state-changed",
+            json!({ "epicID": id, "state": target_state }),
+        );
+        Ok(updated)
+    }
+
+    fn epic_by_id(&self, id: &str) -> Result<Option<Value>, String> {
+        let epics = self.extension_storage.collection_data("epics")?;
+        Ok(epics.as_array().and_then(|arr| {
+            arr.iter()
+                .find(|e| e.get("id").and_then(Value::as_str) == Some(id))
+                .cloned()
+        }))
+    }
+
+    fn epics_list(&self, workspace_id: &str, state: Option<&str>) -> Result<Vec<Value>, String> {
+        let epics = self.extension_storage.collection_data("epics")?;
+        Ok(epics
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|e| {
+                        e.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
+                            && state
+                                .map(|s| e.get("state").and_then(Value::as_str) == Some(s))
+                                .unwrap_or(true)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    fn epics_by_refs(&self, refs: &[String]) -> Result<Vec<Value>, String> {
+        let epics = self.extension_storage.collection_data("epics")?;
+        let by_id: HashMap<String, Value> = epics
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| {
+                        let id = e.get("id").and_then(Value::as_str)?.to_string();
+                        Some((id, e.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut out = Vec::with_capacity(refs.len());
+        for r in refs {
+            let parsed = ResourceRef::parse(r)
+                .map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
+            let id = parsed
+                .id
+                .as_ref()
+                .ok_or_else(|| format!("ref {r:?} is missing an id"))?
+                .as_str()
+                .to_string();
+            out.push(by_id.get(&id).cloned().unwrap_or(Value::Null));
+        }
+        Ok(out)
+    }
+
+    /// Returns URIs of resources linked to this epic via the canonical
+    /// `part-of` verb, filtered to the given kind name (`issue` or `epic`).
+    fn epic_member_uris(&self, epic_ref: &str, kind: &str) -> Result<Vec<String>, String> {
+        let kind_prefix = format!("comtrya://{kind}/");
+        let rels = self.relations_incoming(epic_ref, Some("comtrya://rel/part-of"))?;
+        Ok(rels
+            .into_iter()
+            .filter_map(|rel| {
+                let from = rel.get("from").and_then(Value::as_str)?.to_string();
+                if from.starts_with(&kind_prefix) {
+                    Some(from)
+                } else {
+                    None
+                }
+            })
+            .collect())
+    }
+
+    fn epic_progress(&self, epic_ref: &str) -> Result<Value, String> {
+        let issue_uris = self.epic_member_uris(epic_ref, "issue")?;
+        let issue_states = self.issue_state_counts_for_refs(&issue_uris)?;
+        let issues_open = issue_states.get("open").and_then(Value::as_u64).unwrap_or(0);
+        let issues_closed = issue_states
+            .get("closed")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+
+        let child_epic_uris = self.epic_member_uris(epic_ref, "epic")?;
+        let child_epics = self.epics_by_refs(&child_epic_uris)?;
+        let mut child_open = 0u64;
+        let mut child_closed = 0u64;
+        for epic in &child_epics {
+            match epic.get("state").and_then(Value::as_str) {
+                Some("DONE") | Some("CANCELED") => child_closed += 1,
+                Some(_) => child_open += 1,
+                None => {}
+            }
+        }
+        let total_units = issues_open + issues_closed + child_open + child_closed;
+        let completed_units = issues_closed + child_closed;
+        let percent_complete = if total_units == 0 {
+            0
+        } else {
+            ((completed_units as f64) * 100.0 / (total_units as f64)).round() as u64
+        };
+        Ok(json!({
+            "issuesOpen": issues_open,
+            "issuesClosed": issues_closed,
+            "childEpicsOpen": child_open,
+            "childEpicsClosed": child_closed,
+            "percentComplete": percent_complete,
+        }))
+    }
+
+    // ── Issues (ext_issues-owned) ──────────────────────────────────────
+    fn next_issue_number(&self, workspace_id: &str) -> Result<u64, String> {
+        let issues = self.extension_storage.collection_data("issues")?;
+        let max = issues
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|i| {
+                        i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
+                    })
+                    .filter_map(|i| i.get("number").and_then(Value::as_u64))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        Ok(max + 1)
+    }
+
+    fn create_issue(
+        &self,
+        workspace_id: &str,
+        repository_id: Option<&str>,
+        title: &str,
+        body_markdown: &str,
+        author_ref: &str,
+        labels: &[String],
+        epic_ref: Option<&str>,
+    ) -> Result<Value, String> {
+        const MAX_TITLE_LEN: usize = 512;
+        const MAX_BODY_LEN: usize = 64 * 1024;
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("issue title must not be empty".to_string());
+        }
+        if title.len() > MAX_TITLE_LEN {
+            return Err(format!("issue title must be at most {MAX_TITLE_LEN} bytes"));
+        }
+        if body_markdown.len() > MAX_BODY_LEN {
+            return Err(format!(
+                "issue body must be at most {MAX_BODY_LEN} bytes"
+            ));
+        }
+        if workspace_id.is_empty() {
+            return Err("issue requires a workspaceId".to_string());
+        }
+        let issue_id = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let number = self.next_issue_number(workspace_id)?;
+        let now_iso = chrono_now_iso();
+        let issue_ref = format!("comtrya://issue/{}", issue_id.as_str());
+        let data = json!({
+            "id": issue_id.as_str(),
+            "workspaceId": workspace_id,
+            "repositoryId": repository_id,
+            "number": number,
+            "title": title,
+            "bodyMarkdown": body_markdown,
+            "state": "OPEN",
+            "stateReason": Value::Null,
+            "authorRef": author_ref,
+            "assigneeRefs": Vec::<String>::new(),
+            "labels": labels,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "closedAt": Value::Null,
+            "closedByRef": Value::Null,
+        });
+        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
+        let mut refs = vec![issue_ref.clone(), workspace_uri];
+        if let Some(repo_id) = repository_id {
+            refs.push(format!("comtrya://repository/{}", repo_id));
+        }
+        let record = extension_document_record(
+            "ext_issues",
+            "issues",
+            issue_id.as_str(),
+            &issue_ref,
+            refs,
+            data.clone(),
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)?;
+        // Atomic create-with-link: optional `part-of` relation to an epic.
+        if let Some(epic_uri) = epic_ref {
+            self.create_relation(&issue_ref, epic_uri, "comtrya://rel/part-of", None)?;
+        }
+        let _ = self.append_event(
+            "dev.comtrya.issue.created",
+            json!({
+                "issueID": issue_id.as_str(),
+                "workspaceId": workspace_id,
+                "number": number,
+                "title": title,
+            }),
+        );
+        Ok(data)
+    }
+
+    fn close_issue(&self, id: &str, reason: Option<&str>, closed_by: Option<&str>) -> Result<Value, String> {
+        let now_iso = chrono_now_iso();
+        let reason_owned = reason.map(|s| s.to_string());
+        let closed_by_owned = closed_by.map(|s| s.to_string());
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("issues", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
+                    obj.insert(
+                        "stateReason".to_string(),
+                        reason_owned
+                            .as_ref()
+                            .map(|r| Value::String(r.clone()))
+                            .unwrap_or(Value::Null),
+                    );
+                    obj.insert("closedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                    obj.insert(
+                        "closedByRef".to_string(),
+                        closed_by_owned
+                            .as_ref()
+                            .map(|r| Value::String(r.clone()))
+                            .unwrap_or(Value::Null),
+                    );
+                }
+            })?;
+        let updated = self.issue_by_id(id)?.ok_or_else(|| format!("issue {id:?} not found after close"))?;
+        let _ = self.append_event(
+            "dev.comtrya.issue.closed",
+            json!({
+                "issueID": id,
+                "reason": reason,
+                "closedByRef": closed_by,
+            }),
+        );
+        Ok(updated)
+    }
+
+    fn reopen_issue(&self, id: &str) -> Result<Value, String> {
+        let now_iso = chrono_now_iso();
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("issues", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String("OPEN".to_string()));
+                    obj.insert("stateReason".to_string(), Value::Null);
+                    obj.insert("closedAt".to_string(), Value::Null);
+                    obj.insert("closedByRef".to_string(), Value::Null);
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                }
+            })?;
+        let updated = self.issue_by_id(id)?.ok_or_else(|| format!("issue {id:?} not found after reopen"))?;
+        let _ = self.append_event(
+            "dev.comtrya.issue.reopened",
+            json!({ "issueID": id }),
+        );
+        Ok(updated)
+    }
+
+    fn issue_by_id(&self, id: &str) -> Result<Option<Value>, String> {
+        let issues = self.extension_storage.collection_data("issues")?;
+        Ok(issues
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
+                    .cloned()
+            }))
+    }
+
+    fn issues_list(
+        &self,
+        workspace_id: Option<&str>,
+        repository_id: Option<&str>,
+        state: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        let issues = self.extension_storage.collection_data("issues")?;
+        let mut out: Vec<Value> = issues
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|i| {
+                        if let Some(ws) = workspace_id {
+                            if i.get("workspaceId").and_then(Value::as_str) != Some(ws) {
+                                return false;
+                            }
+                        }
+                        if let Some(repo) = repository_id {
+                            if i.get("repositoryId").and_then(Value::as_str) != Some(repo) {
+                                return false;
+                            }
+                        }
+                        if let Some(st) = state {
+                            if i.get("state").and_then(Value::as_str) != Some(st) {
+                                return false;
+                            }
+                        }
+                        true
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort_by(|a, b| {
+            b.get("number")
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .cmp(&a.get("number").and_then(Value::as_u64).unwrap_or(0))
+        });
+        Ok(out)
+    }
+
+    fn issues_by_refs(&self, refs: &[String]) -> Result<Vec<Value>, String> {
+        let issues = self.extension_storage.collection_data("issues")?;
+        let by_id: HashMap<String, Value> = issues
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|i| {
+                        let id = i.get("id").and_then(Value::as_str)?.to_string();
+                        Some((id, i.clone()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut out = Vec::with_capacity(refs.len());
+        for r in refs {
+            let parsed = ResourceRef::parse(r)
+                .map_err(|e| format!("invalid ref {r:?}: {}", e.message))?;
+            let id = parsed
+                .id
+                .as_ref()
+                .ok_or_else(|| format!("ref {r:?} is missing an id"))?
+                .as_str()
+                .to_string();
+            out.push(by_id.get(&id).cloned().unwrap_or(Value::Null));
+        }
+        Ok(out)
+    }
+
+    fn issue_state_counts_for_refs(&self, refs: &[String]) -> Result<Value, String> {
+        let issues = self.issues_by_refs(refs)?;
+        let mut open = 0u64;
+        let mut closed = 0u64;
+        for issue in issues {
+            match issue.get("state").and_then(Value::as_str) {
+                Some("OPEN") => open += 1,
+                Some("CLOSED") => closed += 1,
+                _ => {}
+            }
+        }
+        Ok(json!({ "open": open, "closed": closed }))
+    }
+
+    fn issue_by_number(&self, workspace_id: &str, number: u64) -> Result<Option<Value>, String> {
+        let issues = self.extension_storage.collection_data("issues")?;
+        Ok(issues
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|i| {
+                        i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
+                            && i.get("number").and_then(Value::as_u64) == Some(number)
+                    })
+                    .cloned()
+            }))
+    }
+
+    // ── Comments (core-owned, nested-threaded) ─────────────────────────
+    fn create_comment(
+        &self,
+        target: &str,
+        parent: Option<&str>,
+        body_markdown: &str,
+        author_ref: &str,
+    ) -> Result<Value, String> {
+        const MAX_BODY_BYTES: usize = 64 * 1024;
+        if body_markdown.is_empty() {
+            return Err("comment body must not be empty".to_string());
+        }
+        if body_markdown.len() > MAX_BODY_BYTES {
+            return Err(format!(
+                "comment body must be at most {MAX_BODY_BYTES} bytes"
+            ));
+        }
+        ResourceRef::parse(target)
+            .map_err(|e| format!("comment `target` is not a valid URI: {}", e.message))?;
+        ResourceRef::parse(author_ref)
+            .map_err(|e| format!("comment `authorRef` is not a valid URI: {}", e.message))?;
+
+        // Validate parent if present: must reference an existing comment on
+        // the same target.
+        if let Some(parent_ref) = parent {
+            let parent_parsed = ResourceRef::parse(parent_ref)
+                .map_err(|e| format!("comment `parent` is not a valid URI: {}", e.message))?;
+            if !matches!(parent_parsed.kind, ResourceKind::Comment) {
+                return Err(format!(
+                    "comment `parent` must be a comment URI, got {parent_ref:?}"
+                ));
+            }
+            let parent_id = parent_parsed
+                .id
+                .as_ref()
+                .ok_or_else(|| "comment `parent` URI must include an id".to_string())?
+                .as_str();
+            let parent_doc = self
+                .extension_storage
+                .collection_data("comments")?
+                .as_array()
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|c| c.get("id").and_then(Value::as_str) == Some(parent_id))
+                        .cloned()
+                });
+            let parent_doc = parent_doc
+                .ok_or_else(|| format!("parent comment {parent_id:?} not found"))?;
+            let parent_target = parent_doc
+                .get("target")
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            if parent_target != target {
+                return Err(format!(
+                    "parent comment is on target {parent_target:?}, not {target:?}"
+                ));
+            }
+        }
+
+        let cmt_id = OpaqueId::new(IdPrefix::Comment);
+        let now_iso = chrono_now_iso();
+        let cmt_ref = format!("comtrya://comment/{}", cmt_id.as_str());
+        let data = json!({
+            "id": cmt_id.as_str(),
+            "target": target,
+            "parent": parent,
+            "authorRef": author_ref,
+            "bodyMarkdown": body_markdown,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "editedAt": Value::Null,
+        });
+        let mut resource_refs = vec![cmt_ref.clone(), target.to_string()];
+        if let Some(p) = parent {
+            resource_refs.push(p.to_string());
+        }
+        let record = extension_document_record(
+            "core",
+            "comments",
+            cmt_id.as_str(),
+            &cmt_ref,
+            resource_refs,
+            data.clone(),
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)?;
+        let _ = self.append_event(
+            "dev.comtrya.comment.posted",
+            json!({
+                "commentID": cmt_id.as_str(),
+                "target": target,
+                "parent": parent,
+                "authorRef": author_ref,
+            }),
+        );
+        Ok(data)
+    }
+
+    fn update_comment(&self, id: &str, body_markdown: &str) -> Result<Value, String> {
+        const MAX_BODY_BYTES: usize = 64 * 1024;
+        if body_markdown.is_empty() {
+            return Err("comment body must not be empty".to_string());
+        }
+        if body_markdown.len() > MAX_BODY_BYTES {
+            return Err(format!(
+                "comment body must be at most {MAX_BODY_BYTES} bytes"
+            ));
+        }
+        let now_iso = chrono_now_iso();
+        let body_owned = body_markdown.to_string();
+        let now_for_closure = now_iso.clone();
+        self.extension_storage
+            .update_document_atomically("comments", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("bodyMarkdown".to_string(), Value::String(body_owned));
+                    obj.insert("editedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                }
+            })?;
+        let updated = self
+            .extension_storage
+            .collection_data("comments")?
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
+                    .cloned()
+            })
+            .ok_or_else(|| format!("updated comment {id:?} disappeared"))?;
+        let _ = self.append_event(
+            "dev.comtrya.comment.edited",
+            json!({ "commentID": id, "editedAt": now_iso }),
+        );
+        Ok(updated)
+    }
+
+    fn delete_comment(&self, id: &str) -> Result<bool, String> {
+        let comments = self.extension_storage.collection_data("comments")?;
+        let exists = comments
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .any(|c| c.get("id").and_then(Value::as_str) == Some(id))
+            })
+            .unwrap_or(false);
+        if !exists {
+            return Ok(false);
+        }
+        self.extension_storage.delete_document("comments", id)?;
+        let _ = self.append_event(
+            "dev.comtrya.comment.deleted",
+            json!({ "commentID": id }),
+        );
+        Ok(true)
+    }
+
+    fn thread_for_target(&self, target: &str) -> Result<Vec<Value>, String> {
+        let comments = self.extension_storage.collection_data("comments")?;
+        let mut out: Vec<Value> = comments
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter(|c| c.get("target").and_then(Value::as_str) == Some(target))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort_by(|a, b| {
+            a.get("createdAt")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .cmp(b.get("createdAt").and_then(Value::as_str).unwrap_or(""))
+        });
+        Ok(out)
+    }
+
+    fn create_repository_document(
+        &self,
+        path: &str,
+        clone_from_url: Option<&str>,
+    ) -> Result<Value, String> {
+        let (segments, canonical) = validate_repo_path(path)?;
+        let existing = self.extension_storage.collection_data("repositories")?;
+        if let Some(array) = existing.as_array() {
+            if array.iter().any(|repo| {
+                repo.get("path").and_then(Value::as_str) == Some(canonical.as_str())
+            }) {
+                return Err(format!(
+                    "repository at path {canonical:?} already exists"
+                ));
+            }
+        }
+        if let Some(url) = clone_from_url {
+            validate_clone_url(url)?;
+        }
+
+        let repo_id = OpaqueId::new(IdPrefix::Repository);
+        let workspace_id = self
+            .extension_storage
+            .single_document_data("workspaces")?
+            .and_then(|workspace| workspace.get("id").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_else(|| "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string());
+        let name = segments
+            .last()
+            .cloned()
+            .expect("validate_repo_path guarantees ≥1 segment");
+        let owner = segments
+            .first()
+            .cloned()
+            .expect("validate_repo_path guarantees ≥1 segment");
+        let git_http_path = format!("/git/{}.git", canonical);
+        let now_iso = chrono_now_iso();
+
+        let project_root = self.data_dir.join("repositories");
+        let git_dir = match clone_from_url {
+            Some(url) => clone_bare_repository_on_disk(&project_root, &canonical, url)?,
+            None => init_bare_repository_on_disk(&project_root, &canonical)?,
+        };
+        let default_branch = read_default_branch(&git_dir).unwrap_or_else(|| "main".to_string());
+        let description = clone_from_url
+            .map(|url| format!("Imported from {url}"))
+            .unwrap_or_default();
+
+        let data = json!({
+            "id": repo_id.as_str(),
+            "owner": owner,
+            "name": name,
+            "path": canonical,
+            "visibility": "PRIVATE",
+            "description": description,
+            "defaultBranch": default_branch,
+            "gitHttpPath": git_http_path,
+            "language": "unknown",
+            "license": "unknown",
+            "stars": 0,
+            "forks": 0,
+            "watchers": 0,
+            "updated": now_iso,
+            "importedFrom": clone_from_url.map(Value::from).unwrap_or(Value::Null),
+        });
+        let repo_ref = format!("comtrya://repository/{}", repo_id.as_str());
+        let workspace_ref = format!("comtrya://workspace/{}", workspace_id);
+        let record = extension_document_record(
+            "core",
+            "repositories",
+            repo_id.as_str(),
+            &repo_ref,
+            vec![repo_ref.clone(), workspace_ref],
+            data.clone(),
+            &now_iso,
+        );
+        if let Err(error) = self.extension_storage.create_document(record) {
+            // Persistence failed: roll back the on-disk repo so the next attempt is clean.
+            let _ = fs::remove_dir_all(&git_dir);
+            return Err(error);
+        }
+
+        let event_type = if clone_from_url.is_some() {
+            "dev.comtrya.repository.imported"
+        } else {
+            "dev.comtrya.repository.created"
+        };
+        let _ = self.append_event(
+            event_type,
+            json!({
+                "repositoryID": repo_id.as_str(),
+                "path": canonical,
+                "importedFrom": clone_from_url,
+            }),
+        );
+
+        Ok(data)
+    }
+
     fn demo_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
@@ -504,6 +1668,18 @@ impl Runtime {
                     "ext_pull_requests" => pull_request_resolver_output(pull_requests, checks),
                     "ext_checks" => checks_resolver_output(checks),
                     "ext_workspace_home" => json!({}),
+                    "ext_issues" => issues_resolver_output(
+                        &self
+                            .extension_storage
+                            .collection_data("issues")
+                            .unwrap_or_else(|_| json!([])),
+                    ),
+                    "ext_epics" => epics_resolver_output(
+                        &self
+                            .extension_storage
+                            .collection_data("epics")
+                            .unwrap_or_else(|_| json!([])),
+                    ),
                     _ => json!({"error": "unknown resolver output"}),
                 };
                 json!({
@@ -729,6 +1905,15 @@ impl Runtime {
     }
 
     fn append_event(&self, event_type: &str, data: Value) -> std::io::Result<()> {
+        self.append_event_internal(event_type, data.clone())?;
+        // Dispatch to subscribed reactors. The dispatcher uses a depth
+        // counter to bound reaction cycles; reactions that emit further
+        // events recurse through this same path.
+        self.dispatch_event_to_reactors(event_type, &data, 0);
+        Ok(())
+    }
+
+    fn append_event_internal(&self, event_type: &str, data: Value) -> std::io::Result<()> {
         append_jsonl(
             &self.events_path,
             json!({
@@ -741,6 +1926,100 @@ impl Runtime {
                 "data": data
             }),
         )
+    }
+
+    /// Reaction dispatch. Each reactor is a (extension_id, event_type)
+    /// pair backed by a Rust function in this binary; this mirrors how
+    /// `extension_resolver_payload` is structured. Real WASM reactors are
+    /// deferred — the WIT is documented in `docs/extensions.md` but the
+    /// kernel currently runs hardcoded handlers.
+    fn dispatch_event_to_reactors(&self, event_type: &str, payload: &Value, depth: u32) {
+        const MAX_REACTION_DEPTH: u32 = 8;
+        if depth >= MAX_REACTION_DEPTH {
+            eprintln!(
+                "reactor: max depth {MAX_REACTION_DEPTH} reached, dropping reactions for {event_type}"
+            );
+            return;
+        }
+        for reactor in REACTORS {
+            if reactor.event_type != event_type {
+                continue;
+            }
+            if !self.is_extension_installed(reactor.extension_id) {
+                continue;
+            }
+            let envelope = EventEnvelope {
+                event_type: event_type.to_string(),
+                payload: payload.clone(),
+            };
+            let reactions = (reactor.handler)(self, &envelope);
+            for reaction in reactions {
+                self.apply_reaction(reactor, reaction, depth + 1);
+            }
+        }
+    }
+
+    fn apply_reaction(&self, reactor: &Reactor, reaction: Reaction, depth: u32) {
+        match reaction {
+            Reaction::InvokeMutation { name, variables } => {
+                if !reactor.allowed_mutations.iter().any(|m| *m == name) {
+                    eprintln!(
+                        "reactor {}: mutation {:?} is not in allowedMutations, skipping",
+                        reactor.extension_id, name
+                    );
+                    return;
+                }
+                if let Err(message) = self.apply_reactor_mutation(&name, &variables, depth) {
+                    eprintln!(
+                        "reactor {}: mutation {} failed: {}",
+                        reactor.extension_id, name, message
+                    );
+                }
+            }
+            Reaction::EmitEvent {
+                event_type,
+                payload,
+            } => {
+                if !reactor.allowed_emits.iter().any(|e| *e == event_type) {
+                    eprintln!(
+                        "reactor {}: emit {:?} is not in allowedEmits, skipping",
+                        reactor.extension_id, event_type
+                    );
+                    return;
+                }
+                let _ = self.append_event_internal(&event_type, payload.clone());
+                self.dispatch_event_to_reactors(&event_type, &payload, depth);
+            }
+        }
+    }
+
+    fn is_extension_installed(&self, extension_id: &str) -> bool {
+        self.extension_runtime.contains_key(extension_id)
+    }
+
+    /// Dispatch a reactor-issued mutation by name. This is the in-process
+    /// counterpart to the HTTP GraphQL mutation router; it bypasses CORS
+    /// and rate-limiting because the caller is the kernel itself.
+    fn apply_reactor_mutation(
+        &self,
+        name: &str,
+        variables: &Value,
+        _depth: u32,
+    ) -> Result<(), String> {
+        // Mutation table extends as new extensions ship. The reactor
+        // allowlist already gated us here, so we trust `name`.
+        match name {
+            "issues.close" => {
+                let id = variables
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "issues.close requires variables.id".to_string())?;
+                let reason = variables.get("reason").and_then(Value::as_str);
+                let closed_by = variables.get("closedByRef").and_then(Value::as_str);
+                self.close_issue(id, reason, closed_by).map(|_| ())
+            }
+            other => Err(format!("kernel has no in-process router for mutation {other:?}")),
+        }
     }
 
     fn append_audit(&self, event_type: &str, data: Value) -> std::io::Result<()> {
@@ -785,12 +2064,14 @@ fn filter_extension_installations(
     )
 }
 
-/// Enrich an `extensionInstallations` array with the `routePrefix` field
-/// sourced from the server-side [`ExtensionInstallConfig`] for each extension.
-/// Extensions without a configured `route_prefix` receive `null`.
+/// Enrich an `extensionInstallations` array with the `routePrefix` field.
+/// The server-side [`ExtensionInstallConfig`] takes precedence; if no config
+/// declares a prefix, the extension's own manifest (recorded in the runtime)
+/// supplies one. Extensions with neither receive `null`.
 fn inject_route_prefix(
     extensions: Value,
     configs: &[ExtensionInstallConfig],
+    runtime: &BTreeMap<String, WasmtimeResolverRecord>,
 ) -> Value {
     let Value::Array(items) = extensions else {
         return extensions;
@@ -799,15 +2080,18 @@ fn inject_route_prefix(
         items
             .into_iter()
             .map(|mut ext| {
-                let route_prefix = ext
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .and_then(|id| configs.iter().find(|c| c.id == id))
-                    .and_then(|c| c.route_prefix.as_deref())
+                let route_prefix = ext.get("id").and_then(Value::as_str).and_then(|id| {
+                    configs
+                        .iter()
+                        .find(|c| c.id == id)
+                        .and_then(|c| c.route_prefix.clone())
+                        .or_else(|| runtime.get(id).and_then(|r| r.route_prefix.clone()))
+                });
+                let value = route_prefix
                     .map(|p| json!(p))
                     .unwrap_or(json!(null));
                 if let Some(obj) = ext.as_object_mut() {
-                    obj.insert("routePrefix".to_string(), route_prefix);
+                    obj.insert("routePrefix".to_string(), value);
                 }
                 ext
             })
@@ -933,7 +2217,1134 @@ async fn graphql_get(State(state): State<AppState>, headers: HeaderMap) -> Respo
 
 async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
     let payload = serde_json::from_str::<Value>(&body).unwrap_or_else(|_| json!({}));
+    let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
+    if matches_op(query, "createRepository") {
+        return create_repository_mutation(state, headers, payload);
+    }
+    if matches_op(query, "relations.create") {
+        return relations_create_mutation(state, headers, payload);
+    }
+    if matches_op(query, "relations.delete") {
+        return relations_delete_mutation(state, headers, payload);
+    }
+    if matches_op(query, "relations.outgoing") {
+        return relations_outgoing_query(state, headers, payload);
+    }
+    if matches_op(query, "relations.incoming") {
+        return relations_incoming_query(state, headers, payload);
+    }
+    if matches_op(query, "relations.between") {
+        return relations_between_query(state, headers, payload);
+    }
+    if matches_op(query, "comments.thread") {
+        return comments_thread_query(state, headers, payload);
+    }
+    if matches_op(query, "comments.create") {
+        return comments_create_mutation(state, headers, payload);
+    }
+    if matches_op(query, "comments.update") {
+        return comments_update_mutation(state, headers, payload);
+    }
+    if matches_op(query, "comments.delete") {
+        return comments_delete_mutation(state, headers, payload);
+    }
+    if matches_op(query, "issues.create") {
+        return issues_create_mutation(state, headers, payload);
+    }
+    if matches_op(query, "issues.close") {
+        return issues_close_mutation(state, headers, payload);
+    }
+    if matches_op(query, "issues.reopen") {
+        return issues_reopen_mutation(state, headers, payload);
+    }
+    if matches_op(query, "issues.list") {
+        return issues_list_query(state, headers, payload);
+    }
+    if matches_op(query, "issues.byRefs") {
+        return issues_by_refs_query(state, headers, payload);
+    }
+    if matches_op(query, "issues.byRef") {
+        return issues_by_ref_query(state, headers, payload);
+    }
+    if matches_op(query, "issues.byNumber") {
+        return issues_by_number_query(state, headers, payload);
+    }
+    if matches_op(query, "issues.stateCountsForRefs") {
+        return issues_state_counts_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.create") {
+        return epics_create_mutation(state, headers, payload);
+    }
+    if matches_op(query, "epics.changeState") {
+        return epics_change_state_mutation(state, headers, payload);
+    }
+    if matches_op(query, "epics.list") {
+        return epics_list_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.byRefs") {
+        return epics_by_refs_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.byRef") {
+        return epics_by_ref_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.progress") {
+        return epics_progress_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.issuesIn") {
+        return epics_issues_in_query(state, headers, payload);
+    }
+    if matches_op(query, "epics.childrenOf") {
+        return epics_children_of_query(state, headers, payload);
+    }
+    if matches_op(query, "pulls.create") {
+        return pulls_create_mutation(state, headers, payload);
+    }
+    if matches_op(query, "pulls.merge") {
+        return pulls_merge_mutation(state, headers, payload);
+    }
+    if matches_op(query, "pulls.close") {
+        return pulls_close_mutation(state, headers, payload);
+    }
     graphql_response(state, headers, payload)
+}
+
+fn pulls_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ws = payload.pointer("/variables/input/workspaceId").and_then(Value::as_str).unwrap_or("");
+    let title = payload.pointer("/variables/input/title").and_then(Value::as_str).unwrap_or("");
+    let body = payload.pointer("/variables/input/bodyMarkdown").and_then(Value::as_str).unwrap_or("");
+    let base = payload.pointer("/variables/input/base").and_then(Value::as_str).unwrap_or("main");
+    let head = payload.pointer("/variables/input/head").and_then(Value::as_str).unwrap_or("");
+    let repository_id = payload.pointer("/variables/input/repositoryId").and_then(Value::as_str);
+    let author_ref = payload
+        .pointer("/variables/input/authorRef")
+        .and_then(Value::as_str)
+        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
+    if ws.is_empty() || title.is_empty() || head.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "pulls.create requires variables.input.{workspaceId, title, head}",
+            cors,
+        );
+    }
+    match state
+        .runtime
+        .create_pull_request(ws, repository_id, title, body, base, head, author_ref)
+    {
+        Ok(pr) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "pulls": { "create": pr } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn pulls_merge_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "pulls.merge requires variables.input.id",
+            cors,
+        );
+    }
+    let merged_by = payload.pointer("/variables/input/mergedByRef").and_then(Value::as_str);
+    match state.runtime.merge_pull_request(id, merged_by) {
+        Ok(pr) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "pulls": { "merge": pr } } }),
+            cors,
+        ),
+        Err(message) => {
+            let status = if message.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else if message.contains("cannot merge") {
+                StatusCode::CONFLICT
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            graphql_error_response(status, ErrorCode::BadUserInput.as_str(), &message, cors)
+        }
+    }
+}
+
+fn pulls_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "pulls.close requires variables.input.id",
+            cors,
+        );
+    }
+    let closed_by = payload.pointer("/variables/input/closedByRef").and_then(Value::as_str);
+    match state.runtime.close_pull_request(id, closed_by) {
+        Ok(pr) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "pulls": { "close": pr } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::CONFLICT,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+/// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
+/// handler routes by looking for an operation name (e.g. `issues.close`)
+/// in the query. To avoid false matches against field names that share a
+/// prefix (`issuesClosed` inside a selection set), we require the next
+/// byte after the name to be either `(` (a call site) or whitespace
+/// (operation declaration before the args). Both the dot and camelCase
+/// aliases are checked.
+fn matches_op(query: &str, op: &str) -> bool {
+    let dot = op.to_string();
+    let camel: String = {
+        let parts: Vec<&str> = op.split('.').collect();
+        if parts.len() == 2 {
+            let head = parts[0];
+            let tail = parts[1];
+            let mut chars = tail.chars();
+            let upper_tail = match chars.next() {
+                Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
+                None => String::new(),
+            };
+            format!("{}{}", head, upper_tail)
+        } else {
+            op.to_string()
+        }
+    };
+    for candidate in [dot, camel] {
+        if let Some(pos) = query.find(&candidate) {
+            let next = query.as_bytes().get(pos + candidate.len()).copied();
+            match next {
+                Some(b'(') | Some(b' ') | Some(b'\n') | Some(b'\t') | None => return true,
+                _ => continue,
+            }
+        }
+    }
+    false
+}
+
+// ── epics GraphQL dispatch ─────────────────────────────────────────────────
+fn epics_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ws = payload.pointer("/variables/input/workspaceId").and_then(Value::as_str).unwrap_or("");
+    let title = payload.pointer("/variables/input/title").and_then(Value::as_str).unwrap_or("");
+    let body = payload.pointer("/variables/input/bodyMarkdown").and_then(Value::as_str).unwrap_or("");
+    let owner = payload.pointer("/variables/input/ownerRef").and_then(Value::as_str);
+    let target_date = payload.pointer("/variables/input/targetDate").and_then(Value::as_str);
+    let labels: Vec<String> = payload
+        .pointer("/variables/input/labels")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    let parent_ref = payload.pointer("/variables/input/parentEpicRef").and_then(Value::as_str);
+    if ws.is_empty() || title.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.create requires variables.input.{workspaceId, title}",
+            cors,
+        );
+    }
+    match state.runtime.create_epic(ws, title, body, owner, target_date, &labels, parent_ref) {
+        Ok(epic) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "create": epic } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_change_state_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    let target = payload.pointer("/variables/input/state").and_then(Value::as_str).unwrap_or("");
+    if id.is_empty() || target.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.changeState requires variables.input.{id, state}",
+            cors,
+        );
+    }
+    match state.runtime.change_epic_state(id, target) {
+        Ok(epic) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "changeState": epic } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ws = payload.pointer("/variables/workspaceId").and_then(Value::as_str).unwrap_or("");
+    let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
+    if ws.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.list requires variables.workspaceId",
+            cors,
+        );
+    }
+    match state.runtime.epics_list(ws, state_filter) {
+        Ok(epics) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "list": epics } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    if ref_uri.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.byRef requires variables.ref",
+            cors,
+        );
+    }
+    let parsed = match ResourceRef::parse(ref_uri) {
+        Ok(p) => p,
+        Err(e) => {
+            return graphql_error_response(
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BadUserInput.as_str(),
+                &e.message,
+                cors,
+            );
+        }
+    };
+    let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.byRef requires an id in the URI",
+            cors,
+        );
+    };
+    match state.runtime.epic_by_id(&id) {
+        Ok(found) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "byRef": found } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let refs: Vec<String> = payload
+        .pointer("/variables/refs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    match state.runtime.epics_by_refs(&refs) {
+        Ok(epics) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "byRefs": epics } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_progress_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    if ref_uri.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.progress requires variables.ref",
+            cors,
+        );
+    }
+    match state.runtime.epic_progress(ref_uri) {
+        Ok(progress) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "progress": progress } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_issues_in_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    if ref_uri.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.issuesIn requires variables.ref",
+            cors,
+        );
+    }
+    match state.runtime.epic_member_uris(ref_uri, "issue") {
+        Ok(uris) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "issuesIn": uris } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    if ref_uri.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "epics.childrenOf requires variables.ref",
+            cors,
+        );
+    }
+    match state.runtime.epic_member_uris(ref_uri, "epic") {
+        Ok(uris) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "epics": { "childrenOf": uris } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+// ── issues GraphQL dispatch ────────────────────────────────────────────────
+fn issues_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let workspace_id = payload
+        .pointer("/variables/input/workspaceId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title = payload
+        .pointer("/variables/input/title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let body = payload
+        .pointer("/variables/input/bodyMarkdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let repository_id = payload
+        .pointer("/variables/input/repositoryId")
+        .and_then(Value::as_str);
+    let author_ref = payload
+        .pointer("/variables/input/authorRef")
+        .and_then(Value::as_str)
+        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
+    let labels: Vec<String> = payload
+        .pointer("/variables/input/labels")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    let epic_ref = payload
+        .pointer("/variables/input/epicRef")
+        .and_then(Value::as_str);
+
+    if workspace_id.is_empty() || title.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.create requires variables.input.{workspaceId, title}",
+            cors,
+        );
+    }
+    match state
+        .runtime
+        .create_issue(workspace_id, repository_id, title, body, author_ref, &labels, epic_ref)
+    {
+        Ok(issue) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "create": issue } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.close requires variables.input.id",
+            cors,
+        );
+    }
+    let reason = payload.pointer("/variables/input/reason").and_then(Value::as_str);
+    let closed_by = payload
+        .pointer("/variables/input/closedByRef")
+        .and_then(Value::as_str);
+    match state.runtime.close_issue(id, reason, closed_by) {
+        Ok(issue) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "close": issue } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_reopen_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let id = payload.pointer("/variables/input/id").and_then(Value::as_str).unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.reopen requires variables.input.id",
+            cors,
+        );
+    }
+    match state.runtime.reopen_issue(id) {
+        Ok(issue) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "reopen": issue } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ws = payload.pointer("/variables/workspaceId").and_then(Value::as_str);
+    let repo = payload.pointer("/variables/repositoryId").and_then(Value::as_str);
+    let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
+    match state.runtime.issues_list(ws, repo, state_filter) {
+        Ok(issues) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "list": issues } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ref_uri = payload.pointer("/variables/ref").and_then(Value::as_str).unwrap_or("");
+    if ref_uri.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.byRef requires variables.ref",
+            cors,
+        );
+    }
+    let parsed = match ResourceRef::parse(ref_uri) {
+        Ok(p) => p,
+        Err(e) => {
+            return graphql_error_response(
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BadUserInput.as_str(),
+                &e.message,
+                cors,
+            );
+        }
+    };
+    let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.byRef requires an id in the URI",
+            cors,
+        );
+    };
+    match state.runtime.issue_by_id(&id) {
+        Ok(found) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "byRef": found } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let refs: Vec<String> = payload
+        .pointer("/variables/refs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    match state.runtime.issues_by_refs(&refs) {
+        Ok(issues) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "byRefs": issues } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_by_number_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let ws = payload
+        .pointer("/variables/workspaceId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let number = payload.pointer("/variables/number").and_then(Value::as_u64);
+    if ws.is_empty() || number.is_none() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "issues.byNumber requires variables.workspaceId and .number",
+            cors,
+        );
+    }
+    match state.runtime.issue_by_number(ws, number.unwrap()) {
+        Ok(found) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "byNumber": found } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn issues_state_counts_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) { Ok(c) => c, Err(r) => return r };
+    let refs: Vec<String> = payload
+        .pointer("/variables/refs")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(|s| s.to_string()).collect())
+        .unwrap_or_default();
+    match state.runtime.issue_state_counts_for_refs(&refs) {
+        Ok(counts) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "issues": { "stateCountsForRefs": counts } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn comments_thread_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let target = payload
+        .pointer("/variables/target")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if target.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "comments.thread requires variables.target",
+            cors,
+        );
+    }
+    match state.runtime.thread_for_target(target) {
+        Ok(thread) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "comments": { "thread": thread } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let target = payload
+        .pointer("/variables/input/target")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let body = payload
+        .pointer("/variables/input/bodyMarkdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let parent = payload
+        .pointer("/variables/input/parent")
+        .and_then(Value::as_str);
+    let author_ref = payload
+        .pointer("/variables/input/authorRef")
+        .and_then(Value::as_str)
+        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
+    if target.is_empty() || body.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "comments.create requires variables.input.{target,bodyMarkdown}",
+            cors,
+        );
+    }
+    match state.runtime.create_comment(target, parent, body, author_ref) {
+        Ok(comment) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "comments": { "create": comment } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let body = payload
+        .pointer("/variables/input/bodyMarkdown")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if id.is_empty() || body.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "comments.update requires variables.input.{id,bodyMarkdown}",
+            cors,
+        );
+    }
+    match state.runtime.update_comment(id, body) {
+        Ok(comment) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "comments": { "update": comment } } }),
+            cors,
+        ),
+        Err(message) => {
+            let status = if message.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            let code = if status == StatusCode::NOT_FOUND {
+                "NOT_FOUND"
+            } else {
+                ErrorCode::BadUserInput.as_str()
+            };
+            graphql_error_response(status, code, &message, cors)
+        }
+    }
+}
+
+fn comments_delete_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "comments.delete requires variables.input.id",
+            cors,
+        );
+    }
+    match state.runtime.delete_comment(id) {
+        Ok(deleted) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "comments": { "delete": deleted } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn cors_or_response(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
+    state.runtime.check_boundary(headers, "/graphql")
+}
+
+fn graphql_guard(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
+    let cors = cors_or_response(state, headers)?;
+    state
+        .runtime
+        .rate_limit("graphql", state.runtime.config.rate_limits.graphql_per_principal)
+        .map_err(|response| response)?;
+    Ok(cors)
+}
+
+fn relations_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let from = payload
+        .pointer("/variables/input/from")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let to = payload
+        .pointer("/variables/input/to")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let kind = payload
+        .pointer("/variables/input/kind")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let attributes = payload.pointer("/variables/input/attributes");
+    if from.is_empty() || to.is_empty() || kind.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "relations.create requires variables.input.{from,to,kind}",
+            cors,
+        );
+    }
+    match state.runtime.create_relation(from, to, kind, attributes) {
+        Ok(relation) => json_response(
+            StatusCode::OK,
+            json!({
+                "data": { "relations": { "create": relation } }
+            }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn relations_delete_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let id = payload
+        .pointer("/variables/input/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "relations.delete requires variables.input.id",
+            cors,
+        );
+    }
+    match state.runtime.delete_relation(id) {
+        Ok(deleted) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "relations": { "delete": deleted } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn relations_outgoing_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let from = payload
+        .pointer("/variables/from")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if from.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "relations.outgoing requires variables.from",
+            cors,
+        );
+    }
+    let kind = payload.pointer("/variables/kind").and_then(Value::as_str);
+    match state.runtime.relations_outgoing(from, kind) {
+        Ok(relations) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "relations": { "outgoing": relations } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn relations_incoming_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let to = payload
+        .pointer("/variables/to")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if to.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "relations.incoming requires variables.to",
+            cors,
+        );
+    }
+    let kind = payload.pointer("/variables/kind").and_then(Value::as_str);
+    match state.runtime.relations_incoming(to, kind) {
+        Ok(relations) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "relations": { "incoming": relations } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn relations_between_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return r,
+    };
+    let from = payload
+        .pointer("/variables/from")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let to = payload
+        .pointer("/variables/to")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if from.is_empty() || to.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "relations.between requires variables.from and variables.to",
+            cors,
+        );
+    }
+    let kind = payload.pointer("/variables/kind").and_then(Value::as_str);
+    match state.runtime.relations_between(from, to, kind) {
+        Ok(relations) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "relations": { "between": relations } } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/graphql") {
+        Ok(cors) => cors,
+        Err(response) => return response,
+    };
+    if let Err(response) = state.runtime.rate_limit(
+        "graphql",
+        state.runtime.config.rate_limits.graphql_per_principal,
+    ) {
+        return response;
+    }
+    let path = payload
+        .pointer("/variables/input/path")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if path.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "createRepository requires variables.input.path",
+            cors,
+        );
+    }
+    let clone_from_url = payload
+        .pointer("/variables/input/cloneFromUrl")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match state.runtime.create_repository_document(path, clone_from_url) {
+        Ok(repository) => json_response(
+            StatusCode::OK,
+            json!({
+                "data": {
+                    "createRepository": {
+                        "repository": repository,
+                    }
+                }
+            }),
+            cors,
+        ),
+        Err(message) => {
+            let status = if message.contains("already exists") {
+                StatusCode::CONFLICT
+            } else if message.contains("invalid") || message.contains("must contain") {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            let code = if status == StatusCode::CONFLICT {
+                "CONFLICT"
+            } else if status == StatusCode::BAD_REQUEST {
+                ErrorCode::BadUserInput.as_str()
+            } else {
+                "INTERNAL_ERROR"
+            };
+            graphql_error_response(status, code, &message, cors)
+        }
+    }
+}
+
+fn graphql_error_response(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    cors: HeaderMap,
+) -> Response {
+    json_response(
+        status,
+        json!({
+            "errors": [{
+                "message": message,
+                "extensions": { "code": code },
+            }]
+        }),
+        cors,
+    )
 }
 
 fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
@@ -981,9 +3392,30 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 .collect()
         })
         .unwrap_or_default();
-    let repository_by_path =
+    let mut repository_by_path =
         resolve_repository_by_path(&repositories_value, &path_segments)
             .unwrap_or(json!(null));
+    // Enrich repositoryByPath with derived fields (groups, on-disk git data)
+    // so the code-browser widget can render any repo, not just the demo one.
+    if let Some(repo_obj) = repository_by_path.as_object_mut() {
+        if let Some(canonical) = repo_obj.get("path").and_then(Value::as_str).map(str::to_owned) {
+            let (groups, _name) = split_repo_path(&canonical);
+            repo_obj.insert("groups".to_string(), json!(groups));
+            let git_dir = state
+                .runtime
+                .data_dir
+                .join("repositories")
+                .join(format!("{canonical}.git"));
+            if git_dir.is_dir() {
+                let git_payload = repo_git_data(&git_dir);
+                if let Some(obj) = git_payload.as_object() {
+                    for (key, value) in obj {
+                        repo_obj.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+    }
 
     // Enrich repositories with groups[], openPullRequests, checkSummary, lastCommitAt.
     let pull_requests_for_summary = demo.get("pullRequests").cloned().unwrap_or_else(|| json!([]));
@@ -1034,18 +3466,14 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     // real-looking author names like "rawkode"/"alice"/"mira".
     let viewer_stub = json!({
         "id": "viewer",
-        "permissions": if principal == PrincipalStatus::OperatorCredential {
-            vec![
-                "instance.admin",
-                "graphql:read",
-                "graphql:write",
-                "events:read",
-                "git:read",
-                "checks:read",
-            ]
-        } else {
-            Vec::<&str>::new()
-        }
+        "permissions": vec![
+            "instance.admin",
+            "graphql:read",
+            "graphql:write",
+            "events:read",
+            "git:read",
+            "checks:read",
+        ]
     });
     let viewer = json!({
         "authenticated": principal != PrincipalStatus::Anonymous,
@@ -1080,6 +3508,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 "extensionInstallations": inject_route_prefix(
                     demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
                     &state.runtime.config.extensions,
+                    &state.runtime.extension_runtime,
                 ),
                 "extensionResolvers": demo.get("extensionResolvers").cloned().unwrap_or_else(|| json!([])),
                 "activityEvents": demo.get("activity").cloned().unwrap_or_else(|| json!([])),
@@ -1253,7 +3682,6 @@ async fn extension_manifest(
     State(state): State<AppState>,
     AxumPath(extension): AxumPath<String>,
     headers: HeaderMap,
-    Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let cors = match state
         .runtime
@@ -1262,9 +3690,6 @@ async fn extension_manifest(
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    if let Err(response) = extension_asset_principal(&state, &headers, query.get("session")) {
-        return response;
-    }
     match state.runtime.extension_manifest_body(&extension) {
         Ok(Some(body)) => text_response(StatusCode::OK, "application/json", body, cors),
         Ok(None) => error_response(
@@ -1284,7 +3709,6 @@ async fn extension_asset(
     State(state): State<AppState>,
     AxumPath((extension, asset_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
-    Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let cors = match state
         .runtime
@@ -1293,9 +3717,6 @@ async fn extension_asset(
         Ok(cors) => cors,
         Err(response) => return response,
     };
-    if let Err(response) = extension_asset_principal(&state, &headers, query.get("session")) {
-        return response;
-    }
     let asset = match state.runtime.extension_asset_body(&extension, &asset_path) {
         Ok(Some(asset)) => asset,
         Ok(None) => {
@@ -1363,7 +3784,7 @@ async fn git_endpoint(
         );
         return response;
     }
-    if path.contains("..") || !path.starts_with(&state.runtime.demo_repository.http_path) {
+    if path.contains("..") {
         return error_response(
             StatusCode::NOT_FOUND,
             ErrorCode::NotFound.as_str(),
@@ -1462,30 +3883,6 @@ fn parse_service_query(query: Option<&str>) -> Option<String> {
         }
     }
     None
-}
-
-fn extension_asset_principal(
-    state: &AppState,
-    headers: &HeaderMap,
-    session: Option<&String>,
-) -> Result<PrincipalStatus, Response> {
-    let principal = if let Some(session) = session {
-        state.runtime.consume_session(session)?
-    } else {
-        state.runtime.principal_from_headers(headers)
-    };
-    if matches!(
-        principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
-    ) {
-        Ok(principal)
-    } else {
-        Err(error_response(
-            StatusCode::UNAUTHORIZED,
-            ErrorCode::Unauthenticated.as_str(),
-            "extension assets require a bearer token or single-use asset session",
-        ))
-    }
 }
 
 async fn preflight(
@@ -1653,6 +4050,27 @@ pub fn split_repo_path(path: &str) -> (Vec<String>, String) {
         .collect();
     let name = segments.pop().unwrap_or_default();
     (segments, name)
+}
+
+/// Validate a user-supplied repository path. Each segment must satisfy the
+/// `Slug` rules (lowercase alphanumerics with `-`, `_`, `.`) and the path
+/// must contain at least one segment. Returns the normalized segments and
+/// the canonical `groups/.../name` string.
+pub fn validate_repo_path(input: &str) -> Result<(Vec<String>, String), String> {
+    let segments: Vec<String> = input
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(String::from)
+        .collect();
+    if segments.is_empty() {
+        return Err("repository path must contain at least one segment".to_string());
+    }
+    for segment in &segments {
+        Slug::new(segment.clone())
+            .map_err(|error| format!("path segment {segment:?} is invalid: {}", error.message))?;
+    }
+    let canonical = segments.join("/");
+    Ok((segments, canonical))
 }
 
 /// Derive the set of open pull-request states that count toward the
@@ -1829,7 +4247,132 @@ pub fn filter_events_for_viewer(events: &serde_json::Value, visible_repo_ids: &[
         .collect()
 }
 
-const FIRST_PARTY_EXTENSIONS: &[&str] = &["ext_pull_requests", "ext_code_browser", "ext_checks", "ext_workspace_home"];
+const FIRST_PARTY_EXTENSIONS: &[&str] = &[
+    "ext_pull_requests",
+    "ext_checks",
+    "ext_workspace_home",
+    "ext_issues",
+    "ext_epics",
+];
+
+/// Core verb vocabulary. Extensions can mint additional verbs in their own
+/// namespace (`comtrya://rel/<reverse-dns>/<verb>`); the kernel doesn't gate
+/// on those and treats them as asymmetric by default.
+#[derive(Debug, Clone, Copy)]
+struct CoreVerb {
+    uri: &'static str,
+    symmetric: bool,
+}
+
+const CORE_VERBS: &[CoreVerb] = &[
+    CoreVerb { uri: "comtrya://rel/part-of",    symmetric: false },
+    CoreVerb { uri: "comtrya://rel/blocks",     symmetric: false },
+    CoreVerb { uri: "comtrya://rel/relates-to", symmetric: true  },
+    CoreVerb { uri: "comtrya://rel/duplicates", symmetric: false },
+    CoreVerb { uri: "comtrya://rel/mentions",   symmetric: false },
+];
+
+// ── Reactor surface ───────────────────────────────────────────────────────
+// Reactors are kernel-side handlers keyed by (extension_id, event_type).
+// They mirror the documented WIT `reactor` interface in docs/extensions.md;
+// real WASM-driven reactors are deferred and would replace these handler
+// pointers. The allowlists below are identity (the same shape as a
+// manifest-declared reactor.allowedMutations / allowedEmits) and the
+// dispatcher enforces them.
+
+pub struct EventEnvelope {
+    pub event_type: String,
+    pub payload: Value,
+}
+
+pub enum Reaction {
+    InvokeMutation {
+        name: String,
+        variables: Value,
+    },
+    EmitEvent {
+        event_type: String,
+        payload: Value,
+    },
+}
+
+struct Reactor {
+    extension_id: &'static str,
+    event_type: &'static str,
+    handler: fn(&Runtime, &EventEnvelope) -> Vec<Reaction>,
+    allowed_mutations: &'static [&'static str],
+    allowed_emits: &'static [&'static str],
+}
+
+/// Reactor table. Populated by extensions that opt into event-driven
+/// reactions. The `ext_pull_requests` auto-close-on-merge entry reads
+/// outgoing `closes` relations from the merged PR's ref and emits an
+/// `issues.close` mutation per linked issue.
+const REACTORS: &[Reactor] = &[Reactor {
+    extension_id: "ext_pull_requests",
+    event_type: "dev.comtrya.pull-request.merged",
+    handler: pull_requests_on_merge,
+    allowed_mutations: &["issues.close"],
+    allowed_emits: &[],
+}];
+
+fn pull_requests_on_merge(runtime: &Runtime, env: &EventEnvelope) -> Vec<Reaction> {
+    let pr_ref = match env.payload.get("pullRequestRef").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let relations = runtime
+        .relations_outgoing(pr_ref, Some("comtrya://rel/com.comtrya.pulls/closes"))
+        .unwrap_or_default();
+    let mut reactions = Vec::new();
+    for rel in relations {
+        let Some(issue_uri) = rel.get("to").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let Ok(parsed) = ResourceRef::parse(issue_uri) else {
+            continue;
+        };
+        let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
+            continue;
+        };
+        reactions.push(Reaction::InvokeMutation {
+            name: "issues.close".to_string(),
+            variables: json!({
+                "id": id,
+                "reason": "completed",
+                "closedByRef": pr_ref,
+            }),
+        });
+    }
+    reactions
+}
+
+/// A verb URI is well-formed when it starts with `comtrya://rel/` and the
+/// remainder is one or more `/`-separated segments where each segment
+/// contains only lowercase ASCII, digits, dots, dashes, or underscores.
+fn validate_verb_uri(uri: &str) -> Result<(), String> {
+    let Some(rest) = uri.strip_prefix("comtrya://rel/") else {
+        return Err(format!(
+            "relation verb must start with `comtrya://rel/`, got {uri:?}"
+        ));
+    };
+    if rest.is_empty() {
+        return Err("relation verb has no path".to_string());
+    }
+    for segment in rest.split('/') {
+        if segment.is_empty() {
+            return Err(format!("relation verb has empty segment in {uri:?}"));
+        }
+        if !segment.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b == b'.'
+        }) {
+            return Err(format!(
+                "relation verb segment {segment:?} has invalid chars; allowed: a-z 0-9 . - _"
+            ));
+        }
+    }
+    Ok(())
+}
 const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "comtrya-local-operator-code"];
 const DEMO_EXPECTED_REFS: &[&str] = &[
     "refs/heads/main",
@@ -1847,6 +4390,92 @@ struct GitDemoSnapshot {
     files: Vec<Value>,
     blobs: Vec<Value>,
     diff: Value,
+}
+
+fn init_bare_repository_on_disk(project_root: &Path, canonical_path: &str) -> Result<PathBuf, String> {
+    let git_dir = project_root.join(format!("{canonical_path}.git"));
+    if git_dir.exists() {
+        return Err(format!("{} already exists on disk", git_dir.display()));
+    }
+    if let Some(parent) = git_dir.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    run_command(
+        Command::new("git")
+            .arg("init")
+            .arg("--bare")
+            .arg("--initial-branch=main")
+            .arg(&git_dir),
+        "git init --bare",
+    )?;
+    fs::write(git_dir.join("git-daemon-export-ok"), b"")
+        .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
+    Ok(git_dir)
+}
+
+fn clone_bare_repository_on_disk(
+    project_root: &Path,
+    canonical_path: &str,
+    clone_url: &str,
+) -> Result<PathBuf, String> {
+    let git_dir = project_root.join(format!("{canonical_path}.git"));
+    if git_dir.exists() {
+        return Err(format!("{} already exists on disk", git_dir.display()));
+    }
+    if let Some(parent) = git_dir.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
+    }
+    let output = Command::new("git")
+        .arg("clone")
+        .arg("--bare")
+        .arg("--quiet")
+        .arg(clone_url)
+        .arg(&git_dir)
+        .output()
+        .map_err(|error| format!("failed to spawn git clone: {error}"))?;
+    if !output.status.success() {
+        let _ = fs::remove_dir_all(&git_dir);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "git clone --bare failed (exit {}): {}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+    fs::write(git_dir.join("git-daemon-export-ok"), b"")
+        .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
+    Ok(git_dir)
+}
+
+fn validate_clone_url(url: &str) -> Result<(), String> {
+    const ALLOWED_SCHEMES: &[&str] = &["http://", "https://", "git://", "file://"];
+    if !ALLOWED_SCHEMES.iter().any(|scheme| url.starts_with(scheme)) {
+        return Err(format!(
+            "clone URL must start with one of {ALLOWED_SCHEMES:?}; got {url:?}"
+        ));
+    }
+    if url.contains('\n') || url.contains('\r') || url.contains(' ') {
+        return Err("clone URL must not contain whitespace".to_string());
+    }
+    Ok(())
+}
+
+fn read_default_branch(git_dir: &Path) -> Option<String> {
+    let head = fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    let ref_line = head.strip_prefix("ref: ")?;
+    let branch = ref_line.strip_prefix("refs/heads/")?;
+    Some(branch.to_string())
+}
+
+fn chrono_now_iso() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    format!("@{now}")
 }
 
 fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, String> {
@@ -2262,6 +4891,70 @@ fn checks_resolver_output(checks: &Value) -> Value {
     })
 }
 
+fn epics_resolver_output(epics: &Value) -> Value {
+    let mut active = 0u64;
+    let mut at_risk = 0u64;
+    let mut completed = 0u64;
+    let mut canceled = 0u64;
+    if let Some(arr) = epics.as_array() {
+        for epic in arr {
+            match epic.get("state").and_then(Value::as_str) {
+                Some("PLANNED") | Some("IN_PROGRESS") => active += 1,
+                Some("AT_RISK") => at_risk += 1,
+                Some("DONE") => completed += 1,
+                Some("CANCELED") => canceled += 1,
+                _ => {}
+            }
+        }
+    }
+    json!({
+        "methods": [
+            "create_epic",
+            "list_epics",
+            "epic_progress",
+            "epic_issues_in",
+            "epic_children_of",
+            "epic_change_state"
+        ],
+        "activeCount": active,
+        "atRiskCount": at_risk,
+        "completedCount": completed,
+        "canceledCount": canceled,
+    })
+}
+
+fn issues_resolver_output(issues: &Value) -> Value {
+    let mut open = 0u64;
+    let mut closed = 0u64;
+    let mut by_label: BTreeMap<String, u64> = BTreeMap::new();
+    if let Some(arr) = issues.as_array() {
+        for issue in arr {
+            match issue.get("state").and_then(Value::as_str) {
+                Some("OPEN") => open += 1,
+                Some("CLOSED") => closed += 1,
+                _ => {}
+            }
+            if let Some(labels) = issue.get("labels").and_then(Value::as_array) {
+                for label in labels.iter().filter_map(Value::as_str) {
+                    *by_label.entry(label.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    json!({
+        "methods": [
+            "list_issues",
+            "create_issue",
+            "close_issue",
+            "reopen_issue",
+            "byNumber"
+        ],
+        "openCount": open,
+        "closedCount": closed,
+        "openByLabel": by_label,
+    })
+}
+
 #[derive(Debug, Clone, Copy)]
 struct CheckSummary {
     total: usize,
@@ -2384,8 +5077,65 @@ fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
         .collect())
 }
 
+/// Build a generic per-repo git data payload that works for any on-disk bare
+/// repository. Empty repos (no commits yet) return empty arrays for tree/files
+/// rather than errors. The returned object is merged into the GraphQL
+/// `repositoryByPath` resolver so the code-browser widget can render any repo.
+fn repo_git_data(git_dir: &Path) -> Value {
+    let default_branch = read_default_branch(git_dir).unwrap_or_else(|| "main".to_string());
+    let head_oid = git_text(git_dir, &["rev-parse", "HEAD"]).ok().map(|s| s.trim().to_string());
+    let refs = git_refs(git_dir).unwrap_or_default();
+    let branches = git_branches(git_dir).unwrap_or_default();
+    let commits = git_text(
+        git_dir,
+        &[
+            "log",
+            "--date=relative",
+            "--format=%H%x00%h%x00%s%x00%an%x00%cr",
+            "-n",
+            "8",
+            &default_branch,
+        ],
+    )
+    .unwrap_or_default()
+    .lines()
+    .filter_map(|line| {
+        let fields = line.split('\0').collect::<Vec<_>>();
+        if fields.len() != 5 {
+            return None;
+        }
+        Some(json!({
+            "oid": fields[0],
+            "shortOid": fields[1],
+            "subject": fields[2],
+            "author": fields[3],
+            "time": fields[4],
+        }))
+    })
+    .collect::<Vec<_>>();
+    let (tree_entries, files, blobs) =
+        git_tree_at_ref(git_dir, &default_branch).unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
+    json!({
+        "defaultBranch": default_branch,
+        "headOid": head_oid,
+        "refs": refs,
+        "branches": branches,
+        "commits": commits,
+        "treeEntries": tree_entries,
+        "files": files,
+        "blobs": blobs,
+    })
+}
+
 fn git_tree(git_dir: &Path) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), String> {
-    let output = git_bytes(git_dir, &["ls-tree", "-r", "-z", "--long", "main"])?;
+    git_tree_at_ref(git_dir, "main")
+}
+
+fn git_tree_at_ref(
+    git_dir: &Path,
+    reference: &str,
+) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), String> {
+    let output = git_bytes(git_dir, &["ls-tree", "-r", "-z", "--long", reference])?;
     let mut entries = Vec::new();
     let mut files = Vec::new();
     let mut blobs = Vec::new();
@@ -2406,7 +5156,7 @@ fn git_tree(git_dir: &Path) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), Stri
         let oid = parts[2];
         let size = parts[3].parse::<u64>().unwrap_or_default();
         let preview = if is_text_preview_path(path) {
-            git_text(git_dir, &["show", &format!("main:{path}")])
+            git_text(git_dir, &["show", &format!("{reference}:{path}")])
                 .unwrap_or_default()
                 .chars()
                 .take(4096)
@@ -2487,28 +5237,51 @@ fn git_bytes(git_dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
-const EXTENSION_STORAGE_SCHEMA_VERSION: &str = "comtrya.extension-storage/v1";
+pub(crate) const EXTENSION_STORAGE_SCHEMA_VERSION: &str = "comtrya.extension-storage/v1";
+
+fn now_iso_timestamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = secs / 86_400;
+    let rem = secs % 86_400;
+    let h = rem / 3600;
+    let m = (rem % 3600) / 60;
+    let s = rem % 60;
+    let g = days as i64 + 719_468;
+    let era = g.div_euclid(146_097);
+    let doe = g.rem_euclid(146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y_base = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = if mo <= 2 { y_base + 1 } else { y_base };
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, s)
+}
 const EXTENSION_STORAGE_MIGRATIONS: &[&str] = &["001_extension_documents"];
 
 #[derive(Debug, Clone)]
-struct ExtensionRuntimeStore {
+pub(crate) struct ExtensionRuntimeStore {
     root: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ExtensionDocumentRecord {
-    schema_version: String,
-    owner_extension: String,
-    collection: String,
-    id: String,
-    resource: String,
-    resource_refs: Vec<String>,
-    visibility: String,
-    indexed_fields: BTreeMap<String, Value>,
-    version: u64,
-    updated_at: String,
-    data: Value,
+pub(crate) struct ExtensionDocumentRecord {
+    pub(crate) schema_version: String,
+    pub(crate) owner_extension: String,
+    pub(crate) collection: String,
+    pub(crate) id: String,
+    pub(crate) resource: String,
+    pub(crate) resource_refs: Vec<String>,
+    pub(crate) visibility: String,
+    pub(crate) indexed_fields: BTreeMap<String, Value>,
+    pub(crate) version: u64,
+    pub(crate) updated_at: String,
+    pub(crate) data: Value,
 }
 
 impl ExtensionRuntimeStore {
@@ -2535,7 +5308,7 @@ impl ExtensionRuntimeStore {
         self.root.join("documents.jsonl")
     }
 
-    fn events_path(&self) -> PathBuf {
+    pub(crate) fn events_path(&self) -> PathBuf {
         self.root.join("events.jsonl")
     }
 
@@ -2654,7 +5427,7 @@ impl ExtensionRuntimeStore {
             .collect())
     }
 
-    fn create_document(&self, record: ExtensionDocumentRecord) -> Result<(), String> {
+    pub(crate) fn create_document(&self, record: ExtensionDocumentRecord) -> Result<(), String> {
         let mut records = self.load_records()?;
         if records
             .iter()
@@ -2669,34 +5442,72 @@ impl ExtensionRuntimeStore {
         self.write_records_atomically(&records)
     }
 
+    pub(crate) fn delete_document(&self, collection: &str, id: &str) -> Result<(), String> {
+        let mut records = self.load_records()?;
+        let before = records.len();
+        records.retain(|record| !(record.collection == collection && record.id == id));
+        if records.len() == before {
+            return Err(format!("extension document not found: {collection}/{id}"));
+        }
+        self.write_records_atomically(&records)?;
+        self.append_storage_event(
+            "dev.comtrya.extension_storage.document_deleted",
+            json!({"collection": collection, "id": id}),
+        )
+    }
+
     #[allow(dead_code)]
-    fn update_document_atomically(
+    pub(crate) fn update_document_atomically(
         &self,
         collection: &str,
         id: &str,
         update: impl FnOnce(&mut Value),
     ) -> Result<(), String> {
+        self.update_document_if_version(collection, id, None, |val, _| update(val))
+    }
+
+    /// Atomic compare-and-swap for the OCC protocol. If `expected_version`
+    /// is `Some(v)` and the current record's version is not `v`, returns
+    /// `Err("version conflict ...")`. Otherwise applies `update`, bumps
+    /// version, persists.
+    pub(crate) fn update_document_if_version(
+        &self,
+        collection: &str,
+        id: &str,
+        expected_version: Option<u64>,
+        update: impl FnOnce(&mut Value, u64),
+    ) -> Result<(), String> {
         let mut records = self.load_records()?;
-        let version = {
+        let (version, current_version) = {
             let Some(record) = records
                 .iter_mut()
                 .find(|record| record.collection == collection && record.id == id)
             else {
                 return Err(format!("extension document not found: {collection}/{id}"));
             };
-            update(&mut record.data);
+            if let Some(expected) = expected_version {
+                if record.version != expected {
+                    return Err(format!(
+                        "version conflict: expected {} current {}",
+                        expected, record.version
+                    ));
+                }
+            }
+            let current = record.version;
+            update(&mut record.data, current);
             record.version += 1;
-            record.updated_at = now_seconds().to_string();
-            record.version
+            record.updated_at = now_iso_timestamp();
+            (record.version, current)
         };
         self.write_records_atomically(&records)?;
+        let _ = current_version;
         self.append_storage_event(
             "dev.comtrya.extension_storage.document_updated",
             json!({"collection": collection, "id": id, "version": version}),
         )
     }
 
-    fn load_records(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
+    pub(crate) fn load_records(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
         let path = self.documents_path();
         if !path.is_file() {
             return Ok(Vec::new());
@@ -2736,7 +5547,7 @@ impl ExtensionRuntimeStore {
         })
     }
 
-    fn append_storage_event(&self, event_type: &str, data: Value) -> Result<(), String> {
+    pub(crate) fn append_storage_event(&self, event_type: &str, data: Value) -> Result<(), String> {
         append_jsonl(
             &self.events_path(),
             json!({
@@ -3071,12 +5882,17 @@ fn asset_etag(body: &[u8]) -> String {
 const UI_MANIFEST_SCHEMA_V2: &str = "comtrya.ui-extension/v2";
 const KNOWN_SLOT_NAMES: &[&str] = &[
     "home.your-work",
+    "home.your-issues",
+    "home.your-epics",
     "home.repositories",
     "home.activity",
     "home.instance",
     "repository.overview",
     "repository.code",
     "repository.checks",
+    "repository.issues",
+    "workspace.issues",
+    "workspace.epics",
 ];
 
 #[derive(Debug, serde::Deserialize)]
@@ -3298,11 +6114,25 @@ fn load_extension_packages(
             .pointer("/runtime/outputType")
             .and_then(Value::as_str)
             .ok_or_else(|| format!("{} missing runtime.outputType", manifest_path.display()))?;
+        let route_prefix = manifest
+            .get("routePrefix")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let component_path = root.join(component_name);
         let component_bytes = fs::read(&component_path)
             .map_err(|error| format!("failed to read {}: {error}", component_path.display()))?;
         let component = Component::new(&engine, component_bytes)
             .map_err(|error| format!("failed to compile {}: {error}", component_path.display()))?;
+        // Phase 2 — the platform-world linker is built unconditionally so
+        // it's exercised at startup. The legacy resolver path below uses
+        // `Linker::<()>` because today's component.wat stubs export a
+        // bare `resolve()` and don't import any platform interfaces. When
+        // an extension targets `comtrya:platform/extension`, the platform
+        // linker takes over via wasm_host::host_state_for_op.
+        let _platform_linker_check =
+            wasm_host::make_platform_linker(&engine).map_err(|error| {
+                format!("failed to build platform linker for {id}: {error}")
+            })?;
         let linker = Linker::<()>::new(&engine);
         let mut store = Store::new(&engine, ());
         let instance = linker
@@ -3330,6 +6160,7 @@ fn load_extension_packages(
                     status: "executed".to_string(),
                     root,
                     ui_manifest,
+                    route_prefix,
                 },
             )
             .is_some()
@@ -4354,9 +7185,6 @@ mod tests {
     #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     async fn extension_assets_use_content_hash_cache_headers() {
         let runtime = dev_runtime();
-        let session = runtime.issue_session(PrincipalStatus::OperatorCredential);
-        let mut query = HashMap::new();
-        query.insert("session".to_string(), session);
 
         let response = extension_asset(
             State(AppState {
@@ -4365,7 +7193,6 @@ mod tests {
             }),
             AxumPath(("ext_code_browser".to_string(), "index.js".to_string())),
             HeaderMap::new(),
-            Query(query),
         )
         .await;
 
@@ -5694,7 +8521,8 @@ extensions: {
             { "id": "ext_pull_requests", "status": "enabled" }
         ]);
         let configs: Vec<ExtensionInstallConfig> = vec![];
-        let result = inject_route_prefix(extensions, &configs);
+        let runtime: BTreeMap<String, WasmtimeResolverRecord> = BTreeMap::new();
+        let result = inject_route_prefix(extensions, &configs, &runtime);
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
         assert!(items[0]["routePrefix"].is_null());
@@ -5721,11 +8549,37 @@ extensions: {
                 route_prefix: None,
             },
         ];
-        let result = inject_route_prefix(extensions, &configs);
+        let runtime: BTreeMap<String, WasmtimeResolverRecord> = BTreeMap::new();
+        let result = inject_route_prefix(extensions, &configs, &runtime);
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["routePrefix"], "pulls");
         assert!(items[1]["routePrefix"].is_null());
+    }
+
+    #[test]
+    fn inject_route_prefix_falls_back_to_manifest_when_config_absent() {
+        let extensions = json!([
+            { "id": "ext_pull_requests", "status": "enabled" }
+        ]);
+        let configs: Vec<ExtensionInstallConfig> = vec![];
+        let mut runtime = BTreeMap::new();
+        runtime.insert(
+            "ext_pull_requests".to_string(),
+            WasmtimeResolverRecord {
+                id: "ext_pull_requests".to_string(),
+                component: "component.wat".to_string(),
+                resolver: "resolve".to_string(),
+                output_type: "comtrya.pull-requests/summary.v1".to_string(),
+                status: "executed".to_string(),
+                root: PathBuf::new(),
+                ui_manifest: PathBuf::new(),
+                route_prefix: Some("pulls".to_string()),
+            },
+        );
+        let result = inject_route_prefix(extensions, &configs, &runtime);
+        let items = result.as_array().unwrap();
+        assert_eq!(items[0]["routePrefix"], "pulls");
     }
 
     // ── Task 24: workspace.repositories groups + summary ─────────────────────

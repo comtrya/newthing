@@ -109,18 +109,25 @@
       "description": "Reviews, merge readiness, branch comparison, and discussion surfaces."
     },
     {
-      "id": "ext_code_browser",
-      "name": "Code Browser",
-      "status": "ACTIVE",
-      "manifest": "/_extensions/ext_code_browser/manifest.json",
-      "description": "Repository tree, file previews, symbols, blame, and cross-reference navigation."
-    },
-    {
       "id": "ext_checks",
       "name": "Checks",
       "status": "ACTIVE",
       "manifest": "/_extensions/ext_checks/manifest.json",
       "description": "Commit checks, deployment evidence, and protected branch signals."
+    },
+    {
+      "id": "ext_issues",
+      "name": "Issues",
+      "status": "ACTIVE",
+      "manifest": "/_extensions/ext_issues/manifest.json",
+      "description": "Workspace-scoped issues with optional repo association, labels, and assignees."
+    },
+    {
+      "id": "ext_epics",
+      "name": "Epics",
+      "status": "ACTIVE",
+      "manifest": "/_extensions/ext_epics/manifest.json",
+      "description": "Workspace-level epics that group issues and child epics through `part-of` relations."
     }
   ],
   "activity": [

@@ -5,6 +5,7 @@ members = [
     "crates/cli",
     "crates/git-http",
     "crates/extension-oci",
+    "crates/wit-codegen",
 ]
 resolver = "3"
 
