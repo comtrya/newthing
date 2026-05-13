@@ -66,7 +66,8 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [ ] Integration test: kernel starts, loads `ext_issues.wasm`, calls `close-issue` via the linker, asserts persistence + event emission
 
 ## M3 — GraphQL dispatch routing
-- [ ] Compose the per-extension `dispatch_route_<ext_id>()` functions into one root dispatch table at startup
+- [x] Compose the per-extension `dispatch_route_<ext_id>()` functions into one root dispatch table at startup *(done in M2 build.rs)*
+- [ ] Codegen emits a parallel `graphql_field_to_route` lookup so the GraphQL handler can map e.g. `closeIssue` → `ext_issues.issues.close-issue`
 - [ ] GraphQL mutation/query handler consults the dispatch table first
 - [ ] On hit, route to WASM via `host_state_for_op` + linker
 - [ ] On miss, fall back to legacy handler (temporary, only through M5)
