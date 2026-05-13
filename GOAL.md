@@ -79,7 +79,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Persist `close-issue` `reason` field — stored as `stateReason` by the component and asserted through the M3 GraphQL/WASM close test
 - [x] Add WIT/GraphQL replacements for legacy-only issue lookup/count fields: `issues.byRef`, `issues.byRefs`, `issues.byNumber`, and `issues.stateCountsForRefs` — *`ext_issues` exports WIT ops for all four fields; generated dispatch aliases now claim the legacy dotted/camel GraphQL names, the GraphQL bridge preserves response shapes, and malformed refs keep legacy `BAD_USER_INPUT` validation.*
 - [x] Update the `ext_issues` UI to stop depending on legacy-only issue lookup fields, or back those fields with generated WASM routes before deletion — *no UI code change needed: `assets/index.js` still uses the stable GraphQL surface, and `issues.list`, `issues.byRef`, `issues.byNumber`, `issues.create`, `issues.close`, and `issues.reopen` are all backed by generated WASM routes before the legacy handler deletion.*
-- [ ] Re-verify smoke for issue flows under WASM-only routing
+- [x] Re-verify smoke for issue flows under WASM-only routing — *`./start.sh --reset --oneshot` passed; issue create/list/byNumber/close/reopen/byRefs/stateCounts/link flows passed, and the browser close smoke asserted an `ext_issues` `dev.comtrya.issues.closed` event plus CLOSED storage state.*
 - [ ] Delete every `matches_op` arm for `issues.*` in `main.rs`
 - [ ] Delete helper functions exclusive to issues handlers
 - [ ] `rg "issues\.close|issues\.open|issues\.reopen" crates/server/src/main.rs` returns zero hits in handler code
