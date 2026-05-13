@@ -1733,14 +1733,52 @@ mod tests {
         )
         .expect("canonical allowed route dispatches");
         assert_eq!(out, payload);
+        assert_eq!(host.ops_invoke_depth, 0);
 
-        let calls = dispatcher.calls.lock().unwrap();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].0, "ext_issues");
-        assert_eq!(calls[0].1, "issues.close-issue");
-        assert_eq!(calls[0].2, payload);
-        assert_eq!(calls[0].3, "comtrya://user/usr_ops_test");
-        assert_eq!(calls[0].4, 1);
+        {
+            let calls = dispatcher.calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, "ext_issues");
+            assert_eq!(calls[0].1, "issues.close-issue");
+            assert_eq!(calls[0].2, payload);
+            assert_eq!(calls[0].3, "comtrya://user/usr_ops_test");
+            assert_eq!(calls[0].4, 1);
+        }
+
+        host.ops_invoke_depth = OPS_INVOKE_DEPTH_CAP - 1;
+        let nested_out = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.close-issue".to_string(),
+            br#"{"id":"iss_nested"}"#.to_vec(),
+        )
+        .expect("last allowed nested route dispatches at cap");
+        assert_eq!(nested_out, br#"{"id":"iss_nested"}"#.to_vec());
+        assert_eq!(host.ops_invoke_depth, OPS_INVOKE_DEPTH_CAP - 1);
+
+        {
+            let calls = dispatcher.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[1].4, OPS_INVOKE_DEPTH_CAP);
+        }
+
+        host.ops_invoke_depth = OPS_INVOKE_DEPTH_CAP;
+        let capped = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.close-issue".to_string(),
+            br#"{"id":"iss_too_deep"}"#.to_vec(),
+        )
+        .expect_err("depth above cap must fail before dispatch");
+        assert!(matches!(capped.code, wit_types::ErrorCode::Unavailable));
+        assert!(
+            capped.message.contains(&format!(
+                "ops.invoke depth cap {OPS_INVOKE_DEPTH_CAP} exceeded"
+            )),
+            "{capped:?}"
+        );
+        assert_eq!(host.ops_invoke_depth, OPS_INVOKE_DEPTH_CAP);
+        assert_eq!(dispatcher.calls.lock().unwrap().len(), 2);
     }
 
     #[test]
