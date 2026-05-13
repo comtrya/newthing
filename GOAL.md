@@ -20,11 +20,13 @@ Rules of engagement:
 - The phrase "scaffolded" is not progress. Only working, wired, observably-correct behaviour counts.
 
 ## Pre-flight decisions
-- [ ] SSR vs SPA for the Vue shell (default: SPA)
-- [ ] Vite-Vue vs Astro-with-Vue-islands (default: Vite, drop Astro entirely)
-- [ ] Demo seed handling — keep `fixtures/demo/conference.json`, rewrite seeder vs move seeding into per-extension install ops (default: keep payload, rewrite seeder to drive WASM bootstrap)
-- [ ] GraphQL schema stability — keep existing schema vs break and update callers (default: keep, adapt codegen)
-- [ ] Pin Wasmtime + cargo-component versions for the duration of the migration
+
+Settled in `docs/v3-decisions.md`. Summary:
+- [x] SSR vs SPA for the Vue shell — **SPA**
+- [x] Vite-Vue vs Astro-with-Vue-islands — **Vite, drop Astro entirely**
+- [x] Demo seed handling — **keep payload, rewrite seeder to drive WASM bootstrap**
+- [x] GraphQL schema stability — **keep existing schema, adapt codegen**
+- [x] Pin Wasmtime + cargo-component versions — **wasmtime 43.0.2 + wit-parser 0.235 pinned; cargo-component + wit-bindgen pinned at M1**
 
 ## M0 — Audit + freeze
 - [x] Survey every `matches_op` arm in `crates/server/src/main.rs`; record file:line ranges
@@ -35,7 +37,7 @@ Rules of engagement:
 - [x] Survey dead seed logic in `ExtensionRuntimeStore` (`ensure_schema`, `seed_from_demo_payload`, the hardcoded collection declarations)
 - [x] Write `docs/v3-deletion-inventory.md` listing every artifact + the milestone it dies in
 - [x] Lock `extensions/wit/comtrya/platform/` at `@0.1.0` — no edits without an explicit revision bump
-- [ ] Confirm all five pre-flight decisions are settled before starting M1
+- [x] Confirm all five pre-flight decisions are settled before starting M1
 
 ## M1 — Real WASM for `ext_issues` (canary)
 - [ ] Create `extensions/first-party/ext_issues/component/Cargo.toml` using cargo-component
