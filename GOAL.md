@@ -71,7 +71,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] GraphQL mutation/query handler consults the dispatch table first
 - [x] On hit, route to WASM via `host_state_for_op` + linker — *`wasm_dispatch::dispatch` now translates the existing `issues.*` GraphQL payload/response shape, calls `RegistryDispatcher` for `ext_issues`, and returns WASM-backed create/close/reopen/get/list responses.*
 - [x] On miss, fall back to legacy handler (temporary, only through M5)
-- [ ] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms)
+- [x] Browser smoke: `closeIssue` mutation fires a real WASM call (log line + storage diff confirms) — *`start.sh --oneshot` now drives the issue detail page in headless Chrome, clicks `Close issue`, asserts the `dev.comtrya.issues.closed` event from `ext_issues`, and verifies the issue storage record changed to `CLOSED`.*
 - [x] All 128 existing `start.sh` smoke checks still pass
 
 ## M4 — `ext_issues` legacy handlers deleted

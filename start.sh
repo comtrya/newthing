@@ -207,6 +207,59 @@ extract_json_string() {
   json_value "$body_file" "json[\"$field\"]"
 }
 
+write_issue_storage_snapshot() {
+  local issue_id="$1"
+  local output_file="$2"
+
+  "$BUN" --eval '
+const fs = require("fs");
+const [documentsFile, issueId, outputFile] = process.argv.slice(1);
+let found = null;
+for (const line of fs.readFileSync(documentsFile, "utf8").split(/\n/)) {
+  if (!line.trim()) continue;
+  const record = JSON.parse(line);
+  if (record.collection === "issues" && record.id === issueId) {
+    found = record;
+  }
+}
+if (!found) {
+  console.error(`[comtrya] issue storage record not found: ${issueId}`);
+  process.exit(1);
+}
+fs.writeFileSync(outputFile, JSON.stringify(found, null, 2));
+' "$DATA_DIR/extensions/storage/documents.jsonl" "$issue_id" "$output_file"
+}
+
+write_issue_closed_wasm_event() {
+  local issue_id="$1"
+  local output_file="$2"
+
+  "$BUN" --eval '
+const fs = require("fs");
+const [eventsFile, issueId, outputFile] = process.argv.slice(1);
+let found = null;
+for (const line of fs.readFileSync(eventsFile, "utf8").split(/\n/)) {
+  if (!line.trim()) continue;
+  const record = JSON.parse(line);
+  if (record.data?.eventType !== "dev.comtrya.issues.closed") continue;
+  let decodedPayload = null;
+  try {
+    decodedPayload = JSON.parse(Buffer.from(record.data.payloadB64 ?? "", "base64").toString("utf8"));
+  } catch {
+    decodedPayload = null;
+  }
+  if (decodedPayload?.id === issueId) {
+    found = { ...record, decodedPayload };
+  }
+}
+if (!found) {
+  console.error(`[comtrya] WASM close event not found for issue: ${issueId}`);
+  process.exit(1);
+}
+fs.writeFileSync(outputFile, JSON.stringify(found, null, 2));
+' "$DATA_DIR/extensions/storage/events.jsonl" "$issue_id" "$output_file"
+}
+
 find_headless_browser() {
   if [[ -n "${COMTRYA_BROWSER_BIN:-}" ]]; then
     [[ -x "$COMTRYA_BROWSER_BIN" ]] || fail "COMTRYA_BROWSER_BIN is not executable: $COMTRYA_BROWSER_BIN"
@@ -433,6 +486,232 @@ try {
   wait "$browser_pid" >/dev/null 2>&1 || true
 
   log "ok - browser repo dashboard mounted repository.* slot widgets"
+}
+
+assert_issue_close_browser_smoke() {
+  local issue_id="$1"
+  local workspace_id="$2"
+  local issue_number="$3"
+  local evidence_file="$4"
+  local browser_log="$5"
+  local before_file="$TMP_DIR/issue-close-browser-before.json"
+  local after_file="$TMP_DIR/issue-close-browser-after.json"
+  local event_file="$TMP_DIR/issue-close-browser-event.json"
+
+  write_issue_storage_snapshot "$issue_id" "$before_file"
+  json_assert "browser close issue starts OPEN" "$before_file" \
+    'json.data.state === "OPEN" && (json.data.closedAt === null || json.data.closedAt === undefined)'
+
+  local browser_bin
+  browser_bin="$(find_headless_browser)" || fail "issue close browser smoke requires Chrome/Chromium or COMTRYA_BROWSER_BIN"
+
+  local profile_dir="$TMP_DIR/headless-issue-close-profile"
+  local browser_stdout="$TMP_DIR/headless-issue-close.stdout"
+  local debugging_port="${COMTRYA_BROWSER_DEBUG_PORT:-$((24000 + RANDOM % 20000))}"
+  local browser_pid=""
+  rm -rf "$profile_dir"
+  mkdir -p "$profile_dir"
+
+  "$browser_bin" \
+    --headless=new \
+    --disable-gpu \
+    --disable-dev-shm-usage \
+    --no-default-browser-check \
+    --no-first-run \
+    --no-sandbox \
+    --remote-debugging-address=127.0.0.1 \
+    --remote-debugging-port="$debugging_port" \
+    --user-data-dir="$profile_dir" \
+    about:blank >"$browser_stdout" 2>"$browser_log" &
+  browser_pid="$!"
+
+  local deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+  until curl -sSf "http://127.0.0.1:${debugging_port}/json" >/dev/null 2>&1; do
+    if ! kill -0 "$browser_pid" >/dev/null 2>&1; then
+      printf '\n[comtrya] headless browser exited before DevTools became ready: %s\n' "$browser_bin" >&2
+      printf '[comtrya] browser log:\n' >&2
+      sed -n '1,180p' "$browser_log" >&2 || true
+      fail "headless browser did not start"
+    fi
+    if ((SECONDS >= deadline)); then
+      kill "$browser_pid" >/dev/null 2>&1 || true
+      wait "$browser_pid" >/dev/null 2>&1 || true
+      fail "headless browser DevTools did not become ready"
+    fi
+    sleep 0.25
+  done
+
+  if ! "$BUN" --eval '
+const fs = require("fs");
+const [port, pageUrl, issueId, outputFile] = process.argv.slice(1);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function pageTarget() {
+  for (const _ of Array.from({ length: 80 })) {
+    const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) =>
+      response.json(),
+    );
+    const target = targets.find((candidate) => candidate.type === "page");
+    if (target?.webSocketDebuggerUrl) {
+      return target;
+    }
+    await sleep(250);
+  }
+  throw new Error("Chrome DevTools did not expose a page target");
+}
+
+async function connect(target) {
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  const pending = new Map();
+  let nextId = 1;
+  ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    if (!message.id || !pending.has(message.id)) {
+      return;
+    }
+    const { resolve, reject } = pending.get(message.id);
+    pending.delete(message.id);
+    if (message.error) {
+      reject(new Error(message.error.message ?? JSON.stringify(message.error)));
+    } else {
+      resolve(message.result);
+    }
+  };
+  await new Promise((resolve, reject) => {
+    ws.onopen = resolve;
+    ws.onerror = () => reject(new Error("Chrome DevTools websocket failed"));
+  });
+  return {
+    send(method, params = {}) {
+      const id = nextId++;
+      ws.send(JSON.stringify({ id, method, params }));
+      return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+    },
+    close() {
+      ws.close();
+    },
+  };
+}
+
+const collectExpression = `(() => {
+  const main = document.querySelector("[data-smoke=\\"issue-detail-main\\"]");
+  const buttons = Array.from(document.querySelectorAll("button")).map((button) => ({
+    text: (button.textContent || "").trim(),
+    disabled: button.disabled,
+  }));
+  return {
+    url: location.href,
+    ready: Boolean(main),
+    issueId: main?.dataset.issueId ?? null,
+    text: (main?.innerText || document.body.innerText || "").trim(),
+    buttons,
+    closeVisible: buttons.some((button) => button.text === "Close issue" && !button.disabled),
+    reopenVisible: buttons.some((button) => button.text === "Reopen issue"),
+  };
+})()`;
+
+async function collect(cdp) {
+  const result = await cdp.send("Runtime.evaluate", {
+    expression: collectExpression,
+    returnByValue: true,
+  });
+  if (result.exceptionDetails) {
+    const detail =
+      result.exceptionDetails.exception?.description ??
+      result.exceptionDetails.text ??
+      "DOM collection threw";
+    throw new Error(detail);
+  }
+  return result.result?.value ?? {};
+}
+
+async function waitFor(cdp, predicate, label) {
+  let lastEvidence = {};
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    lastEvidence = await collect(cdp);
+    if (predicate(lastEvidence)) {
+      return lastEvidence;
+    }
+    await sleep(250);
+  }
+  fs.writeFileSync(outputFile, JSON.stringify({ label, lastEvidence }, null, 2));
+  throw new Error(`${label} did not become ready`);
+}
+
+const clickExpression = `(() => {
+  const button = Array.from(document.querySelectorAll("button")).find(
+    (candidate) => (candidate.textContent || "").trim() === "Close issue",
+  );
+  if (!button) {
+    throw new Error("Close issue button missing");
+  }
+  button.click();
+  return true;
+})()`;
+
+const target = await pageTarget();
+const cdp = await connect(target);
+try {
+  await cdp.send("Runtime.enable");
+  await cdp.send("Page.enable");
+  await cdp.send("Page.navigate", { url: pageUrl });
+
+  const beforeClick = await waitFor(
+    cdp,
+    (evidence) => evidence.ready && evidence.issueId === issueId && evidence.closeVisible,
+    "issue close button",
+  );
+
+  const clickResult = await cdp.send("Runtime.evaluate", {
+    expression: clickExpression,
+    returnByValue: true,
+  });
+  if (clickResult.exceptionDetails) {
+    const detail =
+      clickResult.exceptionDetails.exception?.description ??
+      clickResult.exceptionDetails.text ??
+      "close click threw";
+    throw new Error(detail);
+  }
+
+  const afterClick = await waitFor(
+    cdp,
+    (evidence) =>
+      evidence.ready &&
+      evidence.issueId === issueId &&
+      evidence.reopenVisible &&
+      /\bclosed\b/.test(evidence.text),
+    "issue closed UI",
+  );
+
+  fs.writeFileSync(outputFile, JSON.stringify({ beforeClick, afterClick }, null, 2));
+} finally {
+  cdp.close();
+}
+' "$debugging_port" "$FRONTEND_URL/x/issues/$workspace_id/$issue_number" "$issue_id" "$evidence_file"; then
+    kill "$browser_pid" >/dev/null 2>&1 || true
+    wait "$browser_pid" >/dev/null 2>&1 || true
+    printf '\n[comtrya] browser issue-close smoke failed with %s\n' "$browser_bin" >&2
+    printf '[comtrya] browser evidence:\n' >&2
+    sed -n '1,220p' "$evidence_file" >&2 || true
+    printf '[comtrya] browser log:\n' >&2
+    sed -n '1,180p' "$browser_log" >&2 || true
+    exit 1
+  fi
+
+  kill "$browser_pid" >/dev/null 2>&1 || true
+  wait "$browser_pid" >/dev/null 2>&1 || true
+
+  write_issue_storage_snapshot "$issue_id" "$after_file"
+  json_assert "browser close issue storage changed to CLOSED" "$after_file" \
+    'json.data.state === "CLOSED" && json.data.stateReason === "completed" && typeof json.data.closedAt === "string" && json.version > 1'
+  write_issue_closed_wasm_event "$issue_id" "$event_file"
+  json_assert "browser close issue emitted ext_issues WASM event" "$event_file" \
+    'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
+
+  log "ok - browser close issue fired ext_issues WASM close and updated storage"
 }
 
 wait_for_url() {
@@ -1092,6 +1371,25 @@ expect_status "issues.reopen returns to OPEN" 200 "$TMP_DIR/iss-reopen.json" \
   "$FRONTEND_URL/graphql"
 json_assert "issue is back to OPEN" "$TMP_DIR/iss-reopen.json" \
   'json.data.issues.reopen.state === "OPEN"'
+
+if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
+  expect_status "issues.create for browser close smoke" 200 "$TMP_DIR/iss-browser-create.json" \
+    -H "content-type: application/json" \
+    --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id workspaceId number state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"browser close WASM smoke","bodyMarkdown":"close through the extension page button"}}}' \
+    "$FRONTEND_URL/graphql"
+  json_assert "browser close smoke issue starts OPEN" "$TMP_DIR/iss-browser-create.json" \
+    'json.data.issues.create.state === "OPEN" && typeof json.data.issues.create.id === "string" && typeof json.data.issues.create.number === "number"'
+  BROWSER_CLOSE_ISSUE_ID="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.data.issues.create.id')"
+  BROWSER_CLOSE_ISSUE_NUMBER="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.data.issues.create.number')"
+  assert_issue_close_browser_smoke \
+    "$BROWSER_CLOSE_ISSUE_ID" \
+    "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3" \
+    "$BROWSER_CLOSE_ISSUE_NUMBER" \
+    "$TMP_DIR/issue-close-browser-evidence.json" \
+    "$TMP_DIR/issue-close-browser.log"
+else
+  log "skipping browser issue close smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
+fi
 
 expect_status "issues.byRefs batch returns parallel array" 200 "$TMP_DIR/iss-by-refs.json" \
   -H "content-type: application/json" \
