@@ -979,7 +979,7 @@ impl wit_relations::Host for HostState {
     }
 }
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
     let mut i = 0;
@@ -1456,6 +1456,18 @@ pub trait OpsDispatcher: Send + Sync {
         depth: u32,
     ) -> Result<Vec<u8>, wit_types::Error>;
 
+    fn dispatch_with_reactor_depth(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+        _reactor_depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
+        self.dispatch(target_extension, op, payload, current_principal, depth)
+    }
+
     fn dispatch_event(&self, _event: &wit_types::Event, _depth: u32) -> usize {
         0
     }
@@ -1517,12 +1529,13 @@ impl wit_ops::Host for HostState {
             ));
         }
         self.ops_invoke_depth = depth;
-        let result = self.ops_dispatcher.dispatch(
+        let result = self.ops_dispatcher.dispatch_with_reactor_depth(
             &target_extension,
             &op,
             &payload,
             &self.current_principal,
             depth,
+            self.reactor_depth,
         );
         self.ops_invoke_depth = depth - 1;
         result

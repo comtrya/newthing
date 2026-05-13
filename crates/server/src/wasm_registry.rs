@@ -25,6 +25,9 @@ use crate::wasm_host::{
     StderrLogSink, SystemClock, UlidMinter, host_state_for_op, make_platform_linker, wit_types,
 };
 
+const REACTOR_RECURSION_DEPTH_CAP: u32 = 8;
+const REACTION_DEPTH_EXCEEDED_EVENT: &str = "comtrya.kernel.reaction-depth-exceeded";
+
 /// One loaded extension. The `Component` is compiled once at kernel
 /// boot; the kernel instantiates a fresh instance per op invocation
 /// (per the platform WIT's no-cross-call-state contract).
@@ -239,6 +242,15 @@ impl WasmRegistry {
         depth: u32,
     ) -> usize {
         let subscribers = self.subscribers_for_event(&event.event_type);
+        if subscribers.is_empty() {
+            return 0;
+        }
+        if depth >= REACTOR_RECURSION_DEPTH_CAP {
+            if let Err(error) = self.append_reaction_depth_exceeded_event(store, event, depth) {
+                eprintln!("reactor: failed to append reaction depth exceeded event: {error}");
+            }
+            return 0;
+        }
         let count = subscribers.len();
         for extension_id in subscribers {
             match crate::wasm_invokers::reactor_on_event_for_extension(
@@ -250,7 +262,7 @@ impl WasmRegistry {
             ) {
                 Ok(reactions) if reactions.is_empty() => {}
                 Ok(reactions) => {
-                    self.apply_reactor_reactions(store.clone(), &extension_id, reactions);
+                    self.apply_reactor_reactions(store.clone(), &extension_id, reactions, depth);
                 }
                 Err(error) => {
                     eprintln!(
@@ -268,6 +280,7 @@ impl WasmRegistry {
         store: Arc<crate::ExtensionRuntimeStore>,
         reactor_extension_id: &str,
         reactions: Vec<WasmReaction>,
+        depth: u32,
     ) {
         let Some(reactor_extension) = self.get(reactor_extension_id) else {
             eprintln!("reactor {reactor_extension_id}: extension disappeared during dispatch");
@@ -304,13 +317,14 @@ impl WasmRegistry {
                         registry: self.clone(),
                         store: store.clone(),
                     };
-                    if let Err(error) = OpsDispatcher::dispatch(
+                    if let Err(error) = OpsDispatcher::dispatch_with_reactor_depth(
                         &dispatcher,
                         &target_extension,
                         &op,
                         &payload,
                         &reactor_extension.principal,
                         0,
+                        depth + 1,
                     ) {
                         eprintln!(
                             "reactor {reactor_extension_id}: mutation {name} failed: {}",
@@ -320,7 +334,7 @@ impl WasmRegistry {
                 }
                 WasmReaction::EmitEvent {
                     event_type,
-                    payload: _,
+                    payload,
                 } => {
                     if !reactor_extension
                         .manifest
@@ -333,12 +347,97 @@ impl WasmRegistry {
                         );
                         continue;
                     }
-                    eprintln!(
-                        "reactor {reactor_extension_id}: emit-event reaction for {event_type:?} deferred until the reactor recursion cap task"
-                    );
+                    let event = match self.append_reactor_emitted_event(
+                        store.clone(),
+                        &reactor_extension,
+                        &event_type,
+                        payload,
+                    ) {
+                        Ok(event) => event,
+                        Err(error) => {
+                            eprintln!(
+                                "reactor {reactor_extension_id}: emit {event_type:?} failed: {error}"
+                            );
+                            continue;
+                        }
+                    };
+                    self.dispatch_reactor_event(store.clone(), &event, depth + 1);
                 }
             }
         }
+    }
+
+    fn append_reactor_emitted_event(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+        reactor_extension: &LoadedExtension,
+        event_type: &str,
+        payload: Vec<u8>,
+    ) -> Result<wit_types::Event, String> {
+        self.append_reactor_event(
+            store,
+            event_type,
+            payload,
+            reactor_extension.principal.clone(),
+            reactor_extension.id.clone(),
+        )
+    }
+
+    fn append_reaction_depth_exceeded_event(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+        event: &wit_types::Event,
+        depth: u32,
+    ) -> Result<wit_types::Event, String> {
+        let payload = serde_json::to_vec(&serde_json::json!({
+            "eventId": event.id.as_str(),
+            "eventType": event.event_type.as_str(),
+            "depth": depth,
+            "cap": REACTOR_RECURSION_DEPTH_CAP,
+        }))
+        .map_err(|error| format!("encode depth exceeded payload: {error}"))?;
+        self.append_reactor_event(
+            store,
+            REACTION_DEPTH_EXCEEDED_EVENT,
+            payload,
+            "comtrya://kernel/reactor".to_string(),
+            "kernel".to_string(),
+        )
+    }
+
+    fn append_reactor_event(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+        event_type: &str,
+        payload: Vec<u8>,
+        source_uri: String,
+        emitter_extension: String,
+    ) -> Result<wit_types::Event, String> {
+        let id = self
+            .id_minter
+            .mint("event")
+            .map_err(|error| format!("mint event id: {error:?}"))?;
+        let timestamp_ms = self.clock.now_millis();
+        let payload_b64 = crate::wasm_host::base64_encode(&payload);
+        store.append_storage_event(
+            event_type,
+            serde_json::json!({
+                "id": id,
+                "eventType": event_type,
+                "payloadB64": payload_b64,
+                "timestampMs": timestamp_ms,
+                "sourceUri": source_uri,
+                "emitterExtension": emitter_extension,
+            }),
+        )?;
+        Ok(wit_types::Event {
+            id,
+            event_type: event_type.to_string(),
+            payload,
+            timestamp_ms,
+            source_uri,
+            emitter_extension,
+        })
     }
 }
 
@@ -826,6 +925,105 @@ mod tests {
     }
 
     #[test]
+    fn registry_drops_reactor_dispatch_at_depth_cap_and_appends_observability_event() {
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .reactor_subscriptions
+            .write()
+            .expect("reactor subscription write lock")
+            .insert(
+                "ext_pull_requests".to_string(),
+                vec!["dev.test.loop".to_string()],
+            );
+        let tmp = tempdir_for_test("comtrya-reactor-depth-cap");
+        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let event = wit_types::Event {
+            id: "evt_depth_cap_test".to_string(),
+            event_type: "dev.test.loop".to_string(),
+            payload: Vec::new(),
+            timestamp_ms: 1,
+            source_uri: "comtrya://extension/ext_test".to_string(),
+            emitter_extension: "ext_test".to_string(),
+        };
+
+        assert_eq!(
+            registry.dispatch_reactor_event(store.clone(), &event, REACTOR_RECURSION_DEPTH_CAP),
+            0
+        );
+
+        let event_log = std::fs::read_to_string(store.events_path()).expect("read events");
+        assert!(
+            event_log.contains(REACTION_DEPTH_EXCEEDED_EVENT),
+            "depth exceeded event missing from {event_log}"
+        );
+    }
+
+    #[test]
+    fn registry_emit_event_reaction_recurses_with_depth_cap() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        let wasm = root.join("dist/ext_pull_requests.wasm");
+        assert!(
+            wasm.is_file(),
+            "{} missing; run `bash extensions/bundler/build-extension.sh \
+             extensions/first-party/ext_pull_requests` before this test",
+            wasm.display()
+        );
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_pull_requests");
+        let original = registry
+            .get("ext_pull_requests")
+            .expect("get ext_pull_requests");
+        let mut manifest = (*original.manifest).clone();
+        manifest.reactor_allowed_emits = vec!["dev.test.loop".to_string()];
+        let loaded = Arc::new(LoadedExtension {
+            id: original.id.clone(),
+            principal: original.principal.clone(),
+            manifest: Arc::new(manifest),
+            component: original.component.clone(),
+            root: original.root.clone(),
+        });
+        registry
+            .extensions
+            .write()
+            .expect("extension write lock")
+            .insert("ext_pull_requests".to_string(), loaded);
+        registry
+            .reactor_subscriptions
+            .write()
+            .expect("reactor subscription write lock")
+            .insert(
+                "ext_pull_requests".to_string(),
+                vec!["dev.test.loop".to_string()],
+            );
+        let tmp = tempdir_for_test("comtrya-reactor-emit-depth-cap");
+        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+
+        registry.apply_reactor_reactions(
+            store.clone(),
+            "ext_pull_requests",
+            vec![WasmReaction::EmitEvent {
+                event_type: "dev.test.loop".to_string(),
+                payload: b"{}".to_vec(),
+            }],
+            REACTOR_RECURSION_DEPTH_CAP - 1,
+        );
+
+        let event_log = std::fs::read_to_string(store.events_path()).expect("read events");
+        assert!(
+            event_log.contains("dev.test.loop"),
+            "emitted event missing from {event_log}"
+        );
+        assert!(
+            event_log.contains(REACTION_DEPTH_EXCEEDED_EVENT),
+            "depth exceeded event missing from {event_log}"
+        );
+    }
+
+    #[test]
     fn reactor_mutation_names_support_cross_extension_and_local_forms() {
         let cross =
             parse_reactor_mutation_name("ext_pull_requests", "ext_issues/issues.close-issue")
@@ -1092,6 +1290,18 @@ impl OpsDispatcher for RegistryDispatcher {
         current_principal: &str,
         depth: u32,
     ) -> Result<Vec<u8>, wit_types::Error> {
+        self.dispatch_with_reactor_depth(target_extension, op, payload, current_principal, depth, 0)
+    }
+
+    fn dispatch_with_reactor_depth(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+        reactor_depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
         let _ext = self
             .registry
             .get(target_extension)
@@ -1117,6 +1327,7 @@ impl OpsDispatcher for RegistryDispatcher {
             &info,
             payload,
             depth,
+            reactor_depth,
         )
     }
 

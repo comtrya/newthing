@@ -28,6 +28,7 @@ pub type ExtensionInvokerFn = fn(
     &crate::generated_dispatch::DispatchInfo,
     &[u8],
     u32,
+    u32,
 ) -> Result<Vec<u8>, wit_types::Error>;
 
 #[allow(warnings)]
@@ -249,7 +250,7 @@ fn reactor_on_event_ext_pull_requests(
         0,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
-    host_state.reactor_depth = depth;
+    host_state.reactor_depth = depth + 1;
     let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
     let instance = registry
         .linker
@@ -287,6 +288,7 @@ pub fn dispatch_ext_issues(
     info: &crate::generated_dispatch::DispatchInfo,
     payload: &[u8],
     depth: u32,
+    reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
     if info.extension_id != "ext_issues" || info.interface_name != "issues" {
         return Err(wit_error(
@@ -302,7 +304,7 @@ pub fn dispatch_ext_issues(
         registry: registry.clone(),
         store: store.clone(),
     });
-    let (host_state, ext) = build_host_state(
+    let (mut host_state, ext) = build_host_state(
         registry,
         info.extension_id,
         current_principal,
@@ -311,6 +313,7 @@ pub fn dispatch_ext_issues(
         depth,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
     let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
     let instance = registry
         .linker
@@ -514,6 +517,7 @@ pub fn dispatch_ext_epics(
     info: &crate::generated_dispatch::DispatchInfo,
     payload: &[u8],
     depth: u32,
+    reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
     if info.extension_id != "ext_epics" || info.interface_name != "epics" {
         return Err(wit_error(
@@ -529,7 +533,7 @@ pub fn dispatch_ext_epics(
         registry: registry.clone(),
         store: store.clone(),
     });
-    let (host_state, ext) = build_host_state(
+    let (mut host_state, ext) = build_host_state(
         registry,
         info.extension_id,
         current_principal,
@@ -538,6 +542,7 @@ pub fn dispatch_ext_epics(
         depth,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
     let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
     let instance = registry
         .linker
@@ -749,6 +754,7 @@ pub fn dispatch_ext_pull_requests(
     info: &crate::generated_dispatch::DispatchInfo,
     payload: &[u8],
     depth: u32,
+    reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
     if info.extension_id != "ext_pull_requests" || info.interface_name != "pulls" {
         return Err(wit_error(
@@ -764,7 +770,7 @@ pub fn dispatch_ext_pull_requests(
         registry: registry.clone(),
         store: store.clone(),
     });
-    let (host_state, ext) = build_host_state(
+    let (mut host_state, ext) = build_host_state(
         registry,
         info.extension_id,
         current_principal,
@@ -773,6 +779,7 @@ pub fn dispatch_ext_pull_requests(
         depth,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
     let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
     let instance = registry
         .linker
@@ -922,6 +929,7 @@ pub fn dispatch_ext_checks(
     info: &crate::generated_dispatch::DispatchInfo,
     payload: &[u8],
     depth: u32,
+    reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
     if info.extension_id != "ext_checks" || info.interface_name != "checks" {
         return Err(wit_error(
@@ -937,7 +945,7 @@ pub fn dispatch_ext_checks(
         registry: registry.clone(),
         store: store.clone(),
     });
-    let (host_state, ext) = build_host_state(
+    let (mut host_state, ext) = build_host_state(
         registry,
         info.extension_id,
         current_principal,
@@ -946,6 +954,7 @@ pub fn dispatch_ext_checks(
         depth,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
     let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
     let instance = registry
         .linker
