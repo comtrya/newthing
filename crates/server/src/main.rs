@@ -29,6 +29,7 @@ use wasmtime::{Engine, Store};
 
 mod wasm_dispatch;
 mod wasm_host;
+mod wasm_invokers;
 mod wasm_registry;
 
 /// Build-script-generated extension dispatch table. Maps the
@@ -6247,7 +6248,21 @@ fn load_extension_packages(
         let platform_wasm = root.join(format!("dist/{}.wasm", id));
 
         let (component_name, resolver, status) =
-            if platform_wit_version.is_some() && platform_wasm.is_file() {
+            if platform_wit_version.is_some() {
+                if crate::generated_dispatch::invoker_for_extension(id).is_none() {
+                    return Err(format!(
+                        "{} declares platformWitVersion, but this server binary has no generated typed WASM invoker for extension {}. M2 supports platform-WIT startup only for extensions discovered under extensions/first-party at server build time.",
+                        manifest_path.display(),
+                        id
+                    ));
+                }
+                if !platform_wasm.is_file() {
+                    return Err(format!(
+                        "{} declares platformWitVersion but {} is missing",
+                        manifest_path.display(),
+                        platform_wasm.display()
+                    ));
+                }
                 // Platform-WIT extension: load into the registry. Skip
                 // the legacy `resolve()` call — platform extensions
                 // don't export it.
@@ -8360,7 +8375,6 @@ extensions: {
     }
 
     #[test]
-    #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
     fn extension_runtime_loads_first_party_manifests_from_disk() {
         let runtime = load_extension_runtime(&test_extension_dir()).unwrap();
 
@@ -8368,12 +8382,143 @@ extensions: {
         for id in FIRST_PARTY_EXTENSIONS {
             let resolver = runtime.get(*id).expect("first-party resolver loaded");
             assert_eq!(resolver.id, *id);
-            assert_eq!(resolver.component, "component.wat");
-            assert_eq!(resolver.resolver, "resolve");
-            assert_eq!(resolver.status, "executed");
+            if *id == "ext_issues" {
+                assert_eq!(resolver.component, "dist/ext_issues.wasm");
+                assert_eq!(resolver.resolver, "platform-wit-extension");
+                assert_eq!(resolver.status, "platform-loaded");
+            } else {
+                assert_eq!(resolver.component, "component.wat");
+                assert_eq!(resolver.resolver, "resolve");
+                assert_eq!(resolver.status, "executed");
+            }
             assert!(resolver.output_type.starts_with("comtrya."));
             assert!(resolver.output_type.ends_with("/summary.v1"));
         }
+    }
+
+    #[test]
+    fn extension_runtime_rejects_platform_wit_manifest_without_dist_wasm() {
+        let extension_dir = temp_dir("platform-wit-missing-dist");
+        copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        fs::remove_file(extension_dir.join("ext_issues/dist/ext_issues.wasm")).unwrap();
+
+        let error = load_extension_runtime(&extension_dir).unwrap_err();
+
+        assert!(error.contains("ext_issues/manifest.json declares platformWitVersion"));
+        assert!(error.contains("dist/ext_issues.wasm"));
+        assert!(error.contains("is missing"));
+    }
+
+    #[test]
+    fn configured_platform_wit_extension_without_generated_invoker_fails_early() {
+        let extension_dir = temp_dir("platform-wit-no-invoker-dir");
+        let root = extension_dir.join("ext_local_wit");
+        copy_dir_recursive(&test_extension_dir().join("ext_issues"), &root);
+
+        let manifest_path = root.join("manifest.json");
+        let mut manifest =
+            serde_json::from_str::<Value>(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["id"] = json!("ext_local_wit");
+        manifest["name"] = json!("local-wit");
+        manifest["routePrefix"] = json!("local-wit");
+        fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+        let ui_manifest_path = root.join("ui/manifest.json");
+        let mut ui =
+            serde_json::from_str::<Value>(&fs::read_to_string(&ui_manifest_path).unwrap()).unwrap();
+        ui["id"] = json!("ext_local_wit");
+        ui["extension"] = json!("local-wit");
+        ui["assets"]["entry"] = json!("/_extensions/ext_local_wit/assets/index.js");
+        fs::write(&ui_manifest_path, serde_json::to_vec_pretty(&ui).unwrap()).unwrap();
+
+        let configs = vec![ExtensionInstallConfig {
+            id: "ext_local_wit".to_string(),
+            source: ExtensionSource::Local {
+                path: "ext_local_wit".to_string(),
+            },
+            enabled: true,
+            route_prefix: None,
+        }];
+        let error =
+            load_configured_extension_runtime(&extension_dir, true, &configs).unwrap_err();
+
+        assert!(error.contains("no generated typed WASM invoker"));
+        assert!(error.contains("extensions/first-party"));
+    }
+
+    #[test]
+    fn runtime_loaded_registry_dispatches_ext_issues_wasm_and_persists_event() {
+        let runtime = Runtime::start(StartupOptions {
+            config_path: None,
+            data_dir: temp_dir("runtime-loaded-registry-dispatch"),
+            extension_dir: test_extension_dir(),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            check: false,
+            tls_terminated: false,
+            operator_code: Some("testbed-operator-code".to_string()),
+            session_ttl_seconds: 300,
+            external_demo: false,
+        })
+        .unwrap();
+        let resolver = runtime
+            .extension_runtime
+            .get("ext_issues")
+            .expect("ext_issues loaded");
+        assert_eq!(resolver.component, "dist/ext_issues.wasm");
+        assert_eq!(resolver.status, "platform-loaded");
+        assert!(runtime.wasm_registry.get("ext_issues").is_some());
+
+        let dispatcher = crate::wasm_registry::RegistryDispatcher {
+            registry: runtime.wasm_registry.clone(),
+            store: Arc::new(runtime.extension_storage.clone()),
+        };
+        let principal = "comtrya://user/usr_runtime_dispatch_test";
+
+        let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://repository/repo_runtime_loaded_registry",
+                "title": "runtime-loaded registry smoke",
+                "bodyMarkdown": "opened through Runtime::start registry",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect("open issue through runtime-loaded registry");
+        let opened: Value = serde_json::from_slice(&opened_bytes).unwrap();
+        let issue_id = opened
+            .get("id")
+            .and_then(Value::as_str)
+            .expect("opened issue id")
+            .to_string();
+
+        let closed_bytes = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.close-issue",
+            &serde_json::to_vec(&json!({
+                "id": issue_id,
+                "reason": "closed through Runtime::start registry",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect("close issue through runtime-loaded registry");
+        let closed: Value = serde_json::from_slice(&closed_bytes).unwrap();
+        assert_eq!(closed.get("state").and_then(Value::as_str), Some("closed"));
+
+        let records = runtime.extension_storage.load_records().unwrap();
+        let issue = records
+            .iter()
+            .find(|record| record.collection == "issues" && record.id == issue_id)
+            .expect("issue persisted by runtime-loaded registry");
+        assert_eq!(issue.data.get("state").and_then(Value::as_str), Some("CLOSED"));
+        let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
+        assert!(event_log.contains("dev.comtrya.issues.closed"));
     }
 
     #[test]

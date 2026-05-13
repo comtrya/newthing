@@ -7,9 +7,12 @@ data/
 .envrc
 
 # Per-extension build outputs from extensions/bundler/build-extension.sh.
-# The bundler writes here on every build; the artifacts are derived
-# from the component's Cargo.toml + wit/ inputs.
-extensions/first-party/*/dist/
+# The bundler writes here on every build; most artifacts are derived
+# from the component's Cargo.toml + wit/ inputs. The ext_issues WASM is
+# tracked intentionally because the default kernel startup path loads it.
+extensions/first-party/*/dist/*
+!extensions/first-party/ext_issues/dist/
+!extensions/first-party/ext_issues/dist/ext_issues.wasm
 
 # cargo-component regenerates this from the WIT on every build; treat
 # it as generated, not source.

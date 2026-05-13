@@ -19,8 +19,7 @@ use comtrya_wit_codegen::{parse_extension_wit, render_rust_handlers};
 
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let manifest_dir =
-        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let repo_root = manifest_dir
         .parent()
         .and_then(Path::parent)
@@ -34,6 +33,7 @@ fn main() {
 
     let mut per_extension_files: BTreeMap<String, PathBuf> = BTreeMap::new();
     let mut all_routes: Vec<(String, String)> = Vec::new(); // (ext_id, fn_name)
+    let mut canonical_routes: Vec<CanonicalRoute> = Vec::new();
 
     for ext in &installed {
         // Tell cargo to re-run if the WIT or manifest changes.
@@ -74,6 +74,17 @@ fn main() {
         let ops = parse_extension_wit(&wit_dir, &ext.id, &[]).unwrap_or_else(|e| {
             panic!("wit-codegen failed for {}: {e}", ext.id);
         });
+        for op in &ops {
+            canonical_routes.push(CanonicalRoute {
+                extension_id: op.extension_id.clone(),
+                interface_name: op.interface_name.clone(),
+                op_name: op.op_name.clone(),
+                kind: match op.kind {
+                    comtrya_wit_codegen::OpKind::Query => "query",
+                    comtrya_wit_codegen::OpKind::Mutation => "mutation",
+                },
+            });
+        }
         let handlers = render_rust_handlers(&ops);
         let out_path = out_dir.join(format!("{}.handlers.rs", safe_ident(&ext.id)));
         fs::write(&out_path, handlers).unwrap_or_else(|e| {
@@ -129,6 +140,7 @@ fn main() {
     // GraphQL handler scans incoming query strings for any of these
     // names (substring with boundary check) to decide whether to
     // route to WASM. Composed from each per-extension ROUTES_*.
+    table.push_str("#[allow(dead_code)]\n");
     table.push_str("pub fn all_routes() -> Vec<&'static str> {\n");
     table.push_str("    let mut out = Vec::new();\n");
     for (ext_id, fn_name) in &all_routes {
@@ -144,6 +156,42 @@ fn main() {
     }
     table.push_str("    out\n}\n");
 
+    table.push_str("\n");
+    table.push_str("/// Canonical WIT route lookup for cross-extension ops.invoke.\n");
+    table.push_str("/// Unlike dispatch_route(), this intentionally does not accept\n");
+    table.push_str("/// legacy GraphQL aliases such as issuesClose or issues.close.\n");
+    table.push_str(
+        "pub fn dispatch_wit_route(target_extension: &str, op: &str) -> Option<DispatchInfo> {\n",
+    );
+    table.push_str("    match (target_extension, op) {\n");
+    for route in &canonical_routes {
+        let op_route = format!("{}.{}", route.interface_name, route.op_name);
+        table.push_str(&format!(
+            "        (\"{}\", \"{}\") => Some(DispatchInfo {{\n            extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",\n        }}),\n",
+            route.extension_id,
+            op_route,
+            route.extension_id,
+            route.interface_name,
+            route.op_name,
+            route.kind,
+        ));
+    }
+    table.push_str("        _ => None,\n    }\n}\n\n");
+
+    table.push_str("/// Generated extension-id to typed WASM invoker table.\n");
+    table.push_str("pub fn invoker_for_extension(extension_id: &str) -> Option<crate::wasm_invokers::ExtensionInvokerFn> {\n");
+    table.push_str("    match extension_id {\n");
+    for (ext_id, _) in &all_routes {
+        if let Some(invoker_fn) = typed_invoker_fn(ext_id) {
+            table.push_str(&format!(
+                "        \"{}\" => Some(crate::wasm_invokers::{} as crate::wasm_invokers::ExtensionInvokerFn),\n",
+                ext_id,
+                invoker_fn,
+            ));
+        }
+    }
+    table.push_str("        _ => None,\n    }\n}\n");
+
     let table_path = out_dir.join("dispatch_table.rs");
     fs::write(&table_path, table).unwrap_or_else(|e| {
         panic!("write {} failed: {e}", table_path.display());
@@ -156,6 +204,13 @@ struct InstalledExt {
     manifest_path: PathBuf,
     wit_dir: PathBuf,
     platform_wit_version: Option<String>,
+}
+
+struct CanonicalRoute {
+    extension_id: String,
+    interface_name: String,
+    op_name: String,
+    kind: &'static str,
 }
 
 fn ensure_deps_platform(wit_dir: &Path, repo_root: &Path) {
@@ -227,6 +282,15 @@ fn safe_ident(id: &str) -> String {
             _ => '_',
         })
         .collect()
+}
+
+fn typed_invoker_fn(id: &str) -> Option<&'static str> {
+    match id {
+        // M2 canary. M5 moves the remaining first-party extensions
+        // onto typed WASM invokers as their component crates land.
+        "ext_issues" => Some("dispatch_ext_issues"),
+        _ => None,
+    }
 }
 
 fn walk_for_rerun(dir: &Path) {

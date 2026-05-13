@@ -78,7 +78,8 @@ pub struct HostState {
     /// extension cannot forge an ID it didn't mint. Shared across
     /// HostState instances because the kernel re-instantiates per
     /// call but the minted-ID set must outlive any single invocation.
-    pub minted_ids: Arc<RwLock<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>>,
+    pub minted_ids:
+        Arc<RwLock<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>>,
 }
 
 /// Parsed extension manifest — only the fields the host enforces.
@@ -107,7 +108,13 @@ pub trait AuthzLayer {
 }
 
 pub trait LogSink {
-    fn emit(&self, extension_id: &str, level: wit_types::LogLevel, message: &str, fields: Option<&[u8]>);
+    fn emit(
+        &self,
+        extension_id: &str,
+        level: wit_types::LogLevel,
+        message: &str,
+        fields: Option<&[u8]>,
+    );
 }
 
 pub trait Clock {
@@ -166,10 +173,7 @@ fn seconds_to_iso8601(secs: u64) -> String {
     let m = (rem % 3600) / 60;
     let s = rem % 60;
     let (y, mo, d) = days_to_ymd(days as i64 + 719_468);
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        y, mo, d, h, m, s
-    )
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, s)
 }
 
 fn days_to_ymd(g: i64) -> (i64, u32, u32) {
@@ -188,7 +192,13 @@ fn days_to_ymd(g: i64) -> (i64, u32, u32) {
 pub struct StderrLogSink;
 
 impl LogSink for StderrLogSink {
-    fn emit(&self, extension_id: &str, level: wit_types::LogLevel, message: &str, fields: Option<&[u8]>) {
+    fn emit(
+        &self,
+        extension_id: &str,
+        level: wit_types::LogLevel,
+        message: &str,
+        fields: Option<&[u8]>,
+    ) {
         let level_str = match level {
             wit_types::LogLevel::Trace => "TRACE",
             wit_types::LogLevel::Debug => "DEBUG",
@@ -199,7 +209,10 @@ impl LogSink for StderrLogSink {
         let fields_str = fields
             .and_then(|b| std::str::from_utf8(b).ok())
             .unwrap_or("");
-        eprintln!("[wasm:{}] {} {} {}", extension_id, level_str, message, fields_str);
+        eprintln!(
+            "[wasm:{}] {} {} {}",
+            extension_id, level_str, message, fields_str
+        );
     }
 }
 
@@ -257,7 +270,10 @@ impl IdMinter for UlidMinter {
     }
 
     fn mint(&self, kind: &str) -> Result<String, MintError> {
-        let kinds = self.kinds.read().map_err(|e| MintError::Internal(e.to_string()))?;
+        let kinds = self
+            .kinds
+            .read()
+            .map_err(|e| MintError::Internal(e.to_string()))?;
         let prefix = kinds
             .get(kind)
             .ok_or_else(|| MintError::UnknownKind(kind.to_string()))?;
@@ -283,10 +299,7 @@ impl IdMinter for UlidMinter {
         };
         Ok(format!(
             "{}_{:013X}{:08X}{:08X}",
-            prefix,
-            now,
-            counter as u32,
-            tid_mix as u32
+            prefix, now, counter as u32, tid_mix as u32
         ))
     }
 }
@@ -304,7 +317,10 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
 fn internal_unimplemented(what: &str) -> wit_types::Error {
     err(
         wit_types::ErrorCode::Internal,
-        format!("{} is declared in WIT but the kernel host import is not yet wired", what),
+        format!(
+            "{} is declared in WIT but the kernel host import is not yet wired",
+            what
+        ),
     )
 }
 
@@ -312,14 +328,40 @@ fn internal_unimplemented(what: &str) -> wit_types::Error {
 
 impl wit_types::Host for HostState {}
 
+impl HostState {
+    fn has_host_import(&self, import: &str) -> bool {
+        self.manifest.host_imports.iter().any(|i| i == import)
+    }
+
+    fn require_host_import(&self, import: &str) -> Result<(), wit_types::Error> {
+        if self.has_host_import(import) {
+            Ok(())
+        } else {
+            Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!(
+                    "extension {} did not declare host import '{}'",
+                    self.extension_id, import
+                ),
+            ))
+        }
+    }
+}
+
 // ---- time ----
 
 impl wit_time::Host for HostState {
     fn now_iso(&mut self) -> wit_types::IsoTimestamp {
+        if !self.has_host_import("time") {
+            return "1970-01-01T00:00:00Z".to_string();
+        }
         self.clock.now_iso()
     }
 
     fn now_millis(&mut self) -> u64 {
+        if !self.has_host_import("time") {
+            return 0;
+        }
         self.clock.now_millis()
     }
 }
@@ -328,6 +370,9 @@ impl wit_time::Host for HostState {
 
 impl wit_log::Host for HostState {
     fn emit(&mut self, level: wit_types::LogLevel, message: String, fields: Option<Vec<u8>>) {
+        if !self.has_host_import("log") {
+            return;
+        }
         self.log_sink
             .emit(&self.extension_id, level, &message, fields.as_deref());
     }
@@ -337,14 +382,17 @@ impl wit_log::Host for HostState {
 
 impl wit_identity::Host for HostState {
     fn current_principal(&mut self) -> Result<wit_types::PrincipalUri, wit_types::Error> {
+        self.require_host_import("identity")?;
         Ok(self.current_principal.clone())
     }
 
     fn extension_credential(&mut self) -> Result<wit_types::PrincipalUri, wit_types::Error> {
+        self.require_host_import("identity")?;
         Ok(self.extension_principal.clone())
     }
 
     fn has_permission(&mut self, permission: String) -> Result<bool, wit_types::Error> {
+        self.require_host_import("identity")?;
         if !is_valid_permission_grammar(&permission) {
             return Err(err(
                 wit_types::ErrorCode::BadInput,
@@ -354,7 +402,10 @@ impl wit_identity::Host for HostState {
                 ),
             ));
         }
-        match self.authz.has_permission(&self.current_principal, &permission) {
+        match self
+            .authz
+            .has_permission(&self.current_principal, &permission)
+        {
             Some(value) => Ok(value),
             None => Err(err(
                 wit_types::ErrorCode::Unavailable,
@@ -390,28 +441,25 @@ impl HostState {
     /// The split is explicit here so call sites in the host trait
     /// impls don't accidentally read like they're enforcing the
     /// manifest when they aren't.
-    pub(crate) fn mint_internal(
-        &self,
-        kind_name: &str,
-    ) -> Result<wit_types::Id, wit_types::Error> {
+    pub(crate) fn mint_internal(&self, kind_name: &str) -> Result<wit_types::Id, wit_types::Error> {
         match self.id_minter.mint(kind_name) {
             Ok(id) => Ok(id),
             Err(MintError::UnknownKind(k)) => Err(err(
                 wit_types::ErrorCode::Internal,
-                format!("kernel-internal kind '{}' not registered with the minter", k),
+                format!(
+                    "kernel-internal kind '{}' not registered with the minter",
+                    k
+                ),
             )),
-            Err(MintError::Forbidden(reason)) => {
-                Err(err(wit_types::ErrorCode::Internal, reason))
-            }
-            Err(MintError::Internal(reason)) => {
-                Err(err(wit_types::ErrorCode::Internal, reason))
-            }
+            Err(MintError::Forbidden(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
+            Err(MintError::Internal(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
         }
     }
 }
 
 impl wit_ids::Host for HostState {
     fn mint(&mut self, kind_name: String) -> Result<wit_types::Id, wit_types::Error> {
+        self.require_host_import("ids")?;
         // Extension-initiated mint — must be in the manifest.
         if !self
             .manifest
@@ -491,6 +539,7 @@ impl wit_storage::Host for HostState {
         data: Vec<u8>,
         metadata: wit_storage::DocumentMetadata,
     ) -> Result<(), wit_types::Error> {
+        self.require_host_import("storage.write")?;
         // Enforce the WIT contract: the id MUST have been minted via
         // ids.mint for this extension. The `_meta` collection is the
         // one exception — counter rows there use a synthetic key
@@ -516,7 +565,10 @@ impl wit_storage::Host for HostState {
             }
         }
         let json: Value = serde_json::from_slice(&data).map_err(|e| {
-            err(wit_types::ErrorCode::BadInput, format!("invalid JSON: {}", e))
+            err(
+                wit_types::ErrorCode::BadInput,
+                format!("invalid JSON: {}", e),
+            )
         })?;
         let record = crate::ExtensionDocumentRecord {
             schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
@@ -555,6 +607,7 @@ impl wit_storage::Host for HostState {
         collection: String,
         id: wit_types::Id,
     ) -> Result<Option<wit_storage::DocSnapshot>, wit_types::Error> {
+        self.require_host_import("storage.read")?;
         let records = self
             .store
             .load_records()
@@ -574,6 +627,7 @@ impl wit_storage::Host for HostState {
         collection: String,
         id: wit_types::Id,
     ) -> Result<wit_storage::DocSnapshot, wit_types::Error> {
+        self.require_host_import("storage.write")?;
         let snap = self.get(collection.clone(), id.clone())?;
         let snap = snap.ok_or_else(|| {
             err(
@@ -599,8 +653,12 @@ impl wit_storage::Host for HostState {
         expected_version: wit_types::Version,
         data: Vec<u8>,
     ) -> Result<(), wit_types::Error> {
+        self.require_host_import("storage.write")?;
         let json: Value = serde_json::from_slice(&data).map_err(|e| {
-            err(wit_types::ErrorCode::BadInput, format!("invalid JSON: {}", e))
+            err(
+                wit_types::ErrorCode::BadInput,
+                format!("invalid JSON: {}", e),
+            )
         })?;
         // Token validation: a prior `update-begin` must have minted a
         // token matching this (extension, collection, id). Without one,
@@ -629,14 +687,20 @@ impl wit_storage::Host for HostState {
                 }
             }
         }
-        let expected_u64: u64 = expected_version
-            .parse()
-            .map_err(|_| err(wit_types::ErrorCode::BadInput, "expected-version must parse as u64"))?;
-        let commit_result = self
-            .store
-            .update_document_if_version(&collection, &id, Some(expected_u64), |val, _v| {
+        let expected_u64: u64 = expected_version.parse().map_err(|_| {
+            err(
+                wit_types::ErrorCode::BadInput,
+                "expected-version must parse as u64",
+            )
+        })?;
+        let commit_result = self.store.update_document_if_version(
+            &collection,
+            &id,
+            Some(expected_u64),
+            |val, _v| {
                 *val = json;
-            });
+            },
+        );
         // Always drop the token, regardless of commit outcome — a failed
         // commit means the extension MUST re-issue update-begin to retry.
         if let Ok(mut tokens) = self.occ_tokens.write() {
@@ -644,14 +708,8 @@ impl wit_storage::Host for HostState {
         }
         match commit_result {
             Ok(()) => Ok(()),
-            Err(e) if e.contains("version conflict") => Err(err(
-                wit_types::ErrorCode::Conflict,
-                e,
-            )),
-            Err(e) if e.contains("not found") => Err(err(
-                wit_types::ErrorCode::NotFound,
-                e,
-            )),
+            Err(e) if e.contains("version conflict") => Err(err(wit_types::ErrorCode::Conflict, e)),
+            Err(e) if e.contains("not found") => Err(err(wit_types::ErrorCode::NotFound, e)),
             Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
         }
     }
@@ -661,7 +719,11 @@ impl wit_storage::Host for HostState {
         collection: String,
         id: wit_types::Id,
     ) -> Result<wit_types::DeleteResult, wit_types::Error> {
-        match self.store.delete_document(&self.extension_id, &collection, &id) {
+        self.require_host_import("storage.write")?;
+        match self
+            .store
+            .delete_document(&self.extension_id, &collection, &id)
+        {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
             Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
@@ -676,6 +738,7 @@ impl wit_storage::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_storage::DocPage, wit_types::Error> {
+        self.require_host_import("storage.read")?;
         if limit > 1024 {
             return Err(err(
                 wit_types::ErrorCode::BadInput,
@@ -708,6 +771,7 @@ impl wit_storage::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_storage::DocPage, wit_types::Error> {
+        self.require_host_import("storage.read")?;
         self.query(collection, Vec::new(), None, limit, None)
     }
 }
@@ -741,6 +805,7 @@ impl wit_relations::Host for HostState {
         kind: wit_types::Uri,
         attributes: Option<Vec<u8>>,
     ) -> Result<wit_relations::CreateResult, wit_types::Error> {
+        self.require_host_import("relations.write")?;
         // Idempotent on (source, target, kind). Stored as documents in
         // the `relations` collection.
         let records = self
@@ -783,7 +848,9 @@ impl wit_relations::Host for HostState {
         self.store
             .create_document(record.clone())
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        Ok(wit_relations::CreateResult::Created(record_to_relation(&record)))
+        Ok(wit_relations::CreateResult::Created(record_to_relation(
+            &record,
+        )))
     }
 
     fn replace_attributes(
@@ -791,6 +858,7 @@ impl wit_relations::Host for HostState {
         id: wit_types::Id,
         attributes: Option<Vec<u8>>,
     ) -> Result<wit_relations::Relation, wit_types::Error> {
+        self.require_host_import("relations.write")?;
         let attrs_value: Value = attributes
             .as_deref()
             .and_then(|b| serde_json::from_slice::<Value>(b).ok())
@@ -815,6 +883,7 @@ impl wit_relations::Host for HostState {
     }
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
+        self.require_host_import("relations.write")?;
         match self.store.delete_document("core", "relations", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
@@ -829,6 +898,7 @@ impl wit_relations::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
+        self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
@@ -859,6 +929,7 @@ impl wit_relations::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
+        self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
@@ -890,6 +961,7 @@ impl wit_relations::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
+        self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
@@ -916,8 +988,7 @@ impl wit_relations::Host for HostState {
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
-    const CHARS: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
     let mut i = 0;
     while i + 3 <= bytes.len() {
@@ -1037,11 +1108,9 @@ impl wit_comments::Host for HostState {
         limit: u32,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_comments::CommentPage, wit_types::Error> {
+        self.require_host_import("comments.read")?;
         if limit == 0 || limit > 256 {
-            return Err(err(
-                wit_types::ErrorCode::BadInput,
-                "limit must be 1..=256",
-            ));
+            return Err(err(wit_types::ErrorCode::BadInput, "limit must be 1..=256"));
         }
         let records = self
             .store
@@ -1069,11 +1138,9 @@ impl wit_comments::Host for HostState {
         parent: Option<wit_types::Id>,
         body_markdown: String,
     ) -> Result<wit_comments::Comment, wit_types::Error> {
+        self.require_host_import("comments.write")?;
         if body_markdown.len() > 64 * 1024 {
-            return Err(err(
-                wit_types::ErrorCode::BadInput,
-                "body must be <= 64KiB",
-            ));
+            return Err(err(wit_types::ErrorCode::BadInput, "body must be <= 64KiB"));
         }
         // Parent-cycle / non-existent-parent check.
         if let Some(parent_id) = &parent {
@@ -1131,11 +1198,9 @@ impl wit_comments::Host for HostState {
         id: wit_types::Id,
         body_markdown: String,
     ) -> Result<wit_comments::Comment, wit_types::Error> {
+        self.require_host_import("comments.write")?;
         if body_markdown.len() > 64 * 1024 {
-            return Err(err(
-                wit_types::ErrorCode::BadInput,
-                "body must be <= 64KiB",
-            ));
+            return Err(err(wit_types::ErrorCode::BadInput, "body must be <= 64KiB"));
         }
         let now = self.clock.now_iso();
         let now_for_closure = now.clone();
@@ -1144,7 +1209,10 @@ impl wit_comments::Host for HostState {
             .update_document_atomically("comments", &id, move |doc| {
                 if let Some(obj) = doc.as_object_mut() {
                     obj.insert("bodyMarkdown".to_string(), Value::String(body_markdown));
-                    obj.insert("editedAt".to_string(), Value::String(now_for_closure.clone()));
+                    obj.insert(
+                        "editedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                 }
             })
@@ -1156,12 +1224,18 @@ impl wit_comments::Host for HostState {
         let record = records
             .iter()
             .find(|r| r.collection == "comments" && r.id == id_for_lookup)
-            .ok_or_else(|| err(wit_types::ErrorCode::NotFound, "comment vanished after edit"))?;
+            .ok_or_else(|| {
+                err(
+                    wit_types::ErrorCode::NotFound,
+                    "comment vanished after edit",
+                )
+            })?;
         let _ = now;
         Ok(record_to_comment(record))
     }
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
+        self.require_host_import("comments.write")?;
         match self.store.delete_document("core", "comments", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
@@ -1223,6 +1297,7 @@ impl wit_events::Host for HostState {
         payload: Vec<u8>,
         source_uri: Option<wit_types::Uri>,
     ) -> Result<wit_types::Event, wit_types::Error> {
+        self.require_host_import("events.write")?;
         if !self.manifest.allowed_emits.iter().any(|e| e == &event_type) {
             return Err(err(
                 wit_types::ErrorCode::Forbidden,
@@ -1268,11 +1343,9 @@ impl wit_events::Host for HostState {
         source_extension_filter: Option<wit_types::ExtensionId>,
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_events::EventPage, wit_types::Error> {
+        self.require_host_import("events.read")?;
         if limit == 0 || limit > 256 {
-            return Err(err(
-                wit_types::ErrorCode::BadInput,
-                "limit must be 1..=256",
-            ));
+            return Err(err(wit_types::ErrorCode::BadInput, "limit must be 1..=256"));
         }
         let path = self.store.events_path();
         if !path.is_file() {
@@ -1375,6 +1448,7 @@ pub trait OpsDispatcher: Send + Sync {
         target_extension: &str,
         op: &str,
         payload: &[u8],
+        current_principal: &str,
         depth: u32,
     ) -> Result<Vec<u8>, wit_types::Error>;
 }
@@ -1388,6 +1462,7 @@ impl OpsDispatcher for NoopDispatcher {
         target_extension: &str,
         op: &str,
         _payload: &[u8],
+        _current_principal: &str,
         _depth: u32,
     ) -> Result<Vec<u8>, wit_types::Error> {
         Err(err(
@@ -1407,8 +1482,20 @@ impl wit_ops::Host for HostState {
         op: wit_types::OpName,
         payload: Vec<u8>,
     ) -> Result<Vec<u8>, wit_types::Error> {
+        self.require_host_import("ops")?;
+        if !is_canonical_wit_op_route(&op) {
+            return Err(err(
+                wit_types::ErrorCode::BadInput,
+                format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
+            ));
+        }
         let route = format!("{}/{}", target_extension, op);
-        if !self.manifest.allowed_cross_calls.iter().any(|r| r == &route) {
+        if !self
+            .manifest
+            .allowed_cross_calls
+            .iter()
+            .any(|r| r == &route)
+        {
             return Err(err(
                 wit_types::ErrorCode::Forbidden,
                 format!("cross-call '{}' not in allowed-cross-calls", route),
@@ -1418,19 +1505,30 @@ impl wit_ops::Host for HostState {
         if depth > OPS_INVOKE_DEPTH_CAP {
             return Err(err(
                 wit_types::ErrorCode::Unavailable,
-                format!(
-                    "ops.invoke depth cap {} exceeded",
-                    OPS_INVOKE_DEPTH_CAP
-                ),
+                format!("ops.invoke depth cap {} exceeded", OPS_INVOKE_DEPTH_CAP),
             ));
         }
         self.ops_invoke_depth = depth;
-        let result = self
-            .ops_dispatcher
-            .dispatch(&target_extension, &op, &payload, depth);
+        let result = self.ops_dispatcher.dispatch(
+            &target_extension,
+            &op,
+            &payload,
+            &self.current_principal,
+            depth,
+        );
         self.ops_invoke_depth = depth - 1;
         result
     }
+}
+
+fn is_canonical_wit_op_route(op: &str) -> bool {
+    let Some((interface, operation)) = op.split_once('.') else {
+        return false;
+    };
+    !interface.is_empty()
+        && !operation.is_empty()
+        && !interface.contains(['.', '/'])
+        && !operation.contains(['.', '/'])
 }
 
 // ---- linker registration ----
@@ -1452,7 +1550,6 @@ pub fn add_to_linker(linker: &mut Linker<HostState>) -> wasmtime::Result<()> {
     wit_ops::add_to_linker::<_, D>(linker, |s| s)?;
     Ok(())
 }
-
 
 /// Build a fully-configured `Linker<HostState>` ready to instantiate
 /// platform-world components. Call once at kernel startup; the linker
@@ -1537,6 +1634,7 @@ mod tests {
             store,
             Arc::new(HostManifest {
                 contributes_resource_kinds: vec!["issue".to_string()],
+                host_imports: vec!["storage.write".to_string()],
                 ..HostManifest::default()
             }),
             Arc::new(SystemClock),
@@ -1559,11 +1657,158 @@ mod tests {
         );
         match result {
             Err(e) if matches!(e.code, wit_types::ErrorCode::Forbidden) => {}
-            other => panic!(
-                "expected Forbidden for unminted id, got: {:?}",
-                other
-            ),
+            other => panic!("expected Forbidden for unminted id, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn ops_invoke_requires_canonical_allowed_route_and_threads_principal() {
+        use std::sync::{Arc, Mutex, RwLock};
+
+        #[derive(Clone, Default)]
+        struct RecordingDispatcher {
+            calls: Arc<Mutex<Vec<(String, String, Vec<u8>, String, u32)>>>,
+        }
+
+        impl OpsDispatcher for RecordingDispatcher {
+            fn dispatch(
+                &self,
+                target_extension: &str,
+                op: &str,
+                payload: &[u8],
+                current_principal: &str,
+                depth: u32,
+            ) -> Result<Vec<u8>, wit_types::Error> {
+                self.calls.lock().unwrap().push((
+                    target_extension.to_string(),
+                    op.to_string(),
+                    payload.to_vec(),
+                    current_principal.to_string(),
+                    depth,
+                ));
+                Ok(payload.to_vec())
+            }
+        }
+
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-ops-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        let dispatcher = RecordingDispatcher::default();
+        let mut host = host_state_for_op(
+            "ext_pull_requests",
+            "comtrya://extension/ext_pull_requests",
+            "comtrya://user/usr_ops_test",
+            Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap()),
+            Arc::new(HostManifest {
+                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
+                host_imports: vec!["ops".to_string()],
+                ..HostManifest::default()
+            }),
+            Arc::new(SystemClock),
+            Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            Arc::new(StderrLogSink),
+            Arc::new(DefaultAuthz),
+            Arc::new(dispatcher.clone()),
+            Arc::new(RwLock::new(BTreeMap::new())),
+            Arc::new(RwLock::new(BTreeMap::new())),
+        );
+
+        let bad = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues/close-issue".to_string(),
+            b"{}".to_vec(),
+        )
+        .expect_err("slash route should be rejected before allowlist/dispatch");
+        assert!(matches!(bad.code, wit_types::ErrorCode::BadInput));
+
+        let payload = br#"{"id":"iss_123"}"#.to_vec();
+        let out = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.close-issue".to_string(),
+            payload.clone(),
+        )
+        .expect("canonical allowed route dispatches");
+        assert_eq!(out, payload);
+
+        let calls = dispatcher.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "ext_issues");
+        assert_eq!(calls[0].1, "issues.close-issue");
+        assert_eq!(calls[0].2, payload);
+        assert_eq!(calls[0].3, "comtrya://user/usr_ops_test");
+        assert_eq!(calls[0].4, 1);
+    }
+
+    #[test]
+    fn host_imports_gate_linked_interfaces() {
+        use std::sync::{Arc, RwLock};
+
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-host-imports-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        let mut host = host_state_for_op(
+            "ext_issues",
+            "comtrya://extension/ext_issues",
+            "comtrya://user/usr_imports_test",
+            Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap()),
+            Arc::new(HostManifest {
+                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
+                ..HostManifest::default()
+            }),
+            Arc::new(SystemClock),
+            Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            Arc::new(StderrLogSink),
+            Arc::new(DefaultAuthz),
+            Arc::new(NoopDispatcher),
+            Arc::new(RwLock::new(BTreeMap::new())),
+            Arc::new(RwLock::new(BTreeMap::new())),
+        );
+
+        let storage = <HostState as wit_storage::Host>::get(
+            &mut host,
+            "issues".to_string(),
+            "iss_missing".to_string(),
+        )
+        .expect_err("storage.read must be declared before storage.get");
+        assert!(matches!(storage.code, wit_types::ErrorCode::Forbidden));
+
+        let comments = <HostState as wit_comments::Host>::thread(
+            &mut host,
+            "comtrya://issue/iss_missing".to_string(),
+            10,
+            None,
+        )
+        .expect_err("comments.read must be declared before comments.thread");
+        assert!(matches!(comments.code, wit_types::ErrorCode::Forbidden));
+
+        let ops = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.close-issue".to_string(),
+            b"{}".to_vec(),
+        )
+        .expect_err("ops must be declared before ops.invoke");
+        assert!(matches!(ops.code, wit_types::ErrorCode::Forbidden));
+
+        assert_eq!(
+            <HostState as wit_time::Host>::now_millis(&mut host),
+            0,
+            "infallible time import returns a deterministic sentinel when undeclared"
+        );
     }
 
     #[test]
@@ -1601,18 +1846,14 @@ mod m1_ext_issues_smoke {
         world: "ext-issues",
     });
 
-    use self::exports::comtrya::ext_issues::issues::{
-        CloseIssueInput, IssueState, OpenIssueInput,
-    };
+    use self::exports::comtrya::ext_issues::issues::{CloseIssueInput, IssueState, OpenIssueInput};
 
     fn wasm_path() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../extensions/first-party/ext_issues/dist/ext_issues.wasm")
     }
 
-    fn fresh_host_state(
-        store_arc: Arc<crate::ExtensionRuntimeStore>,
-    ) -> HostState {
+    fn fresh_host_state(store_arc: Arc<crate::ExtensionRuntimeStore>) -> HostState {
         let manifest = Arc::new(HostManifest {
             permissions: vec!["ext_issues.write".into()],
             allowed_emits: vec![
@@ -1677,13 +1918,10 @@ mod m1_ext_issues_smoke {
         // Fresh extension store in a tempdir so the test is isolated
         // from any developer's dev state.
         let tmp = tempdir_for_test();
-        let store_arc = Arc::new(
-            crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"),
-        );
+        let store_arc = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
 
         let engine = Engine::default();
-        let linker: Linker<HostState> =
-            make_platform_linker(&engine).expect("build linker");
+        let linker: Linker<HostState> = make_platform_linker(&engine).expect("build linker");
         // The ext-issues bindgen generates host-trait stubs for
         // platform types it sees via `include`. Those duplicate the
         // outer bindgen's traits and would shadow them in the linker
@@ -1692,8 +1930,7 @@ mod m1_ext_issues_smoke {
         // `HostState`, and the Component-Model ABI doesn't care which
         // generated trait the host impl came from.
 
-        let component =
-            Component::from_file(&engine, &wasm).expect("read wasm");
+        let component = Component::from_file(&engine, &wasm).expect("read wasm");
         let state = fresh_host_state(store_arc.clone());
         let mut store = Store::new(&engine, state);
 
@@ -1702,8 +1939,7 @@ mod m1_ext_issues_smoke {
             .expect("instantiate ext_issues");
 
         // ---- open an issue ----
-        let issues = ExtIssues::new(&mut store, &instance)
-            .expect("bind ExtIssues world");
+        let issues = ExtIssues::new(&mut store, &instance).expect("bind ExtIssues world");
         let open_input = OpenIssueInput {
             repository: "comtrya://repository/repo_test".into(),
             title: "M1 smoke".into(),

@@ -6,9 +6,7 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "wasmComponent": "component.wat",
-  "platformWitVersion": "0.1.0",
-  "witWorld": "comtrya:platform/extension@0.1.0",
-  "perExtensionWit": "wit",
+  "witWorld": "comtrya:extension/extension",
   "ui": { "manifest": "ui/manifest.json" },
   "routePrefix": "epics",
   "runtime": {
