@@ -1724,6 +1724,16 @@ mod tests {
         .expect_err("slash route should be rejected before allowlist/dispatch");
         assert!(matches!(bad.code, wit_types::ErrorCode::BadInput));
 
+        let forbidden = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_checks".to_string(),
+            "checks.list-checks".to_string(),
+            b"{}".to_vec(),
+        )
+        .expect_err("canonical route outside allowedCrossCalls should be rejected");
+        assert!(matches!(forbidden.code, wit_types::ErrorCode::Forbidden));
+        assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
+
         let payload = br#"{"id":"iss_123"}"#.to_vec();
         let out = <HostState as wit_ops::Host>::invoke(
             &mut host,

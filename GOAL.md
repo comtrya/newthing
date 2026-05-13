@@ -99,7 +99,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 ## M6 — Reactor + cross-call broker
 - [x] Implement `OpsDispatcher::dispatch` with real WASM-to-WASM routing through the linker — *live `HostState::invoke` routes through `RegistryDispatcher::dispatch`, resolves canonical WIT routes via generated dispatch, and invokes the target component through the typed invoker/linker path. `generated_epics_routes_to_wasm` now proves `ext_epics` `epics.progress` invokes `ext_issues/issues.state-counts-for-refs-issue` and returns the expected open/closed issue counts.*
 - [x] Thread `ops_invoke_depth` through dispatcher; enforce cap of 32 across nested calls — *`HostState::invoke` passes incremented depth through the dispatcher and restores prior depth; `build_host_state` seeds target calls with parent depth. The host ops test now covers normal depth 1, cap-allowed depth 32, cap rejection before dispatch at depth 33, and depth restoration.*
-- [ ] Enforce manifest `allowedCrossCalls` at dispatch time
+- [x] Enforce manifest `allowedCrossCalls` at dispatch time — *`HostState::invoke` rejects canonical routes outside the caller manifest's `allowedCrossCalls` before invoking the dispatcher; the host ops test now asserts an undeclared `ext_checks/checks.list-checks` call returns `Forbidden` and records no dispatcher call.*
 - [ ] Implement reactor subscription registration at extension load; route appended events to subscribers
 - [ ] `ext_pull_requests` reactor: subscribes to `dev.comtrya.pull-requests.merged`, calls `ext_issues/issues.close-issue` via `ops.invoke`
 - [ ] Enforce reactor recursion depth cap of 8; emit `comtrya.kernel.reaction-depth-exceeded` on breach
