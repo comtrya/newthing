@@ -96,24 +96,49 @@ fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     }
 }
 
+const COUNTER_COLLECTION: &str = "_meta";
+
+#[derive(Serialize, Deserialize)]
+struct RepoCounter {
+    next: u64,
+}
+
+/// Return the next sequential issue number for `repository` and
+/// increment the persisted counter atomically. Uses the OCC two-step
+/// update on a `_meta`-collection counter document keyed by the
+/// repository URI so two concurrent `open-issue` calls cannot collide
+/// on a number, and there's no O(N) scan or 1024-row cap.
 fn next_issue_number(repository: &str) -> Result<u64, Error> {
-    // Scan existing issues in the same repo; new number = max + 1. The
-    // query indexes are TODO in M2's storage; until then we list all
-    // and filter in component memory.
-    let page = storage::list_all(
-        COLLECTION,
-        1024,
-        None,
-    )?;
-    let mut max = 0u64;
-    for bytes in &page.docs {
-        if let Ok(stored) = serde_json::from_slice::<StoredIssue>(bytes) {
-            if stored.repository == repository && stored.number > max {
-                max = stored.number;
-            }
+    let counter_id = format!("issue-number:{}", repository);
+    match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
+        Ok(snap) => {
+            let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
+                .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
+            let assigned = counter.next;
+            counter.next = counter.next.saturating_add(1);
+            let bytes = serde_json::to_vec(&counter)
+                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+            storage::update_commit(COUNTER_COLLECTION, &counter_id, &snap.version, &bytes)?;
+            Ok(assigned)
         }
+        Err(Error { code: ErrorCode::NotFound, .. }) => {
+            // First issue in this repo — seed the counter at 2, return 1.
+            let counter = RepoCounter { next: 2 };
+            let bytes = serde_json::to_vec(&counter)
+                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+            storage::create(
+                COUNTER_COLLECTION,
+                &counter_id,
+                &bytes,
+                &storage::DocumentMetadata {
+                    resource_uri: format!("comtrya://_meta/{}", counter_id),
+                    resource_refs: vec![repository.to_string()],
+                },
+            )?;
+            Ok(1)
+        }
+        Err(other) => Err(other),
     }
-    Ok(max + 1)
 }
 
 fn persist_new(stored: &StoredIssue) -> Result<(), Error> {
@@ -231,6 +256,16 @@ impl IssuesGuest for Component {
     }
 
     fn list_issues(repository: String, limit: u32) -> Result<Vec<Issue>, Error> {
+        // TODO(M2): once `storage.query` supports indexed lookup by
+        // repository, replace this list-and-filter scan with an indexed
+        // query. Today's host-side `storage.query` returns all docs in
+        // the collection up to `limit` without filtering, so the
+        // in-component filter is the only option. Cap at 1024 matches
+        // the kernel's `storage.list_all` cap; the caller-supplied
+        // limit is honoured beneath that. When `limit` is too low to
+        // hold all of `repository`'s issues, the result is silently
+        // truncated — Issue tracker rendering must handle pagination
+        // when the new query lands.
         let limit = limit.min(1024);
         let page = storage::list_all(COLLECTION, limit, None)?;
         let mut out = Vec::new();

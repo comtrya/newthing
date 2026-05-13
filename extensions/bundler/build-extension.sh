@@ -66,14 +66,22 @@ else
   echo "no $component_dir/Cargo.toml — skipping WASM build for $ext_id"
 fi
 
-# 2) Generate handlers + client from the WIT. The per-extension WIT
-#    depends on `comtrya:platform`, so we pass the platform WIT dir as
-#    an additional dep to wit-codegen.
+# 2) Generate handlers + client from the WIT.
+#    The per-extension WIT depends on `comtrya:platform`. We make that
+#    visible to wit-parser via the `deps/` convention — a symlink at
+#    <wit_dir>/deps/platform pointing at the platform WIT package.
+#    Created idempotently here so first-time builds work out of the box.
 if [[ -d "$wit_dir" ]]; then
-  echo "==> wit-codegen $ext_id $wit_dir → $out_dir"
+  mkdir -p "$wit_dir/deps"
   platform_wit="$repo_root/extensions/wit/comtrya/platform"
+  if [[ ! -e "$wit_dir/deps/platform" ]]; then
+    # Compute relative path from wit_dir/deps to platform_wit.
+    rel_platform="$(python3 -c "import os.path; print(os.path.relpath('$platform_wit', '$wit_dir/deps'))" 2>/dev/null || echo "$platform_wit")"
+    ln -s "$rel_platform" "$wit_dir/deps/platform"
+  fi
+  echo "==> wit-codegen $ext_id $wit_dir → $out_dir"
   (cd "$repo_root" && cargo run --quiet -p comtrya-wit-codegen -- \
-    "$ext_id" "$wit_dir" "$out_dir" "$platform_wit")
+    "$ext_id" "$wit_dir" "$out_dir")
 fi
 
 # 3) Build the UI bundle (if a package.json exists).

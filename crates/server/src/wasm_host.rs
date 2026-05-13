@@ -214,6 +214,25 @@ impl UlidMinter {
             authorized: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
+
+    /// Constructor that pre-seeds the kernel-internal kinds (`event`,
+    /// `relation`, `comment`) the host imports mint directly when
+    /// persisting on an extension's behalf. Extension-owned kinds
+    /// must still be added on top via `kind_prefixes`. Use this from
+    /// every kernel call site so the seeds can't be forgotten by one
+    /// caller and present in another.
+    pub fn with_kernel_kinds(mut kind_prefixes: BTreeMap<String, String>) -> Self {
+        kind_prefixes
+            .entry("event".to_string())
+            .or_insert_with(|| "evt".to_string());
+        kind_prefixes
+            .entry("relation".to_string())
+            .or_insert_with(|| "rel".to_string());
+        kind_prefixes
+            .entry("comment".to_string())
+            .or_insert_with(|| "cmt".to_string());
+        Self::new(kind_prefixes)
+    }
 }
 
 impl IdMinter for UlidMinter {
@@ -1388,5 +1407,190 @@ mod tests {
         assert_eq!(s, "1970-01-01T00:00:00Z");
         let s = seconds_to_iso8601(1_700_000_000);
         assert!(s.starts_with("2023-11-"));
+    }
+}
+
+#[cfg(test)]
+mod m1_ext_issues_smoke {
+    //! M1 acceptance: load ext_issues.wasm under Linker<HostState>,
+    //! call close-issue, assert storage state changes accordingly.
+    //!
+    //! Uses a second wasmtime bindgen invocation against the per-
+    //! extension WIT to get a typed caller for ext-issues exports.
+    //! That bindgen generates its own copies of platform types (Error,
+    //! Event, etc.), which is fine — we only call into the WASM with
+    //! them; the host imports the WASM calls (storage, events, etc.)
+    //! are still satisfied by `HostState`'s impls of the outer bindgen
+    //! traits because the Component-Model ABI is type-erased at the
+    //! linker boundary.
+
+    use std::sync::{Arc, RwLock};
+
+    use wasmtime::component::{Component, Linker};
+    use wasmtime::{Engine, Store};
+
+    use super::*;
+
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_issues/wit",
+        world: "ext-issues",
+    });
+
+    use self::exports::comtrya::ext_issues::issues::{
+        CloseIssueInput, IssueState, OpenIssueInput,
+    };
+
+    fn wasm_path() -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_issues/dist/ext_issues.wasm")
+    }
+
+    fn fresh_host_state(
+        store_arc: Arc<crate::ExtensionRuntimeStore>,
+    ) -> HostState {
+        let manifest = Arc::new(HostManifest {
+            permissions: vec!["ext_issues.write".into()],
+            allowed_emits: vec![
+                "dev.comtrya.issues.opened".into(),
+                "dev.comtrya.issues.closed".into(),
+                "dev.comtrya.issues.reopened".into(),
+            ],
+            allowed_event_reads: vec![],
+            allowed_cross_calls: vec![],
+            reactor_allowed_mutations: vec![],
+            reactor_allowed_emits: vec![],
+            contributes_resource_kinds: vec!["issue".into()],
+            host_imports: vec![
+                "storage.read".into(),
+                "storage.write".into(),
+                "events.read".into(),
+                "events.write".into(),
+                "identity".into(),
+                "time".into(),
+                "ids".into(),
+                "log".into(),
+            ],
+        });
+        let mut kind_prefixes = std::collections::BTreeMap::new();
+        kind_prefixes.insert("issue".to_string(), "iss".to_string());
+        // Kernel-internal kinds (`event`, `relation`, `comment`) are
+        // added by `UlidMinter::with_kernel_kinds` below — see the
+        // constructor for why this lives there.
+        host_state_for_op(
+            "ext_issues",
+            "comtrya://extension/ext_issues",
+            "comtrya://user/usr_test",
+            store_arc,
+            manifest,
+            Arc::new(SystemClock),
+            Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
+            Arc::new(StderrLogSink),
+            Arc::new(DefaultAuthz),
+            Arc::new(NoopDispatcher),
+            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+        )
+    }
+
+    #[test]
+    fn close_issue_round_trip() {
+        let wasm = wasm_path();
+        if !wasm.is_file() {
+            // Skip rather than fail — `cargo test` on a fresh clone
+            // shouldn't break for not having run the bundler. CI
+            // (post-M2 build.rs) will fail loudly if the bundler step
+            // is required and missing.
+            eprintln!(
+                "SKIP close_issue_round_trip: {} not found. Run \
+                 `bash extensions/bundler/build-extension.sh \
+                 extensions/first-party/ext_issues` first.",
+                wasm.display()
+            );
+            return;
+        }
+
+        // Fresh extension store in a tempdir so the test is isolated
+        // from any developer's dev state.
+        let tmp = tempdir_for_test();
+        let store_arc = Arc::new(
+            crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"),
+        );
+
+        let engine = Engine::default();
+        let linker: Linker<HostState> =
+            make_platform_linker(&engine).expect("build linker");
+        // The ext-issues bindgen generates host-trait stubs for
+        // platform types it sees via `include`. Those duplicate the
+        // outer bindgen's traits and would shadow them in the linker
+        // if we called `Ext_issues::add_to_linker`. We DON'T — the
+        // outer `add_to_linker` already wired the same imports against
+        // `HostState`, and the Component-Model ABI doesn't care which
+        // generated trait the host impl came from.
+
+        let component =
+            Component::from_file(&engine, &wasm).expect("read wasm");
+        let state = fresh_host_state(store_arc.clone());
+        let mut store = Store::new(&engine, state);
+
+        let instance = linker
+            .instantiate(&mut store, &component)
+            .expect("instantiate ext_issues");
+
+        // ---- open an issue ----
+        let issues = ExtIssues::new(&mut store, &instance)
+            .expect("bind ExtIssues world");
+        let open_input = OpenIssueInput {
+            repository: "comtrya://repository/repo_test".into(),
+            title: "M1 smoke".into(),
+            body_markdown: "test body".into(),
+        };
+        let opened = issues
+            .comtrya_ext_issues_issues()
+            .call_open_issue(&mut store, &open_input)
+            .expect("open-issue call")
+            .expect("open-issue ok");
+        assert_eq!(opened.title, "M1 smoke");
+        assert!(matches!(opened.state, IssueState::Open));
+        assert_eq!(opened.number, 1);
+        let issue_id = opened.id.clone();
+
+        // ---- close it ----
+        let close_input = CloseIssueInput {
+            id: issue_id.clone(),
+            reason: Some("completed".into()),
+        };
+        let closed = issues
+            .comtrya_ext_issues_issues()
+            .call_close_issue(&mut store, &close_input)
+            .expect("close-issue call")
+            .expect("close-issue ok");
+        assert_eq!(closed.id, issue_id);
+        assert!(matches!(closed.state, IssueState::Closed));
+        assert!(closed.closed_at.is_some(), "closed_at must be set");
+        assert!(closed.closed_by_ref.is_some(), "closed_by_ref must be set");
+
+        // ---- verify persisted state via the store directly ----
+        let records = store_arc.load_records().expect("load records");
+        let issue_rec = records
+            .iter()
+            .find(|r| r.collection == "issues" && r.id == issue_id)
+            .expect("issue persisted");
+        assert_eq!(
+            issue_rec.data.get("state").and_then(|v| v.as_str()),
+            Some("closed"),
+            "stored state should be closed after close-issue"
+        );
+    }
+
+    /// Per-test tempdir; cleaned up when the kernel test binary exits.
+    fn tempdir_for_test() -> std::path::PathBuf {
+        let base = std::env::temp_dir();
+        let pid = std::process::id();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = base.join(format!("comtrya-m1-{}-{}", pid, now));
+        std::fs::create_dir_all(&path).expect("mkdir tempdir");
+        path
     }
 }

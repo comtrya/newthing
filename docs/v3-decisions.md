@@ -50,10 +50,10 @@ Existing GraphQL field names (`closeIssue`, `issuesByRefs`, `epicProgress`, etc.
 
 For the duration of the cutover:
 
-- **Wasmtime:** `43.0.2` (already in `crates/server/Cargo.toml`)
+- **Wasmtime:** `43.0.2` (already in `crates/server/Cargo.toml`). Transitively brings in `wit-bindgen 0.51` and `wit-bindgen 0.57` (different crates use different sides of the bindgen).
 - **wit-parser:** `0.235` (codegen crate)
 - **cargo-component:** `0.21.1` (pinned at M1 first use, installed via `cargo install cargo-component --locked --version 0.21.1`)
-- **wit-bindgen-rt:** `0.44` (used by each per-extension component crate; matches cargo-component 0.21.1's generator)
+- **wit-bindgen-rt:** `0.44` — the latest published version on crates.io as of the M1 first build. Used by each per-extension component crate. Empirically ABI-compatible with wasmtime 43.0.2: the M1 smoke test (`wasm_host::m1_ext_issues_smoke::close_issue_round_trip`) round-trips records, enums, options, lists, and `result<T, error>` between Rust component code and Rust host code without divergence. The Component-Model canonical ABI for the types in play (plain records, scalars, strings, options, results, lists, variants) has been stable since CM 0.2.0 finalised. If a future milestone introduces resource handles or async, re-verify before assuming the pin still holds.
 
 **Why:** Toolchain churn during a multi-milestone migration is the fastest way to lose a day to a bindgen regression. We pin, we ship, we upgrade in a separate workstream after M13.
 

@@ -49,16 +49,20 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Implement the `reactor` export (empty `subscribed-event-types`, no-op `on-event`)
 - [x] `extensions/bundler/build-extension.sh extensions/first-party/ext_issues` produces a real `.wasm`
 - [x] `wasm-tools component wit dist/ext_issues.wasm` reports world `ext-issues`
-- [ ] Wasmtime integration test in `crates/server`: load the wasm, call `close-issue` through `Linker<HostState>`, assert storage state
+- [x] Wasmtime integration test in `crates/server`: load the wasm, call `close-issue` through `Linker<HostState>`, assert storage state
 
 ## M2 — Host wiring + codegen build integration
 - [ ] Add `crates/server/build.rs` that discovers installed extensions and runs `comtrya-wit-codegen` per extension
 - [ ] `build.rs` emits handler files to `OUT_DIR`; `main.rs` includes them via `include!`
 - [ ] Replace the `Linker::<()>::new` block at `main.rs:6077`: extensions declaring `platformWitVersion` use `Linker<HostState>`
+- [ ] When an extension declares `platformWitVersion`, the loader reads the real component from `<ext_root>/dist/<ext_id>.wasm` and updates the manifest's `wasmComponent` field (or stops reading `wasmComponent` and synthesises the path from convention)
 - [ ] Implement the kernel-side `OpsDispatcher` that holds the loaded-component registry and dispatches by `extension_id`
 - [ ] Wire `wasm_host::host_state_for_op` into the live request path with real extension id / principal / manifest values
 - [ ] Parse `manifest.json` fields (`hostImports`, `allowedEmits`, `allowedEventReads`, `allowedCrossCalls`, `reactor.allowedMutations`, `reactor.allowedEmits`, `contributes.resourceKinds`) into `HostManifest` at load time
 - [ ] Add a JSON Schema for the manifest at `docs/manifest.schema.json` and validate every installed manifest at load
+- [ ] Enforce the `ids.mint` → `storage.create` registry contract that's currently documented in `storage.wit` but not implemented (per-extension minted-id set, `storage.create` rejects ids not in it)
+- [ ] Extract a `mint_internal(kind)` helper in `wasm_host.rs` for kernel-initiated mints (`relations.create`, `comments.post`, `events.append`) so the manifest-check / no-manifest-check split is explicit, not implicit at call sites
+- [ ] Add a build-extension.sh guard that warns if a component crate lacks `.cargo/config.toml` (the file that locks `wasm32-unknown-unknown`); without it, `wasm32-wasip1` leaks WASI imports
 - [ ] Integration test: kernel starts, loads `ext_issues.wasm`, calls `close-issue` via the linker, asserts persistence + event emission
 
 ## M3 — GraphQL dispatch routing
@@ -71,6 +75,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 
 ## M4 — `ext_issues` legacy handlers deleted
 - [ ] Audit business logic in existing `issues.*` handlers in `main.rs`; copy any rule not yet in WASM into the component (revalidation, derived fields, event side effects)
+- [ ] Persist `close-issue` `reason` field — today the component discards it with `let _ = input.reason;` because no audit-row schema exists; M4 either stores it on the issue record or writes an audit row referencing it
 - [ ] Re-verify smoke for issue flows under WASM-only routing
 - [ ] Delete every `matches_op` arm for `issues.*` in `main.rs`
 - [ ] Delete helper functions exclusive to issues handlers
