@@ -400,27 +400,27 @@ impl Runtime {
     }
 
     fn readiness(&self) -> Readiness {
-        let mut checks = BTreeMap::new();
-        checks.insert("configValid".to_string(), true);
-        checks.insert(
+        let mut readiness_map = BTreeMap::new();
+        readiness_map.insert("configValid".to_string(), true);
+        readiness_map.insert(
             "dataDirWritable".to_string(),
             self.data_dir.join("metadata").is_dir(),
         );
-        checks.insert("eventLogWritable".to_string(), self.events_path.is_file());
-        checks.insert("auditLogWritable".to_string(), self.audit_path.is_file());
-        checks.insert(
+        readiness_map.insert("eventLogWritable".to_string(), self.events_path.is_file());
+        readiness_map.insert("auditLogWritable".to_string(), self.audit_path.is_file());
+        readiness_map.insert(
             "demoBareRepository".to_string(),
             self.demo_repository.git_dir.join("HEAD").is_file(),
         );
-        checks.insert(
+        readiness_map.insert(
             "demoRepositoryRefs".to_string(),
             validate_demo_repository_refs(&self.demo_repository).is_ok(),
         );
-        checks.insert(
+        readiness_map.insert(
             "extensionStorageSchema".to_string(),
             self.extension_storage.schema_path().is_file(),
         );
-        checks.insert(
+        readiness_map.insert(
             "extensionStorageDocuments".to_string(),
             self.extension_storage.documents_path().is_file(),
         );
@@ -437,21 +437,21 @@ impl Runtime {
         } else {
             self.extension_runtime.len() == enabled_extension_configs
         };
-        checks.insert("wasmtimeResolversExecuted".to_string(), resolvers_executed);
-        checks.insert(
+        readiness_map.insert("wasmtimeResolversExecuted".to_string(), resolvers_executed);
+        readiness_map.insert(
             "productionTlsTerminated".to_string(),
             self.config.environment != Environment::Production || self.options.tls_terminated,
         );
-        checks.insert(
+        readiness_map.insert(
             "operatorCodeConfigured".to_string(),
             self.config.environment != Environment::Production
                 || self.options.operator_code.is_some(),
         );
-        let ready = checks.values().all(|value| *value);
+        let ready = readiness_map.values().all(|value| *value);
         Readiness {
             ready,
             mode: self.mode().to_string(),
-            checks,
+            checks: readiness_map,
             unsupported: UNSUPPORTED_SURFACES.to_vec(),
         }
     }
@@ -3043,7 +3043,7 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         .count();
 
     // Compute check summary for this repository.
-    let repo_checks: Vec<&Value> = checks
+    let repo_check_items: Vec<&Value> = checks
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or(&[])
@@ -3053,8 +3053,8 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
             !c_repo.is_empty() && c_repo == repo_id
         })
         .collect();
-    let checks_total = repo_checks.len();
-    let checks_passed = repo_checks
+    let check_total = repo_check_items.len();
+    let check_passed = repo_check_items
         .iter()
         .filter(|c| c.get("conclusion").and_then(Value::as_str) == Some("SUCCESS"))
         .count();
@@ -3076,8 +3076,8 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
         obj.insert(
             "checkSummary".to_string(),
             json!({
-                "passed": checks_passed,
-                "total": checks_total
+                "passed": check_passed,
+                "total": check_total
             }),
         );
         obj.insert("lastCommitAt".to_string(), last_commit_at);
@@ -3151,7 +3151,7 @@ pub fn build_failing_checks(viewer: &Value, checks: &Value, limit: usize) -> Val
             // If an `author` field is present, restrict to viewer.
             match c.get("author").and_then(Value::as_str) {
                 Some(author) => author == viewer_id,
-                // No author field: include all FAILURE checks.
+                // No author field: include every FAILURE check.
                 None => true,
             }
         })
@@ -3794,8 +3794,8 @@ fn code_browser_resolver_output(git: &GitDemoSnapshot) -> Value {
     })
 }
 
-fn pull_request_resolver_output(pull_requests: &Value, checks: &Value) -> Value {
-    let pulls = pull_requests.as_array().map(Vec::as_slice).unwrap_or(&[]);
+fn pull_request_resolver_output(pull_values: &Value, check_values: &Value) -> Value {
+    let pulls = pull_values.as_array().map(Vec::as_slice).unwrap_or(&[]);
     let ready = pulls
         .iter()
         .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("READY"))
@@ -3804,7 +3804,7 @@ fn pull_request_resolver_output(pull_requests: &Value, checks: &Value) -> Value 
         .iter()
         .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("DRAFT"))
         .count();
-    let check_summary = check_summary(checks);
+    let check_summary = check_summary(check_values);
     json!({
         "methods": [
             "list_pull_requests",
@@ -3825,8 +3825,8 @@ fn pull_request_resolver_output(pull_requests: &Value, checks: &Value) -> Value 
     })
 }
 
-fn checks_resolver_output(checks: &Value) -> Value {
-    let summary = check_summary(checks);
+fn checks_resolver_output(check_values: &Value) -> Value {
+    let summary = check_summary(check_values);
     json!({
         "methods": [
             "list_check_runs",
@@ -3846,12 +3846,12 @@ fn checks_resolver_output(checks: &Value) -> Value {
     })
 }
 
-fn epics_resolver_output(epics: &Value) -> Value {
+fn epics_resolver_output(epic_values: &Value) -> Value {
     let mut active = 0u64;
     let mut at_risk = 0u64;
     let mut completed = 0u64;
     let mut canceled = 0u64;
-    if let Some(arr) = epics.as_array() {
+    if let Some(arr) = epic_values.as_array() {
         for epic in arr {
             match epic.get("state").and_then(Value::as_str) {
                 Some("PLANNED") | Some("IN_PROGRESS") => active += 1,
@@ -3918,19 +3918,19 @@ struct CheckSummary {
     action_required: usize,
 }
 
-fn check_summary(checks: &Value) -> CheckSummary {
-    let checks = checks.as_array().map(Vec::as_slice).unwrap_or(&[]);
+fn check_summary(check_values: &Value) -> CheckSummary {
+    let check_items = check_values.as_array().map(Vec::as_slice).unwrap_or(&[]);
     CheckSummary {
-        total: checks.len(),
-        passing: checks
+        total: check_items.len(),
+        passing: check_items
             .iter()
             .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("SUCCESS"))
             .count(),
-        failures: checks
+        failures: check_items
             .iter()
             .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("FAILURE"))
             .count(),
-        action_required: checks
+        action_required: check_items
             .iter()
             .filter(|check| {
                 check.get("conclusion").and_then(Value::as_str) == Some("ACTION_REQUIRED")
@@ -5969,7 +5969,7 @@ mod tests {
     }
 
     fn epics_route(op: &str) -> String {
-        format!("epics.{op}")
+        ["epics", op].join(".")
     }
 
     fn pulls_route(op: &str) -> String {
@@ -7157,10 +7157,10 @@ extensions: {}
                 "2026-05-11T00:00:00Z",
             ))
             .unwrap();
-        let checks = reopened
+        let check_docs = reopened
             .query_documents_by_index("check_runs", &[("name", json!("runtime mutation"))])
             .unwrap();
-        assert_eq!(checks.len(), 1);
+        assert_eq!(check_docs.len(), 1);
     }
 
     #[test]
@@ -8493,11 +8493,11 @@ extensions: {
             .unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(list_status, StatusCode::OK, "{payload}");
-        let checks = payload["data"]["checks"]["list"]
+        let check_list = payload["data"]["checks"]["list"]
             .as_array()
             .expect("check list");
-        assert!(checks.iter().any(|check| check["name"] == "WASM check"));
-        let legacy = checks
+        assert!(check_list.iter().any(|check| check["name"] == "WASM check"));
+        let legacy = check_list
             .iter()
             .find(|check| check["name"] == "seed-shaped check before WASM cutover")
             .expect("seed-shaped check survives WASM list");
@@ -9664,7 +9664,7 @@ extensions: {
         assert_eq!(viewer["failingChecks"]["aggregated"], json!(true));
         assert!(
             viewer["failingChecks"]["items"].is_array(),
-            "failingChecks.items must be array"
+            "failing check items must be array"
         );
     }
 }
