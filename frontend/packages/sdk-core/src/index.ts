@@ -29,6 +29,15 @@ export {
   type CardContribution,
 } from "./card-registry";
 export {
+  registerRoute,
+  unregisterRoute,
+  routesForPrefix,
+  routeFor,
+  subscribeRoutes,
+  type RouteContribution,
+  type RouteMatch,
+} from "./route-registry";
+export {
   defineResourceCardElement,
   type ResourceCardElement,
 } from "./resource-card";
