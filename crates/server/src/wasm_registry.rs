@@ -84,15 +84,17 @@ impl WasmRegistry {
 
     /// Register one extension from its manifest + on-disk WASM at
     /// `<root>/dist/<id>.wasm`. Returns Ok if the extension was
-    /// successfully loaded; Err if the manifest or WASM was unreadable
-    /// or didn't compile. Idempotent — re-registering the same id
-    /// replaces the previous entry.
+    /// successfully loaded; Err if the manifest fails schema
+    /// validation, or if the WASM was unreadable or didn't compile.
+    /// Idempotent — re-registering the same id replaces the previous
+    /// entry.
     pub fn register_from_manifest(&self, root: &Path) -> Result<String, String> {
         let manifest_path = root.join("manifest.json");
         let text = fs::read_to_string(&manifest_path)
             .map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
         let json: Value = serde_json::from_str(&text)
             .map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
+        validate_manifest_against_schema(&json, &manifest_path)?;
         let id = json
             .get("id")
             .and_then(Value::as_str)
@@ -133,6 +135,36 @@ impl WasmRegistry {
             .read()
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default()
+    }
+}
+
+/// Embedded copy of `docs/manifest.schema.json`. Compiled into the
+/// binary so a kernel deployment doesn't need the source tree to
+/// validate manifests.
+const MANIFEST_SCHEMA_BYTES: &str =
+    include_str!("../../../docs/manifest.schema.json");
+
+fn validate_manifest_against_schema(
+    manifest: &Value,
+    manifest_path: &Path,
+) -> Result<(), String> {
+    let schema_value: Value = serde_json::from_str(MANIFEST_SCHEMA_BYTES)
+        .map_err(|e| format!("embedded manifest schema is invalid JSON: {e}"))?;
+    let compiled = jsonschema::JSONSchema::compile(&schema_value)
+        .map_err(|e| format!("compile manifest schema: {e}"))?;
+    let result = compiled.validate(manifest);
+    match result {
+        Ok(()) => Ok(()),
+        Err(errors) => {
+            let messages: Vec<String> = errors
+                .map(|e| format!("- {} at {}", e, e.instance_path))
+                .collect();
+            Err(format!(
+                "{} fails manifest schema validation:\n{}",
+                manifest_path.display(),
+                messages.join("\n")
+            ))
+        }
     }
 }
 
@@ -286,6 +318,48 @@ mod tests {
     fn registry_get_unknown_returns_none() {
         let registry = WasmRegistry::new().expect("build registry");
         assert!(registry.get("ext_nope").is_none());
+    }
+
+    #[test]
+    fn manifest_schema_rejects_invalid_manifest() {
+        let bad = serde_json::json!({
+            // Missing required `id`, `name`, `version`, `publisher`,
+            // `schemaVersion`.
+            "displayName": "Bad"
+        });
+        let err = validate_manifest_against_schema(
+            &bad,
+            std::path::Path::new("test://bad-manifest.json"),
+        )
+        .expect_err("schema must reject missing-required-fields manifest");
+        assert!(err.contains("schema validation"), "error: {}", err);
+    }
+
+    #[test]
+    fn manifest_schema_rejects_malformed_id() {
+        let bad = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "Bad-Id-With-Caps",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x"
+        });
+        let err = validate_manifest_against_schema(
+            &bad,
+            std::path::Path::new("test://bad-id.json"),
+        )
+        .expect_err("schema must reject capitalised id");
+        assert!(err.contains("schema validation"), "error: {}", err);
+    }
+
+    #[test]
+    fn manifest_schema_accepts_real_ext_issues_manifest() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_issues/manifest.json");
+        let text = std::fs::read_to_string(&path).expect("read manifest");
+        let json: Value = serde_json::from_str(&text).expect("parse manifest");
+        validate_manifest_against_schema(&json, &path)
+            .expect("ext_issues manifest must validate against the schema");
     }
 
     #[test]

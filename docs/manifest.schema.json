@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://comtrya.dev/schema/extension-manifest/v1",
+  "title": "Comtrya extension manifest",
+  "description": "Schema for extensions/first-party/*/manifest.json and any third-party extension manifest. The kernel validates every manifest against this schema at load time; load fails on validation error.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "id", "name", "version", "publisher"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "comtrya.extension/v1",
+      "description": "Manifest schema version. Locked at v1 for the duration of the v3 cutover."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable extension identifier — `ext_<name>` convention. Used as the dispatch key and the principal URI."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": { "type": "string" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].+)?$"
+    },
+    "publisher": { "type": "string", "minLength": 1 },
+    "platformWitVersion": {
+      "type": "string",
+      "description": "If present, the extension targets `comtrya:platform@<this>`. Pinned at 0.1.0 for the M0-M13 cutover."
+    },
+    "witWorld": { "type": "string" },
+    "perExtensionWit": { "type": "string", "description": "Path (relative to manifest) to the per-extension WIT directory. Defaults to `wit`." },
+    "wasmComponent": { "type": "string", "description": "Path to the legacy resolver WAT/WASM. Replaced by `dist/<id>.wasm` for platformWitVersion extensions." },
+    "routePrefix": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "ui": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "manifest": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "resolver": { "type": "string" },
+        "outputType": { "type": "string" }
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resourceKinds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "prefix"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "prefix": { "type": "string", "pattern": "^[a-z]{2,8}$" }
+            }
+          }
+        },
+        "cards": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "element"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string" },
+              "element": { "type": "string", "pattern": "^[a-z][a-z0-9-]*-[a-z0-9-]+$" }
+            }
+          }
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slot", "element"],
+            "additionalProperties": false,
+            "properties": {
+              "slot": { "type": "string" },
+              "element": { "type": "string", "pattern": "^[a-z][a-z0-9-]*-[a-z0-9-]+$" },
+              "priority": { "type": "integer" }
+            }
+          }
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "element"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "element": { "type": "string", "pattern": "^[a-z][a-z0-9-]*-[a-z0-9-]+$" }
+            }
+          }
+        }
+      }
+    },
+    "hostImports": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+      "description": "Host import groups this extension is permitted to call (storage.read, storage.write, relations.read, etc.)."
+    },
+    "allowedEmits": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9.]*[a-z0-9]$" },
+      "description": "Event types this extension may emit via events.append."
+    },
+    "allowedEventReads": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+      "description": "Extension ids whose events this extension may read via events.read-recent."
+    },
+    "allowedCrossCalls": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" },
+      "description": "<target-extension>/<op-name> strings this extension may invoke via ops.invoke."
+    },
+    "reactor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subscribes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedMutations": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" }
+        },
+        "allowedEmits": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*$" },
+      "description": "Permission strings the extension claims (<extension-id>.<verb>)."
+    }
+  }
+}
