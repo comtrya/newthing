@@ -27,13 +27,13 @@ Rules of engagement:
 - [ ] Pin Wasmtime + cargo-component versions for the duration of the migration
 
 ## M0 — Audit + freeze
-- [ ] Survey every `matches_op` arm in `crates/server/src/main.rs`; record file:line ranges
-- [ ] Survey every hand-written GraphQL handler tied to `ext_issues` / `ext_epics` / `ext_pull_requests` / `ext_checks` / `ext_workspace_home`
-- [ ] Survey the `REACTORS` constant + reactor dispatch helpers; record line ranges
-- [ ] Survey `frontend/src/{shell,extension-host-sdk,extension-host.ts,client.ts,server,pages,main.ts}` and `astro.config.mjs`
-- [ ] Survey every `component.wat` stub under `extensions/first-party/*`
-- [ ] Survey dead seed logic in `ExtensionRuntimeStore` (`ensure_schema`, `seed_from_demo_payload`, the hardcoded collection declarations)
-- [ ] Write `docs/v3-deletion-inventory.md` listing every artifact + the milestone it dies in
+- [x] Survey every `matches_op` arm in `crates/server/src/main.rs`; record file:line ranges
+- [x] Survey every hand-written GraphQL handler tied to `ext_issues` / `ext_epics` / `ext_pull_requests` / `ext_checks` / `ext_workspace_home`
+- [x] Survey the `REACTORS` constant + reactor dispatch helpers; record line ranges
+- [x] Survey `frontend/src/{shell,extension-host-sdk,extension-host.ts,client.ts,server,pages,main.ts}` and `astro.config.mjs`
+- [x] Survey every `component.wat` stub under `extensions/first-party/*`
+- [x] Survey dead seed logic in `ExtensionRuntimeStore` (`ensure_schema`, `seed_from_demo_payload`, the hardcoded collection declarations)
+- [x] Write `docs/v3-deletion-inventory.md` listing every artifact + the milestone it dies in
 - [ ] Lock `extensions/wit/comtrya/platform/` at `@0.1.0` — no edits without an explicit revision bump
 - [ ] Confirm all five pre-flight decisions are settled before starting M1
 
