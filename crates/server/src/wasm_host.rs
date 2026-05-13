@@ -1723,6 +1723,7 @@ mod m1_ext_issues_smoke {
         let close_input = CloseIssueInput {
             id: issue_id.clone(),
             reason: Some("completed".into()),
+            closed_by_ref: None,
         };
         let closed = issues
             .comtrya_ext_issues_issues()
@@ -1742,8 +1743,8 @@ mod m1_ext_issues_smoke {
             .expect("issue persisted");
         assert_eq!(
             issue_rec.data.get("state").and_then(|v| v.as_str()),
-            Some("closed"),
-            "stored state should be closed after close-issue"
+            Some("CLOSED"),
+            "stored state should be CLOSED (uppercase, matching legacy GraphQL surface) after close-issue"
         );
     }
 

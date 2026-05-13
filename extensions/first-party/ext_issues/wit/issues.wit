@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.0;
+package comtrya:ext-issues@0.1.1;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -22,6 +22,10 @@ interface issues {
     updated-at: iso-timestamp,
     closed-at: option<iso-timestamp>,
     closed-by-ref: option<uri>,
+    // 0.1.1 — free-form close reason supplied by `close-issue` input.
+    // Cleared by `reopen-issue`. The GraphQL surface exposes it as
+    // `stateReason`.
+    state-reason: option<string>,
   }
 
   variant issue-state {
@@ -39,6 +43,9 @@ interface issues {
   record close-issue-input {
     %id: id,
     reason: option<string>,
+    // 0.1.1 — actor URI to record on the closed issue. Defaults to
+    // the calling principal when omitted.
+    closed-by-ref: option<uri>,
   }
 
   open-issue: func(input: open-issue-input) -> result<issue, error>;

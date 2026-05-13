@@ -41,15 +41,21 @@ struct StoredIssue {
     repository: String,
     title: String,
     body_markdown: String,
+    /// Uppercase ("OPEN" / "CLOSED" / "REOPENED") to match the legacy
+    /// GraphQL surface the Astro frontend reads. The WIT-side
+    /// `issue-state` enum is lowercase; conversion happens in
+    /// `state_to_str` / `state_from_str`.
     state: String,
     number: u64,
     author_ref: String,
     created_at: String,
     updated_at: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     closed_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     closed_by_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    state_reason: Option<String>,
 }
 
 impl StoredIssue {
@@ -66,22 +72,26 @@ impl StoredIssue {
             updated_at: self.updated_at.clone(),
             closed_at: self.closed_at.clone(),
             closed_by_ref: self.closed_by_ref.clone(),
+            state_reason: self.state_reason.clone(),
         }
     }
 }
 
 fn state_to_str(state: IssueState) -> &'static str {
+    // Uppercase to match the legacy GraphQL surface.
     match state {
-        IssueState::Open => "open",
-        IssueState::Closed => "closed",
-        IssueState::Reopened => "reopened",
+        IssueState::Open => "OPEN",
+        IssueState::Closed => "CLOSED",
+        IssueState::Reopened => "REOPENED",
     }
 }
 
 fn state_from_str(s: &str) -> IssueState {
+    // Accept either case so reads work on data written by either path
+    // during the M3→M4 cutover.
     match s {
-        "closed" => IssueState::Closed,
-        "reopened" => IssueState::Reopened,
+        "CLOSED" | "closed" => IssueState::Closed,
+        "REOPENED" | "reopened" => IssueState::Reopened,
         _ => IssueState::Open,
     }
 }
@@ -196,6 +206,7 @@ impl IssuesGuest for Component {
             updated_at: now,
             closed_at: None,
             closed_by_ref: None,
+            state_reason: None,
         };
         persist_new(&stored)?;
         let issue = stored.to_wit();
@@ -212,12 +223,17 @@ impl IssuesGuest for Component {
         let mut stored: StoredIssue = serde_json::from_slice(&snap.data)
             .map_err(|e| err(ErrorCode::Internal, format!("parse issue: {e}")))?;
         let now = time::now_iso();
-        let actor = identity::current_principal()?;
+        // Caller can override the recorded actor via input.closed-by-ref;
+        // otherwise the request principal is used.
+        let actor = match &input.closed_by_ref {
+            Some(uri) => uri.clone(),
+            None => identity::current_principal()?,
+        };
         stored.state = state_to_str(IssueState::Closed).to_string();
         stored.updated_at = now.clone();
         stored.closed_at = Some(now);
         stored.closed_by_ref = Some(actor);
-        let _ = input.reason; // not stored in 0.1.0; reserved for an audit row later
+        stored.state_reason = input.reason.clone();
         let bytes = serde_json::to_vec(&stored)
             .map_err(|e| err(ErrorCode::Internal, format!("serialise issue: {e}")))?;
         storage::update_commit(COLLECTION, &input.id, &snap.version, &bytes)?;
@@ -235,10 +251,14 @@ impl IssuesGuest for Component {
         let mut stored: StoredIssue = serde_json::from_slice(&snap.data)
             .map_err(|e| err(ErrorCode::Internal, format!("parse issue: {e}")))?;
         let now = time::now_iso();
-        stored.state = state_to_str(IssueState::Reopened).to_string();
+        // The legacy GraphQL surface returns state=OPEN on reopen (not
+        // a separate REOPENED). Match that so frontend filters keep
+        // working.
+        stored.state = state_to_str(IssueState::Open).to_string();
         stored.updated_at = now;
         stored.closed_at = None;
         stored.closed_by_ref = None;
+        stored.state_reason = None;
         let bytes = serde_json::to_vec(&stored)
             .map_err(|e| err(ErrorCode::Internal, format!("serialise issue: {e}")))?;
         storage::update_commit(COLLECTION, &id, &snap.version, &bytes)?;

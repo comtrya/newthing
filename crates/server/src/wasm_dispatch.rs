@@ -197,6 +197,7 @@ mod ext_issues {
                 let wit_input = CloseIssueInput {
                     id: parsed.id,
                     reason: parsed.reason,
+                    closed_by_ref: parsed.closed_by_ref,
                 };
                 let result = issues
                     .call_close_issue(&mut wasm_store, &wit_input)
@@ -274,6 +275,7 @@ mod ext_issues {
     struct CloseIssueInputJson {
         id: String,
         reason: Option<String>,
+        closed_by_ref: Option<String>,
     }
 
     fn issue_to_json(issue: &Issue) -> Value {
@@ -283,6 +285,7 @@ mod ext_issues {
             "title": issue.title,
             "bodyMarkdown": issue.body_markdown,
             "state": state_to_str(issue.state),
+            "stateReason": issue.state_reason,
             "number": issue.number,
             "authorRef": issue.author_ref,
             "createdAt": issue.created_at,
@@ -293,10 +296,11 @@ mod ext_issues {
     }
 
     fn state_to_str(state: IssueState) -> &'static str {
+        // Uppercase to match the legacy GraphQL surface.
         match state {
-            IssueState::Open => "open",
-            IssueState::Closed => "closed",
-            IssueState::Reopened => "reopened",
+            IssueState::Open => "OPEN",
+            IssueState::Closed => "CLOSED",
+            IssueState::Reopened => "REOPENED",
         }
     }
 }
