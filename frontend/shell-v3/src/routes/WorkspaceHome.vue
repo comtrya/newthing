@@ -36,6 +36,7 @@ const workspace = {
       :key="slot.name"
       :name="slot.name"
       :label="slot.label"
+      smoke-prefix="workspace-home-slot"
     />
   </section>
 </template>
