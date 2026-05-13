@@ -107,9 +107,11 @@ impl WasmRegistry {
             .map_err(|e| format!("compile {}: {e}", wasm_path.display()))?;
 
         let host_manifest = parse_host_manifest(&json)?;
-        // Register the extension's declared kinds with the minter so
-        // `ids.mint(kind)` resolves for it.
-        register_kinds(&self.id_minter, &host_manifest)?;
+        // Register the extension's declared kinds with the minter,
+        // honouring the prefix declared in each `contributes.resourceKinds[]`
+        // entry. (`parse_host_manifest` flattens to the kind name; for
+        // prefix-aware registration we read directly from the JSON.)
+        register_kinds_from_manifest_json(&self.id_minter, &json)?;
 
         let loaded = Arc::new(LoadedExtension {
             id: id.clone(),
@@ -144,14 +146,30 @@ impl WasmRegistry {
 const MANIFEST_SCHEMA_BYTES: &str =
     include_str!("../../../docs/manifest.schema.json");
 
-fn validate_manifest_against_schema(
-    manifest: &Value,
-    manifest_path: &Path,
-) -> Result<(), String> {
+/// Compile the manifest schema once per process. Used by every
+/// `register_from_manifest` call; without the cache, a 50-extension
+/// boot would re-parse + re-compile the same schema 50 times.
+fn compiled_manifest_schema() -> Result<&'static jsonschema::JSONSchema, String> {
+    static COMPILED: std::sync::OnceLock<jsonschema::JSONSchema> =
+        std::sync::OnceLock::new();
+    if let Some(c) = COMPILED.get() {
+        return Ok(c);
+    }
     let schema_value: Value = serde_json::from_str(MANIFEST_SCHEMA_BYTES)
         .map_err(|e| format!("embedded manifest schema is invalid JSON: {e}"))?;
     let compiled = jsonschema::JSONSchema::compile(&schema_value)
         .map_err(|e| format!("compile manifest schema: {e}"))?;
+    // Race-safe: if another caller won the compile, our compiled
+    // value is dropped harmlessly.
+    let _ = COMPILED.set(compiled);
+    Ok(COMPILED.get().expect("just set"))
+}
+
+fn validate_manifest_against_schema(
+    manifest: &Value,
+    manifest_path: &Path,
+) -> Result<(), String> {
+    let compiled = compiled_manifest_schema()?;
     let result = compiled.validate(manifest);
     match result {
         Ok(()) => Ok(()),
@@ -204,22 +222,35 @@ fn parse_host_manifest(json: &Value) -> Result<HostManifest, String> {
     })
 }
 
-fn register_kinds(
+fn register_kinds_from_manifest_json(
     minter: &Arc<dyn IdMinter + Send + Sync>,
-    manifest: &HostManifest,
+    manifest_json: &Value,
 ) -> Result<(), String> {
-    for kind in &manifest.contributes_resource_kinds {
-        let prefix = prefix_for_kind(kind);
-        minter.register_kind(kind, &prefix);
+    let Some(kinds) = manifest_json
+        .pointer("/contributes/resourceKinds")
+        .and_then(Value::as_array)
+    else {
+        return Ok(());
+    };
+    for entry in kinds {
+        let Some(name) = entry.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        // The manifest schema requires `prefix` on every resourceKinds
+        // entry. Fall back to a name-derived default only if absent
+        // (defensive — the validated schema rejects entries without
+        // `prefix` before we reach this code).
+        let prefix = entry
+            .get("prefix")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| prefix_for_kind(name));
+        minter.register_kind(name, &prefix);
     }
     Ok(())
 }
 
 fn prefix_for_kind(kind: &str) -> String {
-    // Convention: first 3 letters of the kind name. Real prefix is
-    // supplied by the manifest in M5+; for now this is a sensible
-    // default consistent with existing prefixes (issue → iss,
-    // pull-request → pul, check-run → che).
     kind.chars()
         .filter(|c| c.is_ascii_alphabetic())
         .take(3)

@@ -579,7 +579,7 @@ impl Runtime {
                     .cloned()
             });
         let Some(target) = target else { return Ok(false); };
-        self.extension_storage.delete_document("relations", id)?;
+        self.extension_storage.delete_document("core", "relations", id)?;
         let _ = self.append_event(
             "dev.comtrya.relation.deleted",
             json!({
@@ -1488,7 +1488,7 @@ impl Runtime {
         if !exists {
             return Ok(false);
         }
-        self.extension_storage.delete_document("comments", id)?;
+        self.extension_storage.delete_document("core", "comments", id)?;
         let _ = self.append_event(
             "dev.comtrya.comment.deleted",
             json!({ "commentID": id }),
@@ -5442,30 +5442,51 @@ impl ExtensionRuntimeStore {
 
     pub(crate) fn create_document(&self, record: ExtensionDocumentRecord) -> Result<(), String> {
         let mut records = self.load_records()?;
-        if records
-            .iter()
-            .any(|existing| existing.collection == record.collection && existing.id == record.id)
-        {
+        // Dedup scoped to (owner_extension, collection, id). Two
+        // different extensions can hold the same logical id in the
+        // same collection name — their views are isolated by
+        // owner_extension on read, and writes shouldn't artificially
+        // collide.
+        if records.iter().any(|existing| {
+            existing.owner_extension == record.owner_extension
+                && existing.collection == record.collection
+                && existing.id == record.id
+        }) {
             return Err(format!(
-                "extension document already exists: {}/{}",
-                record.collection, record.id
+                "extension document already exists: {}/{}/{}",
+                record.owner_extension, record.collection, record.id
             ));
         }
         records.push(record);
         self.write_records_atomically(&records)
     }
 
-    pub(crate) fn delete_document(&self, collection: &str, id: &str) -> Result<(), String> {
+    pub(crate) fn delete_document(
+        &self,
+        owner_extension: &str,
+        collection: &str,
+        id: &str,
+    ) -> Result<(), String> {
         let mut records = self.load_records()?;
         let before = records.len();
-        records.retain(|record| !(record.collection == collection && record.id == id));
+        records.retain(|record| {
+            !(record.owner_extension == owner_extension
+                && record.collection == collection
+                && record.id == id)
+        });
         if records.len() == before {
-            return Err(format!("extension document not found: {collection}/{id}"));
+            return Err(format!(
+                "extension document not found: {owner_extension}/{collection}/{id}"
+            ));
         }
         self.write_records_atomically(&records)?;
         self.append_storage_event(
             "dev.comtrya.extension_storage.document_deleted",
-            json!({"collection": collection, "id": id}),
+            json!({
+                "ownerExtension": owner_extension,
+                "collection": collection,
+                "id": id,
+            }),
         )
     }
 

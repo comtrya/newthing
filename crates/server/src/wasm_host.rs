@@ -661,7 +661,7 @@ impl wit_storage::Host for HostState {
         collection: String,
         id: wit_types::Id,
     ) -> Result<wit_types::DeleteResult, wit_types::Error> {
-        match self.store.delete_document(&collection, &id) {
+        match self.store.delete_document(&self.extension_id, &collection, &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
             Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
@@ -815,7 +815,7 @@ impl wit_relations::Host for HostState {
     }
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
-        match self.store.delete_document("relations", &id) {
+        match self.store.delete_document("core", "relations", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
             Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
@@ -1162,7 +1162,7 @@ impl wit_comments::Host for HostState {
     }
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
-        match self.store.delete_document("comments", &id) {
+        match self.store.delete_document("core", "comments", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
             Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
