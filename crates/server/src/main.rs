@@ -3132,20 +3132,6 @@ const CORE_VERBS: &[CoreVerb] = &[
     },
 ];
 
-// ── Legacy reactor value types ────────────────────────────────────────────
-// The in-process dispatch table is gone; these Rust value types are deleted
-// in the next M6 cleanup after the table-removal commit is isolated.
-
-pub struct EventEnvelope {
-    pub event_type: String,
-    pub payload: Value,
-}
-
-pub enum Reaction {
-    InvokeMutation { name: String, variables: Value },
-    EmitEvent { event_type: String, payload: Value },
-}
-
 /// A verb URI is well-formed when it starts with `comtrya://rel/` and the
 /// remainder is one or more `/`-separated segments where each segment
 /// contains only lowercase ASCII, digits, dots, dashes, or underscores.
