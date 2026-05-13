@@ -17,6 +17,7 @@ export type { OpResult } from "./runtime";
 export { invokeOp, type InvokeOpOptions } from "./runtime";
 export {
   registerSlot,
+  subscribe as subscribeSlots,
   unregisterSlot,
   slotsFor,
   type SlotContribution,
