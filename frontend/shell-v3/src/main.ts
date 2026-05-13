@@ -1,8 +1,10 @@
 import { createApp } from "vue";
 import {
+  bindGlobalShortcut,
   defineInlineEditElement,
   defineResourceCardElement,
   defineSkeletonElement,
+  registerCommand,
 } from "@comtrya/sdk-core";
 import "../../src/styles.css";
 import "./styles.css";
@@ -14,6 +16,35 @@ assertWorkspaceSdkDepsLinked();
 defineResourceCardElement();
 defineInlineEditElement();
 defineSkeletonElement();
+bindGlobalShortcut();
+const router = createShellRouter();
+registerCommand({
+  id: "core.workspace-home",
+  title: "Open workspace home",
+  category: "Navigation",
+  extensionId: "core",
+  run: () => {
+    void router.push("/");
+  },
+});
+registerCommand({
+  id: "core.repository-home",
+  title: "Open comtrya repository",
+  category: "Navigation",
+  extensionId: "core",
+  run: () => {
+    void router.push("/r/comtrya/comtrya");
+  },
+});
+registerCommand({
+  id: "core.issues",
+  title: "Open issues",
+  category: "Extensions",
+  extensionId: "core",
+  run: () => {
+    void router.push("/x/issues/");
+  },
+});
 const app = createApp(App);
-app.use(createShellRouter());
+app.use(router);
 app.mount("#app");

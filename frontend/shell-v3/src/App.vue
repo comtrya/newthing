@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { openPalette } from "@comtrya/sdk-core";
+import CommandPalette from "./components/CommandPalette.vue";
+
 const workspace = {
   name: "Comtrya",
   repositories: 1,
@@ -23,11 +26,11 @@ const navItems = [
           <span class="sub">workspace</span>
         </div>
       </div>
-      <label class="cmdk">
+      <button class="cmdk" type="button" @click="openPalette">
         <span class="label">Cmd</span>
-        <input type="search" placeholder="repository, pull, file, ref..." />
+        <span class="cmdk-text">repository, pull, file, ref...</span>
         <kbd>CMD K</kbd>
-      </label>
+      </button>
       <div class="topbar-actions">
         <span class="chip ok">ready</span>
         <code>{{ workspace.serverURL }}</code>
@@ -57,5 +60,6 @@ const navItems = [
         <RouterView />
       </main>
     </div>
+    <CommandPalette />
   </div>
 </template>

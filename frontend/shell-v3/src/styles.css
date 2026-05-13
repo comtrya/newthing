@@ -88,6 +88,91 @@
   color: var(--ink-faint);
 }
 
+.cmdk {
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cmdk-text {
+  flex: 1;
+  color: var(--ink-fainter);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: start center;
+  padding-top: 12vh;
+  background: rgba(10, 10, 10, 0.18);
+}
+
+.command-palette {
+  width: min(620px, calc(100vw - 32px));
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.palette-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid var(--ink);
+  padding: 14px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  outline: none;
+}
+
+.palette-list {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.palette-command {
+  width: 100%;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid var(--rule-light);
+  padding: 10px 16px;
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-command:hover,
+.palette-command:focus-visible {
+  background: var(--paper-tint);
+}
+
+.palette-command span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-command code,
+.palette-empty {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.palette-empty {
+  padding: 16px;
+}
+
 .shell-v3 .panel,
 .shell-v3 .slot-frame {
   border-top: 2px solid var(--ink);
