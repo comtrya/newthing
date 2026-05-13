@@ -7030,6 +7030,17 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_table_legacy_graphql_field_alias_resolves() {
+        // The existing Astro GraphQL surface uses `issuesClose`
+        // (interface + verb), not the WIT-native `closeIssue`. The
+        // codegen emits a legacy alias for backward compatibility.
+        let info = crate::generated_dispatch::dispatch_route("issuesClose")
+            .expect("legacy alias should resolve");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.op_name, "close-issue");
+    }
+
+    #[test]
     fn dispatch_table_returns_none_for_unknown_routes() {
         assert!(
             crate::generated_dispatch::dispatch_route("nope.nope.nope").is_none()

@@ -97,6 +97,39 @@ pub fn kebab_to_pascal(s: &str) -> String {
     }
 }
 
+/// Naive singular form: drop trailing "s" or "ies"→"y". Used to
+/// derive the legacy GraphQL field alias from WIT op names like
+/// `close-issue` (interface `issues`) → drop `-issue` → `close` →
+/// combine with interface → camel → `issuesClose`.
+fn singular_of(s: &str) -> Option<String> {
+    if let Some(stem) = s.strip_suffix("ies") {
+        return Some(format!("{}y", stem));
+    }
+    if let Some(stem) = s.strip_suffix('s') {
+        if !stem.is_empty() {
+            return Some(stem.to_string());
+        }
+    }
+    None
+}
+
+/// Derive the legacy `<interface><Verb>` GraphQL field name from a WIT
+/// op. The legacy convention strips the singular noun suffix from the
+/// op name and prefixes the interface. Returns `None` if the op name
+/// doesn't follow `<verb>-<interface-singular>` / `<verb>-<interface>`.
+pub fn legacy_graphql_field(interface_name: &str, op_name: &str) -> Option<String> {
+    let singular = singular_of(interface_name);
+    if let Some(s) = &singular {
+        if let Some(verb) = op_name.strip_suffix(&format!("-{}", s)) {
+            return Some(kebab_to_camel(&format!("{}-{}", interface_name, verb)));
+        }
+    }
+    if let Some(verb) = op_name.strip_suffix(&format!("-{}", interface_name)) {
+        return Some(kebab_to_camel(&format!("{}-{}", interface_name, verb)));
+    }
+    None
+}
+
 /// Walk a per-extension WIT package and produce one `OpSpec` per
 /// exported op found in any `ops`-shaped interface. The `extension_id`
 /// is the manifest's id; it's used to build the dispatch route.
@@ -210,14 +243,25 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
             OpKind::Query => "query",
             OpKind::Mutation => "mutation",
         };
-        out.push_str(&format!(
-            "        \"{}\" => Some(super::DispatchInfo {{\n",
-            op.route
-        ));
-        out.push_str(&format!(
-            "            extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",\n        }}),\n",
+        let info_body = format!(
+            "extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",",
             op.extension_id, op.interface_name, op.op_name, kind
+        );
+        out.push_str(&format!(
+            "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
+            op.route, info_body
         ));
+        // Legacy GraphQL alias: <interface><Verb>. Lets the existing
+        // Astro frontend keep firing closeIssue / issuesClose without
+        // a schema migration.
+        if let Some(alias) = legacy_graphql_field(&op.interface_name, &op.op_name) {
+            if alias != op.route {
+                out.push_str(&format!(
+                    "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
+                    alias, info_body
+                ));
+            }
+        }
     }
     out.push_str("        _ => None,\n    }\n}\n");
     out
@@ -445,6 +489,26 @@ mod tests {
         assert!(out.contains("export const extIssuesXIssues = {"), "{}", out);
         assert!(out.contains("closeIssue: async"));
         assert!(out.contains("getIssue: async"));
+    }
+
+    #[test]
+    fn legacy_graphql_field_derives_interface_verb() {
+        assert_eq!(
+            legacy_graphql_field("issues", "close-issue").as_deref(),
+            Some("issuesClose")
+        );
+        assert_eq!(
+            legacy_graphql_field("issues", "list-issues").as_deref(),
+            Some("issuesList")
+        );
+        assert_eq!(
+            legacy_graphql_field("epics", "transition-epic").as_deref(),
+            Some("epicsTransition")
+        );
+        assert_eq!(
+            legacy_graphql_field("issues", "do-something-else").as_deref(),
+            None
+        );
     }
 
     #[test]
