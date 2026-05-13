@@ -1331,12 +1331,7 @@ impl Runtime {
     }
 
     fn append_event(&self, event_type: &str, data: Value) -> std::io::Result<()> {
-        self.append_event_internal(event_type, data.clone())?;
-        // Dispatch to subscribed reactors. The dispatcher uses a depth
-        // counter to bound reaction cycles; reactions that emit further
-        // events recurse through this same path.
-        self.dispatch_event_to_reactors(event_type, &data, 0);
-        Ok(())
+        self.append_event_internal(event_type, data)
     }
 
     fn append_event_internal(&self, event_type: &str, data: Value) -> std::io::Result<()> {
@@ -1352,101 +1347,6 @@ impl Runtime {
                 "data": data
             }),
         )
-    }
-
-    /// Reaction dispatch. Each reactor is a (extension_id, event_type)
-    /// pair backed by a Rust function in this binary; this mirrors how
-    /// `extension_resolver_payload` is structured. Real WASM reactors are
-    /// deferred — the WIT is documented in `docs/extensions.md` but the
-    /// kernel currently runs hardcoded handlers.
-    fn dispatch_event_to_reactors(&self, event_type: &str, payload: &Value, depth: u32) {
-        const MAX_REACTION_DEPTH: u32 = 8;
-        if depth >= MAX_REACTION_DEPTH {
-            eprintln!(
-                "reactor: max depth {MAX_REACTION_DEPTH} reached, dropping reactions for {event_type}"
-            );
-            return;
-        }
-        for reactor in REACTORS {
-            if reactor.event_type != event_type {
-                continue;
-            }
-            if !self.is_extension_installed(reactor.extension_id) {
-                continue;
-            }
-            let envelope = EventEnvelope {
-                event_type: event_type.to_string(),
-                payload: payload.clone(),
-            };
-            let reactions = (reactor.handler)(self, &envelope);
-            for reaction in reactions {
-                self.apply_reaction(reactor, reaction, depth + 1);
-            }
-        }
-    }
-
-    fn apply_reaction(&self, reactor: &Reactor, reaction: Reaction, depth: u32) {
-        match reaction {
-            Reaction::InvokeMutation { name, variables } => {
-                if !reactor.allowed_mutations.iter().any(|m| *m == name) {
-                    eprintln!(
-                        "reactor {}: mutation {:?} is not in allowedMutations, skipping",
-                        reactor.extension_id, name
-                    );
-                    return;
-                }
-                if let Err(message) = self.apply_reactor_mutation(&name, &variables, depth) {
-                    eprintln!(
-                        "reactor {}: mutation {} failed: {}",
-                        reactor.extension_id, name, message
-                    );
-                }
-            }
-            Reaction::EmitEvent {
-                event_type,
-                payload,
-            } => {
-                if !reactor.allowed_emits.iter().any(|e| *e == event_type) {
-                    eprintln!(
-                        "reactor {}: emit {:?} is not in allowedEmits, skipping",
-                        reactor.extension_id, event_type
-                    );
-                    return;
-                }
-                let _ = self.append_event_internal(&event_type, payload.clone());
-                self.dispatch_event_to_reactors(&event_type, &payload, depth);
-            }
-        }
-    }
-
-    fn is_extension_installed(&self, extension_id: &str) -> bool {
-        self.extension_runtime.contains_key(extension_id)
-    }
-
-    /// Dispatch a reactor-issued mutation by name. This is the in-process
-    /// counterpart to the HTTP GraphQL mutation router; it bypasses CORS
-    /// and rate-limiting because the caller is the kernel itself.
-    fn apply_reactor_mutation(
-        &self,
-        name: &str,
-        variables: &Value,
-        _depth: u32,
-    ) -> Result<(), String> {
-        // Mutation table extends as new extensions ship. The reactor
-        // allowlist already gated us here, so we trust `name`.
-        match name {
-            LEGACY_ISSUE_CLOSE_MUTATION => {
-                let id = variables.get("id").and_then(Value::as_str).ok_or_else(|| {
-                    format!("{LEGACY_ISSUE_CLOSE_MUTATION} requires variables.id")
-                })?;
-                let reason = variables.get("reason").and_then(Value::as_str);
-                let closed_by = variables.get("closedByRef").and_then(Value::as_str);
-                self.close_issue(id, reason, closed_by).map(|_| ())
-            }
-            other => Err(format!(
-                "kernel has no in-process router for mutation {other:?}"
-            )),
-        }
     }
 
     fn append_audit(&self, event_type: &str, data: Value) -> std::io::Result<()> {
@@ -3232,13 +3132,9 @@ const CORE_VERBS: &[CoreVerb] = &[
     },
 ];
 
-// ── Reactor surface ───────────────────────────────────────────────────────
-// Reactors are kernel-side handlers keyed by (extension_id, event_type).
-// They mirror the documented WIT `reactor` interface in docs/extensions.md;
-// real WASM-driven reactors are deferred and would replace these handler
-// pointers. The allowlists below are identity (the same shape as a
-// manifest-declared reactor.allowedMutations / allowedEmits) and the
-// dispatcher enforces them.
+// ── Legacy reactor value types ────────────────────────────────────────────
+// The in-process dispatch table is gone; these Rust value types are deleted
+// in the next M6 cleanup after the table-removal commit is isolated.
 
 pub struct EventEnvelope {
     pub event_type: String,
@@ -3248,59 +3144,6 @@ pub struct EventEnvelope {
 pub enum Reaction {
     InvokeMutation { name: String, variables: Value },
     EmitEvent { event_type: String, payload: Value },
-}
-
-struct Reactor {
-    extension_id: &'static str,
-    event_type: &'static str,
-    handler: fn(&Runtime, &EventEnvelope) -> Vec<Reaction>,
-    allowed_mutations: &'static [&'static str],
-    allowed_emits: &'static [&'static str],
-}
-
-const LEGACY_ISSUE_CLOSE_MUTATION: &str = concat!("issues", ".close");
-
-/// Reactor table. Populated by extensions that opt into event-driven
-/// reactions. The `ext_pull_requests` auto-close-on-merge entry reads
-/// outgoing `closes` relations from the merged PR's ref and invokes the
-/// temporary issue-close mutation bridge per linked issue.
-const REACTORS: &[Reactor] = &[Reactor {
-    extension_id: "ext_pull_requests",
-    event_type: "dev.comtrya.pull-request.merged",
-    handler: pull_requests_on_merge,
-    allowed_mutations: &[LEGACY_ISSUE_CLOSE_MUTATION],
-    allowed_emits: &[],
-}];
-
-fn pull_requests_on_merge(runtime: &Runtime, env: &EventEnvelope) -> Vec<Reaction> {
-    let pr_ref = match env.payload.get("pullRequestRef").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return Vec::new(),
-    };
-    let relations = runtime
-        .relations_outgoing(pr_ref, Some("comtrya://rel/com.comtrya.pulls/closes"))
-        .unwrap_or_default();
-    let mut reactions = Vec::new();
-    for rel in relations {
-        let Some(issue_uri) = rel.get("to").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let Ok(parsed) = ResourceRef::parse(issue_uri) else {
-            continue;
-        };
-        let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
-            continue;
-        };
-        reactions.push(Reaction::InvokeMutation {
-            name: LEGACY_ISSUE_CLOSE_MUTATION.to_string(),
-            variables: json!({
-                "id": id,
-                "reason": "completed",
-                "closedByRef": pr_ref,
-            }),
-        });
-    }
-    reactions
 }
 
 /// A verb URI is well-formed when it starts with `comtrya://rel/` and the
