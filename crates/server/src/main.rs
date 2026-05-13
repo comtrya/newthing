@@ -370,6 +370,10 @@ impl Runtime {
             token_counter: AtomicU64::new(0),
         };
         runtime
+            .wasm_registry
+            .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))
+            .map_err(|error| format!("failed to register WASM reactor subscriptions: {error}"))?;
+        runtime
             .append_event(
                 "dev.comtrya.instance.started",
                 json!({"mode": runtime.mode()}),

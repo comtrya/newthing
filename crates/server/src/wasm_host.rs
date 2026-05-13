@@ -73,6 +73,10 @@ pub struct HostState {
     /// Current synchronous depth of `ops.invoke` chains. Incremented
     /// before each call, decremented after.
     pub ops_invoke_depth: u32,
+    /// Current event-reaction recursion depth. Reactor-dispatched
+    /// host states carry this so events emitted from a reaction continue
+    /// at the correct reactor depth.
+    pub reactor_depth: u32,
     /// Per-extension set of IDs that `ids.mint` has handed out but
     /// `storage.create` has not yet consumed. `storage.create` checks
     /// membership before persisting and removes on success — an
@@ -1329,6 +1333,8 @@ impl wit_events::Host for HostState {
                 }),
             )
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
+        self.ops_dispatcher
+            .dispatch_event(&event, self.reactor_depth);
         Ok(event)
     }
 
@@ -1447,6 +1453,10 @@ pub trait OpsDispatcher: Send + Sync {
         current_principal: &str,
         depth: u32,
     ) -> Result<Vec<u8>, wit_types::Error>;
+
+    fn dispatch_event(&self, _event: &wit_types::Event, _depth: u32) -> usize {
+        0
+    }
 }
 
 /// No-op dispatcher used in tests and during the bootstrap window
@@ -1585,6 +1595,7 @@ pub fn host_state_for_op(
         occ_tokens,
         ops_dispatcher,
         ops_invoke_depth: 0,
+        reactor_depth: 0,
         minted_ids,
     }
 }

@@ -559,7 +559,7 @@ impl PullsGuest for Component {
 
 impl ReactorGuest for Component {
     fn subscribed_event_types() -> Result<Vec<String>, Error> {
-        Ok(Vec::new())
+        Ok(vec!["dev.comtrya.pull-request.merged".to_string()])
     }
 
     fn on_event(_triggering_event: Event) -> Result<Vec<Reaction>, Error> {

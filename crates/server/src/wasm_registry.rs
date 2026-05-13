@@ -36,11 +36,24 @@ pub struct LoadedExtension {
     pub root: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WasmReaction {
+    InvokeMutation {
+        name: String,
+        payload: Vec<u8>,
+    },
+    EmitEvent {
+        event_type: String,
+        payload: Vec<u8>,
+    },
+}
+
 #[derive(Clone)]
 pub struct WasmRegistry {
     pub engine: Arc<Engine>,
     pub linker: Arc<Linker<HostState>>,
     pub extensions: Arc<RwLock<BTreeMap<String, Arc<LoadedExtension>>>>,
+    pub reactor_subscriptions: Arc<RwLock<BTreeMap<String, Vec<String>>>>,
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -73,6 +86,7 @@ impl WasmRegistry {
             engine,
             linker: Arc::new(linker),
             extensions: Arc::new(RwLock::new(BTreeMap::new())),
+            reactor_subscriptions: Arc::new(RwLock::new(BTreeMap::new())),
             authz: Arc::new(DefaultAuthz),
             clock: Arc::new(SystemClock),
             log_sink: Arc::new(StderrLogSink),
@@ -142,6 +156,103 @@ impl WasmRegistry {
             .read()
             .map(|m| m.keys().cloned().collect())
             .unwrap_or_default()
+    }
+
+    pub fn register_reactor_subscriptions(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+    ) -> Result<(), String> {
+        let extensions = self
+            .extensions
+            .read()
+            .map_err(|e| format!("registry read lock: {e}"))?
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut subscriptions = BTreeMap::new();
+        for ext in extensions {
+            let patterns = crate::wasm_invokers::reactor_subscriptions_for_extension(
+                self,
+                store.clone(),
+                &ext.id,
+            )
+            .map_err(|error| {
+                format!(
+                    "reactor subscription registration for {} failed: {}",
+                    ext.id, error.message
+                )
+            })?;
+            for pattern in &patterns {
+                validate_event_pattern(pattern)
+                    .map_err(|error| format!("{} reactor pattern {pattern:?}: {error}", ext.id))?;
+            }
+            if !patterns.is_empty() {
+                subscriptions.insert(ext.id.clone(), patterns);
+            }
+        }
+        *self
+            .reactor_subscriptions
+            .write()
+            .map_err(|e| format!("reactor subscription write lock: {e}"))? = subscriptions;
+        Ok(())
+    }
+
+    pub fn reactor_subscriptions(&self) -> BTreeMap<String, Vec<String>> {
+        self.reactor_subscriptions
+            .read()
+            .map(|subscriptions| subscriptions.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn subscribers_for_event(&self, event_type: &str) -> Vec<String> {
+        self.reactor_subscriptions
+            .read()
+            .map(|subscriptions| {
+                subscriptions
+                    .iter()
+                    .filter(|(_, patterns)| {
+                        patterns
+                            .iter()
+                            .any(|pattern| event_pattern_matches(pattern, event_type))
+                    })
+                    .map(|(extension_id, _)| extension_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn dispatch_reactor_event(
+        &self,
+        store: Arc<crate::ExtensionRuntimeStore>,
+        event: &wit_types::Event,
+        depth: u32,
+    ) -> usize {
+        let subscribers = self.subscribers_for_event(&event.event_type);
+        let count = subscribers.len();
+        for extension_id in subscribers {
+            match crate::wasm_invokers::reactor_on_event_for_extension(
+                self,
+                store.clone(),
+                &extension_id,
+                event,
+                depth,
+            ) {
+                Ok(reactions) if reactions.is_empty() => {}
+                Ok(reactions) => {
+                    eprintln!(
+                        "reactor {extension_id}: {} reaction(s) returned; reaction execution lands in the next M6 task",
+                        reactions.len()
+                    );
+                }
+                Err(error) => {
+                    eprintln!(
+                        "reactor {extension_id}: on-event for {} failed: {}",
+                        event.event_type, error.message
+                    );
+                }
+            }
+        }
+        count
     }
 }
 
@@ -511,6 +622,58 @@ mod tests {
     }
 
     #[test]
+    fn registry_registers_and_routes_wasm_reactor_subscriptions() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        let wasm = root.join("dist/ext_pull_requests.wasm");
+        assert!(
+            wasm.is_file(),
+            "{} missing; run `bash extensions/bundler/build-extension.sh \
+             extensions/first-party/ext_pull_requests` before this test",
+            wasm.display()
+        );
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_pull_requests");
+        let tmp = tempdir_for_test("comtrya-reactor-subscriptions");
+        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        registry
+            .register_reactor_subscriptions(store.clone())
+            .expect("register reactor subscriptions");
+
+        let subscriptions = registry.reactor_subscriptions();
+        assert_eq!(
+            subscriptions.get("ext_pull_requests"),
+            Some(&vec!["dev.comtrya.pull-request.merged".to_string()])
+        );
+        assert_eq!(
+            registry.subscribers_for_event("dev.comtrya.pull-request.merged"),
+            vec!["ext_pull_requests".to_string()]
+        );
+        assert!(
+            registry
+                .subscribers_for_event("dev.comtrya.pull-request.closed")
+                .is_empty()
+        );
+
+        let dispatcher = RegistryDispatcher {
+            registry: registry.clone(),
+            store,
+        };
+        let event = wit_types::Event {
+            id: "evt_reactor_test".to_string(),
+            event_type: "dev.comtrya.pull-request.merged".to_string(),
+            payload: b"{}".to_vec(),
+            timestamp_ms: 1,
+            source_uri: "comtrya://pull_request/pul_reactor_test".to_string(),
+            emitter_extension: "ext_pull_requests".to_string(),
+        };
+        assert_eq!(OpsDispatcher::dispatch_event(&dispatcher, &event, 0), 1);
+    }
+
+    #[test]
     fn registry_rejects_wasm_extension_without_typed_invoker() {
         let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../extensions/first-party/ext_issues");
@@ -779,6 +942,11 @@ impl OpsDispatcher for RegistryDispatcher {
             depth,
         )
     }
+
+    fn dispatch_event(&self, event: &wit_types::Event, depth: u32) -> usize {
+        self.registry
+            .dispatch_reactor_event(self.store.clone(), event, depth)
+    }
 }
 
 fn resolve_cross_call_route(
@@ -810,4 +978,40 @@ fn is_canonical_wit_op_route(op: &str) -> bool {
         && !operation.is_empty()
         && !interface.contains(['.', '/'])
         && !operation.contains(['.', '/'])
+}
+
+fn validate_event_pattern(pattern: &str) -> Result<(), String> {
+    if pattern.is_empty() {
+        return Err("pattern must not be empty".to_string());
+    }
+    for segment in pattern.split('.') {
+        if segment == "*" {
+            continue;
+        }
+        if !valid_event_segment(segment) {
+            return Err(
+                "segments must be '*' or lowercase kebab names starting with a letter".to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn event_pattern_matches(pattern: &str, event_type: &str) -> bool {
+    let pattern_segments = pattern.split('.').collect::<Vec<_>>();
+    let event_segments = event_type.split('.').collect::<Vec<_>>();
+    pattern_segments.len() == event_segments.len()
+        && pattern_segments
+            .iter()
+            .zip(event_segments)
+            .all(|(pattern, event)| *pattern == "*" || *pattern == event)
+}
+
+fn valid_event_segment(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }

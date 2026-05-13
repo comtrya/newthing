@@ -19,7 +19,7 @@ use serde_json::Value;
 use wasmtime::Store;
 
 use crate::wasm_host::{OpsDispatcher, wit_types};
-use crate::wasm_registry::{RegistryDispatcher, WasmRegistry, build_host_state};
+use crate::wasm_registry::{RegistryDispatcher, WasmReaction, WasmRegistry, build_host_state};
 
 pub type ExtensionInvokerFn = fn(
     &WasmRegistry,
@@ -159,6 +159,125 @@ struct RecordCheckInputJson {
     state: String,
     conclusion: Option<String>,
     required: bool,
+}
+
+pub fn reactor_subscriptions_for_extension(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    extension_id: &str,
+) -> Result<Vec<String>, wit_types::Error> {
+    match extension_id {
+        "ext_pull_requests" => reactor_subscriptions_ext_pull_requests(registry, store),
+        _ => Ok(Vec::new()),
+    }
+}
+
+pub fn reactor_on_event_for_extension(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    extension_id: &str,
+    event: &wit_types::Event,
+    depth: u32,
+) -> Result<Vec<WasmReaction>, wit_types::Error> {
+    match extension_id {
+        "ext_pull_requests" => reactor_on_event_ext_pull_requests(registry, store, event, depth),
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn reactor_subscriptions_ext_pull_requests(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+) -> Result<Vec<String>, wit_types::Error> {
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (host_state, ext) = build_host_state(
+        registry,
+        "ext_pull_requests",
+        "comtrya://extension/ext_pull_requests",
+        store,
+        dispatcher,
+        0,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_pull_requests reactor: {e}"),
+            )
+        })?;
+    let ext_pull_requests = ExtPullRequests::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-pull-requests world: {e}"),
+        )
+    })?;
+    let reactor = ext_pull_requests.comtrya_platform_reactor();
+    let subscriptions = reactor
+        .call_subscribed_event_types(&mut wasm_store)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("subscribed-event-types call: {e}"),
+            )
+        })?;
+    subscriptions.map_err(pulls_error_to_canonical)
+}
+
+fn reactor_on_event_ext_pull_requests(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    event: &wit_types::Event,
+    depth: u32,
+) -> Result<Vec<WasmReaction>, wit_types::Error> {
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (mut host_state, ext) = build_host_state(
+        registry,
+        "ext_pull_requests",
+        "comtrya://extension/ext_pull_requests",
+        store,
+        dispatcher,
+        0,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = depth;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_pull_requests reactor: {e}"),
+            )
+        })?;
+    let ext_pull_requests = ExtPullRequests::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-pull-requests world: {e}"),
+        )
+    })?;
+    let reactor = ext_pull_requests.comtrya_platform_reactor();
+    let reactions = reactor
+        .call_on_event(&mut wasm_store, &pull_event_to_local(event))
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("on-event call: {e}"),
+            )
+        })?;
+    reactions
+        .map_err(pulls_error_to_canonical)
+        .map(pull_reactions_to_canonical)
 }
 
 pub fn dispatch_ext_issues(
@@ -1165,6 +1284,38 @@ fn check_state_from_json(state: &str) -> Result<CheckState, wit_types::Error> {
             format!("unknown check state '{other}'"),
         )),
     }
+}
+
+fn pull_event_to_local(
+    event: &wit_types::Event,
+) -> ext_pull_requests_bindings::comtrya::platform::types::Event {
+    ext_pull_requests_bindings::comtrya::platform::types::Event {
+        id: event.id.clone(),
+        event_type: event.event_type.clone(),
+        payload: event.payload.clone(),
+        timestamp_ms: event.timestamp_ms,
+        source_uri: event.source_uri.clone(),
+        emitter_extension: event.emitter_extension.clone(),
+    }
+}
+
+fn pull_reactions_to_canonical(
+    reactions: Vec<ext_pull_requests_bindings::exports::comtrya::platform::reactor::Reaction>,
+) -> Vec<WasmReaction> {
+    use ext_pull_requests_bindings::exports::comtrya::platform::reactor::Reaction as PullReaction;
+    reactions
+        .into_iter()
+        .map(|reaction| match reaction {
+            PullReaction::InvokeMutation(call) => WasmReaction::InvokeMutation {
+                name: call.name,
+                payload: call.payload,
+            },
+            PullReaction::EmitEvent(call) => WasmReaction::EmitEvent {
+                event_type: call.event_type,
+                payload: call.payload,
+            },
+        })
+        .collect()
 }
 
 fn local_error_to_canonical(
