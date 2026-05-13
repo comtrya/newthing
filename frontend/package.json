@@ -4,16 +4,22 @@
   "private": true,
   "scripts": {
     "dev": "astro dev --host 127.0.0.1",
+    "dev:v3": "vite --config shell-v3/vite.config.ts --host 127.0.0.1",
     "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
     "build": "astro build",
+    "build:v3": "vite build --config shell-v3/vite.config.ts",
+    "preview:v3": "vite preview --config shell-v3/vite.config.ts",
     "preview": "astro preview",
     "test": "bun test src/extension-host-sdk src/shell"
   },
   "dependencies": {
     "@astrojs/node": "latest",
+    "@vitejs/plugin-vue": "latest",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
-    "astro": "latest"
+    "astro": "latest",
+    "vite": "latest",
+    "vue": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",

@@ -109,7 +109,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update deletion inventory — *refreshed `docs/v3-deletion-inventory.md` after M6: current `main.rs` is 9669 lines / 329 functions, residual dispatch/snapshot/resolver/storage/code-browser anchors are updated, all legacy reactor rows are struck through, the removed bridge is recorded, and the event-stream note now states that `graphql_stream` still reads the legacy kernel event log.*
 
 ## M7 — Vue 3 shell scaffolding
-- [ ] Create `frontend/shell-v3/` — Vite + Vue 3 project
+- [x] Create `frontend/shell-v3/` — Vite + Vue 3 project — *added the Vite/Vue entrypoint, shell-local tsconfig and styles, package scripts/deps, and lockfile updates; `bun run build:v3`, `bun run build`, and `git diff --check` pass, with generated `shell-v3/dist` ignored.*
 - [ ] Wire workspace deps: `@comtrya/sdk-core`, `@comtrya/sdk-vue`, `@comtrya/sdk-preact`
 - [ ] Implement vue-router with routes: `/`, `/r/:groups+/:repo`, `/x/:prefix/:rest*`
 - [ ] Implement workspace home layout consuming `slotsFor("workspace.home.*")`
