@@ -34,7 +34,7 @@ Rules of engagement:
 - [x] Survey every `component.wat` stub under `extensions/first-party/*`
 - [x] Survey dead seed logic in `ExtensionRuntimeStore` (`ensure_schema`, `seed_from_demo_payload`, the hardcoded collection declarations)
 - [x] Write `docs/v3-deletion-inventory.md` listing every artifact + the milestone it dies in
-- [ ] Lock `extensions/wit/comtrya/platform/` at `@0.1.0` — no edits without an explicit revision bump
+- [x] Lock `extensions/wit/comtrya/platform/` at `@0.1.0` — no edits without an explicit revision bump
 - [ ] Confirm all five pre-flight decisions are settled before starting M1
 
 ## M1 — Real WASM for `ext_issues` (canary)

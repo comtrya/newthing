@@ -1,5 +1,15 @@
 // comtrya:platform — the WIT contract every extension implements.
 //
+// ─── LOCKED @ 0.1.0 ──────────────────────────────────────────────────
+// This package is frozen for the duration of the v3 cutover (see
+// GOAL.md). Do not edit any `.wit` file in this directory without:
+//   1. bumping the package version (`@0.1.0` → `@0.2.0`),
+//   2. updating every extension manifest's `platformWitVersion`,
+//   3. updating `docs/wit-platform-design.md` with the diff rationale.
+// Drive-by edits during the cutover break the codegen contract every
+// extension depends on. Open an explicit revision instead.
+// ────────────────────────────────────────────────────────────────────
+//
 // An extension is a Component Model component that:
 //   * imports the kernel-provided interfaces declared in this package
 //     (storage, relations, comments, events, identity, time, ids, ops,
