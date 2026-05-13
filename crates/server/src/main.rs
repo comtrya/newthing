@@ -2324,30 +2324,6 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     if matches_op(query, "comments.delete") {
         return comments_delete_mutation(state, headers, payload);
     }
-    if matches_op(query, "issues.create") {
-        return issues_create_mutation(state, headers, payload);
-    }
-    if matches_op(query, "issues.close") {
-        return issues_close_mutation(state, headers, payload);
-    }
-    if matches_op(query, "issues.reopen") {
-        return issues_reopen_mutation(state, headers, payload);
-    }
-    if matches_op(query, "issues.list") {
-        return issues_list_query(state, headers, payload);
-    }
-    if matches_op(query, "issues.byRefs") {
-        return issues_by_refs_query(state, headers, payload);
-    }
-    if matches_op(query, "issues.byRef") {
-        return issues_by_ref_query(state, headers, payload);
-    }
-    if matches_op(query, "issues.byNumber") {
-        return issues_by_number_query(state, headers, payload);
-    }
-    if matches_op(query, "issues.stateCountsForRefs") {
-        return issues_state_counts_query(state, headers, payload);
-    }
     if matches_op(query, "epics.create") {
         return epics_create_mutation(state, headers, payload);
     }
