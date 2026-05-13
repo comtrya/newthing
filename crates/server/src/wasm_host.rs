@@ -427,6 +427,31 @@ impl wit_ids::Host for HostState {
                 ),
             ));
         }
+        // Bound the per-extension pending-mint set so an extension
+        // cannot mint-spam the kernel to OOM. 10_000 outstanding
+        // mints per extension is generous (every issue/PR/comment
+        // mint is consumed by the next storage.create, so steady
+        // state is near-zero) and prevents the worst case where a
+        // malicious or buggy extension loops `ids.mint`. M5+
+        // revisits with a configurable cap once the manifest carries
+        // mint budgets.
+        const MAX_PENDING_MINTS_PER_EXTENSION: usize = 10_000;
+        if let Ok(all) = self.minted_ids.read() {
+            if let Some(set) = all.get(&self.extension_id) {
+                if set.len() >= MAX_PENDING_MINTS_PER_EXTENSION {
+                    return Err(err(
+                        wit_types::ErrorCode::Unavailable,
+                        format!(
+                            "extension {} has {} pending mints (cap {}); \
+                             call storage.create on existing ids before minting more",
+                            self.extension_id,
+                            set.len(),
+                            MAX_PENDING_MINTS_PER_EXTENSION
+                        ),
+                    ));
+                }
+            }
+        }
         let id = match self.id_minter.mint(&kind_name) {
             Ok(id) => id,
             Err(MintError::UnknownKind(k)) => {
@@ -445,8 +470,8 @@ impl wit_ids::Host for HostState {
         // Record the mint so storage.create can verify the id came
         // from us. The set is per-extension and never trimmed
         // automatically — every successful storage.create removes the
-        // id from the set; abandoned mints accumulate. TODO(M5+):
-        // bound or persist this set.
+        // id from the set; abandoned mints accumulate up to the cap
+        // checked above.
         if let Ok(mut all) = self.minted_ids.write() {
             all.entry(self.extension_id.clone())
                 .or_default()
