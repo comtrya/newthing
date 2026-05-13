@@ -1000,7 +1000,7 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn base64_decode(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
     if bytes.len() % 4 != 0 {
         return None;
@@ -1841,6 +1841,7 @@ mod m1_ext_issues_smoke {
         let manifest = Arc::new(HostManifest {
             permissions: vec!["ext_issues.write".into()],
             allowed_emits: vec![
+                "dev.comtrya.issue.created".into(),
                 "dev.comtrya.issues.opened".into(),
                 "dev.comtrya.issues.closed".into(),
                 "dev.comtrya.issues.reopened".into(),
@@ -1925,7 +1926,7 @@ mod m1_ext_issues_smoke {
         // ---- open an issue ----
         let issues = ExtIssues::new(&mut store, &instance).expect("bind ExtIssues world");
         let open_input = OpenIssueInput {
-            repository: "comtrya://repository/repo_test".into(),
+            repository: "comtrya://workspace/ws_test/repository/repo_test".into(),
             title: "M1 smoke".into(),
             body_markdown: "test body".into(),
         };

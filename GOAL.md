@@ -75,7 +75,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] All 128 existing `start.sh` smoke checks still pass
 
 ## M4 — `ext_issues` legacy handlers deleted
-- [ ] Audit business logic in existing `issues.*` handlers in `main.rs`; copy any rule not yet in WASM into the component (revalidation, derived fields, event side effects)
+- [x] Audit business logic in existing `issues.*` handlers in `main.rs`; copy any rule not yet in WASM into the component (revalidation, derived fields, event side effects) — *`open-issue` now enforces legacy title/body/workspace validation for direct WIT callers, trims stored titles, rejects workspace-less issue creation, and emits the legacy `dev.comtrya.issue.created` event with `issueID` payload compatibility alongside the WASM event.*
 - [x] Persist `close-issue` `reason` field — stored as `stateReason` by the component and asserted through the M3 GraphQL/WASM close test
 - [ ] Add WIT/GraphQL replacements for legacy-only issue lookup/count fields: `issues.byRef`, `issues.byRefs`, `issues.byNumber`, and `issues.stateCountsForRefs`
 - [ ] Update the `ext_issues` UI to stop depending on legacy-only issue lookup fields, or back those fields with generated WASM routes before deletion

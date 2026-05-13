@@ -8582,7 +8582,7 @@ extensions: {
             "ext_issues",
             "issues.open-issue",
             &serde_json::to_vec(&json!({
-                "repository": "comtrya://repository/repo_runtime_loaded_registry",
+                "repository": "comtrya://workspace/ws_runtime_loaded_registry/repository/repo_runtime_loaded_registry",
                 "title": "runtime-loaded registry smoke",
                 "bodyMarkdown": "opened through Runtime::start registry",
             }))
@@ -8621,7 +8621,199 @@ extensions: {
             .expect("issue persisted by runtime-loaded registry");
         assert_eq!(issue.data.get("state").and_then(Value::as_str), Some("CLOSED"));
         let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
+        assert!(event_log.contains("dev.comtrya.issues.opened"));
+        assert!(event_log.contains("dev.comtrya.issue.created"));
         assert!(event_log.contains("dev.comtrya.issues.closed"));
+    }
+
+    #[test]
+    fn runtime_loaded_registry_enforces_ext_issues_legacy_create_validation() {
+        let runtime = Runtime::start(StartupOptions {
+            config_path: None,
+            data_dir: temp_dir("runtime-loaded-registry-issue-validation"),
+            extension_dir: test_extension_dir(),
+            listen: "127.0.0.1:0".parse().unwrap(),
+            check: false,
+            tls_terminated: false,
+            operator_code: Some("testbed-operator-code".to_string()),
+            session_ttl_seconds: 300,
+            external_demo: false,
+        })
+        .unwrap();
+        let dispatcher = crate::wasm_registry::RegistryDispatcher {
+            registry: runtime.wasm_registry.clone(),
+            store: Arc::new(runtime.extension_storage.clone()),
+        };
+        let principal = "comtrya://user/usr_runtime_validation_test";
+
+        let opened_bytes = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "  comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation  ",
+                "title": "  trimmed title  ",
+                "bodyMarkdown": "body",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect("valid open issue should pass");
+        let opened: Value = serde_json::from_slice(&opened_bytes).unwrap();
+        assert_eq!(
+            opened.get("repository").and_then(Value::as_str),
+            Some("comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation")
+        );
+        assert_eq!(
+            opened.get("title").and_then(Value::as_str),
+            Some("trimmed title")
+        );
+        let event_log = fs::read_to_string(runtime.extension_storage.events_path()).unwrap();
+        assert!(event_log.contains("dev.comtrya.issue.created"));
+        let created_event_payload = event_log
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|event| {
+                event
+                    .pointer("/data/eventType")
+                    .and_then(Value::as_str)
+                    == Some("dev.comtrya.issue.created")
+            })
+            .and_then(|event| {
+                event
+                    .pointer("/data/payloadB64")
+                    .and_then(Value::as_str)
+                    .and_then(crate::wasm_host::base64_decode)
+            })
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .expect("legacy issue-created payload is decoded JSON");
+        assert_eq!(created_event_payload["issueID"], opened["id"]);
+        assert_eq!(created_event_payload["workspaceId"], "ws_runtime_validation");
+        assert_eq!(created_event_payload["number"], 1);
+        assert_eq!(created_event_payload["title"], "trimmed title");
+
+        let blank_repository = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "  ",
+                "title": "valid",
+                "bodyMarkdown": "",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("blank repository should fail");
+        assert!(matches!(
+            blank_repository.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(blank_repository.message.contains("requires a repository"));
+
+        let empty_workspace_segment = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://workspace//repository/repo_runtime_validation",
+                "title": "valid",
+                "bodyMarkdown": "",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("empty workspace segment should fail");
+        assert!(matches!(
+            empty_workspace_segment.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(empty_workspace_segment
+            .message
+            .contains("requires a workspace"));
+
+        let missing_workspace = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://repository/repo_runtime_validation",
+                "title": "valid",
+                "bodyMarkdown": "",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("repository-only issue should fail");
+        assert!(matches!(
+            missing_workspace.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(missing_workspace.message.contains("requires a workspace"));
+
+        let blank_title = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
+                "title": "  ",
+                "bodyMarkdown": "",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("blank title should fail");
+        assert!(matches!(
+            blank_title.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(blank_title.message.contains("title must not be empty"));
+
+        let long_title = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
+                "title": "x".repeat(513),
+                "bodyMarkdown": "",
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("long title should fail");
+        assert!(matches!(
+            long_title.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(long_title.message.contains("at most 512 bytes"));
+
+        let long_body = crate::wasm_host::OpsDispatcher::dispatch(
+            &dispatcher,
+            "ext_issues",
+            "issues.open-issue",
+            &serde_json::to_vec(&json!({
+                "repository": "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
+                "title": "valid",
+                "bodyMarkdown": "x".repeat(64 * 1024 + 1),
+            }))
+            .unwrap(),
+            principal,
+            0,
+        )
+        .expect_err("long body should fail");
+        assert!(matches!(
+            long_body.code,
+            crate::wasm_host::wit_types::ErrorCode::BadInput
+        ));
+        assert!(long_body.message.contains("at most 65536 bytes"));
     }
 
     #[test]

@@ -44,6 +44,7 @@
     "log"
   ],
   "allowedEmits": [
+    "dev.comtrya.issue.created",
     "dev.comtrya.issues.opened",
     "dev.comtrya.issues.closed",
     "dev.comtrya.issues.reopened"

@@ -29,6 +29,8 @@ use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, React
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "issues";
+const MAX_TITLE_LEN: usize = 512;
+const MAX_BODY_LEN: usize = 64 * 1024;
 
 struct Component;
 
@@ -245,6 +247,39 @@ fn persist_new(stored: &StoredIssue) -> Result<(), Error> {
     )
 }
 
+fn validated_open_issue(input: &OpenIssueInput) -> Result<(String, String), Error> {
+    let repository = input.repository.trim();
+    if repository.is_empty() {
+        return Err(err(ErrorCode::BadInput, "issue requires a repository"));
+    }
+    let scope = issue_scope(repository);
+    if scope
+        .workspace_id
+        .as_deref()
+        .map(str::is_empty)
+        .unwrap_or(true)
+    {
+        return Err(err(ErrorCode::BadInput, "issue requires a workspace"));
+    }
+    let title = input.title.trim();
+    if title.is_empty() {
+        return Err(err(ErrorCode::BadInput, "issue title must not be empty"));
+    }
+    if title.len() > MAX_TITLE_LEN {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("issue title must be at most {MAX_TITLE_LEN} bytes"),
+        ));
+    }
+    if input.body_markdown.len() > MAX_BODY_LEN {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("issue body must be at most {MAX_BODY_LEN} bytes"),
+        ));
+    }
+    Ok((repository.to_string(), title.to_string()))
+}
+
 fn read_stored(id: &str) -> Result<Option<StoredIssue>, Error> {
     let Some(snap) = storage::get(COLLECTION, id)? else {
         return Ok(None);
@@ -261,24 +296,51 @@ fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyIssueCreatedPayload<'a> {
+    #[serde(rename = "issueID")]
+    issue_id: &'a str,
+    workspace_id: &'a str,
+    number: u64,
+    title: &'a str,
+}
+
+fn emit_legacy_issue_created(stored: &StoredIssue) -> Result<(), Error> {
+    let Some(workspace_id) = stored.workspace_id.as_deref() else {
+        return Err(err(
+            ErrorCode::Internal,
+            "opened issue is missing workspaceId",
+        ));
+    };
+    emit(
+        "dev.comtrya.issue.created",
+        &LegacyIssueCreatedPayload {
+            issue_id: &stored.id,
+            workspace_id,
+            number: stored.number,
+            title: &stored.title,
+        },
+        &issue_uri(&stored.id),
+    )
+}
+
 // ---- issues exports ----
 
 impl IssuesGuest for Component {
     fn open_issue(input: OpenIssueInput) -> Result<Issue, Error> {
-        if input.title.trim().is_empty() {
-            return Err(err(ErrorCode::BadInput, "title is required"));
-        }
+        let (repository, title) = validated_open_issue(&input)?;
         let id = ids::mint("issue")?;
         let now = time::now_iso();
         let author = identity::current_principal()?;
-        let scope = issue_scope(&input.repository);
-        let number = next_issue_number(&issue_counter_key(&input.repository, &scope))?;
+        let scope = issue_scope(&repository);
+        let number = next_issue_number(&issue_counter_key(&repository, &scope))?;
         let stored = StoredIssue {
             id: id.clone(),
-            repository: input.repository.clone(),
+            repository,
             workspace_id: scope.workspace_id,
             repository_id: scope.repository_id,
-            title: input.title.clone(),
+            title,
             body_markdown: input.body_markdown,
             state: state_to_str(IssueState::Open).to_string(),
             number,
@@ -296,6 +358,7 @@ impl IssuesGuest for Component {
             &issue_event_payload(&issue),
             &issue_uri(&id),
         )?;
+        emit_legacy_issue_created(&stored)?;
         Ok(issue)
     }
 

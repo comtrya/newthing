@@ -17,12 +17,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
-use wasmtime::Engine;
 use wasmtime::component::{Component, Linker};
+use wasmtime::Engine;
 
 use crate::wasm_host::{
-    AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, IdMinter, LogSink, OpsDispatcher,
-    StderrLogSink, SystemClock, UlidMinter, host_state_for_op, make_platform_linker, wit_types,
+    host_state_for_op, make_platform_linker, wit_types, AuthzLayer, Clock, DefaultAuthz,
+    HostManifest, HostState, IdMinter, LogSink, OpsDispatcher, StderrLogSink, SystemClock,
+    UlidMinter,
 };
 
 /// One loaded extension. The `Component` is compiled once at kernel
@@ -327,11 +328,10 @@ mod tests {
         assert_eq!(id, "ext_issues");
         let ext = registry.get("ext_issues").expect("get ext_issues");
         assert_eq!(ext.principal, "comtrya://extension/ext_issues");
-        assert!(
-            ext.manifest
-                .contributes_resource_kinds
-                .contains(&"issue".to_string())
-        );
+        assert!(ext
+            .manifest
+            .contributes_resource_kinds
+            .contains(&"issue".to_string()));
         // Should have parsed allowedEmits from the manifest.
         assert!(
             ext.manifest
@@ -444,7 +444,7 @@ mod tests {
                 "ext_issues",
                 "issues.open-issue",
                 &serde_json::to_vec(&serde_json::json!({
-                    "repository": "comtrya://repository/repo_dispatcher",
+                    "repository": "comtrya://workspace/ws_dispatcher/repository/repo_dispatcher",
                     "title": "dispatcher smoke",
                     "bodyMarkdown": "opened through ops.invoke",
                 }))
@@ -685,7 +685,7 @@ mod tests {
             "ext_issues".to_string(),
             "issues.open-issue".to_string(),
             serde_json::to_vec(&serde_json::json!({
-                "repository": "comtrya://repository/repo_host_invoke",
+                    "repository": "comtrya://workspace/ws_host_invoke/repository/repo_host_invoke",
                 "title": "host invoke smoke",
                 "bodyMarkdown": "opened through real ops.invoke",
             }))
