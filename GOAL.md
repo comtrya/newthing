@@ -81,7 +81,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update the `ext_issues` UI to stop depending on legacy-only issue lookup fields, or back those fields with generated WASM routes before deletion — *no UI code change needed: `assets/index.js` still uses the stable GraphQL surface, and `issues.list`, `issues.byRef`, `issues.byNumber`, `issues.create`, `issues.close`, and `issues.reopen` are all backed by generated WASM routes before the legacy handler deletion.*
 - [x] Re-verify smoke for issue flows under WASM-only routing — *`./start.sh --reset --oneshot` passed; issue create/list/byNumber/close/reopen/byRefs/stateCounts/link flows passed, and the browser close smoke asserted an `ext_issues` `dev.comtrya.issues.closed` event plus CLOSED storage state.*
 - [x] Delete every `matches_op` arm for `issues.*` in `main.rs` — *the legacy fallback no longer claims issue GraphQL roots; generated dispatch is the only issue GraphQL entry point before the remaining dead helper deletion.*
-- [ ] Delete helper functions exclusive to issues handlers
+- [x] Delete helper functions exclusive to issues handlers — *removed the dead issue GraphQL handler block plus runtime helpers only used by that fallback; retained issue helpers still shared by epic progress and the temporary reactor bridge.*
 - [ ] `rg "issues\.close|issues\.open|issues\.reopen" crates/server/src/main.rs` returns zero hits in handler code
 - [ ] Update `docs/v3-deletion-inventory.md` — mark items removed
 

@@ -1088,99 +1088,7 @@ impl Runtime {
         }))
     }
 
-    // ── Issues (ext_issues-owned) ──────────────────────────────────────
-    fn next_issue_number(&self, workspace_id: &str) -> Result<u64, String> {
-        let issues = self.extension_storage.collection_data("issues")?;
-        let max = issues
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|i| i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id))
-                    .filter_map(|i| i.get("number").and_then(Value::as_u64))
-                    .max()
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0);
-        Ok(max + 1)
-    }
-
-    fn create_issue(
-        &self,
-        workspace_id: &str,
-        repository_id: Option<&str>,
-        title: &str,
-        body_markdown: &str,
-        author_ref: &str,
-        labels: &[String],
-        epic_ref: Option<&str>,
-    ) -> Result<Value, String> {
-        const MAX_TITLE_LEN: usize = 512;
-        const MAX_BODY_LEN: usize = 64 * 1024;
-        let title = title.trim();
-        if title.is_empty() {
-            return Err("issue title must not be empty".to_string());
-        }
-        if title.len() > MAX_TITLE_LEN {
-            return Err(format!("issue title must be at most {MAX_TITLE_LEN} bytes"));
-        }
-        if body_markdown.len() > MAX_BODY_LEN {
-            return Err(format!("issue body must be at most {MAX_BODY_LEN} bytes"));
-        }
-        if workspace_id.is_empty() {
-            return Err("issue requires a workspaceId".to_string());
-        }
-        let issue_id = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
-        let number = self.next_issue_number(workspace_id)?;
-        let now_iso = chrono_now_iso();
-        let issue_ref = format!("comtrya://issue/{}", issue_id.as_str());
-        let data = json!({
-            "id": issue_id.as_str(),
-            "workspaceId": workspace_id,
-            "repositoryId": repository_id,
-            "number": number,
-            "title": title,
-            "bodyMarkdown": body_markdown,
-            "state": "OPEN",
-            "stateReason": Value::Null,
-            "authorRef": author_ref,
-            "assigneeRefs": Vec::<String>::new(),
-            "labels": labels,
-            "createdAt": now_iso,
-            "updatedAt": now_iso,
-            "closedAt": Value::Null,
-            "closedByRef": Value::Null,
-        });
-        let workspace_uri = format!("comtrya://workspace/{}", workspace_id);
-        let mut refs = vec![issue_ref.clone(), workspace_uri];
-        if let Some(repo_id) = repository_id {
-            refs.push(format!("comtrya://repository/{}", repo_id));
-        }
-        let record = extension_document_record(
-            "ext_issues",
-            "issues",
-            issue_id.as_str(),
-            &issue_ref,
-            refs,
-            data.clone(),
-            &now_iso,
-        );
-        self.extension_storage.create_document(record)?;
-        // Atomic create-with-link: optional `part-of` relation to an epic.
-        if let Some(epic_uri) = epic_ref {
-            self.create_relation(&issue_ref, epic_uri, "comtrya://rel/part-of", None)?;
-        }
-        let _ = self.append_event(
-            "dev.comtrya.issue.created",
-            json!({
-                "issueID": issue_id.as_str(),
-                "workspaceId": workspace_id,
-                "number": number,
-                "title": title,
-            }),
-        );
-        Ok(data)
-    }
-
+    // ── Issues (legacy reactor / epics bridge; ext_issues owns new writes) ──
     fn close_issue(
         &self,
         id: &str,
@@ -1230,26 +1138,6 @@ impl Runtime {
         Ok(updated)
     }
 
-    fn reopen_issue(&self, id: &str) -> Result<Value, String> {
-        let now_iso = chrono_now_iso();
-        let now_for_closure = now_iso.clone();
-        self.extension_storage
-            .update_document_atomically("issues", id, move |data| {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("state".to_string(), Value::String("OPEN".to_string()));
-                    obj.insert("stateReason".to_string(), Value::Null);
-                    obj.insert("closedAt".to_string(), Value::Null);
-                    obj.insert("closedByRef".to_string(), Value::Null);
-                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
-                }
-            })?;
-        let updated = self
-            .issue_by_id(id)?
-            .ok_or_else(|| format!("issue {id:?} not found after reopen"))?;
-        let _ = self.append_event("dev.comtrya.issue.reopened", json!({ "issueID": id }));
-        Ok(updated)
-    }
-
     fn issue_by_id(&self, id: &str) -> Result<Option<Value>, String> {
         let issues = self.extension_storage.collection_data("issues")?;
         Ok(issues.as_array().and_then(|arr| {
@@ -1257,48 +1145,6 @@ impl Runtime {
                 .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
                 .cloned()
         }))
-    }
-
-    fn issues_list(
-        &self,
-        workspace_id: Option<&str>,
-        repository_id: Option<&str>,
-        state: Option<&str>,
-    ) -> Result<Vec<Value>, String> {
-        let issues = self.extension_storage.collection_data("issues")?;
-        let mut out: Vec<Value> = issues
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter(|i| {
-                        if let Some(ws) = workspace_id {
-                            if i.get("workspaceId").and_then(Value::as_str) != Some(ws) {
-                                return false;
-                            }
-                        }
-                        if let Some(repo) = repository_id {
-                            if i.get("repositoryId").and_then(Value::as_str) != Some(repo) {
-                                return false;
-                            }
-                        }
-                        if let Some(st) = state {
-                            if i.get("state").and_then(Value::as_str) != Some(st) {
-                                return false;
-                            }
-                        }
-                        true
-                    })
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
-        out.sort_by(|a, b| {
-            b.get("number")
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-                .cmp(&a.get("number").and_then(Value::as_u64).unwrap_or(0))
-        });
-        Ok(out)
     }
 
     fn issues_by_refs(&self, refs: &[String]) -> Result<Vec<Value>, String> {
@@ -1341,18 +1187,6 @@ impl Runtime {
             }
         }
         Ok(json!({ "open": open, "closed": closed }))
-    }
-
-    fn issue_by_number(&self, workspace_id: &str, number: u64) -> Result<Option<Value>, String> {
-        let issues = self.extension_storage.collection_data("issues")?;
-        Ok(issues.as_array().and_then(|arr| {
-            arr.iter()
-                .find(|i| {
-                    i.get("workspaceId").and_then(Value::as_str) == Some(workspace_id)
-                        && i.get("number").and_then(Value::as_u64) == Some(number)
-                })
-                .cloned()
-        }))
     }
 
     // ── Comments (core-owned, nested-threaded) ─────────────────────────
@@ -2933,323 +2767,6 @@ fn epics_children_of_query(state: AppState, headers: HeaderMap, payload: Value) 
         Err(message) => graphql_error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-// ── issues GraphQL dispatch ────────────────────────────────────────────────
-fn issues_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    issues_create_response(state, payload, cors)
-}
-
-fn issues_create_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let workspace_id = payload
-        .pointer("/variables/input/workspaceId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let title = payload
-        .pointer("/variables/input/title")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let body = payload
-        .pointer("/variables/input/bodyMarkdown")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let repository_id = payload
-        .pointer("/variables/input/repositoryId")
-        .and_then(Value::as_str);
-    let author_ref = payload
-        .pointer("/variables/input/authorRef")
-        .and_then(Value::as_str)
-        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
-    let labels: Vec<String> = payload
-        .pointer("/variables/input/labels")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    let epic_ref = payload
-        .pointer("/variables/input/epicRef")
-        .and_then(Value::as_str);
-
-    if workspace_id.is_empty() || title.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.create requires variables.input.{workspaceId, title}",
-            cors,
-        );
-    }
-    match state.runtime.create_issue(
-        workspace_id,
-        repository_id,
-        title,
-        body,
-        author_ref,
-        &labels,
-        epic_ref,
-    ) {
-        Ok(issue) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "create": issue } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn issues_close_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    issues_close_response(state, payload, cors)
-}
-
-fn issues_close_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let id = payload
-        .pointer("/variables/input/id")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if id.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.close requires variables.input.id",
-            cors,
-        );
-    }
-    let reason = payload
-        .pointer("/variables/input/reason")
-        .and_then(Value::as_str);
-    let closed_by = payload
-        .pointer("/variables/input/closedByRef")
-        .and_then(Value::as_str);
-    match state.runtime.close_issue(id, reason, closed_by) {
-        Ok(issue) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "close": issue } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(StatusCode::NOT_FOUND, "NOT_FOUND", &message, cors),
-    }
-}
-
-fn issues_reopen_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    issues_reopen_response(state, payload, cors)
-}
-
-fn issues_reopen_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let id = payload
-        .pointer("/variables/input/id")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if id.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.reopen requires variables.input.id",
-            cors,
-        );
-    }
-    match state.runtime.reopen_issue(id) {
-        Ok(issue) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "reopen": issue } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(StatusCode::NOT_FOUND, "NOT_FOUND", &message, cors),
-    }
-}
-
-fn issues_list_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    issues_list_response(state, payload, cors)
-}
-
-fn issues_list_response(state: AppState, payload: Value, cors: HeaderMap) -> Response {
-    let ws = payload
-        .pointer("/variables/workspaceId")
-        .and_then(Value::as_str);
-    let repo = payload
-        .pointer("/variables/repositoryId")
-        .and_then(Value::as_str);
-    let state_filter = payload.pointer("/variables/state").and_then(Value::as_str);
-    match state.runtime.issues_list(ws, repo, state_filter) {
-        Ok(issues) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "list": issues } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn issues_by_ref_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ref_uri = payload
-        .pointer("/variables/ref")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if ref_uri.is_empty() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.byRef requires variables.ref",
-            cors,
-        );
-    }
-    let parsed = match ResourceRef::parse(ref_uri) {
-        Ok(p) => p,
-        Err(e) => {
-            return graphql_error_response(
-                StatusCode::BAD_REQUEST,
-                ErrorCode::BadUserInput.as_str(),
-                &e.message,
-                cors,
-            );
-        }
-    };
-    let Some(id) = parsed.id.as_ref().map(|i| i.as_str().to_string()) else {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.byRef requires an id in the URI",
-            cors,
-        );
-    };
-    match state.runtime.issue_by_id(&id) {
-        Ok(found) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "byRef": found } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn issues_by_refs_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let refs: Vec<String> = payload
-        .pointer("/variables/refs")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    match state.runtime.issues_by_refs(&refs) {
-        Ok(issues) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "byRefs": issues } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn issues_by_number_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let ws = payload
-        .pointer("/variables/workspaceId")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let number = payload.pointer("/variables/number").and_then(Value::as_u64);
-    if ws.is_empty() || number.is_none() {
-        return graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
-            "issues.byNumber requires variables.workspaceId and .number",
-            cors,
-        );
-    }
-    match state.runtime.issue_by_number(ws, number.unwrap()) {
-        Ok(found) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "byNumber": found } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
-            &message,
-            cors,
-        ),
-    }
-}
-
-fn issues_state_counts_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    let refs: Vec<String> = payload
-        .pointer("/variables/refs")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(|s| s.to_string())
-                .collect()
-        })
-        .unwrap_or_default();
-    match state.runtime.issue_state_counts_for_refs(&refs) {
-        Ok(counts) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "issues": { "stateCountsForRefs": counts } } }),
-            cors,
-        ),
-        Err(message) => graphql_error_response(
-            StatusCode::BAD_REQUEST,
-            ErrorCode::BadUserInput.as_str(),
             &message,
             cors,
         ),
@@ -7540,6 +7057,55 @@ mod tests {
         headers
     }
 
+    fn create_legacy_issue_record(
+        runtime: &Arc<Runtime>,
+        workspace_id: &str,
+        repository_id: Option<&str>,
+        title: &str,
+        body_markdown: &str,
+        author_ref: &str,
+        labels: &[String],
+    ) -> Value {
+        let issue_id = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let now_iso = chrono_now_iso();
+        let issue_ref = format!("comtrya://issue/{}", issue_id.as_str());
+        let data = json!({
+            "id": issue_id.as_str(),
+            "workspaceId": workspace_id,
+            "repositoryId": repository_id,
+            "number": 1,
+            "title": title,
+            "bodyMarkdown": body_markdown,
+            "state": "OPEN",
+            "stateReason": Value::Null,
+            "authorRef": author_ref,
+            "assigneeRefs": Vec::<String>::new(),
+            "labels": labels,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "closedAt": Value::Null,
+            "closedByRef": Value::Null,
+        });
+        let workspace_uri = format!("comtrya://workspace/{workspace_id}");
+        let mut refs = vec![issue_ref.clone(), workspace_uri];
+        if let Some(repo_id) = repository_id {
+            refs.push(format!("comtrya://repository/{repo_id}"));
+        }
+        runtime
+            .extension_storage
+            .create_document(extension_document_record(
+                "ext_issues",
+                "issues",
+                issue_id.as_str(),
+                &issue_ref,
+                refs,
+                data.clone(),
+                &now_iso,
+            ))
+            .unwrap();
+        data
+    }
+
     #[tokio::test]
     async fn readyz_reports_runtime_checks() {
         let state = AppState {
@@ -9183,12 +8749,6 @@ extensions: {
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(create_second_status, StatusCode::OK, "{payload}");
         assert_eq!(payload["data"]["issues"]["create"]["number"], 2);
-        let by_number = runtime
-            .issue_by_number("ws_wasm_graphql", 1)
-            .unwrap()
-            .expect("legacy byNumber can read the WASM-created issue");
-        assert_eq!(by_number["id"], issue_id);
-        assert_eq!(by_number["labels"], json!(["wasm"]));
         let issue_ref = format!("comtrya://issue/{issue_id}");
 
         let by_ref_response = graphql_post(
@@ -9409,17 +8969,15 @@ extensions: {
             vec!["graphql:write".to_string(), "graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-        let legacy = runtime
-            .create_issue(
-                "ws_legacy_wasm",
-                Some("repo_legacy_wasm"),
-                "legacy issue before WASM cutover",
-                "legacy body",
-                "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-                &["legacy-label".to_string()],
-                None,
-            )
-            .unwrap();
+        let legacy = create_legacy_issue_record(
+            &runtime,
+            "ws_legacy_wasm",
+            Some("repo_legacy_wasm"),
+            "legacy issue before WASM cutover",
+            "legacy body",
+            "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            &["legacy-label".to_string()],
+        );
         let issue_id = legacy["id"].as_str().unwrap().to_string();
         assert!(legacy.get("repository").is_none());
         let app_state = AppState {
