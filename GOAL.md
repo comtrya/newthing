@@ -110,7 +110,7 @@ Settled in `docs/v3-decisions.md`. Summary:
 
 ## M7 — Vue 3 shell scaffolding
 - [x] Create `frontend/shell-v3/` — Vite + Vue 3 project — *added the Vite/Vue entrypoint, shell-local tsconfig and styles, package scripts/deps, and lockfile updates; `bun run build:v3`, `bun run build`, and `git diff --check` pass, with generated `shell-v3/dist` ignored.*
-- [ ] Wire workspace deps: `@comtrya/sdk-core`, `@comtrya/sdk-vue`, `@comtrya/sdk-preact`
+- [x] Wire workspace deps: `@comtrya/sdk-core`, `@comtrya/sdk-vue`, `@comtrya/sdk-preact` — *frontend is now a Bun workspace, shell-v3 imports all three SDK package entrypoints through local workspace symlinks, SDK/core export gaps exposed by bundling are fixed, and `bun install`, `bun run typecheck:v3`, `bun run build:v3`, root `bun run typecheck`, root `bun run build`, and `git diff --check` pass.*
 - [ ] Implement vue-router with routes: `/`, `/r/:groups+/:repo`, `/x/:prefix/:rest*`
 - [ ] Implement workspace home layout consuming `slotsFor("workspace.home.*")`
 - [ ] Implement repo home layout

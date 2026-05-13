@@ -12,18 +12,20 @@ export type OpResult<T> =
   | {
       ok: false;
       error: {
-        code:
-          | "not-found"
-          | "conflict"
-          | "forbidden"
-          | "unauthenticated"
-          | "bad-input"
-          | "internal"
-          | "unavailable";
+        code: OpErrorCode;
         message: string;
         path?: string;
       };
     };
+
+export type OpErrorCode =
+  | "not-found"
+  | "conflict"
+  | "forbidden"
+  | "unauthenticated"
+  | "bad-input"
+  | "internal"
+  | "unavailable";
 
 export interface InvokeOpOptions {
   /** Override the kernel base URL (defaults to same-origin). */
@@ -72,17 +74,13 @@ export async function invokeOp<T = unknown>(
         parsed = undefined;
       }
       const errCode = mapStatusToErrorCode(response.status);
+      const parsedMessage =
+        typeof parsed?.message === "string" ? parsed.message : undefined;
       return {
         ok: false,
         error: {
-          code: (parsed?.code as OpResult<unknown> extends { ok: false }
-            ? never
-            : never) ??
-            errCode,
-          message:
-            (parsed?.message as string | undefined) ??
-            text ||
-            response.statusText,
+          code: parseErrorCode(parsed?.code) ?? errCode,
+          message: parsedMessage ?? (text || response.statusText),
           path: parsed?.path as string | undefined,
         },
       };
@@ -99,21 +97,22 @@ export async function invokeOp<T = unknown>(
   }
 }
 
-function mapStatusToErrorCode(status: number): OpResult<unknown> extends {
-  ok: false;
+function parseErrorCode(value: unknown): OpErrorCode | undefined {
+  switch (value) {
+    case "not-found":
+    case "conflict":
+    case "forbidden":
+    case "unauthenticated":
+    case "bad-input":
+    case "internal":
+    case "unavailable":
+      return value;
+    default:
+      return undefined;
+  }
 }
-  ? never
-  : never;
-function mapStatusToErrorCode(
-  status: number,
-):
-  | "not-found"
-  | "conflict"
-  | "forbidden"
-  | "unauthenticated"
-  | "bad-input"
-  | "internal"
-  | "unavailable" {
+
+function mapStatusToErrorCode(status: number): OpErrorCode {
   switch (status) {
     case 400:
       return "bad-input";

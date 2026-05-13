@@ -12,7 +12,7 @@
 import {
   defineCustomElement,
   ref,
-  type Component,
+  type DefineComponent,
   type Ref,
 } from "vue";
 import {
@@ -70,7 +70,7 @@ export interface ExtensionWidgetOptions {
   /** Custom element tag name to register, e.g. `comtrya-issue-card`. */
   tagName: string;
   /** Vue component to mount inside the custom element. */
-  component: Component;
+  component: DefineComponent;
 }
 
 /**
