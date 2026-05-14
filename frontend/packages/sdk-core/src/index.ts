@@ -24,15 +24,46 @@ export {
   type SlotRegistry,
 } from "./slot-registry";
 export {
+  registerWidget,
+  unregisterWidget,
+  setUserLayout,
+  getUserLayout,
+  widgetsForSlot,
+  allWidgets,
+  subscribeWidgets,
+  type WidgetContribution,
+  type ResolvedWidget,
+  type UserLayout,
+  type UserLayoutEntry,
+} from "./widget-registry";
+export {
+  configureGraphQLClient,
+  getGraphQLClient,
+  type GraphQLClient,
+  type GraphQLClientOptions,
+} from "./graphql-client";
+export {
   registerCard,
   cardFor,
   type CardContribution,
 } from "./card-registry";
 export {
+  registerRelationshipType,
+  relationshipTypesForSourceKind,
+  registerRelationshipTargetProvider,
+  relationshipTargetProviderForKind,
+  subscribeRelationshipTypes,
+  type RelationshipTarget,
+  type RelationshipTargetContext,
+  type RelationshipTargetProvider,
+  type RelationshipTypeContribution,
+} from "./relationship-registry";
+export {
   registerRoute,
   unregisterRoute,
   routesForPrefix,
   routeFor,
+  buildExtensionUrl,
   subscribeRoutes,
   type RouteContribution,
   type RouteMatch,

@@ -19,8 +19,40 @@ export function registerRoute(contribution: RouteContribution): void {
   if (!contribution.path.startsWith("/")) {
     throw new Error(`route path must start with "/", got "${contribution.path}"`);
   }
+  if (!contribution.routePrefix || contribution.routePrefix.length === 0) {
+    throw new Error(
+      `route registration for extension "${contribution.extensionId}" must include a non-empty routePrefix; extensions own /x/<routePrefix>/ only`,
+    );
+  }
+  if (contribution.routePrefix.includes("/")) {
+    throw new Error(
+      `routePrefix "${contribution.routePrefix}" for extension "${contribution.extensionId}" must be a single path segment under /x/`,
+    );
+  }
   ROUTES.set(contribution.id, contribution);
   notify(contribution.routePrefix);
+}
+
+/**
+ * Build a URL for a registered extension route. Refuses to construct
+ * any path outside `/x/<routePrefix>/...` — extensions own that
+ * namespace and nothing else.
+ */
+export function buildExtensionUrl(
+  routePrefix: string,
+  subPath: string = "/",
+): string {
+  if (!routePrefix || routePrefix.length === 0) {
+    throw new Error("buildExtensionUrl requires a non-empty routePrefix");
+  }
+  if (routePrefix.includes("/")) {
+    throw new Error(
+      `routePrefix "${routePrefix}" must be a single path segment under /x/`,
+    );
+  }
+  const normalized = subPath.startsWith("/") ? subPath : `/${subPath}`;
+  const trimmed = normalized === "/" ? "" : normalized.replace(/\/+$/, "");
+  return `/x/${routePrefix}${trimmed}`;
 }
 
 export function unregisterRoute(id: string): void {

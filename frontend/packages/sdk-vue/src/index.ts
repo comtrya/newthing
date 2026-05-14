@@ -20,9 +20,17 @@ import {
   type InvokeOpOptions,
   registerSlot,
   registerCard,
+  registerRelationshipTargetProvider,
+  registerWidget,
   type CardContribution,
+  type GraphQLClient,
+  type RelationshipTarget,
+  type RelationshipTargetContext,
+  type RelationshipTargetProvider,
   type SlotContribution,
+  type WidgetContribution,
 } from "@comtrya/sdk-core";
+import { getGraphQLClient } from "@comtrya/sdk-core";
 
 export interface UseOpState<T> {
   data: Ref<T | undefined>;
@@ -84,6 +92,7 @@ export interface ExtensionWidgetOptions {
 export function defineExtensionWidget(
   opts: ExtensionWidgetOptions,
 ): CustomElementConstructor {
+  injectLightDomStyles(opts.tagName, opts.component);
   const ctor = defineCustomElement(opts.component, {
     shadowRoot: opts.shadowRoot ?? false,
   });
@@ -110,10 +119,96 @@ export function defineExtensionWidget(
   return ctor;
 }
 
+function injectLightDomStyles(
+  tagName: string,
+  component: Parameters<typeof defineCustomElement>[0],
+): void {
+  if (typeof document === "undefined") return;
+  const styles = componentStyles(component);
+  if (styles.length === 0) return;
+  const marker = `comtrya-widget-styles:${tagName}`;
+  if (document.head.querySelector(`style[data-comtrya-widget-styles="${marker}"]`)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.dataset.comtryaWidgetStyles = marker;
+  style.textContent = styles.join("\n");
+  document.head.append(style);
+}
+
+function componentStyles(
+  component: Parameters<typeof defineCustomElement>[0],
+): string[] {
+  if (!component || typeof component !== "object") return [];
+  const styles = (component as { styles?: unknown }).styles;
+  if (!Array.isArray(styles)) return [];
+  return styles.filter((style): style is string => typeof style === "string");
+}
+
 function kebabCase(value: string): string {
   return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
 }
 
+/**
+ * Reactive wrapper over the shared GraphQL client. Returns refs that
+ * update when `run()` resolves; the underlying transport is the
+ * singleton `getGraphQLClient()` shared by every extension and the
+ * shell itself.
+ */
+export function useGraphQL<T = unknown>(): {
+  data: Ref<T | undefined>;
+  error: Ref<unknown | undefined>;
+  pending: Ref<boolean>;
+  query(query: string, variables?: Record<string, unknown>): Promise<T>;
+  mutate(mutation: string, variables?: Record<string, unknown>): Promise<T>;
+} {
+  const data = ref<T | undefined>(undefined) as Ref<T | undefined>;
+  const error = ref<unknown | undefined>(undefined);
+  const pending = ref(false);
+  const call = async (
+    operation: string,
+    variables?: Record<string, unknown>,
+    method: "query" | "mutate" = "query",
+  ): Promise<T> => {
+    pending.value = true;
+    error.value = undefined;
+    try {
+      const client = getGraphQLClient();
+      const result = await (method === "query"
+        ? client.query<T>(operation, variables)
+        : client.mutate<T>(operation, variables));
+      data.value = result;
+      return result;
+    } catch (caught) {
+      error.value = caught;
+      throw caught;
+    } finally {
+      pending.value = false;
+    }
+  };
+  return {
+    data,
+    error,
+    pending,
+    query: (q, v) => call(q, v, "query"),
+    mutate: (m, v) => call(m, v, "mutate"),
+  };
+}
+
 /** Re-export the registries so Vue extensions have a single import. */
-export { registerSlot, registerCard };
-export type { CardContribution, SlotContribution };
+export {
+  registerSlot,
+  registerCard,
+  registerRelationshipTargetProvider,
+  registerWidget,
+  getGraphQLClient,
+};
+export type {
+  CardContribution,
+  GraphQLClient,
+  RelationshipTarget,
+  RelationshipTargetContext,
+  RelationshipTargetProvider,
+  SlotContribution,
+  WidgetContribution,
+};
