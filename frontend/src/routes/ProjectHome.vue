@@ -18,11 +18,16 @@ import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
 import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
 
+interface ComtryaRef {
+  ref: string;
+  slug: string;
+}
+
 interface ComtryaProject {
   name?: string;
   root?: string;
   labels?: string[];
-  owners?: string[];
+  owners?: ComtryaRef[];
   declaredAt?: string;
   implicit?: boolean;
   [key: string]: unknown;
@@ -281,7 +286,7 @@ watch(
       </div>
       <div>
         <span>Owners</span>
-        <strong>{{ (project.owners ?? []).join(" · ") || "—" }}</strong>
+        <strong>{{ (project.owners ?? []).map((o) => o.slug).join(" · ") || "—" }}</strong>
       </div>
     </div>
   </section>

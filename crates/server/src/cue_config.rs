@@ -48,9 +48,54 @@ use serde_json::{Value, json};
 /// the same anti-pattern the user warned about, so resist.
 const KERNEL_CUE_BASE: &str = r#"package comtrya
 
-// `#Project` is the kernel's first-class unit of work inside a repo.
+// ---------------------------------------------------------------------
+// Canonical comtrya:// references.
+//
+// Every owner / author / assignee / actor / target inside the forge
+// is identified by a typed reference whose `.ref` is a canonical
+// `comtrya://` URN. CUE derives the URN from a `.slug`, so users
+// declare ownership compactly (`#UserRef & { slug: "rawkode" }`) and
+// the kernel still gets a fully-qualified URN to link against.
+//
+// Extensions that need ownership / author / assignee fields should
+// reference these types rather than re-rolling string fields. This
+// is what makes "epics owned by rawkode" and "this doc was written
+// by claude-code" speak the same vocabulary.
+// ---------------------------------------------------------------------
+
+// Every reference carries a `kind` (closed set — user / agent / bot
+// / credential / team) and a `slug` (the compact identifier the user
+// typed in CUE). The `ref` field is derived from the two via an
+// interpolated URN template, so users write
+// `{kind: "user", slug: "rawkode"}` and the kernel emits
+// `{kind, slug, ref: "comtrya://user/rawkode"}`.
+//
+// A single closed type rather than a #UserRef | #AgentRef | ...
+// disjunction — CUE can derive `ref` cleanly because there's only one
+// template to apply.
+#Ref: {
+    kind: "user" | "agent" | "bot" | "credential" | "team"
+    slug: =~"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    ref:  "comtrya://\(kind)/\(slug)"
+}
+
+// `#PrincipalRef` is a #Ref whose kind is an acting identity (not a
+// team). Use this in author / assignee / actor fields where a single
+// principal is required.
+#PrincipalRef: #Ref & {
+    kind: "user" | "agent" | "bot" | "credential"
+}
+
+// `#OwnerRef` is a #Ref whose kind is anything that can own work —
+// any principal, or a team standing in for many.
+#OwnerRef: #Ref
+
+// ---------------------------------------------------------------------
+// #Project — the kernel's first-class unit of work inside a repo.
 // By default a repo is one Project. Monorepos declare more by
 // populating the `projects` map below.
+// ---------------------------------------------------------------------
+
 #Project: {
     // Project name, unique within the repo.
     name: string
@@ -63,8 +108,14 @@ const KERNEL_CUE_BASE: &str = r#"package comtrya
     // Free-form labels for grouping and filtering.
     labels?: [...string]
 
+    // Owners of this Project. Typed refs so each entry carries both
+    // a `.slug` (compact, what users type) and a derived `.ref`
+    // (canonical URN, what the forge links against). Mix users,
+    // teams, agents — whatever maps to a comtrya:// identity.
+    owners?: [...#OwnerRef]
+
     // Other fields are added by extension-registered schemas
-    // (`docs`, `builds`, `agents`, `owners`, etc.).
+    // (`docs`, `builds`, `agents`, `pulls`, `issues`, ...).
     ...
 }
 
@@ -169,16 +220,33 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
         .map_err(|e| format!("write synthetic module.cue failed: {e}"))?;
     }
 
-    let injected_dir = workdir.join("_comtrya");
-    std::fs::create_dir_all(&injected_dir)
-        .map_err(|e| format!("mkdir _comtrya failed: {e}"))?;
-
-    std::fs::write(injected_dir.join("00-kernel.cue"), KERNEL_CUE_BASE)
-        .map_err(|e| format!("write kernel base schema failed: {e}"))?;
+    // Inject the kernel base + extension schemas at the workdir
+    // ROOT, not into a `_`-prefixed subdirectory. CUE excludes
+    // `_`-prefixed directories from `./...` evaluation (the Go-module
+    // convention), so anything under `_comtrya/` is invisible to the
+    // per-Project CUE files in subdirectories and the definitions
+    // can't unify with their declarations — derived fields like
+    // `ref: "comtrya://\(kind)/\(slug)"` won't compute. Inject at
+    // the root so the schemas land in the same package instance as
+    // the user's root-level CUE (if any) and cuengine's recursive
+    // walk reaches them.
+    //
+    // Files are name-prefixed (`00-comtrya-kernel.cue`,
+    // `01-comtrya-ext-<id>-<schema>.cue`) so they don't collide with
+    // any user-authored CUE at the workdir root and to keep ordering
+    // stable in `cue export` output.
+    std::fs::write(
+        workdir.join("00-comtrya-kernel.cue"),
+        KERNEL_CUE_BASE,
+    )
+    .map_err(|e| format!("write kernel base schema failed: {e}"))?;
 
     for schema in extension_schemas {
         let safe_id = schema.schema_id.replace(['/', ' '], "-");
-        let path = injected_dir.join(format!("ext-{}-{}.cue", schema.extension_id, safe_id));
+        let path = workdir.join(format!(
+            "01-comtrya-ext-{}-{}.cue",
+            schema.extension_id, safe_id,
+        ));
         std::fs::write(&path, &schema.snippet)
             .map_err(|e| format!("write {} failed: {e}", path.display()))?;
     }

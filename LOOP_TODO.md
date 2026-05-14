@@ -83,11 +83,49 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       Lists update without refresh. PR/issue counters tick live. Presence
       indicators ("Sarah is reviewing this PR") on hot resources. Started
       iteration 2 with a real-time activity feed.
-- [ ] **Workbench layout** — three-pane (sidebar / list / detail), single
-      route, no full-page reloads inside a section. Linear/Superhuman shape.
-      Issues, pulls, and the inbox all live inside this shell. Implies
-      replacing the current per-route `<RouterView>` model with a nested
-      master-detail one per extension.
+- [ ] **Workbench layout** — three-pane (sidebar / list / detail),
+      single route, no full-page reloads inside a section.
+      Linear/Superhuman shape. Issues, pulls, and the inbox all live
+      inside this shell. Implies replacing the per-route `<RouterView>`
+      with a nested master-detail per extension.
+      - **Why:** The single biggest UX gap vs. Linear/Superhuman is
+        that today opening an issue/PR is a route swap with a fresh
+        load — everything before is gone. A persistent list pane
+        plus a detail pane (a la email clients) keeps context,
+        eliminates back-button trips, and unlocks `j`/`k` navigation
+        across rows *while* a detail is open. Without this, several
+        downstream macro bets (inbox, bulk actions, real-time
+        everywhere) can't deliver their promised shape.
+      - **Arc shape (multi-iteration):**
+        1. **Layout primitive** — new `frontend/src/components/
+           Workbench.vue` with `<slot name="list"/>` + `<slot
+           name="detail"/>`; CSS grid; configurable list-pane
+           width with drag-resize persisted in localStorage; full-
+           bleed mode (Cmd+\) hides the list.
+        2. **Issues migration** — convert
+           `extensions/first-party/ext_issues` to a single nested
+           route `/x/issues/:id?` mounting `IssuesList` in the
+           list slot and `IssueDetail` in the detail slot;
+           clicking a row updates the URL without a full nav;
+           `j`/`k` continues to work while detail is open.
+        3. **Pulls migration** — same shape on
+           `ext_pull_requests`.
+        4. **Inbox migration** — the inbox macro bet ships into
+           this shell from day one.
+      - **Files:** `frontend/src/router.ts` (each extension
+        registers a *parent* route with optional `:id`),
+        `frontend/src/components/Workbench.vue` (new). Each
+        extension's `register.ts` updated to provide the slot
+        components. The current `IssuesList` / `IssueDetail` /
+        `PullsQueue` / `PullsDetail` files mostly survive — they
+        just compose differently.
+      - **Acceptance:** opening an issue from the list does not
+        unmount the list; `Esc` closes the detail (returns focus
+        to the row); URL is shareable to the open detail;
+        `j`/`k` while a detail is open navigates to the next
+        issue *and* updates the detail pane.
+      - **Depends on:** nothing kernel-side; significant
+        frontend refactor — schedule across 3-4 iterations.
 - [~] **Diff-first PR review** — first cut shipped: hand-rolled unified-diff
       parser (`diff.ts`) + `DiffView.vue` rendering per-file hunks with
       line numbers, +/- gutters, color, status badges (added/deleted/
@@ -131,9 +169,42 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
           {in progress|done|canceled}` — live-event-driven
           (iteration 24). Subscribes to
           `dev.comtrya.epic.{created,state-changed}`.
-- [ ] **Inbox / what-changed view** — an `@notifications` analogue built on
-      the event stream. Per-resource subscriptions, bulk archive, snooze,
-      "mark all read on close." Replaces email/Slack for forge work.
+- [ ] **Inbox / what-changed view** — an `@notifications` analogue
+      built on the live event stream. Per-resource subscriptions,
+      bulk archive, snooze, "mark all read on close." Replaces
+      email/Slack for forge work.
+      - **Why:** The single behaviour that pulls users back to a
+        forge daily is "what happened since I last looked". Today
+        that means GitHub email or Slack pings — both noisy and
+        un-actionable. An inbox built on the live event stream is
+        the kill-feature for the Real-time-everywhere macro bet:
+        same source data, different surface.
+      - **Arc shape:**
+        1. **Subscription model** — kernel resource:
+           `subscription` with `(viewerUrn, resourceUrn)` rows.
+           Auto-subscribe on author / commenter / assignee.
+           Manual subscribe via `s` on any detail page.
+        2. **Inbox view** — new top-level route `/inbox` rendering
+           via the Workbench shell (depends on workbench arc).
+           Lists undismissed events scoped to the viewer's
+           subscriptions, newest-first.
+        3. **Bulk actions** — `e` archive, `u` mark unread, `h`
+           snooze (with sub-prompt for "1 hour / tomorrow /
+           Monday"); selection via `x` like Gmail.
+        4. **"Mark all read on close"** — when leaving a detail
+           that has unread inbox entries, mark them dismissed.
+      - **Files:** kernel — new `subscriptions` table /
+        op-providing extension (probably `ext_inbox` first-party);
+        UI — new `extensions/first-party/ext_inbox/` with WIT,
+        WASM, UI bundle; new `frontend/src/routes/Inbox.vue`
+        slot host (or a registered ext route).
+      - **Acceptance:** every event with a `(viewerUrn, urn)`
+        subscription match shows in the inbox; archive removes
+        the row; snooze hides until the wake time; live events
+        stream new rows in without refresh; `0` jumps to inbox
+        from anywhere (Linear convention).
+      - **Depends on:** Workbench layout arc; viewer URN; activity
+        stream cursor field on kernel.
 - [~] **AI-native primitives.** First step shipped: `classifyAuthor()`
       detects `comtrya://user/`, `comtrya://agent/`, `comtrya://bot/`,
       `comtrya://credential/` URNs and renders distinct glyphs + colour
@@ -144,10 +215,42 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       issues, an `comtrya://agent/claude-code` first-class identity
       with an agent-specific command surface, "this PR was written by
       an agent" summary line, agent-readable PR comments.
-- [ ] **Distinct visual identity.** Editorial-grade typography (already
-      started), high information density, near-zero animation. Custom
-      monospace numerals, a kbd-first aesthetic, no "card UI" anywhere.
-      The screenshot should be unmistakeable.
+- [ ] **Distinct visual identity.** Editorial-grade typography
+      (already started), high information density, near-zero
+      animation. Custom monospace numerals, a kbd-first aesthetic,
+      no "card UI" anywhere. The screenshot should be unmistakeable.
+      - **Why:** The UI moat. Linear's identity (greys, mono
+        numerals, hairline borders) is half their product story.
+        We've started — chip strips, editorial overlines, serif
+        display titles, mono numerals on counts — but the system
+        isn't centralised. A future iteration could regress.
+      - **Arc shape:**
+        1. **Type system audit** — write down the actual scale
+           (overline / display / body / mono) and codify it in
+           CSS variables. Replace ad-hoc `font-size:` declarations
+           with the token names. **Files:**
+           `frontend/src/styles.css`, all `.vue` `<style>` blocks.
+        2. **Colour token cleanup** — the existing CSS variables
+           cover most, but per-component bespoke colours leak.
+           Audit and reroute to tokens.
+        3. **Motion budget** — codify "near-zero animation" as
+           a literal rule: only state-change transitions allowed
+           (palette open, toast in/out), no decorative motion.
+           Strip any decorative `transition:` / `animation:`
+           that doesn't communicate state.
+        4. **Density bake-off** — measure rows-per-viewport on
+           every list, target Linear's density (~28 issue rows
+           in a standard viewport). Tighten anything below.
+        5. **kbd glyph polish** — every shortcut hint uses a
+           `<kbd>` element with consistent styling; uppercase
+           letters with platform-aware modifiers (`⌘`/`Ctrl`).
+      - **Acceptance:** documented type scale doc (under
+        `docs/design/typography.mdx` via `ext_docs`); zero
+        ad-hoc font-size declarations in `.vue` files
+        (enforced by a grep in CI); no decorative animation
+        anywhere; consistent `<kbd>` rendering across all hint
+        chips and the cheat-sheet.
+      - **Depends on:** nothing.
 - [ ] **Repo-resident docs (`ext_docs`).** Surface PRDs, specs, RFCs, ADRs,
       runbooks as a first-class product area driven by the repo's
       `.comtrya/docs.cue` config. Build steps: (1) read the Cue config
@@ -162,12 +265,66 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       ticket tracker with a wiki bolted on.
 
 - [ ] **Polyrepo, scannable.** Workspace home that handles 100 repos
-      gracefully: group folding, search-as-you-type filter, repository
-      starring, recently-touched ordering. Comtrya is single-tenant but
-      not single-repo.
-- [ ] **Bulk actions everywhere.** Select N items, hit `e`/`l`/`s` to edit
-      / relabel / set state on all. This is basic Linear table-stakes that
-      almost no forge has.
+      gracefully: group folding, search-as-you-type filter,
+      repository starring, recently-touched ordering. Comtrya is
+      single-tenant but not single-repo.
+      - **Why:** The product needs to scale to a real org's repo
+        count without becoming a wall of text. Today the workspace
+        home is a flat list — fine for 5 repos, broken at 50.
+      - **Arc shape:**
+        1. **Group folding** — already broken out as a separate
+           Workspace home item; first leg of this macro bet.
+        2. **Search-as-you-type** — `/` focuses a filter input;
+           filters by repo name + path; debounced 50ms; results
+           ranked by exact-prefix > substring > recently-touched.
+        3. **Starring** — `s` on a focused repo row toggles a
+           per-viewer star (kernel: `repository.starredAt(viewerUrn)`).
+           Starred repos pin to a "Starred" group at top.
+        4. **Recently-touched ordering** — within each group,
+           default sort is `updated DESC`. Sort toggle (`o n`
+           name, `o u` updated, `o s` stars).
+      - **Files:** `frontend/src/routes/WorkspaceHome.vue` plus
+        kernel `viewer.starredRepositories` resolver and a
+        `starRepository(urn)` mutation.
+      - **Acceptance:** a workspace with 100 seeded repos renders
+        without scroll-jank; `/` finds a repo by 3-char prefix in
+        <50ms; star/unstar persists; starred group renders first.
+      - **Depends on:** group-folding ships first; viewer URN.
+
+- [ ] **Bulk actions everywhere.** Select N items, hit `e`/`l`/`s`
+      to edit / relabel / set state on all. Basic Linear table-
+      stakes that almost no forge has.
+      - **Why:** Operating at scale (any team grooming 50+ open
+        issues weekly) demands bulk ops. Without them, every
+        relabel is a click-by-click drudge that pushes users
+        back to the CLI.
+      - **Arc shape:**
+        1. **Selection model** — `x` toggles selection on the
+           focused row; `Shift+J/K` extends selection; `*` selects
+           all visible; `Esc` clears. Composable in `@comtrya/sdk-
+           vue::useSelection`.
+        2. **Bulk action bar** — when ≥1 selected, a sticky
+           action bar appears at the bottom with the count and
+           the available verbs (`e` edit, `l` label, `s` state,
+           `Backspace` delete with confirm).
+        3. **Per-extension verb registry** — extensions register
+           bulk verbs alongside per-row commands (parallel to
+           the iter 23-24 `*-commands.ts` modules). E.g.
+           `bulkLabelIssues(ids[], labels[])`.
+        4. **Server-side batch ops** — every bulk verb maps to a
+           single WIT op call taking a list of ids, not N
+           individual calls. Reduces round-trips and keeps the
+           live event stream coherent.
+      - **Files:** `frontend/packages/sdk-vue/src/useSelection.ts`,
+        new `frontend/src/components/BulkActionBar.vue`, and per-
+        extension batch ops + UI verbs in `ext_issues`,
+        `ext_pull_requests`, `ext_epics`.
+      - **Acceptance:** select 5 issues with `x`, hit `l`, type
+        `bug,kernel`, Enter — all five gain both labels in one
+        op call. Activity stream shows the batch as one entry
+        with a "5 issues labelled" summary, not five entries.
+      - **Depends on:** Workbench layout (selection only really
+        works once the list pane persists).
 
 ## Anti-goals (what NOT to build)
 
@@ -203,13 +360,59 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       field. Cmd-K is for finding commands by name; `?` is the keyboard
       reference card. Both need to be honest about what's actually
       registered right now.
-- [ ] Sticky breadcrumb under the topbar that always shows
-      `workspace › repo › section › item` and stays visible on scroll.
-- [ ] Show a per-repository "clone URL" affordance with one-click copy on
-      `RepoHome.vue`; this is the single most-used DX touchpoint and currently
-      hidden behind extension widgets.
-- [ ] Surface open-issues count next to the Issues nav item (parallel to the
-      PR badge — needs an `openIssues` field on the workspace summary).
+- [ ] **Sticky breadcrumb under the topbar.** Always shows
+      `workspace › repo › section › item`, stays visible on scroll.
+      - **Why:** Once Workbench layout lands, every section is one route
+        with a deep stack; users need a constant "where am I" without
+        looking at the URL bar. Linear's breadcrumb is the reference.
+      - **Files:** new `frontend/src/components/Breadcrumb.vue`; mount in
+        `App.vue` between the topbar and `<RouterView>`. Source the trail
+        from `router.currentRoute.value.matched` plus per-route `meta.crumb`
+        (a function that takes the route and returns `{label, to}`).
+      - **Acceptance:** every top-level route declares its crumb via
+        `meta.crumb`; the breadcrumb renders for workspace / repo / project /
+        ext routes; the last segment is non-link; `position: sticky;
+        top: var(--topbar-h)` keeps it pinned. Editorial type, no chevron
+        glyph icons — use the literal `›` character.
+      - **Depends on:** nothing; can ship before Workbench layout and
+        survive the migration since `matched` works for both shapes.
+
+- [ ] **Per-repository clone-URL affordance with one-click copy on
+      `RepoHome.vue`.** Currently hidden behind extension widgets.
+      - **Why:** "Get me the clone URL" is the single most-used DX touchpoint
+        on a repo page; making the user expand a widget to find it is a
+        keyboard-hostile detour.
+      - **Files:** `frontend/src/routes/RepoHome.vue` header; add a small
+        helper in `frontend/src/route-paths.ts` like `cloneUrl(segments)`
+        returning `git@<host>:<path>.git` (host comes from a kernel-exposed
+        `workspace.gitOrigin` field — see kernel section below) and falling
+        back to `http://localhost:<port>/git/<path>.git` in dev.
+      - **Acceptance:** a one-line chip strip at the top of `RepoHome.vue`
+        showing `git clone <url>`. Click on the chip copies via
+        `navigator.clipboard.writeText`; a 1.5s toast (or inline "copied"
+        chip swap) confirms. Keyboard: focusable with `tabindex=0`,
+        `Enter`/`Space` triggers copy. Don't pop a modal.
+      - **Depends on:** `workspace.gitOrigin` resolver on the kernel
+        (cheap — read from config). Can ship with `localhost` placeholder
+        first and tighten later.
+
+- [ ] **Open-issues count next to the Issues nav item.** Mirrors the PR
+      badge that already ships.
+      - **Why:** The forge's primary "what changed" surfaces are PR queue
+        and Issues queue; both should pulse the same way in the sidebar.
+        Asymmetry suggests issues are a second-class citizen.
+      - **Files:** `frontend/src/App.vue` (the `g i` nav item), kernel
+        resolver `crates/server/src/main.rs::build_repository_summary` to
+        add `openIssues` parallel to `openPullRequests`; underlying count
+        comes from `ext_issues/issues.list-issues` filtered to OPEN — same
+        cross-call pattern the merge-reactor uses.
+      - **Acceptance:** `repositoryByPath { openIssues }` resolves; nav
+        Issues item shows `Issues 4` (or no chip when zero); the chip
+        re-renders without a page refresh when an issue opens/closes
+        (subscribe to `dev.comtrya.issues.{opened,closed}` and refetch,
+        same shape as the PR badge already does).
+      - **Depends on:** kernel work item below ("`openIssues` count
+        parallel to `openPullRequests`").
 - [x] **2026-05-14** `command palette` entry per repository.
       `frontend/src/repository-commands.ts` registers `Switch to
       repository <path>` for every workspace repo; live-synced via
@@ -232,21 +435,168 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       open/draft PRs with state dot and age, linking to the queue.
 - [x] **2026-05-14** Real `PullsYourWork.vue` (workspace home rail): open
       PRs authored by the viewer (falls back to all open if no viewer ref).
-- [ ] Markdown rendering for PR description (`safe-markdown` shared helper —
-      should also serve issues' bodies).
-- [ ] PR detail: linked issues panel populated from
-      `relations.outgoing kind=closes` (matches the merge-reactor flow).
-- [ ] PR detail: comments thread driven by the `comments` host import.
-- [ ] PR detail: ref diff view — pull a unified diff for head..base from the
-      existing `git_diff` GraphQL field; mount @pierre/diffs.
-- [ ] `author:me`, `is:draft` query syntax in the queue search input.
-- [ ] "Create pull request" form route — wire `create-pull` WIT op.
+- [ ] **Markdown rendering for PR description.** Shared `safe-markdown`
+      helper that also serves issue bodies, comment bodies, and epic
+      bodies. Today PR descriptions render as `pre-wrap`.
+      - **Why:** PR descriptions are written as Markdown by humans and
+        agents (especially the merge-reactor PRs); rendering raw text
+        loses headings, code blocks, and `closes #N` linkification.
+        Three surfaces (PR / issue / epic / comment bodies) currently
+        each tokenise differently — `EpicDetail.vue` and `DocsPanel.vue`
+        each ship their own `markdown.ts`. Diverging implementations
+        will keep diverging.
+      - **Files:** new `frontend/packages/sdk-vue/src/markdown.ts`
+        (canonical home — both shell-mounted routes and customElement
+        extensions can import via the workspace package). Migrate
+        `extensions/first-party/ext_docs/ui/src/markdown.ts` and
+        `extensions/first-party/ext_epics/ui/src/markdown.ts` to
+        re-export from the package, then delete after a green build.
+        New consumer: `extensions/first-party/ext_pull_requests/ui/src/
+        PullsDetail.vue` (replace the `pre-wrap` block).
+      - **Acceptance:** unified renderer parses headings 1–6, paragraphs,
+        fenced code with `data-lang`, lists (ordered + unordered, nested
+        one level), inline `code`/**bold**/_italic_, and autolinks
+        bare URLs and `#N` references (the latter to issue routes).
+        XSS-safe by default — escape everything that isn't a recognised
+        token. Three surfaces (PR detail, epic detail, doc detail) all
+        render the same `## Heading` identically.
+      - **Depends on:** nothing; pure refactor.
+
+- [ ] **PR detail: linked issues panel via `relations.outgoing kind=closes`.**
+      Today only an inline "1 issue — auto-closed on merge" caption hints
+      at it.
+      - **Why:** The merge-reactor flow (iter 14) is the canonical PR
+        story — close the issues this PR resolves. Surfacing those
+        targets explicitly lets reviewers verify intent before merge and
+        lets the merged-PR page act as a record of *what* it closed.
+        Symmetric with the existing iteration-4 "Closes" panel that
+        already renders for the demo PR — generalise it for every PR.
+      - **Files:** `extensions/first-party/ext_pull_requests/ui/src/
+        PullsDetail.vue`. Consume via the existing `relations` host
+        import (see how `ext_pull_requests` already calls it in the
+        merge reactor); GraphQL alternative if cleaner: add
+        `pullRequest.relations(kind: "closes") { target { … } }` to the
+        kernel resolver.
+      - **Acceptance:** below the description, a "Closes" section listing
+        each linked issue as one row: `state badge · #N · title · project
+        chip · closed?`. Empty state renders nothing (no zero-state
+        card). Each row is clickable / focusable / `j`-`k` navigable.
+        Live-update via `dev.comtrya.relations.{created,deleted}` so
+        adding a `closes` relation appears without refresh.
+      - **Depends on:** nothing kernel-side (the relation exists);
+        live-event leg can ship later.
+
+- [ ] **PR detail: comments thread driven by the `comments` host import.**
+      Today `comtrya-comment-thread` mounts on epics but not PRs.
+      - **Why:** Code review without inline discussion is just a diff
+        viewer. Threaded discussion on the PR (not the diff) is the
+        first beachhead; per-line comments come later with `@pierre/diffs`.
+      - **Files:** `extensions/first-party/ext_pull_requests/ui/src/
+        PullsDetail.vue`. Reuse the same `<comtrya-comment-thread
+        :resource="..."/>` element pattern that `EpicDetail.vue` uses,
+        scoped to `comtrya://pull-request/<id>`. The composer should
+        live below the thread; submit on `Cmd+Enter`.
+      - **Acceptance:** loads existing comments newest-last; new comment
+        composer with markdown preview toggle (uses the shared
+        `safe-markdown` helper above); `c` shortcut focuses composer
+        from anywhere on PR detail; live-updates via the comments topic
+        on the SSE stream.
+      - **Depends on:** shared `safe-markdown` helper for the preview.
+
+- [ ] **PR detail: ref diff view — real per-PR diff from the kernel.**
+      Today `DiffView.vue` runs against `repository.diff` which is a
+      demo `main~1..main` patch, not the actual head→base of the
+      displayed PR.
+      - **Why:** The diff-first PR review macro bet (iter 3) shipped the
+        renderer but is lying about which patch it shows. Until the
+        kernel exposes a per-PR diff, every PR detail page renders the
+        same three files. This is the single biggest correctness issue
+        in the product right now.
+      - **Files:** kernel — `crates/server/src/main.rs` (add
+        `pullRequest.diff` resolver, or `repositoryByPath.gitDiff(
+        headRef, baseRef)` + UI-side composition of the head/base from
+        the PR record). Frontend — `extensions/first-party/
+        ext_pull_requests/ui/src/PullsDetail.vue` (swap the GraphQL
+        query). Eventually replace the local `diff.ts` parser with
+        `@pierre/diffs` for shiki syntax + side-by-side + inline
+        comments — but only after the data is correct.
+      - **Acceptance:** opening two different PRs renders two different
+        patches. The displayed diff matches `git diff <base>..<head>`
+        run against the bare repo. File counts and +/- totals match
+        `git diff --shortstat`.
+      - **Depends on:** kernel `gitDiff` field (also listed below).
+
+- [ ] **Queue search syntax: `author:me`, `is:draft`, `is:open`,
+      `repo:<path>`.** The PullsQueue search input currently does
+      substring match on title only.
+      - **Why:** Linear/GitHub-style filter syntax is muscle memory for
+        the target audience. Without it, the queue can't be sliced
+        ("PRs I authored", "drafts only") without state-filter chip
+        clicks and can't span repos at all.
+      - **Files:** `extensions/first-party/ext_pull_requests/ui/src/
+        PullsQueue.vue`. Add a tiny `parseQuery(input)` returning
+        `{text, filters: {author?, state?, draft?, repo?}}`; pass to
+        the existing filtered-list computation. Resolve `author:me` via
+        the same `viewer.id` field used by `PullsYourWork.vue` (see
+        kernel work below). Highlight matched filter chips in the input
+        as pill backgrounds (Linear pattern) so the syntax is
+        discoverable without docs.
+      - **Acceptance:** typing `author:me is:draft` filters to the
+        viewer's drafts; `repo:comtrya/dogfood` scopes; `author:me
+        retry` does both an author filter and a substring match.
+        Invalid filter keys render a small grey "unknown filter:
+        `xyz`" hint without breaking the search.
+      - **Depends on:** `viewer.id` resolver (kernel work below) for
+        `author:me`. Other filters can ship first.
+
+- [ ] **"Create pull request" form route.** Wires the existing
+      `create-pull` WIT op.
+      - **Why:** Today PRs only appear via the dogfood seed or external
+        flows; the forge can't actually originate a PR from its own UI,
+        which makes "command-driven everything" a half-truth.
+      - **Files:** new `extensions/first-party/ext_pull_requests/ui/src/
+        PullsNew.vue`. Add a route in `register.ts` at `/x/pulls/new`
+        (mirror of `IssueNew`). Add a palette command `New pull request
+        in <repo>` registered from `pr-commands.ts` for the current repo
+        (read from route segments — same pattern as
+        `project-commands.ts`).
+      - **Acceptance:** form fields: head ref (autocomplete from refs),
+        base ref (default branch pre-filled), title, description
+        (markdown editor, `Cmd+Enter` to submit). On submit calls
+        `create-pull` and routes to the new PR detail. Quick-add
+        analogue at the top of `PullsQueue.vue` — Linear-shape inline
+        input, mirroring `IssuesList.vue::quick-add` (iter 17).
+      - **Depends on:** ref autocomplete needs a kernel `refs(prefix)`
+        resolver (cheap — wraps `git for-each-ref`). Can ship plain
+        `<input>` first.
 
 ## Project planning (issues + epics)
 
-- [ ] Add a board/kanban view to `ext_epics` or `ext_issues` UI: columns by
-      state (open / in progress / closed) with drag-to-move that calls the
-      existing state mutations.
+- [ ] **Board/kanban view across `ext_issues` (and optionally `ext_epics`).**
+      Columns by state (open / in progress / closed); drag-to-move
+      calls the existing `update-issue-state` op.
+      - **Why:** A board is the canonical second view of a queue —
+        useful for stand-ups, bulk grooming, and seeing WIP in one
+        glance. Linear ships both list and board for issues; we'd
+        gain parity cheap because the state mutations already exist.
+      - **Files:** new `extensions/first-party/ext_issues/ui/src/
+        IssuesBoard.vue`. Wire as a route alongside the list
+        (`/x/issues/board?projectName=...`). Reuse `IssueCard.vue` as
+        the column row. Drag-to-move via the **HTML5 Drag and Drop
+        API** wrapped in a tiny composable in `@comtrya/sdk-vue` —
+        keep with the library-first direction; if HTML5 DnD proves
+        too rough, swap to **`@vueuse/core`'s `useDraggable`** rather
+        than rolling pointer events.
+      - **Acceptance:** three columns, dense rows (same density as
+        `IssuesList.vue`), keyboard nav within and across columns
+        (`j`/`k` within, `h`/`l` across), `space` to "pick up" a
+        focused row, arrow to target column, `space` again to drop.
+        Pointer drag works too. URL persists `?view=board|list` so
+        toggling is bookmarkable.
+      - **Depends on:** an `inProgress` issue state (today the kernel
+        only has OPEN / CLOSED / REOPENED — see how this fits in the
+        WIT for `ext_issues` first; might collapse to just two
+        columns until states grow).
 - [x] **2026-05-14** Quick-add input on the issues list. Inline form,
       Linear-shape, auto-stamps `projectName` + `defaultLabels` +
       `closeOnMerge` from the page Project's CUE policy. Iteration 17.
@@ -254,80 +604,643 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       `EpicDetail.vue` rewritten as a real planning surface — editorial
       header, markdown body, progress bar, dense issue rows resolved via
       `invokeOp("ext_issues", "issues", "by-ref-issue", uri)`.
-- [ ] Filter chips for state + author + label persisted in the URL so links
-      are shareable.
-- [ ] Milestone/timeline view (later — needs a `due` field on epics?).
+- [ ] **URL-persisted filter chips for state + author + label.** Today
+      the IssuesList state filter is reactive ref-only; sharing a
+      filtered link is impossible.
+      - **Why:** "Send me your open kernel issues" should be a one-link
+        action, not a screenshot. URL is the canonical state surface
+        for filtered lists.
+      - **Files:** `extensions/first-party/ext_issues/ui/src/
+        IssuesList.vue` (and PullsQueue + EpicsList by extension —
+        same shape). Read filter state from `route.query` on mount;
+        write back via `router.replace({ query: { state, author,
+        label } })` on change so back/forward respects history but
+        every keystroke doesn't pollute history.
+      - **Acceptance:** opening
+        `/x/issues?state=open&label=kernel&author=rawkode` lands with
+        all three chips active; toggling chips updates the URL
+        without reloading; copy-paste the URL on another tab/session
+        reproduces the exact view.
+      - **Depends on:** nothing. Should ship before board view above
+        so `?view=board` joins existing query params cleanly.
+
+- [ ] **Milestone/timeline view.** Later — needs a `due` field on epics
+      and possibly a `start` field too.
+      - **Why:** Project planning beyond a single iteration needs a
+        time axis. Linear's "Cycle" view and Height's roadmap are the
+        references. Skipped for now because the data model isn't
+        ready; record so a future loop doesn't try to ship the view
+        before the schema.
+      - **Files:** WIT bump for `ext_epics` adding `start-at`,
+        `due-at` (option<datetime>); kernel bindgen regen; UI
+        `EpicsTimeline.vue`. Probably want a tiny library — **vis-
+        timeline** or **gantt-task-react** equivalents — rather than
+        bespoke SVG.
+      - **Acceptance:** scoped to a Project page; epics render as bars
+        on a horizontal time axis with today-line marker; drag bar
+        edges to reschedule (calls the new state mutations); keyboard
+        nav between epics with `j`/`k`.
+      - **Depends on:** epic schema additions; pick of timeline lib
+        (defer until real users complain about the lack of one).
 
 ## Repository home
 
-- [ ] Repo home tabs (Overview · Code · Pulls · Issues · Checks) inline near
-      the title so context switching is one click, not sidebar travel.
-- [ ] Default branch + visibility + last-updated + open-PR count as a single
-      chip row, not three separate summary cards.
-- [ ] "Working copy" panel: clone command, default branch, last commit short
-      sha + author + relative time.
-- [ ] README rendering directly on the repo home (extension-owned, but
-      surface a default slot).
-- [ ] Repo settings link (even if 404 for now) so the affordance exists.
+- [ ] **Repo home tabs (Overview · Code · Pulls · Issues · Checks).**
+      Inline near the title — context switching is one click, not
+      sidebar travel.
+      - **Why:** The sidebar lists the *workspace*-level surfaces
+        (Home, Repos, Issues, Pulls); inside a repo, the relevant
+        surfaces are repo-scoped and the user shouldn't traverse out
+        of the repo to switch sub-section. Tabs at the repo header
+        match GitHub muscle memory and make `g o`/`g p`/`g i`/`g c`
+        chord targets honest at the repo scope.
+      - **Files:** `frontend/src/routes/RepoHome.vue` header (add a
+        `<RepoTabs>` strip below the title row); new
+        `frontend/src/components/RepoTabs.vue` taking the `segments`
+        and rendering links to `/r/<segments>`,
+        `/r/<segments>/code`, `/r/<segments>/pulls`,
+        `/r/<segments>/issues`, `/r/<segments>/checks`. Active tab
+        derived from `route.path`. Wire matching repo-scoped chord
+        bindings in `main.ts::bindGoChord`.
+      - **Acceptance:** tabs render only on `/r/<segments>` and its
+        sub-routes (not on workspace home); the active tab has a
+        bottom-border underline (no background pill — editorial
+        density); `Tab` cycles in source order; chord shortcuts at
+        the repo scope land on the right tab.
+      - **Depends on:** Workbench layout doesn't need to ship first —
+        tabs are the *seed* of that nested layout.
+
+- [ ] **Single-row repo chip strip.** Default branch + visibility +
+      last-updated + open-PR count + open-issues count as one chip
+      row, not three summary cards.
+      - **Why:** Cards waste vertical space and dilute the
+        information-density goal. The data is dense and tonal —
+        chips are the right shape. Mirrors the editorial chip strip
+        already shipped on Project home (iter 15).
+      - **Files:** `frontend/src/routes/RepoHome.vue`. Reuse the chip
+        component pattern from `ProjectsPanel.vue`. Open counts come
+        from `repositoryByPath { openPullRequests, openIssues }`.
+      - **Acceptance:** one row, comma-or-bullet separated chips:
+        `main · public · updated 4m ago · 3 open PRs · 7 open
+        issues`. Counts hide when zero. Chip tone: neutral grey for
+        meta, ink-strong serif for numbers.
+      - **Depends on:** `openIssues` kernel field.
+
+- [ ] **"Working copy" panel.** Clone command, default branch, last
+      commit short sha + author + relative time.
+      - **Why:** Half the time someone opens the repo home, the next
+        action is "let me clone this and start coding". Making that
+        a one-glance / one-copy moment is high-leverage DX. The
+        last-commit row also answers "is this repo alive?" without
+        a click.
+      - **Files:** new `frontend/src/components/WorkingCopyPanel.vue`
+        mounted on `RepoHome.vue` below the chip row. Reads
+        `repositoryByPath { cloneUrl, defaultBranch, lastCommit { sha,
+        author { displayName, urn }, message, committedAt } }`.
+        `cloneUrl` overlaps with the Quick-wins clone affordance
+        above — share the helper.
+      - **Acceptance:** monospace clone command line with copy button;
+        below it `${shortSha}  ${author with classifyAuthor() glyph}
+        ${relTime}` and the commit subject (truncated). Click on the
+        sha copies it; click on the message navigates to the commit
+        view (when that route exists — until then `<span>`).
+      - **Depends on:** kernel `lastCommit { sha, author, message,
+        committedAt }` resolver. Likely a thin wrapper over
+        `git log -1`.
+
+- [ ] **README rendering on the repo home.** Extension-owned widget
+      mounted into a default repo-home slot.
+      - **Why:** Following the architectural anchor: README is repo-
+        resident durable content; surface it via `ext_docs` (same
+        renderer as ADRs/PRDs/RFCs), don't bake into the kernel.
+        Once it renders here, the repo home stops being a sparse
+        meta page.
+      - **Files:** extend `extensions/first-party/ext_docs/manifest.
+        json` to contribute a `repo-home.readme` slot. Reuse the
+        existing `markdown.ts` (or by then the shared
+        `safe-markdown` from above). README discovered by walking
+        the repo root for `README.md`/`README.mdx`/`readme.md`.
+      - **Acceptance:** any repo with a top-level README renders it
+        full-width below the working-copy panel; collapsible (top
+        ~600px shown, "Show more"); links and code blocks render as
+        in `ext_docs::DocsPanel`. Repos without a README render the
+        slot empty (no zero-state).
+      - **Depends on:** shared `safe-markdown` helper.
+
+- [ ] **Repo settings link.** Even if 404 for now — the affordance
+      should exist so the navigation shape is honest.
+      - **Why:** The absence of a settings affordance is a constant
+        visual lie about the product's surface area. Stub the link
+        now (gear icon in the repo header), wire to a real route
+        later as features arrive (rename, archive, default branch,
+        webhooks).
+      - **Files:** `frontend/src/routes/RepoHome.vue` header right-
+        side. New route `frontend/src/routes/RepoSettings.vue` with
+        a placeholder body listing planned sections.
+      - **Acceptance:** `,` (comma) shortcut on the repo home opens
+        settings (Linear convention); the placeholder page has a
+        clear "Settings — coming soon" headline plus the planned
+        section list so it doesn't feel broken.
+      - **Depends on:** nothing.
 
 ## Workspace home
 
 - [x] **2026-05-14** Workspace repo list now shows default branch chip,
       visibility, open PR count, and relative `updated` time per row
       (`WorkspaceHome.vue` + GraphQL query update).
-- [ ] "Your work" rail: assigned issues + PRs awaiting review + your authored
-      PRs. PR side now real (`PullsYourWork.vue`); still need issue side to
-      come from `ext_issues` widgets with viewer-scoped queries.
-- [ ] Recent activity feed using the live events stream (already subscribed
-      in `App.vue` for the counter — repurpose it).
-- [ ] Repo-list row keyboard nav (j/k, enter to open) — mirror the pulls
-      queue UX for consistency.
-- [ ] Group/folder collapse for workspace home when there are many repos.
+- [ ] **"Your work" rail — issue side.** PR side already real
+      (`PullsYourWork.vue`); still need issues from `ext_issues`
+      with viewer-scoped queries.
+      - **Why:** Workspace home should answer "what should I do
+        today" in two glances: PRs awaiting my review or authored by
+        me, plus issues assigned to me. Today only the PR half is
+        real. Without the issue side, planning surface depth is
+        half-baked.
+      - **Files:** new `extensions/first-party/ext_issues/ui/src/
+        IssuesYourWork.vue` mirroring `PullsYourWork.vue`. Register
+        as a workspace-home slot in
+        `ext_issues/manifest.json::contributes.slots`. Falls back to
+        all open issues when `viewer.id` is null (same pattern as
+        the PRs widget).
+      - **Acceptance:** rail on `WorkspaceHome.vue` shows top 5
+        issues assigned to viewer, with `#N · title · project chip
+        · age`. `j`/`k` nav within the rail; Enter opens detail.
+        Live-updates via `dev.comtrya.issues.assigned` (new event;
+        kernel needs to emit it on assignment changes).
+      - **Depends on:** `viewer.id` from kernel; assignment field on
+        `Issue` (check the WIT — may already exist as `assignees`).
+
+- [ ] **Recent activity feed via live events.** Already subscribed in
+      `App.vue` for the counter; `ActivityStream.vue` already exists
+      on workspace home — extend coverage and depth.
+      - **Why:** The Real-time-everywhere macro bet's beachhead is
+        already shipped (iter 2). Next leg: filter chips on the
+        stream so a user can scope to issues / PRs / specific
+        projects; "load more" pagination so it isn't just the latest
+        N events; per-row "seen" tracking so the user can mark events
+        read on close (precursor to the Inbox macro bet).
+      - **Files:** `frontend/src/components/ActivityStream.vue`. Add
+        a top-of-stream chip filter strip; add a `loadOlder()` action
+        bound to `[` and to a button at the bottom; add a per-row
+        "seen" state stored in `localStorage` keyed on event id.
+      - **Acceptance:** `i`/`p`/`r` filter shortcuts hide non-matching
+        rows; `[` loads the previous 50 events from
+        `workspace.events(before: <id>, limit: 50)` (kernel needs
+        the cursor arg); seen rows render at 60% opacity; `Shift+R`
+        marks all visible as read. No flash on freshly-arrived rows
+        once `seen` exists — only flash unread ones.
+      - **Depends on:** `workspace.events(before, limit)` cursor on
+        the kernel. Inbox macro bet builds on this.
+
+- [ ] **Repo-list row keyboard nav (j/k, enter to open).** Mirror the
+      pulls queue UX for consistency across every list in the app.
+      - **Why:** The product promise is "every list is a Linear-grade
+        list". The workspace home repo list is the most-visited list
+        in the app and is currently mouse-only. Inconsistency with
+        PRs/issues breaks muscle memory.
+      - **Files:** `frontend/src/routes/WorkspaceHome.vue`. Use
+        `useShortcuts({ j: …, k: …, Enter: … })` from
+        `@comtrya/sdk-vue` — same pattern that `IssuesList.vue` and
+        `PullsQueue.vue` now use.
+      - **Acceptance:** `j`/`k` move focus among repo rows; Enter
+        opens `/r/<segments>`; focus ring visible (re-use the
+        existing `.row.focused` style from PullsQueue); `g r` from
+        elsewhere lands on the repos route with the first repo
+        focused.
+      - **Depends on:** nothing.
+
+- [ ] **Group/folder collapse on workspace home for many repos.**
+      Single-tenant workspaces routinely have 50+ repos.
+      - **Why:** Polyrepo-scannable macro bet's first leg. With 50
+        repos a flat list scrolls forever; with 100 it's unusable.
+        Group folding (already designed as a macro bet) starts here.
+      - **Files:** `frontend/src/routes/WorkspaceHome.vue`. Repos
+        already carry `groups: [string]` (the `comtrya/dogfood` →
+        `["comtrya"]` mapping). Group by first segment; collapse
+        state in `localStorage` keyed by group; `space` toggles the
+        focused group.
+      - **Acceptance:** repos render under group headings (`comtrya
+        (3)`, `imported (1)`, `rawkode (2)`); group header focusable
+        with `j`/`k`; `space` collapses; `Cmd+]`/`Cmd+[` collapse
+        all / expand all; URL persists `?groups=collapsed:comtrya,
+        rawkode` so links share state.
+      - **Depends on:** none of the macro bet's harder pieces (search,
+        starring, recently-touched). Those come later.
 
 ## Code browsing
 
-- [ ] `frontend/src/core-widgets/code-browser.ts` is the only host-owned
-      widget; review for scannability (tree on left, blob preview on right,
-      syntax-highlighted with a tiny grammar set).
-- [ ] Breadcrumbs inside the code browser for nested paths with click-to-jump.
-- [ ] Branch/ref switcher in the code browser header.
+- [ ] **Code-browser scannability pass.** It's the only host-owned
+      widget; today it works but isn't editorial.
+      - **Why:** Code browsing is the lowest-effort surface — every
+        repo opens with it implicitly. If it doesn't feel as dense
+        and keyboard-driven as the rest of the product, the entire
+        forge feels half-finished. Linear has no equivalent because
+        it's not a forge; the reference is **Sourcegraph** (density,
+        keyboard) and **GitHub Code Search** (speed of jump).
+      - **Files:** `frontend/src/core-widgets/code-browser.ts` (and
+        any sibling components/Vue files it imports). Add **shiki**
+        for syntax (already on the radar for ext_docs) — the same
+        bundle can serve both. Use `useShortcuts` for `j`/`k`/Enter
+        within the file tree; `/` to filter the tree; `n`/`p` for
+        next/prev sibling; `b` to go back up a directory.
+      - **Acceptance:** tree-on-left / preview-on-right layout with a
+        sticky breadcrumb at the top of the preview; shiki-rendered
+        blob with line numbers and the same editorial palette as
+        DiffView; `gg`/`G` jumps to top/bottom; `:N<Enter>` jumps to
+        line N (reuse the palette as the ":" target — opens with
+        `:` as the seed).
+      - **Depends on:** shiki dep; could land alongside the diff
+        view's shiki upgrade so the cost amortises.
+
+- [ ] **Breadcrumbs inside the code browser for nested paths.** Click
+      any segment to jump up.
+      - **Why:** Today the code browser shows the file path as plain
+        text; navigating up is a click on the parent folder in the
+        tree, which means the eye has to move from the file (right
+        pane) back to the tree (left pane). Inline crumbs cut that
+        traversal.
+      - **Files:** code-browser components above. Crumb component
+        can reuse `frontend/src/components/Breadcrumb.vue` from the
+        Quick-wins entry — same pattern, scoped.
+      - **Acceptance:** above the blob preview, segments render as
+        `crates › server › src › main.rs`; each segment except the
+        last is a focusable link to the directory listing; `Tab`
+        cycles segments.
+      - **Depends on:** the Quick-wins sticky breadcrumb component.
+
+- [ ] **Branch/ref switcher in the code browser header.** Defaults to
+      the repo's default branch.
+      - **Why:** Without a ref switcher, the browser only shows HEAD;
+        comparing or inspecting feature branches requires the CLI.
+        That's a real gap once the forge is anyone's primary code
+        browsing surface.
+      - **Files:** code browser header. Reuse the Headless UI
+        Combobox shape from `CommandPalette.vue` for the ref picker
+        (consistent affordance). Refs come from a kernel `refs`
+        resolver — same one the "Create PR" form needs.
+      - **Acceptance:** header shows `main ▾`; `r` shortcut focuses
+        the picker; type-ahead filters by substring; selection
+        re-fetches the file list and the active blob at the new
+        ref; URL updates `?ref=feature/xyz` so back/forward respects
+        history.
+      - **Depends on:** kernel `refs(prefix)` resolver (shared with
+        Create-PR form).
 
 ## Global UX glue
 
-- [ ] Consistent "page-header" pattern across all top-level routes (workspace,
-      repo, ext routes). Some use `.page-header`, some don't.
-- [ ] Toast/notification system for action results (merge succeeded, issue
-      created). Currently silent.
-- [ ] Persist sidebar open/closed state and a dark/auto theme toggle (palette
-      already prefers light; honour `prefers-color-scheme`).
-- [ ] Loading skeletons instead of "Loading repositories" text — at least for
-      the workspace home repo list.
-- [ ] 404 / not-found route component with a back-to-workspace link.
-- [ ] Empty-state illustrations (text-only, in the editorial style) for "no
-      PRs yet", "no issues yet", "no commits yet".
+- [ ] **Consistent page-header pattern.** Today some routes use
+      `.page-header`, some don't.
+      - **Why:** Visual identity macro bet: an editorial product
+        depends on consistent typography rhythm at the top of every
+        view. Inconsistency reads as "different teams shipped these"
+        rather than "single product".
+      - **Files:** new `frontend/src/components/PageHeader.vue`
+        taking `overline`, `title`, `chips`, `actions` slots. Migrate
+        in order: `WorkspaceHome.vue`, `RepoHome.vue`,
+        `ProjectHome.vue`, `IssuesList.vue`, `PullsQueue.vue`,
+        `EpicsList.vue`, `DocsPanel.vue`. Existing editorial styles
+        from `EpicDetail.vue` and `IssueNew` (iter 14, iter 16) are
+        the design reference.
+      - **Acceptance:** every top-level route renders the same header
+        component; overline is uppercase muted mono; title is heavy
+        display serif; chip strip is a single row; actions are
+        right-aligned and shortcut-hint annotated. No per-route
+        bespoke header markup remains.
+      - **Depends on:** nothing.
+
+- [ ] **Toast/notification system for action results.** Today merges
+      and creates are silent.
+      - **Why:** Optimistic UI without confirmation looks broken;
+        `merge` returns and the page just sits there. A discrete
+        toast ("PR #43 merged") closes the loop without modal noise.
+        Linear-style: bottom-right, auto-dismiss, undo for
+        reversible actions.
+      - **Files:** new `frontend/src/components/Toaster.vue` mounted
+        once in `App.vue`. Imperative API exported from
+        `@comtrya/sdk-vue`: `toast.success()`, `toast.error()`,
+        `toast.action({ message, undo: () => Promise<void> })`.
+        Use **Headless UI's Transition** for enter/exit (the lib is
+        already in deps from iter 21).
+      - **Acceptance:** every WIT op call site (`mergePull`,
+        `closePull`, `openIssue`, `createEpic`, `markEpic*`) calls
+        `toast.success` on resolve and `toast.error` on reject;
+        toasts auto-dismiss in 4s; `Esc` dismisses focused; `z`
+        triggers `undo` on the most recent undoable toast.
+      - **Depends on:** nothing.
+
+- [ ] **Persist sidebar open/closed state + dark/auto theme toggle.**
+      Palette already prefers light.
+      - **Why:** User's last layout choice should survive reload —
+        forgetting it every page load is a small but constant
+        annoyance. Theme toggle: respect `prefers-color-scheme` by
+        default; explicit toggle overrides; persist.
+      - **Files:** `frontend/src/App.vue` for sidebar state (read /
+        write `localStorage.sidebarCollapsed`). New
+        `frontend/src/components/ThemeToggle.vue` wired into the
+        topbar; toggles between `light` / `dark` / `auto`. CSS
+        variables in `frontend/src/styles.css` already centralise
+        colours — add a `[data-theme="dark"]` block.
+      - **Acceptance:** sidebar state persists across reloads; theme
+        toggle cycles auto → light → dark → auto; auto follows OS
+        preference; palette and overlay both respect the dark theme
+        without flash on mount.
+      - **Depends on:** nothing.
+
+- [ ] **Loading skeletons** instead of "Loading repositories" text.
+      - **Why:** Text loading states make slow networks feel slower;
+        skeletons preserve perceived layout stability and let the
+        eye start parsing structure before the data arrives.
+      - **Files:** new `frontend/src/components/Skeleton.vue` (a tiny
+        primitive: `<Skeleton width="..." height="..."/>`). Replace
+        text loading states in `WorkspaceHome.vue`, `PullsQueue.vue`,
+        `IssuesList.vue`, `RepoHome.vue`, `EpicsList.vue`. **No
+        shimmer animation** — the editorial-design rule is
+        near-zero motion. Plain muted blocks at the right
+        dimensions.
+      - **Acceptance:** every list-route's first paint shows skeleton
+        rows at the right row-height and column-widths; switches to
+        real data without layout shift. No "Loading…" strings
+        anywhere visible to the user.
+      - **Depends on:** nothing.
+
+- [ ] **404 / not-found route component.** Back-to-workspace link.
+      - **Why:** The current "not matched" behaviour is undefined
+        (probably blank). A real 404 page is a 30-minute polish
+        task that immediately raises perceived quality.
+      - **Files:** new `frontend/src/routes/NotFound.vue`; register
+        as the catch-all in `frontend/src/router.ts` (must be the
+        *last* route — current router definition order matters).
+      - **Acceptance:** unknown URLs render an editorial "404 ·
+        nothing here" page with the attempted path in mono and a
+        single primary link back to workspace home; `g h` from this
+        page also navigates home.
+      - **Depends on:** nothing.
+
+- [ ] **Empty-state copy in editorial style.** "No PRs yet", "no
+      issues yet", "no commits yet" — text-only, no illustrations.
+      - **Why:** Empty states are the first thing a new user sees;
+        they're free brand surface. Most products waste them with
+        generic clip-art. The forge's distinct-identity macro bet
+        leans on text-only editorial empty states (think New Yorker
+        not Notion).
+      - **Files:** new `frontend/src/components/EmptyState.vue`
+        taking `title`, `body`, `action` slots. Use across
+        `PullsQueue.vue` (no PRs), `IssuesList.vue` (no issues),
+        `EpicsList.vue` (no epics), `ActivityStream.vue` (no
+        events).
+      - **Acceptance:** each empty state shows a short editorial
+        sentence + one shortcut-hinted action chip ("Press `c` to
+        create one"). No grey illustration. No "It's quiet here…"
+        pseudo-friendly tone.
+      - **Depends on:** nothing.
 
 ## Kernel work needed for the UI to be honest
 
-- [ ] Per-PR `gitDiff(headRef, baseRef)` GraphQL field on `repositoryByPath`
-      so `PullsDetail.vue` can stop using the demo `main~1..main` patch and
-      show the actual change for the displayed pull.
-- [ ] `viewer { id, displayName }` resolver wired to real auth so PR
-      `authorRef === viewer.id` works in `PullsYourWork.vue` and so the
-      activity stream can label "you" vs "them".
-- [ ] `repositoryByPath.openIssues` count parallel to `openPullRequests` so
-      the Issues nav badge can be populated.
+- [ ] **Per-PR `gitDiff(headRef, baseRef)` field on `repositoryByPath`.**
+      So `PullsDetail.vue` can stop using the demo patch.
+      - **Why:** Without this, the entire diff-first PR review macro
+        bet is dishonest — every PR shows the same three files. This
+        is the single highest-priority kernel field.
+      - **Files:** `crates/server/src/main.rs::repositoryByPath`
+        resolver. Implement via `git2`'s `Repository::diff_tree_to_
+        tree(base_tree, head_tree, opts)` followed by
+        `Diff::print(DiffFormat::Patch, …)` collecting into a string.
+        Cache on `(repo_id, head_oid, base_oid)` since refs may
+        move but the OIDs are stable; LRU of ~64 entries should
+        cover an active session.
+      - **Acceptance:** GraphQL `repositoryByPath { gitDiff(headRef:
+        "...", baseRef: "...") }` returns unified-diff text;
+        identical to `git diff <base>..<head>` run against the bare
+        repo; nullable when refs don't resolve; rejects refs that
+        aren't in the repo (don't accept arbitrary OIDs from
+        clients without a check).
+      - **Depends on:** nothing else; unblocks PR detail diff and
+        the diff-first macro bet.
+
+- [ ] **`viewer { id, displayName, urn }` resolver wired to real auth.**
+      So `authorRef === viewer.id` and "you" labels work.
+      - **Why:** Today everything renders as "anonymous" — no way to
+        scope queries by viewer, no way to label PRs as "yours" in
+        the activity stream, no way to filter the inbox to "for me".
+        Per the auth feedback memory's spirit (CUE derives, Rust
+        does not), the viewer URN should come from the auth layer
+        and propagate via context, not be pattern-matched from
+        request headers in business code.
+      - **Files:** `crates/server/src/main.rs` viewer resolver. Until
+        real auth lands, surface the configured dev identity from
+        `comtrya.cue` workspace block (`workspace.devViewer:
+        comtrya://user/rawkode`) so dogfood works end-to-end. Then
+        gate behind real auth when it arrives.
+      - **Acceptance:** GraphQL `{ viewer { id, displayName, urn } }`
+        returns the dev identity; `PullsYourWork.vue` filters PRs
+        by `authorRef === viewer.urn`; `ActivityStream.vue` renders
+        "you opened #43" instead of "rawkode opened #43" for own
+        actions.
+      - **Depends on:** nothing else; unblocks Your-work rails,
+        author:me query syntax, inbox.
+
+- [ ] **`repositoryByPath.openIssues` count parallel to
+      `openPullRequests`.** So the Issues nav badge can be
+      populated.
+      - **Why:** Sidebar PR badge ships, issues badge doesn't —
+        asymmetric and confusing.
+      - **Files:** `crates/server/src/main.rs::build_repository_
+        summary` (the same function that fills `openPullRequests`).
+        Source the count via the existing cross-call to
+        `ext_issues/issues.list-issues` filtered to OPEN, just like
+        `ext_pull_requests` is read for PR counts.
+      - **Acceptance:** GraphQL `repositoryByPath { openIssues }` and
+        `repositories { openIssues }` both resolve as `u64`;
+        sidebar badge populates; numbers match
+        `list-issues({state: "OPEN"})` output.
+      - **Depends on:** nothing.
+
+- [ ] **`workspace.gitOrigin` resolver.** For the clone-URL
+      affordance.
+      - **Why:** Hard-coding `git@host:path.git` in the UI bakes
+        deployment details into the frontend. The kernel knows the
+        host (it's serving the git protocol).
+      - **Files:** `crates/server/src/main.rs` workspace resolver;
+        read from a kernel `comtrya.cue` workspace-level block
+        (`workspace.gitOrigin: "git@forge.example:%s.git"` with
+        `%s` for the path). Per "CUE derives, Rust does not" — this
+        is config, not derived.
+      - **Acceptance:** GraphQL `{ workspace { gitOrigin } }`
+        returns the format string; `RepoHome.vue` interpolates the
+        path into it for the clone command. Honours absent config
+        with `localhost:<port>` fallback for dev.
+      - **Depends on:** nothing.
+
+- [ ] **`workspace.events(before, limit)` cursor for the activity
+      stream.** Today only the bootstrap `workspace.events` is
+      available.
+      - **Why:** Without pagination, the activity feed can only
+        show the live tail. Inbox / what-changed and "load older"
+        both need a cursor.
+      - **Files:** `crates/server/src/main.rs` events resolver.
+        Backed by event-id ordering already used by SSE.
+      - **Acceptance:** `workspace.events(before: "evt_…", limit:
+        50)` returns the 50 events older than the cursor; pairs
+        with the existing live stream so a UI can hydrate
+        history + tail without gaps.
+      - **Depends on:** nothing.
+
+- [ ] **`refs(prefix)` resolver on `repositoryByPath`.** Used by
+      both Create-PR form and code-browser ref switcher.
+      - **Why:** Two surfaces need ref autocomplete; ship once.
+      - **Files:** `crates/server/src/main.rs::repositoryByPath`.
+        Wraps `git for-each-ref refs/heads/<prefix>*` and
+        `refs/tags/<prefix>*`. Limit results to ~50.
+      - **Acceptance:** `repositoryByPath { refs(prefix: "feat") }`
+        returns matching ref names with `kind: "branch" | "tag"`.
+      - **Depends on:** nothing.
+
+- [ ] **`repositoryByPath.lastCommit` resolver.** For the working-
+      copy panel.
+      - **Why:** Repo home needs `${shortSha} · ${author} · ${age}
+        · ${subject}`; today the UI fakes this from arbitrary
+        sources.
+      - **Files:** `crates/server/src/main.rs::repositoryByPath`.
+        `git log -1 default-branch` via `git2`. Author URN
+        resolved through the existing `classifyAuthor` URN scheme.
+      - **Acceptance:** `repositoryByPath { lastCommit { sha,
+        shortSha, author { urn, displayName }, message,
+        committedAt } }` resolves; matches CLI `git log -1`.
+      - **Depends on:** nothing.
 
 ## DX (developer-of-the-forge experience)
 
-- [ ] `start.sh --watch` mode that rebuilds extension UIs on file change
-      without restarting the host. Currently every change needs `--reset`.
-- [ ] Surface extension load errors in the UI (`/instance` health page) with
-      the failing manifest path and the validation message.
-- [ ] Document the widget contribution contract in a single page under
-      `docs/extensions/widgets.md` with a minimal copy-pasteable example.
-- [ ] `CONTRIBUTING.md` for the v3 branch covering build/test commands.
+- [ ] **`start.sh --watch` mode.** Rebuilds extension UIs on file
+      change without restarting the host.
+      - **Why:** Today the inner loop is "edit → ./start.sh
+        --reset → reload" which takes 10-15 seconds and resets
+        seed data. A real watch mode shrinks that to "edit → save
+        → reload" and preserves dogfood state. Compounds across
+        every other iteration.
+      - **Files:** `start.sh`. The kernel already serves rebuilt
+        extension bundles from disk; the missing piece is a
+        watcher that runs `bun run build` on each extension when
+        its sources change. **Use `chokidar-cli` or `bun --watch`**
+        — don't roll a watcher. Each extension's manifest must be
+        re-read on bundle change so integrity hashes update.
+      - **Acceptance:** `./start.sh --watch` starts the host once,
+        then on a file save under `extensions/first-party/<ext>/
+        ui/src/` rebuilds that one extension in ~1s; reloading
+        the browser shows the new bundle without the manifest's
+        integrity hash blocking. Seed data preserved (no
+        `--reset`).
+      - **Depends on:** kernel must tolerate manifest hash
+        changes mid-session (probably already does — verify).
+
+- [ ] **Surface extension load errors in the UI.** On `/instance`
+      health page with the failing manifest path and validation
+      message.
+      - **Why:** Today an invalid manifest fails silently in the
+        browser console. New extension authors waste hours on
+        this. The kernel already has the validation result —
+        surface it.
+      - **Files:** `frontend/src/routes/InstanceHealth.vue` (the
+        page already exists). Kernel resolver
+        `instance.extensionLoadResults` returning `{ id, status,
+        error?, manifestPath }[]`.
+      - **Acceptance:** every loaded extension renders one row
+        with green/red status; failed rows show the manifest path
+        and the error message; copy button on the error message;
+        live-reloads when an extension is rebuilt successfully
+        (subscribe to a kernel `dev.comtrya.extension.{loaded,
+        failed}` topic).
+      - **Depends on:** nothing.
+
+- [ ] **Widget contribution contract docs.** Single page under
+      `docs/extensions/widgets.md` with a minimal copy-paste
+      example.
+      - **Why:** External-extension authoring is the long-term
+        story; without docs the contract drifts and only the
+        first-party extensions know how to declare slots.
+      - **Files:** new `docs/extensions/widgets.md` written as
+        an MDX `spec` doc-type so it can also be surfaced via
+        `ext_docs` in the dogfood repo. Cover: manifest `slots`
+        block, slot context shape (`projectName`, `repoSegments`,
+        etc.), customElement vs route mount, allowedCrossCalls,
+        cueSchemas. Pull a real example from `ext_issues` or
+        `ext_docs`.
+      - **Acceptance:** copy-paste from the doc gives a working
+        widget that mounts on the workspace home. Linked from
+        `README.md` and from the `/instance` page (a "writing an
+        extension" hint).
+      - **Depends on:** nothing.
+
+- [ ] **`CONTRIBUTING.md` for the v3 branch.** Build/test commands,
+      common gotchas, the merge-reactor invariants.
+      - **Why:** New contributors (human or agent) re-derive the
+        build commands every time. Documenting once costs
+        nothing and saves the next ten contributors an hour
+        each.
+      - **Files:** new `CONTRIBUTING.md` at repo root. Covers:
+        prerequisites (Bun, Rust toolchain, cargo-component,
+        `cuelang`), `./start.sh --reset`, where the bare repos
+        live, where extension bundles end up, conventional
+        commits rule (already in `AGENTS.md`), the WIT bump
+        ritual.
+      - **Acceptance:** `CONTRIBUTING.md` exists; linked from
+        `README.md`; running every command in the doc on a fresh
+        clone produces a working dogfood.
+      - **Depends on:** nothing.
 
 ## Recently shipped
+
+### 2026-05-14 — iteration 26 (Typed `#Ref` family in kernel CUE)
+
+CUE schema gains a typed `#Ref` family. Owners / authors /
+assignees write `{kind, slug}` and CUE *derives* the canonical
+`comtrya://` URN via `ref: "comtrya://\(kind)/\(slug)"`.
+
+```cue
+owners: [
+    {kind: "team", slug: "platform-maintainers"},
+    {kind: "user", slug: "rawkode"},
+]
+```
+
+emits:
+
+```json
+"owners": [
+    { "kind": "team", "slug": "platform-maintainers", "ref": "comtrya://team/platform-maintainers" },
+    { "kind": "user", "slug": "rawkode",              "ref": "comtrya://user/rawkode" }
+]
+```
+
+Kernel does not synthesise the URN in Rust — CUE owns the
+derivation. Single closed type rather than a disjunction;
+disjunctions over `slug`-only types are non-disjoint and the
+URN template doesn't propagate through them.
+
+**Critical injection-location fix.** The kernel previously
+wrote the base schema to `<workdir>/_comtrya/00-kernel.cue`.
+CUE excludes `_`-prefixed directories from `./...` walks (Go-
+module convention), so subdirectory CUE files never saw the
+base schema and the URN template never reached them. Base +
+extension snippets now land at the workdir root
+(`00-comtrya-kernel.cue`, `01-comtrya-ext-<id>-<schema>.cue`)
+where cuengine's `./...` walk reaches them.
+
+**ext_docs** drops local `#Person`, uses kernel `#PrincipalRef`.
+
+**Per-Project CUE files** (kernel, frontend, ext_docs) moved
+from `owners: ["..."]` (strings) to typed `{kind, slug}`.
+
+**Shell UI** (`ProjectsPanel.vue`, `ProjectHome.vue`) reads
+`owners: ComtryaRef[]`. Renders `slug` as label, derives the
+author-kind glyph from the URN scheme, hover-reveals full URN.
+
+Verified end-to-end: live curl against
+`/r/comtrya/dogfood`-`comtryaConfig` returns three Projects
+with typed owner refs all carrying derived URNs.
+
+User feedback captured to durable memory
+(`feedback-cue-no-rust-derive`): tools that can do the work do
+the work, no Rust shortcuts.
 
 ### 2026-05-14 — iteration 25 (Repository switcher in palette)
 

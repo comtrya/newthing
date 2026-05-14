@@ -14,11 +14,22 @@ import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
 import { projectHref } from "../route-paths";
 
+/**
+ * Typed reference emitted by the kernel's `#ComtryaRef` family.
+ * Every owner / author / assignee carries both a `slug` (compact
+ * identifier the user typed in CUE) and a derived `ref` (canonical
+ * `comtrya://` URN the forge links against).
+ */
+interface ComtryaRef {
+  ref: string;
+  slug: string;
+}
+
 interface ComtryaProject {
   name?: string;
   root?: string;
   labels?: string[];
-  owners?: string[];
+  owners?: ComtryaRef[];
   declaredAt?: string;
   implicit?: boolean;
   [key: string]: unknown;
@@ -155,12 +166,25 @@ function summariseValue(value: unknown): string {
   return String(value);
 }
 
-function ownerLabel(owner: string): string {
-  return owner.replace(/^@/, "");
+function ownerLabel(owner: ComtryaRef): string {
+  return owner.slug;
 }
 
-function authorKindOfOwner(_owner: string): string {
-  return "human";
+/**
+ * Map the URN scheme to the author-classifier kinds used elsewhere
+ * in the UI (`human` / `agent` / `credential` / `bot` / `team`).
+ * Drives the chip's data-author-kind attribute.
+ */
+function authorKindOfOwner(owner: ComtryaRef): string {
+  const scheme = owner.ref?.match(/^comtrya:\/\/([a-z][a-z0-9_-]*)\//)?.[1];
+  switch (scheme) {
+    case "user": return "human";
+    case "agent": return "agent";
+    case "bot": return "bot";
+    case "credential": return "credential";
+    case "team": return "team";
+    default: return "unknown";
+  }
 }
 </script>
 
@@ -214,9 +238,10 @@ function authorKindOfOwner(_owner: string): string {
               <span class="owners-prefix">owners</span>
               <span
                 v-for="owner in project.owners"
-                :key="owner"
+                :key="owner.ref"
                 class="owner"
                 :data-author-kind="authorKindOfOwner(owner)"
+                :title="owner.ref"
               >
                 {{ ownerLabel(owner) }}
               </span>

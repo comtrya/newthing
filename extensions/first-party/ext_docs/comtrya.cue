@@ -3,7 +3,10 @@ package comtrya
 projects: ext_docs: {
 	root:   "."
 	labels: ["extension", "rust", "wasm", "typescript", "vue"]
-	owners: ["platform-maintainers"]
+
+	owners: [
+		{kind: "team", slug: "platform-maintainers"},
+	]
 
 	docs: {
 		rfc: {
@@ -12,6 +15,7 @@ projects: ext_docs: {
 			properties: {
 				title:  "string"
 				status: "string"
+				author: "principal-ref"
 			}
 		}
 	}

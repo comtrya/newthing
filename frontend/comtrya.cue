@@ -3,7 +3,11 @@ package comtrya
 projects: frontend: {
 	root:   "."
 	labels: ["shell", "typescript", "vue"]
-	owners: ["frontend-maintainers"]
+
+	owners: [
+		{kind: "team", slug: "frontend-maintainers"},
+		{kind: "user", slug: "rawkode"},
+	]
 
 	docs: {
 		prd: {
@@ -12,7 +16,7 @@ projects: frontend: {
 			properties: {
 				title:  "string"
 				status: "string"
-				owner:  "string"
+				owner:  "principal-ref"
 			}
 		}
 	}

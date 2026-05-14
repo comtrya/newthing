@@ -80,6 +80,23 @@ files and behavior changed.
 - Never use `npm`, `yarn`, or `pnpm` for installs, scripts, or CI.
 - Use `bun` and `bunx` exclusively for JavaScript and TypeScript work.
 
+## UI Verification Hard Rule
+
+- Every change that affects rendered UI — shell components, extension UI
+  bundles, styles, routing, keyboard shortcuts, slot mounts — must be
+  verified end-to-end in a real browser via the Chrome MCP tools before
+  the work is reported as complete or committed.
+- Verification means: load the affected route against a running
+  `./start.sh` instance, exercise the interaction (click, type, shortcut),
+  read the DOM / console / network as needed, and confirm both the
+  visual result and the behavioural result match the intent.
+- Typecheck and bundle-build success are necessary but not sufficient.
+  "Identifier appears in the bundle" does not prove the UI works.
+- If Chrome MCP is unavailable in the session, do not skip verification —
+  state the blocker explicitly, leave the change unmerged, and resume
+  verification when the extension reconnects. Never claim a UI change is
+  done based on data-path or bundle inspection alone.
+
 ## Clippy Hard Rule
 
 - Local and CI clippy checks must run with `-D warnings`; warnings are errors.

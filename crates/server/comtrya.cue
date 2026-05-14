@@ -3,7 +3,13 @@ package comtrya
 projects: kernel: {
 	root:   "."
 	labels: ["kernel", "rust", "wasmtime", "graphql"]
-	owners: ["platform-maintainers"]
+
+	// Typed owners — each entry's `kind` discriminator picks the
+	// canonical URN scheme; the kernel derives `ref` from `slug`.
+	owners: [
+		{kind: "team", slug: "platform-maintainers"},
+		{kind: "user", slug: "rawkode"},
+	]
 
 	docs: {
 		adr: {
@@ -14,7 +20,10 @@ projects: kernel: {
 				title:  "string"
 				status: "string"
 				date:   "string"
-				author: {ref: "string", name: "string"}
+				// Author is a typed principal ref. Doc-type properties
+				// declare the *expected shape*; ext_docs' schema
+				// validates front-matter values against it.
+				author: "principal-ref"
 			}
 		}
 		spec: {
@@ -22,7 +31,7 @@ projects: kernel: {
 			label: "Kernel Specs"
 			properties: {
 				title:  "string"
-				owner:  "string"
+				owner:  "principal-ref"
 				status: "string"
 			}
 		}
