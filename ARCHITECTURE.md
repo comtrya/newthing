@@ -78,10 +78,29 @@ loaded through the SDK registry.
 
 Route ownership:
 
-- `/`: workspace homepage.
-- `/r/<group>/<...>/<repo>`: repository dashboard.
-- `/x/<prefix>/<...>`: extension-owned pages.
+- `/`: workspace homepage (shell-owned).
+- `/r/<group>/<...>/<repo>`: repository dashboard (shell-owned). Renders
+  `repository.main` and `repository.sidebar` slots filled by widgets.
+- `/x/<prefix>/<...>`: extension-owned pages. Extensions own this
+  namespace and nothing else; `buildExtensionUrl` is the only sanctioned
+  URL constructor and rejects anything outside `/x/<routePrefix>/`.
 - `/new`, `/instance`, `/settings`, `/health`: shell-owned operational pages.
+
+The shell does not own any extension-specific routes (e.g. there is no
+shell-owned `/r/.../issues` — `/x/issues/...` is the only entry point;
+a redirect rule covers links from earlier releases).
+
+## Slot model
+
+Slots are generic regions the shell defines (`repository.main`,
+`repository.sidebar`, `home.your-work`, etc.). Extensions publish widgets
+through `host.registerWidget({ defaultSlot, defaultPriority, ... })`.
+
+A persisted user layout (per-user, per-repository) can override widget
+placement, priority, or hide a widget. The layout currently lives in
+`localStorage` (`frontend/src/user-layout.ts`); the shape matches what a
+federated GraphQL mutation will accept, so swapping the persistence
+layer is a single function change.
 
 ## Extension package layout
 
