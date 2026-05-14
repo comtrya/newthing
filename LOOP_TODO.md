@@ -1189,6 +1189,31 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-14 — iteration 27 (Open-issues badge on Issues nav)
+
+Mirrors the existing open-PR badge on the Pull-requests nav item.
+`App.vue` queries `ext_issues/list-issues` for the workspace at
+boot, counts entries whose state is OPEN or REOPENED, and exposes
+`openIssuesTotal` as a ref. The Issues nav item picks it up in
+the same `badge?` slot the PR nav uses, and SSE subscriptions to
+`dev.comtrya.issues.{opened,closed,reopened}` keep the count
+live without a reload.
+
+- Same shape as iteration-25's repo switcher — one fetch at
+  boot, signature-free counting (we only need the total), live
+  refresh on the three relevant SSE topics.
+- Unsubscribers tracked in `issueUnsubscribers` and torn down
+  on `onUnmounted` alongside the existing live-event stream.
+- Live verified: workspace currently shows 7 open issues, the
+  badge will render `7` next to the Issues nav item.
+
+The corresponding TODO in Quick wins ("Surface open-issues count
+next to the Issues nav item — needs an `openIssues` field on the
+workspace summary") was actually solvable without a kernel
+change: the existing `list-issues` op carries enough state for a
+client-side count. Kernel-side aggregation can come later if/when
+the count needs to be authoritative at scale.
+
 ### 2026-05-14 — iteration 26 (Typed `#Ref` family in kernel CUE)
 
 CUE schema gains a typed `#Ref` family. Owners / authors /

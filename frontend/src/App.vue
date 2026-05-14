@@ -1,9 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
+import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
+
+const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+
+interface IssueLite {
+  id?: string;
+  state?: string;
+}
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
@@ -47,6 +54,16 @@ const repositoryWord = computed(() =>
   repositoryCount.value === 1 ? "repository" : "repositories",
 );
 
+/**
+ * Workspace-wide open-issue count. Hydrated once at boot via the
+ * ext_issues list-issues op, then kept live by subscribing to the
+ * SSE topics that mutate it. Surfaces as a badge on the Issues nav
+ * item (mirroring the PR badge driven by `openPullRequests` on the
+ * workspace repository summary).
+ */
+const openIssuesTotal = ref(0);
+const issueUnsubscribers: Array<() => void> = [];
+
 const navItems = computed(() => {
   const items: Array<{
     to: string;
@@ -75,6 +92,7 @@ const navItems = computed(() => {
     to: "/x/issues/",
     number: "03",
     label: "Issues",
+    badge: openIssuesTotal.value > 0 ? String(openIssuesTotal.value) : undefined,
   });
   items.push({
     to: "/x/pulls/",
@@ -89,8 +107,37 @@ const navItems = computed(() => {
 
 const shortcutsVisible = ref(false);
 
+async function refreshOpenIssuesTotal(): Promise<void> {
+  const result = await invokeOp<IssueLite[]>(
+    "ext_issues",
+    "issues",
+    "list-issues",
+    { repository: WORKSPACE_URI, limit: 1024 },
+  );
+  if (!result.ok) return;
+  const issues = Array.isArray(result.value) ? result.value : [];
+  openIssuesTotal.value = issues.filter((i) => {
+    const state = (i.state ?? "").toUpperCase();
+    return state === "OPEN" || state === "REOPENED";
+  }).length;
+}
+
 onMounted(() => {
   void loadShellSummary();
+  void refreshOpenIssuesTotal();
+  for (const type of [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened",
+  ]) {
+    issueUnsubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void refreshOpenIssuesTotal(),
+        onError: () => {},
+      }),
+    );
+  }
   const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
   if (!token) {
     liveState.value = "idle";
@@ -113,6 +160,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   unsubscribeLiveEvents?.();
+  for (const off of issueUnsubscribers) off();
+  issueUnsubscribers.length = 0;
 });
 
 useShortcuts({
