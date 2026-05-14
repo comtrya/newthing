@@ -1189,6 +1189,38 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 31 (Sticky breadcrumb)
+
+Long-pending TODO from Quick wins — every route now starts with
+a sticky breadcrumb under the topbar.
+
+`components/Breadcrumb.vue` reads `useRoute()` and decomposes
+the path into `workspace › repo › project › section › item`
+crumbs. Each crumb except the last is a `<RouterLink>`; the
+last is bold + unlinked + represents the current location.
+
+Path shapes handled:
+- `/` → `Workspace`
+- `/r/<groups>/<repo>` → `Workspace › <repo path>` (groups
+  rolled into one crumb so deeply nested owners don't blow out
+  the strip).
+- `/r/<groups>/<repo>/p/<project>` → `Workspace › <repo> ›
+  <project>`
+- `/x/<prefix>/<rest...>` → `Workspace › <Issues|Pull requests|
+  Epics|Docs|Checks|prefix> › <rest segments...>`
+- `/new`, `/instance`, `/settings`, `/health` → labelled
+  single-segment shell routes.
+
+Styling: monospace, sticky to viewport top so the crumbs stay
+in view even when the page scrolls past the topbar (which is
+non-sticky). Negative top margin pulls the bar tight under the
+topbar's bottom rule. `›` separator in `--ink-fainter`.
+
+Slotted at the top of `<main class="page">` in `App.vue` so
+every route picks it up automatically. No per-route wiring.
+
+Net change: 1 new component + 2-line App.vue mount.
+
 ### 2026-05-14 — iteration 30 (Project home — switcher + editorial chip row)
 
 Applies the iteration-28 RepoHome cleanup to ProjectHome, plus
