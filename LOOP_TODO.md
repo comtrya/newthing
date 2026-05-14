@@ -1189,6 +1189,38 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-14 — iteration 30 (Project home — switcher + editorial chip row)
+
+Applies the iteration-28 RepoHome cleanup to ProjectHome, plus
+adds an inline Project switcher so navigating between sibling
+projects in a monorepo is one click instead of a roundtrip
+through the repo home's Projects panel.
+
+`ProjectHome.vue` header now renders:
+- Overline `<repo path> · project` (the repo link stays clickable).
+- Display title at 56px (was 72px; consistent with RepoHome).
+- **New: `<nav class="project-switcher" role="tablist">`** — one
+  `<RouterLink class="project-tab">` per sibling Project in the
+  repo's `comtryaConfig.projects`. Current project tab is
+  `.active` (inverted ink/paper). `◇` glyph mirrors the chip
+  in the IssuesList / EpicCard project tags. Only renders when
+  the repo has more than one declared Project, so single-Project
+  repos don't see a stray nav.
+- **Editorial chip row** replacing the three `summary-grid` boxes
+  (Root, Labels, Owners). Each declared label and each typed
+  owner ref renders as its own chip; `tone-owner` chips show the
+  owner's `kind` discriminator as the chip's small label
+  (`team`, `user`, …) and the full URN as the `title` attribute
+  on hover.
+
+Hits the same redundancy mandate as iteration 28 — three labelled
+boxes carrying one value each, plus a buried switcher, collapse
+to one editorial header strip with the switcher up front.
+
+Net change: -3 summary boxes, +1 inline switcher, +1 chip row.
+Bundle ships all five new identifier prefixes (`project-switcher`,
+`project-tab`, `project-chip`, `tone-label`, `tone-owner`).
+
 ### 2026-05-14 — iteration 29 (Workspace home — repo-list keyboard nav)
 
 WorkspaceHome.vue picks up the same j/k/Enter pattern that

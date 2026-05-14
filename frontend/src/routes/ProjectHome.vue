@@ -19,8 +19,12 @@ import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
 
 interface ComtryaRef {
+  /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
   ref: string;
+  /** Compact identifier the user typed in CUE. */
   slug: string;
+  /** Discriminator: "user" | "agent" | "bot" | "credential" | "team". */
+  kind?: string;
 }
 
 interface ComtryaProject {
@@ -267,29 +271,55 @@ watch(
 </script>
 
 <template>
-  <section class="page-header" data-smoke="project-home">
-    <div class="title-group">
-      <span class="overline">
-        <RouterLink :to="`/r/${repoPath}`">{{ repoPath }}</RouterLink>
-        · project
+  <header class="project-header" data-smoke="project-home">
+    <p class="overline">
+      <RouterLink :to="`/r/${repoPath}`">{{ repoPath }}</RouterLink>
+      · project
+    </p>
+    <h1>{{ props.project }}</h1>
+
+    <nav
+      v-if="projects.length > 1"
+      class="project-switcher"
+      role="tablist"
+      aria-label="Switch project"
+    >
+      <RouterLink
+        v-for="p in projects"
+        :key="p.name"
+        :to="`/r/${repoPath}/p/${p.name}`"
+        :class="['project-tab', { active: p.name === props.project }]"
+        :aria-selected="p.name === props.project"
+        role="tab"
+      >
+        <span class="tab-glyph">◇</span>{{ p.name }}
+      </RouterLink>
+    </nav>
+
+    <div v-if="project" class="project-chip-row" aria-label="Project at a glance">
+      <span class="project-chip">
+        <strong>{{ project.root || "." }}/</strong>
+        <span>root</span>
       </span>
-      <h1>{{ props.project }}</h1>
+      <span
+        v-for="label in (project.labels ?? [])"
+        :key="`label-${label}`"
+        class="project-chip tone-label"
+      >
+        <strong>{{ label }}</strong>
+        <span>label</span>
+      </span>
+      <span
+        v-for="owner in (project.owners ?? [])"
+        :key="`owner-${owner.ref}`"
+        class="project-chip tone-owner"
+        :title="owner.ref"
+      >
+        <strong>{{ owner.slug }}</strong>
+        <span>{{ owner.kind ?? 'owner' }}</span>
+      </span>
     </div>
-    <div class="summary-grid" aria-label="Project summary" v-if="project">
-      <div>
-        <span>Root</span>
-        <strong>{{ project.root || "<repo root>" }}/</strong>
-      </div>
-      <div>
-        <span>Labels</span>
-        <strong>{{ (project.labels ?? []).join(" · ") || "—" }}</strong>
-      </div>
-      <div>
-        <span>Owners</span>
-        <strong>{{ (project.owners ?? []).map((o) => o.slug).join(" · ") || "—" }}</strong>
-      </div>
-    </div>
-  </section>
+  </header>
 
   <section v-if="loadState !== 'ready'" class="repo-state" :data-state="loadState">
     <span v-if="loadState === 'loading'">Loading project context</span>
@@ -368,6 +398,125 @@ watch(
 </template>
 
 <style scoped>
+.project-header {
+  display: grid;
+  gap: 10px;
+  border-bottom: 2px solid var(--ink, #111);
+  padding-bottom: 18px;
+}
+
+.project-header .overline {
+  margin: 0;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #68645c);
+}
+
+.project-header .overline a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid currentColor;
+}
+
+.project-header h1 {
+  font-family: var(--display, system-ui);
+  font-size: 56px;
+  line-height: 0.95;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.project-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  padding-bottom: 10px;
+}
+
+.project-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  color: var(--ink-soft, #2c2b28);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+}
+
+.project-tab:hover {
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink, #111);
+}
+
+.project-tab.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-color: var(--ink, #111);
+}
+
+.project-tab.active .tab-glyph {
+  color: inherit;
+}
+
+.tab-glyph {
+  color: var(--ink-faint, #68645c);
+  font-size: 10px;
+}
+
+.project-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.project-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--ink-rule, var(--rule-light, #d8d1c4));
+  background: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
+
+.project-chip strong {
+  font-family: var(--mono, monospace);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink, #111);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-chip span {
+  color: var(--ink-faint, #68645c);
+  text-transform: lowercase;
+}
+
+.project-chip.tone-label strong {
+  color: var(--accent-teal, #087f6f);
+}
+
+.project-chip.tone-owner {
+  cursor: help;
+}
+
+.project-chip.tone-owner strong {
+  color: var(--accent-blue, #1d55a6);
+}
+
 .project-summary {
   display: flex;
   flex-wrap: wrap;

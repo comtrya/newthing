@@ -21,8 +21,12 @@ import { projectHref } from "../route-paths";
  * `comtrya://` URN the forge links against).
  */
 interface ComtryaRef {
+  /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
   ref: string;
+  /** Compact identifier the user typed in CUE. */
   slug: string;
+  /** Discriminator: "user" | "agent" | "bot" | "credential" | "team". */
+  kind?: string;
 }
 
 interface ComtryaProject {
