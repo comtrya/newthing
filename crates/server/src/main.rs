@@ -14,7 +14,7 @@ use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -4401,6 +4401,7 @@ fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>
         .unwrap_or("ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
     let workspace_ref = format!("comtrya://workspace/{workspace_id}");
     let mut records = Vec::new();
+    let mut seeded_repositories = BTreeSet::new();
 
     if let Some(workspace) = seed.get("workspace").cloned() {
         let id = document_id("workspace", &workspace, 0);
@@ -4416,16 +4417,29 @@ fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>
     }
     if let Some(repository) = seed.get("repository").cloned() {
         let id = document_id("repository", &repository, 0);
-        records.push(extension_document_record(
-            "core",
-            "repositories",
-            &id,
-            &repo_ref,
-            vec![repo_ref.clone(), workspace_ref],
+        seeded_repositories.insert(repository_seed_key(&repository, &id));
+        records.push(repository_seed_record(
             repository,
+            &id,
+            &workspace_ref,
             &generated_at,
         ));
     }
+    seed_array(seed, "repositories")
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, repository)| {
+            let id = document_id("repository", &repository, index + 1);
+            if !seeded_repositories.insert(repository_seed_key(&repository, &id)) {
+                return;
+            }
+            records.push(repository_seed_record(
+                repository,
+                &id,
+                &workspace_ref,
+                &generated_at,
+            ));
+        });
 
     seed_array(seed, "pullRequests")
         .into_iter()
@@ -4499,6 +4513,32 @@ fn seed_array(seed: &Value, key: &str) -> Vec<Value> {
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default()
+}
+
+fn repository_seed_record(
+    repository: Value,
+    id: &str,
+    workspace_ref: &str,
+    generated_at: &str,
+) -> ExtensionDocumentRecord {
+    let repository_ref = format!("comtrya://repository/{id}");
+    extension_document_record(
+        "core",
+        "repositories",
+        id,
+        &repository_ref,
+        vec![repository_ref.clone(), workspace_ref.to_string()],
+        repository,
+        generated_at,
+    )
+}
+
+fn repository_seed_key(repository: &Value, id: &str) -> String {
+    repository
+        .get("path")
+        .and_then(Value::as_str)
+        .map(|path| format!("path:{path}"))
+        .unwrap_or_else(|| format!("id:{id}"))
 }
 
 fn extension_document_record(
@@ -9141,6 +9181,44 @@ extensions: {
             "repositoryByPath should resolve for comtrya/comtrya"
         );
         assert_eq!(repo["name"], "comtrya");
+    }
+
+    #[tokio::test]
+    async fn graphql_workspace_repository_by_path_resolves_rawkode_smoke_repo() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($segments: [String!]!) { workspace { repositoryByPath(segments: $segments) { id name path groups } } }",
+                "variables": { "segments": ["rawkode", "rawkode"] }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let repo = &payload["data"]["workspace"]["repositoryByPath"];
+
+        assert!(
+            !repo.is_null(),
+            "repositoryByPath should resolve for rawkode/rawkode"
+        );
+        assert_eq!(repo["id"], "repo_01HV0K4XAVE2H6R5M8KJZ8R4W1");
+        assert_eq!(repo["name"], "rawkode");
+        assert_eq!(repo["path"], "rawkode/rawkode");
+        assert_eq!(repo["groups"], json!(["rawkode"]));
     }
 
     #[tokio::test]

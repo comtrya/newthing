@@ -9,6 +9,7 @@ import {
 import "../../src/styles.css";
 import "./styles.css";
 import App from "./App.vue";
+import { registerRepositoryShellSlots } from "./repository-slots";
 import { createShellRouter } from "./router";
 import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
 
@@ -16,6 +17,7 @@ assertWorkspaceSdkDepsLinked();
 defineResourceCardElement();
 defineInlineEditElement();
 defineSkeletonElement();
+registerRepositoryShellSlots();
 bindGlobalShortcut();
 const router = createShellRouter();
 registerCommand({

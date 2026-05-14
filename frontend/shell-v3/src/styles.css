@@ -235,6 +235,35 @@
   min-height: 110px;
 }
 
+.shell-v3 comtrya-repository-summary {
+  display: grid;
+  min-height: 110px;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.shell-v3 .repo-summary-row {
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.shell-v3 .repo-summary-row:last-child {
+  border-bottom: 0;
+}
+
+.shell-v3 .repo-summary-row span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.shell-v3 .repo-summary-row strong {
+  overflow-wrap: anywhere;
+}
+
 .shell-v3 .route-list code {
   color: var(--ink-faint);
   overflow-wrap: anywhere;
@@ -282,6 +311,7 @@
   .shell-v3 .route-list a,
   .shell-v3 .route-row,
   .shell-v3 .activity-list article,
+  .shell-v3 .repo-summary-row,
   .shell-v3 .slot-placeholder {
     grid-template-columns: 1fr;
     gap: 4px;

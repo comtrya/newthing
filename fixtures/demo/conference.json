@@ -17,6 +17,23 @@
     "description": "Self-hosted code forge kernel with extension-native product surfaces.",
     "defaultBranch": "main"
   },
+  "repositories": [
+    {
+      "id": "repo_01HV0K4XAVE2H6R5M8KJZ8R4W1",
+      "owner": "rawkode",
+      "name": "rawkode",
+      "path": "rawkode/rawkode",
+      "visibility": "PRIVATE",
+      "description": "Vue shell smoke repository for the rawkode workspace route.",
+      "defaultBranch": "main",
+      "language": "unknown",
+      "license": "unknown",
+      "stars": 0,
+      "forks": 0,
+      "watchers": 0,
+      "updated": "2026-05-11T00:00:00Z"
+    }
+  ],
   "branches": [
     { "name": "main", "commit": "9f8b7c6", "ahead": 0, "behind": 0 },
     { "name": "extensions/checks-dashboard", "commit": "2a39f81", "ahead": 12, "behind": 1 },

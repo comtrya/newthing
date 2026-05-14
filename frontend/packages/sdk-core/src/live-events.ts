@@ -20,6 +20,8 @@ export interface LiveEvent {
 
 export interface SubscribeOptions {
   baseUrl?: string;
+  /** Optional bearer token; otherwise the cookie session is used. */
+  token?: string;
   /** Filter by event type (literal match; globs are kernel-side). */
   type?: string;
   /** Filter by emitter extension. */
@@ -43,11 +45,11 @@ async function streamEvents(
   signal: AbortSignal,
 ): Promise<void> {
   try {
-    const session = await issueStreamSession(base, signal);
+    const session = await issueStreamSession(base, signal, opts.token);
     const url = `${base}/events?session=${encodeURIComponent(session)}`;
     const response = await fetch(url, {
       credentials: "include",
-      headers: { Accept: "text/event-stream" },
+      headers: liveEventHeaders(opts.token, { Accept: "text/event-stream" }),
       signal,
     });
     if (!response.ok) throw new Error(`event stream failed: HTTP ${response.status}`);
@@ -58,11 +60,15 @@ async function streamEvents(
   }
 }
 
-async function issueStreamSession(base: string, signal: AbortSignal): Promise<string> {
+async function issueStreamSession(
+  base: string,
+  signal: AbortSignal,
+  token?: string,
+): Promise<string> {
   const response = await fetch(`${base}/events/session`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: liveEventHeaders(token, { "Content-Type": "application/json" }),
     body: "{}",
     signal,
   });
@@ -74,6 +80,13 @@ async function issueStreamSession(base: string, signal: AbortSignal): Promise<st
     throw new Error(body.errors?.[0]?.message ?? "event stream session failed");
   }
   return body.session;
+}
+
+function liveEventHeaders(
+  token: string | undefined,
+  headers: Record<string, string>,
+): Record<string, string> {
+  return token ? { ...headers, Authorization: `Bearer ${token}` } : headers;
 }
 
 async function readEventStream(

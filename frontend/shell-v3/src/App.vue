@@ -3,10 +3,12 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import CommandPalette from "./components/CommandPalette.vue";
 
+const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
+
 const workspace = {
   name: "Comtrya",
   repositories: 1,
-  serverURL: "http://127.0.0.1:8080",
+  serverURL: "same-origin kernel proxy",
 };
 
 const navItems = [
@@ -21,7 +23,13 @@ const liveEvents = ref(0);
 let unsubscribeLiveEvents: (() => void) | undefined;
 
 onMounted(() => {
+  const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
+  if (!token) {
+    liveState.value = "idle";
+    return;
+  }
   unsubscribeLiveEvents = subscribeLiveEvents({
+    token,
     onEvent: () => {
       liveEvents.value += 1;
       liveState.value = "live";
