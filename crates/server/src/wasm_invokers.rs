@@ -115,6 +115,10 @@ struct OpenIssueInputJson {
     labels: Vec<String>,
     #[serde(default)]
     close_on_merge: Option<bool>,
+    /// Typed `comtrya://` URN assignees, pre-filled by the UI from
+    /// the Project's CUE `owners[]` (iteration 26 typed-ref family).
+    #[serde(default)]
+    assignees: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -375,6 +379,7 @@ pub fn dispatch_ext_issues(
                 project_name: parsed.project_name,
                 labels: parsed.labels,
                 close_on_merge: parsed.close_on_merge,
+                assignees: parsed.assignees,
             };
             let result = issues
                 .call_open_issue(&mut wasm_store, &wit_input)
@@ -1233,6 +1238,7 @@ fn issue_to_json(issue: &Issue) -> Value {
         "projectName": issue.project_name,
         "labels": issue.labels,
         "closeOnMerge": issue.close_on_merge,
+        "assignees": issue.assignees,
     })
 }
 

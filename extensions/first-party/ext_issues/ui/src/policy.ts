@@ -10,28 +10,42 @@ import { getGraphQLClient } from "@comtrya/sdk-core";
 export interface IssuesPolicy {
   defaultLabels: string[];
   closeOnMerge: boolean | null;
+  /**
+   * Canonical URNs of the Project's declared owners (typed `#Ref`
+   * family from iteration 26). The new-issue form pre-fills the
+   * assignee set with these so a `kernel` issue opens with
+   * `comtrya://team/platform-maintainers` + `comtrya://user/rawkode`
+   * already attached.
+   */
+  ownerRefs: string[];
 }
 
-export const EMPTY_POLICY: IssuesPolicy = { defaultLabels: [], closeOnMerge: null };
+export const EMPTY_POLICY: IssuesPolicy = {
+  defaultLabels: [],
+  closeOnMerge: null,
+  ownerRefs: [],
+};
+
+interface CueOwnerRef {
+  kind?: string;
+  slug?: string;
+  ref?: string;
+}
+
+interface CueProject {
+  name?: string;
+  issues?: { defaultLabels?: string[]; closeOnMerge?: boolean };
+  owners?: CueOwnerRef[];
+}
 
 interface IssuesPolicyConfig {
   workspace?: {
     repositoryByPath?: {
-      comtryaConfig?: {
-        projects?: Array<{
-          name?: string;
-          issues?: { defaultLabels?: string[]; closeOnMerge?: boolean };
-        }>;
-      } | null;
+      comtryaConfig?: { projects?: CueProject[] } | null;
     } | null;
   };
   repository?: {
-    comtryaConfig?: {
-      projects?: Array<{
-        name?: string;
-        issues?: { defaultLabels?: string[]; closeOnMerge?: boolean };
-      }>;
-    } | null;
+    comtryaConfig?: { projects?: CueProject[] } | null;
   };
 }
 
@@ -86,11 +100,15 @@ export async function resolveIssuesPolicy(
       ?? data.repository?.comtryaConfig
       ?? null;
     const project = (config?.projects ?? []).find((p) => p.name === projectName);
+    const ownerRefs = (project?.owners ?? [])
+      .map((owner) => owner?.ref)
+      .filter((ref): ref is string => typeof ref === "string" && ref.length > 0);
     return {
       defaultLabels: project?.issues?.defaultLabels ?? [],
       closeOnMerge: typeof project?.issues?.closeOnMerge === "boolean"
         ? project.issues.closeOnMerge
         : null,
+      ownerRefs,
     };
   } catch {
     return EMPTY_POLICY;

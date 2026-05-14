@@ -23,6 +23,12 @@ export interface Issue {
    * auto-close path. `null`/undefined keeps the historical default.
    */
   closeOnMerge?: boolean | null;
+  /**
+   * Typed `comtrya://` URN assignees, pre-filled by the new-issue form
+   * from the Project's CUE `owners[]` (iteration 26 typed-ref family).
+   * Each entry is `comtrya://{user,agent,bot,credential,team}/<slug>`.
+   */
+  assignees?: string[] | null;
 }
 
 export interface Relation {

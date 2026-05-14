@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.5;
+package comtrya:ext-issues@0.1.6;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -41,6 +41,15 @@ interface issues {
     // when a merged PR claims to close this issue. `None` keeps the
     // historical default (close).
     close-on-merge: option<bool>,
+    // 0.1.6 — typed assignee URNs. Each entry is a canonical
+    // `comtrya://{user,agent,bot,credential,team}/<slug>` ref
+    // matching the kernel's `#Ref` family (introduced in iteration
+    // 26). The new-issue form pre-fills assignees from the
+    // Project's `owners` declared in `package comtrya` CUE, so
+    // opening an issue against a Project routes it to the
+    // Project's owners by default; the contributor can override.
+    // The Projects spine + typed refs converge here.
+    assignees: list<uri>,
   }
 
   variant issue-state {
@@ -69,6 +78,10 @@ interface issues {
     // 0.1.5 — initial closeOnMerge policy. Pre-filled by the new-issue
     // form from the Project's `issues.closeOnMerge` CUE config.
     close-on-merge: option<bool>,
+    // 0.1.6 — initial assignees. The new-issue form pre-fills from
+    // the Project's CUE `owners[]` (the typed `#Ref` URNs). The
+    // user can edit before submitting.
+    assignees: list<uri>,
   }
 
   record close-issue-input {

@@ -33,6 +33,7 @@ interface WitIssue {
   projectName?: string | null;
   labels?: string[] | null;
   closeOnMerge?: boolean | null;
+  assignees?: string[] | null;
 }
 
 interface OpenIssueInput {
@@ -43,6 +44,7 @@ interface OpenIssueInput {
   projectName?: string | null;
   labels?: string[] | null;
   closeOnMerge?: boolean | null;
+  assignees?: string[] | null;
 }
 
 function opValue<T>(result: OpResult<unknown>, label: string): T {
@@ -99,6 +101,7 @@ function normalizeIssue(value: WitIssue): Issue {
     closedAt: value.closedAt ?? null,
     projectName: value.projectName ?? null,
     closeOnMerge: value.closeOnMerge ?? null,
+    assignees: value.assignees ?? [],
   };
 }
 
@@ -146,6 +149,7 @@ export async function openIssue(input: OpenIssueInput): Promise<Issue> {
     projectName: input.projectName ?? null,
     labels: input.labels ?? [],
     closeOnMerge: input.closeOnMerge ?? null,
+    assignees: input.assignees ?? [],
   });
   return normalizeIssue(opValue<WitIssue>(result, "openIssue"));
 }

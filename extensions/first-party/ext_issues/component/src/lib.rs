@@ -75,6 +75,12 @@ struct StoredIssue {
     /// `close-issue`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     close_on_merge: Option<bool>,
+    /// Typed `comtrya://` URN assignees. Pre-filled from the
+    /// Project's `owners[]` CUE config at open time so a kernel
+    /// issue routes to platform-maintainers + rawkode by default.
+    /// The contributor can override before submit.
+    #[serde(default)]
+    assignees: Vec<String>,
 }
 
 impl StoredIssue {
@@ -109,6 +115,7 @@ impl StoredIssue {
             project_name: self.project_name.clone(),
             labels: self.labels.clone(),
             close_on_merge: self.close_on_merge,
+            assignees: self.assignees.clone(),
         }
     }
 }
@@ -573,6 +580,21 @@ impl IssuesGuest for Component {
                 .filter(|s| seen.insert(s.clone()))
                 .collect()
         };
+        // Deduplicate assignees by URN. Each entry should look like
+        // `comtrya://{user,agent,bot,credential,team}/<slug>` (the
+        // kernel's `#Ref` shape from iteration 26). We don't reject
+        // malformed values — the UI is the gatekeeper — but we do
+        // trim + drop empties.
+        let assignees: Vec<String> = {
+            let mut seen = std::collections::BTreeSet::new();
+            input
+                .assignees
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .filter(|s| seen.insert(s.clone()))
+                .collect()
+        };
         let stored = StoredIssue {
             id: id.clone(),
             repository,
@@ -591,6 +613,7 @@ impl IssuesGuest for Component {
             project_name,
             labels,
             close_on_merge: input.close_on_merge,
+            assignees,
         };
         persist_new(&stored)?;
         let issue = stored.to_wit();

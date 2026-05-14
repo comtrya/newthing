@@ -54,7 +54,7 @@ const focused = ref(0);
 const quickAddTitle = ref("");
 const quickAddBusy = ref(false);
 const quickAddError = ref<string | null>(null);
-const quickAddPolicy = ref<IssuesPolicy>({ defaultLabels: [], closeOnMerge: null });
+const quickAddPolicy = ref<IssuesPolicy>({ defaultLabels: [], closeOnMerge: null, ownerRefs: [] });
 const quickAddPolicyResolved = ref(false);
 
 const issues = computed(() => {
@@ -106,7 +106,7 @@ const counts = computed(() => {
 function authorLabel(authorRef: string | null | undefined): {
   label: string;
   glyph: string;
-  kind: "human" | "agent" | "credential" | "bot" | "unknown";
+  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
 } {
   if (!authorRef) return { label: "unknown", glyph: "·", kind: "unknown" };
   const stripped = authorRef.replace(/^comtrya:\/\//, "");
@@ -115,6 +115,7 @@ function authorLabel(authorRef: string | null | undefined): {
   if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
   if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
   if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
+  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
   if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
   return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
 }
@@ -281,7 +282,7 @@ watch(filtered, (next) => {
 
 async function loadPolicy(): Promise<void> {
   if (!props.projectName) {
-    quickAddPolicy.value = { defaultLabels: [], closeOnMerge: null };
+    quickAddPolicy.value = { defaultLabels: [], closeOnMerge: null, ownerRefs: [] };
     quickAddPolicyResolved.value = true;
     return;
   }
@@ -337,6 +338,7 @@ async function submitQuickAdd(): Promise<void> {
       bodyMarkdown: "",
       labels: quickAddPolicy.value.defaultLabels,
       closeOnMerge: quickAddPolicy.value.closeOnMerge,
+      assignees: quickAddPolicy.value.ownerRefs,
     });
     // Optimistic-merge: prepend if not already present (server may
     // be slightly behind on cross-list reads).
@@ -422,6 +424,11 @@ async function submitQuickAdd(): Promise<void> {
         class="quick-add-chip tone-yellow"
         title="closeOnMerge=false — opt-out from PR auto-close reactor"
       >closeOnMerge · off</span>
+      <span
+        v-if="quickAddPolicy.ownerRefs.length > 0"
+        class="quick-add-chip tone-teal"
+        :title="`Assigned on create: ${quickAddPolicy.ownerRefs.join(', ')}`"
+      >→ {{ quickAddPolicy.ownerRefs.map((r) => r.split('/').pop()).join(' · ') }}</span>
       <span class="quick-add-hint">
         <kbd>↵</kbd> create · <kbd>esc</kbd> clear · <kbd>c</kbd> focus
       </span>
@@ -471,6 +478,16 @@ async function submitQuickAdd(): Promise<void> {
                 :key="label"
                 class="issue-label"
               >{{ label }}</span>
+              <span
+                v-for="ref in (issue.assignees ?? [])"
+                :key="`assignee-${ref}`"
+                class="issue-assignee"
+                :data-author-kind="authorLabel(ref).kind"
+                :title="ref"
+              >
+                <span class="author-glyph">{{ authorLabel(ref).glyph }}</span>
+                {{ authorLabel(ref).label }}
+              </span>
               <span
                 v-if="issue.authorRef"
                 class="issue-author"
@@ -875,6 +892,41 @@ async function submitQuickAdd(): Promise<void> {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/**
+ * Assignee chips. Mirror the author classifier glyphs/colours so
+ * an `agent` assignee reads as the same colour family as an
+ * `agent` author, but use a tighter / less prominent shape so a
+ * row with two assignees + an author doesn't overload the meta
+ * strip.
+ */
+.issue-assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 5px;
+  border: 1px dashed currentColor;
+  color: var(--ink-soft, #2c2b28);
+  cursor: help;
+}
+
+.issue-assignee .author-glyph {
+  width: 12px;
+  height: 12px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  border: 0;
+  color: inherit;
+}
+
+.issue-assignee[data-author-kind="agent"]      { color: #6b3fa0; }
+.issue-assignee[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.issue-assignee[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.issue-assignee[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
 
 .issues-row-age {
   font-family: var(--mono, monospace);

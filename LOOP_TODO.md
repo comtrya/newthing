@@ -1189,6 +1189,56 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 34 (Issue assignees — Projects spine ⟶ ownership routing)
+
+The strongest expression yet of "Projects are the spine + typed
+refs route work". A `kernel` issue now opens with
+`comtrya://team/platform-maintainers` and
+`comtrya://user/rawkode` pre-attached as assignees — pulled
+directly from the kernel Project's CUE `owners[]` (the typed
+`#Ref` family introduced in iteration 26).
+
+**WIT 0.1.6 — `ext_issues`.**
+- New `assignees: list<uri>` on both the `issue` record and
+  `open-issue-input` record. Each entry is a typed
+  `comtrya://{user,agent,bot,credential,team}/<slug>` URN
+  matching the kernel's `#Ref` family.
+- `StoredIssue.assignees: Vec<String>` persists across reads;
+  `open_issue` deduplicates + trims. `to_wit()` round-trips.
+
+**Kernel.**
+- `wasm_invokers::OpenIssueInputJson` accepts `assignees`;
+  forwarded into the WIT call. `issue_to_json()` emits it back
+  on every read.
+- Re-bindgen against the new WIT was clean — no compile errors
+  on the kernel side.
+
+**Frontend.**
+- `Issue.assignees: string[]` in types.ts; `normalizeIssue()`
+  round-trips. `api.ts::openIssue()` forwards.
+- `policy.ts::resolveIssuesPolicy()` extended to surface
+  `ownerRefs: string[]` — flattened from the CUE
+  `comtryaConfig.projects[].owners[].ref` URNs (the field CUE
+  derives via the iteration-26 template). New-issue quick-add
+  reads it and stamps the new issue with those assignees by
+  default.
+- `IssuesList` row meta-strip renders a tight chip per assignee
+  using the same classifier glyph palette as the author chip
+  (`✦` agent, `◆` bot, `⚙` credential, `◇` team, initial-letter
+  user). Dashed border + ink-soft default differentiates from
+  the author chip. The `team` kind was added to
+  `authorLabel()` alongside the other typed-ref shapes.
+- Quick-add inline form gains a teal chip showing
+  `→ <slug-1> · <slug-2>` so contributors see what's about to
+  be stamped before pressing Enter. Hover reveals the full URNs.
+
+End-to-end: open a quick-add issue from
+`/r/comtrya/dogfood/p/kernel`, the issue is persisted with
+`assignees: [comtrya://team/platform-maintainers,
+comtrya://user/rawkode]`, and the row renders both as
+classified chips on first paint. The Projects spine + typed
+refs now actually *route work*.
+
 ### 2026-05-15 — iteration 33 (Project-scoped activity stream)
 
 The Project home page (`/r/<repo>/p/<project>`) now has its own
