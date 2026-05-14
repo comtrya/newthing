@@ -6,18 +6,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "astro dev --host 127.0.0.1",
-    "dev:v3": "vite --config shell-v3/vite.config.ts --host 127.0.0.1",
-    "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
-    "typecheck:v3": "vue-tsc --noEmit -p shell-v3/tsconfig.json",
-    "build": "astro build",
-    "build:v3": "vite build --config shell-v3/vite.config.ts",
-    "preview:v3": "vite preview --config shell-v3/vite.config.ts",
-    "preview": "astro preview",
-    "test": "bun test src/extension-host-sdk src/shell"
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "bun test"
   },
   "dependencies": {
-    "@astrojs/node": "latest",
     "@comtrya/sdk-core": "workspace:*",
     "@comtrya/sdk-preact": "workspace:*",
     "@comtrya/sdk-vue": "workspace:*",
@@ -25,7 +20,6 @@
     "@vitejs/plugin-vue": "latest",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
-    "astro": "latest",
     "preact": "^10.0.0",
     "vite": "latest",
     "vue": "latest",

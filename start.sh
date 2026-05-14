@@ -863,7 +863,7 @@ log "building comtrya-server"
 cargo build -p comtrya-server
 
 log "building Vue shell"
-(cd frontend && "$BUN" run build:v3)
+(cd frontend && "$BUN" run build)
 
 log "checking production-testbed startup gates"
 "$SERVER_BIN" --check
@@ -883,7 +883,7 @@ wait_for_url "server readyz" "$BACKEND_URL/readyz" 200
   cd frontend
   COMTRYA_SERVER_URL="$BACKEND_URL" \
     PUBLIC_COMTRYA_OPERATOR_CODE="$PUBLIC_COMTRYA_OPERATOR_CODE" \
-    "$BUN" run preview:v3 -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
+    "$BUN" run preview -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 ) >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID="$!"
 

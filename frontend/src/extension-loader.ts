@@ -3,7 +3,7 @@ import {
   registerRoute,
   registerSlot,
 } from "@comtrya/sdk-core";
-import { parseManifest, type UiManifestV2 } from "../../src/extension-host-sdk/manifest";
+import { parseManifest, type UiManifestV2 } from "./extension-manifest";
 import {
   setExtensionRuntimeContext,
   type ExtensionRuntimeContext,

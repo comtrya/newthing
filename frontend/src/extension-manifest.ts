@@ -1,4 +1,21 @@
-import { KNOWN_SLOT_NAMES, type SlotName } from "./types";
+const KNOWN_SLOT_NAMES = new Set([
+  "home.your-work",
+  "home.your-issues",
+  "home.your-epics",
+  "home.repositories",
+  "home.activity",
+  "home.instance",
+  "workspace.home.top",
+  "workspace.home.left",
+  "workspace.home.center",
+  "workspace.home.right",
+  "repository.overview",
+  "repository.code",
+  "repository.checks",
+  "repository.issues",
+  "workspace.issues",
+  "workspace.epics",
+]);
 
 export interface UiManifestCardEntry {
   resourceKind: string;
@@ -50,7 +67,7 @@ export function parseManifest(input: unknown): UiManifestV2 {
     throw new Error("manifest must declare at least one of slots, routes, or cards in contributes");
   }
   for (const slot of m.contributes.slots) {
-    if (!KNOWN_SLOT_NAMES.has(slot as SlotName)) {
+    if (!KNOWN_SLOT_NAMES.has(slot)) {
       throw new Error(`unknown slot name "${slot}" in contributes.slots`);
     }
   }

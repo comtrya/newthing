@@ -74,7 +74,7 @@ async function loadShellSummary(): Promise<void> {
 </script>
 
 <template>
-  <div class="shell shell-v3">
+  <div class="shell shell-app">
     <header class="topbar" role="banner">
       <div class="brand">
         <div class="mark">C</div>

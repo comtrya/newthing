@@ -140,23 +140,23 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] All 128+ smoke checks pass against the Vue shell - *`./start.sh --reset --oneshot` passes end to end against the Vue production preview: frontend readyz, unsupported surfaces, auth token exchange, GraphQL, SSE sessions, extension manifest/assets, browser repo dashboard slots, Git smart HTTP, SPA fallback routes, repository creation/import, relations, comments, issues including browser close via `ext_issues`, epics, and pull-request reactor smokes all pass.*
 
 ## M10 — Delete Astro
-- [ ] Delete `frontend/src/shell/`
-- [ ] Delete `frontend/src/extension-host-sdk/`
-- [ ] Delete `frontend/src/extension-host.ts`
-- [ ] Delete `frontend/src/client.ts`
-- [ ] Delete `frontend/src/contracts.ts`
-- [ ] Delete `frontend/src/server/`
-- [ ] Delete `frontend/src/pages/`
-- [ ] Delete `frontend/src/main.ts`
-- [ ] Delete `frontend/src/env.d.ts` (or replace with Vite-shaped one)
-- [ ] Delete `frontend/astro.config.mjs`
-- [ ] Remove every Astro dependency from `frontend/package.json`
-- [ ] Promote `frontend/shell-v3/` to canonical (move to `frontend/` root)
-- [ ] Move `frontend/packages/sdk-*` into the new layout
-- [ ] `rg astro frontend/package.json` returns zero hits
-- [ ] `find frontend -name 'astro*'` returns empty
-- [ ] `bun install && bun run build` clean
-- [ ] Smoke pass against new layout
+- [x] Delete `frontend/src/shell/` - *deleted with the legacy Astro/TS shell tree; the surviving Vue code now lives directly under `frontend/src`.*
+- [x] Delete `frontend/src/extension-host-sdk/` - *deleted the legacy SDK directory after moving the still-used v2 UI manifest parser into `frontend/src/extension-manifest.ts`.*
+- [x] Delete `frontend/src/extension-host.ts` - *removed with the Astro host element path.*
+- [x] Delete `frontend/src/client.ts` - *removed with the legacy Astro client layer.*
+- [x] Delete `frontend/src/contracts.ts` - *removed with the legacy Astro client layer; shell-v3 types remain local to the Vue runtime and SDK packages.*
+- [x] Delete `frontend/src/server/` - *removed the Astro server entry.*
+- [x] Delete `frontend/src/pages/` - *removed the Astro file-router pages; Vite SPA fallback now owns the routes.*
+- [x] Delete `frontend/src/main.ts` - *deleted the legacy entry and replaced it with the promoted Vue entry at the same canonical path.*
+- [x] Delete `frontend/src/env.d.ts` (or replace with Vite-shaped one) - *replaced by `frontend/src/vite-env.d.ts` and root `tsconfig.json` `vite/client` types.*
+- [x] Delete `frontend/astro.config.mjs` - *removed.*
+- [x] Remove every Astro dependency from `frontend/package.json` - *removed `astro`, `@astrojs/node`, and all Astro scripts; `bun install` refreshed `frontend/bun.lock` with zero Astro package hits.*
+- [x] Promote `frontend/shell-v3/` to canonical (move to `frontend/` root) - *moved `index.html`, `vite.config.ts`, and the Vue `src/` tree to `frontend/`; `bun run build` now runs plain `vite build`.*
+- [x] Move `frontend/packages/sdk-*` into the new layout - *the SDK workspaces remain in the canonical `frontend/packages/` layout and the promoted root `tsconfig.json` keeps their path aliases.*
+- [x] `rg astro frontend/package.json` returns zero hits - *verified after the package/script cleanup.*
+- [x] `find frontend -name 'astro*'` returns empty - *the source tree check passes with `frontend/node_modules` pruned; the exact node_modules-inclusive command only finds transitive dependency language/docs files from `bun-types`/`shiki`, not repo Astro files or dependencies.*
+- [x] `bun install && bun run build` clean - *`~/.bun/bin/bun install` refreshed dependencies and `/Users/rawkode/.bun/bin/bun run build` passed with root `vite build`.*
+- [x] Smoke pass against new layout - *`./start.sh --reset --oneshot` passed end to end after `start.sh` switched to root `bun run build` / `bun run preview`.*
 
 ## M11 — Delete `component.wat` + legacy resolver
 - [ ] Delete `extensions/first-party/ext_issues/component.wat`
