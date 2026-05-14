@@ -1,0 +1,8 @@
+{
+  "name": "@comtrya/ext-pull-requests-ui",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "cd ../../../../frontend && bun ./node_modules/vite/bin/vite.js build --config ../extensions/first-party/ext_pull_requests/ui/vite.config.ts"
+  }
+}

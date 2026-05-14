@@ -6,12 +6,17 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_pull_requests/assets/index.js",
-    "entryIntegrity": "sha256-b2030f6743c40077441e5bfb6efe66b9bb1707144024f6beab46839aa16a453d",
+    "entryIntegrity": "sha256-3238548ebe0a4df0b286ecd81fd7eae28460c79159660dfc6e5fcd027be33f88",
     "styles": []
   },
-  "permissions": ["pull-requests.read"],
+  "permissions": [
+    "pull-requests.read"
+  ],
   "contributes": {
-    "slots": ["home.your-work", "repository.overview"],
+    "slots": [
+      "home.your-work",
+      "repository.overview"
+    ],
     "routes": true
   }
 }
