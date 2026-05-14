@@ -81,6 +81,92 @@
   padding-top: 28px;
 }
 
+.shell-v3 .home-actions {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1.5px solid var(--ink);
+  padding: 14px 0;
+}
+
+.shell-v3 .home-actions p,
+.shell-v3 .home-empty,
+.shell-v3 .home-repo-list p,
+.shell-v3 .home-repo-list span,
+.shell-v3 .home-actions a,
+.shell-v3 .home-repositories .panel-heading a {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.shell-v3 .home-actions p,
+.shell-v3 .home-empty,
+.shell-v3 .home-repo-list p,
+.shell-v3 .home-repo-list span {
+  color: var(--ink-faint);
+}
+
+.shell-v3 .home-actions a {
+  flex: 0 0 auto;
+  border: 1.5px solid var(--ink);
+  padding: 8px 14px;
+  color: inherit;
+  font-family: var(--display);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.shell-v3 .home-grid {
+  display: grid;
+  grid-template-columns: minmax(340px, 1fr) minmax(320px, 0.72fr);
+  gap: 28px;
+  padding-top: 28px;
+}
+
+.shell-v3 .home-spine,
+.shell-v3 .home-rail {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  min-width: 0;
+}
+
+.shell-v3 .home-repositories .panel-heading a {
+  color: var(--ink-faint);
+  text-decoration: none;
+}
+
+.shell-v3 .home-empty {
+  min-height: 72px;
+  display: block;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.shell-v3 .home-repo-list {
+  display: grid;
+}
+
+.shell-v3 .home-repo-list li {
+  min-height: 74px;
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  border-bottom: 1px solid var(--rule-light);
+  padding: 10px 0;
+}
+
+.shell-v3 .home-repo-list a {
+  color: inherit;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
 .shell-v3 .repo-state {
   margin-top: 16px;
   font-family: var(--mono);

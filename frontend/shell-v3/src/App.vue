@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import CommandPalette from "./components/CommandPalette.vue";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
-const workspace = {
-  name: "Comtrya",
-  repositories: 1,
+const workspace = ref({
+  name: "Workspace",
+  repositories: 0,
   serverURL: "same-origin kernel proxy",
-};
+});
+const repositoryWord = computed(() => workspace.value.repositories === 1 ? "repository" : "repositories");
 
 const navItems = [
   { to: "/", number: "01", label: "Home" },
@@ -23,6 +24,7 @@ const liveEvents = ref(0);
 let unsubscribeLiveEvents: (() => void) | undefined;
 
 onMounted(() => {
+  void loadShellSummary();
   const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
   if (!token) {
     liveState.value = "idle";
@@ -44,6 +46,29 @@ onMounted(() => {
 });
 
 onUnmounted(() => unsubscribeLiveEvents?.());
+
+async function loadShellSummary(): Promise<void> {
+  try {
+    const response = await fetch("/graphql", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "{ workspace { name repositories { id } } }",
+      }),
+    });
+    const envelope = (await response.json()) as {
+      data?: { workspace?: { name?: string; repositories?: Array<{ id: string }> } };
+    };
+    workspace.value = {
+      ...workspace.value,
+      name: envelope.data?.workspace?.name ?? workspace.value.name,
+      repositories: envelope.data?.workspace?.repositories?.length ?? workspace.value.repositories,
+    };
+  } catch {
+    // Keep the static fallback; route components surface their own load errors.
+  }
+}
 </script>
 
 <template>
@@ -73,7 +98,7 @@ onUnmounted(() => unsubscribeLiveEvents?.());
         <div class="workspace">
           <h4>Workspace</h4>
           <strong>{{ workspace.name }}</strong>
-          <div class="meta">{{ workspace.repositories }} repository / single-tenant</div>
+          <div class="meta">{{ workspace.repositories }} {{ repositoryWord }} / single-tenant</div>
         </div>
 
         <div>
