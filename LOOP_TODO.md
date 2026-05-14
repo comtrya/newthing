@@ -1189,6 +1189,43 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 35 (Assignee URL filter on IssuesList)
+
+Compounds iteration 32 (URL-persisted filter state) with
+iteration 34 (typed assignees): every assignee chip on every
+issue row is now a clickable filter button. Click `@rawkode` on
+any row, the queue narrows to issues where the assignee URN
+matches, and the URL becomes
+`/x/issues/?assignee=comtrya://user/rawkode` — a shareable
+"what's on rawkode's plate" view.
+
+- New `assigneeFilter` ref, URL-synced as `?assignee=<urn>` via
+  the existing `readUrlState` / `writeUrlState` pair. Only
+  canonical `comtrya://` URNs are accepted (guards against junk
+  in crafted URLs).
+- `filtered` computed extended with an assignee predicate —
+  keeps issues whose `assignees` array contains the active
+  filter URN.
+- Row assignee chips are now `<button>`s with `@click.prevent.stop`
+  so they toggle the filter without navigating to the issue
+  detail. Active filter chip gets inverted ink/paper colour for
+  visible state.
+- Controls-row gains a dedicated indicator strip when a filter
+  is active: `assigned to · <chip with classifier glyph> · clear ✕`.
+  Click `clear` to drop the filter (URL `assignee` param removed).
+
+Same shape works at every mount point — `/x/issues/?assignee=...`,
+`/r/comtrya/dogfood/p/kernel?assignee=...` (combined with project
+scope), and the workspace-home embed. Plus combines with state +
+search filters from iteration 32, so
+`/x/issues/?state=closed&q=auth&assignee=comtrya://user/rawkode`
+is a real URL.
+
+Surfaces routes-ownership directly in the planning UI: every
+issue page can now answer "show me everything owned by X" in
+one click. The Projects spine + typed refs + assignee filter
+close the routing loop visually.
+
 ### 2026-05-15 — iteration 34 (Issue assignees — Projects spine ⟶ ownership routing)
 
 The strongest expression yet of "Projects are the spine + typed

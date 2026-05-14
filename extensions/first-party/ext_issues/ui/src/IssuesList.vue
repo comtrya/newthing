@@ -50,6 +50,15 @@ const filter = ref<Filter>("OPEN");
 const search = ref("");
 const focused = ref(0);
 
+/**
+ * Active assignee filter — a canonical `comtrya://` URN or empty.
+ * Set by clicking an assignee chip on a row, cleared via the
+ * controls-row clear button. URL-synced as `?assignee=<urn>` so
+ * `/x/issues/?assignee=comtrya://user/rawkode` is a shareable
+ * "what's on rawkode's plate" view.
+ */
+const assigneeFilter = ref("");
+
 // Quick-add (Linear-style) — projectName scope auto-stamps policy from CUE.
 const quickAddTitle = ref("");
 const quickAddBusy = ref(false);
@@ -79,8 +88,13 @@ const matchesFilter = (issue: Issue, f: Filter): boolean => {
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
+  const assignee = assigneeFilter.value;
   return issues.value
     .filter((issue) => matchesFilter(issue, filter.value))
+    .filter((issue) => {
+      if (!assignee) return true;
+      return (issue.assignees ?? []).includes(assignee);
+    })
     .filter((issue) => {
       if (!q) return true;
       const author = (issue.authorRef ?? "").split("/").pop() ?? "";
@@ -88,6 +102,18 @@ const filtered = computed(() => {
       return haystack.includes(q);
     });
 });
+
+function toggleAssigneeFilter(ref: string): void {
+  if (assigneeFilter.value === ref) {
+    assigneeFilter.value = "";
+  } else {
+    assigneeFilter.value = ref;
+  }
+}
+
+function clearAssigneeFilter(): void {
+  assigneeFilter.value = "";
+}
 
 const quickAddPlaceholder = computed(() => {
   if (props.projectName) return `New issue in ${props.projectName}…`;
@@ -161,6 +187,10 @@ function readUrlState(): void {
   }
   const rawQ = params.get("q");
   if (rawQ !== null) search.value = rawQ;
+  const rawAssignee = params.get("assignee") ?? "";
+  // Only accept canonical comtrya:// URNs — guards against junk
+  // sneaking in via crafted URLs.
+  assigneeFilter.value = rawAssignee.startsWith("comtrya://") ? rawAssignee : "";
 }
 
 function writeUrlState(): void {
@@ -173,6 +203,8 @@ function writeUrlState(): void {
   const trimmed = search.value.trim();
   if (trimmed) params.set("q", trimmed);
   else params.delete("q");
+  if (assigneeFilter.value) params.set("assignee", assigneeFilter.value);
+  else params.delete("assignee");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -203,7 +235,7 @@ function onPopState(): void {
   });
 }
 
-watch([filter, search], () => {
+watch([filter, search, assigneeFilter], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -394,6 +426,24 @@ async function submitQuickAdd(): Promise<void> {
           <kbd>/</kbd>
         </label>
       </div>
+      <div
+        v-if="assigneeFilter"
+        class="issues-assignee-filter"
+        data-smoke="issues-assignee-filter"
+      >
+        <span class="prefix">assigned to</span>
+        <span
+          class="active-chip"
+          :data-author-kind="authorLabel(assigneeFilter).kind"
+          :title="assigneeFilter"
+        >
+          <span class="author-glyph">{{ authorLabel(assigneeFilter).glyph }}</span>
+          {{ authorLabel(assigneeFilter).label }}
+        </span>
+        <button type="button" class="clear" @click="clearAssigneeFilter" aria-label="Clear assignee filter">
+          clear ✕
+        </button>
+      </div>
     </header>
 
     <form
@@ -478,16 +528,19 @@ async function submitQuickAdd(): Promise<void> {
                 :key="label"
                 class="issue-label"
               >{{ label }}</span>
-              <span
+              <button
                 v-for="ref in (issue.assignees ?? [])"
                 :key="`assignee-${ref}`"
+                type="button"
                 class="issue-assignee"
+                :class="{ active: assigneeFilter === ref }"
                 :data-author-kind="authorLabel(ref).kind"
-                :title="ref"
+                :title="`${ref}\nClick to filter by this assignee`"
+                @click.prevent.stop="toggleAssigneeFilter(ref)"
               >
                 <span class="author-glyph">{{ authorLabel(ref).glyph }}</span>
                 {{ authorLabel(ref).label }}
-              </span>
+              </button>
               <span
                 v-if="issue.authorRef"
                 class="issue-author"
@@ -567,6 +620,62 @@ async function submitQuickAdd(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.issues-assignee-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.issues-assignee-filter .prefix {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.issues-assignee-filter .active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+}
+
+.issues-assignee-filter .active-chip[data-author-kind="agent"]      { color: #6b3fa0; }
+.issues-assignee-filter .active-chip[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.issues-assignee-filter .active-chip[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.issues-assignee-filter .active-chip[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+
+.issues-assignee-filter .author-glyph {
+  width: 12px;
+  height: 12px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.issues-assignee-filter .clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.issues-assignee-filter .clear:hover {
+  color: var(--ink, #111);
 }
 
 .issues-quick-add {
@@ -898,7 +1007,8 @@ async function submitQuickAdd(): Promise<void> {
  * an `agent` assignee reads as the same colour family as an
  * `agent` author, but use a tighter / less prominent shape so a
  * row with two assignees + an author doesn't overload the meta
- * strip.
+ * strip. The button is clickable — toggles the URL-persisted
+ * assignee filter (iteration 35).
  */
 .issue-assignee {
   display: inline-flex;
@@ -909,7 +1019,24 @@ async function submitQuickAdd(): Promise<void> {
   padding: 0 5px;
   border: 1px dashed currentColor;
   color: var(--ink-soft, #2c2b28);
-  cursor: help;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono, monospace);
+}
+
+.issue-assignee:hover {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.issue-assignee.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-color: var(--ink, #111);
+}
+
+.issue-assignee.active .author-glyph {
+  color: inherit;
 }
 
 .issue-assignee .author-glyph {
