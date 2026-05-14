@@ -7,6 +7,10 @@ export type SlotName =
   | "home.repositories"
   | "home.activity"
   | "home.instance"
+  | "workspace.home.top"
+  | "workspace.home.left"
+  | "workspace.home.center"
+  | "workspace.home.right"
   | "repository.overview"
   | "repository.code"
   | "repository.checks"
@@ -21,6 +25,10 @@ export const KNOWN_SLOT_NAMES: ReadonlySet<SlotName> = new Set([
   "home.repositories",
   "home.activity",
   "home.instance",
+  "workspace.home.top",
+  "workspace.home.left",
+  "workspace.home.center",
+  "workspace.home.right",
   "repository.overview",
   "repository.code",
   "repository.checks",

@@ -6,12 +6,25 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_workspace_home/assets/index.js",
-    "entryIntegrity": "sha256-fa68ae9eeaecddeb39bfa749e87f7f4534751eac4001bce31c8194d4c1b23a93",
+    "entryIntegrity": "sha256-1d7fcf3703b0ba6bb5039ce3f5b32ebf1a9210f7f51d002f7e0747c37408e71c",
     "styles": []
   },
-  "permissions": ["workspace.read", "events.read", "instance.admin"],
+  "permissions": [
+    "workspace.read",
+    "events.read",
+    "instance.admin"
+  ],
   "contributes": {
-    "slots": ["home.your-work", "home.repositories", "home.activity", "home.instance"],
+    "slots": [
+      "home.your-work",
+      "home.repositories",
+      "home.activity",
+      "home.instance",
+      "workspace.home.top",
+      "workspace.home.left",
+      "workspace.home.center",
+      "workspace.home.right"
+    ],
     "routes": false
   }
 }
