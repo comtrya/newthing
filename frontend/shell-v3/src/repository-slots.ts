@@ -1,4 +1,8 @@
 import { registerSlot } from "@comtrya/sdk-core";
+import {
+  CORE_CODE_BROWSER_ELEMENT,
+  defineCoreCodeBrowser,
+} from "./core-widgets/code-browser";
 
 const REPOSITORY_SUMMARY_TAG = "comtrya-repository-summary";
 
@@ -13,10 +17,17 @@ export type RepositoryHomeSlotName = (typeof repositoryHomeSlots)[number]["name"
 
 export function registerRepositoryShellSlots(): void {
   defineRepositorySummaryElement();
+  defineCoreCodeBrowser();
   registerSlot("repository.overview", {
     id: "core.repository-summary",
     extensionId: "core",
     element: REPOSITORY_SUMMARY_TAG,
+    priority: 0,
+  });
+  registerSlot("repository.code", {
+    id: "core.repository-code",
+    extensionId: "core",
+    element: CORE_CODE_BROWSER_ELEMENT,
     priority: 0,
   });
 }

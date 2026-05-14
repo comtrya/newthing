@@ -174,6 +174,111 @@
   color: var(--ink-faint);
 }
 
+.shell-v3 .repo-intro {
+  min-height: 58px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  border-bottom: 1.5px solid var(--ink);
+  padding: 12px 0;
+}
+
+.shell-v3 .repo-intro p {
+  flex: 1 1 420px;
+  color: var(--ink-faint);
+}
+
+.shell-v3 .repo-intro span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.shell-v3 .repo-slot-stack {
+  display: grid;
+  gap: 28px;
+  padding-top: 28px;
+}
+
+.shell-v3 .repo-code-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.shell-v3 .repo-code-header h2 {
+  font-size: 18px;
+}
+
+.shell-v3 .repo-code-header div,
+.shell-v3 .repo-code-message,
+.shell-v3 .repo-code-preview-meta,
+.shell-v3 .repo-code-tree button,
+.shell-v3 .repo-code-preview {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.shell-v3 .repo-code-header div,
+.shell-v3 .repo-code-message.muted,
+.shell-v3 .repo-code-preview-meta {
+  color: var(--ink-faint);
+}
+
+.shell-v3 .repo-code-message.error {
+  color: var(--accent-err);
+}
+
+.shell-v3 .repo-code-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr);
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 4px;
+}
+
+.shell-v3 .repo-code-tree,
+.shell-v3 .repo-code-preview {
+  height: 420px;
+  overflow: auto;
+  border: 1px solid var(--rule-light);
+}
+
+.shell-v3 .repo-code-tree {
+  display: grid;
+  align-content: start;
+}
+
+.shell-v3 .repo-code-tree button {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-bottom: 1px solid var(--rule-light);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.shell-v3 .repo-code-tree button:hover,
+.shell-v3 .repo-code-tree button:focus-visible {
+  background: var(--paper-tint);
+}
+
+.shell-v3 .repo-code-preview {
+  padding: 12px;
+}
+
+.shell-v3 .repo-code-preview pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .cmdk {
   color: var(--ink);
   cursor: pointer;

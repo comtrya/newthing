@@ -13,6 +13,11 @@ interface RepositoryIdentity {
   name: string;
   path: string;
   groups: string[];
+  description?: string | null;
+  defaultBranch?: string | null;
+  visibility?: string | null;
+  updated?: string | null;
+  openPullRequests?: number | null;
 }
 
 const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
@@ -22,6 +27,11 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       name
       path
       groups
+      description
+      defaultBranch
+      visibility
+      updated
+      openPullRequests
     }
   }
 }`;
@@ -29,14 +39,17 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
 const repository = ref<RepositoryIdentity | null>(null);
 const loadState = ref<"loading" | "ready" | "missing" | "error">("loading");
 const loadError = ref<string | null>(null);
-const ownerPath = computed(() => props.groups.join("/"));
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
 const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
+const displayPath = computed(() => repository.value?.path ?? repoPath.value);
+const repositoryDescription = computed(
+  () => repository.value?.description ?? "Repository details are loaded from the live kernel.",
+);
 
 const repoRows = computed(() => [
-  { label: "Owner path", value: ownerPath.value || "unknown" },
-  { label: "Repository", value: props.repo || "unknown" },
+  { label: "Path", value: displayPath.value || "unknown" },
+  { label: "Default branch", value: repository.value?.defaultBranch ?? "main" },
   { label: "Repository ID", value: repositoryId.value || "unknown" },
 ]);
 
@@ -96,10 +109,10 @@ async function fetchRepositoryIdentity(
 </script>
 
 <template>
-  <section class="page-header">
+  <section class="page-header" data-smoke="repo-dashboard">
     <div class="title-group">
       <span class="overline">Repository</span>
-      <h1>{{ repo }}</h1>
+      <h1>{{ displayPath }}</h1>
     </div>
     <div class="summary-grid" aria-label="Repository summary">
       <div v-for="row in repoRows" :key="row.label">
@@ -115,14 +128,34 @@ async function fetchRepositoryIdentity(
     <span v-else>{{ loadError }}</span>
   </section>
 
-  <section v-if="loadState === 'ready'" class="work-grid">
-    <SlotMount
-      v-for="slot in repositoryHomeSlots"
-      :key="slot.name"
-      :name="slot.name"
-      :label="slot.label"
-      :element-context="repoContext"
-      smoke-prefix="repo-slot"
-    />
-  </section>
+  <template v-if="loadState === 'ready'">
+    <section class="repo-intro">
+      <p>{{ repositoryDescription }}</p>
+      <span>{{ repository?.visibility ?? "PRIVATE" }}</span>
+      <span>{{ repository?.openPullRequests ?? 0 }} open PRs</span>
+      <span v-if="repository?.updated">{{ repository.updated }}</span>
+    </section>
+
+    <nav class="repo-tabs" aria-label="Repository tabs">
+      <a href="#overview" class="active">Overview</a>
+      <a href="#code">Code</a>
+      <a href="#issues">Issues</a>
+      <a href="#checks">Checks</a>
+    </nav>
+
+    <section class="repo-slot-stack">
+      <section
+        v-for="slot in repositoryHomeSlots"
+        :id="slot.name.split('.')[1] ?? slot.name"
+        :key="slot.name"
+      >
+        <SlotMount
+          :name="slot.name"
+          :label="slot.label"
+          :element-context="repoContext"
+          smoke-prefix="repo-slot"
+        />
+      </section>
+    </section>
+  </template>
 </template>
