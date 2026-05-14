@@ -2,7 +2,7 @@
 
 Every artifact slated for removal during the v3 cutover, with the milestone that retires it. Updated as each milestone deletes its rows.
 
-Baseline at audit: `crates/server/src/main.rs` is **8983 lines / 337 functions**. Current after the M6 reactor cleanup: **9669 lines / 329 functions**. Track shrinkage in the M4/M5/M6/M11/M12 cleanup commits.
+Baseline at audit: `crates/server/src/main.rs` is **8983 lines / 337 functions**. Current after the M11 resolver cleanup: **9498 lines / 310 functions**. Track shrinkage in the M4/M5/M6/M11/M12 cleanup commits.
 
 ## Dispatch — `matches_op` arms in `crates/server/src/main.rs`
 
@@ -40,9 +40,9 @@ The audit listed 29 hand-written arms. After M6, 10 residual core/kernel arms li
 | ~~`pulls.merge`~~ | ~~2187~~ | ~~`pulls_merge_mutation`~~ | ~~2254–2291~~ | ext_pull_requests | ~~**M5**~~ deleted in M5 |
 | ~~`pulls.close`~~ | ~~2190~~ | ~~`pulls_close_mutation`~~ | ~~2293–2326~~ | ext_pull_requests | ~~**M5**~~ deleted in M5 |
 
-The dispatch block itself (`graphql_post` body, lines 1566–1611) was rewritten in **M3** to consult the generated dispatch table first; the residual relations/comments/createRepository arms remain as legacy fallbacks after a generated-table miss.
+The dispatch block itself (`graphql_post` body, lines 1522–1575) was rewritten in **M3** to consult the generated dispatch table first; the residual relations/comments/createRepository arms remain as legacy fallbacks after a generated-table miss.
 
-`fn matches_op` itself (line 1722) is **deleted in M11** once the generated table is the only dispatcher.
+`fn matches_op` itself (line 1678) remains only for those residual kernel fallback arms. Final removal is tracked by M13 once the generated table is the only handler-code entry point.
 
 ## Legacy GraphQL snapshot path
 
@@ -50,24 +50,24 @@ These power the Astro frontend's monolithic snapshot rendering. They go away whe
 
 | Item | Line | Notes | Dies in |
 |------|-----:|-------|---------|
-| `fn graphql_response` | 2179 | Catch-all that returns the whole-kernel demo snapshot when no op matches. Every Astro page consumes this. | **M9** (replaced by per-op GraphQL responses through the dispatch table) |
-| `Runtime::demo_payload` (its caller) | 1021 | Builds the monolithic payload from runtime state + seeded extension docs. | **M9** |
-| `fn extension_resolver_payload` | 1074 | Legacy resolver dispatch still switches on `"ext_pull_requests"`, `"ext_checks"`, `"ext_epics"`, `"ext_issues"`, and `"ext_code_browser"` for Astro's snapshot `extensionResolvers`. M5 moved GraphQL ops to WASM but did not delete this snapshot path. | branches deferred to **M9** with the Astro snapshot; function fully gone in **M11** |
-| `fn graphql_stream` | 2362 | SSE stream still reads the legacy kernel event log via `Runtime::read_events`; WIT storage events are separate until the frontend/event-stream cleanup. | retained for now |
+| `fn graphql_response` | 2135 | Catch-all that returns the whole-kernel demo snapshot when no op matches. Vue still uses focused fields from this response for retained kernel surfaces. | retained until M12/M13 final dispatch cleanup |
+| `Runtime::demo_payload` (its caller) | 1003 | Builds the monolithic payload from runtime state + seeded extension docs, but now uses `extension_runtime_payload()` instead of resolver branches. | retained until M12/M13 final dispatch cleanup |
+| ~~`fn extension_resolver_payload`~~ | ~~1074~~ | ~~Legacy resolver dispatch switched on `"ext_pull_requests"`, `"ext_checks"`, `"ext_epics"`, `"ext_issues"`, and `"ext_code_browser"` for Astro's snapshot `extensionResolvers`.~~ | ~~**M11**~~ deleted in M11 |
+| `fn graphql_stream` | 2318 | SSE stream still reads the legacy kernel event log via `Runtime::read_events`; WIT storage events are separate until the frontend/event-stream cleanup. | retained for now |
 
 ## Resolver helpers tied to deleted handlers
 
 | Item | Line | Used by | Dies in |
 |------|-----:|---------|---------|
-| `fn code_browser_resolver_output` | 3609 | `extension_resolver_payload` for `"ext_code_browser"` | **retained** (code browsing is core, not an extension — see "ext_code_browser status" below) |
-| `fn pull_request_resolver_output` | 3630 | `extension_resolver_payload` for `"ext_pull_requests"` + the legacy snapshot | deferred to **M9** (M5 deleted GraphQL handlers only; Astro still reads `extensionResolvers`) |
-| `fn checks_resolver_output` | 3661 | `extension_resolver_payload` for `"ext_checks"` + the legacy snapshot | deferred to **M9** |
-| `fn epics_resolver_output` | 3682 | `extension_resolver_payload` for `"ext_epics"` + the legacy snapshot | deferred to **M9** |
-| `fn issues_resolver_output` | 3714 | legacy snapshot | deferred to **M9** (still used by `extension_resolver_payload`; M4 deleted the GraphQL handler helpers) |
-| `struct CheckSummary` | 3747 | `checks_resolver_output` + `pull_request_resolver_output` | deferred to **M9** |
-| `fn check_summary` | 3754 | same | deferred to **M9** |
+| ~~`fn code_browser_resolver_output`~~ | ~~3609~~ | ~~`extension_resolver_payload` for `"ext_code_browser"`~~ | ~~**M11**~~ deleted in M11; code browsing now lives in the Vue core widget |
+| ~~`fn pull_request_resolver_output`~~ | ~~3630~~ | ~~`extension_resolver_payload` for `"ext_pull_requests"` + the legacy snapshot~~ | ~~**M11**~~ deleted in M11 |
+| ~~`fn checks_resolver_output`~~ | ~~3661~~ | ~~`extension_resolver_payload` for `"ext_checks"` + the legacy snapshot~~ | ~~**M11**~~ deleted in M11 |
+| ~~`fn epics_resolver_output`~~ | ~~3682~~ | ~~`extension_resolver_payload` for `"ext_epics"` + the legacy snapshot~~ | ~~**M11**~~ deleted in M11 |
+| ~~`fn issues_resolver_output`~~ | ~~3714~~ | ~~legacy snapshot~~ | ~~**M11**~~ deleted in M11 |
+| ~~`struct CheckSummary`~~ | ~~3747~~ | ~~`checks_resolver_output` + `pull_request_resolver_output`~~ | ~~**M11**~~ deleted in M11 |
+| ~~`fn check_summary`~~ | ~~3754~~ | ~~same~~ | ~~**M11**~~ deleted in M11 |
 
-M4 deleted the `issues.*` GraphQL dispatch arms and their handler-only helpers. M5 deleted the `epics.*` and `pulls.*` GraphQL dispatch arms and their handler-only helpers. It did not delete the snapshot resolver helpers above, because the legacy Astro snapshot still consumes `extensionResolvers` until M9.
+M4 deleted the `issues.*` GraphQL dispatch arms and their handler-only helpers. M5 deleted the `epics.*` and `pulls.*` GraphQL dispatch arms and their handler-only helpers. M11 deleted the residual snapshot resolver helpers after the Vue shell stopped consuming `extensionResolvers`.
 
 ## Reactor — hand-rolled in-process dispatch
 
@@ -88,21 +88,21 @@ M6 deleted every row in this section. `rg 'REACTORS|dispatch_event_to_reactors|E
 
 | Item | Line | Notes |
 |------|-----:|-------|
-| `struct WasmtimeResolverRecord` | 278 | dies in **M11** |
-| Legacy `Linker::<()>::new` block | 4974 | dies in **M11** |
+| ~~`struct WasmtimeResolverRecord`~~ | ~~278~~ | ~~dies in **M11**~~ deleted in M11; replaced by `ExtensionRuntimeRecord` |
+| ~~Legacy `Linker::<()>::new` block~~ | ~~4974~~ | ~~dies in **M11**~~ deleted in M11 |
 | ~~`_platform_linker_check` placeholder call~~ | ~~6132~~ | deleted before this M4 inventory refresh; platform WIT extensions now register through `wasm_registry` |
-| `let func = instance.get_typed_func::<(), (u32,)>(…, resolver)` | 4985 | dies with the resolver path in **M11** |
-| Health-check field `wasmtimeResolversExecuted` | 444 | dies in **M13** when the smoke harness asserts the WASM path directly |
+| ~~`let func = instance.get_typed_func::<(), (u32,)>(..., resolver)`~~ | ~~4985~~ | ~~dies with the resolver path in **M11**~~ deleted in M11 |
+| ~~Health-check field `wasmtimeResolversExecuted`~~ | ~~444~~ | ~~dies in **M13** when the smoke harness asserts the WASM path directly~~ deleted in M11 alongside the resolver counter |
 
 ## Component stubs (Component-Model `.wat`)
 
-All five die in **M11** once the manifests point at the real `.wasm` artifact produced by the bundler.
+All five died in **M11** once the manifests pointed at the real `.wasm` artifact produced by the bundler.
 
-- `extensions/first-party/ext_issues/component.wat`
-- `extensions/first-party/ext_epics/component.wat`
-- `extensions/first-party/ext_pull_requests/component.wat`
-- `extensions/first-party/ext_checks/component.wat`
-- `extensions/first-party/ext_workspace_home/component.wat`
+- ~~`extensions/first-party/ext_issues/component.wat`~~ deleted in M11
+- ~~`extensions/first-party/ext_epics/component.wat`~~ deleted in M11
+- ~~`extensions/first-party/ext_pull_requests/component.wat`~~ deleted in M11
+- ~~`extensions/first-party/ext_checks/component.wat`~~ deleted in M11
+- ~~`extensions/first-party/ext_workspace_home/component.wat`~~ deleted in M11; replaced by a cargo-component crate plus `dist/ext_workspace_home.wasm`
 
 ## Astro frontend
 
@@ -139,22 +139,19 @@ These items in `ExtensionRuntimeStore` hardcode today's collection shapes and ar
 
 | Item | Line | Notes |
 |------|-----:|-------|
-| `const EXTENSION_STORAGE_MIGRATIONS` | 4054 | retained only if still referenced after rewrite |
-| `ExtensionRuntimeStore::ensure_schema` | 4105 | embeds workspaces, repositories, pull_requests, check_runs, extension_installations, activity_events with hardcoded indexes — must move to per-extension `contributes.collections` |
-| `ExtensionRuntimeStore::seed_from_demo_payload` | 4170 | tightly coupled to today's collection names |
-| `fn seed_extension_documents` | 4387 | same |
-| `fn with_repository_id` | 4568 | seed helper; dead-code audit in M12 |
+| `const EXTENSION_STORAGE_MIGRATIONS` | 3844 | retained only if still referenced after rewrite |
+| `ExtensionRuntimeStore::ensure_schema` | 3895 | embeds workspaces, repositories, pull_requests, check_runs, extension_installations, activity_events with hardcoded indexes — must move to per-extension `contributes.collections` |
+| `ExtensionRuntimeStore::seed_from_demo_payload` | 3960 | tightly coupled to today's collection names |
+| `fn seed_extension_documents` | 4177 | same |
+| `fn with_repository_id` | 4398 | seed helper; dead-code audit in M12 |
 
 ## `ext_code_browser` status
 
-Earlier decision: code browsing is **core**, not an extension. The extension directory under `extensions/first-party/ext_code_browser/` has been deleted (see baseline commit) and the resolver path in `main.rs` is now a kernel concern, not a deletion target.
+Earlier decision: code browsing is **core**, not an extension. The extension directory under `extensions/first-party/ext_code_browser/` has been deleted (see baseline commit), and M11 removed the leftover resolver snapshot branch.
 
 Retained (kernel-owned):
-- `fn code_browser_resolver_output` at `main.rs:3609`
-- `"ext_code_browser"` branch in `extension_resolver_payload` at `main.rs:1084`
-- Tests under `crates/server/src/main.rs` lines 7039, 7083, 7119, 7150, 8818, and 8948 — verify these still hold after M11; they reference the legacy resolver path so some will move/delete with it.
-
-Open: the `"ext_code_browser"` branch lives inside `extension_resolver_payload`, which itself dies in M11. Either fold the code-browser path into a dedicated GraphQL query (preferred before M11) or keep it in `extension_resolver_payload` and retain that function for code-browser only (uglier). Decide before M11.
+- Git-backed repository helpers in `crates/server/src/main.rs` (`git_tree`, `repo_git_data`, and friends).
+- Vue core registration in `frontend/src/core-widgets/code-browser.ts` as `comtrya-core-code-browser`.
 
 ## Other surfaces touched by the cutover (not deletions)
 

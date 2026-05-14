@@ -24,8 +24,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
-use wasmtime::component::{Component, Linker};
-use wasmtime::{Engine, Store};
 
 mod wasm_dispatch;
 mod wasm_host;
@@ -256,7 +254,7 @@ struct Runtime {
     data_dir: PathBuf,
     extension_storage: ExtensionRuntimeStore,
     demo_repository: DemoRepositoryRuntime,
-    extension_runtime: BTreeMap<String, WasmtimeResolverRecord>,
+    extension_runtime: BTreeMap<String, ExtensionRuntimeRecord>,
     wasm_registry: wasm_registry::WasmRegistry,
     events_path: PathBuf,
     audit_path: PathBuf,
@@ -275,10 +273,9 @@ struct DemoRepositoryRuntime {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WasmtimeResolverRecord {
+struct ExtensionRuntimeRecord {
     id: String,
     component: String,
-    resolver: String,
     output_type: String,
     status: String,
     #[serde(skip)]
@@ -382,16 +379,15 @@ impl Runtime {
         for resolver in runtime.extension_runtime.values() {
             runtime
                 .append_event(
-                    "dev.comtrya.extension.resolver.executed",
+                    "dev.comtrya.extension.loaded",
                     json!({
                         "extension": resolver.id,
                         "component": resolver.component,
-                        "resolver": resolver.resolver,
                         "outputType": resolver.output_type,
                         "status": resolver.status
                     }),
                 )
-                .map_err(|error| format!("failed to append extension resolver event: {error}"))?;
+                .map_err(|error| format!("failed to append extension loaded event: {error}"))?;
         }
         Ok(runtime)
     }
@@ -428,20 +424,6 @@ impl Runtime {
             "extensionStorageDocuments".to_string(),
             self.extension_storage.documents_path().is_file(),
         );
-        let enabled_extension_configs = self
-            .config
-            .extensions
-            .iter()
-            .filter(|ext| ext.enabled)
-            .count();
-        let resolvers_executed = if !self.extension_config_declared {
-            FIRST_PARTY_EXTENSIONS
-                .iter()
-                .all(|id| self.extension_runtime.contains_key(*id))
-        } else {
-            self.extension_runtime.len() == enabled_extension_configs
-        };
-        readiness_map.insert("wasmtimeResolversExecuted".to_string(), resolvers_executed);
         readiness_map.insert(
             "productionTlsTerminated".to_string(),
             self.config.environment != Environment::Production || self.options.tls_terminated,
@@ -1046,7 +1028,7 @@ impl Runtime {
             &self.extension_runtime,
         );
         let activity = self.extension_storage.collection_data("activity_events")?;
-        let extension_resolvers = self.extension_resolver_payload(&git, &pull_requests, &checks);
+        let extension_resolvers = self.extension_runtime_payload();
         Ok(json!({
             "generatedBy": "comtrya-runtime/v1",
             "workspace": workspace,
@@ -1071,41 +1053,15 @@ impl Runtime {
         git_demo_snapshot(&self.demo_repository)
     }
 
-    fn extension_resolver_payload(
-        &self,
-        git: &GitDemoSnapshot,
-        pull_requests: &Value,
-        checks: &Value,
-    ) -> Vec<Value> {
+    fn extension_runtime_payload(&self) -> Vec<Value> {
         self.extension_runtime
             .values()
             .map(|resolver| {
-                let output = match resolver.id.as_str() {
-                    "ext_code_browser" => code_browser_resolver_output(git),
-                    "ext_pull_requests" => pull_request_resolver_output(pull_requests, checks),
-                    "ext_checks" => checks_resolver_output(checks),
-                    "ext_workspace_home" => json!({}),
-                    "ext_issues" => issues_resolver_output(
-                        &self
-                            .extension_storage
-                            .collection_data("issues")
-                            .unwrap_or_else(|_| json!([])),
-                    ),
-                    "ext_epics" => epics_resolver_output(
-                        &self
-                            .extension_storage
-                            .collection_data("epics")
-                            .unwrap_or_else(|_| json!([])),
-                    ),
-                    _ => json!({"error": "unknown resolver output"}),
-                };
                 json!({
                     "id": resolver.id.clone(),
                     "component": resolver.component.clone(),
-                    "resolver": resolver.resolver.clone(),
                     "status": resolver.status.clone(),
-                    "outputType": resolver.output_type.clone(),
-                    "output": output
+                    "outputType": resolver.output_type.clone()
                 })
             })
             .collect()
@@ -1157,7 +1113,7 @@ impl Runtime {
             .map(|record| record.root.clone())
     }
 
-    fn extension_runtime_record(&self, extension: &str) -> Option<&WasmtimeResolverRecord> {
+    fn extension_runtime_record(&self, extension: &str) -> Option<&ExtensionRuntimeRecord> {
         if extension == "ext_01hv" {
             return self.extension_runtime_record("ext_pull_requests");
         }
@@ -1373,7 +1329,7 @@ impl Runtime {
 
 fn filter_extension_installations(
     extensions: Value,
-    loaded: &BTreeMap<String, WasmtimeResolverRecord>,
+    loaded: &BTreeMap<String, ExtensionRuntimeRecord>,
 ) -> Value {
     let Value::Array(items) = extensions else {
         return extensions;
@@ -1398,7 +1354,7 @@ fn filter_extension_installations(
 fn inject_route_prefix(
     extensions: Value,
     configs: &[ExtensionInstallConfig],
-    runtime: &BTreeMap<String, WasmtimeResolverRecord>,
+    runtime: &BTreeMap<String, ExtensionRuntimeRecord>,
 ) -> Value {
     let Value::Array(items) = extensions else {
         return extensions;
@@ -3606,172 +3562,6 @@ fn detected_license(files: &[Value]) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn code_browser_resolver_output(git: &GitDemoSnapshot) -> Value {
-    json!({
-        "methods": [
-            "repository_refs",
-            "repository_branches",
-            "commit_history",
-            "tree_entries",
-            "blob_preview",
-            "diff_between"
-        ],
-        "repositoryRefs": git.refs.len(),
-        "repositoryBranches": git.branches.len(),
-        "commitHistory": git.commits.len(),
-        "treeEntries": git.tree_entries.len(),
-        "blobPreviews": git.blobs.len(),
-        "headOid": git.repository.get("headOid").cloned().unwrap_or_else(|| json!(null)),
-        "firstBlobPath": git.blobs.first().and_then(|blob| blob.get("path")).cloned().unwrap_or_else(|| json!(null)),
-        "diffPath": git.diff.get("path").cloned().unwrap_or_else(|| json!(null))
-    })
-}
-
-fn pull_request_resolver_output(pull_values: &Value, check_values: &Value) -> Value {
-    let pulls = pull_values.as_array().map(Vec::as_slice).unwrap_or(&[]);
-    let ready = pulls
-        .iter()
-        .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("READY"))
-        .count();
-    let draft = pulls
-        .iter()
-        .filter(|pull| pull.get("state").and_then(Value::as_str) == Some("DRAFT"))
-        .count();
-    let check_summary = check_summary(check_values);
-    json!({
-        "methods": [
-            "list_pull_requests",
-            "get_pull_request",
-            "compute_changed_files",
-            "compute_diff",
-            "compute_ahead_behind",
-            "compute_merge_readiness"
-        ],
-        "pullRequests": pulls.len(),
-        "ready": ready,
-        "draft": draft,
-        "mergeReadiness": {
-            "requiredChecksPassing": check_summary.passing,
-            "requiredChecksTotal": check_summary.total,
-            "blocked": check_summary.action_required > 0 || check_summary.failures > 0
-        }
-    })
-}
-
-fn checks_resolver_output(check_values: &Value) -> Value {
-    let summary = check_summary(check_values);
-    json!({
-        "methods": [
-            "list_check_runs",
-            "summarize_branch_protection",
-            "list_required_checks",
-            "compute_aggregate_status"
-        ],
-        "checkRuns": summary.total,
-        "success": summary.passing,
-        "failure": summary.failures,
-        "actionRequired": summary.action_required,
-        "aggregateStatus": if summary.action_required > 0 || summary.failures > 0 {
-            "ACTION_REQUIRED"
-        } else {
-            "SUCCESS"
-        }
-    })
-}
-
-fn epics_resolver_output(epic_values: &Value) -> Value {
-    let mut active = 0u64;
-    let mut at_risk = 0u64;
-    let mut completed = 0u64;
-    let mut canceled = 0u64;
-    if let Some(arr) = epic_values.as_array() {
-        for epic in arr {
-            match epic.get("state").and_then(Value::as_str) {
-                Some("PLANNED") | Some("IN_PROGRESS") => active += 1,
-                Some("AT_RISK") => at_risk += 1,
-                Some("DONE") => completed += 1,
-                Some("CANCELED") => canceled += 1,
-                _ => {}
-            }
-        }
-    }
-    json!({
-        "methods": [
-            "create_epic",
-            "list_epics",
-            "epic_progress",
-            "epic_issues_in",
-            "epic_children_of",
-            "epic_change_state"
-        ],
-        "activeCount": active,
-        "atRiskCount": at_risk,
-        "completedCount": completed,
-        "canceledCount": canceled,
-    })
-}
-
-fn issues_resolver_output(issues: &Value) -> Value {
-    let mut open = 0u64;
-    let mut closed = 0u64;
-    let mut by_label: BTreeMap<String, u64> = BTreeMap::new();
-    if let Some(arr) = issues.as_array() {
-        for issue in arr {
-            match issue.get("state").and_then(Value::as_str) {
-                Some("OPEN") => open += 1,
-                Some("CLOSED") => closed += 1,
-                _ => {}
-            }
-            if let Some(labels) = issue.get("labels").and_then(Value::as_array) {
-                for label in labels.iter().filter_map(Value::as_str) {
-                    *by_label.entry(label.to_string()).or_insert(0) += 1;
-                }
-            }
-        }
-    }
-    json!({
-        "methods": [
-            "list_issues",
-            "create_issue",
-            "close_issue",
-            "reopen_issue",
-            "byNumber"
-        ],
-        "openCount": open,
-        "closedCount": closed,
-        "openByLabel": by_label,
-    })
-}
-
-#[derive(Debug, Clone, Copy)]
-struct CheckSummary {
-    total: usize,
-    passing: usize,
-    failures: usize,
-    action_required: usize,
-}
-
-fn check_summary(check_values: &Value) -> CheckSummary {
-    let check_items = check_values.as_array().map(Vec::as_slice).unwrap_or(&[]);
-    CheckSummary {
-        total: check_items.len(),
-        passing: check_items
-            .iter()
-            .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("SUCCESS"))
-            .count(),
-        failures: check_items
-            .iter()
-            .filter(|check| check.get("conclusion").and_then(Value::as_str) == Some("FAILURE"))
-            .count(),
-        action_required: check_items
-            .iter()
-            .filter(|check| {
-                check.get("conclusion").and_then(Value::as_str) == Some("ACTION_REQUIRED")
-            })
-            .count(),
-    }
-}
-
 fn git_refs(git_dir: &Path) -> Result<Vec<Value>, String> {
     let output = git_text(
         git_dir,
@@ -4930,7 +4720,6 @@ fn unsupported_oci_extension(
 fn load_extension_packages(
     packages: Vec<ExtensionPackageRoot>,
 ) -> Result<ExtensionRuntimeOutput, String> {
-    let engine = Engine::default();
     let registry = wasm_registry::WasmRegistry::new()
         .map_err(|error| format!("failed to build wasm registry: {error}"))?;
     let mut loaded = BTreeMap::new();
@@ -4971,81 +4760,47 @@ fn load_extension_packages(
             .get("platformWitVersion")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        let platform_wasm = root.join(format!("dist/{}.wasm", id));
-
-        let (component_name, resolver, status) = if platform_wit_version.is_some() {
-            if crate::generated_dispatch::invoker_for_extension(id).is_none() {
-                return Err(format!(
-                    "{} declares platformWitVersion, but this server binary has no generated typed WASM invoker for extension {}. M2 supports platform-WIT startup only for extensions discovered under extensions/first-party at server build time.",
-                    manifest_path.display(),
-                    id
-                ));
-            }
-            if !platform_wasm.is_file() {
-                return Err(format!(
-                    "{} declares platformWitVersion but {} is missing",
-                    manifest_path.display(),
-                    platform_wasm.display()
-                ));
-            }
-            // Platform-WIT extension: load into the registry. Skip
-            // the legacy `resolve()` call — platform extensions
-            // don't export it.
-            registry.register_from_manifest(&root)?;
-            (
-                format!("dist/{}.wasm", id),
-                String::from("platform-wit-extension"),
-                String::from("platform-loaded"),
-            )
-        } else {
-            // Legacy resolver path. Reads manifest.wasmComponent
-            // (usually `component.wat` stub) and calls its
-            // `resolve()` export. Dies in M11.
-            let component_name = manifest
-                .get("wasmComponent")
-                .and_then(Value::as_str)
-                .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
-            let resolver = manifest
-                .pointer("/runtime/resolver")
-                .and_then(Value::as_str)
-                .unwrap_or("resolve");
-            let component_path = root.join(component_name);
-            let component_bytes = fs::read(&component_path)
-                .map_err(|error| format!("failed to read {}: {error}", component_path.display()))?;
-            let component = Component::new(&engine, component_bytes).map_err(|error| {
-                format!("failed to compile {}: {error}", component_path.display())
-            })?;
-            let linker = Linker::<()>::new(&engine);
-            let mut store = Store::new(&engine, ());
-            let instance = linker
-                .instantiate(&mut store, &component)
-                .map_err(|error| {
-                    format!(
-                        "failed to instantiate {}: {error}",
-                        component_path.display()
-                    )
-                })?;
-            let func = instance
-                .get_typed_func::<(), (u32,)>(&mut store, resolver)
-                .map_err(|error| format!("{id} did not export resolver {resolver}: {error}"))?;
-            let _ = func
-                .call(&mut store, ())
-                .map_err(|error| format!("{id} resolver failed: {error}"))?;
-            (
-                component_name.to_string(),
-                resolver.to_string(),
-                String::from("executed"),
-            )
-        };
+        if platform_wit_version.is_none() {
+            return Err(format!(
+                "{} missing platformWitVersion; legacy resolve() components are no longer supported",
+                manifest_path.display()
+            ));
+        }
+        if crate::generated_dispatch::invoker_for_extension(id).is_none() {
+            return Err(format!(
+                "{} declares platformWitVersion, but this server binary has no generated typed WASM invoker for extension {}",
+                manifest_path.display(),
+                id
+            ));
+        }
+        let component_name = manifest
+            .get("wasmComponent")
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
+        let expected_component = format!("dist/{id}.wasm");
+        if component_name != expected_component {
+            return Err(format!(
+                "{} wasmComponent must be {expected_component}, got {component_name}",
+                manifest_path.display()
+            ));
+        }
+        let platform_wasm = root.join(component_name);
+        if !platform_wasm.is_file() {
+            return Err(format!(
+                "{} declares platformWitVersion but {} is missing",
+                manifest_path.display(),
+                platform_wasm.display()
+            ));
+        }
+        registry.register_from_manifest(&root)?;
         if loaded
             .insert(
                 id.to_string(),
-                WasmtimeResolverRecord {
+                ExtensionRuntimeRecord {
                     id: id.to_string(),
-                    component: component_name,
-                    resolver,
+                    component: component_name.to_string(),
                     output_type: output_type.to_string(),
-                    status,
+                    status: String::from("platform-loaded"),
                     root,
                     ui_manifest,
                     route_prefix,
@@ -5064,7 +4819,7 @@ fn load_extension_packages(
 
 #[derive(Clone, Debug)]
 pub(crate) struct ExtensionRuntimeOutput {
-    pub(crate) records: BTreeMap<String, WasmtimeResolverRecord>,
+    pub(crate) records: BTreeMap<String, ExtensionRuntimeRecord>,
     pub(crate) registry: wasm_registry::WasmRegistry,
 }
 
@@ -5075,7 +4830,7 @@ impl ExtensionRuntimeOutput {
     pub(crate) fn len(&self) -> usize {
         self.records.len()
     }
-    pub(crate) fn get(&self, id: &str) -> Option<&WasmtimeResolverRecord> {
+    pub(crate) fn get(&self, id: &str) -> Option<&ExtensionRuntimeRecord> {
         self.records.get(id)
     }
     pub(crate) fn contains_key(&self, id: &str) -> bool {
@@ -5083,18 +4838,18 @@ impl ExtensionRuntimeOutput {
     }
     pub(crate) fn values(
         &self,
-    ) -> std::collections::btree_map::Values<'_, String, WasmtimeResolverRecord> {
+    ) -> std::collections::btree_map::Values<'_, String, ExtensionRuntimeRecord> {
         self.records.values()
     }
     pub(crate) fn iter(
         &self,
-    ) -> std::collections::btree_map::Iter<'_, String, WasmtimeResolverRecord> {
+    ) -> std::collections::btree_map::Iter<'_, String, ExtensionRuntimeRecord> {
         self.records.iter()
     }
 }
 
 impl std::ops::Index<&str> for ExtensionRuntimeOutput {
-    type Output = WasmtimeResolverRecord;
+    type Output = ExtensionRuntimeRecord;
     fn index(&self, key: &str) -> &Self::Output {
         &self.records[key]
     }
@@ -7212,20 +6967,10 @@ extensions: {
 
         assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
         for id in FIRST_PARTY_EXTENSIONS {
-            let resolver = runtime.get(*id).expect("first-party resolver loaded");
+            let resolver = runtime.get(*id).expect("first-party extension loaded");
             assert_eq!(resolver.id, *id);
-            if matches!(
-                *id,
-                "ext_issues" | "ext_epics" | "ext_pull_requests" | "ext_checks"
-            ) {
-                assert_eq!(resolver.component, format!("dist/{id}.wasm"));
-                assert_eq!(resolver.resolver, "platform-wit-extension");
-                assert_eq!(resolver.status, "platform-loaded");
-            } else {
-                assert_eq!(resolver.component, "component.wat");
-                assert_eq!(resolver.resolver, "resolve");
-                assert_eq!(resolver.status, "executed");
-            }
+            assert_eq!(resolver.component, format!("dist/{id}.wasm"));
+            assert_eq!(resolver.status, "platform-loaded");
             assert!(resolver.output_type.starts_with("comtrya."));
             assert!(resolver.output_type.ends_with("/summary.v1"));
         }
@@ -8973,26 +8718,27 @@ extensions: {
         fs::write(
             extension_dir
                 .join("ext_pull_requests")
-                .join("component.wat"),
+                .join("dist")
+                .join("ext_pull_requests.wasm"),
             "this is not a valid component",
         )
         .unwrap();
 
         let error = load_extension_runtime(&extension_dir).unwrap_err();
 
-        assert!(error.contains("failed to compile"));
-        assert!(error.contains("ext_pull_requests/component.wat"));
+        assert!(error.contains("compile"));
+        assert!(error.contains("ext_pull_requests/dist/ext_pull_requests.wasm"));
     }
 
     #[test]
     #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
-    fn extension_runtime_rejects_missing_resolver_export() {
-        let extension_dir = temp_dir("extension-missing-resolver");
+    fn extension_runtime_rejects_missing_platform_wit_version() {
+        let extension_dir = temp_dir("extension-missing-platform-wit");
         copy_dir_recursive(&test_extension_dir(), &extension_dir);
-        let manifest_path = extension_dir.join("ext_code_browser").join("manifest.json");
+        let manifest_path = extension_dir.join("ext_checks").join("manifest.json");
         let mut manifest =
             serde_json::from_str::<Value>(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
-        manifest["runtime"]["resolver"] = json!("missing_resolver");
+        manifest.as_object_mut().unwrap().remove("platformWitVersion");
         fs::write(
             &manifest_path,
             serde_json::to_vec_pretty(&manifest).unwrap(),
@@ -9001,33 +8747,35 @@ extensions: {
 
         let error = load_extension_runtime(&extension_dir).unwrap_err();
 
-        assert!(error.contains("did not export resolver missing_resolver"));
+        assert!(error.contains("missing platformWitVersion"));
+        assert!(error.contains("legacy resolve() components are no longer supported"));
     }
 
     #[test]
     #[ignore = "TODO: 2026-05-12 workspace homepage — v2 migration: first-party extensions still ship v1 UI manifests"]
-    fn extension_runtime_rejects_resolver_trap() {
-        let extension_dir = temp_dir("extension-resolver-trap");
+    fn extension_runtime_rejects_non_dist_wasm_component_path() {
+        let extension_dir = temp_dir("extension-invalid-wasm-path");
         copy_dir_recursive(&test_extension_dir(), &extension_dir);
+        let manifest_path = extension_dir.join("ext_checks").join("manifest.json");
+        let mut manifest =
+            serde_json::from_str::<Value>(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+        manifest["wasmComponent"] = json!("somewhere-else.wasm");
         fs::write(
-            extension_dir.join("ext_checks").join("component.wat"),
-            r#"(component
-  (core module $m
-    (func (export "resolve") (result i32)
-      unreachable))
-  (core instance $i (instantiate $m))
-  (func (export "resolve") (result u32)
-    (canon lift (core func $i "resolve"))))"#,
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
         )
         .unwrap();
 
         let error = load_extension_runtime(&extension_dir).unwrap_err();
 
-        assert!(error.contains("ext_checks resolver failed"));
+        assert!(error.contains("wasmComponent must be dist/ext_checks.wasm"));
     }
 
     #[test]
     fn manifest_v2_accepted_with_contributes_block() {
+        let extension_dir = temp_dir("manifest-v2-accepted");
+        fs::create_dir_all(extension_dir.join("assets")).unwrap();
+        fs::create_dir_all(extension_dir.join("ui")).unwrap();
         let v2 = serde_json::json!({
             "schemaVersion": "comtrya.ui-extension/v2",
             "id": "ext_test",
@@ -9265,7 +9013,7 @@ extensions: {
             { "id": "ext_pull_requests", "status": "enabled" }
         ]);
         let configs: Vec<ExtensionInstallConfig> = vec![];
-        let runtime: BTreeMap<String, WasmtimeResolverRecord> = BTreeMap::new();
+        let runtime: BTreeMap<String, ExtensionRuntimeRecord> = BTreeMap::new();
         let result = inject_route_prefix(extensions, &configs, &runtime);
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
@@ -9297,7 +9045,7 @@ extensions: {
                 route_prefix: None,
             },
         ];
-        let runtime: BTreeMap<String, WasmtimeResolverRecord> = BTreeMap::new();
+        let runtime: BTreeMap<String, ExtensionRuntimeRecord> = BTreeMap::new();
         let result = inject_route_prefix(extensions, &configs, &runtime);
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
@@ -9314,12 +9062,11 @@ extensions: {
         let mut runtime = BTreeMap::new();
         runtime.insert(
             "ext_pull_requests".to_string(),
-            WasmtimeResolverRecord {
+            ExtensionRuntimeRecord {
                 id: "ext_pull_requests".to_string(),
-                component: "component.wat".to_string(),
-                resolver: "resolve".to_string(),
+                component: "dist/ext_pull_requests.wasm".to_string(),
                 output_type: "comtrya.pull-requests/summary.v1".to_string(),
-                status: "executed".to_string(),
+                status: "platform-loaded".to_string(),
                 root: PathBuf::new(),
                 ui_manifest: PathBuf::new(),
                 route_prefix: Some("pulls".to_string()),

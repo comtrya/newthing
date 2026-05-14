@@ -12,7 +12,7 @@
   "routePrefix": "pulls",
   "ui": { "manifest": "ui/manifest.json" },
   "runtime": {
-    "resolver": "resolve",
+    "resolver": "platform-wit-extension",
     "outputType": "comtrya.pull-requests/summary.v1"
   },
   "contributes": {

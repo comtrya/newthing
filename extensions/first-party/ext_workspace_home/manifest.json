@@ -5,9 +5,18 @@
   "displayName": "Workspace Home",
   "version": "0.1.0",
   "publisher": "comtrya-dev",
-  "wasmComponent": "component.wat",
-  "witWorld": "comtrya:extension/extension",
-  "routePrefix": null,
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_workspace_home.wasm",
+  "witWorld": "ext-workspace-home",
   "ui": { "manifest": "ui/manifest.json" },
-  "runtime": { "resolver": "resolve", "outputType": "comtrya.workspace-home/summary.v1" }
+  "runtime": { "resolver": "platform-wit-extension", "outputType": "comtrya.workspace-home/summary.v1" },
+  "hostImports": [],
+  "allowedEmits": [],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
 }

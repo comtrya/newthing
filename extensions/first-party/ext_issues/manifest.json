@@ -5,7 +5,7 @@
   "displayName": "Issues",
   "version": "0.1.0",
   "publisher": "comtrya-dev",
-  "wasmComponent": "component.wat",
+  "wasmComponent": "dist/ext_issues.wasm",
   "platformWitVersion": "0.1.0",
   "witWorld": "comtrya:platform/extension@0.1.0",
   "perExtensionWit": "wit",
@@ -14,7 +14,7 @@
   },
   "routePrefix": "issues",
   "runtime": {
-    "resolver": "resolve",
+    "resolver": "platform-wit-extension",
     "outputType": "comtrya.issues/summary.v1"
   },
   "contributes": {

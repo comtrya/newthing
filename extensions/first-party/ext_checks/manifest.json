@@ -14,7 +14,7 @@
   },
   "routePrefix": "checks",
   "runtime": {
-    "resolver": "resolve",
+    "resolver": "platform-wit-extension",
     "outputType": "comtrya.checks/summary.v1"
   },
   "contributes": {

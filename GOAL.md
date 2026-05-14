@@ -159,17 +159,17 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Smoke pass against new layout - *`./start.sh --reset --oneshot` passed end to end after `start.sh` switched to root `bun run build` / `bun run preview`.*
 
 ## M11 — Delete `component.wat` + legacy resolver
-- [ ] Delete `extensions/first-party/ext_issues/component.wat`
-- [ ] Delete `extensions/first-party/ext_epics/component.wat`
-- [ ] Delete `extensions/first-party/ext_pull_requests/component.wat`
-- [ ] Delete `extensions/first-party/ext_checks/component.wat`
-- [ ] Delete `extensions/first-party/ext_workspace_home/component.wat`
-- [ ] Update each manifest: `wasmComponent` points to the bundler's `dist/<ext_id>.wasm`
-- [ ] Delete the `Linker::<()>::new` + `resolve()` resolver path in `main.rs` (~lines 6075-6109 in the legacy code)
-- [ ] Delete `WasmtimeResolverRecord`, `resolvers_executed` counter, `wasmtimeResolversExecuted` health check field
-- [ ] `rg "Linker::<\(\)" crates/server/src` returns zero hits in production code
-- [ ] `find extensions -name '*.wat'` returns empty
-- [ ] Update deletion inventory
+- [x] Delete `extensions/first-party/ext_issues/component.wat` - *removed the stub; `find extensions -name '*.wat' -print` returns empty.*
+- [x] Delete `extensions/first-party/ext_epics/component.wat` - *removed the stub; `find extensions -name '*.wat' -print` returns empty.*
+- [x] Delete `extensions/first-party/ext_pull_requests/component.wat` - *removed the stub; `find extensions -name '*.wat' -print` returns empty.*
+- [x] Delete `extensions/first-party/ext_checks/component.wat` - *removed the stub; `find extensions -name '*.wat' -print` returns empty.*
+- [x] Delete `extensions/first-party/ext_workspace_home/component.wat` - *replaced the last stub with a cargo-component crate and generated `dist/ext_workspace_home.wasm`.*
+- [x] Update each manifest: `wasmComponent` points to the bundler's `dist/<ext_id>.wasm` - *all five first-party manifests now point to `dist/<ext_id>.wasm`, and `find extensions/first-party -maxdepth 3 -type f -name '*.wasm' -print | sort` lists real artifacts for checks, epics, issues, pull requests, and workspace home.*
+- [x] Delete the `Linker::<()>::new` + `resolve()` resolver path in `main.rs` (~lines 6075-6109 in the legacy code) - *the loader now requires `platformWitVersion`, a generated typed invoker, and `dist/<ext_id>.wasm`; the old `resolve()` probing branch is gone.*
+- [x] Delete `WasmtimeResolverRecord`, `resolvers_executed` counter, `wasmtimeResolversExecuted` health check field - *runtime records are now `ExtensionRuntimeRecord`, readiness no longer reports the resolver counter, and `start.sh` no longer asserts it.*
+- [x] `rg "Linker::<\(\)" crates/server/src` returns zero hits in production code - *verified alongside searches for `WasmtimeResolverRecord`, `wasmtimeResolversExecuted`, `resolvers_executed`, `Component::new`, `Engine::default`, and the deleted resolver helper functions.*
+- [x] `find extensions -name '*.wat'` returns empty - *verified after deleting all five component stubs.*
+- [x] Update deletion inventory - *refreshed `docs/v3-deletion-inventory.md` for the M11 resolver deletion, component-stub deletion, code-browser core status, and current `main.rs` size.*
 
 ## M12 — Storage + dead-code cleanup
 - [ ] Audit `ExtensionRuntimeStore::seed_from_demo_payload` for collection-shape coupling

@@ -83,6 +83,16 @@ use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
     CheckRun, CheckState, RecordCheckInput,
 };
 
+#[allow(warnings)]
+mod ext_workspace_home_bindings {
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_workspace_home/wit",
+        world: "ext-workspace-home",
+    });
+}
+
+use ext_workspace_home_bindings::ExtWorkspaceHome;
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenIssueInputJson {
@@ -1042,6 +1052,78 @@ pub fn dispatch_ext_checks(
     })
 }
 
+pub fn dispatch_ext_workspace_home(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    current_principal: &str,
+    info: &crate::generated_dispatch::DispatchInfo,
+    _payload: &[u8],
+    depth: u32,
+    reactor_depth: u32,
+) -> Result<Vec<u8>, wit_types::Error> {
+    if info.extension_id != "ext_workspace_home" || info.interface_name != "home" {
+        return Err(wit_error(
+            wit_types::ErrorCode::Internal,
+            format!(
+                "ext_workspace_home invoker received wrong route: {}.{}.{}",
+                info.extension_id, info.interface_name, info.op_name
+            ),
+        ));
+    }
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (mut host_state, ext) = build_host_state(
+        registry,
+        info.extension_id,
+        current_principal,
+        store,
+        dispatcher,
+        depth,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_workspace_home: {e}"),
+            )
+        })?;
+    let ext_workspace_home = ExtWorkspaceHome::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-workspace-home world: {e}"),
+        )
+    })?;
+    let home = ext_workspace_home.comtrya_ext_workspace_home_home();
+
+    let value = match info.op_name {
+        "ping" => {
+            let result = home.call_ping(&mut wasm_store).map_err(|e| {
+                wit_error(wit_types::ErrorCode::Internal, format!("ping call: {e}"))
+            })?;
+            Value::String(result.map_err(workspace_home_error_to_canonical)?)
+        }
+        other => {
+            return Err(wit_error(
+                wit_types::ErrorCode::NotFound,
+                format!("ext_workspace_home has no op named '{other}'"),
+            ));
+        }
+    };
+    serde_json::to_vec(&value).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("encode result: {e}"),
+        )
+    })
+}
+
 fn parse_payload(payload: &[u8]) -> Result<Value, wit_types::Error> {
     if payload.is_empty() {
         return Ok(Value::Null);
@@ -1391,6 +1473,26 @@ fn checks_error_to_canonical(
     e: ext_checks_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
     use ext_checks_bindings::comtrya::platform::types as local;
+    let code = match e.code {
+        local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
+        local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
+        local::ErrorCode::Forbidden => wit_types::ErrorCode::Forbidden,
+        local::ErrorCode::Unauthenticated => wit_types::ErrorCode::Unauthenticated,
+        local::ErrorCode::BadInput => wit_types::ErrorCode::BadInput,
+        local::ErrorCode::Internal => wit_types::ErrorCode::Internal,
+        local::ErrorCode::Unavailable => wit_types::ErrorCode::Unavailable,
+    };
+    wit_types::Error {
+        code,
+        message: e.message,
+        path: e.path,
+    }
+}
+
+fn workspace_home_error_to_canonical(
+    e: ext_workspace_home_bindings::comtrya::platform::types::Error,
+) -> wit_types::Error {
+    use ext_workspace_home_bindings::comtrya::platform::types as local;
     let code = match e.code {
         local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
         local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
