@@ -1189,6 +1189,32 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-14 — iteration 29 (Workspace home — repo-list keyboard nav)
+
+WorkspaceHome.vue picks up the same j/k/Enter pattern that
+IssuesList and PullsQueue have shipped with since iteration 20.
+Press `j` to advance the focused repo, `k` to retreat, `Enter`
+to navigate. Focused row gets the `--paper-tint` background lift
+(same shape as the issues/PR queues for consistency). A muted
+`<kbd>` footer documents the bindings inline.
+
+- `useShortcuts` composable from `@comtrya/sdk-vue` — same
+  declarative shape as the rest of the keyboard-driven
+  surfaces. The composable's input-skip guard (iteration 20
+  fix) means typing in a focus-stealing slot widget won't
+  hijack `j`/`k`.
+- Enter pushes via `useRouter().push("/r/<path>")` rather than
+  setting `location.href` — keeps the SPA navigation snappy.
+- `watch(repositories, …)` keeps `focusedRepoIdx` clamped to
+  the visible range when the list grows from empty (initial
+  load) or shrinks (a repo was deleted).
+- Mouse hover sets the focused index so the keyboard cursor
+  follows the mouse instead of jumping back.
+
+Net add: ~70 lines of script + template + style. The repo list
+now feels like every other list in the shell — flow, no
+clicks, no mouse-only paths.
+
 ### 2026-05-14 — iteration 28 (Repo home — editorial chip row)
 
 The repo home shed its three labelled summary boxes (`Path`,

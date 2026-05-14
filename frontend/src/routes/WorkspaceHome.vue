@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { useShortcuts } from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import SlotMount from "../components/SlotMount.vue";
 import type { WorkspaceHomeSlotName } from "../workspace-home-slots";
@@ -59,6 +61,60 @@ const extensionRuntime = computed(
   () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
 );
 const repositoryWord = computed(() => repositories.value.length === 1 ? "repository" : "repositories");
+
+/**
+ * Keyboard focus index into the repo list. Mirrors `IssuesList.vue`
+ * and `PullsQueue.vue` — j/k advance, Enter opens the focused row.
+ * Clamped on load so it never points past the end of the list, and
+ * reset to 0 when the list grows from empty.
+ */
+const focusedRepoIdx = ref(0);
+const router = useRouter();
+
+watch(repositories, (next) => {
+  if (next.length === 0) {
+    focusedRepoIdx.value = 0;
+    return;
+  }
+  if (focusedRepoIdx.value >= next.length) {
+    focusedRepoIdx.value = Math.max(0, next.length - 1);
+  }
+});
+
+useShortcuts({
+  j: (event) => {
+    if (repositories.value.length === 0) return;
+    event.preventDefault();
+    focusedRepoIdx.value = Math.min(
+      focusedRepoIdx.value + 1,
+      repositories.value.length - 1,
+    );
+  },
+  ArrowDown: (event) => {
+    if (repositories.value.length === 0) return;
+    event.preventDefault();
+    focusedRepoIdx.value = Math.min(
+      focusedRepoIdx.value + 1,
+      repositories.value.length - 1,
+    );
+  },
+  k: (event) => {
+    if (repositories.value.length === 0) return;
+    event.preventDefault();
+    focusedRepoIdx.value = Math.max(focusedRepoIdx.value - 1, 0);
+  },
+  ArrowUp: (event) => {
+    if (repositories.value.length === 0) return;
+    event.preventDefault();
+    focusedRepoIdx.value = Math.max(focusedRepoIdx.value - 1, 0);
+  },
+  Enter: (event) => {
+    const repo = repositories.value[focusedRepoIdx.value];
+    if (!repo) return;
+    event.preventDefault();
+    void router.push(`/r/${repo.path}`);
+  },
+});
 interface WorkspaceSlotRow {
   name: WorkspaceHomeSlotName;
   label: string;
@@ -194,8 +250,15 @@ function relativeUpdated(value: string | null | undefined): string {
           <p v-else-if="repositories.length === 0" class="home-empty">
             No repositories yet. <a href="/new">Create one</a> to get started.
           </p>
-          <ul v-else class="home-repo-list">
-            <li v-for="repo in repositories" :key="repo.id">
+          <ul v-else class="home-repo-list" role="listbox" aria-label="Repositories">
+            <li
+              v-for="(repo, idx) in repositories"
+              :key="repo.id"
+              :class="{ focused: idx === focusedRepoIdx }"
+              :aria-selected="idx === focusedRepoIdx"
+              role="option"
+              @mouseenter="focusedRepoIdx = idx"
+            >
               <a :href="`/r/${repo.path}`">{{ repo.path }}</a>
               <p v-if="repo.description">{{ repo.description }}</p>
               <span class="repo-meta">
@@ -206,6 +269,9 @@ function relativeUpdated(value: string | null | undefined): string {
               </span>
             </li>
           </ul>
+          <footer v-if="repositories.length > 0" class="home-repo-foot">
+            <kbd>j</kbd> <kbd>k</kbd> navigate · <kbd>↵</kbd> open
+          </footer>
         </section>
 
         <SlotMount

@@ -483,7 +483,27 @@ kbd {
   gap: 4px;
   align-content: center;
   border-bottom: 1px solid var(--rule-light);
-  padding: 10px 0;
+  padding: 10px 12px;
+  margin: 0 -12px;
+  cursor: pointer;
+}
+
+.shell-app .home-repo-list li.focused {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.shell-app .home-repo-foot {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-fainter, var(--ink-faint, #918b80));
+}
+
+.shell-app .home-repo-foot kbd {
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 .shell-app .home-repo-list a {
