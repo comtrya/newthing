@@ -11,6 +11,7 @@ import {
 
 const props = withDefaults(defineProps<{
   client?: ComtryaGraphQLClient;
+  comtryaClient?: ComtryaGraphQLClient;
   issues?: Issue[] | null;
   workspaceId?: string;
   repositoryId?: string | null;
@@ -29,12 +30,13 @@ const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
 const loadedIssues = ref<Issue[]>(props.issues ?? []);
 const issues = computed(() => props.issues ?? loadedIssues.value);
+const graphClient = computed(() => props.client ?? props.comtryaClient);
 const newIssueHref = computed(() => `/x/issues/new?workspaceId=${props.workspaceId}`);
 
 onMounted(loadIssues);
 watch(
   () => [
-    props.client,
+    graphClient.value,
     props.issues,
     props.workspaceId,
     props.repositoryId,
@@ -50,7 +52,7 @@ async function loadIssues(): Promise<void> {
     error.value = null;
     return;
   }
-  if (!props.client) {
+  if (!graphClient.value) {
     loadedIssues.value = [];
     loadState.value = "error";
     error.value = "issues: no client";
@@ -59,7 +61,7 @@ async function loadIssues(): Promise<void> {
   loadState.value = "loading";
   error.value = null;
   try {
-    loadedIssues.value = await listIssues(props.client, {
+    loadedIssues.value = await listIssues(graphClient.value, {
       workspaceId: props.workspaceId,
       repositoryId: props.repositoryId,
       state: props.state,
@@ -85,7 +87,7 @@ async function loadIssues(): Promise<void> {
     <p v-else-if="issues.length === 0" class="issue-line muted">No issues yet.</p>
     <ul v-else class="issues-list-items">
       <li v-for="issue in issues" :key="issue.id">
-        <IssueCard :issue="issue" :client="client" />
+        <IssueCard :issue="issue" :client="graphClient" />
       </li>
     </ul>
   </section>

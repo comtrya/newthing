@@ -12,7 +12,6 @@
 import {
   defineCustomElement,
   ref,
-  type DefineComponent,
   type Ref,
 } from "vue";
 import {
@@ -70,7 +69,11 @@ export interface ExtensionWidgetOptions {
   /** Custom element tag name to register, e.g. `comtrya-issue-card`. */
   tagName: string;
   /** Vue component to mount inside the custom element. */
-  component: DefineComponent;
+  component: Parameters<typeof defineCustomElement>[0];
+  /** Use light DOM by default so extension smoke hooks remain host-visible. */
+  shadowRoot?: boolean;
+  /** Legacy host property aliases to preserve existing custom-element APIs. */
+  propertyAliases?: Record<string, string>;
 }
 
 /**
@@ -81,7 +84,23 @@ export interface ExtensionWidgetOptions {
 export function defineExtensionWidget(
   opts: ExtensionWidgetOptions,
 ): CustomElementConstructor {
-  const ctor = defineCustomElement(opts.component);
+  const ctor = defineCustomElement(opts.component, {
+    shadowRoot: opts.shadowRoot ?? false,
+  });
+  for (const [alias, target] of Object.entries(opts.propertyAliases ?? {})) {
+    Object.defineProperty(ctor.prototype, alias, {
+      configurable: true,
+      get(this: Record<string, unknown>) {
+        return this[target];
+      },
+      set(this: HTMLElement & Record<string, unknown>, value: unknown) {
+        this[target] = value;
+        if (typeof value === "string") {
+          this.setAttribute(kebabCase(target), value);
+        }
+      },
+    });
+  }
   if (
     typeof customElements !== "undefined" &&
     !customElements.get(opts.tagName)
@@ -89,6 +108,10 @@ export function defineExtensionWidget(
     customElements.define(opts.tagName, ctor);
   }
   return ctor;
+}
+
+function kebabCase(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
 }
 
 /** Re-export the registries so Vue extensions have a single import. */

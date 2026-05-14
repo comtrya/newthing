@@ -97,9 +97,29 @@ fi
 # 3) Build the UI bundle (if a package.json exists).
 if [[ -f "$root/ui/package.json" ]]; then
   echo "==> ui build $ext_id"
-  (cd "$root/ui" && bun install --silent && bun run build) || {
-    echo "ui build failed for $ext_id (continuing)" >&2
+  (cd "$root/ui" && bun run build) || {
+    echo "ui build failed for $ext_id" >&2
+    exit 1
   }
+
+  ui_manifest="$root/ui/manifest.json"
+  if [[ -f "$ui_manifest" ]]; then
+    entry="$(jq -r '.assets.entry' "$ui_manifest")"
+    expected_prefix="/_extensions/$ext_id/assets/"
+    if [[ "$entry" == "$expected_prefix"* ]]; then
+      entry_rel="${entry#"$expected_prefix"}"
+      entry_path="$root/assets/$entry_rel"
+      if [[ -f "$entry_path" ]]; then
+        integrity="sha256-$(shasum -a 256 "$entry_path" | awk '{print $1}')"
+        tmp_manifest="$(mktemp)"
+        jq --arg integrity "$integrity" \
+          '.assets.entryIntegrity = $integrity' \
+          "$ui_manifest" > "$tmp_manifest"
+        mv "$tmp_manifest" "$ui_manifest"
+        echo "    updated $ui_manifest entryIntegrity"
+      fi
+    fi
+  fi
 fi
 
 echo "==> built $ext_id in $out_dir"

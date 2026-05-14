@@ -3,7 +3,9 @@
   "compilerOptions": {
     "baseUrl": "../../../../frontend",
     "paths": {
-      "vue": ["node_modules/vue/dist/vue.d.mts"]
+      "vue": ["node_modules/vue/dist/vue.d.mts"],
+      "@comtrya/sdk-core": ["packages/sdk-core/src/index.ts"],
+      "@comtrya/sdk-vue": ["packages/sdk-vue/src/index.ts"]
     }
   },
   "include": [

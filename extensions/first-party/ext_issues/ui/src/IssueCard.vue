@@ -11,6 +11,7 @@ import {
 
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
+  comtryaClient?: ComtryaGraphQLClient;
   issue?: Issue | null;
   ref?: string;
   resourceRef?: string;
@@ -20,13 +21,14 @@ const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
 const loadedIssue = ref<Issue | null>(props.issue ?? null);
 const resolvedRef = computed(() => props.resourceRef ?? props.ref ?? "");
+const graphClient = computed(() => props.client ?? props.comtryaClient);
 const issue = computed(() => props.issue ?? loadedIssue.value);
 const tone = computed(() => stateTone(issue.value?.state));
 const labelText = computed(() => issue.value?.labels?.join(", ") ?? "");
 
 onMounted(loadIssue);
 watch(
-  () => [props.client, props.issue, resolvedRef.value],
+  () => [graphClient.value, props.issue, resolvedRef.value],
   () => void loadIssue(),
 );
 
@@ -43,7 +45,7 @@ async function loadIssue(): Promise<void> {
     error.value = "issue-card: missing ref";
     return;
   }
-  if (!props.client) {
+  if (!graphClient.value) {
     loadedIssue.value = null;
     loadState.value = "error";
     error.value = "issue-card: no client";
@@ -52,7 +54,7 @@ async function loadIssue(): Promise<void> {
   loadState.value = "loading";
   error.value = null;
   try {
-    loadedIssue.value = await issueByRef(props.client, resolvedRef.value);
+    loadedIssue.value = await issueByRef(graphClient.value, resolvedRef.value);
     loadState.value = loadedIssue.value ? "ready" : "empty";
   } catch (caught) {
     loadedIssue.value = null;

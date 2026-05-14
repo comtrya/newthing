@@ -12,19 +12,20 @@ import {
   issueRef,
   stateTone,
   type ComtryaGraphQLClient,
+  type ExtensionRouteParams,
   type Issue,
   type LoadState,
   type Relation,
 } from "./types";
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
   client?: ComtryaGraphQLClient;
+  comtryaClient?: ComtryaGraphQLClient;
   issue?: Issue | null;
   workspaceId?: string;
   number?: number | string;
-}>(), {
-  workspaceId: DEFAULT_WORKSPACE_ID,
-});
+  routeParams?: ExtensionRouteParams;
+}>();
 
 const loadState = ref<LoadState>("idle");
 const actionState = ref<"idle" | "submitting">("idle");
@@ -32,14 +33,28 @@ const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const loadedIssue = ref<Issue | null>(props.issue ?? null);
 const relations = ref<Relation[]>([]);
-const issue = computed(() => props.issue ?? loadedIssue.value);
+const graphClient = computed(() => props.client ?? props.comtryaClient);
+const workspaceId = computed(
+  () => props.workspaceId
+    ?? props.routeParams?.params?.workspaceId
+    ?? DEFAULT_WORKSPACE_ID,
+);
+const issue = computed(() => loadedIssue.value ?? props.issue ?? null);
 const tone = computed(() => stateTone(issue.value?.state));
-const issueNumber = computed(() => Number(props.number));
-const canLoad = computed(() => props.client && Number.isFinite(issueNumber.value));
+const issueNumber = computed(() => Number(
+  props.number ?? props.routeParams?.params?.number,
+));
+const canLoad = computed(() => graphClient.value && Number.isFinite(issueNumber.value));
 
 onMounted(loadIssue);
 watch(
-  () => [props.client, props.issue, props.workspaceId, props.number],
+  () => [
+    graphClient.value,
+    props.issue,
+    workspaceId.value,
+    props.number,
+    props.routeParams?.params?.number,
+  ],
   () => void loadIssue(),
 );
 
@@ -51,7 +66,7 @@ async function loadIssue(): Promise<void> {
     await loadRelations();
     return;
   }
-  if (!canLoad.value || !props.client) {
+  if (!canLoad.value || !graphClient.value) {
     loadedIssue.value = null;
     loadState.value = "error";
     error.value = "issue-detail: missing params";
@@ -61,8 +76,8 @@ async function loadIssue(): Promise<void> {
   error.value = null;
   try {
     loadedIssue.value = await issueByNumber(
-      props.client,
-      props.workspaceId,
+      graphClient.value,
+      workspaceId.value,
       issueNumber.value,
     );
     loadState.value = loadedIssue.value ? "ready" : "empty";
@@ -76,23 +91,23 @@ async function loadIssue(): Promise<void> {
 }
 
 async function loadRelations(): Promise<void> {
-  if (!props.client || !issue.value) {
+  if (!graphClient.value || !issue.value) {
     relations.value = [];
     return;
   }
   try {
-    relations.value = await issueRelations(props.client, issue.value.id);
+    relations.value = await issueRelations(graphClient.value, issue.value.id);
   } catch {
     relations.value = [];
   }
 }
 
 async function closeCurrentIssue(): Promise<void> {
-  if (!props.client || !issue.value) return;
+  if (!graphClient.value || !issue.value) return;
   actionState.value = "submitting";
   actionError.value = null;
   try {
-    loadedIssue.value = await closeIssue(props.client, issue.value.id);
+    loadedIssue.value = await closeIssue(graphClient.value, issue.value.id);
     await loadRelations();
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
@@ -102,11 +117,11 @@ async function closeCurrentIssue(): Promise<void> {
 }
 
 async function reopenCurrentIssue(): Promise<void> {
-  if (!props.client || !issue.value) return;
+  if (!graphClient.value || !issue.value) return;
   actionState.value = "submitting";
   actionError.value = null;
   try {
-    loadedIssue.value = await reopenIssue(props.client, issue.value.id);
+    loadedIssue.value = await reopenIssue(graphClient.value, issue.value.id);
     await loadRelations();
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
@@ -156,7 +171,7 @@ async function reopenCurrentIssue(): Promise<void> {
             <CustomElementHost
               tag="comtrya-resource-card"
               :attributes="{ ref: relation.to }"
-              :properties="{ ref: relation.to, comtryaClient: client }"
+              :properties="{ ref: relation.to, comtryaClient: graphClient }"
             />
           </li>
         </ul>
@@ -185,7 +200,7 @@ async function reopenCurrentIssue(): Promise<void> {
       <CustomElementHost
         tag="comtrya-comment-thread"
         :attributes="{ target: issueRef(issue) }"
-        :properties="{ target: issueRef(issue), comtryaClient: client }"
+        :properties="{ target: issueRef(issue), comtryaClient: graphClient }"
       />
     </template>
   </main>
