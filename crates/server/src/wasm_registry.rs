@@ -749,7 +749,8 @@ mod tests {
             .register_from_manifest(&root)
             .expect("register ext_issues");
         let tmp = tempdir_for_test("comtrya-registry-dispatch");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let dispatcher = RegistryDispatcher {
             registry,
             store: store.clone(),
@@ -844,7 +845,8 @@ mod tests {
             .register_from_manifest(&root)
             .expect("register ext_pull_requests");
         let tmp = tempdir_for_test("comtrya-reactor-subscriptions");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         registry
             .register_reactor_subscriptions(store.clone())
             .expect("register reactor subscriptions");
@@ -914,7 +916,8 @@ mod tests {
         registry
             .register_from_manifest(&ext_root)
             .expect("register ext_pull_requests fixture");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let err = registry
             .register_reactor_subscriptions(store)
             .expect_err("component subscriptions must be declared in manifest");
@@ -936,7 +939,8 @@ mod tests {
                 vec!["dev.test.loop".to_string()],
             );
         let tmp = tempdir_for_test("comtrya-reactor-depth-cap");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let event = wit_types::Event {
             id: "evt_depth_cap_test".to_string(),
             event_type: "dev.test.loop".to_string(),
@@ -1000,7 +1004,8 @@ mod tests {
                 vec!["dev.test.loop".to_string()],
             );
         let tmp = tempdir_for_test("comtrya-reactor-emit-depth-cap");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
 
         registry.apply_reactor_reactions(
             store.clone(),
@@ -1105,7 +1110,8 @@ mod tests {
             .register_from_manifest(&root)
             .expect("register ext_issues");
         let tmp = tempdir_for_test("comtrya-registry-dispatch-bad-payload");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let dispatcher = RegistryDispatcher { registry, store };
 
         let err = dispatcher
@@ -1141,7 +1147,8 @@ mod tests {
             .register_from_manifest(&root)
             .expect("register ext_issues");
         let tmp = tempdir_for_test("comtrya-registry-dispatch-missing-limit");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let dispatcher = RegistryDispatcher { registry, store };
 
         let err = dispatcher
@@ -1191,7 +1198,8 @@ mod tests {
             .register_from_manifest(&root)
             .expect("register ext_issues");
         let tmp = tempdir_for_test("comtrya-host-invoke-real-dispatch");
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
         let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
             registry: registry.clone(),
             store: store.clone(),

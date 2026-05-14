@@ -19,6 +19,28 @@
   },
   "contributes": {
     "resourceKinds": [{ "name": "check-run", "prefix": "chk" }],
+    "collections": [
+      {
+        "name": "check_runs",
+        "ownerExtension": "ext_checks",
+        "indexes": [
+          { "name": "by_repository_commit_name", "fields": ["repositoryID", "commitOID", "name"], "unique": true },
+          { "name": "by_repository_required", "fields": ["repositoryID", "required"], "unique": false }
+        ],
+        "demoSeed": {
+          "source": "checks",
+          "idPrefix": "check_run",
+          "resource": "repository",
+          "resourceRefs": ["repository"],
+          "addRepositoryId": true,
+          "wasmRoute": {
+            "extensionId": "ext_checks",
+            "interfaceName": "checks",
+            "opName": "record-check"
+          }
+        }
+      }
+    ],
     "slots": [
       { "slot": "repository.checks", "element": "comtrya-checks-board", "priority": 100 }
     ]

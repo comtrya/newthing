@@ -17,6 +17,28 @@
   },
   "contributes": {
     "resourceKinds": [{ "name": "pull-request", "prefix": "pul" }],
+    "collections": [
+      {
+        "name": "pull_requests",
+        "ownerExtension": "ext_pull_requests",
+        "indexes": [
+          { "name": "by_repository_state_updated", "fields": ["repositoryID", "state", "updatedAt"], "unique": false },
+          { "name": "by_repository_number", "fields": ["repositoryID", "number"], "unique": true }
+        ],
+        "demoSeed": {
+          "source": "pullRequests",
+          "idPrefix": "pull_request",
+          "resource": "repository",
+          "resourceRefs": ["repository"],
+          "addRepositoryId": true,
+          "wasmRoute": {
+            "extensionId": "ext_pull_requests",
+            "interfaceName": "pulls",
+            "opName": "create-pull"
+          }
+        }
+      }
+    ],
     "cards": [{ "kind": "pull-request", "element": "comtrya-pr-card" }],
     "slots": [
       { "slot": "workspace.home.right", "element": "comtrya-prs-list", "priority": 300 }

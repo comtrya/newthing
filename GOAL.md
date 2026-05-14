@@ -172,11 +172,11 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update deletion inventory - *refreshed `docs/v3-deletion-inventory.md` for the M11 resolver deletion, component-stub deletion, code-browser core status, and current `main.rs` size.*
 
 ## M12 — Storage + dead-code cleanup
-- [ ] Audit `ExtensionRuntimeStore::seed_from_demo_payload` for collection-shape coupling
-- [ ] Rewrite seeder per pre-flight decision (WASM-driven bootstrap or extension install op)
-- [ ] Move collection declarations from `ensure_schema` to per-extension manifests' `contributes.collections`
-- [ ] Generate `schema.json` from manifests at install time, not via hardcoded JSON literal
-- [ ] Delete `EXTENSION_STORAGE_MIGRATIONS` if unused after the rewrite
+- [x] Audit `ExtensionRuntimeStore::seed_from_demo_payload` for collection-shape coupling - *the old seed path directly knew `workspaces`, `repositories`, `pull_requests`, `check_runs`, `extension_installations`, and `activity_events`; the audit result is now encoded as `demoSeed` declarations on storage collections instead of hidden switch logic.*
+- [x] Rewrite seeder per pre-flight decision (WASM-driven bootstrap or extension install op) - *fresh storage seeds kernel-owned documents directly, then routes extension-owned demo records through typed WASM create ops (`ext_pull_requests/pulls.create-pull`, `ext_checks/checks.record-check`) before merging demo metadata back into the created document and refreshing indexes.*
+- [x] Move collection declarations from `ensure_schema` to per-extension manifests' `contributes.collections` - *`ext_issues`, `ext_epics`, `ext_pull_requests`, and `ext_checks` now declare their storage collections and indexes in `manifest.json`; core-only collections are the only declarations remaining in kernel code.*
+- [x] Generate `schema.json` from manifests at install time, not via hardcoded JSON literal - *startup loads extensions first, collects their manifest storage declarations, and writes `extensions/storage/schema.json` from typed declarations rather than an inline JSON blob.*
+- [x] Delete `EXTENSION_STORAGE_MIGRATIONS` if unused after the rewrite - *removed the migration constant and the `migrationsApplied` schema field; `rg EXTENSION_STORAGE_MIGRATIONS crates/server/src/main.rs` returns zero hits.*
 - [ ] Delete every dead helper / constant in `main.rs` (manual audit + `cargo +nightly udeps`)
 - [ ] Delete every `#[allow(dead_code)]` survivor
 - [ ] `cargo clippy --workspace -- -D warnings` clean

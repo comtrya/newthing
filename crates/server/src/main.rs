@@ -279,6 +279,8 @@ struct ExtensionRuntimeRecord {
     output_type: String,
     status: String,
     #[serde(skip)]
+    storage_collections: Vec<StorageCollectionDeclaration>,
+    #[serde(skip)]
     root: PathBuf,
     #[serde(skip)]
     ui_manifest: PathBuf,
@@ -334,8 +336,6 @@ impl Runtime {
             .map_err(|error| format!("failed to seed/open demo repository: {error}"))?;
         validate_demo_repository_refs(&demo_repository)
             .map_err(|error| format!("demo repository validation failed: {error}"))?;
-        let extension_storage = ExtensionRuntimeStore::open(&options.data_dir)
-            .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
         validate_route_prefix_uniqueness(&config.extensions)
             .map_err(|error| format!("extension config invalid: {error}"))?;
         let ExtensionRuntimeOutput {
@@ -347,6 +347,13 @@ impl Runtime {
             &config.extensions,
         )
         .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
+        let storage_collections = storage_schema_collections(&extension_runtime);
+        let extension_storage = ExtensionRuntimeStore::open(
+            &options.data_dir,
+            &storage_collections,
+            Some(&wasm_registry),
+        )
+        .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -3841,7 +3848,225 @@ fn now_iso_timestamp() -> String {
     let y = if mo <= 2 { y_base + 1 } else { y_base };
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, s)
 }
-const EXTENSION_STORAGE_MIGRATIONS: &[&str] = &["001_extension_documents"];
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtensionStorageSchema {
+    schema_version: String,
+    collections: Vec<StorageCollectionDeclaration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StorageCollectionDeclaration {
+    name: String,
+    owner_extension: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    indexes: Vec<StorageIndexDeclaration>,
+    #[serde(default, skip_serializing)]
+    demo_seed: Option<StorageDemoSeedDeclaration>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StorageIndexDeclaration {
+    name: String,
+    fields: Vec<String>,
+    unique: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StorageDemoSeedDeclaration {
+    source: String,
+    #[serde(default)]
+    primary_source: Option<String>,
+    id_prefix: String,
+    #[serde(default = "default_seed_resource")]
+    resource: String,
+    #[serde(default)]
+    resource_kind: Option<String>,
+    #[serde(default)]
+    resource_refs: Vec<String>,
+    #[serde(default)]
+    add_repository_id: bool,
+    #[serde(default)]
+    dedupe_by_path: bool,
+    #[serde(default)]
+    wasm_route: Option<StorageDemoSeedWasmRoute>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct StorageDemoSeedWasmRoute {
+    extension_id: String,
+    interface_name: String,
+    op_name: String,
+}
+
+struct SeedDocument {
+    record: ExtensionDocumentRecord,
+    wasm_route: Option<StorageDemoSeedWasmRoute>,
+}
+
+fn default_seed_resource() -> String {
+    "repository".to_string()
+}
+
+fn storage_schema_collections(
+    extension_runtime: &BTreeMap<String, ExtensionRuntimeRecord>,
+) -> Vec<StorageCollectionDeclaration> {
+    let mut collections = core_storage_collections();
+    collections.extend(
+        extension_runtime
+            .values()
+            .flat_map(|record| record.storage_collections.clone()),
+    );
+    collections
+}
+
+fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
+    vec![
+        storage_collection(
+            "core",
+            "workspaces",
+            vec![storage_index("by_slug", &["slug"], true)],
+            Some(StorageDemoSeedDeclaration {
+                source: "workspace".to_string(),
+                primary_source: None,
+                id_prefix: "workspace".to_string(),
+                resource: "self".to_string(),
+                resource_kind: Some("workspace".to_string()),
+                resource_refs: vec!["self".to_string()],
+                add_repository_id: false,
+                dedupe_by_path: false,
+                wasm_route: None,
+            }),
+        ),
+        storage_collection(
+            "core",
+            "repositories",
+            vec![
+                storage_index("by_path", &["path"], true),
+                storage_index("by_workspace", &["workspaceID", "path"], false),
+            ],
+            Some(StorageDemoSeedDeclaration {
+                source: "repositories".to_string(),
+                primary_source: Some("repository".to_string()),
+                id_prefix: "repository".to_string(),
+                resource: "self".to_string(),
+                resource_kind: Some("repository".to_string()),
+                resource_refs: vec!["self".to_string(), "workspace".to_string()],
+                add_repository_id: false,
+                dedupe_by_path: true,
+                wasm_route: None,
+            }),
+        ),
+        storage_collection(
+            "core",
+            "relations",
+            vec![
+                storage_index("by_from", &["from"], false),
+                storage_index("by_to", &["to"], false),
+                storage_index("by_pair_verb", &["from", "to", "verb"], true),
+            ],
+            None,
+        ),
+        storage_collection(
+            "core",
+            "comments",
+            vec![
+                storage_index("by_target", &["target"], false),
+                storage_index("by_parent", &["parent"], false),
+            ],
+            None,
+        ),
+        storage_collection(
+            "core",
+            "extension_installations",
+            vec![storage_index(
+                "by_extension_status",
+                &["extensionID", "status"],
+                true,
+            )],
+            Some(StorageDemoSeedDeclaration {
+                source: "extensions".to_string(),
+                primary_source: None,
+                id_prefix: "extension_installation".to_string(),
+                resource: "repository".to_string(),
+                resource_kind: None,
+                resource_refs: vec!["repository".to_string()],
+                add_repository_id: false,
+                dedupe_by_path: false,
+                wasm_route: None,
+            }),
+        ),
+        storage_collection(
+            "core",
+            "activity_events",
+            vec![
+                storage_index("by_repository_time", &["repositoryID", "time"], false),
+                storage_index("by_type_time", &["type", "time"], false),
+            ],
+            Some(StorageDemoSeedDeclaration {
+                source: "activity".to_string(),
+                primary_source: None,
+                id_prefix: "activity_event".to_string(),
+                resource: "repository".to_string(),
+                resource_kind: None,
+                resource_refs: vec!["repository".to_string()],
+                add_repository_id: true,
+                dedupe_by_path: false,
+                wasm_route: None,
+            }),
+        ),
+    ]
+}
+
+fn storage_collection(
+    owner_extension: &str,
+    name: &str,
+    indexes: Vec<StorageIndexDeclaration>,
+    demo_seed: Option<StorageDemoSeedDeclaration>,
+) -> StorageCollectionDeclaration {
+    StorageCollectionDeclaration {
+        name: name.to_string(),
+        owner_extension: owner_extension.to_string(),
+        indexes,
+        demo_seed,
+    }
+}
+
+fn storage_index(name: &str, fields: &[&str], unique: bool) -> StorageIndexDeclaration {
+    StorageIndexDeclaration {
+        name: name.to_string(),
+        fields: fields.iter().map(|field| (*field).to_string()).collect(),
+        unique,
+    }
+}
+
+fn validate_storage_collections(
+    storage_collections: &[StorageCollectionDeclaration],
+) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for collection in storage_collections {
+        if collection.name.is_empty() {
+            return Err("storage collection name must not be empty".to_string());
+        }
+        if collection.owner_extension.is_empty() {
+            return Err(format!(
+                "storage collection {} ownerExtension must not be empty",
+                collection.name
+            ));
+        }
+        if !seen.insert((collection.owner_extension.clone(), collection.name.clone())) {
+            return Err(format!(
+                "duplicate storage collection declaration: {}/{}",
+                collection.owner_extension, collection.name
+            ));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionRuntimeStore {
@@ -3865,19 +4090,29 @@ pub(crate) struct ExtensionDocumentRecord {
 }
 
 impl ExtensionRuntimeStore {
-    fn open(data_dir: &Path) -> Result<Self, String> {
+    fn open(
+        data_dir: &Path,
+        storage_collections: &[StorageCollectionDeclaration],
+        wasm_registry: Option<&wasm_registry::WasmRegistry>,
+    ) -> Result<Self, String> {
         let root = data_dir.join("extensions/storage");
         fs::create_dir_all(&root)
             .map_err(|error| format!("failed to create extension storage dir: {error}"))?;
         let store = Self { root };
-        store.ensure_schema()?;
+        store.ensure_schema(storage_collections)?;
         if !store.documents_path().is_file() {
-            store.seed_from_demo_payload(data_dir)?;
+            store.seed_from_demo_payload(data_dir, storage_collections, wasm_registry)?;
         }
         touch(&store.events_path()).map_err(|error| {
             format!("failed to initialize extension storage event log: {error}")
         })?;
         Ok(store)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn open_for_tests(data_dir: &Path) -> Result<Self, String> {
+        let collections = core_storage_collections();
+        Self::open(data_dir, &collections, None)
     }
 
     fn schema_path(&self) -> PathBuf {
@@ -3892,63 +4127,16 @@ impl ExtensionRuntimeStore {
         self.root.join("events.jsonl")
     }
 
-    fn ensure_schema(&self) -> Result<(), String> {
+    fn ensure_schema(
+        &self,
+        storage_collections: &[StorageCollectionDeclaration],
+    ) -> Result<(), String> {
         let schema_path = self.schema_path();
-        if schema_path.is_file() {
-            return Ok(());
-        }
-        let schema = json!({
-            "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
-            "migrationsApplied": EXTENSION_STORAGE_MIGRATIONS,
-            "collections": [
-                {
-                    "name": "workspaces",
-                    "ownerExtension": "core",
-                    "indexes": [
-                        { "name": "by_slug", "fields": ["slug"], "unique": true }
-                    ]
-                },
-                {
-                    "name": "repositories",
-                    "ownerExtension": "core",
-                    "indexes": [
-                        { "name": "by_path", "fields": ["path"], "unique": true },
-                        { "name": "by_workspace", "fields": ["workspaceID", "path"], "unique": false }
-                    ]
-                },
-                {
-                    "name": "pull_requests",
-                    "ownerExtension": "ext_pull_requests",
-                    "indexes": [
-                        { "name": "by_repository_state_updated", "fields": ["repositoryID", "state", "updatedAt"], "unique": false },
-                        { "name": "by_repository_number", "fields": ["repositoryID", "number"], "unique": true }
-                    ]
-                },
-                {
-                    "name": "check_runs",
-                    "ownerExtension": "ext_checks",
-                    "indexes": [
-                        { "name": "by_repository_commit_name", "fields": ["repositoryID", "commitOID", "name"], "unique": true },
-                        { "name": "by_repository_required", "fields": ["repositoryID", "required"], "unique": false }
-                    ]
-                },
-                {
-                    "name": "extension_installations",
-                    "ownerExtension": "core",
-                    "indexes": [
-                        { "name": "by_extension_status", "fields": ["extensionID", "status"], "unique": true }
-                    ]
-                },
-                {
-                    "name": "activity_events",
-                    "ownerExtension": "core",
-                    "indexes": [
-                        { "name": "by_repository_time", "fields": ["repositoryID", "time"], "unique": false },
-                        { "name": "by_type_time", "fields": ["type", "time"], "unique": false }
-                    ]
-                }
-            ]
-        });
+        validate_storage_collections(storage_collections)?;
+        let schema = ExtensionStorageSchema {
+            schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+            collections: storage_collections.to_vec(),
+        };
         fs::write(
             &schema_path,
             serde_json::to_vec_pretty(&schema)
@@ -3957,12 +4145,31 @@ impl ExtensionRuntimeStore {
         .map_err(|error| format!("failed to write {}: {error}", schema_path.display()))
     }
 
-    fn seed_from_demo_payload(&self, data_dir: &Path) -> Result<(), String> {
+    fn seed_from_demo_payload(
+        &self,
+        data_dir: &Path,
+        storage_collections: &[StorageCollectionDeclaration],
+        wasm_registry: Option<&wasm_registry::WasmRegistry>,
+    ) -> Result<(), String> {
         let seed = read_demo_seed_payload(data_dir)?;
-        let records = seed_extension_documents(&seed)?;
-        let document_count = records.len();
-        for record in records {
-            self.create_document(record)?;
+        let documents = seed_extension_documents(&seed, storage_collections)?;
+        let document_count = documents.len();
+        for document in documents {
+            if let Some(route) = &document.wasm_route {
+                let Some(registry) = wasm_registry else {
+                    return Err(format!(
+                        "demo seed for {}/{} requires WASM route {}.{}.{}, but no registry was provided",
+                        document.record.owner_extension,
+                        document.record.collection,
+                        route.extension_id,
+                        route.interface_name,
+                        route.op_name
+                    ));
+                };
+                self.bootstrap_seed_document_via_wasm(registry, &document.record, route)?;
+            } else {
+                self.create_document(document.record)?;
+            }
         }
         self.append_storage_event(
             "dev.comtrya.extension_storage.seeded",
@@ -3971,6 +4178,58 @@ impl ExtensionRuntimeStore {
                 "documents": document_count
             }),
         )
+    }
+
+    fn bootstrap_seed_document_via_wasm(
+        &self,
+        wasm_registry: &wasm_registry::WasmRegistry,
+        record: &ExtensionDocumentRecord,
+        route: &StorageDemoSeedWasmRoute,
+    ) -> Result<(), String> {
+        let op = format!("{}.{}", route.interface_name, route.op_name);
+        let info = crate::generated_dispatch::dispatch_wit_route(&route.extension_id, &op)
+            .ok_or_else(|| {
+                format!(
+                    "demo seed route {}.{} has no generated dispatch entry",
+                    route.extension_id, op
+                )
+            })?;
+        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
+            .ok_or_else(|| format!("demo seed route {} has no typed invoker", info.extension_id))?;
+        let payload = demo_seed_wasm_payload(record, route)?;
+        let payload_bytes = serde_json::to_vec(&payload)
+            .map_err(|error| format!("failed to encode demo seed WASM payload: {error}"))?;
+        let result = invoker(
+            wasm_registry,
+            Arc::new(self.clone()),
+            "comtrya://kernel/demo-seed",
+            &info,
+            &payload_bytes,
+            0,
+            0,
+        )
+        .map_err(|error| {
+            format!(
+                "demo seed WASM route {}.{} failed: {}",
+                route.extension_id, op, error.message
+            )
+        })?;
+        let created = serde_json::from_slice::<Value>(&result)
+            .map_err(|error| format!("failed to parse demo seed WASM result: {error}"))?;
+        let created_id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "demo seed WASM route {}.{} returned no id",
+                    route.extension_id, op
+                )
+            })?
+            .to_string();
+        let seed_data = record.data.clone();
+        self.update_document_atomically(&record.collection, &created_id, move |data| {
+            merge_seed_document_data(data, &seed_data);
+        })
     }
 
     fn collection_data(&self, collection: &str) -> Result<Value, String> {
@@ -4096,6 +4355,7 @@ impl ExtensionRuntimeStore {
             }
             let current = record.version;
             update(&mut record.data, current);
+            record.indexed_fields = indexed_fields(&record.data);
             record.version += 1;
             record.updated_at = now_iso_timestamp();
             (record.version, current)
@@ -4174,7 +4434,10 @@ fn read_demo_seed_payload(data_dir: &Path) -> Result<Value, String> {
         .map_err(|error| format!("failed to parse demo seed payload: {error}"))
 }
 
-fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>, String> {
+fn seed_extension_documents(
+    seed: &Value,
+    storage_collections: &[StorageCollectionDeclaration],
+) -> Result<Vec<SeedDocument>, String> {
     let generated_at = seed
         .get("generatedAt")
         .and_then(Value::as_str)
@@ -4191,106 +4454,39 @@ fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>
         .unwrap_or("ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
     let workspace_ref = format!("comtrya://workspace/{workspace_id}");
     let mut records = Vec::new();
-    let mut seeded_repositories = BTreeSet::new();
+    let mut dedupe_keys = BTreeSet::new();
 
-    if let Some(workspace) = seed.get("workspace").cloned() {
-        let id = document_id("workspace", &workspace, 0);
-        records.push(extension_document_record(
-            "core",
-            "workspaces",
-            &id,
-            &workspace_ref,
-            vec![workspace_ref.clone()],
-            workspace,
-            &generated_at,
-        ));
-    }
-    if let Some(repository) = seed.get("repository").cloned() {
-        let id = document_id("repository", &repository, 0);
-        seeded_repositories.insert(repository_seed_key(&repository, &id));
-        records.push(repository_seed_record(
-            repository,
-            &id,
-            &workspace_ref,
-            &generated_at,
-        ));
-    }
-    seed_array(seed, "repositories")
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, repository)| {
-            let id = document_id("repository", &repository, index + 1);
-            if !seeded_repositories.insert(repository_seed_key(&repository, &id)) {
-                return;
+    for collection in storage_collections {
+        let Some(seed_decl) = &collection.demo_seed else {
+            continue;
+        };
+        let values = demo_seed_values(seed, seed_decl);
+        for (index, mut data) in values {
+            let id = document_id(&seed_decl.id_prefix, &data, index);
+            if seed_decl.dedupe_by_path && !dedupe_keys.insert(demo_seed_dedupe_key(&data, &id)) {
+                continue;
             }
-            records.push(repository_seed_record(
-                repository,
-                &id,
-                &workspace_ref,
-                &generated_at,
-            ));
-        });
-
-    seed_array(seed, "pullRequests")
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, pull)| {
-            let id = document_id("pull_request", &pull, index);
-            records.push(extension_document_record(
-                "ext_pull_requests",
-                "pull_requests",
-                &id,
-                &repo_ref,
-                vec![repo_ref.clone()],
-                with_repository_id(pull, repo_id),
-                &generated_at,
-            ));
-        });
-    seed_array(seed, "checks")
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, check)| {
-            let id = document_id("check_run", &check, index);
-            records.push(extension_document_record(
-                "ext_checks",
-                "check_runs",
-                &id,
-                &repo_ref,
-                vec![repo_ref.clone()],
-                with_repository_id(check, repo_id),
-                &generated_at,
-            ));
-        });
-    seed_array(seed, "extensions")
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, extension)| {
-            let id = document_id("extension_installation", &extension, index);
-            records.push(extension_document_record(
-                "core",
-                "extension_installations",
-                &id,
-                &repo_ref,
-                vec![repo_ref.clone()],
-                extension,
-                &generated_at,
-            ));
-        });
-    seed_array(seed, "activity")
-        .into_iter()
-        .enumerate()
-        .for_each(|(index, event)| {
-            let id = document_id("activity_event", &event, index);
-            records.push(extension_document_record(
-                "core",
-                "activity_events",
-                &id,
-                &repo_ref,
-                vec![repo_ref.clone()],
-                with_repository_id(event, repo_id),
-                &generated_at,
-            ));
-        });
+            if seed_decl.add_repository_id {
+                data = with_repository_scope(data, repo_id, workspace_id);
+            }
+            let resource =
+                demo_seed_resource(seed_decl, collection, &id, &repo_ref, &workspace_ref);
+            let resource_refs =
+                demo_seed_resource_refs(seed_decl, collection, &id, &repo_ref, &workspace_ref);
+            records.push(SeedDocument {
+                record: extension_document_record(
+                    &collection.owner_extension,
+                    &collection.name,
+                    &id,
+                    &resource,
+                    resource_refs,
+                    data,
+                    &generated_at,
+                ),
+                wasm_route: seed_decl.wasm_route.clone(),
+            });
+        }
+    }
 
     if records.is_empty() {
         return Err("demo seed payload did not contain extension storage documents".to_string());
@@ -4298,34 +4494,182 @@ fn seed_extension_documents(seed: &Value) -> Result<Vec<ExtensionDocumentRecord>
     Ok(records)
 }
 
-fn seed_array(seed: &Value, key: &str) -> Vec<Value> {
-    seed.get(key)
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
+fn demo_seed_values(seed: &Value, seed_decl: &StorageDemoSeedDeclaration) -> Vec<(usize, Value)> {
+    let mut values = Vec::new();
+    if let Some(primary_source) = &seed_decl.primary_source {
+        if let Some(value) = seed.get(primary_source).cloned() {
+            values.push((0, value));
+        }
+    }
+    if let Some(value) = seed.get(&seed_decl.source) {
+        if let Some(array) = value.as_array() {
+            let offset = values.len();
+            values.extend(
+                array
+                    .iter()
+                    .cloned()
+                    .enumerate()
+                    .map(|(index, value)| (offset + index, value)),
+            );
+        } else if seed_decl.primary_source.is_none() {
+            values.push((0, value.clone()));
+        }
+    }
+    values
 }
 
-fn repository_seed_record(
-    repository: Value,
+fn demo_seed_resource(
+    seed_decl: &StorageDemoSeedDeclaration,
+    collection: &StorageCollectionDeclaration,
     id: &str,
+    repo_ref: &str,
     workspace_ref: &str,
-    generated_at: &str,
-) -> ExtensionDocumentRecord {
-    let repository_ref = format!("comtrya://repository/{id}");
-    extension_document_record(
-        "core",
-        "repositories",
-        id,
-        &repository_ref,
-        vec![repository_ref.clone(), workspace_ref.to_string()],
-        repository,
-        generated_at,
-    )
+) -> String {
+    match seed_decl.resource.as_str() {
+        "self" => {
+            let kind = seed_decl
+                .resource_kind
+                .as_deref()
+                .unwrap_or_else(|| collection.name.trim_end_matches('s'));
+            format!("comtrya://{kind}/{id}")
+        }
+        "workspace" => workspace_ref.to_string(),
+        _ => repo_ref.to_string(),
+    }
 }
 
-fn repository_seed_key(repository: &Value, id: &str) -> String {
-    repository
-        .get("path")
+fn demo_seed_resource_refs(
+    seed_decl: &StorageDemoSeedDeclaration,
+    collection: &StorageCollectionDeclaration,
+    id: &str,
+    repo_ref: &str,
+    workspace_ref: &str,
+) -> Vec<String> {
+    if seed_decl.resource_refs.is_empty() {
+        return vec![demo_seed_resource(
+            seed_decl,
+            collection,
+            id,
+            repo_ref,
+            workspace_ref,
+        )];
+    }
+    seed_decl
+        .resource_refs
+        .iter()
+        .map(|resource| match resource.as_str() {
+            "self" => {
+                let kind = seed_decl
+                    .resource_kind
+                    .as_deref()
+                    .unwrap_or_else(|| collection.name.trim_end_matches('s'));
+                format!("comtrya://{kind}/{id}")
+            }
+            "workspace" => workspace_ref.to_string(),
+            "repository" => repo_ref.to_string(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
+fn demo_seed_wasm_payload(
+    record: &ExtensionDocumentRecord,
+    route: &StorageDemoSeedWasmRoute,
+) -> Result<Value, String> {
+    match (
+        route.extension_id.as_str(),
+        route.interface_name.as_str(),
+        route.op_name.as_str(),
+    ) {
+        ("ext_pull_requests", "pulls", "create-pull") => Ok(json!({
+            "repository": demo_seed_repository_uri(record),
+            "title": record.data.get("title").and_then(Value::as_str).unwrap_or("Seeded pull request"),
+            "bodyMarkdown": record
+                .data
+                .get("bodyMarkdown")
+                .or_else(|| record.data.get("body"))
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            "headRef": record.data.get("head").or_else(|| record.data.get("headRef")).and_then(Value::as_str).unwrap_or("seed/head"),
+            "baseRef": record.data.get("base").or_else(|| record.data.get("baseRef")).and_then(Value::as_str).unwrap_or("main"),
+            "authorRef": demo_seed_author_ref(&record.data),
+        })),
+        ("ext_checks", "checks", "record-check") => Ok(json!({
+            "repository": demo_seed_repository_uri(record),
+            "commitOID": record
+                .data
+                .get("commitOID")
+                .or_else(|| record.data.get("commitOid"))
+                .and_then(Value::as_str)
+                .unwrap_or("seed"),
+            "name": record.data.get("name").and_then(Value::as_str).unwrap_or("seeded check"),
+            "state": demo_seed_check_state(&record.data),
+            "conclusion": record.data.get("conclusion").and_then(Value::as_str),
+            "required": record.data.get("required").and_then(Value::as_bool).unwrap_or(true),
+        })),
+        _ => Err(format!(
+            "no demo seed WASM payload mapper for {}.{}.{}",
+            route.extension_id, route.interface_name, route.op_name
+        )),
+    }
+}
+
+fn demo_seed_author_ref(data: &Value) -> Option<String> {
+    data.get("authorRef")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            data.get("author").and_then(Value::as_str).map(|author| {
+                if author.starts_with("comtrya://") {
+                    author.to_string()
+                } else {
+                    format!("comtrya://user/{author}")
+                }
+            })
+        })
+}
+
+fn demo_seed_check_state(data: &Value) -> String {
+    data.get("state")
+        .or_else(|| data.get("conclusion"))
+        .and_then(Value::as_str)
+        .unwrap_or("SUCCESS")
+        .to_string()
+}
+
+fn demo_seed_repository_uri(record: &ExtensionDocumentRecord) -> String {
+    let workspace_id = record
+        .data
+        .get("workspaceID")
+        .or_else(|| record.data.get("workspaceId"))
+        .and_then(Value::as_str);
+    let repository_id = record
+        .data
+        .get("repositoryID")
+        .or_else(|| record.data.get("repositoryId"))
+        .and_then(Value::as_str);
+    match (workspace_id, repository_id) {
+        (Some(workspace_id), Some(repository_id)) => {
+            format!("comtrya://workspace/{workspace_id}/repository/{repository_id}")
+        }
+        _ => record.resource.clone(),
+    }
+}
+
+fn merge_seed_document_data(target: &mut Value, seed: &Value) {
+    let (Some(target), Some(seed)) = (target.as_object_mut(), seed.as_object()) else {
+        return;
+    };
+    for (key, value) in seed {
+        if key == "id" {
+            continue;
+        }
+        target.insert(key.clone(), value.clone());
+    }
+}
+
+fn demo_seed_dedupe_key(data: &Value, id: &str) -> String {
+    data.get("path")
         .and_then(Value::as_str)
         .map(|path| format!("path:{path}"))
         .unwrap_or_else(|| format!("id:{id}"))
@@ -4395,11 +4739,14 @@ fn indexed_fields(data: &Value) -> BTreeMap<String, Value> {
     fields
 }
 
-fn with_repository_id(mut value: Value, repository_id: &str) -> Value {
+fn with_repository_scope(mut value: Value, repository_id: &str, workspace_id: &str) -> Value {
     if let Some(object) = value.as_object_mut() {
         object
             .entry("repositoryID")
             .or_insert_with(|| json!(repository_id));
+        object
+            .entry("workspaceID")
+            .or_insert_with(|| json!(workspace_id));
     }
     value
 }
@@ -4501,6 +4848,32 @@ fn validate_extension_manifest_pair(
         ));
     }
     Ok(ui_manifest_path)
+}
+
+fn storage_collections_from_manifest(
+    id: &str,
+    manifest: &Value,
+) -> Result<Vec<StorageCollectionDeclaration>, String> {
+    let Some(collections) = manifest
+        .pointer("/contributes/collections")
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut parsed = Vec::new();
+    for collection in collections {
+        let declaration =
+            serde_json::from_value::<StorageCollectionDeclaration>(collection.clone())
+                .map_err(|error| format!("{id} contributes.collections entry invalid: {error}"))?;
+        if declaration.owner_extension != id {
+            return Err(format!(
+                "{id} contributes.collections '{}' ownerExtension must be {id}, got {}",
+                declaration.name, declaration.owner_extension
+            ));
+        }
+        parsed.push(declaration);
+    }
+    Ok(parsed)
 }
 
 fn asset_integrity(body: &[u8]) -> String {
@@ -4792,6 +5165,7 @@ fn load_extension_packages(
                 platform_wasm.display()
             ));
         }
+        let storage_collections = storage_collections_from_manifest(id, &manifest)?;
         registry.register_from_manifest(&root)?;
         if loaded
             .insert(
@@ -4801,6 +5175,7 @@ fn load_extension_packages(
                     component: component_name.to_string(),
                     output_type: output_type.to_string(),
                     status: String::from("platform-loaded"),
+                    storage_collections,
                     root,
                     ui_manifest,
                     route_prefix,
@@ -6752,13 +7127,19 @@ extensions: {}
         )
         .unwrap();
 
-        let store = ExtensionRuntimeStore::open(&data_dir).unwrap();
+        let runtime = load_extension_runtime(&test_extension_dir()).unwrap();
+        let storage_collections = storage_schema_collections(&runtime.records);
+        let store =
+            ExtensionRuntimeStore::open(&data_dir, &storage_collections, Some(&runtime.registry))
+                .unwrap();
         assert!(store.schema_path().is_file());
         assert!(store.documents_path().is_file());
         assert!(!data_dir.join("extensions/runtime-state.json").exists());
         fs::remove_file(seed_path).unwrap();
 
-        let reopened = ExtensionRuntimeStore::open(&data_dir).unwrap();
+        let reopened =
+            ExtensionRuntimeStore::open(&data_dir, &storage_collections, Some(&runtime.registry))
+                .unwrap();
         let pulls = reopened
             .query_documents_by_index(
                 "pull_requests",
@@ -8738,7 +9119,10 @@ extensions: {
         let manifest_path = extension_dir.join("ext_checks").join("manifest.json");
         let mut manifest =
             serde_json::from_str::<Value>(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
-        manifest.as_object_mut().unwrap().remove("platformWitVersion");
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .remove("platformWitVersion");
         fs::write(
             &manifest_path,
             serde_json::to_vec_pretty(&manifest).unwrap(),
@@ -9067,6 +9451,7 @@ extensions: {
                 component: "dist/ext_pull_requests.wasm".to_string(),
                 output_type: "comtrya.pull-requests/summary.v1".to_string(),
                 status: "platform-loaded".to_string(),
+                storage_collections: Vec::new(),
                 root: PathBuf::new(),
                 ui_manifest: PathBuf::new(),
                 route_prefix: Some("pulls".to_string()),

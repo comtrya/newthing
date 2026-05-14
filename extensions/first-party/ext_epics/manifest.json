@@ -17,6 +17,15 @@
   },
   "contributes": {
     "resourceKinds": [{ "name": "epic", "prefix": "epc" }],
+    "collections": [
+      {
+        "name": "epics",
+        "ownerExtension": "ext_epics",
+        "indexes": [
+          { "name": "by_workspace_state_updated", "fields": ["workspaceId", "state", "updatedAt"], "unique": false }
+        ]
+      }
+    ],
     "cards": [{ "kind": "epic", "element": "comtrya-epic-card" }],
     "slots": [
       { "slot": "workspace.home.left", "element": "comtrya-epics-board", "priority": 100 }

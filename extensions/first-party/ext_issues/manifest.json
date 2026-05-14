@@ -21,6 +21,23 @@
     "resourceKinds": [
       { "name": "issue", "prefix": "iss" }
     ],
+    "collections": [
+      {
+        "name": "issues",
+        "ownerExtension": "ext_issues",
+        "indexes": [
+          { "name": "by_workspace_number", "fields": ["workspaceId", "number"], "unique": true },
+          { "name": "by_repository_state_updated", "fields": ["repositoryId", "state", "updatedAt"], "unique": false }
+        ]
+      },
+      {
+        "name": "_meta",
+        "ownerExtension": "ext_issues",
+        "indexes": [
+          { "name": "by_id", "fields": ["id"], "unique": true }
+        ]
+      }
+    ],
     "cards": [
       { "kind": "issue", "element": "comtrya-issue-card" }
     ],

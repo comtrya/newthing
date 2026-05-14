@@ -1646,7 +1646,7 @@ mod tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&tmp_root).unwrap();
-        let store = Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap());
+        let store = Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap());
         let mut kinds = std::collections::BTreeMap::new();
         kinds.insert("issue".to_string(), "iss".to_string());
         let mut host = host_state_for_op(
@@ -1726,7 +1726,7 @@ mod tests {
             "ext_pull_requests",
             "comtrya://extension/ext_pull_requests",
             "comtrya://user/usr_ops_test",
-            Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap()),
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
             Arc::new(HostManifest {
                 allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 host_imports: vec!["ops".to_string()],
@@ -1834,7 +1834,7 @@ mod tests {
             "ext_issues",
             "comtrya://extension/ext_issues",
             "comtrya://user/usr_imports_test",
-            Arc::new(crate::ExtensionRuntimeStore::open(&tmp_root).unwrap()),
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
             Arc::new(HostManifest {
                 allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 ..HostManifest::default()
@@ -1990,7 +1990,8 @@ mod m1_ext_issues_smoke {
         // Fresh extension store in a tempdir so the test is isolated
         // from any developer's dev state.
         let tmp = tempdir_for_test();
-        let store_arc = Arc::new(crate::ExtensionRuntimeStore::open(&tmp).expect("open ext store"));
+        let store_arc =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
 
         let engine = Engine::default();
         let linker: Linker<HostState> = make_platform_linker(&engine).expect("build linker");
