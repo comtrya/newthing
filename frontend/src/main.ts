@@ -12,6 +12,7 @@ import "./styles.css";
 import App from "./App.vue";
 import { loadShellExtensions } from "./extension-loader";
 import { bindProjectCommands } from "./project-commands";
+import { bindRepositoryCommands } from "./repository-commands";
 import { registerRepositoryShellSlots } from "./repository-slots";
 import { createShellRouter } from "./router";
 import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
@@ -26,6 +27,7 @@ const router = createShellRouter();
 registerNavigationCommands(router);
 bindGoChord(router);
 bindProjectCommands(router);
+bindRepositoryCommands(router);
 void loadShellExtensions().then((failures) => {
   for (const failure of failures) {
     console.warn(

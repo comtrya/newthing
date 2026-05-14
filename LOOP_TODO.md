@@ -210,8 +210,10 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
       hidden behind extension widgets.
 - [ ] Surface open-issues count next to the Issues nav item (parallel to the
       PR badge — needs an `openIssues` field on the workspace summary).
-- [ ] Add a `command palette` entry for jumping straight to a specific
-      repository by typing its name (currently only the first repo is wired).
+- [x] **2026-05-14** `command palette` entry per repository.
+      `frontend/src/repository-commands.ts` registers `Switch to
+      repository <path>` for every workspace repo; live-synced via
+      `dev.comtrya.repository.{created,imported}`.
 
 ## Pull request management (currently placeholder text)
 
@@ -326,6 +328,37 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 - [ ] `CONTRIBUTING.md` for the v3 branch covering build/test commands.
 
 ## Recently shipped
+
+### 2026-05-14 — iteration 25 (Repository switcher in palette)
+
+Extends the iteration-22 dynamic Project commands pattern to the
+workspace boundary: every repo in the workspace gets a `Switch to
+repository <path>` palette command. Cmd-K → "dogfood" → Enter →
+`/r/comtrya/dogfood`. The palette is now the universal navigator
+— repo / project / entity all addressable by keyboard.
+
+- New `frontend/src/repository-commands.ts` (mirror of
+  `project-commands.ts` at workspace scope). On boot: GraphQL
+  `{ workspace { repositories { id name path … } } }`; register one
+  command per repo. Live-synced via
+  `dev.comtrya.repository.{created,imported}` SSE topics — both
+  emitted by the kernel on the `createRepository` mutation path,
+  including the dogfood-import path in `start.sh`.
+- Same signature-diff pattern as the entity command modules
+  (iter 23/24): only repos whose `(id, path, openPullRequests)`
+  tuple changed get re-registered; unchanged repos keep their
+  existing commands intact.
+- `main.ts` wires `bindRepositoryCommands(router)` next to
+  `bindProjectCommands(router)`.
+
+Verified end-to-end at the data path:
+- `bun run typecheck` clean.
+- Bundle ships all four identifier prefixes
+  (`Switch to repository`, `core.switch-to-repository`,
+  `dev.comtrya.repository.created`, `dev.comtrya.repository.imported`).
+- Workspace has 5 repos (`comtrya/comtrya`, `comtrya/dogfood`,
+  `imported/comtrya-mirror`, `rawkode/rawkode`, `rawkode/hello/rawkode`)
+  — each will become a palette command on next page load.
 
 ### 2026-05-14 — iteration 24 (Commands-as-verbs — PRs + Epics; arc complete)
 
