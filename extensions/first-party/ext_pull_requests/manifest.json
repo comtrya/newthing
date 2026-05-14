@@ -38,12 +38,7 @@
           }
         }
       }
-    ],
-    "cards": [{ "kind": "pull-request", "element": "comtrya-pr-card" }],
-    "slots": [
-      { "slot": "workspace.home.right", "element": "comtrya-prs-list", "priority": 300 }
-    ],
-    "routes": [{ "path": "/r/*/pulls", "element": "comtrya-prs-page" }]
+    ]
   },
   "hostImports": [
     "storage.read", "storage.write",

@@ -13,18 +13,5 @@
     "workspace.read",
     "events.read",
     "instance.admin"
-  ],
-  "contributes": {
-    "slots": [
-      "home.your-work",
-      "home.repositories",
-      "home.activity",
-      "home.instance",
-      "workspace.home.top",
-      "workspace.home.left",
-      "workspace.home.center",
-      "workspace.home.right"
-    ],
-    "routes": false
-  }
+  ]
 }

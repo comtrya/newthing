@@ -21,6 +21,45 @@
     "resourceKinds": [
       { "name": "issue", "prefix": "iss" }
     ],
+    "relationshipTypes": [
+      {
+        "id": "ext_issues.blocks",
+        "kind": "comtrya://rel/blocks",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "blocks",
+        "incomingLabel": "blocked by",
+        "order": 10
+      },
+      {
+        "id": "ext_issues.part-of",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "child of",
+        "incomingLabel": "parent of",
+        "order": 20
+      },
+      {
+        "id": "ext_issues.relates-to",
+        "kind": "comtrya://rel/relates-to",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "related to",
+        "incomingLabel": "related to",
+        "symmetric": true,
+        "order": 30
+      },
+      {
+        "id": "ext_issues.duplicates",
+        "kind": "comtrya://rel/duplicates",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "duplicates",
+        "incomingLabel": "duplicated by",
+        "order": 40
+      }
+    ],
     "collections": [
       {
         "name": "issues",
@@ -37,15 +76,6 @@
           { "name": "by_id", "fields": ["id"], "unique": true }
         ]
       }
-    ],
-    "cards": [
-      { "kind": "issue", "element": "comtrya-issue-card" }
-    ],
-    "slots": [
-      { "slot": "workspace.home.right", "element": "comtrya-issues-list", "priority": 200 }
-    ],
-    "routes": [
-      { "path": "/r/*/issues", "element": "comtrya-issues-page" }
     ]
   },
   "hostImports": [

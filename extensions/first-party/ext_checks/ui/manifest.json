@@ -11,11 +11,5 @@
   },
   "permissions": [
     "checks.read"
-  ],
-  "contributes": {
-    "slots": [
-      "repository.checks"
-    ],
-    "routes": true
-  }
+  ]
 }

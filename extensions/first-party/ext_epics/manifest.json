@@ -17,6 +17,26 @@
   },
   "contributes": {
     "resourceKinds": [{ "name": "epic", "prefix": "epc" }],
+    "relationshipTypes": [
+      {
+        "id": "ext_epics.issue-part-of-epic",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["epic"],
+        "outgoingLabel": "part of epic",
+        "incomingLabel": "contains issue",
+        "order": 100
+      },
+      {
+        "id": "ext_epics.epic-part-of-epic",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["epic"],
+        "targetKinds": ["epic"],
+        "outgoingLabel": "child of",
+        "incomingLabel": "parent of",
+        "order": 110
+      }
+    ],
     "collections": [
       {
         "name": "epics",
@@ -25,12 +45,7 @@
           { "name": "by_workspace_state_updated", "fields": ["workspaceId", "state", "updatedAt"], "unique": false }
         ]
       }
-    ],
-    "cards": [{ "kind": "epic", "element": "comtrya-epic-card" }],
-    "slots": [
-      { "slot": "workspace.home.left", "element": "comtrya-epics-board", "priority": 100 }
-    ],
-    "routes": [{ "path": "/r/*/epics", "element": "comtrya-epics-page" }]
+    ]
   },
   "hostImports": [
     "storage.read", "storage.write",

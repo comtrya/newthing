@@ -6,23 +6,11 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_issues/assets/index.js",
-    "entryIntegrity": "sha256-e02337612b7f48fe6185bcea55f163a568396c4169f3111c033dffcdc397cc8c",
+    "entryIntegrity": "sha256-1d77dfe57ae88130a89db77c6c339a13f966537cd3c9650674185989d470b210",
     "styles": []
   },
   "permissions": [
     "issues.read",
     "issues.write"
-  ],
-  "contributes": {
-    "slots": [
-      "repository.issues"
-    ],
-    "cards": [
-      {
-        "resourceKind": "issue",
-        "element": "comtrya-issue-card"
-      }
-    ],
-    "routes": true
-  }
+  ]
 }

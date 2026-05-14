@@ -11,12 +11,5 @@
   },
   "permissions": [
     "pull-requests.read"
-  ],
-  "contributes": {
-    "slots": [
-      "home.your-work",
-      "repository.overview"
-    ],
-    "routes": true
-  }
+  ]
 }

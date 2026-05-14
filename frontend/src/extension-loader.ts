@@ -1,7 +1,13 @@
 import {
+  configureGraphQLClient,
+  getGraphQLClient,
   registerCard,
+  registerRelationshipTargetProvider,
+  registerRelationshipType,
   registerRoute,
   registerSlot,
+  registerWidget,
+  type RelationshipTargetProvider,
 } from "@comtrya/sdk-core";
 import { parseManifest, type UiManifestV2 } from "./extension-manifest";
 import {
@@ -14,12 +20,37 @@ import {
 const SHELL_EXTENSION_BOOT_QUERY = `{
   viewer { authenticated permissions }
   instance { capabilities { extensionRuntime } }
-  extensionInstallations { id routePrefix }
+  extensionInstallations {
+    id
+    routePrefix
+    relationshipTypes {
+      id
+      kind
+      sourceKinds
+      targetKinds
+      outgoingLabel
+      incomingLabel
+      symmetric
+      order
+    }
+  }
 }`;
 
 export interface InstalledExtension {
   id: string;
   routePrefix: string | null;
+  relationshipTypes?: InstalledRelationshipType[];
+}
+
+export interface InstalledRelationshipType {
+  id: string;
+  kind: string;
+  sourceKinds: string[];
+  targetKinds: string[];
+  outgoingLabel: string;
+  incomingLabel: string;
+  symmetric?: boolean;
+  order?: number;
 }
 
 export interface ShellExtensionBoot {
@@ -45,6 +76,14 @@ interface ExtensionHost {
   readonly client: ShellGraphQLClient;
   readonly viewer: ShellViewer;
   readonly capabilities: Record<string, boolean>;
+  readonly routePrefix: string | null;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): { dispose(): void };
   registerSlot(
     name: string,
     contribution: {
@@ -65,10 +104,17 @@ interface ExtensionHost {
     element: string;
     requiredPermission: string;
   }): { dispose(): void };
+  registerRelationshipTargetProvider(contribution: {
+    resourceKind: string;
+    loadTargets: RelationshipTargetProvider["loadTargets"];
+  }): { dispose(): void };
 }
 
 export async function loadShellExtensions(): Promise<ExtensionLoadFailure[]> {
-  const client = createGraphQLClient();
+  // Configure the shared GraphQL client up-front so both shell and
+  // extensions reuse the same transport, credentials, and error envelope.
+  configureGraphQLClient();
+  const client = createShellGraphQLClient();
   const failures: ExtensionLoadFailure[] = [];
   let boot: ShellExtensionBoot;
   try {
@@ -97,32 +143,12 @@ export async function loadShellExtensions(): Promise<ExtensionLoadFailure[]> {
   return failures;
 }
 
-function createGraphQLClient(): ShellGraphQLClient {
+function createShellGraphQLClient(): ShellGraphQLClient {
+  const client = getGraphQLClient();
   return {
-    query: (query, variables) => graphql(query, variables),
-    mutate: (mutation, variables) => graphql(mutation, variables),
+    query: (query, variables) => client.query(query, variables),
+    mutate: (mutation, variables) => client.mutate(mutation, variables),
   };
-}
-
-async function graphql<T>(
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T> {
-  const response = await fetch("/graphql", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
-  const envelope = (await response.json()) as {
-    data?: T;
-    errors?: Array<{ message?: string }>;
-  };
-  if (!response.ok || envelope.errors?.length) {
-    throw new Error(envelope.errors?.[0]?.message ?? response.statusText);
-  }
-  if (!envelope.data) throw new Error("GraphQL response did not include data");
-  return envelope.data;
 }
 
 async function loadOneExtension(
@@ -133,6 +159,7 @@ async function loadOneExtension(
   let manifest: UiManifestV2;
   try {
     const response = await fetch(`/_extensions/${extension.id}/manifest.json`, {
+      cache: "no-store",
       credentials: "include",
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -148,7 +175,8 @@ async function loadOneExtension(
 
   let definition: ExtensionDefinition;
   try {
-    const module = await import(/* @vite-ignore */ manifest.assets.entry);
+    registerManifestRelationshipTypes(extension);
+    const module = await import(/* @vite-ignore */ extensionEntryUrl(manifest));
     definition = module.default as ExtensionDefinition;
     if (!definition || typeof definition.setup !== "function") {
       throw new Error("default export must expose setup(host)");
@@ -173,6 +201,12 @@ async function loadOneExtension(
   }
 }
 
+function extensionEntryUrl(manifest: UiManifestV2): string {
+  const url = new URL(manifest.assets.entry, window.location.origin);
+  url.searchParams.set("integrity", manifest.assets.entryIntegrity);
+  return `${url.pathname}${url.search}`;
+}
+
 function createHost(
   extension: InstalledExtension,
   manifest: UiManifestV2,
@@ -183,10 +217,20 @@ function createHost(
     client: context.client,
     viewer: context.viewer,
     capabilities: context.capabilities,
+    routePrefix: extension.routePrefix,
+    registerWidget(contribution) {
+      assertPermission(manifest, contribution.requiredPermission);
+      registerWidget({
+        id: `${extensionId}:${contribution.id}`,
+        extensionId,
+        element: contribution.element,
+        defaultSlot: contribution.defaultSlot,
+        defaultPriority: contribution.defaultPriority,
+        requiredPermission: contribution.requiredPermission,
+      });
+      return { dispose: () => undefined };
+    },
     registerSlot(name, contribution) {
-      if (!manifest.contributes.slots.includes(name)) {
-        throw new Error(`slot "${name}" is not declared by ${extensionId}`);
-      }
       assertPermission(manifest, contribution.requiredPermission);
       const id = `${extensionId}:slot:${name}:${contribution.element}`;
       registerSlot(name, {
@@ -198,8 +242,10 @@ function createHost(
       return { dispose: () => undefined };
     },
     registerRoute(path, contribution) {
-      if (!manifest.contributes.routes || !extension.routePrefix) {
-        throw new Error(`routes are not enabled for ${extensionId}`);
+      if (!extension.routePrefix) {
+        throw new Error(
+          `extension ${extensionId} has no routePrefix; extensions own /x/<routePrefix>/ only`,
+        );
       }
       assertPermission(manifest, contribution.requiredPermission);
       const id = `${extensionId}:route:${path}:${contribution.element}`;
@@ -213,12 +259,6 @@ function createHost(
       return { dispose: () => undefined };
     },
     registerCard(contribution) {
-      const allowed = manifest.contributes.cards?.some(
-        (card) => card.resourceKind === contribution.resourceKind,
-      );
-      if (!allowed) {
-        throw new Error(`card kind "${contribution.resourceKind}" is not declared by ${extensionId}`);
-      }
       assertPermission(manifest, contribution.requiredPermission);
       registerCard({
         kind: contribution.resourceKind,
@@ -227,7 +267,32 @@ function createHost(
       });
       return { dispose: () => undefined };
     },
+    registerRelationshipTargetProvider(contribution) {
+      registerRelationshipTargetProvider({
+        id: `${extensionId}:relationship-target:${contribution.resourceKind}`,
+        extensionId,
+        resourceKind: contribution.resourceKind,
+        loadTargets: contribution.loadTargets,
+      });
+      return { dispose: () => undefined };
+    },
   };
+}
+
+function registerManifestRelationshipTypes(extension: InstalledExtension): void {
+  for (const type of extension.relationshipTypes ?? []) {
+    registerRelationshipType({
+      id: type.id,
+      extensionId: extension.id,
+      kind: type.kind,
+      sourceKinds: type.sourceKinds,
+      targetKinds: type.targetKinds,
+      outgoingLabel: type.outgoingLabel,
+      incomingLabel: type.incomingLabel,
+      symmetric: type.symmetric ?? false,
+      order: type.order ?? 1000,
+    });
+  }
 }
 
 function assertPermission(manifest: UiManifestV2, permission: string): void {

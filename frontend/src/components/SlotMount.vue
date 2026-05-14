@@ -3,40 +3,85 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   slotsFor,
   subscribeSlots,
+  subscribeWidgets,
+  widgetsForSlot,
+  type ResolvedWidget,
   type SlotContribution,
 } from "@comtrya/sdk-core";
 import { extensionElementContext } from "../extension-runtime";
+
+interface MountEntry {
+  extensionId: string;
+  element: string;
+  priority: number;
+  init?: unknown;
+}
 
 const props = withDefaults(defineProps<{
   name: string;
   label: string;
   smokePrefix?: string;
   elementContext?: Record<string, unknown>;
+  framed?: boolean;
 }>(), {
   smokePrefix: "slot",
   elementContext: () => ({}),
+  framed: true,
 });
 
-const contributions = ref<SlotContribution[]>([]);
+const contributions = ref<MountEntry[]>([]);
 const mount = ref<HTMLElement | null>(null);
-let unsubscribe: (() => void) | undefined;
+const unsubscribers: Array<() => void> = [];
 const contextKey = computed(() => stableContextKey(props.elementContext));
 
 function refresh(): void {
-  contributions.value = [...slotsFor(props.name)];
+  contributions.value = mergeContributions(slotsFor(props.name), widgetsForSlot(props.name));
   void nextTick(renderSlot);
+}
+
+function mergeContributions(
+  legacy: SlotContribution[],
+  widgets: ResolvedWidget[],
+): MountEntry[] {
+  const entries: MountEntry[] = [];
+  for (const entry of legacy) {
+    entries.push({
+      extensionId: entry.extensionId,
+      element: entry.element,
+      priority: entry.priority,
+      init: entry.init,
+    });
+  }
+  for (const widget of widgets) {
+    entries.push({
+      extensionId: widget.extensionId,
+      element: widget.element,
+      priority: widget.priority,
+    });
+  }
+  entries.sort((a, b) => a.priority - b.priority);
+  return entries;
 }
 
 onMounted(() => {
   refresh();
-  unsubscribe = subscribeSlots((slot) => {
-    if (slot === props.name) refresh();
-  });
+  unsubscribers.push(
+    subscribeSlots((slot) => {
+      if (slot === props.name) refresh();
+    }),
+  );
+  unsubscribers.push(
+    subscribeWidgets((slot) => {
+      if (slot === null || slot === props.name) refresh();
+    }),
+  );
 });
 
 watch(() => props.name, refresh);
 watch(contextKey, () => void nextTick(renderSlot));
-onUnmounted(() => unsubscribe?.());
+onUnmounted(() => {
+  for (const fn of unsubscribers) fn();
+});
 
 function renderSlot(): void {
   const target = mount.value;
@@ -52,7 +97,7 @@ function renderSlot(): void {
   );
 }
 
-function buildContributionElement(entry: SlotContribution): HTMLElement {
+function buildContributionElement(entry: MountEntry): HTMLElement {
   const node = document.createElement(entry.element) as HTMLElement &
     Record<string, unknown>;
   node.dataset.extensionId = entry.extensionId;
@@ -85,8 +130,12 @@ function stableContextKey(context: Record<string, unknown>): string {
 </script>
 
 <template>
-  <section class="slot-frame" :data-smoke="`${smokePrefix}-${name}`">
-    <header class="slot-heading">
+  <section
+    class="slot-frame"
+    :class="{ 'slot-frame--bare': !framed }"
+    :data-smoke="`${smokePrefix}-${name}`"
+  >
+    <header v-if="framed" class="slot-heading">
       <h2>{{ label }}</h2>
       <code>{{ name }}</code>
     </header>

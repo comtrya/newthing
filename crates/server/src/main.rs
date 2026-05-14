@@ -277,6 +277,7 @@ struct ExtensionRuntimeRecord {
     component: String,
     output_type: String,
     status: String,
+    relationship_types: Vec<RelationshipTypeDeclaration>,
     #[serde(skip)]
     storage_collections: Vec<StorageCollectionDeclaration>,
     #[serde(skip)]
@@ -1282,7 +1283,7 @@ fn filter_extension_installations(
     )
 }
 
-/// Enrich an `extensionInstallations` array with the `routePrefix` field.
+/// Enrich an `extensionInstallations` array with runtime-derived fields.
 /// The server-side [`ExtensionInstallConfig`] takes precedence; if no config
 /// declares a prefix, the extension's own manifest (recorded in the runtime)
 /// supplies one. Extensions with neither receive `null`.
@@ -1298,16 +1299,22 @@ fn inject_route_prefix(
         items
             .into_iter()
             .map(|mut ext| {
-                let route_prefix = ext.get("id").and_then(Value::as_str).and_then(|id| {
+                let extension_id = ext.get("id").and_then(Value::as_str);
+                let route_prefix = extension_id.and_then(|id| {
                     configs
                         .iter()
                         .find(|c| c.id == id)
                         .and_then(|c| c.route_prefix.clone())
                         .or_else(|| runtime.get(id).and_then(|r| r.route_prefix.clone()))
                 });
+                let relationship_types = extension_id
+                    .and_then(|id| runtime.get(id))
+                    .map(|record| json!(record.relationship_types))
+                    .unwrap_or_else(|| json!([]));
                 let value = route_prefix.map(|p| json!(p)).unwrap_or(json!(null));
                 if let Some(obj) = ext.as_object_mut() {
                     obj.insert("routePrefix".to_string(), value);
+                    obj.insert("relationshipTypes".to_string(), relationship_types);
                 }
                 ext
             })
@@ -3812,6 +3819,21 @@ struct StorageCollectionDeclaration {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+struct RelationshipTypeDeclaration {
+    id: String,
+    kind: String,
+    source_kinds: Vec<String>,
+    target_kinds: Vec<String>,
+    outgoing_label: String,
+    incoming_label: String,
+    #[serde(default)]
+    symmetric: bool,
+    #[serde(default)]
+    order: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 struct StorageIndexDeclaration {
     name: String,
     fields: Vec<String>,
@@ -4819,6 +4841,66 @@ fn storage_collections_from_manifest(
     Ok(parsed)
 }
 
+fn relationship_types_from_manifest(
+    id: &str,
+    manifest: &Value,
+) -> Result<Vec<RelationshipTypeDeclaration>, String> {
+    let Some(types) = manifest
+        .pointer("/contributes/relationshipTypes")
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut seen = BTreeSet::new();
+    let mut parsed = Vec::new();
+    let expected_prefix = format!("{id}.");
+    for entry in types {
+        let declaration = serde_json::from_value::<RelationshipTypeDeclaration>(entry.clone())
+            .map_err(|error| {
+                format!("{id} contributes.relationshipTypes entry invalid: {error}")
+            })?;
+        if !declaration.id.starts_with(&expected_prefix) {
+            return Err(format!(
+                "{id} contributes.relationshipTypes id '{}' must start with '{expected_prefix}'",
+                declaration.id
+            ));
+        }
+        if !seen.insert(declaration.id.clone()) {
+            return Err(format!(
+                "{id} contributes.relationshipTypes declares duplicate id '{}'",
+                declaration.id
+            ));
+        }
+        validate_verb_uri(&declaration.kind).map_err(|error| {
+            format!(
+                "{id} contributes.relationshipTypes '{}' has invalid kind: {error}",
+                declaration.id
+            )
+        })?;
+        if declaration.source_kinds.is_empty() || declaration.target_kinds.is_empty() {
+            return Err(format!(
+                "{id} contributes.relationshipTypes '{}' must declare sourceKinds and targetKinds",
+                declaration.id
+            ));
+        }
+        if declaration.outgoing_label.trim().is_empty()
+            || declaration.incoming_label.trim().is_empty()
+        {
+            return Err(format!(
+                "{id} contributes.relationshipTypes '{}' must declare non-empty labels",
+                declaration.id
+            ));
+        }
+        parsed.push(declaration);
+    }
+    parsed.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(parsed)
+}
+
 fn asset_integrity(body: &[u8]) -> String {
     let digest = Sha256::digest(body);
     let mut out = String::from("sha256-");
@@ -4837,24 +4919,6 @@ fn asset_etag(body: &[u8]) -> String {
 // ---------------------------------------------------------------------------
 
 const UI_MANIFEST_SCHEMA_V2: &str = "comtrya.ui-extension/v2";
-const KNOWN_SLOT_NAMES: &[&str] = &[
-    "home.your-work",
-    "home.your-issues",
-    "home.your-epics",
-    "home.repositories",
-    "home.activity",
-    "home.instance",
-    "workspace.home.top",
-    "workspace.home.left",
-    "workspace.home.center",
-    "workspace.home.right",
-    "repository.overview",
-    "repository.code",
-    "repository.checks",
-    "repository.issues",
-    "workspace.issues",
-    "workspace.epics",
-];
 
 #[derive(Debug, serde::Deserialize)]
 pub struct UiManifestV2 {
@@ -4866,7 +4930,6 @@ pub struct UiManifestV2 {
     pub publisher: String,
     pub assets: UiAssetsV2,
     pub permissions: Vec<String>,
-    pub contributes: UiContributesV2,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -4875,12 +4938,6 @@ pub struct UiAssetsV2 {
     #[serde(rename = "entryIntegrity")]
     pub entry_integrity: String,
     pub styles: Vec<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct UiContributesV2 {
-    pub slots: Vec<String>,
-    pub routes: bool,
 }
 
 pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiManifestV2, String> {
@@ -4910,14 +4967,9 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
     if !m.assets.entry_integrity.starts_with("sha256-") {
         return Err("entryIntegrity must be sha256-prefixed".into());
     }
-    if m.contributes.slots.is_empty() && !m.contributes.routes {
-        return Err("contributes must declare at least one slot or routes:true".into());
-    }
-    for slot in &m.contributes.slots {
-        if !KNOWN_SLOT_NAMES.contains(&slot.as_str()) {
-            return Err(format!("unknown slot name '{slot}'"));
-        }
-    }
+    // Slot, route, and card declarations are runtime, not manifest. The host
+    // gates registration through permissions and the backend `routePrefix`
+    // identity field, not declarative contributes arrays.
     Ok(m)
 }
 
@@ -5109,6 +5161,7 @@ fn load_extension_packages(
             ));
         }
         let storage_collections = storage_collections_from_manifest(id, &manifest)?;
+        let relationship_types = relationship_types_from_manifest(id, &manifest)?;
         registry.register_from_manifest(&root)?;
         if loaded
             .insert(
@@ -5118,6 +5171,7 @@ fn load_extension_packages(
                     component: component_name.to_string(),
                     output_type: output_type.to_string(),
                     status: String::from("platform-loaded"),
+                    relationship_types,
                     storage_collections,
                     root,
                     ui_manifest,
@@ -6964,6 +7018,21 @@ extensions: {
             assert!(resolver.output_type.starts_with("comtrya."));
             assert!(resolver.output_type.ends_with("/summary.v1"));
         }
+        let issue_relationships = &runtime.records["ext_issues"].relationship_types;
+        assert!(
+            issue_relationships
+                .iter()
+                .any(|rel| rel.id == "ext_issues.blocks" && rel.kind == "comtrya://rel/blocks"),
+            "ext_issues should declare issue relationship types"
+        );
+        let epic_relationships = &runtime.records["ext_epics"].relationship_types;
+        assert!(
+            epic_relationships
+                .iter()
+                .any(|rel| rel.id == "ext_epics.issue-part-of-epic"
+                    && rel.target_kinds == vec!["epic".to_string()]),
+            "ext_epics should contribute issue-to-epic relationship types"
+        );
     }
 
     #[test]
@@ -7663,7 +7732,7 @@ extensions: {
     }
 
     #[test]
-    fn manifest_v2_accepted_with_contributes_block() {
+    fn manifest_v2_accepted_with_identity_only() {
         let extension_dir = temp_dir("manifest-v2-accepted");
         fs::create_dir_all(extension_dir.join("assets")).unwrap();
         fs::create_dir_all(extension_dir.join("ui")).unwrap();
@@ -7678,8 +7747,7 @@ extensions: {
                 "entryIntegrity": "sha256-abc",
                 "styles": []
             },
-            "permissions": ["pull-requests.read"],
-            "contributes": { "slots": ["repository.overview"], "routes": true }
+            "permissions": ["pull-requests.read"]
         });
         let result = validate_ui_manifest_from_value(&v2);
         assert!(
@@ -7706,7 +7774,10 @@ extensions: {
     }
 
     #[test]
-    fn manifest_v2_rejects_unknown_slot_name() {
+    fn manifest_v2_ignores_legacy_contributes_block() {
+        // A manifest that still includes the old declarative contributes
+        // arrays must validate cleanly — those fields are ignored, since
+        // slot/route/card registration is runtime, not manifest.
         let v2 = serde_json::json!({
             "schemaVersion": "comtrya.ui-extension/v2",
             "id": "ext_test", "extension": "test", "version": "0.1.0", "publisher": "comtrya-dev",
@@ -7715,8 +7786,7 @@ extensions: {
             "contributes": { "slots": ["bogus"], "routes": false }
         });
         let result = validate_ui_manifest_from_value(&v2);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("bogus"));
+        assert!(result.is_ok(), "legacy contributes block must not fail validation: {result:?}");
     }
 
     #[test]
@@ -7909,7 +7979,9 @@ extensions: {
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
         assert!(items[0]["routePrefix"].is_null());
+        assert_eq!(items[0]["relationshipTypes"], json!([]));
         assert!(items[1]["routePrefix"].is_null());
+        assert_eq!(items[1]["relationshipTypes"], json!([]));
     }
 
     #[test]
@@ -7941,7 +8013,9 @@ extensions: {
         let items = result.as_array().unwrap();
         assert_eq!(items.len(), 2);
         assert_eq!(items[0]["routePrefix"], "pulls");
+        assert_eq!(items[0]["relationshipTypes"], json!([]));
         assert!(items[1]["routePrefix"].is_null());
+        assert_eq!(items[1]["relationshipTypes"], json!([]));
     }
 
     #[test]
@@ -7958,6 +8032,7 @@ extensions: {
                 component: "dist/ext_pull_requests.wasm".to_string(),
                 output_type: "comtrya.pull-requests/summary.v1".to_string(),
                 status: "platform-loaded".to_string(),
+                relationship_types: Vec::new(),
                 storage_collections: Vec::new(),
                 root: PathBuf::new(),
                 ui_manifest: PathBuf::new(),
@@ -7967,6 +8042,7 @@ extensions: {
         let result = inject_route_prefix(extensions, &configs, &runtime);
         let items = result.as_array().unwrap();
         assert_eq!(items[0]["routePrefix"], "pulls");
+        assert_eq!(items[0]["relationshipTypes"], json!([]));
     }
 
     // ── Task 24: workspace.repositories groups + summary ─────────────────────
@@ -8182,6 +8258,10 @@ extensions: {
             assert!(
                 item.as_object().unwrap().contains_key("routePrefix"),
                 "each entry must carry routePrefix"
+            );
+            assert!(
+                item.as_object().unwrap().contains_key("relationshipTypes"),
+                "each entry must carry relationshipTypes"
             );
         }
     }

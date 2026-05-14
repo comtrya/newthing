@@ -40,9 +40,6 @@
           }
         }
       }
-    ],
-    "slots": [
-      { "slot": "repository.checks", "element": "comtrya-checks-board", "priority": 100 }
     ]
   },
   "hostImports": [
