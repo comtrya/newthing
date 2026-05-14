@@ -6,12 +6,16 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_checks/assets/index.js",
-    "entryIntegrity": "sha256-0ac0019628747cd96260d3835f8603433fe75c7ae9a15dc83f26246da8e015e5",
+    "entryIntegrity": "sha256-5475726117ea13d2f6ade8593403dd1a882fffdf653d1168536b432fc0435691",
     "styles": []
   },
-  "permissions": ["checks.read"],
+  "permissions": [
+    "checks.read"
+  ],
   "contributes": {
-    "slots": ["repository.checks"],
+    "slots": [
+      "repository.checks"
+    ],
     "routes": true
   }
 }
