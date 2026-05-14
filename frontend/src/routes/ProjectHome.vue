@@ -15,6 +15,7 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
+import ActivityStream from "../components/ActivityStream.vue";
 import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
 
@@ -384,6 +385,10 @@ watch(
       </span>
     </section>
 
+    <section class="project-activity" data-smoke="project-activity">
+      <ActivityStream :project-name="props.project" />
+    </section>
+
     <section class="project-slots">
       <SlotMount
         v-for="slot in repositoryHomeSlots"
@@ -613,5 +618,9 @@ watch(
   display: grid;
   gap: 28px;
   padding-top: 28px;
+}
+
+.project-activity {
+  padding-top: 24px;
 }
 </style>

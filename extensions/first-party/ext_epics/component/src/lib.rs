@@ -235,6 +235,11 @@ struct EpicEventPayload<'a> {
     title: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<&'a str>,
+    /// Project scope, if the epic was created against one. Lets the
+    /// SSE stream's project-scoped consumers filter without a
+    /// `by-ref-epic` lookup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_name: Option<&'a str>,
 }
 
 fn epic_uri(id: &str) -> String {
@@ -294,6 +299,7 @@ impl EpicsGuest for Component {
                 workspace_id: &stored.workspace_id,
                 title: Some(&stored.title),
                 state: None,
+                project_name: stored.project_name.as_deref(),
             },
             &epic_ref,
         )?;
@@ -320,6 +326,7 @@ impl EpicsGuest for Component {
                 workspace_id: &stored.workspace_id,
                 title: None,
                 state: Some(&state),
+                project_name: stored.project_name.as_deref(),
             },
             &epic_uri(&stored.id),
         )?;

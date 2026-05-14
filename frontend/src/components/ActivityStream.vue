@@ -16,6 +16,18 @@ import { getGraphQLClient, subscribeLiveEvents, type LiveEvent } from "@comtrya/
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
+/**
+ * Optional Project scope. When set, the stream renders only events
+ * whose payload carries a matching `projectName` field (issues +
+ * epics have stamped this since iteration 10/11). Events without a
+ * `projectName` are dropped — workspace-global noise doesn't bleed
+ * into a Project's "what just happened" feed. Without the prop, the
+ * stream stays workspace-global (the workspace home shape).
+ */
+const props = defineProps<{
+  projectName?: string;
+}>();
+
 interface ActivityItem {
   id: string;
   eventType: string;
@@ -34,7 +46,16 @@ const focusedIndex = ref(0);
 let unsubscribe: (() => void) | undefined;
 let highlightTimers: number[] = [];
 
-const filtered = computed(() => events.value);
+const filtered = computed(() => {
+  if (!props.projectName) return events.value;
+  const wanted = props.projectName;
+  return events.value.filter((item) => {
+    const payloadProject = item.payload && typeof item.payload === "object"
+      ? (item.payload as Record<string, unknown>).projectName
+      : null;
+    return typeof payloadProject === "string" && payloadProject === wanted;
+  });
+});
 
 onMounted(() => {
   void bootstrap();

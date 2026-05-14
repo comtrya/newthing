@@ -1189,6 +1189,48 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 33 (Project-scoped activity stream)
+
+The Project home page (`/r/<repo>/p/<project>`) now has its own
+live activity feed, filtered to events whose payload carries a
+matching `projectName`. Issue opened in `kernel`? Epic moved to
+DONE in `frontend`? Each project sees only its own ticks; the
+workspace home keeps its global view.
+
+Two layers shipped together so the filter has something to
+match against:
+
+1. **Kernel side — WASM event payloads expanded.**
+   `ext_issues::IssueEventPayload` and
+   `ext_epics::EpicEventPayload` now serialise `project_name`
+   (camelCase: `projectName`) when the entity carries one. Skipped
+   when None so the wire shape stays compact for un-scoped
+   entities. WIT contract unchanged — the field rides inside the
+   already-emitted payload bytes.
+   - Recompiled both WASM components; dist artefacts refreshed.
+   - SSE topics affected:
+     `dev.comtrya.issues.{opened,closed,reopened}` and
+     `dev.comtrya.epic.{created,state-changed}`.
+
+2. **Frontend side — ActivityStream gains a `projectName` prop.**
+   `components/ActivityStream.vue` accepts the optional prop and
+   filters `events.value` down to items whose `payload.projectName`
+   matches. Events without a `projectName` are dropped from the
+   project-scoped view (workspace noise doesn't leak in). Without
+   the prop the stream stays workspace-global (the existing
+   workspace-home shape, unchanged).
+
+   `ProjectHome.vue` mounts `<ActivityStream :project-name=
+   "props.project" />` as a new section between the policy chip
+   strip and the slot stack. Empty until events tagged with
+   `projectName === <this project>` come in; ticks live as they
+   happen via the existing SSE pipeline.
+
+This is the first surface where the Projects spine drives a
+real-time feed. Future iterations can use the same payload field
+to filter epic boards, PR queues (once PRs gain `affectedProjects`),
+and an inbox view.
+
 ### 2026-05-15 — iteration 32 (URL-persisted filter state on IssuesList)
 
 `/x/issues/?state=closed&q=auth` is now a real, shareable link.

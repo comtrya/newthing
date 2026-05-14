@@ -705,6 +705,12 @@ struct IssueEventPayload<'a> {
     repository: &'a str,
     number: u64,
     state: &'a str,
+    /// Project scope, if the issue was opened against one. Surfaced
+    /// on the event so consumers can filter the SSE stream by
+    /// project without needing a follow-up `by-ref-issue` lookup
+    /// (the Project home's activity stream is the canonical case).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_name: Option<&'a str>,
 }
 
 fn issue_event_payload(issue: &Issue) -> IssueEventPayload<'_> {
@@ -713,6 +719,7 @@ fn issue_event_payload(issue: &Issue) -> IssueEventPayload<'_> {
         repository: &issue.repository,
         number: issue.number,
         state: state_to_str(issue.state),
+        project_name: issue.project_name.as_deref(),
     }
 }
 
