@@ -12,12 +12,12 @@
  * shell owns the Preact version so every extension uses the same one.
  */
 
-import { invokeOp, registerCard, registerSlot } from "@comtrya/sdk-core";
+import { invokeOp, registerCard, registerWidget } from "@comtrya/sdk-core";
 import type {
   CardContribution,
   InvokeOpOptions,
   OpResult,
-  SlotContribution,
+  WidgetContribution,
 } from "@comtrya/sdk-core";
 
 // We declare the Preact + signals + custom-element bindings as
@@ -107,5 +107,5 @@ export function defineExtensionWidget(opts: ExtensionWidgetOptions): void {
   );
 }
 
-export { registerCard, registerSlot };
-export type { CardContribution, SlotContribution };
+export { registerCard, registerWidget };
+export type { CardContribution, WidgetContribution };

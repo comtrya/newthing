@@ -5,7 +5,6 @@ import {
   registerRelationshipTargetProvider,
   registerRelationshipType,
   registerRoute,
-  registerSlot,
   registerWidget,
   type RelationshipTargetProvider,
 } from "@comtrya/sdk-core";
@@ -84,14 +83,6 @@ interface ExtensionHost {
     defaultPriority?: number;
     requiredPermission: string;
   }): { dispose(): void };
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): { dispose(): void };
   registerRoute(
     path: string,
     contribution: {
@@ -227,17 +218,6 @@ function createHost(
         defaultSlot: contribution.defaultSlot,
         defaultPriority: contribution.defaultPriority,
         requiredPermission: contribution.requiredPermission,
-      });
-      return { dispose: () => undefined };
-    },
-    registerSlot(name, contribution) {
-      assertPermission(manifest, contribution.requiredPermission);
-      const id = `${extensionId}:slot:${name}:${contribution.element}`;
-      registerSlot(name, {
-        id,
-        extensionId,
-        element: contribution.element,
-        priority: contribution.priority ?? 1000,
       });
       return { dispose: () => undefined };
     },

@@ -1,21 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
-  slotsFor,
-  subscribeSlots,
   subscribeWidgets,
   widgetsForSlot,
   type ResolvedWidget,
-  type SlotContribution,
 } from "@comtrya/sdk-core";
 import { extensionElementContext } from "../extension-runtime";
-
-interface MountEntry {
-  extensionId: string;
-  element: string;
-  priority: number;
-  init?: unknown;
-}
 
 const props = withDefaults(defineProps<{
   name: string;
@@ -29,59 +19,26 @@ const props = withDefaults(defineProps<{
   framed: true,
 });
 
-const contributions = ref<MountEntry[]>([]);
+const contributions = ref<ResolvedWidget[]>([]);
 const mount = ref<HTMLElement | null>(null);
-const unsubscribers: Array<() => void> = [];
+let unsubscribe: (() => void) | undefined;
 const contextKey = computed(() => stableContextKey(props.elementContext));
 
 function refresh(): void {
-  contributions.value = mergeContributions(slotsFor(props.name), widgetsForSlot(props.name));
+  contributions.value = widgetsForSlot(props.name);
   void nextTick(renderSlot);
-}
-
-function mergeContributions(
-  legacy: SlotContribution[],
-  widgets: ResolvedWidget[],
-): MountEntry[] {
-  const entries: MountEntry[] = [];
-  for (const entry of legacy) {
-    entries.push({
-      extensionId: entry.extensionId,
-      element: entry.element,
-      priority: entry.priority,
-      init: entry.init,
-    });
-  }
-  for (const widget of widgets) {
-    entries.push({
-      extensionId: widget.extensionId,
-      element: widget.element,
-      priority: widget.priority,
-    });
-  }
-  entries.sort((a, b) => a.priority - b.priority);
-  return entries;
 }
 
 onMounted(() => {
   refresh();
-  unsubscribers.push(
-    subscribeSlots((slot) => {
-      if (slot === props.name) refresh();
-    }),
-  );
-  unsubscribers.push(
-    subscribeWidgets((slot) => {
-      if (slot === null || slot === props.name) refresh();
-    }),
-  );
+  unsubscribe = subscribeWidgets((slot) => {
+    if (slot === null || slot === props.name) refresh();
+  });
 });
 
 watch(() => props.name, refresh);
 watch(contextKey, () => void nextTick(renderSlot));
-onUnmounted(() => {
-  for (const fn of unsubscribers) fn();
-});
+onUnmounted(() => unsubscribe?.());
 
 function renderSlot(): void {
   const target = mount.value;
@@ -97,7 +54,7 @@ function renderSlot(): void {
   );
 }
 
-function buildContributionElement(entry: MountEntry): HTMLElement {
+function buildContributionElement(entry: ResolvedWidget): HTMLElement {
   const node = document.createElement(entry.element) as HTMLElement &
     Record<string, unknown>;
   node.dataset.extensionId = entry.extensionId;
@@ -109,7 +66,6 @@ function buildContributionElement(entry: MountEntry): HTMLElement {
   for (const [key, value] of Object.entries(props.elementContext)) {
     node[key] = value;
   }
-  if (entry.init !== undefined) node.init = entry.init;
   return node;
 }
 

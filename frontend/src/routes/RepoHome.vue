@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
 import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
+import { applyUserLayoutFor } from "../user-layout";
 
 const props = defineProps<{
   groups: string[];
@@ -84,12 +85,14 @@ watch(
       workspaceId.value = identity.workspaceId;
       repository.value = identity.repository;
       loadState.value = identity.repository ? "ready" : "missing";
+      applyUserLayoutFor(identity.repository?.id ?? null);
     } catch (error) {
       if (controller.signal.aborted) return;
       workspaceId.value = null;
       repository.value = null;
       loadState.value = "error";
       loadError.value = error instanceof Error ? error.message : String(error);
+      applyUserLayoutFor(null);
     }
   },
   { immediate: true },

@@ -18,7 +18,6 @@ import {
   invokeOp,
   type OpResult,
   type InvokeOpOptions,
-  registerSlot,
   registerCard,
   registerRelationshipTargetProvider,
   registerWidget,
@@ -27,7 +26,6 @@ import {
   type RelationshipTarget,
   type RelationshipTargetContext,
   type RelationshipTargetProvider,
-  type SlotContribution,
   type WidgetContribution,
 } from "@comtrya/sdk-core";
 import { getGraphQLClient } from "@comtrya/sdk-core";
@@ -197,7 +195,6 @@ export function useGraphQL<T = unknown>(): {
 
 /** Re-export the registries so Vue extensions have a single import. */
 export {
-  registerSlot,
   registerCard,
   registerRelationshipTargetProvider,
   registerWidget,
@@ -209,6 +206,5 @@ export type {
   RelationshipTarget,
   RelationshipTargetContext,
   RelationshipTargetProvider,
-  SlotContribution,
   WidgetContribution,
 };
