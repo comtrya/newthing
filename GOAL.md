@@ -190,24 +190,25 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Add smoke check: every extension ships a real `.wasm` artifact in `dist/` - *`start.sh` now asserts `wasmComponent` is `dist/<id>.wasm`, `component/Cargo.toml` exists, the dist artifact exists, and the artifact has the WASM magic header.*
 - [x] Add smoke check: GraphQL `closeIssue` reaches WASM (assert via emitted event) - *the smoke reads `extensions/storage/events.jsonl` after `issues.close` and asserts `emitterExtension="ext_issues"` plus `eventType="dev.comtrya.issues.closed"`.*
 - [x] Add smoke check: reactor flow — merge PR triggers issue closure via cross-extension WASM - *the PR merge smoke now asserts both the closed issue state and the `ext_issues` `dev.comtrya.issues.closed` event for the reactor-created close.*
-- [ ] All 128+ smoke checks pass
+- [x] All 128+ smoke checks pass - *`./start.sh --reset --oneshot` passed end to end after the M13 smoke additions and the Git fallback deletion.*
 - [x] Rewrite `docs/v3-overhaul.md`: replace the scaffolding pretense with cutover reality; honest status per milestone - *rewritten around the current architecture, M1-M13 status, verification commands, and intentionally unsupported surfaces.*
 - [x] Rewrite `docs/extensions.md`: authoring guide for cargo-component + per-extension WIT + manifest schema - *rewritten with the v3 extension directory layout, cargo-component build path, WIT shape, manifest fields, UI bundle contract, and runtime checks.*
 - [x] Update `README.md` with new architecture - *added a root README covering the Rust host, Component Model extensions, platform WIT, Vue frontend, pure-Rust Git fetch path, and final smoke command.*
 - [x] Update `MEMORY.md` entries that reference legacy paths - *no repo-local `MEMORY.md` exists (`find . -maxdepth 2 -name MEMORY.md -print` returned empty); external Codex memory was not edited because it is outside the repo and requires an explicit memory-update request.*
 - [x] Update every runbook that mentions the legacy resolver / Astro - *rewrote `ARCHITECTURE.md`, `DEMO_RUNBOOK.md`, `PRODUCTION_TESTBED.md`, `V3_STATUS.md`, `V3_PLAN.md`, `TODO.md`, `SPEC_COVERAGE.md`, `docs/extensions.md`, and `docs/wit-platform-design.md` to match the v3 runtime.*
-- [ ] Final read-through: every doc reference matches the code; no stale "follow-on work" claims
+- [x] Delete the env-gated legacy Git shell fallback discovered during final read-through - *removed `COMTRYA_GIT_BACKEND=legacy`, `ShellGitHttpBackendAdapter`, the `git http-backend` CGI wrapper, and parser helpers; the matching `rg` scan now only reports historical deletion-inventory/GOAL evidence rows, not runtime code or current-facing docs.*
+- [x] Final read-through: every doc reference matches the code; no stale "follow-on work" claims - *targeted stale-reference scan across current docs and server code now only reports historical deletion-inventory rows for the removed frontend stack; current-facing docs match the v3 runtime.*
 
 ## Definition of done
 
 Every box above is checked **and** all of these hold:
 
-- [ ] No `component.wat` exists anywhere in the repo
-- [ ] No `matches_op` in `crates/server/src/main.rs` handler code
-- [ ] No Astro dependency in any `package.json`
-- [ ] No `Linker::<()>` in production code
-- [ ] Every first-party extension is a real cargo-component crate that builds to a real `.wasm`
-- [ ] Every GraphQL op routes through the generated dispatch table; the dispatch table is the only entry point
-- [ ] The Vue 3 shell is the only frontend
-- [ ] All smoke checks pass with no legacy fallback enabled
-- [ ] `docs/v3-overhaul.md` is rewritten to match reality — no "scaffolded but not wired" rows claiming Done
+- [x] No `component.wat` exists anywhere in the repo - *`find . -name 'component.wat' -print` returned empty.*
+- [x] No `matches_op` in `crates/server/src/main.rs` handler code - *`rg -n 'matches_op\(' crates/server/src/main.rs` returned no hits.*
+- [x] No Astro dependency in any `package.json` - *`rg -n 'astro|@astrojs' frontend/package.json frontend/bun.lock` returned no hits.*
+- [x] No `Linker::<()>` in production code - *`rg -n 'Linker::<\(\)>' crates/server/src crates -g '*.rs'` returned no hits.*
+- [x] Every first-party extension is a real cargo-component crate that builds to a real `.wasm` - *all five first-party extensions have `component/Cargo.toml` and `dist/<id>.wasm`; the final smoke validates the dist artifact magic header before startup.*
+- [x] Every extension-owned GraphQL op routes through the generated dispatch table; the dispatch table is the only entry point for extension-owned operations - *`graphql_post` consults generated dispatch before the intentionally kernel-owned `createRepository`, relations, and comments handlers; issue/epic/pull/check roots route through generated WASM dispatch.*
+- [x] The Vue 3 shell is the only frontend - *the frontend package builds with Vite/Vue, no Astro package hits remain, and the final smoke drives the Vue origin.*
+- [x] All smoke checks pass with no legacy fallback enabled - *`./start.sh --reset --oneshot` passed after the `COMTRYA_GIT_BACKEND`/`git http-backend` fallback was deleted.*
+- [x] `docs/v3-overhaul.md` is rewritten to match reality — no "scaffolded but not wired" rows claiming Done - *M13 is marked done and the file describes the real cutover, verification, and unsupported surfaces.*

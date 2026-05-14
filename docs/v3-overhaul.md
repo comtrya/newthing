@@ -38,7 +38,7 @@ extensions built from cargo-component crates.
 | M10 Astro deletion | Done | Astro config, routes, dependencies, and legacy shell sources removed. |
 | M11 WAT/resolver deletion | Done | `.wat` stubs and legacy `Linker::<()>` resolver path removed. |
 | M12 storage/dead-code cleanup | Done | Storage schema comes from core + manifests; clippy and udeps are clean. |
-| M13 final verification/docs | In progress | `start.sh` owns the final structural and end-to-end smoke checks. |
+| M13 final verification/docs | Done | `start.sh` owns the final structural and end-to-end smoke checks; the legacy Git shell fallback is gone. |
 
 ## Verification
 

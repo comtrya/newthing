@@ -1,7 +1,7 @@
 use axum::body::{Body, Bytes};
 use axum::extract::{Path as AxumPath, Query, RawQuery, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, ETAG};
-use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
@@ -19,7 +19,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1472,10 +1472,8 @@ async fn graphql_get(State(state): State<AppState>, headers: HeaderMap) -> Respo
 async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
     let payload = serde_json::from_str::<Value>(&body).unwrap_or_else(|_| json!({}));
     let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
-    // Generated dispatch table consulted first. On hit, route into
-    // WASM via `wasm_dispatch`. On miss, fall through to the legacy
-    // hand-written handlers below (which M4/M5 delete extension-
-    // by-extension as their WASM components ship).
+    // Extension-owned operations route through generated dispatch first. On
+    // miss, only kernel-owned GraphQL roots remain as direct handlers below.
     if let Some(info) = identify_wasm_op(query) {
         debug_assert!(matches!(info.kind, "query" | "mutation"));
         if let Some(response) =
@@ -2467,7 +2465,7 @@ fn apply_extension_asset_headers(response: &mut Response, etag: &str) {
 async fn git_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
-    method: Method,
+    _method: Method,
     AxumPath(path): AxumPath<String>,
     RawQuery(raw_query): RawQuery,
     body: Bytes,
@@ -2512,27 +2510,6 @@ async fn git_endpoint(
             ErrorCode::Forbidden.as_str(),
             "credential scope does not allow requested Git operation",
         );
-    }
-
-    let use_legacy = std::env::var("COMTRYA_GIT_BACKEND").ok().as_deref() == Some("legacy");
-    if use_legacy {
-        let adapter = ShellGitHttpBackendAdapter;
-        return match adapter.handle(GitSmartHttpRequest {
-            project_root: &state.runtime.demo_repository.project_root,
-            path: &path,
-            query: raw_query.as_deref().unwrap_or_default(),
-            method: &method,
-            headers: &headers,
-            body,
-            cors,
-        }) {
-            Ok(response) => response,
-            Err(error) => error_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                ErrorCode::StorageUnavailable.as_str(),
-                &error,
-            ),
-        };
     }
 
     // Pure-Rust Smart HTTP v2 path via comtrya-git-http.
@@ -5106,144 +5083,6 @@ fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
-trait GitSmartHttpAdapter {
-    fn handle(&self, request: GitSmartHttpRequest<'_>) -> Result<Response, String>;
-}
-
-struct GitSmartHttpRequest<'a> {
-    project_root: &'a Path,
-    path: &'a str,
-    query: &'a str,
-    method: &'a Method,
-    headers: &'a HeaderMap,
-    body: Bytes,
-    cors: HeaderMap,
-}
-
-struct ShellGitHttpBackendAdapter;
-
-impl GitSmartHttpAdapter for ShellGitHttpBackendAdapter {
-    fn handle(&self, request: GitSmartHttpRequest<'_>) -> Result<Response, String> {
-        run_git_http_backend(
-            request.project_root,
-            request.path,
-            request.query,
-            request.method,
-            request.headers,
-            request.body,
-            request.cors,
-        )
-    }
-}
-
-fn run_git_http_backend(
-    project_root: &Path,
-    path: &str,
-    query: &str,
-    method: &Method,
-    headers: &HeaderMap,
-    body: Bytes,
-    cors: HeaderMap,
-) -> Result<Response, String> {
-    if !matches!(method, &Method::GET | &Method::POST) {
-        return Err(format!("unsupported Git HTTP method: {method}"));
-    }
-    let mut child = Command::new("git")
-        .arg("http-backend")
-        .env("GIT_PROJECT_ROOT", project_root)
-        .env("GIT_HTTP_EXPORT_ALL", "1")
-        .env("PATH_INFO", format!("/{path}"))
-        .env("QUERY_STRING", query)
-        .env("REQUEST_METHOD", method.as_str())
-        .env(
-            "CONTENT_TYPE",
-            header_str(headers, "content-type").unwrap_or(""),
-        )
-        .env("CONTENT_LENGTH", body.len().to_string())
-        .env("GATEWAY_INTERFACE", "CGI/1.1")
-        .env("SERVER_PROTOCOL", "HTTP/1.1")
-        .env("REMOTE_ADDR", "127.0.0.1")
-        .env("REMOTE_USER", "comtrya")
-        .env(
-            "HTTP_GIT_PROTOCOL",
-            header_str(headers, "git-protocol").unwrap_or(""),
-        )
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| format!("failed to spawn git http-backend: {error}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(&body)
-            .map_err(|error| format!("failed to write git request body: {error}"))?;
-    }
-    let output = child
-        .wait_with_output()
-        .map_err(|error| format!("failed to wait for git http-backend: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "git http-backend failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    cgi_response(output.stdout, cors)
-}
-
-fn cgi_response(stdout: Vec<u8>, cors: HeaderMap) -> Result<Response, String> {
-    let Some((header_end, separator_len)) = find_cgi_header_end(&stdout) else {
-        return Err("git http-backend returned no CGI headers".to_string());
-    };
-    let headers_text = String::from_utf8_lossy(&stdout[..header_end]);
-    let body = stdout[header_end + separator_len..].to_vec();
-    let mut status = StatusCode::OK;
-    let mut headers = HeaderMap::new();
-    for line in headers_text.lines().map(|line| line.trim_end_matches('\r')) {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        if name.eq_ignore_ascii_case("Status") {
-            if let Some(code) = value
-                .split_whitespace()
-                .next()
-                .and_then(|code| code.parse::<u16>().ok())
-                .and_then(|code| StatusCode::from_u16(code).ok())
-            {
-                status = code;
-            }
-            continue;
-        }
-        if let (Ok(name), Ok(value)) = (
-            HeaderName::from_bytes(name.trim().as_bytes()),
-            HeaderValue::from_str(value.trim()),
-        ) {
-            headers.insert(name, value);
-        }
-    }
-    headers.extend(cors);
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = status;
-    *response.headers_mut() = headers;
-    Ok(response)
-}
-
-fn find_cgi_header_end(bytes: &[u8]) -> Option<(usize, usize)> {
-    bytes
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .map(|idx| (idx, 4))
-        .or_else(|| {
-            bytes
-                .windows(2)
-                .position(|window| window == b"\n\n")
-                .map(|idx| (idx, 2))
-        })
-}
-
-fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    headers.get(name).and_then(|value| value.to_str().ok())
-}
-
 fn write_seed_file(root: &Path, relative: &str, body: &str) -> Result<(), String> {
     let path = root.join(relative);
     if let Some(parent) = path.parent() {
@@ -6901,24 +6740,6 @@ extensions: {}
             payload["errors"][0]["extensions"]["surface"],
             "git_receive_pack"
         );
-    }
-
-    #[test]
-    fn shell_git_http_adapter_rejects_unsupported_methods_before_spawn() {
-        let adapter = ShellGitHttpBackendAdapter;
-        let error = adapter
-            .handle(GitSmartHttpRequest {
-                project_root: Path::new("/does-not-need-to-exist"),
-                path: "comtrya/comtrya.git/info/refs",
-                query: "service=git-upload-pack",
-                method: &Method::DELETE,
-                headers: &HeaderMap::new(),
-                body: Bytes::new(),
-                cors: HeaderMap::new(),
-            })
-            .unwrap_err();
-
-        assert_eq!(error, "unsupported Git HTTP method: DELETE");
     }
 
     #[tokio::test]

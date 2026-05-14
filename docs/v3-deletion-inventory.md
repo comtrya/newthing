@@ -44,7 +44,9 @@ The dispatch block itself (`graphql_post` body, lines 1472–1521) was rewritten
 
 ## Legacy GraphQL snapshot path
 
-These power the Astro frontend's monolithic snapshot rendering. They go away when the Vue shell stops consuming the snapshot.
+These formerly powered the monolithic snapshot rendering path. The Vue shell no
+longer consumes `extensionResolvers`, but the compatibility `demo` aggregate and
+stream helpers remain for retained kernel-owned surfaces.
 
 | Item | Line | Notes | Dies in |
 |------|-----:|-------|---------|
@@ -92,6 +94,18 @@ M6 deleted every row in this section. `rg 'REACTORS|dispatch_event_to_reactors|E
 | ~~`let func = instance.get_typed_func::<(), (u32,)>(..., resolver)`~~ | ~~4985~~ | ~~dies with the resolver path in **M11**~~ deleted in M11 |
 | ~~Health-check field `wasmtimeResolversExecuted`~~ | ~~444~~ | ~~dies in **M13** when the smoke harness asserts the WASM path directly~~ deleted in M11 alongside the resolver counter |
 
+## Git smart HTTP fallback
+
+M13 removed the env-gated shell adapter around `git http-backend`; the server
+now has one Git fetch path, `comtrya_git_http::v2::dispatch`.
+
+| Item | Notes |
+|------|-------|
+| ~~`COMTRYA_GIT_BACKEND=legacy` branch in `git_endpoint`~~ | deleted in M13 |
+| ~~`GitSmartHttpAdapter` / `ShellGitHttpBackendAdapter`~~ | deleted in M13 |
+| ~~`run_git_http_backend` CGI wrapper~~ | deleted in M13 |
+| ~~CGI parser helpers~~ | deleted in M13 |
+
 ## Component stubs (Component-Model `.wat`)
 
 All five died in **M11** once the manifests pointed at the real `.wasm` artifact produced by the bundler.
@@ -102,7 +116,7 @@ All five died in **M11** once the manifests pointed at the real `.wasm` artifact
 - ~~`extensions/first-party/ext_checks/component.wat`~~ deleted in M11
 - ~~`extensions/first-party/ext_workspace_home/component.wat`~~ deleted in M11; replaced by a cargo-component crate plus `dist/ext_workspace_home.wasm`
 
-## Astro frontend
+## Deleted frontend stack
 
 All under `frontend/`. Dies in **M10**; the Vue shell built in M7–M9 replaces it.
 

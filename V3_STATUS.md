@@ -39,7 +39,7 @@ the old frontend stack to generated WASM dispatch plus a Vue shell.
 | M10 old frontend deletion | Done |
 | M11 WAT/resolver deletion | Done |
 | M12 storage/dead-code cleanup | Done |
-| M13 final verification/docs | In progress |
+| M13 final verification/docs | Done |
 
 ## Verification commands
 
