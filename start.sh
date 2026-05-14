@@ -1003,7 +1003,7 @@ json_assert "GraphQL viewer through Vue shell" "$TMP_DIR/graphql.json" \
 json_assert "GraphQL Git data through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.repository.path === "comtrya/comtrya" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
 json_assert "GraphQL storage data through Vue shell" "$TMP_DIR/graphql.json" \
-  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 4'
+  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 5'
 GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.headOid')"
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
   fail "GraphQL did not return repository.headOid"
@@ -1694,6 +1694,59 @@ json_assert "imported repo exposes a non-empty file tree via repositoryByPath" "
   'json.data.workspace.repositoryByPath && Array.isArray(json.data.workspace.repositoryByPath.files) && json.data.workspace.repositoryByPath.files.length > 0 && json.data.workspace.repositoryByPath.files.some((f) => f.path === "README.md")'
 
 log "end-to-end production-testbed smoke passed"
+
+# ── Dogfood: snapshot this working tree (committed + uncommitted, minus
+# .git/target/node_modules/dist) into a tmp bare repo and import it as
+# `comtrya/dogfood`. We deliberately do NOT clone from `$ROOT_DIR/.git`
+# because that only sees committed state and skips the CUE files and
+# MDX docs a contributor may be iterating on. The snapshot lives under
+# $TMP_DIR and is recreated every run.
+if [[ -d "$ROOT_DIR/.git" ]]; then
+  log "snapshotting working tree for dogfood import"
+  DOGFOOD_SNAPSHOT="$TMP_DIR/dogfood-snapshot"
+  DOGFOOD_BARE="$TMP_DIR/dogfood-bare.git"
+  mkdir -p "$DOGFOOD_SNAPSHOT"
+  rsync -a \
+    --exclude='.git' \
+    --exclude='target' \
+    --exclude='node_modules' \
+    --exclude='dist' \
+    --exclude='.direnv' \
+    --exclude='.envrc' \
+    --exclude='*.wasm' \
+    "$ROOT_DIR/" "$DOGFOOD_SNAPSHOT/"
+  (
+    cd "$DOGFOOD_SNAPSHOT"
+    git init --quiet --initial-branch=main
+    git -c "user.email=dogfood@comtrya.dev" -c "user.name=Comtrya Dogfood" \
+        add . >/dev/null
+    git -c "user.email=dogfood@comtrya.dev" -c "user.name=Comtrya Dogfood" \
+        commit --quiet --no-gpg-sign -m "Working-tree snapshot for dogfood import" || true
+  )
+  if [[ -d "$DOGFOOD_SNAPSHOT/.git" ]]; then
+    git clone --quiet --bare "$DOGFOOD_SNAPSHOT" "$DOGFOOD_BARE" || true
+  fi
+  if [[ -d "$DOGFOOD_BARE" ]]; then
+    DOGFOOD_PATH="comtrya/dogfood"
+    DOGFOOD_URL="file://$DOGFOOD_BARE"
+    DOGFOOD_OUT="$TMP_DIR/dogfood-import.json"
+    log "importing snapshot as $DOGFOOD_PATH"
+    HTTP_CODE="$(curl -sS -o "$DOGFOOD_OUT" -w "%{http_code}" \
+        -H "origin: $FRONTEND_URL" \
+        -H "sec-fetch-site: same-origin" \
+        -H "authorization: Bearer $ACCESS_TOKEN" \
+        -H "content-type: application/json" \
+        --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path defaultBranch importedFrom } } }\",\"variables\":{\"input\":{\"path\":\"$DOGFOOD_PATH\",\"cloneFromUrl\":\"$DOGFOOD_URL\"}}}" \
+        "$FRONTEND_URL/graphql" || true)"
+    if [[ "$HTTP_CODE" == "200" ]] && ! grep -q '"errors"' "$DOGFOOD_OUT" 2>/dev/null; then
+      log "ok — dogfood at $FRONTEND_URL/r/$DOGFOOD_PATH"
+    else
+      log "warn — dogfood import returned HTTP $HTTP_CODE: $(head -c 220 "$DOGFOOD_OUT" 2>/dev/null)"
+    fi
+  else
+    log "warn — could not produce dogfood bare repo; skipping import"
+  fi
+fi
 
 if [[ "$ONESHOT" == "1" ]]; then
   exit 0

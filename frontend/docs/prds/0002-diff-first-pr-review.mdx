@@ -1,0 +1,11 @@
+---
+title: Diff-first pull request review
+status: shipping
+owner: frontend-maintainers
+---
+
+The PR detail page leads with the diff, not metadata. A reviewer should land on a PR and see file headers and hunks immediately, with `n`/`p` navigation between files and `space` to collapse. Description, linked issues, and actions sit above; everything below the fold is the unified-diff render.
+
+Built on a hand-rolled parser (`extensions/first-party/ext_pull_requests/ui/src/diff.ts`) with file status badges (added/deleted/modified/renamed), two-column line numbers, `+`/`-` colored gutters, and per-file collapse.
+
+Pierre/diffs integration (shiki syntax highlighting, side-by-side, inline comments) is a follow-up.

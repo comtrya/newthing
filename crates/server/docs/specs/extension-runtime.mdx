@@ -1,0 +1,11 @@
+---
+title: Extension runtime
+owner: platform-maintainers
+status: shipping
+---
+
+First-party extensions are Component Model WASM components loaded by Wasmtime at boot. The kernel owns the WIT contract under `extensions/wit/comtrya/platform/`; extensions own their operations and storage.
+
+Dispatch is generated at build time. `crates/server/build.rs` walks `extensions/first-party/*/manifest.json`, calls `comtrya-wit-codegen::parse_extension_wit` per extension, and writes `$OUT_DIR/dispatch_table.rs` containing `dispatch_wit_route` (canonical route → DispatchInfo) and `invoker_for_extension` (extension id → typed invoker fn).
+
+At request time `crates/server/src/wasm_invokers.rs` resolves the right typed invoker, instantiates the component, decodes the JSON payload into the extension's typed input record, calls the op, and encodes the result back to JSON.

@@ -1,0 +1,20 @@
+---
+title: Use cuengine for repo-resident CUE config
+status: accepted
+date: 2026-05-14
+author: rawkode
+---
+
+## Context
+
+Repos describe themselves to Comtrya through a `package comtrya` CUE configuration that can live anywhere in the tree — a monorepo has one file per Project. We need a real CUE evaluator on the kernel side to walk this configuration, validate it against the kernel's `#Project` base schema and extension-registered schemas, and emit per-Project values for the UI.
+
+## Decision
+
+Use `cuengine` from crates.io (the Go-Rust FFI bridge from the cuenv project). On every repo configuration read, the kernel materialises a working tree from the bare git directory via `git archive | tar -x`, drops the kernel base schema and every extension-registered snippet into `_comtrya/`, then calls `evaluate_module(recursive: true, package_name: "comtrya")`.
+
+## Consequences
+
+- Real CUE semantics — unification, references, defaults, constraints — without re-implementing CUE in Rust.
+- Adds a Go runtime dependency through the FFI bridge.
+- Per-request materialise + evaluate cost; cache by ref OID once the access pattern is clear.

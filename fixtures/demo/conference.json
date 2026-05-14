@@ -145,6 +145,13 @@
       "status": "ACTIVE",
       "manifest": "/_extensions/ext_epics/manifest.json",
       "description": "Workspace-level epics that group issues and child epics through `part-of` relations."
+    },
+    {
+      "id": "ext_docs",
+      "name": "Docs",
+      "status": "ACTIVE",
+      "manifest": "/_extensions/ext_docs/manifest.json",
+      "description": "Repo-resident docs surface. Owns the docs CUE schema (#DocType, #Person) and renders per-Project doc types from the repo's package comtrya configuration."
     }
   ],
   "activity": [
