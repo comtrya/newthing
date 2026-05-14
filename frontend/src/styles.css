@@ -523,25 +523,86 @@ kbd {
   color: var(--ink-faint);
 }
 
-.shell-app .repo-intro {
-  min-height: 58px;
+.shell-app .repo-header {
+  display: grid;
+  gap: 8px;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 18px;
+}
+
+.shell-app .repo-header h1 {
+  font-family: var(--display);
+  font-size: 56px;
+  line-height: 0.95;
+  letter-spacing: 0;
+  max-width: 980px;
+  margin: 0;
+}
+
+.shell-app .repo-header .overline {
+  margin: 0;
+}
+
+.shell-app .repo-description {
+  margin: 0;
+  font-family: var(--serif, "iA Writer Quattro", Georgia, serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  max-width: 720px;
+}
+
+.shell-app .repo-chip-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 14px;
-  border-bottom: 1.5px solid var(--ink);
-  padding: 12px 0;
+  gap: 8px;
+  margin-top: 6px;
 }
 
-.shell-app .repo-intro p {
-  flex: 1 1 420px;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-intro span {
+.shell-app .repo-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
   font-family: var(--mono);
   font-size: 11px;
+  line-height: 14px;
+  letter-spacing: 0.02em;
+}
+
+.shell-app .repo-chip strong {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-app .repo-chip span {
   color: var(--ink-faint);
+  text-transform: lowercase;
+}
+
+.shell-app .repo-chip.tone-muted strong {
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-chip.tone-good {
+  border-color: var(--ink-go, #087f6f);
+}
+
+.shell-app .repo-chip.tone-good strong {
+  color: var(--ink-go, #087f6f);
+}
+
+.shell-app .repo-chip.tone-warn {
+  border-color: var(--ink-warn, #c2410c);
+}
+
+.shell-app .repo-chip.tone-warn strong {
+  color: var(--ink-warn, #c2410c);
 }
 
 .shell-app .repo-slot-stack {

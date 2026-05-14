@@ -1189,6 +1189,41 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-14 — iteration 28 (Repo home — editorial chip row)
+
+The repo home shed its three labelled summary boxes (`Path`,
+`Default branch`, `Repository ID` — the last of which was just
+displaying the same data as the URL) and its duplicate intro
+line (`visibility · openPRs · updated` repeated as inline text).
+Replaced with a single editorial title + one compact chip row.
+
+`RepoHome.vue` now renders:
+- Overline `Repository`.
+- Display-typeface title at 56px (down from 72px; less shouty).
+- Optional repo description in serif body type.
+- One horizontal `.repo-chip-row` with five chips:
+  - `main · branch` (tone: ink)
+  - `private · visibility` (tone: muted, or `tone-good` when public)
+  - `<N> · open PRs` (muted when 0)
+  - `<N> · open issues` (muted when 0) — new this iteration
+  - `3m ago · updated` (muted)
+
+`openIssues` count is wired live via `invokeOp('ext_issues',
+'issues', 'list-issues', { repository: <repo-uri>, … })` against
+the per-repo URI. Subscribes to
+`dev.comtrya.issues.{opened,closed,reopened}` — the count ticks
+without a reload, same SSE shape as iteration-27's nav badge but
+filtered to this repo.
+
+`relativeUpdated()` handles the three shapes the kernel returns
+for `updated`: ISO timestamps, `@<epoch-seconds>` strings, and
+already-relative phrases ("3 minutes ago"). Normalises to a
+single relative phrase so the chip is consistent across repos.
+
+Net deletion: ~80 lines of CSS (`.summary-grid`, `.repo-intro`
+and friends). Net add: ~70 lines of chip styling. The shape is
+denser, the data is the same, and the redundancy is gone.
+
 ### 2026-05-14 — iteration 27 (Open-issues badge on Issues nav)
 
 Mirrors the existing open-PR badge on the Pull-requests nav item.
