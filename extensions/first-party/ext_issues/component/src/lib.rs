@@ -48,10 +48,6 @@ struct StoredIssue {
     repository_id: Option<String>,
     title: String,
     body_markdown: String,
-    /// Uppercase ("OPEN" / "CLOSED" / "REOPENED") to match the legacy
-    /// GraphQL surface the Astro frontend reads. The WIT-side
-    /// `issue-state` enum is lowercase; conversion happens in
-    /// `state_to_str` / `state_from_str`.
     state: String,
     number: u64,
     author_ref: String,
@@ -99,20 +95,17 @@ impl StoredIssue {
 }
 
 fn state_to_str(state: IssueState) -> &'static str {
-    // Uppercase to match the legacy GraphQL surface.
     match state {
-        IssueState::Open => "OPEN",
-        IssueState::Closed => "CLOSED",
-        IssueState::Reopened => "REOPENED",
+        IssueState::Open => "open",
+        IssueState::Closed => "closed",
+        IssueState::Reopened => "reopened",
     }
 }
 
 fn state_from_str(s: &str) -> IssueState {
-    // Accept either case so reads work on data written by either path
-    // during the M3→M4 cutover.
     match s {
-        "CLOSED" | "closed" => IssueState::Closed,
-        "REOPENED" | "reopened" => IssueState::Reopened,
+        "closed" => IssueState::Closed,
+        "reopened" => IssueState::Reopened,
         _ => IssueState::Open,
     }
 }
@@ -198,13 +191,9 @@ fn repository_filter_matches(stored: &StoredIssue, filter: &str) -> bool {
         || stored.repository == filter
 }
 
-/// Return the next sequential issue number for `scope_key` and
-/// increment the persisted counter atomically. Uses the OCC two-step
-/// update on a `_meta`-collection counter document keyed by the
-/// workspace URI when one exists, preserving legacy workspace-scoped
-/// issue numbers; repository-only callers fall back to the repository
-/// URI. This avoids O(N) scans while keeping `issues.byNumber` unique
-/// within the existing GraphQL workspace boundary.
+/// Return the next sequential issue number for `scope_key` and increment the
+/// persisted counter atomically. Workspace-scoped repositories share a
+/// workspace counter; repository-only callers fall back to the repository URI.
 fn next_issue_number(scope_key: &str) -> Result<u64, Error> {
     let counter_id = format!("issue-number:{}", scope_key);
     match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
@@ -314,7 +303,7 @@ fn read_stored(id: &str) -> Result<Option<StoredIssue>, Error> {
 fn issue_id_from_ref(ref_uri: &str) -> Result<String, Error> {
     let ref_uri = ref_uri.trim();
     if ref_uri.is_empty() {
-        return Err(err(ErrorCode::BadInput, "issues.byRef requires a ref"));
+        return Err(err(ErrorCode::BadInput, "by-ref-issue requires a ref"));
     }
     let rest = ref_uri.strip_prefix("comtrya://").ok_or_else(|| {
         err(
@@ -325,7 +314,7 @@ fn issue_id_from_ref(ref_uri: &str) -> Result<String, Error> {
     let Some((kind, id)) = rest.split_once('/') else {
         return Err(err(
             ErrorCode::BadInput,
-            "issues.byRef requires an id in the URI",
+            "by-ref-issue requires an id in the URI",
         ));
     };
     if !valid_resource_kind(kind) {
@@ -337,7 +326,7 @@ fn issue_id_from_ref(ref_uri: &str) -> Result<String, Error> {
     if id.trim().is_empty() {
         return Err(err(
             ErrorCode::BadInput,
-            "issues.byRef requires an id in the URI",
+            "by-ref-issue requires an id in the URI",
         ));
     }
     let prefix_len = validate_opaque_id(id)?;
@@ -525,8 +514,8 @@ fn state_counts_for_refs(refs: &[String]) -> Result<IssueStateCounts, Error> {
     let mut closed = 0u64;
     for issue in issues.into_iter().flatten() {
         match issue.state.as_str() {
-            "OPEN" => open += 1,
-            "CLOSED" => closed += 1,
+            "open" => open += 1,
+            "closed" => closed += 1,
             _ => {}
         }
     }
@@ -538,35 +527,6 @@ fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
     let _ = events::append(event_type, &bytes, Some(source_uri))?;
     Ok(())
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyIssueCreatedPayload<'a> {
-    #[serde(rename = "issueID")]
-    issue_id: &'a str,
-    workspace_id: &'a str,
-    number: u64,
-    title: &'a str,
-}
-
-fn emit_legacy_issue_created(stored: &StoredIssue) -> Result<(), Error> {
-    let Some(workspace_id) = stored.workspace_id.as_deref() else {
-        return Err(err(
-            ErrorCode::Internal,
-            "opened issue is missing workspaceId",
-        ));
-    };
-    emit(
-        "dev.comtrya.issue.created",
-        &LegacyIssueCreatedPayload {
-            issue_id: &stored.id,
-            workspace_id,
-            number: stored.number,
-            title: &stored.title,
-        },
-        &issue_uri(&stored.id),
-    )
 }
 
 // ---- issues exports ----
@@ -602,7 +562,6 @@ impl IssuesGuest for Component {
             &issue_event_payload(&issue),
             &issue_uri(&id),
         )?;
-        emit_legacy_issue_created(&stored)?;
         Ok(issue)
     }
 
@@ -637,9 +596,6 @@ impl IssuesGuest for Component {
         let snap = storage::update_begin(COLLECTION, &id)?;
         let mut stored = decode_stored_issue(&id, &snap.data)?;
         let now = time::now_iso();
-        // The legacy GraphQL surface returns state=OPEN on reopen (not
-        // a separate REOPENED). Match that so frontend filters keep
-        // working.
         stored.state = state_to_str(IssueState::Open).to_string();
         stored.updated_at = now;
         stored.closed_at = None;
@@ -662,23 +618,25 @@ impl IssuesGuest for Component {
     }
 
     fn list_issues(repository: String, limit: u32) -> Result<Vec<Issue>, Error> {
-        // TODO(M2): once `storage.query` supports indexed lookup by
-        // repository, replace this list-and-filter scan with an indexed
-        // query. Today's host-side `storage.query` returns all docs in
-        // the collection up to `limit` without filtering, so the
-        // in-component filter is the only option.
         let limit = limit.min(1024);
-        let mut out = Vec::new();
+        let mut matches = Vec::new();
         scan_stored_issues(|stored| {
             if repository_filter_matches(&stored, &repository) {
-                out.push(stored.to_wit());
-                if out.len() >= limit as usize {
-                    return Ok(true);
-                }
+                matches.push(stored);
             }
             Ok(false)
         })?;
-        Ok(out)
+        matches.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.number.cmp(&a.number))
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(matches
+            .into_iter()
+            .take(limit as usize)
+            .map(|issue| issue.to_wit())
+            .collect())
     }
 
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {

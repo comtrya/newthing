@@ -788,8 +788,8 @@ impl wit_relations::Host for HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         if let Some(existing) = records.iter().find(|r| {
             r.collection == "relations"
-                && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
-                && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
+                && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
+                && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                 && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
         }) {
             return Ok(wit_relations::CreateResult::AlreadyExisted(
@@ -883,7 +883,7 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
+                    && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -914,7 +914,7 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
+                    && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -946,8 +946,8 @@ impl wit_relations::Host for HostState {
             .iter()
             .filter(|r| {
                 r.collection == "relations"
-                    && relation_endpoint(&r.data, "source", "from") == Some(source.as_str())
-                    && relation_endpoint(&r.data, "target", "to") == Some(target.as_str())
+                    && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
+                    && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
                         .as_deref()
                         .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
@@ -1048,14 +1048,12 @@ fn record_to_relation(record: &crate::ExtensionDocumentRecord) -> wit_relations:
         source: record
             .data
             .get("source")
-            .or_else(|| record.data.get("from"))
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
         target: record
             .data
             .get("target")
-            .or_else(|| record.data.get("to"))
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
@@ -1069,12 +1067,6 @@ fn record_to_relation(record: &crate::ExtensionDocumentRecord) -> wit_relations:
             .unwrap_or(&record.updated_at)
             .to_string(),
     }
-}
-
-fn relation_endpoint<'a>(data: &'a Value, primary: &str, legacy: &str) -> Option<&'a str> {
-    data.get(primary)
-        .or_else(|| data.get(legacy))
-        .and_then(Value::as_str)
 }
 
 fn relation_indexed_fields(source: &str, target: &str, kind: &str) -> BTreeMap<String, Value> {
@@ -1384,12 +1376,6 @@ impl wit_events::Host for HostState {
                     .get("payloadB64")
                     .and_then(Value::as_str)
                     .and_then(base64_decode)
-                    .or_else(|| {
-                        // Backwards compat with the legacy
-                        // `payload` JSON-value field.
-                        data.get("payload")
-                            .map(|p| serde_json::to_vec(p).unwrap_or_default())
-                    })
                     .unwrap_or_default();
                 Some(wit_types::Event {
                     id: data
@@ -1914,7 +1900,6 @@ mod m1_ext_issues_smoke {
     fn fresh_host_state(store_arc: Arc<crate::ExtensionRuntimeStore>) -> HostState {
         let manifest = Arc::new(HostManifest {
             allowed_emits: vec![
-                "dev.comtrya.issue.created".into(),
                 "dev.comtrya.issues.opened".into(),
                 "dev.comtrya.issues.closed".into(),
                 "dev.comtrya.issues.reopened".into(),
@@ -2039,8 +2024,8 @@ mod m1_ext_issues_smoke {
             .expect("issue persisted");
         assert_eq!(
             issue_rec.data.get("state").and_then(|v| v.as_str()),
-            Some("CLOSED"),
-            "stored state should be CLOSED (uppercase, matching legacy GraphQL surface) after close-issue"
+            Some("closed"),
+            "stored state should use the current WIT issue state after close-issue"
         );
     }
 

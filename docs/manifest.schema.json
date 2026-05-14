@@ -33,7 +33,7 @@
     },
     "witWorld": { "type": "string" },
     "perExtensionWit": { "type": "string", "description": "Path (relative to manifest) to the per-extension WIT directory. Defaults to `wit`." },
-    "wasmComponent": { "type": "string", "description": "Path to the legacy resolver WAT/WASM. Replaced by `dist/<id>.wasm` for platformWitVersion extensions." },
+    "wasmComponent": { "type": "string", "description": "Path to the Component Model WASM artifact. First-party platformWitVersion extensions use `dist/<id>.wasm`." },
     "routePrefix": { "type": "string", "pattern": "^[a-z0-9-]+$" },
     "ui": {
       "type": "object",

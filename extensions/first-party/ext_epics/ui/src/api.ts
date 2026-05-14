@@ -1,107 +1,123 @@
-import type { ComtryaGraphQLClient, Epic, EpicProgress } from "./types";
+import type { OpResult } from "@comtrya/sdk-core";
+import { extEpicsXEpics } from "../../dist/ext_epics.client";
+import type { ComtryaGraphQLClient, Epic, EpicProgress, EpicState } from "./types";
 
-export const EPIC_BY_REF_QUERY = `query($ref: ResourceURN!) {
-  epics.byRef(ref: $ref) {
-    id workspaceId title bodyMarkdown state targetDate ownerRef labels createdAt closedAt
+interface WitEpic {
+  id: string;
+  workspace?: string | null;
+  workspaceId?: string | null;
+  title: string;
+  bodyMarkdown?: string | null;
+  state?: string | null;
+  targetDate?: string | null;
+  ownerRef?: string | null;
+  labels?: string[] | null;
+  createdAt?: string | null;
+  closedAt?: string | null;
+}
+
+function opValue<T>(result: OpResult<unknown>, label: string): T {
+  if (result.ok) return result.value as T;
+  throw new Error(`${label}: ${result.error.message}`);
+}
+
+function workspaceUri(workspaceId: string): string {
+  return `comtrya://workspace/${workspaceId}`;
+}
+
+function epicState(value?: string | null): EpicState {
+  switch (value) {
+    case "IN_PROGRESS":
+    case "AT_RISK":
+    case "DONE":
+    case "CANCELED":
+      return value;
+    default:
+      return "PLANNED";
   }
-}`;
+}
 
-export const EPICS_LIST_QUERY = `query($workspaceId: ID!, $state: String) {
-  epics.list(workspaceId: $workspaceId, state: $state) {
-    id workspaceId title state targetDate ownerRef labels
-  }
-}`;
-
-export const EPIC_PROGRESS_QUERY = `query($ref: ResourceURN!) {
-  epics.progress(ref: $ref) {
-    issuesOpen issuesClosed childEpicsOpen childEpicsClosed percentComplete
-  }
-}`;
-
-export const EPIC_ISSUES_IN_QUERY = `query($ref: ResourceURN!) {
-  epics.issuesIn(ref: $ref)
-}`;
-
-export const CREATE_EPIC_MUTATION = `mutation($input: CreateEpicInput!) {
-  epics.create(input: $input) { id workspaceId title state }
-}`;
-
-export const CHANGE_STATE_MUTATION = `mutation($input: ChangeEpicStateInput!) {
-  epics.changeState(input: $input) { id workspaceId title bodyMarkdown state targetDate ownerRef labels createdAt closedAt }
-}`;
+function normalizeEpic(value: WitEpic): Epic {
+  return {
+    id: value.id,
+    workspaceId:
+      value.workspaceId ??
+      value.workspace?.replace(/^comtrya:\/\/workspace\//, "") ??
+      "",
+    title: value.title,
+    bodyMarkdown: value.bodyMarkdown ?? "",
+    state: epicState(value.state),
+    targetDate: value.targetDate ?? null,
+    ownerRef: value.ownerRef ?? null,
+    labels: value.labels ?? [],
+    createdAt: value.createdAt ?? null,
+    closedAt: value.closedAt ?? null,
+  };
+}
 
 export async function epicByRef(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient,
   ref: string,
 ): Promise<Epic | null> {
-  const data = await client.query<{ epics?: { byRef?: Epic | null } }>(
-    EPIC_BY_REF_QUERY,
-    { ref },
-  );
-  return data.epics?.byRef ?? null;
+  const result = await extEpicsXEpics.byRefEpic(ref);
+  const epic = opValue<WitEpic | null>(result, "epicByRef");
+  return epic ? normalizeEpic(epic) : null;
 }
 
 export async function listEpics(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient,
   variables: { workspaceId: string; state?: string | null },
 ): Promise<Epic[]> {
-  const data = await client.query<{ epics?: { list?: Epic[] } }>(
-    EPICS_LIST_QUERY,
-    {
-      workspaceId: variables.workspaceId,
-      state: variables.state ?? null,
-    },
-  );
-  return data.epics?.list ?? [];
+  const result = await extEpicsXEpics.listEpics({
+    workspace: workspaceUri(variables.workspaceId),
+    limit: 1024,
+  });
+  const epics = opValue<WitEpic[]>(result, "listEpics").map(normalizeEpic);
+  const state = variables.state ? epicState(variables.state) : null;
+  return state ? epics.filter((epic) => epic.state === state) : epics;
 }
 
 export async function epicProgress(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient,
   ref: string,
 ): Promise<EpicProgress | null> {
-  const data = await client.query<{ epics?: { progress?: EpicProgress | null } }>(
-    EPIC_PROGRESS_QUERY,
-    { ref },
-  );
-  return data.epics?.progress ?? null;
+  const result = await extEpicsXEpics.progressEpic(ref);
+  return opValue<EpicProgress | null>(result, "epicProgress");
 }
 
 export async function issuesInEpic(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient,
   ref: string,
 ): Promise<string[]> {
-  const data = await client.query<{ epics?: { issuesIn?: string[] } }>(
-    EPIC_ISSUES_IN_QUERY,
-    { ref },
-  );
-  return data.epics?.issuesIn ?? [];
+  const result = await extEpicsXEpics.issuesInEpic(ref);
+  return opValue<string[]>(result, "issuesInEpic");
 }
 
 export async function changeEpicState(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient,
   id: string,
   state: string,
 ): Promise<Epic> {
-  const data = await client.mutate<{ epics?: { changeState?: Epic } }>(
-    CHANGE_STATE_MUTATION,
-    { input: { id, state } },
-  );
-  if (!data.epics?.changeState) throw new Error("changeEpicState returned no epic");
-  return data.epics.changeState;
+  const result = await extEpicsXEpics.changeStateEpic({ id, state });
+  return normalizeEpic(opValue<WitEpic>(result, "changeEpicState"));
 }
 
 export async function createEpic(
-  client: ComtryaGraphQLClient,
+  _client: ComtryaGraphQLClient | undefined,
   input: {
     workspaceId: string;
     title: string;
     bodyMarkdown?: string | null;
   },
 ): Promise<Epic> {
-  const data = await client.mutate<{ epics?: { create?: Epic } }>(
-    CREATE_EPIC_MUTATION,
-    { input },
-  );
-  if (!data.epics?.create) throw new Error("createEpic returned no epic");
-  return data.epics.create;
+  const result = await extEpicsXEpics.createEpic({
+    workspace: workspaceUri(input.workspaceId),
+    title: input.title,
+    bodyMarkdown: input.bodyMarkdown ?? "",
+    ownerRef: null,
+    targetDate: null,
+    labels: [],
+    parentEpicRef: null,
+  });
+  return normalizeEpic(opValue<WitEpic>(result, "createEpic"));
 }

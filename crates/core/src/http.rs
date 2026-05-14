@@ -41,6 +41,7 @@ pub fn allowed_methods_for_route(route: &str) -> Vec<&'static str> {
         }
         route if route.starts_with("/auth/") => vec!["GET", "POST", "OPTIONS"],
         route if route.starts_with("/_extensions/") => vec!["GET", "OPTIONS"],
+        route if route.starts_with("/api/ops/") => vec!["POST", "OPTIONS"],
         route if route.starts_with("/git/") => vec!["GET", "POST", "OPTIONS"],
         _ => vec!["OPTIONS"],
     }

@@ -2,7 +2,8 @@ import { defineExtensionWidget } from "@comtrya/sdk-vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
 import IssuesList from "./IssuesList.vue";
-import type { ComtryaGraphQLClient } from "./types";
+import { openIssue } from "./api";
+import { DEFAULT_WORKSPACE_ID, type ExtensionRouteParams } from "./types";
 
 const EXTENSION_ID = "ext_issues";
 const ISSUE_CARD_TAG = "comtrya-issue-card";
@@ -10,12 +11,6 @@ const ISSUES_LIST_TAG = "comtrya-issues-list";
 const ISSUES_REPO_LIST_TAG = "comtrya-issues-repo-list";
 const ISSUE_DETAIL_TAG = "comtrya-issue-detail";
 const ISSUE_NEW_TAG = "comtrya-issue-new";
-
-const CREATE_ISSUE_MUTATION = `mutation($input: CreateIssueInput!) {
-  issues.create(input: $input) {
-    id workspaceId number title state
-  }
-}`;
 
 interface ExtensionHost {
   registerCard(contribution: {
@@ -43,11 +38,6 @@ interface ExtensionHost {
 interface ExtensionDefinition {
   id: string;
   setup(host: ExtensionHost): void | Promise<void>;
-}
-
-interface CreatedIssue {
-  workspaceId: string;
-  number: number;
 }
 
 defineExtensionWidget({
@@ -98,21 +88,30 @@ function defineIssueNewElement(): void {
   customElements.define(
     ISSUE_NEW_TAG,
     class extends HTMLElement {
-      comtryaClient?: ComtryaGraphQLClient;
+      routeParams?: ExtensionRouteParams;
 
       connectedCallback(): void {
-        const client = this.comtryaClient;
-        if (!client) {
-          this.replaceChildren(line("issue-new: no client", "warn"));
-          return;
-        }
-        this.replaceChildren(issueNewForm(client));
+        this.replaceChildren(issueNewForm(routeContext(this.routeParams)));
       }
     },
   );
 }
 
-function issueNewForm(client: ComtryaGraphQLClient): HTMLElement {
+function routeContext(routeParams?: ExtensionRouteParams): {
+  workspaceId: string;
+  repositoryId?: string | null;
+} {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    workspaceId:
+      params.get("workspaceId") ??
+      routeParams?.params?.workspaceId ??
+      DEFAULT_WORKSPACE_ID,
+    repositoryId: params.get("repositoryId") ?? routeParams?.params?.repositoryId ?? null,
+  };
+}
+
+function issueNewForm(context: { workspaceId: string; repositoryId?: string | null }): HTMLElement {
   const main = document.createElement("main");
   main.className = "issue-new";
   main.dataset.smoke = "issue-new";
@@ -142,19 +141,14 @@ function issueNewForm(client: ComtryaGraphQLClient): HTMLElement {
     event.preventDefault();
     submit.disabled = true;
     errorBox.hidden = true;
-    void client
-      .mutate<{ issues?: { create?: CreatedIssue } }>(CREATE_ISSUE_MUTATION, {
-        input: {
-          workspaceId: "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-          title: titleInput.value.trim(),
-          bodyMarkdown: bodyInput.value,
-        },
-      })
-      .then((result) => {
-        const created = result.issues?.create;
-        if (created) {
-          window.location.assign(`/x/issues/${created.workspaceId}/${created.number}`);
-        }
+    void openIssue({
+      workspaceId: context.workspaceId,
+      repositoryId: context.repositoryId,
+      title: titleInput.value.trim(),
+      bodyMarkdown: bodyInput.value,
+    })
+      .then((created) => {
+        window.location.assign(`/x/issues/${created.workspaceId}/${created.number}`);
       })
       .catch((error: unknown) => {
         errorBox.textContent = error instanceof Error ? error.message : String(error);

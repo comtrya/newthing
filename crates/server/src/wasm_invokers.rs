@@ -1258,11 +1258,11 @@ fn epic_state_to_graphql(state: EpicState) -> &'static str {
 
 fn epic_state_from_json(state: &str) -> Result<EpicState, wit_types::Error> {
     match state {
-        "PLANNED" | "planned" => Ok(EpicState::Planned),
-        "IN_PROGRESS" | "in-progress" | "in_progress" => Ok(EpicState::InProgress),
-        "AT_RISK" | "at-risk" | "at_risk" => Ok(EpicState::AtRisk),
-        "DONE" | "done" => Ok(EpicState::Done),
-        "CANCELED" | "cancelled" | "canceled" => Ok(EpicState::Canceled),
+        "PLANNED" => Ok(EpicState::Planned),
+        "IN_PROGRESS" => Ok(EpicState::InProgress),
+        "AT_RISK" => Ok(EpicState::AtRisk),
+        "DONE" => Ok(EpicState::Done),
+        "CANCELED" => Ok(EpicState::Canceled),
         other => Err(wit_error(
             wit_types::ErrorCode::BadInput,
             format!("unknown epic state '{other}'"),
@@ -1364,12 +1364,12 @@ fn check_state_to_graphql(state: CheckState) -> &'static str {
 
 fn check_state_from_json(state: &str) -> Result<CheckState, wit_types::Error> {
     match state {
-        "PENDING" | "pending" => Ok(CheckState::Pending),
-        "RUNNING" | "running" => Ok(CheckState::Running),
-        "SUCCESS" | "SUCCEEDED" | "success" | "succeeded" => Ok(CheckState::Succeeded),
-        "FAILURE" | "FAILED" | "failure" | "failed" => Ok(CheckState::Failed),
-        "ACTION_REQUIRED" | "action-required" | "action_required" => Ok(CheckState::Failed),
-        "SKIPPED" | "skipped" => Ok(CheckState::Skipped),
+        "PENDING" => Ok(CheckState::Pending),
+        "RUNNING" => Ok(CheckState::Running),
+        "SUCCESS" => Ok(CheckState::Succeeded),
+        "FAILURE" => Ok(CheckState::Failed),
+        "ACTION_REQUIRED" => Ok(CheckState::Failed),
+        "SKIPPED" => Ok(CheckState::Skipped),
         other => Err(wit_error(
             wit_types::ErrorCode::BadInput,
             format!("unknown check state '{other}'"),

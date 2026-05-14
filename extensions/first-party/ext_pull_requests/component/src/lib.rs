@@ -26,7 +26,6 @@ const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
 const CLOSE_ISSUE_MUTATION: &str = "ext_issues/issues.close-issue";
 const MAX_TITLE_LEN: usize = 512;
 const MAX_BODY_LEN: usize = 64 * 1024;
-const LEGACY_DEFAULT_AUTHOR: &str = "comtrya://user/usr_00000000000000000000000000";
 
 struct Component;
 
@@ -111,9 +110,9 @@ fn state_to_str(state: PrState) -> &'static str {
 
 fn state_from_str(state: &str) -> PrState {
     match state {
-        "READY" | "ready" => PrState::Ready,
-        "MERGED" | "merged" => PrState::Merged,
-        "CLOSED" | "closed" => PrState::Closed,
+        "READY" => PrState::Ready,
+        "MERGED" => PrState::Merged,
+        "CLOSED" => PrState::Closed,
         _ => PrState::Draft,
     }
 }
@@ -201,85 +200,12 @@ fn repository_matches(stored: &StoredPullRequest, repository: &str) -> bool {
 }
 
 fn decode(id: &str, bytes: &[u8]) -> Result<StoredPullRequest, Error> {
-    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
-        err(
-            ErrorCode::Internal,
-            format!("parse pull request {id}: {error}"),
-        )
-    })?;
-    normalize_legacy_pull_value(id, &mut value)?;
-    serde_json::from_value(value).map_err(|error| {
+    serde_json::from_slice(bytes).map_err(|error| {
         err(
             ErrorCode::Internal,
             format!("parse pull request {id}: {error}"),
         )
     })
-}
-
-fn normalize_legacy_pull_value(id: &str, value: &mut serde_json::Value) -> Result<(), Error> {
-    let Some(obj) = value.as_object_mut() else {
-        return Err(err(
-            ErrorCode::Internal,
-            format!("pull request {id} is not an object"),
-        ));
-    };
-    if !obj.contains_key("id") {
-        if let Some(number) = obj.get("number").and_then(serde_json::Value::as_u64) {
-            obj.insert(
-                "id".to_string(),
-                serde_json::Value::String(format!("pull_request_{number}")),
-            );
-        }
-    }
-    if !obj.contains_key("repositoryId") {
-        if let Some(repository_id) = obj.get("repositoryID").cloned() {
-            obj.insert("repositoryId".to_string(), repository_id);
-        }
-    }
-    if !obj.contains_key("repository") {
-        let workspace_id = obj.get("workspaceId").and_then(serde_json::Value::as_str);
-        let repository_id = obj.get("repositoryId").and_then(serde_json::Value::as_str);
-        obj.insert(
-            "repository".to_string(),
-            serde_json::Value::String(repository_uri_from_scope(workspace_id, repository_id)),
-        );
-    }
-    obj.entry("bodyMarkdown".to_string())
-        .or_insert_with(|| serde_json::Value::String(String::new()));
-    if !obj.contains_key("authorRef") {
-        let author_ref = obj
-            .get("author")
-            .and_then(serde_json::Value::as_str)
-            .filter(|author| !author.trim().is_empty())
-            .map(|author| {
-                if author.starts_with("comtrya://") {
-                    author.to_string()
-                } else {
-                    format!("comtrya://user/{author}")
-                }
-            })
-            .unwrap_or_else(|| LEGACY_DEFAULT_AUTHOR.to_string());
-        obj.insert(
-            "authorRef".to_string(),
-            serde_json::Value::String(author_ref),
-        );
-    }
-    obj.entry("createdAt".to_string())
-        .or_insert_with(|| serde_json::Value::String("1970-01-01T00:00:00Z".to_string()));
-    obj.entry("updatedAt".to_string())
-        .or_insert_with(|| serde_json::Value::String("1970-01-01T00:00:00Z".to_string()));
-    Ok(())
-}
-
-fn repository_uri_from_scope(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
-    match (workspace_id, repository_id) {
-        (Some(workspace), Some(repository)) => {
-            format!("comtrya://workspace/{workspace}/repository/{repository}")
-        }
-        (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
-        (None, Some(repository)) => format!("comtrya://repository/{repository}"),
-        (None, None) => "comtrya://pulls".to_string(),
-    }
 }
 
 fn read_stored(id: &str) -> Result<Option<StoredPullRequest>, Error> {

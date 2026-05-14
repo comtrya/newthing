@@ -83,10 +83,10 @@ fn state_to_str(state: EpicState) -> &'static str {
 
 fn state_from_str(state: &str) -> EpicState {
     match state {
-        "IN_PROGRESS" | "in-progress" => EpicState::InProgress,
-        "AT_RISK" | "at-risk" => EpicState::AtRisk,
-        "DONE" | "done" => EpicState::Done,
-        "CANCELED" | "canceled" => EpicState::Canceled,
+        "IN_PROGRESS" => EpicState::InProgress,
+        "AT_RISK" => EpicState::AtRisk,
+        "DONE" => EpicState::Done,
+        "CANCELED" => EpicState::Canceled,
         _ => EpicState::Planned,
     }
 }

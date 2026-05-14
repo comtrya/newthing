@@ -3,7 +3,7 @@ import { createEpic } from "./api";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
 import EpicsList from "./EpicsList.vue";
-import { DEFAULT_WORKSPACE_ID, type ComtryaGraphQLClient } from "./types";
+import { DEFAULT_WORKSPACE_ID, type ExtensionRouteParams } from "./types";
 
 const EXTENSION_ID = "ext_epics";
 const EPIC_CARD_TAG = "comtrya-epic-card";
@@ -88,21 +88,24 @@ function defineEpicNewElement(): void {
   customElements.define(
     EPIC_NEW_TAG,
     class extends HTMLElement {
-      comtryaClient?: ComtryaGraphQLClient;
+      routeParams?: ExtensionRouteParams;
 
       connectedCallback(): void {
-        const client = this.comtryaClient;
-        if (!client) {
-          this.replaceChildren(line("epic-new: no client", "warn"));
-          return;
-        }
-        this.replaceChildren(epicNewForm(client));
+        this.replaceChildren(epicNewForm(workspaceIdFromRoute(this.routeParams)));
       }
     },
   );
 }
 
-function epicNewForm(client: ComtryaGraphQLClient): HTMLElement {
+function workspaceIdFromRoute(routeParams?: ExtensionRouteParams): string {
+  return (
+    new URLSearchParams(window.location.search).get("workspaceId") ??
+    routeParams?.params?.workspaceId ??
+    DEFAULT_WORKSPACE_ID
+  );
+}
+
+function epicNewForm(workspaceId: string): HTMLElement {
   const main = document.createElement("main");
   main.className = "epic-new";
   main.dataset.smoke = "epic-new";
@@ -132,8 +135,8 @@ function epicNewForm(client: ComtryaGraphQLClient): HTMLElement {
     event.preventDefault();
     submit.disabled = true;
     errorBox.hidden = true;
-    void createEpic(client, {
-      workspaceId: DEFAULT_WORKSPACE_ID,
+    void createEpic(undefined, {
+      workspaceId,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
     })

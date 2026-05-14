@@ -5,7 +5,7 @@ for readers who land here from older v3 planning links.
 
 ## Completed cutover
 
-- The Rust host uses generated dispatch for extension-owned GraphQL operations.
+- The Rust host uses generated dispatch for extension-owned WIT operations.
 - First-party extensions ship real Component Model artifacts built from
   `cargo-component` crates.
 - Host imports cover storage, relations, comments, events, identity, time, ids,
@@ -21,8 +21,6 @@ for readers who land here from older v3 planning links.
 
 - Implement Git receive-pack/push or keep the production testbed explicitly
   read-only.
-- Replace the compatibility `demo` GraphQL aggregate with narrower typed fields
-  once all UI callers stop needing the aggregate shape.
 - Expand OCI installation from contract/runtime support into the production
   extension install path.
 - Replace the testbed-only operator-code flow with full production OIDC browser

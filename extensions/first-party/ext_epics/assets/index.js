@@ -2841,8 +2841,75 @@ function ro(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
 //#endregion
+//#region packages/sdk-core/src/runtime.ts
+async function io(e, t, n, r, i = {}) {
+	let a = `${i.baseUrl ?? ""}/api/ops/${encodeURIComponent(e)}/${encodeURIComponent(t)}/${encodeURIComponent(n)}`, o = { "content-type": "application/json" };
+	i.token && (o.authorization = `Bearer ${i.token}`);
+	try {
+		let e = await fetch(a, {
+			method: "POST",
+			headers: o,
+			body: JSON.stringify(r ?? null),
+			signal: i.signal,
+			credentials: "include"
+		}), t = await e.text();
+		if (!e.ok) {
+			let n;
+			try {
+				n = t ? JSON.parse(t) : void 0;
+			} catch {
+				n = void 0;
+			}
+			let r = oo(e.status), i = typeof n?.message == "string" ? n.message : void 0;
+			return {
+				ok: !1,
+				error: {
+					code: ao(n?.code) ?? r,
+					message: i ?? (t || e.statusText),
+					path: n?.path
+				}
+			};
+		}
+		return {
+			ok: !0,
+			value: t ? JSON.parse(t) : null
+		};
+	} catch (e) {
+		return {
+			ok: !1,
+			error: {
+				code: "unavailable",
+				message: e instanceof Error ? e.message : String(e)
+			}
+		};
+	}
+}
+function ao(e) {
+	switch (e) {
+		case "not-found":
+		case "conflict":
+		case "forbidden":
+		case "unauthenticated":
+		case "bad-input":
+		case "internal":
+		case "unavailable": return e;
+		default: return;
+	}
+}
+function oo(e) {
+	switch (e) {
+		case 400: return "bad-input";
+		case 401: return "unauthenticated";
+		case 403: return "forbidden";
+		case 404: return "not-found";
+		case 409: return "conflict";
+		case 503: return "unavailable";
+		default: return "internal";
+	}
+}
+//#endregion
 //#region packages/sdk-vue/src/index.ts
-function io(e) {
+function so(e) {
 	let t = /* @__PURE__ */ Ja(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2850,55 +2917,103 @@ function io(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(ao(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(co(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function ao(e) {
+function co(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
+//#region ../extensions/first-party/ext_epics/dist/ext_epics.client.ts
+var lo = {
+	createEpic: async (e) => io("ext_epics", "epics", "create-epic", e),
+	changeStateEpic: async (e) => io("ext_epics", "epics", "change-state-epic", e),
+	getEpic: async (e) => io("ext_epics", "epics", "get-epic", e),
+	listEpics: async (e) => io("ext_epics", "epics", "list-epics", e),
+	byRefEpic: async (e) => io("ext_epics", "epics", "by-ref-epic", e),
+	byRefsEpic: async (e) => io("ext_epics", "epics", "by-refs-epic", e),
+	progressEpic: async (e) => io("ext_epics", "epics", "progress-epic", e),
+	issuesInEpic: async (e) => io("ext_epics", "epics", "issues-in-epic", e),
+	childrenOfEpic: async (e) => io("ext_epics", "epics", "children-of-epic", e)
+};
+//#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/api.ts
-var oo = "query($ref: ResourceURN!) {\n  epics.byRef(ref: $ref) {\n    id workspaceId title bodyMarkdown state targetDate ownerRef labels createdAt closedAt\n  }\n}", so = "query($workspaceId: ID!, $state: String) {\n  epics.list(workspaceId: $workspaceId, state: $state) {\n    id workspaceId title state targetDate ownerRef labels\n  }\n}", co = "query($ref: ResourceURN!) {\n  epics.progress(ref: $ref) {\n    issuesOpen issuesClosed childEpicsOpen childEpicsClosed percentComplete\n  }\n}", lo = "query($ref: ResourceURN!) {\n  epics.issuesIn(ref: $ref)\n}", uo = "mutation($input: CreateEpicInput!) {\n  epics.create(input: $input) { id workspaceId title state }\n}", fo = "mutation($input: ChangeEpicStateInput!) {\n  epics.changeState(input: $input) { id workspaceId title bodyMarkdown state targetDate ownerRef labels createdAt closedAt }\n}";
-async function po(e, t) {
-	return (await e.query(oo, { ref: t })).epics?.byRef ?? null;
+function uo(e, t) {
+	if (e.ok) return e.value;
+	throw Error(`${t}: ${e.error.message}`);
 }
-async function mo(e, t) {
-	return (await e.query(so, {
-		workspaceId: t.workspaceId,
-		state: t.state ?? null
-	})).epics?.list ?? [];
+function fo(e) {
+	return `comtrya://workspace/${e}`;
+}
+function po(e) {
+	switch (e) {
+		case "IN_PROGRESS":
+		case "AT_RISK":
+		case "DONE":
+		case "CANCELED": return e;
+		default: return "PLANNED";
+	}
+}
+function mo(e) {
+	return {
+		id: e.id,
+		workspaceId: e.workspaceId ?? e.workspace?.replace(/^comtrya:\/\/workspace\//, "") ?? "",
+		title: e.title,
+		bodyMarkdown: e.bodyMarkdown ?? "",
+		state: po(e.state),
+		targetDate: e.targetDate ?? null,
+		ownerRef: e.ownerRef ?? null,
+		labels: e.labels ?? [],
+		createdAt: e.createdAt ?? null,
+		closedAt: e.closedAt ?? null
+	};
 }
 async function ho(e, t) {
-	return (await e.query(co, { ref: t })).epics?.progress ?? null;
+	let n = uo(await lo.byRefEpic(t), "epicByRef");
+	return n ? mo(n) : null;
 }
 async function go(e, t) {
-	return (await e.query(lo, { ref: t })).epics?.issuesIn ?? [];
+	let n = uo(await lo.listEpics({
+		workspace: fo(t.workspaceId),
+		limit: 1024
+	}), "listEpics").map(mo), r = t.state ? po(t.state) : null;
+	return r ? n.filter((e) => e.state === r) : n;
 }
-async function _o(e, t, n) {
-	let r = await e.mutate(fo, { input: {
-		id: t,
-		state: n
-	} });
-	if (!r.epics?.changeState) throw Error("changeEpicState returned no epic");
-	return r.epics.changeState;
+async function _o(e, t) {
+	return uo(await lo.progressEpic(t), "epicProgress");
 }
 async function vo(e, t) {
-	let n = await e.mutate(uo, { input: t });
-	if (!n.epics?.create) throw Error("createEpic returned no epic");
-	return n.epics.create;
+	return uo(await lo.issuesInEpic(t), "issuesInEpic");
+}
+async function yo(e, t, n) {
+	return mo(uo(await lo.changeStateEpic({
+		id: t,
+		state: n
+	}), "changeEpicState"));
+}
+async function bo(e, t) {
+	return mo(uo(await lo.createEpic({
+		workspace: fo(t.workspaceId),
+		title: t.title,
+		bodyMarkdown: t.bodyMarkdown ?? "",
+		ownerRef: null,
+		targetDate: null,
+		labels: [],
+		parentEpicRef: null
+	}), "createEpic"));
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/types.ts
-var yo = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-function bo(e) {
+var xo = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+function So(e) {
 	return `comtrya://epic/${e.id}`;
 }
-function xo(e) {
+function Co(e) {
 	return `/x/epics/${e.workspaceId}/${e.id}`;
 }
-function So(e) {
+function wo(e) {
 	switch (e) {
 		case "PLANNED": return {
 			label: "planned",
@@ -2928,19 +3043,19 @@ function So(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/EpicCard.vue?vue&type=script&setup=true&lang.ts
-var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" }, Eo = ["href"], Do = {
+var To = ["data-state"], Eo = ["data-epic-id"], Do = { class: "epic-card-title" }, Oo = ["href"], ko = {
 	key: 0,
 	class: "epic-meta"
-}, Oo = {
+}, Ao = {
 	key: 1,
 	class: "epic-meta"
-}, ko = {
+}, jo = {
 	key: 1,
 	class: "epic-line muted"
-}, Ao = {
+}, Mo = {
 	key: 2,
 	class: "epic-card-fallback"
-}, jo = { class: "epic-line muted" }, Mo = { class: "epic-line warn" }, No = /* @__PURE__ */ Fn({
+}, No = { class: "epic-line muted" }, Po = { class: "epic-line warn" }, Fo = /* @__PURE__ */ Fn({
 	__name: "EpicCard",
 	props: {
 		client: { type: null },
@@ -2950,7 +3065,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 		resourceRef: { type: String }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z(t.epic ?? null), a = /* @__PURE__ */ z(null), o = $(() => t.resourceRef ?? t.ref ?? ""), s = $(() => t.client ?? t.comtryaClient), c = $(() => t.epic ?? i.value), l = $(() => So(c.value?.state)), u = $(() => (a.value?.issuesOpen ?? 0) + (a.value?.issuesClosed ?? 0));
+		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z(t.epic ?? null), a = /* @__PURE__ */ z(null), o = $(() => t.resourceRef ?? t.ref ?? ""), s = $(() => t.client ?? t.comtryaClient), c = $(() => t.epic ?? i.value), l = $(() => wo(c.value?.state)), u = $(() => (a.value?.issuesOpen ?? 0) + (a.value?.issuesClosed ?? 0));
 		Xn(d), Dn(() => [
 			s.value,
 			t.epic,
@@ -2971,7 +3086,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await po(s.value, o.value), n.value = i.value ? "ready" : "empty", await f();
+				i.value = await ho(s.value, o.value), n.value = i.value ? "ready" : "empty", await f();
 			} catch (e) {
 				i.value = null, a.value = null, n.value = "error", r.value = e instanceof Error ? e.message : String(e);
 			}
@@ -2982,7 +3097,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 				return;
 			}
 			try {
-				a.value = await ho(s.value, o.value);
+				a.value = await _o(s.value, o.value);
 			} catch {
 				a.value = null;
 			}
@@ -2997,19 +3112,19 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			"data-epic-id": c.value.id,
 			"data-smoke": "epic-card-body"
 		}, [
-			X("div", To, [X("span", { class: ge(["epic-pill", l.value.className]) }, k(l.value.label), 3), X("a", {
+			X("div", Do, [X("span", { class: ge(["epic-pill", l.value.className]) }, k(l.value.label), 3), X("a", {
 				class: "epic-title-link",
-				href: Wt(xo)(c.value)
-			}, k(c.value.title), 9, Eo)]),
-			a.value ? (J(), Y("div", Do, [X("span", null, k(a.value.issuesClosed ?? 0) + "/" + k(u.value) + " issues", 1), X("span", null, k(a.value.percentComplete ?? 0) + "% complete", 1)])) : Fi("", !0),
-			c.value.targetDate ? (J(), Y("div", Oo, [X("span", null, "target: " + k(c.value.targetDate), 1)])) : Fi("", !0)
-		], 8, wo)) : n.value === "loading" ? (J(), Y("p", ko, " Loading " + k(o.value), 1)) : (J(), Y("div", Ao, [X("p", jo, k(o.value || "epic"), 1), X("p", Mo, k(r.value ?? "epic not found"), 1)]))], 8, Co));
+				href: Wt(Co)(c.value)
+			}, k(c.value.title), 9, Oo)]),
+			a.value ? (J(), Y("div", ko, [X("span", null, k(a.value.issuesClosed ?? 0) + "/" + k(u.value) + " issues", 1), X("span", null, k(a.value.percentComplete ?? 0) + "% complete", 1)])) : Fi("", !0),
+			c.value.targetDate ? (J(), Y("div", Ao, [X("span", null, "target: " + k(c.value.targetDate), 1)])) : Fi("", !0)
+		], 8, Eo)) : n.value === "loading" ? (J(), Y("p", jo, " Loading " + k(o.value), 1)) : (J(), Y("div", Mo, [X("p", No, k(o.value || "epic"), 1), X("p", Po, k(r.value ?? "epic not found"), 1)]))], 8, To));
 	}
-}), Po = ".epic-card[data-v-aa22da85]{display:block}.epic-card-body[data-v-aa22da85]{border:1px solid var(--ink-rule,#d0cfc8);gap:6px;padding:10px 12px;display:grid}.epic-card-title[data-v-aa22da85]{align-items:baseline;gap:8px;min-width:0;display:flex}.epic-pill[data-v-aa22da85],.epic-meta[data-v-aa22da85],.epic-line[data-v-aa22da85]{font-family:var(--mono,monospace)}.epic-pill[data-v-aa22da85]{border:1px solid;padding:1px 8px;font-size:10px}.epic-state-good[data-v-aa22da85]{color:var(--ink-go,#008873)}.epic-state-warn[data-v-aa22da85]{color:var(--ink-warn,#c2410c)}.epic-state-muted[data-v-aa22da85],.epic-meta[data-v-aa22da85],.muted[data-v-aa22da85]{color:var(--ink-faint,#888)}.epic-title-link[data-v-aa22da85]{min-width:0;color:inherit;font-family:var(--display,system-ui);overflow-wrap:anywhere;font-weight:600}.epic-meta[data-v-aa22da85]{flex-wrap:wrap;gap:8px;font-size:11px;display:flex}.epic-line[data-v-aa22da85]{margin:4px 0;font-size:12px}.warn[data-v-aa22da85]{color:var(--ink-warn,#c2410c)}", Fo = (e, t) => {
+}), Io = ".epic-card[data-v-aa22da85]{display:block}.epic-card-body[data-v-aa22da85]{border:1px solid var(--ink-rule,#d0cfc8);gap:6px;padding:10px 12px;display:grid}.epic-card-title[data-v-aa22da85]{align-items:baseline;gap:8px;min-width:0;display:flex}.epic-pill[data-v-aa22da85],.epic-meta[data-v-aa22da85],.epic-line[data-v-aa22da85]{font-family:var(--mono,monospace)}.epic-pill[data-v-aa22da85]{border:1px solid;padding:1px 8px;font-size:10px}.epic-state-good[data-v-aa22da85]{color:var(--ink-go,#008873)}.epic-state-warn[data-v-aa22da85]{color:var(--ink-warn,#c2410c)}.epic-state-muted[data-v-aa22da85],.epic-meta[data-v-aa22da85],.muted[data-v-aa22da85]{color:var(--ink-faint,#888)}.epic-title-link[data-v-aa22da85]{min-width:0;color:inherit;font-family:var(--display,system-ui);overflow-wrap:anywhere;font-weight:600}.epic-meta[data-v-aa22da85]{flex-wrap:wrap;gap:8px;font-size:11px;display:flex}.epic-line[data-v-aa22da85]{margin:4px 0;font-size:12px}.warn[data-v-aa22da85]{color:var(--ink-warn,#c2410c)}", Lo = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Io = /* @__PURE__ */ Fo(No, [["styles", [Po]], ["__scopeId", "data-v-aa22da85"]]), Lo = /* @__PURE__ */ Fo(/* @__PURE__ */ Fn({
+}, Ro = /* @__PURE__ */ Lo(Fo, [["styles", [Io]], ["__scopeId", "data-v-aa22da85"]]), zo = /* @__PURE__ */ Lo(/* @__PURE__ */ Fn({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -3043,35 +3158,35 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			class: "custom-element-host"
 		}, null, 512));
 	}
-}), [["styles", [".custom-element-host[data-v-1d94110b]{display:contents}"]], ["__scopeId", "data-v-1d94110b"]]), Ro = ["data-state", "data-epic-id"], zo = {
+}), [["styles", [".custom-element-host[data-v-1d94110b]{display:contents}"]], ["__scopeId", "data-v-1d94110b"]]), Bo = ["data-state", "data-epic-id"], Vo = {
 	key: 0,
 	class: "epic-line muted"
-}, Bo = {
+}, Ho = {
 	key: 1,
 	class: "epic-line warn"
-}, Vo = {
+}, Uo = {
 	key: 2,
 	class: "epic-line warn"
-}, Ho = { class: "epic-detail-meta" }, Uo = { key: 0 }, Wo = ["data-epic-id"], Go = {
+}, Wo = { class: "epic-detail-meta" }, Go = { key: 0 }, Ko = ["data-epic-id"], qo = {
 	class: "epic-section",
 	"data-smoke": "epic-progress"
-}, Ko = {
+}, Jo = {
 	key: 0,
 	class: "epic-line"
-}, qo = {
+}, Yo = {
 	key: 1,
 	class: "epic-line muted"
-}, Jo = {
+}, Xo = {
 	class: "epic-section",
 	"data-smoke": "epic-issues"
-}, Yo = {
+}, Zo = {
 	key: 0,
 	class: "epic-line muted"
-}, Xo = { key: 1 }, Zo = { class: "epic-actions" }, Qo = ["disabled", "onClick"], $o = {
+}, Qo = { key: 1 }, $o = { class: "epic-actions" }, es = ["disabled", "onClick"], ts = {
 	key: 0,
 	class: "epic-line warn",
 	role: "alert"
-}, es = /* @__PURE__ */ Fo(/* @__PURE__ */ Fn({
+}, ns = /* @__PURE__ */ Lo(/* @__PURE__ */ Fn({
 	__name: "EpicDetail",
 	props: {
 		client: { type: null },
@@ -3087,7 +3202,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			"IN_PROGRESS",
 			"DONE",
 			"CANCELED"
-		], r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(t.epic ?? null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z([]), u = $(() => t.client ?? t.comtryaClient), d = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), f = $(() => t.id ?? t.routeParams?.params?.id ?? ""), p = $(() => t.epic ? bo(t.epic) : `comtrya://epic/${f.value}`), m = $(() => s.value ?? t.epic ?? null), h = $(() => So(m.value?.state)), g = $(() => n.filter((e) => e !== m.value?.state)), _ = $(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), v = $(() => u.value && !!f.value);
+		], r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(t.epic ?? null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z([]), u = $(() => t.client ?? t.comtryaClient), d = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), f = $(() => t.id ?? t.routeParams?.params?.id ?? ""), p = $(() => t.epic ? So(t.epic) : `comtrya://epic/${f.value}`), m = $(() => s.value ?? t.epic ?? null), h = $(() => wo(m.value?.state)), g = $(() => n.filter((e) => e !== m.value?.state)), _ = $(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), v = $(() => u.value && !!f.value);
 		Xn(y), Dn(() => [
 			u.value,
 			t.epic,
@@ -3105,7 +3220,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			}
 			r.value = "loading", a.value = null;
 			try {
-				s.value = await po(u.value, p.value), r.value = s.value ? "ready" : "empty", await b();
+				s.value = await ho(u.value, p.value), r.value = s.value ? "ready" : "empty", await b();
 			} catch (e) {
 				s.value = null, c.value = null, l.value = [], r.value = "error", a.value = e instanceof Error ? e.message : String(e);
 			}
@@ -3115,14 +3230,14 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 				c.value = null, l.value = [];
 				return;
 			}
-			let e = bo(m.value), [t, n] = await Promise.allSettled([ho(u.value, e), go(u.value, e)]);
+			let e = So(m.value), [t, n] = await Promise.allSettled([_o(u.value, e), vo(u.value, e)]);
 			c.value = t.status === "fulfilled" ? t.value : null, l.value = n.status === "fulfilled" ? n.value : [];
 		}
 		async function x(e) {
 			if (!(!u.value || !m.value)) {
 				i.value = "submitting", o.value = null;
 				try {
-					s.value = await _o(u.value, m.value.id, e), await b();
+					s.value = await yo(u.value, m.value.id, e), await b();
 				} catch (e) {
 					o.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -3138,19 +3253,19 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			"data-state": r.value,
 			"data-epic-id": m.value?.id,
 			"data-smoke": "epic-detail"
-		}, [r.value === "loading" ? (J(), Y("p", zo, "Loading epic")) : r.value === "error" ? (J(), Y("p", Bo, k(a.value), 1)) : m.value ? (J(), Y(K, { key: 3 }, [
-			X("header", null, [X("h1", null, k(m.value.title), 1), X("div", Ho, [
+		}, [r.value === "loading" ? (J(), Y("p", Vo, "Loading epic")) : r.value === "error" ? (J(), Y("p", Ho, k(a.value), 1)) : m.value ? (J(), Y(K, { key: 3 }, [
+			X("header", null, [X("h1", null, k(m.value.title), 1), X("div", Wo, [
 				X("span", { class: ge(["epic-pill", h.value.className]) }, k(h.value.label), 3),
 				X("span", null, "created " + k(m.value.createdAt ?? "unknown"), 1),
-				m.value.targetDate ? (J(), Y("span", Uo, "target " + k(m.value.targetDate), 1)) : Fi("", !0)
+				m.value.targetDate ? (J(), Y("span", Go, "target " + k(m.value.targetDate), 1)) : Fi("", !0)
 			])]),
 			X("article", {
 				class: "epic-body",
 				"data-epic-id": m.value.id,
 				"data-smoke": "epic-detail-main"
-			}, k(m.value.bodyMarkdown || "(no description)"), 9, Wo),
-			X("section", Go, [t[0] ||= X("h3", null, "Progress", -1), c.value ? (J(), Y("p", Ko, k(c.value.issuesClosed ?? 0) + "/" + k(_.value) + " issues closed · " + k(c.value.percentComplete ?? 0) + "% ", 1)) : (J(), Y("p", qo, "progress unavailable"))]),
-			X("section", Jo, [t[1] ||= X("h3", null, "Issues in this epic", -1), l.value.length === 0 ? (J(), Y("div", Yo, " no issues linked yet ")) : (J(), Y("ul", Xo, [(J(!0), Y(K, null, or(l.value, (e) => (J(), Y("li", { key: e }, [Z(Lo, {
+			}, k(m.value.bodyMarkdown || "(no description)"), 9, Ko),
+			X("section", qo, [t[0] ||= X("h3", null, "Progress", -1), c.value ? (J(), Y("p", Jo, k(c.value.issuesClosed ?? 0) + "/" + k(_.value) + " issues closed · " + k(c.value.percentComplete ?? 0) + "% ", 1)) : (J(), Y("p", Yo, "progress unavailable"))]),
+			X("section", Xo, [t[1] ||= X("h3", null, "Issues in this epic", -1), l.value.length === 0 ? (J(), Y("div", Zo, " no issues linked yet ")) : (J(), Y("ul", Qo, [(J(!0), Y(K, null, or(l.value, (e) => (J(), Y("li", { key: e }, [Z(zo, {
 				tag: "comtrya-resource-card",
 				attributes: { ref: e },
 				properties: {
@@ -3158,43 +3273,43 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 					comtryaClient: u.value
 				}
 			}, null, 8, ["attributes", "properties"])]))), 128))]))]),
-			X("div", Zo, [(J(!0), Y(K, null, or(g.value, (e) => (J(), Y("button", {
+			X("div", $o, [(J(!0), Y(K, null, or(g.value, (e) => (J(), Y("button", {
 				key: e,
 				type: "button",
 				disabled: i.value === "submitting",
 				onClick: (t) => x(e)
-			}, " mark " + k(S(e)), 9, Qo))), 128))]),
-			o.value ? (J(), Y("p", $o, k(o.value), 1)) : Fi("", !0),
-			Z(Lo, {
+			}, " mark " + k(S(e)), 9, es))), 128))]),
+			o.value ? (J(), Y("p", ts, k(o.value), 1)) : Fi("", !0),
+			Z(zo, {
 				tag: "comtrya-comment-thread",
-				attributes: { target: Wt(bo)(m.value) },
+				attributes: { target: Wt(So)(m.value) },
 				properties: {
-					target: Wt(bo)(m.value),
+					target: Wt(So)(m.value),
 					comtryaClient: u.value
 				}
 			}, null, 8, ["attributes", "properties"])
-		], 64)) : (J(), Y("p", Vo, " No epic " + k(f.value || "?") + " in " + k(d.value), 1))], 8, Ro));
+		], 64)) : (J(), Y("p", Uo, " No epic " + k(f.value || "?") + " in " + k(d.value), 1))], 8, Bo));
 	}
-}), [["styles", [".epic-detail[data-v-93b7e60a]{gap:16px;max-width:720px;padding:24px 0;display:grid}.epic-detail h1[data-v-93b7e60a]{font-family:var(--display,system-ui);margin:0}.epic-detail-meta[data-v-93b7e60a],.epic-line[data-v-93b7e60a],.epic-actions button[data-v-93b7e60a],.epic-section[data-v-93b7e60a]{font-family:var(--mono,monospace)}.epic-detail-meta[data-v-93b7e60a]{color:var(--ink-faint,#888);flex-wrap:wrap;gap:8px;margin-top:4px;font-size:12px;display:flex}.epic-pill[data-v-93b7e60a]{border:1px solid;padding:1px 8px}.epic-state-good[data-v-93b7e60a]{color:var(--ink-go,#008873)}.epic-state-warn[data-v-93b7e60a]{color:var(--ink-warn,#c2410c)}.epic-state-muted[data-v-93b7e60a],.muted[data-v-93b7e60a]{color:var(--ink-faint,#888)}.epic-body[data-v-93b7e60a]{border:1px solid var(--ink-rule,#d0cfc8);white-space:pre-wrap;min-height:96px;padding:12px}.epic-section[data-v-93b7e60a]{gap:6px;font-size:12px;display:grid}.epic-section h3[data-v-93b7e60a]{font-family:var(--display,system-ui);margin:0;font-size:13px}.epic-section ul[data-v-93b7e60a]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.epic-actions[data-v-93b7e60a]{flex-wrap:wrap;gap:8px;display:flex}.epic-actions button[data-v-93b7e60a]{cursor:pointer;padding:4px 12px}.epic-line[data-v-93b7e60a]{margin:4px 0;font-size:12px}.warn[data-v-93b7e60a]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-93b7e60a"]]), ts = ["data-state"], ns = { class: "epics-list-header" }, rs = ["href"], is = {
+}), [["styles", [".epic-detail[data-v-93b7e60a]{gap:16px;max-width:720px;padding:24px 0;display:grid}.epic-detail h1[data-v-93b7e60a]{font-family:var(--display,system-ui);margin:0}.epic-detail-meta[data-v-93b7e60a],.epic-line[data-v-93b7e60a],.epic-actions button[data-v-93b7e60a],.epic-section[data-v-93b7e60a]{font-family:var(--mono,monospace)}.epic-detail-meta[data-v-93b7e60a]{color:var(--ink-faint,#888);flex-wrap:wrap;gap:8px;margin-top:4px;font-size:12px;display:flex}.epic-pill[data-v-93b7e60a]{border:1px solid;padding:1px 8px}.epic-state-good[data-v-93b7e60a]{color:var(--ink-go,#008873)}.epic-state-warn[data-v-93b7e60a]{color:var(--ink-warn,#c2410c)}.epic-state-muted[data-v-93b7e60a],.muted[data-v-93b7e60a]{color:var(--ink-faint,#888)}.epic-body[data-v-93b7e60a]{border:1px solid var(--ink-rule,#d0cfc8);white-space:pre-wrap;min-height:96px;padding:12px}.epic-section[data-v-93b7e60a]{gap:6px;font-size:12px;display:grid}.epic-section h3[data-v-93b7e60a]{font-family:var(--display,system-ui);margin:0;font-size:13px}.epic-section ul[data-v-93b7e60a]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.epic-actions[data-v-93b7e60a]{flex-wrap:wrap;gap:8px;display:flex}.epic-actions button[data-v-93b7e60a]{cursor:pointer;padding:4px 12px}.epic-line[data-v-93b7e60a]{margin:4px 0;font-size:12px}.warn[data-v-93b7e60a]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-93b7e60a"]]), rs = ["data-state"], is = { class: "epics-list-header" }, as = ["href"], os = {
 	key: 0,
 	class: "epic-line muted"
-}, as = {
+}, ss = {
 	key: 1,
 	class: "epic-line warn"
-}, os = {
+}, cs = {
 	key: 2,
 	class: "epic-line muted"
-}, ss = {
+}, ls = {
 	key: 3,
 	class: "epics-list-items"
-}, cs = /* @__PURE__ */ Fo(/* @__PURE__ */ Fn({
+}, us = /* @__PURE__ */ Lo(/* @__PURE__ */ Fn({
 	__name: "EpicsList",
 	props: {
 		client: { type: null },
 		comtryaClient: { type: null },
 		epics: { type: [Array, null] },
 		workspaceId: {
-			default: yo,
+			default: xo,
 			type: String
 		},
 		state: {
@@ -3229,7 +3344,7 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await mo(o.value, {
+				i.value = await go(o.value, {
 					workspaceId: t.workspaceId,
 					state: t.state
 				}), n.value = i.value.length > 0 ? "ready" : "empty";
@@ -3241,71 +3356,69 @@ var Co = ["data-state"], wo = ["data-epic-id"], To = { class: "epic-card-title" 
 			class: "epics-list",
 			"data-state": n.value,
 			"data-smoke": "epics-list"
-		}, [X("header", ns, [X("h3", null, k(e.title), 1), e.showNewLink ? (J(), Y("a", {
+		}, [X("header", is, [X("h3", null, k(e.title), 1), e.showNewLink ? (J(), Y("a", {
 			key: 0,
 			href: s.value
-		}, "+ new", 8, rs)) : Fi("", !0)]), n.value === "loading" ? (J(), Y("p", is, "Loading epics")) : n.value === "error" ? (J(), Y("p", as, k(r.value), 1)) : a.value.length === 0 ? (J(), Y("p", os, "No epics yet.")) : (J(), Y("ul", ss, [(J(!0), Y(K, null, or(a.value, (e) => (J(), Y("li", { key: e.id }, [Z(Io, {
+		}, "+ new", 8, as)) : Fi("", !0)]), n.value === "loading" ? (J(), Y("p", os, "Loading epics")) : n.value === "error" ? (J(), Y("p", ss, k(r.value), 1)) : a.value.length === 0 ? (J(), Y("p", cs, "No epics yet.")) : (J(), Y("ul", ls, [(J(!0), Y(K, null, or(a.value, (e) => (J(), Y("li", { key: e.id }, [Z(Ro, {
 			epic: e,
-			"resource-ref": Wt(bo)(e),
+			"resource-ref": Wt(So)(e),
 			client: o.value
 		}, null, 8, [
 			"epic",
 			"resource-ref",
 			"client"
-		])]))), 128))]))], 8, ts));
+		])]))), 128))]))], 8, rs));
 	}
-}), [["styles", [".epics-list[data-v-c72478fd]{gap:8px;display:grid}.epics-list-header[data-v-c72478fd]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.epics-list-header h3[data-v-c72478fd]{font-family:var(--display,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-c72478fd],.epic-line[data-v-c72478fd]{font-family:var(--mono,monospace);font-size:12px}.epics-list-header a[data-v-c72478fd]{color:var(--ink-faint,#888);text-decoration:none}.epics-list-items[data-v-c72478fd]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epic-line[data-v-c72478fd]{margin:4px 0}.muted[data-v-c72478fd]{color:var(--ink-faint,#888)}.warn[data-v-c72478fd]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-c72478fd"]]), ls = "ext_epics", us = "comtrya-epic-card", ds = "comtrya-epics-board", fs = "comtrya-epics-index", ps = "comtrya-epic-detail", ms = "comtrya-epic-new";
-io({
-	tagName: us,
-	component: Io,
-	propertyAliases: { ref: "resourceRef" }
-}), io({
-	tagName: ds,
-	component: cs
-}), io({
+}), [["styles", [".epics-list[data-v-c72478fd]{gap:8px;display:grid}.epics-list-header[data-v-c72478fd]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.epics-list-header h3[data-v-c72478fd]{font-family:var(--display,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-c72478fd],.epic-line[data-v-c72478fd]{font-family:var(--mono,monospace);font-size:12px}.epics-list-header a[data-v-c72478fd]{color:var(--ink-faint,#888);text-decoration:none}.epics-list-items[data-v-c72478fd]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epic-line[data-v-c72478fd]{margin:4px 0}.muted[data-v-c72478fd]{color:var(--ink-faint,#888)}.warn[data-v-c72478fd]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-c72478fd"]]), ds = "ext_epics", fs = "comtrya-epic-card", ps = "comtrya-epics-board", ms = "comtrya-epics-index", hs = "comtrya-epic-detail", gs = "comtrya-epic-new";
+so({
 	tagName: fs,
-	component: cs
-}), io({
+	component: Ro,
+	propertyAliases: { ref: "resourceRef" }
+}), so({
 	tagName: ps,
-	component: es
-}), gs();
-var hs = {
-	id: ls,
+	component: us
+}), so({
+	tagName: ms,
+	component: us
+}), so({
+	tagName: hs,
+	component: ns
+}), vs();
+var _s = {
+	id: ds,
 	setup(e) {
 		e.registerCard({
 			resourceKind: "epic",
-			element: us,
+			element: fs,
 			requiredPermission: "epics.read"
 		}), e.registerSlot("workspace.epics", {
-			element: ds,
+			element: ps,
 			requiredPermission: "epics.read",
 			priority: 100
 		}), e.registerRoute("/", {
-			element: fs,
+			element: ms,
 			requiredPermission: "epics.read"
 		}), e.registerRoute("/new", {
-			element: ms,
+			element: gs,
 			requiredPermission: "epics.write"
 		}), e.registerRoute("/:workspaceId/:id", {
-			element: ps,
+			element: hs,
 			requiredPermission: "epics.read"
 		});
 	}
 };
-function gs() {
-	typeof customElements > "u" || customElements.get(ms) || customElements.define(ms, class extends HTMLElement {
-		comtryaClient;
+function vs() {
+	typeof customElements > "u" || customElements.get(gs) || customElements.define(gs, class extends HTMLElement {
+		routeParams;
 		connectedCallback() {
-			let e = this.comtryaClient;
-			if (!e) {
-				this.replaceChildren(vs("epic-new: no client", "warn"));
-				return;
-			}
-			this.replaceChildren(_s(e));
+			this.replaceChildren(bs(ys(this.routeParams)));
 		}
 	});
 }
-function _s(e) {
+function ys(e) {
+	return new URLSearchParams(window.location.search).get("workspaceId") ?? e?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+}
+function bs(e) {
 	let t = document.createElement("main");
 	t.className = "epic-new", t.dataset.smoke = "epic-new";
 	let n = document.createElement("h3");
@@ -3316,10 +3429,10 @@ function _s(e) {
 	a.rows = 5, a.placeholder = "Description (optional)";
 	let o = document.createElement("button");
 	o.type = "submit", o.textContent = "Create epic";
-	let s = vs("", "warn");
+	let s = xs("", "warn");
 	return s.setAttribute("role", "alert"), s.hidden = !0, r.append(i, a, o, s), r.addEventListener("submit", (t) => {
-		t.preventDefault(), o.disabled = !0, s.hidden = !0, vo(e, {
-			workspaceId: yo,
+		t.preventDefault(), o.disabled = !0, s.hidden = !0, bo(void 0, {
+			workspaceId: e,
 			title: i.value.trim(),
 			bodyMarkdown: a.value
 		}).then((e) => {
@@ -3329,9 +3442,9 @@ function _s(e) {
 		});
 	}), t.append(n, r), t;
 }
-function vs(e, t) {
+function xs(e, t) {
 	let n = document.createElement("p");
 	return n.className = `epic-line ${t}`, n.textContent = e, n;
 }
 //#endregion
-export { hs as default };
+export { _s as default };

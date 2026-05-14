@@ -28,7 +28,7 @@ proves issue close plus pull-request merge reactor flows through WASM.
 
 ## Architecture
 
-GraphQL product operations route through a generated dispatch table into
+Product operations route through canonical WIT operation endpoints into
 Wasmtime Component Model components. First-party extensions are authored as
 Rust `cargo-component` crates and ship real artifacts at
 `dist/<extension-id>.wasm`.
@@ -37,9 +37,9 @@ The Vue shell owns navigation, auth/session exchange, GraphQL transport, and UI
 extension loading. Browser extension bundles are served from
 `/_extensions/<id>/assets/...` and registered through the Comtrya SDK.
 
-Git clone/fetch uses the pure-Rust Smart HTTP path. Git receive-pack/push, full
-OIDC browser callback validation, and legacy Comtrya v1 HTTP APIs are
-intentionally unsupported in the production testbed.
+Git clone/fetch uses the pure-Rust Smart HTTP path. Git receive-pack/push and
+full OIDC browser callback validation are intentionally unsupported in the
+production testbed.
 
 ## Useful docs
 
@@ -47,4 +47,4 @@ intentionally unsupported in the production testbed.
 - `DEMO_RUNBOOK.md`: operator commands and inspection paths.
 - `PRODUCTION_TESTBED.md`: startup gates and production-testbed boundary.
 - `docs/extensions.md`: extension authoring contract.
-- `GOAL.md`: v3 migration checklist and definition of done.
+- `GOAL.md`: v3 completion status and invariants.

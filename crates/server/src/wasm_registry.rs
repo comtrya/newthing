@@ -809,7 +809,7 @@ mod tests {
             .expect("issue persisted");
         assert_eq!(
             issue_rec.data.get("state").and_then(Value::as_str),
-            Some("CLOSED")
+            Some("closed")
         );
         assert_eq!(
             issue_rec.data.get("stateReason").and_then(Value::as_str),
@@ -1268,7 +1268,7 @@ mod tests {
             .expect("issue persisted");
         assert_eq!(
             issue_rec.data.get("state").and_then(Value::as_str),
-            Some("CLOSED")
+            Some("closed")
         );
         let event_log = std::fs::read_to_string(store.events_path()).expect("read events");
         assert!(event_log.contains("dev.comtrya.issues.closed"));

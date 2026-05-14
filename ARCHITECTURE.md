@@ -130,6 +130,3 @@ support is implemented.
 
 - Git receive-pack/push is disabled.
 - Full OIDC browser callback validation is disabled in the testbed.
-- Legacy Comtrya v1 HTTP APIs are intentionally unsupported.
-- The `demo` GraphQL aggregate remains as a compatibility convenience, assembled
-  from Git, runtime storage, and extension data.

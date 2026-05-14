@@ -1,5 +1,5 @@
 //! Code generation from the per-extension WIT into:
-//!   * Rust GraphQL handler arms (consumed by the kernel's dispatch table)
+//!   * Rust dispatch arms (consumed by the kernel's op dispatch table)
 //!   * TypeScript client methods (consumed by the frontend SDK)
 //!
 //! The kernel-side WIT package `comtrya:platform` provides the host
@@ -29,14 +29,13 @@ pub struct OpSpec {
     pub route: String,
     /// `<extension-id>` — kernel uses this to find the loaded WASM.
     pub extension_id: String,
-    /// `<interface-name>` — used for GraphQL field grouping.
+    /// `<interface-name>` — used for client namespace grouping.
     pub interface_name: String,
-    /// `<op-name>` — kebab-case WIT name (e.g. `close-issue`).
+    /// `<op-name>` — kebab-case WIT name (e.g. `close-record`).
     pub op_name: String,
-    /// `<op-name>` camelCased for GraphQL / TS.
-    pub graphql_name: String,
-    /// Whether this op is read-only (GraphQL Query) vs mutating
-    /// (GraphQL Mutation). Inferred from naming convention.
+    /// `<op-name>` camelCased for generated TS methods.
+    pub method_name: String,
+    /// Whether this op is read-only vs mutating. Inferred from naming convention.
     pub kind: OpKind,
     /// JSON Schema of the input record (best-effort; `null` if the op
     /// takes no input or the type couldn't be resolved).
@@ -52,7 +51,7 @@ pub enum OpKind {
     Mutation,
 }
 
-/// Heuristic. Read-shaped names map to GraphQL Query; mutation-shaped
+/// Heuristic. Read-shaped names map to Query; mutation-shaped names map
 /// to Mutation. Authors can override in the per-extension manifest.
 pub fn classify_op_name(name: &str) -> OpKind {
     let lower = name.to_lowercase();
@@ -85,64 +84,6 @@ pub fn kebab_to_camel(s: &str) -> String {
         }
     }
     out
-}
-
-pub fn kebab_to_pascal(s: &str) -> String {
-    let camel = kebab_to_camel(s);
-    let mut chars = camel.chars();
-    match chars.next() {
-        Some(c) => c.to_uppercase().chain(chars).collect(),
-        None => String::new(),
-    }
-}
-
-/// Naive singular form: drop trailing "s" or "ies"→"y". Used to
-/// derive the legacy GraphQL field alias from WIT op names like
-/// `close-issue` (interface `issues`) → drop `-issue` → `close` →
-/// combine with interface → camel → `issuesClose`.
-fn singular_of(s: &str) -> Option<String> {
-    if let Some(stem) = s.strip_suffix("ies") {
-        return Some(format!("{}y", stem));
-    }
-    if let Some(stem) = s.strip_suffix('s')
-        && !stem.is_empty()
-    {
-        return Some(stem.to_string());
-    }
-    None
-}
-
-/// Derive the legacy `<interface><Verb>` GraphQL field name from a WIT
-/// op. The legacy convention strips the singular noun suffix from the
-/// op name and prefixes the interface. Returns `None` if the op name
-/// doesn't follow `<verb>-<interface-singular>` / `<verb>-<interface>`.
-pub fn legacy_graphql_field(interface_name: &str, op_name: &str) -> Option<String> {
-    legacy_verb(interface_name, op_name)
-        .map(|verb| kebab_to_camel(&format!("{}-{}", interface_name, verb)))
-}
-
-/// `<interface>.<verb>` legacy dotted form (e.g. `issues.close`). Some
-/// of the existing GraphQL surface uses this rather than the
-/// camelCase form; the codegen emits it as a third alias.
-pub fn legacy_dotted_field(interface_name: &str, op_name: &str) -> Option<String> {
-    legacy_verb(interface_name, op_name)
-        .map(|verb| format!("{}.{}", interface_name, kebab_to_camel(&verb)))
-}
-
-fn legacy_verb(interface_name: &str, op_name: &str) -> Option<String> {
-    if interface_name == "issues" && op_name == "open-issue" {
-        return Some("create".to_string());
-    }
-    let singular = singular_of(interface_name);
-    if let Some(s) = &singular
-        && let Some(verb) = op_name.strip_suffix(&format!("-{}", s))
-    {
-        return Some(verb.to_string());
-    }
-    if let Some(verb) = op_name.strip_suffix(&format!("-{}", interface_name)) {
-        return Some(verb.to_string());
-    }
-    None
 }
 
 /// Walk a per-extension WIT package and produce one `OpSpec` per
@@ -184,7 +125,7 @@ pub fn parse_extension_wit(
             // per-extension package — these are kernel-callable exports
             // (e.g. `reactor` from `comtrya:platform`) that the kernel
             // invokes directly via `on-event` / `subscribed-event-types`,
-            // not via the GraphQL dispatch table.
+            // not via the extension op dispatch table.
             if let Some(pkg_id) = iface.package
                 && resolve.packages[pkg_id].name != main_package_name
             {
@@ -210,7 +151,7 @@ pub fn parse_extension_wit(
                     extension_id: extension_id.to_string(),
                     interface_name: iface_name.clone(),
                     op_name: fn_name.clone(),
-                    graphql_name: kebab_to_camel(fn_name),
+                    method_name: kebab_to_camel(fn_name),
                     kind,
                     input_schema,
                     output_schema,
@@ -221,98 +162,13 @@ pub fn parse_extension_wit(
     Ok(ops)
 }
 
-/// Render an OpSpec list as a Rust source file containing handler arms.
-/// The function is named `dispatch_route_<ext_id>` so the kernel can
-/// concatenate multiple generated files without symbol collisions.
-///
-/// The `DispatchInfo` struct itself is NOT emitted here — it must be
-/// defined exactly once, by the caller (typically the kernel's
-/// build.rs in the `dispatch_table.rs` it composes). If every
-/// per-extension file defined its own copy, the dispatch table's
-/// `dispatch_route` would need to return a union of distinct Rust
-/// types (one per extension module) which Rust does not allow. The
-/// caller's responsibility is to put `DispatchInfo` in scope at every
-/// `include!`-site.
-pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
-    let mut out = String::new();
-    out.push_str("// AUTO-GENERATED by comtrya-wit-codegen — DO NOT EDIT.\n");
-    out.push_str("// Re-run `cargo run -p comtrya-wit-codegen` to refresh.\n");
-    out.push_str("// `DispatchInfo` is defined by the parent module (typically the\n");
-    out.push_str("// kernel's generated dispatch_table.rs).\n\n");
-    let ext_id = ops
-        .iter()
-        .map(|o| o.extension_id.as_str())
-        .next()
-        .unwrap_or("unknown");
-    let fn_name = format!("dispatch_route_{}", ext_id.replace('-', "_"));
-    // Collect (route_key, info_body, aliases) tuples so we can emit
-    // both the match arms and a flat ROUTES constant.
-    let mut routes: Vec<(String, String, Vec<String>)> = Vec::new();
-    let mut seen_route_keys: BTreeMap<String, String> = BTreeMap::new();
-    for op in ops {
-        let kind = match op.kind {
-            OpKind::Query => "query",
-            OpKind::Mutation => "mutation",
-        };
-        let info_body = format!(
-            "extension_id: \"{}\",\n            interface_name: \"{}\",\n            op_name: \"{}\",\n            kind: \"{}\",",
-            op.extension_id, op.interface_name, op.op_name, kind
-        );
-        let mut aliases = Vec::new();
-        // Legacy <interface><Verb> camelCase form (e.g. issuesClose).
-        if let Some(a) = legacy_graphql_field(&op.interface_name, &op.op_name)
-            && a != op.route
-        {
-            aliases.push(a);
-        }
-        // Legacy <interface>.<verb> dotted form (e.g. issues.close).
-        if let Some(a) = legacy_dotted_field(&op.interface_name, &op.op_name)
-            && a != op.route
-            && !aliases.contains(&a)
-        {
-            aliases.push(a);
-        }
-        for key in std::iter::once(&op.route).chain(aliases.iter()) {
-            if let Some(previous) = seen_route_keys.get(key) {
-                if previous != &info_body {
-                    panic!("duplicate generated route key '{key}' maps to multiple WIT ops");
-                }
-            } else {
-                seen_route_keys.insert(key.clone(), info_body.clone());
-            }
-        }
-        routes.push((op.route.clone(), info_body, aliases));
-    }
-
-    out.push_str(&format!(
-        "pub fn {}(route: &str) -> Option<super::DispatchInfo> {{\n",
-        fn_name
-    ));
-    out.push_str("    match route {\n");
-    for (route_key, info_body, aliases) in &routes {
-        out.push_str(&format!(
-            "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
-            route_key, info_body
-        ));
-        for alias_key in aliases {
-            out.push_str(&format!(
-                "        \"{}\" => Some(super::DispatchInfo {{\n            {}\n        }}),\n",
-                alias_key, info_body
-            ));
-        }
-    }
-    out.push_str("        _ => None,\n    }\n}\n\n");
-
-    out
-}
-
 /// Render an OpSpec list as a TypeScript module exporting one typed
 /// method per op. The methods accept a typed input and return a typed
 /// Result-like discriminated union via the host fetch path.
 pub fn render_ts_client(ops: &[OpSpec]) -> String {
     let mut out = String::new();
     out.push_str("// AUTO-GENERATED by comtrya-wit-codegen — DO NOT EDIT.\n");
-    out.push_str("// Re-run `npm run codegen` (or `cargo run -p comtrya-wit-codegen -- --ts`).\n");
+    out.push_str("// Re-run `cargo run -p comtrya-wit-codegen -- --ts` to refresh.\n");
     out.push_str("// Requires the @comtrya/sdk runtime (`invokeOp`, `OpResult`).\n\n");
     out.push_str("import { invokeOp, type OpResult } from \"@comtrya/sdk-core\";\n\n");
 
@@ -341,7 +197,7 @@ pub fn render_ts_client(ops: &[OpSpec]) -> String {
             ));
             out.push_str(&format!(
                 "  {}: async (input?: unknown): Promise<OpResult<unknown>> =>\n",
-                op.graphql_name
+                op.method_name
             ));
             out.push_str(&format!(
                 "    invokeOp(\"{}\", \"{}\", \"{}\", input),\n",
@@ -486,19 +342,18 @@ mod tests {
 
     #[test]
     fn classify_op_name_handles_known_prefixes() {
-        assert_eq!(classify_op_name("close-issue"), OpKind::Mutation);
-        assert_eq!(classify_op_name("get-issue"), OpKind::Query);
-        assert_eq!(classify_op_name("list-pulls"), OpKind::Query);
-        assert_eq!(classify_op_name("reopen-issue"), OpKind::Mutation);
-        assert_eq!(classify_op_name("change-state-epic"), OpKind::Mutation);
-        assert_eq!(classify_op_name("record-check"), OpKind::Mutation);
+        assert_eq!(classify_op_name("close-record"), OpKind::Mutation);
+        assert_eq!(classify_op_name("get-record"), OpKind::Query);
+        assert_eq!(classify_op_name("list-records"), OpKind::Query);
+        assert_eq!(classify_op_name("reopen-record"), OpKind::Mutation);
+        assert_eq!(classify_op_name("change-state-item"), OpKind::Mutation);
+        assert_eq!(classify_op_name("record-result"), OpKind::Mutation);
         assert_eq!(classify_op_name("notify-someone"), OpKind::Query);
     }
 
     #[test]
     fn kebab_case_conversions() {
-        assert_eq!(kebab_to_camel("close-issue"), "closeIssue");
-        assert_eq!(kebab_to_pascal("close-issue"), "CloseIssue");
+        assert_eq!(kebab_to_camel("close-record"), "closeRecord");
         assert_eq!(kebab_to_camel("a-b-c"), "aBC");
     }
 
@@ -506,111 +361,33 @@ mod tests {
     fn render_ts_client_groups_by_interface() {
         let ops = vec![
             OpSpec {
-                route: "ext_issues.issues.close-issue".to_string(),
-                extension_id: "ext_issues".to_string(),
-                interface_name: "issues".to_string(),
-                op_name: "close-issue".to_string(),
-                graphql_name: "closeIssue".to_string(),
+                route: "ext_sample.records.close-record".to_string(),
+                extension_id: "ext_sample".to_string(),
+                interface_name: "records".to_string(),
+                op_name: "close-record".to_string(),
+                method_name: "closeRecord".to_string(),
                 kind: OpKind::Mutation,
                 input_schema: None,
                 output_schema: None,
             },
             OpSpec {
-                route: "ext_issues.issues.get-issue".to_string(),
-                extension_id: "ext_issues".to_string(),
-                interface_name: "issues".to_string(),
-                op_name: "get-issue".to_string(),
-                graphql_name: "getIssue".to_string(),
+                route: "ext_sample.records.get-record".to_string(),
+                extension_id: "ext_sample".to_string(),
+                interface_name: "records".to_string(),
+                op_name: "get-record".to_string(),
+                method_name: "getRecord".to_string(),
                 kind: OpKind::Query,
                 input_schema: None,
                 output_schema: None,
             },
         ];
         let out = render_ts_client(&ops);
-        assert!(out.contains("export const extIssuesXIssues = {"), "{}", out);
-        assert!(out.contains("closeIssue: async"));
-        assert!(out.contains("getIssue: async"));
-    }
-
-    #[test]
-    fn legacy_graphql_field_derives_interface_verb() {
-        assert_eq!(
-            legacy_graphql_field("issues", "close-issue").as_deref(),
-            Some("issuesClose")
-        );
-        assert_eq!(
-            legacy_graphql_field("issues", "list-issues").as_deref(),
-            Some("issuesList")
-        );
-        assert_eq!(
-            legacy_graphql_field("issues", "open-issue").as_deref(),
-            Some("issuesCreate")
-        );
-        assert_eq!(
-            legacy_dotted_field("issues", "open-issue").as_deref(),
-            Some("issues.create")
-        );
-        assert_eq!(
-            legacy_graphql_field("epics", "transition-epic").as_deref(),
-            Some("epicsTransition")
-        );
-        assert_eq!(
-            legacy_graphql_field("issues", "do-something-else").as_deref(),
-            None
-        );
-    }
-
-    #[test]
-    fn render_rust_handlers_emits_match_arm_per_op() {
-        let ops = vec![OpSpec {
-            route: "ext_x.iface.do-thing".to_string(),
-            extension_id: "ext_x".to_string(),
-            interface_name: "iface".to_string(),
-            op_name: "do-thing".to_string(),
-            graphql_name: "doThing".to_string(),
-            kind: OpKind::Mutation,
-            input_schema: None,
-            output_schema: None,
-        }];
-        let out = render_rust_handlers(&ops);
-        assert!(out.contains("\"ext_x.iface.do-thing\""));
-        assert!(out.contains("pub fn dispatch_route_ext_x"));
-        // DispatchInfo must NOT be defined inside the per-extension file
-        // — the parent module supplies it. See comment on render_rust_handlers.
         assert!(
-            !out.contains("pub struct DispatchInfo"),
-            "DispatchInfo must be defined exactly once by the caller, not per-extension"
+            out.contains("export const extSampleXRecords = {"),
+            "{}",
+            out
         );
-        // ...and every reference to it should be via the parent path.
-        assert!(out.contains("Option<super::DispatchInfo>"));
-    }
-
-    #[test]
-    #[should_panic(expected = "duplicate generated route key")]
-    fn render_rust_handlers_rejects_legacy_alias_collision() {
-        let ops = vec![
-            OpSpec {
-                route: "ext_issues.issues.open-issue".to_string(),
-                extension_id: "ext_issues".to_string(),
-                interface_name: "issues".to_string(),
-                op_name: "open-issue".to_string(),
-                graphql_name: "openIssue".to_string(),
-                kind: OpKind::Mutation,
-                input_schema: None,
-                output_schema: None,
-            },
-            OpSpec {
-                route: "ext_issues.issues.create-issue".to_string(),
-                extension_id: "ext_issues".to_string(),
-                interface_name: "issues".to_string(),
-                op_name: "create-issue".to_string(),
-                graphql_name: "createIssue".to_string(),
-                kind: OpKind::Mutation,
-                input_schema: None,
-                output_schema: None,
-            },
-        ];
-
-        let _ = render_rust_handlers(&ops);
+        assert!(out.contains("closeRecord: async"));
+        assert!(out.contains("getRecord: async"));
     }
 }

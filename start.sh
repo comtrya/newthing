@@ -270,7 +270,7 @@ assert_v3_cutover_static_smoke() {
   if rg -n 'matches_op\(' "$ROOT_DIR/crates/server/src/main.rs" >"$TMP_DIR/matches-op.txt"; then
     printf '[comtrya] matches_op residue:\n' >&2
     sed -n '1,80p' "$TMP_DIR/matches-op.txt" >&2 || true
-    fail "legacy matches_op handler routing still exists"
+    fail "obsolete matches_op handler routing still exists"
   fi
 
   if ! "$BUN" --eval '
@@ -553,8 +553,8 @@ assert_issue_close_browser_smoke() {
   local event_file="$TMP_DIR/issue-close-browser-event.json"
 
   write_issue_storage_snapshot "$issue_id" "$before_file"
-  json_assert "browser close issue starts OPEN" "$before_file" \
-    'json.data.state === "OPEN" && (json.data.closedAt === null || json.data.closedAt === undefined)'
+  json_assert "browser close issue starts open" "$before_file" \
+    'json.data.state === "open" && (json.data.closedAt === null || json.data.closedAt === undefined)'
 
   local browser_bin
   browser_bin="$(find_headless_browser)" || fail "issue close browser smoke requires Chrome/Chromium or COMTRYA_BROWSER_BIN"
@@ -759,8 +759,8 @@ try {
   wait "$browser_pid" >/dev/null 2>&1 || true
 
   write_issue_storage_snapshot "$issue_id" "$after_file"
-  json_assert "browser close issue storage changed to CLOSED" "$after_file" \
-    'json.data.state === "CLOSED" && json.data.stateReason === "completed" && typeof json.data.closedAt === "string" && json.version > 1'
+  json_assert "browser close issue storage changed to closed" "$after_file" \
+    'json.data.state === "closed" && json.data.stateReason === "completed" && typeof json.data.closedAt === "string" && json.version > 1'
   write_issue_closed_wasm_event "$issue_id" "$event_file"
   json_assert "browser close issue emitted ext_issues WASM event" "$event_file" \
     'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
@@ -956,12 +956,7 @@ expect_contains "frontend shell HTML loads Vue assets" "$TMP_DIR/frontend.html" 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
-  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.demoRepositoryRefs === true && json.unsupported.some((surface) => surface.id === "legacy_v1_api" && surface.pathPrefix === "/api/v1/") && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
-
-expect_status "unsupported legacy v1 route fails explicitly through Vue shell" 501 "$TMP_DIR/legacy-v1.json" \
-  "$FRONTEND_URL/api/v1/repositories"
-json_assert "unsupported legacy v1 route fails explicitly through Vue shell" "$TMP_DIR/legacy-v1.json" \
-  'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "legacy_v1_api"'
+  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.demoRepositoryRefs === true && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
 
 expect_status "unsupported OIDC callback fails explicitly through Vue shell" 501 "$TMP_DIR/oidc-callback.json" \
   "$FRONTEND_URL/auth/oidc/prod/callback"
@@ -981,18 +976,14 @@ fi
 expect_status "GraphQL through Vue shell" 200 "$TMP_DIR/graphql.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"{ viewer { authenticated } instance { capabilities } workspace repository extensionInstallations extensionResolvers activityEvents }"}' \
+  --data '{"query":"{ viewer { authenticated } instance { capabilities } workspace repository extensionInstallations }"}' \
   "$FRONTEND_URL/graphql"
 json_assert "GraphQL viewer through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.viewer.authenticated === true && json.data.viewer.permissions.includes("git:read")'
 json_assert "GraphQL Git data through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.repository.path === "comtrya/comtrya" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
 json_assert "GraphQL storage data through Vue shell" "$TMP_DIR/graphql.json" \
-  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 4 && json.data.activityEvents.length > 0'
-json_assert "GraphQL typed resolver data through Vue shell" "$TMP_DIR/graphql.json" \
-  'json.data.extensionResolvers.length === 5 && json.data.extensionResolvers.every((resolver) => (resolver.status === "executed" || resolver.status === "platform-loaded") && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_pull_requests" && resolver.outputType === "comtrya.pull-requests/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_workspace_home" && resolver.outputType === "comtrya.workspace-home/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_issues" && resolver.status === "platform-loaded" && resolver.outputType === "comtrya.issues/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_epics" && resolver.outputType === "comtrya.epics/summary.v1")'
-json_assert "GraphQL demo convenience aggregate through Vue shell" "$TMP_DIR/graphql.json" \
-  'json.data.demo.repository.headOid === json.data.repository.headOid'
+  'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 4'
 GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.headOid')"
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
   fail "GraphQL did not return repository.headOid"
@@ -1380,69 +1371,78 @@ expect_status "comments.delete removes the comment" 200 "$TMP_DIR/cmt-delete.jso
 json_assert "comments.delete returns true" "$TMP_DIR/cmt-delete.json" \
   'json.data.comments.delete === true'
 
-# ── ext_issues end-to-end ──────────────────────────────────────────────────
-expect_status "issues.create with workspace + title" 200 "$TMP_DIR/iss-create.json" \
+# ── ext_issues end-to-end via canonical ops ────────────────────────────────
+ISSUE_REPOSITORY_URI="comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
+expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id workspaceId number title state } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"first issue\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"first issue","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
-  'json.data.issues.create.id.startsWith("iss_") && json.data.issues.create.number === 1 && json.data.issues.create.state === "OPEN"'
-ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.data.issues.create.id')"
+  'json.id.startsWith("iss_") && json.number === 1 && json.state === "open"'
+ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.id')"
 
-expect_status "issues.create increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
+expect_status "open-issue increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id number } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"second issue\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"second issue","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
-  'json.data.issues.create.number === 2'
+  'json.number === 2'
 
-expect_status "issues.create rejects empty title" 400 "$TMP_DIR/iss-bad.json" \
+expect_status "open-issue rejects empty title" 400 "$TMP_DIR/iss-bad.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"   "}}}' \
-  "$FRONTEND_URL/graphql"
-json_assert "empty title is BAD_USER_INPUT" "$TMP_DIR/iss-bad.json" \
-  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"   ","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+json_assert "empty title is bad-input" "$TMP_DIR/iss-bad.json" \
+  'json.code === "bad-input"'
 
-expect_status "issues.list returns the issues, newest first" 200 "$TMP_DIR/iss-list.json" \
+expect_status "list-issues returns the issues, newest first" 200 "$TMP_DIR/iss-list.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"query($workspaceId: ID) { issues.list(workspaceId: $workspaceId) { id number state } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"}}' \
-  "$FRONTEND_URL/graphql"
-json_assert "list returns 2 OPEN issues, latest number first" "$TMP_DIR/iss-list.json" \
-  'json.data.issues.list.length === 2 && json.data.issues.list[0].number === 2 && json.data.issues.list[1].number === 1 && json.data.issues.list.every((i) => i.state === "OPEN")'
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","limit":1024}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/list-issues"
+json_assert "list returns 2 open issues, latest number first" "$TMP_DIR/iss-list.json" \
+  'json.length === 2 && json[0].number === 2 && json[1].number === 1 && json.every((i) => i.state === "open")'
 
-expect_status "issues.byNumber resolves" 200 "$TMP_DIR/iss-by-num.json" \
+expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"query($workspaceId: ID!, $number: Int!) { issues.byNumber(workspaceId: $workspaceId, number: $number) { id title } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","number":1}}' \
-  "$FRONTEND_URL/graphql"
-json_assert "byNumber returns the first issue by id" "$TMP_DIR/iss-by-num.json" \
-  "json.data.issues.byNumber.id === \"$ISSUE_ONE_ID\""
+  --data '{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","number":1}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/by-number-issue"
+json_assert "by-number returns the first issue by id" "$TMP_DIR/iss-by-num.json" \
+  "json.id === \"$ISSUE_ONE_ID\""
 
-expect_status "issues.close transitions to CLOSED" 200 "$TMP_DIR/iss-close.json" \
+expect_status "close-issue transitions to closed" 200 "$TMP_DIR/iss-close.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CloseIssueInput!) { issues.close(input: \$input) { id state stateReason closedAt } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_ONE_ID\",\"reason\":\"completed\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "issue is now CLOSED with reason completed and closedAt set" "$TMP_DIR/iss-close.json" \
-  'json.data.issues.close.state === "CLOSED" && json.data.issues.close.stateReason === "completed" && typeof json.data.issues.close.closedAt === "string"'
+  --data "{\"id\":\"$ISSUE_ONE_ID\",\"reason\":\"completed\"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/close-issue"
+json_assert "issue is now closed with reason completed and closedAt set" "$TMP_DIR/iss-close.json" \
+  'json.state === "closed" && json.stateReason === "completed" && typeof json.closedAt === "string"'
 write_issue_closed_wasm_event "$ISSUE_ONE_ID" "$TMP_DIR/iss-close-event.json"
-json_assert "GraphQL close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
+json_assert "close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
   'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
 
-expect_status "issues.reopen returns to OPEN" 200 "$TMP_DIR/iss-reopen.json" \
+expect_status "reopen-issue returns to open" 200 "$TMP_DIR/iss-reopen.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: ReopenIssueInput!) { issues.reopen(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_ONE_ID\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "issue is back to OPEN" "$TMP_DIR/iss-reopen.json" \
-  'json.data.issues.reopen.state === "OPEN"'
+  --data "\"$ISSUE_ONE_ID\"" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/reopen-issue"
+json_assert "issue is back to open" "$TMP_DIR/iss-reopen.json" \
+  'json.state === "open"'
 
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
-  expect_status "issues.create for browser close smoke" 200 "$TMP_DIR/iss-browser-create.json" \
+  expect_status "open-issue for browser close smoke" 200 "$TMP_DIR/iss-browser-create.json" \
+    -H "authorization: Bearer $ACCESS_TOKEN" \
     -H "content-type: application/json" \
-    --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id workspaceId number state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"browser close WASM smoke","bodyMarkdown":"close through the extension page button"}}}' \
-    "$FRONTEND_URL/graphql"
-  json_assert "browser close smoke issue starts OPEN" "$TMP_DIR/iss-browser-create.json" \
-    'json.data.issues.create.state === "OPEN" && typeof json.data.issues.create.id === "string" && typeof json.data.issues.create.number === "number"'
-  BROWSER_CLOSE_ISSUE_ID="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.data.issues.create.id')"
-  BROWSER_CLOSE_ISSUE_NUMBER="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.data.issues.create.number')"
+    --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"browser close WASM smoke","bodyMarkdown":"close through the extension page button"}' \
+    "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+  json_assert "browser close smoke issue starts open" "$TMP_DIR/iss-browser-create.json" \
+    'json.state === "open" && typeof json.id === "string" && typeof json.number === "number"'
+  BROWSER_CLOSE_ISSUE_ID="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.id')"
+  BROWSER_CLOSE_ISSUE_NUMBER="$(json_value "$TMP_DIR/iss-browser-create.json" 'json.number')"
   assert_issue_close_browser_smoke \
     "$BROWSER_CLOSE_ISSUE_ID" \
     "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3" \
@@ -1453,27 +1453,37 @@ else
   log "skipping browser issue close smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi
 
-expect_status "issues.byRefs batch returns parallel array" 200 "$TMP_DIR/iss-by-refs.json" \
+expect_status "by-refs-issue batch returns parallel array" 200 "$TMP_DIR/iss-by-refs.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$refs: [ResourceURN!]!) { issues.byRefs(refs: \$refs) { id state } }\",\"variables\":{\"refs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"]}}" \
-  "$FRONTEND_URL/graphql"
+  --data "[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"]" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/by-refs-issue"
 json_assert "batch is two entries, first found, second null" "$TMP_DIR/iss-by-refs.json" \
-  "json.data.issues.byRefs.length === 2 && json.data.issues.byRefs[0].id === \"$ISSUE_ONE_ID\" && json.data.issues.byRefs[1] === null"
+  "json.length === 2 && json[0].id === \"$ISSUE_ONE_ID\" && json[1] === null"
 
-expect_status "issues.stateCountsForRefs aggregates" 200 "$TMP_DIR/iss-counts.json" \
+expect_status "state-counts-for-refs-issue aggregates" 200 "$TMP_DIR/iss-counts.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$refs: [ResourceURN!]!) { issues.stateCountsForRefs(refs: \$refs) { open closed } }\",\"variables\":{\"refs\":[\"comtrya://issue/$ISSUE_ONE_ID\"]}}" \
-  "$FRONTEND_URL/graphql"
+  --data "[\"comtrya://issue/$ISSUE_ONE_ID\"]" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/state-counts-for-refs-issue"
 json_assert "counts: 1 open, 0 closed" "$TMP_DIR/iss-counts.json" \
-  'json.data.issues.stateCountsForRefs.open === 1 && json.data.issues.stateCountsForRefs.closed === 0'
+  'json.open === 1 && json.closed === 0'
 
-expect_status "issues.create with atomic part-of link to an epic" 200 "$TMP_DIR/iss-with-epic.json" \
+expect_status "open-issue for explicit part-of relation" 200 "$TMP_DIR/iss-with-epic.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"linked to epic\",\"epicRef\":\"comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0\"}}}" \
-  "$FRONTEND_URL/graphql"
-ISSUE_LINKED_ID="$(json_value "$TMP_DIR/iss-with-epic.json" 'json.data.issues.create.id')"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"linked to epic","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+ISSUE_LINKED_ID="$(json_value "$TMP_DIR/iss-with-epic.json" 'json.id')"
 
-expect_status "relations.outgoing shows the atomic part-of link" 200 "$TMP_DIR/iss-rel.json" \
+expect_status "relations.create writes explicit issue part-of link" 200 "$TMP_DIR/iss-rel-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind from to } }\",\"variables\":{\"input\":{\"from\":\"comtrya://issue/$ISSUE_LINKED_ID\",\"to\":\"comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+
+expect_status "relations.outgoing shows the explicit part-of link" 200 "$TMP_DIR/iss-rel.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/part-of\\\") { to } }\",\"variables\":{\"from\":\"comtrya://issue/$ISSUE_LINKED_ID\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1481,127 +1491,149 @@ json_assert "outgoing part-of points at the epic URI" "$TMP_DIR/iss-rel.json" \
   'json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === "comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1F0"'
 
 # ── ext_epics end-to-end + cross-extension composition ─────────────────────
-expect_status "epics.create" 200 "$TMP_DIR/epc-create.json" \
+expect_status "create-epic" 200 "$TMP_DIR/epc-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"mutation($input: CreateEpicInput!) { epics.create(input: $input) { id workspaceId title state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"Q4 platform launch","bodyMarkdown":"big stuff"}}}' \
-  "$FRONTEND_URL/graphql"
+  --data '{"workspace":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"Q4 platform launch","bodyMarkdown":"big stuff","ownerRef":null,"targetDate":null,"labels":[],"parentEpicRef":null}' \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "epic created with epc_ id, state=PLANNED" "$TMP_DIR/epc-create.json" \
-  'json.data.epics.create.id.startsWith("epc_") && json.data.epics.create.state === "PLANNED"'
-EPIC_ROOT_ID="$(json_value "$TMP_DIR/epc-create.json" 'json.data.epics.create.id')"
+  'json.id.startsWith("epc_") && json.state === "PLANNED"'
+EPIC_ROOT_ID="$(json_value "$TMP_DIR/epc-create.json" 'json.id')"
 EPIC_ROOT_REF="comtrya://epic/$EPIC_ROOT_ID"
 
-expect_status "epics.create with parentEpicRef writes atomic part-of" 200 "$TMP_DIR/epc-child.json" \
+expect_status "create-epic with parentEpicRef writes part-of" 200 "$TMP_DIR/epc-child.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateEpicInput!) { epics.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"child epic\",\"parentEpicRef\":\"$EPIC_ROOT_REF\"}}}" \
-  "$FRONTEND_URL/graphql"
-EPIC_CHILD_ID="$(json_value "$TMP_DIR/epc-child.json" 'json.data.epics.create.id')"
+  --data "{\"workspace\":\"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
+EPIC_CHILD_ID="$(json_value "$TMP_DIR/epc-child.json" 'json.id')"
 
-expect_status "epics.childrenOf returns the child epic" 200 "$TMP_DIR/epc-children.json" \
+expect_status "children-of-epic returns the child epic" 200 "$TMP_DIR/epc-children.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.childrenOf(ref: \$ref) }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
-  "$FRONTEND_URL/graphql"
+  --data "\"$EPIC_ROOT_REF\"" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/children-of-epic"
 json_assert "childrenOf has the child epic URI" "$TMP_DIR/epc-children.json" \
-  "json.data.epics.childrenOf.length === 1 && json.data.epics.childrenOf[0] === \"comtrya://epic/$EPIC_CHILD_ID\""
+  "json.length === 1 && json[0] === \"comtrya://epic/$EPIC_CHILD_ID\""
 
-# Link two new issues (one OPEN, one will be CLOSED) into the root epic
 expect_status "issue A linked to root epic" 200 "$TMP_DIR/epc-iss-a.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"A\",\"epicRef\":\"$EPIC_ROOT_REF\"}}}" \
-  "$FRONTEND_URL/graphql"
-ISSUE_A_ID="$(json_value "$TMP_DIR/epc-iss-a.json" 'json.data.issues.create.id')"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"A","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+ISSUE_A_ID="$(json_value "$TMP_DIR/epc-iss-a.json" 'json.id')"
 expect_status "issue B linked to root epic" 200 "$TMP_DIR/epc-iss-b.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateIssueInput!) { issues.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"workspaceId\":\"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"title\":\"B\",\"epicRef\":\"$EPIC_ROOT_REF\"}}}" \
-  "$FRONTEND_URL/graphql"
-ISSUE_B_ID="$(json_value "$TMP_DIR/epc-iss-b.json" 'json.data.issues.create.id')"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"B","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+ISSUE_B_ID="$(json_value "$TMP_DIR/epc-iss-b.json" 'json.id')"
+
+for ISSUE_ID_TO_LINK in "$ISSUE_A_ID" "$ISSUE_B_ID"; do
+  expect_status "relations.create issue $ISSUE_ID_TO_LINK part-of epic" 200 "$TMP_DIR/epc-rel-$ISSUE_ID_TO_LINK.json" \
+    -H "authorization: Bearer $ACCESS_TOKEN" \
+    -H "content-type: application/json" \
+    --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"comtrya://issue/$ISSUE_ID_TO_LINK\",\"to\":\"$EPIC_ROOT_REF\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+    "$FRONTEND_URL/graphql"
+done
 
 expect_status "close issue B" 200 "$TMP_DIR/epc-close-b.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CloseIssueInput!) { issues.close(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$ISSUE_B_ID\",\"reason\":\"completed\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data "{\"id\":\"$ISSUE_B_ID\",\"reason\":\"completed\"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/close-issue"
 
-expect_status "epics.issuesIn returns both linked issues" 200 "$TMP_DIR/epc-issues-in.json" \
+expect_status "issues-in-epic returns both linked issues" 200 "$TMP_DIR/epc-issues-in.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.issuesIn(ref: \$ref) }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
-  "$FRONTEND_URL/graphql"
+  --data "\"$EPIC_ROOT_REF\"" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/issues-in-epic"
 json_assert "issuesIn has the two issue URIs" "$TMP_DIR/epc-issues-in.json" \
-  "json.data.epics.issuesIn.length === 2 && json.data.epics.issuesIn.includes(\"comtrya://issue/$ISSUE_A_ID\") && json.data.epics.issuesIn.includes(\"comtrya://issue/$ISSUE_B_ID\")"
+  "json.length === 2 && json.includes(\"comtrya://issue/$ISSUE_A_ID\") && json.includes(\"comtrya://issue/$ISSUE_B_ID\")"
 
-expect_status "epics.progress aggregates across issues and child epics" 200 "$TMP_DIR/epc-progress.json" \
+expect_status "progress-epic aggregates across issues and child epics" 200 "$TMP_DIR/epc-progress.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$ref: ResourceURN!) { epics.progress(ref: \$ref) { issuesOpen issuesClosed childEpicsOpen childEpicsClosed percentComplete } }\",\"variables\":{\"ref\":\"$EPIC_ROOT_REF\"}}" \
-  "$FRONTEND_URL/graphql"
+  --data "\"$EPIC_ROOT_REF\"" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/progress-epic"
 json_assert "progress is 1 open issue + 1 closed issue + 1 open child epic = 33%" "$TMP_DIR/epc-progress.json" \
-  'json.data.epics.progress.issuesOpen === 1 && json.data.epics.progress.issuesClosed === 1 && json.data.epics.progress.childEpicsOpen === 1 && json.data.epics.progress.childEpicsClosed === 0 && json.data.epics.progress.percentComplete === 33'
+  'json.issuesOpen === 1 && json.issuesClosed === 1 && json.childEpicsOpen === 1 && json.childEpicsClosed === 0 && json.percentComplete === 33'
 
-expect_status "epics.changeState to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
+expect_status "change-state-epic to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: ChangeEpicStateInput!) { epics.changeState(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
 json_assert "child epic state is DONE" "$TMP_DIR/epc-state.json" \
-  'json.data.epics.changeState.state === "DONE"'
+  'json.state === "DONE"'
 
-expect_status "epics.list returns both epics for the workspace" 200 "$TMP_DIR/epc-list.json" \
+expect_status "list-epics returns both epics for the workspace" 200 "$TMP_DIR/epc-list.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"query($workspaceId: ID!) { epics.list(workspaceId: $workspaceId) { id state } }","variables":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"}}' \
-  "$FRONTEND_URL/graphql"
+  --data '{"workspace":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","limit":1024}' \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/list-epics"
 json_assert "list has 2 epics" "$TMP_DIR/epc-list.json" \
-  'json.data.epics.list.length === 2'
+  'json.length === 2'
 
-expect_status "epics.changeState rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
+expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: ChangeEpicStateInput!) { epics.changeState(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$EPIC_ROOT_ID\",\"state\":\"GREEN\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "unknown state rejected as BAD_USER_INPUT" "$TMP_DIR/epc-bad-state.json" \
-  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+  --data "{\"id\":\"$EPIC_ROOT_ID\",\"state\":\"GREEN\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "unknown state rejected as bad-input" "$TMP_DIR/epc-bad-state.json" \
+  'json.code === "bad-input"'
 
-# ── ext_pull_requests upgrade + auto-close-on-merge reactor ───────────────
-expect_status "issues.create for reactor target" 200 "$TMP_DIR/rx-issue.json" \
+# ── ext_pull_requests auto-close-on-merge reactor ──────────────────────────
+expect_status "open-issue for reactor target" 200 "$TMP_DIR/rx-issue.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"mutation($input: CreateIssueInput!) { issues.create(input: $input) { id state } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor target"}}}' \
-  "$FRONTEND_URL/graphql"
-REACTOR_ISSUE_ID="$(json_value "$TMP_DIR/rx-issue.json" 'json.data.issues.create.id')"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor target","bodyMarkdown":""}' \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+REACTOR_ISSUE_ID="$(json_value "$TMP_DIR/rx-issue.json" 'json.id')"
 
-expect_status "pulls.create" 200 "$TMP_DIR/rx-pr.json" \
+expect_status "create-pull" 200 "$TMP_DIR/rx-pr.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"query":"mutation($input: CreatePullRequestInput!) { pulls.create(input: $input) { id state head } }","variables":{"input":{"workspaceId":"ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor PR","head":"feature/x"}}}' \
-  "$FRONTEND_URL/graphql"
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3/repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"reactor PR","bodyMarkdown":"","headRef":"feature/x","baseRef":"main","authorRef":null}' \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
 json_assert "pr created with pul_ id and DRAFT state" "$TMP_DIR/rx-pr.json" \
-  'json.data.pulls.create.id.startsWith("pul_") && json.data.pulls.create.state === "DRAFT"'
-REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.data.pulls.create.id')"
+  'json.id.startsWith("pul_") && json.state === "DRAFT"'
+REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.id')"
 REACTOR_PR_REF="comtrya://pull_request/$REACTOR_PR_ID"
 REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
 
 expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind } }\",\"variables\":{\"input\":{\"from\":\"$REACTOR_PR_REF\",\"to\":\"$REACTOR_ISSUE_REF\",\"kind\":\"comtrya://rel/com.comtrya.pulls/closes\"}}}" \
   "$FRONTEND_URL/graphql"
 json_assert "closes relation written" "$TMP_DIR/rx-rel.json" \
   'json.data.relations.create.kind === "comtrya://rel/com.comtrya.pulls/closes"'
 
-expect_status "pulls.merge transitions to MERGED" 200 "$TMP_DIR/rx-merge.json" \
+expect_status "merge-pull transitions to MERGED" 200 "$TMP_DIR/rx-merge.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: MergePullRequestInput!) { pulls.merge(input: \$input) { id state mergedAt } }\",\"variables\":{\"input\":{\"id\":\"$REACTOR_PR_ID\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"mergedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-pull"
 json_assert "pr is MERGED with mergedAt timestamp" "$TMP_DIR/rx-merge.json" \
-  'json.data.pulls.merge.state === "MERGED" && typeof json.data.pulls.merge.mergedAt === "string"'
+  'json.state === "MERGED" && typeof json.mergedAt === "string"'
 
-# Reactor dispatch is synchronous (in-process) inside append_event, so by
-# the time the merge mutation has returned, the auto-close has happened.
-expect_status "issues.byRef shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
+expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$ref: ResourceURN!) { issues.byRef(ref: \$ref) { id state stateReason closedByRef } }\",\"variables\":{\"ref\":\"$REACTOR_ISSUE_REF\"}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "issue is now CLOSED with reason=completed and closedByRef=PR" "$TMP_DIR/rx-issue-after.json" \
-  "json.data.issues.byRef.state === \"CLOSED\" && json.data.issues.byRef.stateReason === \"completed\" && json.data.issues.byRef.closedByRef === \"$REACTOR_PR_REF\""
+  --data "\"$REACTOR_ISSUE_REF\"" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/by-ref-issue"
+json_assert "issue is now closed with reason=completed and closedByRef=PR" "$TMP_DIR/rx-issue-after.json" \
+  "json.state === \"closed\" && json.stateReason === \"completed\" && json.closedByRef === \"$REACTOR_PR_REF\""
 write_issue_closed_wasm_event "$REACTOR_ISSUE_ID" "$TMP_DIR/rx-issue-closed-event.json"
 json_assert "reactor close emitted ext_issues WASM event" "$TMP_DIR/rx-issue-closed-event.json" \
   "json.data.emitterExtension === \"ext_issues\" && json.data.eventType === \"dev.comtrya.issues.closed\" && json.decodedPayload.id === \"$REACTOR_ISSUE_ID\""
 
-expect_status "pulls.close rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json" \
+expect_status "close-pull rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: ClosePullRequestInput!) { pulls.close(input: \$input) { id state } }\",\"variables\":{\"input\":{\"id\":\"$REACTOR_PR_ID\"}}}" \
-  "$FRONTEND_URL/graphql"
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"closedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/close-pull"
 
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="file://$DATA_DIR/repositories/comtrya/comtrya.git"

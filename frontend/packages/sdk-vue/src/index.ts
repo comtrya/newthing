@@ -72,7 +72,7 @@ export interface ExtensionWidgetOptions {
   component: Parameters<typeof defineCustomElement>[0];
   /** Use light DOM by default so extension smoke hooks remain host-visible. */
   shadowRoot?: boolean;
-  /** Legacy host property aliases to preserve existing custom-element APIs. */
+  /** Host property aliases for custom-element API adaptation. */
   propertyAliases?: Record<string, string>;
 }
 

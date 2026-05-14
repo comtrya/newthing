@@ -20,8 +20,8 @@ Comtrya product.
   imports versioned entry assets, and mounts slot/route contributions.
 - Real: first-party backend extensions are Rust `cargo-component` crates that
   build to real Component Model artifacts in `dist/`.
-- Real: GraphQL product operations for issues, epics, pull requests, and checks
-  route through generated dispatch into WASM.
+- Real: product operations for issues, epics, pull requests, and checks use
+  canonical WIT operation routes under `/api/ops`.
 - Real: the pull-request merge reactor closes linked issues through
   cross-extension WASM calls.
 - Real: extension runtime data is stored in versioned JSONL storage under
@@ -32,8 +32,6 @@ Comtrya product.
 - Not complete: Git receive-pack/push is explicitly disabled.
 - Not complete: full OIDC browser callback validation is disabled in the
   testbed.
-- Not complete: the compatibility `demo` GraphQL aggregate remains while UI and
-  smoke callers transition to narrower fields.
 - Not complete: OCI extension distribution exists as code/contracts, but local
   first-party extension directories are still the production-testbed install
   source.
@@ -61,8 +59,8 @@ models.
 - Implement receive-pack/push:
   authenticate `git:write`, enforce protected refs, stage packs safely, update
   refs atomically, append ref update events, and update PR/check derived state.
-- Replace the compatibility `demo` GraphQL aggregate with typed field-level
-  authorization and stable error codes.
+- Expand typed field-level authorization and stable error codes for kernel-owned
+  GraphQL fields.
 - Expand repository support beyond the seeded testbed paths and make repository
   metadata derive from records and Git config.
 - Finish production OIDC callback validation and remove the operator-code-only

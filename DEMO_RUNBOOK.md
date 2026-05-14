@@ -76,10 +76,10 @@ That code is acceptable for local smoke only. With
 
 A passing `./start.sh --reset --oneshot` should print evidence for:
 
-- static v3 cutover checks: no first-party `.wat` stubs, no legacy string
+- static v3 cutover checks: no first-party `.wat` stubs, no obsolete string
   matcher, valid platform WIT versions, and real `dist/<id>.wasm` artifacts
 - Vue shell, health, and readiness checks returning `200`
-- unsupported legacy v1, OIDC callback, and receive-pack checks returning
+- unsupported OIDC callback and receive-pack checks returning
   explicit `UNSUPPORTED` errors
 - operator-code token exchange success
 - GraphQL Git/storage/extension assertions
@@ -89,7 +89,7 @@ A passing `./start.sh --reset --oneshot` should print evidence for:
 - Git no-token, wrong-token, and wrong-scope failures
 - `git ls-remote`, `git clone`, and branch-specific fetch success
 - browser smoke against the live Vue shell
-- GraphQL `issues.close` emitting `ext_issues` WASM events
+- `/api/ops` issue close emitting `ext_issues` WASM events
 - pull-request merge reactor closing linked issues through cross-extension WASM
 
 ## Data locations
@@ -143,6 +143,3 @@ indexed fields, version, update timestamp, and data payload.
 
 - Receive-pack/push is disabled.
 - Full OIDC browser callback validation is disabled in the testbed.
-- Legacy Comtrya v1 HTTP APIs are intentionally unsupported.
-- The `demo` GraphQL aggregate remains as a compatibility convenience, assembled
-  from Git, runtime storage, and extension data.

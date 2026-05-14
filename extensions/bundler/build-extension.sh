@@ -3,14 +3,12 @@
 #
 # Builds a single extension into its distributable artifact set:
 #   * <ext_id>.wasm        — Component-Model WASM, built by cargo-component.
-#   * <ext_id>.handlers.rs — Rust dispatch arms (kernel-side include).
 #   * <ext_id>.client.ts   — Typed TS client (frontend SDK include).
 #   * manifest.json        — Identity + capability declaration (untouched).
 #
 # Usage: build-extension.sh <extension_root>
 #   Expects: <extension_root>/Cargo.toml + wit/ + manifest.json
 #   Writes:  <extension_root>/dist/{ext_id}.wasm,
-#            <extension_root>/dist/{ext_id}.handlers.rs,
 #            <extension_root>/dist/{ext_id}.client.ts
 
 set -euo pipefail

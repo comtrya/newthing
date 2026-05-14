@@ -1,8 +1,7 @@
 // Event log access. Extensions append typed events; the kernel's
 // dispatcher routes them to subscribers (see `reactor`).
 //
-// `read-recent` lets queries fetch a recent activity feed; it's the same
-// data exposed today through the GraphQL `activityEvents` field. Visibility
+// `read-recent` lets queries fetch a recent activity feed. Visibility
 // is scoped by the kernel — an extension only sees events emitted by
 // itself or by extensions it has declared in its manifest's
 // `allowed-event-reads` (a new manifest field; absent means same-extension-only).

@@ -44,13 +44,13 @@
       "path": "README.md",
       "kind": "markdown",
       "status": "modified 18m ago",
-      "preview": "# Comtrya\n\nComtrya is a self-hosted code forge built around a small Rust core and extension-delivered product surfaces.\n\nThis demo instance is seeded from persisted runtime state, served through the Rust API, and rendered by the Astro frontend."
+      "preview": "# Comtrya\n\nComtrya is a self-hosted code forge built around a small Rust core and extension-delivered product surfaces.\n\nThis demo instance is seeded from persisted runtime state, served through the Rust API, and rendered by the Vue frontend."
     },
     {
       "path": "SPEC.md",
       "kind": "markdown",
       "status": "reviewed 26m ago",
-      "preview": "## Frontend\n\nThe frontend is a separate Astro/TypeScript/Bun app. It discovers backend capabilities through GraphQL introspection, core capability manifests, and extension UI manifests."
+      "preview": "## Frontend\n\nThe frontend is a Vite/Vue/Bun app. It discovers backend capabilities through kernel APIs, core capability manifests, and extension UI manifests."
     },
     {
       "path": "crates/server/src/main.rs",
@@ -62,13 +62,13 @@
       "path": "frontend/src/main.ts",
       "kind": "typescript",
       "status": "changed 7m ago",
-      "preview": "const client = new HttpComtryaClient(serverURL);\nawait mountExtension(\"ext_pull_requests\");\nawait mountExtension(\"ext_code_browser\");\nawait mountExtension(\"ext_checks\");"
+      "preview": "const client = new HttpComtryaClient(serverURL);\nawait mountExtension(\"ext_pull_requests\");\nawait mountExtension(\"ext_issues\");\nawait mountExtension(\"ext_checks\");"
     }
   ],
   "diff": {
     "path": "frontend/src/main.ts",
     "language": "diff",
-    "patch": "diff --git a/frontend/src/main.ts b/frontend/src/main.ts\n@@ -1,5 +1,9 @@\n-import { HttpComtryaClient } from \"./client\";\n+import { FileTree } from \"@pierre/trees\";\n+import { codeToHtml } from \"@pierre/diffs\";\n+import { HttpComtryaClient } from \"./client\";\n+\n+const EXTENSIONS = [\"ext_pull_requests\", \"ext_code_browser\", \"ext_checks\"];\n@@ -44,3 +48,5 @@\n-renderShell();\n+renderShell();\n+mountRepositoryTree();\n+mountReviewDiff();"
+    "patch": "diff --git a/frontend/src/main.ts b/frontend/src/main.ts\n@@ -1,5 +1,9 @@\n-import { HttpComtryaClient } from \"./client\";\n+import { FileTree } from \"@pierre/trees\";\n+import { codeToHtml } from \"@pierre/diffs\";\n+import { HttpComtryaClient } from \"./client\";\n+\n+const EXTENSIONS = [\"ext_pull_requests\", \"ext_issues\", \"ext_checks\"];\n@@ -44,3 +48,5 @@\n-renderShell();\n+renderShell();\n+mountRepositoryTree();\n+mountReviewDiff();"
   },
   "pullRequests": [
     {
@@ -114,7 +114,7 @@
   "checks": [
     { "name": "nix flake check", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "2m 14s" },
     { "name": "cargo test --workspace", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "49s" },
-    { "name": "astro build", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "11s" },
+    { "name": "frontend build", "provider": "Comtrya CI", "conclusion": "SUCCESS", "duration": "11s" },
     { "name": "extension sandbox policy", "provider": "Wasmtime Preview", "conclusion": "ACTION_REQUIRED", "duration": "3s" }
   ],
   "extensions": [

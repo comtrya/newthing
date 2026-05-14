@@ -73,11 +73,11 @@ fn state_to_str(state: CheckState) -> &'static str {
 
 fn state_from_str(state: &str) -> CheckState {
     match state {
-        "RUNNING" | "running" => CheckState::Running,
-        "SUCCESS" | "SUCCEEDED" | "succeeded" => CheckState::Succeeded,
-        "FAILURE" | "FAILED" | "failed" => CheckState::Failed,
-        "ACTION_REQUIRED" | "action-required" | "action_required" => CheckState::Failed,
-        "SKIPPED" | "skipped" => CheckState::Skipped,
+        "RUNNING" => CheckState::Running,
+        "SUCCESS" => CheckState::Succeeded,
+        "FAILURE" => CheckState::Failed,
+        "ACTION_REQUIRED" => CheckState::Failed,
+        "SKIPPED" => CheckState::Skipped,
         _ => CheckState::Pending,
     }
 }
@@ -151,108 +151,8 @@ fn repository_matches(stored: &StoredCheck, repository: &str) -> bool {
 }
 
 fn decode(id: &str, bytes: &[u8]) -> Result<StoredCheck, Error> {
-    let mut value: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|error| err(ErrorCode::Internal, format!("parse check {id}: {error}")))?;
-    normalize_legacy_check_value(id, &mut value)?;
-    serde_json::from_value(value)
+    serde_json::from_slice(bytes)
         .map_err(|error| err(ErrorCode::Internal, format!("parse check {id}: {error}")))
-}
-
-fn normalize_legacy_check_value(id: &str, value: &mut serde_json::Value) -> Result<(), Error> {
-    let Some(obj) = value.as_object_mut() else {
-        return Err(err(
-            ErrorCode::Internal,
-            format!("check {id} is not an object"),
-        ));
-    };
-    if !obj.contains_key("id") {
-        let suffix = obj
-            .get("name")
-            .and_then(serde_json::Value::as_str)
-            .map(stable_suffix)
-            .filter(|suffix| !suffix.is_empty())
-            .unwrap_or_else(|| "legacy".to_string());
-        obj.insert(
-            "id".to_string(),
-            serde_json::Value::String(format!("chk_legacy_{suffix}")),
-        );
-    }
-    if !obj.contains_key("repositoryId") {
-        if let Some(repository_id) = obj.get("repositoryID").cloned() {
-            obj.insert("repositoryId".to_string(), repository_id);
-        }
-    }
-    if !obj.contains_key("workspaceId") {
-        if let Some(workspace_id) = obj.get("workspaceID").cloned() {
-            obj.insert("workspaceId".to_string(), workspace_id);
-        }
-    }
-    if !obj.contains_key("repository") {
-        let workspace_id = obj.get("workspaceId").and_then(serde_json::Value::as_str);
-        let repository_id = obj.get("repositoryId").and_then(serde_json::Value::as_str);
-        obj.insert(
-            "repository".to_string(),
-            serde_json::Value::String(repository_uri_from_scope(workspace_id, repository_id)),
-        );
-    }
-    obj.entry("commitOID".to_string())
-        .or_insert_with(|| serde_json::Value::String("unknown".to_string()));
-    obj.entry("name".to_string())
-        .or_insert_with(|| serde_json::Value::String("check run".to_string()));
-    if !obj.contains_key("conclusion") {
-        let conclusion = obj
-            .get("state")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_ascii_uppercase)
-            .unwrap_or_else(|| "PENDING".to_string());
-        obj.insert(
-            "conclusion".to_string(),
-            serde_json::Value::String(conclusion),
-        );
-    }
-    if !obj.contains_key("state") {
-        let state = obj
-            .get("conclusion")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_ascii_uppercase)
-            .unwrap_or_else(|| "PENDING".to_string());
-        obj.insert("state".to_string(), serde_json::Value::String(state));
-    }
-    obj.entry("required".to_string())
-        .or_insert(serde_json::Value::Bool(false));
-    obj.entry("createdAt".to_string())
-        .or_insert_with(|| serde_json::Value::String("1970-01-01T00:00:00Z".to_string()));
-    obj.entry("updatedAt".to_string())
-        .or_insert_with(|| serde_json::Value::String("1970-01-01T00:00:00Z".to_string()));
-    Ok(())
-}
-
-fn stable_suffix(value: &str) -> String {
-    value
-        .bytes()
-        .filter_map(|byte| {
-            if byte.is_ascii_alphanumeric() {
-                Some((byte as char).to_ascii_lowercase())
-            } else if byte == b'-' || byte == b'_' || byte == b' ' {
-                Some('_')
-            } else {
-                None
-            }
-        })
-        .collect::<String>()
-        .trim_matches('_')
-        .to_string()
-}
-
-fn repository_uri_from_scope(workspace_id: Option<&str>, repository_id: Option<&str>) -> String {
-    match (workspace_id, repository_id) {
-        (Some(workspace), Some(repository)) => {
-            format!("comtrya://workspace/{workspace}/repository/{repository}")
-        }
-        (Some(workspace), None) => format!("comtrya://workspace/{workspace}"),
-        (None, Some(repository)) => format!("comtrya://repository/{repository}"),
-        (None, None) => "comtrya://checks".to_string(),
-    }
 }
 
 fn scan_checks(mut visit: impl FnMut(StoredCheck) -> Result<bool, Error>) -> Result<(), Error> {

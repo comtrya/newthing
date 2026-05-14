@@ -107,7 +107,7 @@ Ready means the runtime is safe to run as a production-style testbed:
   extension slots
 - first-party extensions load real Component Model artifacts from
   `dist/<id>.wasm`
-- GraphQL product operations route through generated dispatch into WASM
+- product operations route through `/api/ops` into generated WASM dispatch
 - pull-request merge reactions close linked issues through cross-extension WASM
 - extension-owned state is persisted in versioned storage
 - Git upload-pack clone/fetch works through the Vue origin with a scoped
@@ -124,4 +124,3 @@ these unsupported areas until they are replaced with real implementations:
 
 - full OIDC browser callback validation
 - git receive-pack writes in the production-testbed demo
-- legacy Comtrya v1 API routes in the v2/v3 production-testbed runtime

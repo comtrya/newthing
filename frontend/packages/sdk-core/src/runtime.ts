@@ -3,8 +3,8 @@
  *
  * Generated TS clients import `{ invokeOp, OpResult }` from this module
  * (or its re-export `@comtrya/sdk-core`). The shape is intentionally
- * minimal: a single fetch to the kernel's GraphQL surface keyed by the
- * dotted route the codegen emits.
+ * minimal: a single fetch to the kernel's canonical ops endpoint keyed by
+ * extension id, interface name, and operation name.
  */
 
 export type OpResult<T> =
