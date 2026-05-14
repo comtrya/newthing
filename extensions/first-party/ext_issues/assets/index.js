@@ -2841,8 +2841,26 @@ function ro(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
 //#endregion
+//#region packages/sdk-core/src/optimistic.ts
+async function io(e) {
+	e.apply();
+	let t;
+	try {
+		t = await e.op();
+	} catch (t) {
+		return e.rollback(), {
+			ok: !1,
+			error: {
+				code: "internal",
+				message: t instanceof Error ? t.message : String(t)
+			}
+		};
+	}
+	return t.ok ? e.onSuccess?.(t.value) : e.rollback(), t;
+}
+//#endregion
 //#region packages/sdk-vue/src/index.ts
-function io(e) {
+function ao(e) {
 	let t = /* @__PURE__ */ Ja(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2850,59 +2868,59 @@ function io(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(ao(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(oo(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function ao(e) {
+function oo(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/api.ts
-var oo = "query($workspaceId: ID, $repositoryId: ID, $state: String) {\n  issues.list(workspaceId: $workspaceId, repositoryId: $repositoryId, state: $state) {\n    id workspaceId repositoryId number title state authorRef labels createdAt\n  }\n}", so = "query($ref: ResourceURN!) {\n  issues.byRef(ref: $ref) {\n    id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt\n  }\n}", co = "query($workspaceId: ID!, $number: Int!) {\n  issues.byNumber(workspaceId: $workspaceId, number: $number) {\n    id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt\n  }\n}", lo = "mutation($input: CloseIssueInput!) {\n  issues.close(input: $input) { id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt }\n}", uo = "mutation($input: ReopenIssueInput!) {\n  issues.reopen(input: $input) { id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt }\n}", fo = "query($from: ResourceURN!) {\n  relations.outgoing(from: $from, kind: \"comtrya://rel/part-of\") { id to }\n}";
-async function po(e, t) {
-	return (await e.query(oo, {
+var so = "query($workspaceId: ID, $repositoryId: ID, $state: String) {\n  issues.list(workspaceId: $workspaceId, repositoryId: $repositoryId, state: $state) {\n    id workspaceId repositoryId number title state authorRef labels createdAt\n  }\n}", co = "query($ref: ResourceURN!) {\n  issues.byRef(ref: $ref) {\n    id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt\n  }\n}", lo = "query($workspaceId: ID!, $number: Int!) {\n  issues.byNumber(workspaceId: $workspaceId, number: $number) {\n    id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt\n  }\n}", uo = "mutation($input: CloseIssueInput!) {\n  issues.close(input: $input) { id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt }\n}", fo = "mutation($input: ReopenIssueInput!) {\n  issues.reopen(input: $input) { id workspaceId repositoryId number title bodyMarkdown state stateReason authorRef labels createdAt closedAt }\n}", po = "query($from: ResourceURN!) {\n  relations.outgoing(from: $from, kind: \"comtrya://rel/part-of\") { id to }\n}";
+async function mo(e, t) {
+	return (await e.query(so, {
 		workspaceId: t.workspaceId,
 		repositoryId: t.repositoryId ?? null,
 		state: t.state ?? null
 	})).issues?.list ?? [];
 }
-async function mo(e, t) {
-	return (await e.query(so, { ref: t })).issues?.byRef ?? null;
+async function ho(e, t) {
+	return (await e.query(co, { ref: t })).issues?.byRef ?? null;
 }
-async function ho(e, t, n) {
-	return (await e.query(co, {
+async function go(e, t, n) {
+	return (await e.query(lo, {
 		workspaceId: t,
 		number: n
 	})).issues?.byNumber ?? null;
 }
-async function go(e, t) {
-	let n = await e.mutate(lo, { input: {
+async function _o(e, t) {
+	let n = await e.mutate(uo, { input: {
 		id: t,
 		reason: "completed"
 	} });
 	if (!n.issues?.close) throw Error("closeIssue returned no issue");
 	return n.issues.close;
 }
-async function _o(e, t) {
-	let n = await e.mutate(uo, { input: { id: t } });
+async function vo(e, t) {
+	let n = await e.mutate(fo, { input: { id: t } });
 	if (!n.issues?.reopen) throw Error("reopenIssue returned no issue");
 	return n.issues.reopen;
 }
-async function vo(e, t) {
-	return (await e.query(fo, { from: `comtrya://issue/${t}` })).relations?.outgoing ?? [];
+async function yo(e, t) {
+	return (await e.query(po, { from: `comtrya://issue/${t}` })).relations?.outgoing ?? [];
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/types.ts
-var yo = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-function bo(e) {
+var bo = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+function xo(e) {
 	return `comtrya://issue/${e.id}`;
 }
-function xo(e) {
+function So(e) {
 	return `/x/issues/${e.workspaceId}/${e.number}`;
 }
-function So(e) {
+function Co(e) {
 	switch (e) {
 		case "OPEN":
 		case "REOPENED": return {
@@ -2921,13 +2939,13 @@ function So(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/IssueCard.vue?vue&type=script&setup=true&lang.ts
-var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title" }, Eo = { class: "issue-number" }, Do = ["href"], Oo = { class: "issue-meta" }, ko = { key: 0 }, Ao = {
+var wo = ["data-state"], To = ["data-issue-id"], Eo = { class: "issue-card-title" }, Do = { class: "issue-number" }, Oo = ["href"], ko = { class: "issue-meta" }, Ao = { key: 0 }, jo = {
 	key: 1,
 	class: "issue-line muted"
-}, jo = {
+}, Mo = {
 	key: 2,
 	class: "issue-card-fallback"
-}, Mo = { class: "issue-line muted" }, No = { class: "issue-line warn" }, Po = /* @__PURE__ */ In({
+}, No = { class: "issue-line muted" }, Po = { class: "issue-line warn" }, Fo = /* @__PURE__ */ In({
 	__name: "IssueCard",
 	props: {
 		client: { type: null },
@@ -2937,7 +2955,7 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 		resourceRef: { type: String }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R(null), i = /* @__PURE__ */ R(t.issue ?? null), a = $(() => t.resourceRef ?? t.ref ?? ""), o = $(() => t.client ?? t.comtryaClient), s = $(() => t.issue ?? i.value), c = $(() => So(s.value?.state)), l = $(() => s.value?.labels?.join(", ") ?? "");
+		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R(null), i = /* @__PURE__ */ R(t.issue ?? null), a = $(() => t.resourceRef ?? t.ref ?? ""), o = $(() => t.client ?? t.comtryaClient), s = $(() => t.issue ?? i.value), c = $(() => Co(s.value?.state)), l = $(() => s.value?.labels?.join(", ") ?? "");
 		Zn(u), On(() => [
 			o.value,
 			t.issue,
@@ -2958,7 +2976,7 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await mo(o.value, a.value), n.value = i.value ? "ready" : "empty";
+				i.value = await ho(o.value, a.value), n.value = i.value ? "ready" : "empty";
 			} catch (e) {
 				i.value = null, n.value = "error", r.value = e instanceof Error ? e.message : String(e);
 			}
@@ -2972,20 +2990,20 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			class: "issue-card-body",
 			"data-issue-id": s.value.id,
 			"data-smoke": "issue-card-body"
-		}, [Y("div", To, [
+		}, [Y("div", Eo, [
 			Y("span", { class: ge(["issue-pill", c.value.className]) }, k(c.value.label), 3),
-			Y("span", Eo, "#" + k(s.value.number), 1),
+			Y("span", Do, "#" + k(s.value.number), 1),
 			Y("a", {
 				class: "issue-title-link",
-				href: Gt(xo)(s.value)
-			}, k(s.value.title), 9, Do)
-		]), Y("div", Oo, [Y("span", null, "by " + k(s.value.authorRef ?? "unknown"), 1), l.value ? (q(), J("span", ko, k(l.value), 1)) : Ii("", !0)])], 8, wo)) : n.value === "loading" ? (q(), J("p", Ao, " Loading " + k(a.value), 1)) : (q(), J("div", jo, [Y("p", Mo, k(a.value || "issue"), 1), Y("p", No, k(r.value ?? "issue not found"), 1)]))], 8, Co));
+				href: Gt(So)(s.value)
+			}, k(s.value.title), 9, Oo)
+		]), Y("div", ko, [Y("span", null, "by " + k(s.value.authorRef ?? "unknown"), 1), l.value ? (q(), J("span", Ao, k(l.value), 1)) : Ii("", !0)])], 8, To)) : n.value === "loading" ? (q(), J("p", jo, " Loading " + k(a.value), 1)) : (q(), J("div", Mo, [Y("p", No, k(a.value || "issue"), 1), Y("p", Po, k(r.value ?? "issue not found"), 1)]))], 8, wo));
 	}
-}), Fo = ".issue-card[data-v-eab67f66]{display:block}.issue-card-body[data-v-eab67f66]{border:1px solid var(--ink-rule,#d0cfc8);padding:8px 12px}.issue-card-title[data-v-eab67f66]{align-items:baseline;gap:8px;min-width:0;display:flex}.issue-pill[data-v-eab67f66],.issue-number[data-v-eab67f66],.issue-meta[data-v-eab67f66],.issue-line[data-v-eab67f66]{font-family:var(--mono,monospace)}.issue-pill[data-v-eab67f66]{border:1px solid;padding:1px 8px;font-size:10px}.issue-state-open[data-v-eab67f66]{color:var(--ink-go,#008873)}.issue-state-closed[data-v-eab67f66],.issue-number[data-v-eab67f66],.issue-meta[data-v-eab67f66]{color:var(--ink-faint,#888)}.issue-number[data-v-eab67f66]{font-size:12px}.issue-title-link[data-v-eab67f66]{min-width:0;color:inherit;font-family:var(--display,system-ui);overflow-wrap:anywhere;font-weight:600}.issue-meta[data-v-eab67f66]{flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px;display:flex}.issue-line[data-v-eab67f66]{margin:4px 0;font-size:12px}.muted[data-v-eab67f66]{color:var(--ink-faint,#888)}.warn[data-v-eab67f66]{color:var(--ink-warn,#c2410c)}", Io = (e, t) => {
+}), Io = ".issue-card[data-v-eab67f66]{display:block}.issue-card-body[data-v-eab67f66]{border:1px solid var(--ink-rule,#d0cfc8);padding:8px 12px}.issue-card-title[data-v-eab67f66]{align-items:baseline;gap:8px;min-width:0;display:flex}.issue-pill[data-v-eab67f66],.issue-number[data-v-eab67f66],.issue-meta[data-v-eab67f66],.issue-line[data-v-eab67f66]{font-family:var(--mono,monospace)}.issue-pill[data-v-eab67f66]{border:1px solid;padding:1px 8px;font-size:10px}.issue-state-open[data-v-eab67f66]{color:var(--ink-go,#008873)}.issue-state-closed[data-v-eab67f66],.issue-number[data-v-eab67f66],.issue-meta[data-v-eab67f66]{color:var(--ink-faint,#888)}.issue-number[data-v-eab67f66]{font-size:12px}.issue-title-link[data-v-eab67f66]{min-width:0;color:inherit;font-family:var(--display,system-ui);overflow-wrap:anywhere;font-weight:600}.issue-meta[data-v-eab67f66]{flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px;display:flex}.issue-line[data-v-eab67f66]{margin:4px 0;font-size:12px}.muted[data-v-eab67f66]{color:var(--ink-faint,#888)}.warn[data-v-eab67f66]{color:var(--ink-warn,#c2410c)}", Lo = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Lo = /* @__PURE__ */ Io(Po, [["styles", [Fo]], ["__scopeId", "data-v-eab67f66"]]), Ro = /* @__PURE__ */ Io(/* @__PURE__ */ In({
+}, Ro = /* @__PURE__ */ Lo(Fo, [["styles", [Io]], ["__scopeId", "data-v-eab67f66"]]), zo = /* @__PURE__ */ Lo(/* @__PURE__ */ In({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -3019,26 +3037,26 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			class: "custom-element-host"
 		}, null, 512));
 	}
-}), [["styles", [".custom-element-host[data-v-1d94110b]{display:contents}"]], ["__scopeId", "data-v-1d94110b"]]), zo = ["data-state", "data-issue-id"], Bo = {
+}), [["styles", [".custom-element-host[data-v-1d94110b]{display:contents}"]], ["__scopeId", "data-v-1d94110b"]]), Bo = ["data-state", "data-issue-id"], Vo = {
 	key: 0,
 	class: "issue-line muted"
-}, Vo = {
+}, Ho = {
 	key: 1,
 	class: "issue-line warn"
-}, Ho = {
+}, Uo = {
 	key: 2,
 	class: "issue-line warn"
-}, Uo = { class: "issue-detail-meta" }, Wo = { key: 0 }, Go = ["data-issue-id"], Ko = {
+}, Wo = { class: "issue-detail-meta" }, Go = { key: 0 }, Ko = ["data-issue-id"], qo = {
 	class: "issue-epics",
 	"data-smoke": "issue-detail-epics"
-}, qo = {
+}, Jo = {
 	key: 0,
 	class: "issue-line muted"
-}, Jo = { key: 1 }, Yo = { class: "issue-actions" }, Xo = ["disabled"], Zo = ["disabled"], Qo = {
+}, Yo = { key: 1 }, Xo = { class: "issue-actions" }, Zo = ["disabled"], Qo = ["disabled"], $o = {
 	key: 0,
 	class: "issue-line warn",
 	role: "alert"
-}, $o = /* @__PURE__ */ Io(/* @__PURE__ */ In({
+}, es = /* @__PURE__ */ Lo(/* @__PURE__ */ In({
 	__name: "IssueDetail",
 	props: {
 		client: { type: null },
@@ -3049,7 +3067,7 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 		routeParams: { type: null }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R(null), o = /* @__PURE__ */ R(t.issue ?? null), s = /* @__PURE__ */ R([]), c = $(() => t.client ?? t.comtryaClient), l = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), u = $(() => o.value ?? t.issue ?? null), d = $(() => So(u.value?.state)), f = $(() => Number(t.number ?? t.routeParams?.params?.number)), p = $(() => c.value && Number.isFinite(f.value));
+		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R(null), o = /* @__PURE__ */ R(t.issue ?? null), s = /* @__PURE__ */ R([]), c = $(() => t.client ?? t.comtryaClient), l = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), u = $(() => o.value ?? t.issue ?? null), d = $(() => Co(u.value?.state)), f = $(() => Number(t.number ?? t.routeParams?.params?.number)), p = $(() => c.value && Number.isFinite(f.value));
 		Zn(m), On(() => [
 			c.value,
 			t.issue,
@@ -3068,7 +3086,7 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			}
 			n.value = "loading", i.value = null;
 			try {
-				o.value = await ho(c.value, l.value, f.value), n.value = o.value ? "ready" : "empty", await h();
+				o.value = await go(c.value, l.value, f.value), n.value = o.value ? "ready" : "empty", await h();
 			} catch (e) {
 				o.value = null, s.value = [], n.value = "error", i.value = e instanceof Error ? e.message : String(e);
 			}
@@ -3079,33 +3097,72 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 				return;
 			}
 			try {
-				s.value = await vo(c.value, u.value.id);
+				s.value = await yo(c.value, u.value.id);
 			} catch {
 				s.value = [];
 			}
 		}
 		async function g() {
-			if (!(!c.value || !u.value)) {
-				r.value = "submitting", a.value = null;
-				try {
-					o.value = await go(c.value, u.value.id), await h();
-				} catch (e) {
-					a.value = e instanceof Error ? e.message : String(e);
-				} finally {
-					r.value = "idle";
-				}
+			if (!c.value || !u.value) return;
+			let e = c.value, t = u.value, n = {
+				...t,
+				state: "CLOSED",
+				stateReason: "completed"
+			};
+			r.value = "submitting", a.value = null;
+			try {
+				let r = await io({
+					apply: () => {
+						o.value = n;
+					},
+					rollback: () => {
+						o.value = t;
+					},
+					op: async () => ({
+						ok: !0,
+						value: await _o(e, t.id)
+					}),
+					onSuccess: (e) => {
+						o.value = e;
+					}
+				});
+				r.ok ? await h() : a.value = r.error.message;
+			} catch (e) {
+				a.value = e instanceof Error ? e.message : String(e);
+			} finally {
+				r.value = "idle";
 			}
 		}
 		async function _() {
-			if (!(!c.value || !u.value)) {
-				r.value = "submitting", a.value = null;
-				try {
-					o.value = await _o(c.value, u.value.id), await h();
-				} catch (e) {
-					a.value = e instanceof Error ? e.message : String(e);
-				} finally {
-					r.value = "idle";
-				}
+			if (!c.value || !u.value) return;
+			let e = c.value, t = u.value, n = {
+				...t,
+				state: "OPEN",
+				stateReason: null,
+				closedAt: null
+			};
+			r.value = "submitting", a.value = null;
+			try {
+				let r = await io({
+					apply: () => {
+						o.value = n;
+					},
+					rollback: () => {
+						o.value = t;
+					},
+					op: async () => ({
+						ok: !0,
+						value: await vo(e, t.id)
+					}),
+					onSuccess: (e) => {
+						o.value = e;
+					}
+				});
+				r.ok ? await h() : a.value = r.error.message;
+			} catch (e) {
+				a.value = e instanceof Error ? e.message : String(e);
+			} finally {
+				r.value = "idle";
 			}
 		}
 		return (e, t) => (q(), J("main", {
@@ -3113,19 +3170,19 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			"data-state": n.value,
 			"data-issue-id": u.value?.id,
 			"data-smoke": "issue-detail"
-		}, [n.value === "loading" ? (q(), J("p", Bo, "Loading issue")) : n.value === "error" ? (q(), J("p", Vo, k(i.value), 1)) : u.value ? (q(), J(G, { key: 3 }, [
-			Y("header", null, [Y("h1", null, k(u.value.title), 1), Y("div", Uo, [
+		}, [n.value === "loading" ? (q(), J("p", Vo, "Loading issue")) : n.value === "error" ? (q(), J("p", Ho, k(i.value), 1)) : u.value ? (q(), J(G, { key: 3 }, [
+			Y("header", null, [Y("h1", null, k(u.value.title), 1), Y("div", Wo, [
 				Y("span", { class: ge(["issue-pill", d.value.className]) }, k(d.value.label), 3),
 				Y("span", null, "#" + k(u.value.number), 1),
 				Y("span", null, "opened by " + k(u.value.authorRef ?? "unknown"), 1),
-				u.value.createdAt ? (q(), J("span", Wo, k(u.value.createdAt), 1)) : Ii("", !0)
+				u.value.createdAt ? (q(), J("span", Go, k(u.value.createdAt), 1)) : Ii("", !0)
 			])]),
 			Y("article", {
 				class: "issue-body",
 				"data-issue-id": u.value.id,
 				"data-smoke": "issue-detail-main"
-			}, k(u.value.bodyMarkdown || "(no description)"), 9, Go),
-			Y("section", Ko, [t[0] ||= Y("h3", null, "Part of", -1), s.value.length === 0 ? (q(), J("div", qo, "not in any epic")) : (q(), J("ul", Jo, [(q(!0), J(G, null, sr(s.value, (e) => (q(), J("li", { key: e.id }, [X(Ro, {
+			}, k(u.value.bodyMarkdown || "(no description)"), 9, Ko),
+			Y("section", qo, [t[0] ||= Y("h3", null, "Part of", -1), s.value.length === 0 ? (q(), J("div", Jo, "not in any epic")) : (q(), J("ul", Yo, [(q(!0), J(G, null, sr(s.value, (e) => (q(), J("li", { key: e.id }, [X(zo, {
 				tag: "comtrya-resource-card",
 				attributes: { ref: e.to },
 				properties: {
@@ -3133,48 +3190,48 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 					comtryaClient: c.value
 				}
 			}, null, 8, ["attributes", "properties"])]))), 128))]))]),
-			Y("div", Yo, [u.value.state === "OPEN" || u.value.state === "REOPENED" ? (q(), J("button", {
+			Y("div", Xo, [u.value.state === "OPEN" || u.value.state === "REOPENED" ? (q(), J("button", {
 				key: 0,
 				type: "button",
 				disabled: r.value === "submitting",
 				onClick: g
-			}, " Close issue ", 8, Xo)) : (q(), J("button", {
+			}, " Close issue ", 8, Zo)) : (q(), J("button", {
 				key: 1,
 				type: "button",
 				disabled: r.value === "submitting",
 				onClick: _
-			}, " Reopen issue ", 8, Zo))]),
-			a.value ? (q(), J("p", Qo, k(a.value), 1)) : Ii("", !0),
-			X(Ro, {
+			}, " Reopen issue ", 8, Qo))]),
+			a.value ? (q(), J("p", $o, k(a.value), 1)) : Ii("", !0),
+			X(zo, {
 				tag: "comtrya-comment-thread",
-				attributes: { target: Gt(bo)(u.value) },
+				attributes: { target: Gt(xo)(u.value) },
 				properties: {
-					target: Gt(bo)(u.value),
+					target: Gt(xo)(u.value),
 					comtryaClient: c.value
 				}
 			}, null, 8, ["attributes", "properties"])
-		], 64)) : (q(), J("p", Ho, " No issue #" + k(Number.isFinite(f.value) ? f.value : "?") + " in " + k(l.value), 1))], 8, zo));
+		], 64)) : (q(), J("p", Uo, " No issue #" + k(Number.isFinite(f.value) ? f.value : "?") + " in " + k(l.value), 1))], 8, Bo));
 	}
-}), [["styles", [".issue-detail[data-v-0a4aa29f]{gap:16px;max-width:720px;padding:24px 0;display:grid}.issue-detail h1[data-v-0a4aa29f]{font-family:var(--display,system-ui);margin:0}.issue-detail-meta[data-v-0a4aa29f],.issue-line[data-v-0a4aa29f],.issue-actions button[data-v-0a4aa29f],.issue-epics[data-v-0a4aa29f]{font-family:var(--mono,monospace)}.issue-detail-meta[data-v-0a4aa29f]{color:var(--ink-faint,#888);flex-wrap:wrap;gap:8px;margin-top:4px;font-size:12px;display:flex}.issue-pill[data-v-0a4aa29f]{border:1px solid;padding:1px 8px}.issue-state-open[data-v-0a4aa29f]{color:var(--ink-go,#008873)}.issue-state-closed[data-v-0a4aa29f]{color:var(--ink-faint,#888)}.issue-body[data-v-0a4aa29f]{border:1px solid var(--ink-rule,#d0cfc8);white-space:pre-wrap;min-height:96px;padding:12px}.issue-epics[data-v-0a4aa29f]{gap:6px;font-size:12px;display:grid}.issue-epics h3[data-v-0a4aa29f]{font-family:var(--display,system-ui);margin:0;font-size:13px}.issue-epics ul[data-v-0a4aa29f]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.issue-actions[data-v-0a4aa29f]{gap:8px;display:flex}.issue-actions button[data-v-0a4aa29f]{cursor:pointer;padding:6px 14px}.issue-line[data-v-0a4aa29f]{margin:4px 0;font-size:12px}.muted[data-v-0a4aa29f]{color:var(--ink-faint,#888)}.warn[data-v-0a4aa29f]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-0a4aa29f"]]), es = ["data-state"], ts = { class: "issues-list-header" }, ns = ["href"], rs = {
+}), [["styles", [".issue-detail[data-v-c16090df]{gap:16px;max-width:720px;padding:24px 0;display:grid}.issue-detail h1[data-v-c16090df]{font-family:var(--display,system-ui);margin:0}.issue-detail-meta[data-v-c16090df],.issue-line[data-v-c16090df],.issue-actions button[data-v-c16090df],.issue-epics[data-v-c16090df]{font-family:var(--mono,monospace)}.issue-detail-meta[data-v-c16090df]{color:var(--ink-faint,#888);flex-wrap:wrap;gap:8px;margin-top:4px;font-size:12px;display:flex}.issue-pill[data-v-c16090df]{border:1px solid;padding:1px 8px}.issue-state-open[data-v-c16090df]{color:var(--ink-go,#008873)}.issue-state-closed[data-v-c16090df]{color:var(--ink-faint,#888)}.issue-body[data-v-c16090df]{border:1px solid var(--ink-rule,#d0cfc8);white-space:pre-wrap;min-height:96px;padding:12px}.issue-epics[data-v-c16090df]{gap:6px;font-size:12px;display:grid}.issue-epics h3[data-v-c16090df]{font-family:var(--display,system-ui);margin:0;font-size:13px}.issue-epics ul[data-v-c16090df]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.issue-actions[data-v-c16090df]{gap:8px;display:flex}.issue-actions button[data-v-c16090df]{cursor:pointer;padding:6px 14px}.issue-line[data-v-c16090df]{margin:4px 0;font-size:12px}.muted[data-v-c16090df]{color:var(--ink-faint,#888)}.warn[data-v-c16090df]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-c16090df"]]), ts = ["data-state"], ns = { class: "issues-list-header" }, rs = ["href"], is = {
 	key: 0,
 	class: "issue-line muted"
-}, is = {
+}, as = {
 	key: 1,
 	class: "issue-line warn"
-}, as = {
+}, os = {
 	key: 2,
 	class: "issue-line muted"
-}, os = {
+}, ss = {
 	key: 3,
 	class: "issues-list-items"
-}, ss = /* @__PURE__ */ Io(/* @__PURE__ */ In({
+}, cs = /* @__PURE__ */ Lo(/* @__PURE__ */ In({
 	__name: "IssuesList",
 	props: {
 		client: { type: null },
 		comtryaClient: { type: null },
 		issues: { type: [Array, null] },
 		workspaceId: {
-			default: yo,
+			default: bo,
 			type: String
 		},
 		repositoryId: {
@@ -3214,7 +3271,7 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await po(o.value, {
+				i.value = await mo(o.value, {
 					workspaceId: t.workspaceId,
 					repositoryId: t.repositoryId,
 					state: t.state
@@ -3227,66 +3284,66 @@ var Co = ["data-state"], wo = ["data-issue-id"], To = { class: "issue-card-title
 			class: "issues-list",
 			"data-state": n.value,
 			"data-smoke": "issues-list"
-		}, [Y("header", ts, [Y("h3", null, k(e.title), 1), e.showNewLink ? (q(), J("a", {
+		}, [Y("header", ns, [Y("h3", null, k(e.title), 1), e.showNewLink ? (q(), J("a", {
 			key: 0,
 			href: s.value
-		}, "+ new", 8, ns)) : Ii("", !0)]), n.value === "loading" ? (q(), J("p", rs, "Loading issues")) : n.value === "error" ? (q(), J("p", is, k(r.value), 1)) : a.value.length === 0 ? (q(), J("p", as, "No issues yet.")) : (q(), J("ul", os, [(q(!0), J(G, null, sr(a.value, (e) => (q(), J("li", { key: e.id }, [X(Lo, {
+		}, "+ new", 8, rs)) : Ii("", !0)]), n.value === "loading" ? (q(), J("p", is, "Loading issues")) : n.value === "error" ? (q(), J("p", as, k(r.value), 1)) : a.value.length === 0 ? (q(), J("p", os, "No issues yet.")) : (q(), J("ul", ss, [(q(!0), J(G, null, sr(a.value, (e) => (q(), J("li", { key: e.id }, [X(Ro, {
 			issue: e,
 			client: o.value
-		}, null, 8, ["issue", "client"])]))), 128))]))], 8, es));
+		}, null, 8, ["issue", "client"])]))), 128))]))], 8, ts));
 	}
-}), [["styles", [".issues-list[data-v-53b4f15b]{gap:8px;display:grid}.issues-list-header[data-v-53b4f15b]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.issues-list-header h3[data-v-53b4f15b]{font-family:var(--display,system-ui);margin:0;font-size:14px}.issues-list-header a[data-v-53b4f15b],.issue-line[data-v-53b4f15b]{font-family:var(--mono,monospace);font-size:12px}.issues-list-header a[data-v-53b4f15b]{color:var(--ink-faint,#888);text-decoration:none}.issues-list-items[data-v-53b4f15b]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.issue-line[data-v-53b4f15b]{margin:4px 0}.muted[data-v-53b4f15b]{color:var(--ink-faint,#888)}.warn[data-v-53b4f15b]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-53b4f15b"]]), cs = "ext_issues", ls = "comtrya-issue-card", us = "comtrya-issues-list", ds = "comtrya-issues-repo-list", fs = "comtrya-issue-detail", ps = "comtrya-issue-new", ms = "mutation($input: CreateIssueInput!) {\n  issues.create(input: $input) {\n    id workspaceId number title state\n  }\n}";
-io({
-	tagName: ls,
-	component: Lo,
-	propertyAliases: { ref: "resourceRef" }
-}), io({
+}), [["styles", [".issues-list[data-v-53b4f15b]{gap:8px;display:grid}.issues-list-header[data-v-53b4f15b]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.issues-list-header h3[data-v-53b4f15b]{font-family:var(--display,system-ui);margin:0;font-size:14px}.issues-list-header a[data-v-53b4f15b],.issue-line[data-v-53b4f15b]{font-family:var(--mono,monospace);font-size:12px}.issues-list-header a[data-v-53b4f15b]{color:var(--ink-faint,#888);text-decoration:none}.issues-list-items[data-v-53b4f15b]{gap:6px;margin:0;padding:0;list-style:none;display:grid}.issue-line[data-v-53b4f15b]{margin:4px 0}.muted[data-v-53b4f15b]{color:var(--ink-faint,#888)}.warn[data-v-53b4f15b]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-53b4f15b"]]), ls = "ext_issues", us = "comtrya-issue-card", ds = "comtrya-issues-list", fs = "comtrya-issues-repo-list", ps = "comtrya-issue-detail", ms = "comtrya-issue-new", hs = "mutation($input: CreateIssueInput!) {\n  issues.create(input: $input) {\n    id workspaceId number title state\n  }\n}";
+ao({
 	tagName: us,
-	component: ss
-}), io({
+	component: Ro,
+	propertyAliases: { ref: "resourceRef" }
+}), ao({
 	tagName: ds,
-	component: ss
-}), io({
+	component: cs
+}), ao({
 	tagName: fs,
-	component: $o
-}), gs();
-var hs = {
-	id: cs,
+	component: cs
+}), ao({
+	tagName: ps,
+	component: es
+}), _s();
+var gs = {
+	id: ls,
 	setup(e) {
 		e.registerCard({
 			resourceKind: "issue",
-			element: ls,
+			element: us,
 			requiredPermission: "issues.read"
 		}), e.registerSlot("repository.issues", {
-			element: us,
+			element: ds,
 			requiredPermission: "issues.read",
 			priority: 100
 		}), e.registerRoute("/", {
-			element: us,
+			element: ds,
 			requiredPermission: "issues.read"
 		}), e.registerRoute("/new", {
-			element: ps,
+			element: ms,
 			requiredPermission: "issues.write"
 		}), e.registerRoute("/:workspaceId/:number", {
-			element: fs,
+			element: ps,
 			requiredPermission: "issues.read"
 		});
 	}
 };
-function gs() {
-	typeof customElements > "u" || customElements.get(ps) || customElements.define(ps, class extends HTMLElement {
+function _s() {
+	typeof customElements > "u" || customElements.get(ms) || customElements.define(ms, class extends HTMLElement {
 		comtryaClient;
 		connectedCallback() {
 			let e = this.comtryaClient;
 			if (!e) {
-				this.replaceChildren(vs("issue-new: no client", "warn"));
+				this.replaceChildren(ys("issue-new: no client", "warn"));
 				return;
 			}
-			this.replaceChildren(_s(e));
+			this.replaceChildren(vs(e));
 		}
 	});
 }
-function _s(e) {
+function vs(e) {
 	let t = document.createElement("main");
 	t.className = "issue-new", t.dataset.smoke = "issue-new";
 	let n = document.createElement("h1");
@@ -3297,9 +3354,9 @@ function _s(e) {
 	a.rows = 6, a.placeholder = "Description (optional)";
 	let o = document.createElement("button");
 	o.type = "submit", o.textContent = "Create issue";
-	let s = vs("", "warn");
+	let s = ys("", "warn");
 	return s.setAttribute("role", "alert"), s.hidden = !0, r.append(i, a, o, s), r.addEventListener("submit", (t) => {
-		t.preventDefault(), o.disabled = !0, s.hidden = !0, e.mutate(ms, { input: {
+		t.preventDefault(), o.disabled = !0, s.hidden = !0, e.mutate(hs, { input: {
 			workspaceId: "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
 			title: i.value.trim(),
 			bodyMarkdown: a.value
@@ -3311,9 +3368,9 @@ function _s(e) {
 		});
 	}), t.append(n, r), t;
 }
-function vs(e, t) {
+function ys(e, t) {
 	let n = document.createElement("p");
 	return n.className = `issue-line ${t}`, n.textContent = e, n;
 }
 //#endregion
-export { hs as default };
+export { gs as default };

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { applyOptimistic } from "@comtrya/sdk-core";
 import { computed, onMounted, ref, watch } from "vue";
 import {
   closeIssue,
@@ -104,11 +105,36 @@ async function loadRelations(): Promise<void> {
 
 async function closeCurrentIssue(): Promise<void> {
   if (!graphClient.value || !issue.value) return;
+  const client = graphClient.value;
+  const previous = issue.value;
+  const optimistic: Issue = {
+    ...previous,
+    state: "CLOSED",
+    stateReason: "completed",
+  };
   actionState.value = "submitting";
   actionError.value = null;
   try {
-    loadedIssue.value = await closeIssue(graphClient.value, issue.value.id);
-    await loadRelations();
+    const result = await applyOptimistic<Issue>({
+      apply: () => {
+        loadedIssue.value = optimistic;
+      },
+      rollback: () => {
+        loadedIssue.value = previous;
+      },
+      op: async () => ({
+        ok: true,
+        value: await closeIssue(client, previous.id),
+      }),
+      onSuccess: (updated) => {
+        loadedIssue.value = updated;
+      },
+    });
+    if (!result.ok) {
+      actionError.value = result.error.message;
+    } else {
+      await loadRelations();
+    }
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
@@ -118,11 +144,37 @@ async function closeCurrentIssue(): Promise<void> {
 
 async function reopenCurrentIssue(): Promise<void> {
   if (!graphClient.value || !issue.value) return;
+  const client = graphClient.value;
+  const previous = issue.value;
+  const optimistic: Issue = {
+    ...previous,
+    state: "OPEN",
+    stateReason: null,
+    closedAt: null,
+  };
   actionState.value = "submitting";
   actionError.value = null;
   try {
-    loadedIssue.value = await reopenIssue(graphClient.value, issue.value.id);
-    await loadRelations();
+    const result = await applyOptimistic<Issue>({
+      apply: () => {
+        loadedIssue.value = optimistic;
+      },
+      rollback: () => {
+        loadedIssue.value = previous;
+      },
+      op: async () => ({
+        ok: true,
+        value: await reopenIssue(client, previous.id),
+      }),
+      onSuccess: (updated) => {
+        loadedIssue.value = updated;
+      },
+    });
+    if (!result.ok) {
+      actionError.value = result.error.message;
+    } else {
+      await loadRelations();
+    }
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
