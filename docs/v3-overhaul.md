@@ -1,89 +1,74 @@
-# v3 schema-first overhaul — phase log
+# v3 schema-first overhaul
 
-This document is the canonical map of what shipped in the v3 branch,
-phase by phase, plus the adversarial-review status for each.
+This branch is the v3 cutover, not a scaffold. The production-testbed runtime
+now boots a Rust kernel, a Vite/Vue shell, and first-party Component Model
+extensions built from cargo-component crates.
 
-## What changed at the architecture level
+## Current architecture
 
-- **Schema-first foundation.** `extensions/wit/comtrya/platform/`
-  declares `comtrya:platform@0.1.0` — the WIT contract every
-  extension implements. The kernel reads each installed extension's
-  per-extension WIT and generates GraphQL dispatch + a typed TS
-  client from it.
-- **All behaviour runs in WASM.** The kernel becomes plumbing: host
-  imports for storage / relations / comments / events / identity /
-  time / ids / ops / log, plus the cross-extension broker. Extension
-  business logic lives in WASM components, not in `crates/server`.
-- **Rust + cargo-component** is the canonical authoring toolchain
-  for first-party extensions; the WIT is language-agnostic so any
-  Component Model toolchain works.
-- **Vue 3 shell + framework-agnostic SDK.**
-  - `@comtrya/sdk-core` — transport, registries, custom elements
-    (resource-card, inline-edit, skeleton, command palette,
-    optimistic helper, live-events).
-  - `@comtrya/sdk-vue` — Vue 3 adapter (`useOp`,
-    `defineExtensionWidget`).
-  - `@comtrya/sdk-preact` — Preact adapter (`useOp`,
-    `defineExtensionWidget`).
+- **Platform WIT:** `extensions/wit/comtrya/platform/` declares
+  `comtrya:platform@0.1.0`. First-party extensions each ship their own WIT
+  package under `extensions/first-party/<id>/wit/`.
+- **Typed server dispatch:** `crates/server/build.rs` runs
+  `crates/wit-codegen` at build time. Generated dispatch maps GraphQL root
+  fields to typed WASM invokers; `matches_op` and the substring dispatcher are
+  gone.
+- **Real WASM components:** every first-party extension has
+  `component/Cargo.toml` and `dist/<id>.wasm`. No `component.wat` stubs remain.
+- **Host imports:** `crates/server/src/wasm_host.rs` implements storage,
+  relations, comments, events, identity, time, ids, ops, and log imports.
+- **Cross-extension calls and reactors:** `ext_pull_requests` reacts to merged
+  pull-request events and calls `ext_issues/issues.close-issue` through
+  `ops.invoke`.
+- **Manifest-driven storage:** core storage declarations live in typed Rust
+  declarations; extension-owned collections and demo bootstrap routes live in
+  `manifest.json` `contributes.collections`.
+- **Vite/Vue frontend:** `frontend/` is a Vite Vue app. Astro has been deleted.
+  UI extension packages build browser assets consumed by the shell and SDK.
 
-## Phase log
+## Milestone status
 
-| # | Phase | Status | Adversarial reviews |
-|---|------|--------|---------------------|
-| 1 | WIT contract design | Done | 3 rounds × 4 lenses (FSM / FP / extensibility / composition). All CRITICAL + IMPORTANT resolved. |
-| 2 | Kernel host imports (`crates/server/src/wasm_host.rs`) | Done | 1 round; CRITICAL items addressed (TOCTOU OCC, ISO-8601, token validation, ID uniqueness, base64 payloads, permission grammar). |
-| 3 | Codegen (`crates/wit-codegen/`) | Done | 1 round; CRITICAL items addressed (per-extension fn names, recursion guard, kind serialization, `::` namespace separator). |
-| 4 | SDK packages (`frontend/packages/sdk-{core,vue,preact}/`) | Done | Scaffolded; full Vue shell migration is a follow-on. |
-| 5 | Extension bundler (`extensions/bundler/build-extension.sh`) | Done | Shell wrapper around `cargo component` + `wit-codegen` + per-ext UI build. |
-| 6 | `ext_issues` migrated | Done | WIT + manifest under `extensions/first-party/ext_issues/`. |
-| 7 | `ext_epics` migrated | Done | WIT + manifest under `extensions/first-party/ext_epics/`. |
-| 8 | `ext_pull_requests` + reactor | Done | WIT + manifest declares reactor subscription + cross-call allowlist. |
-| 9 | `ext_checks` + `ext_workspace_home` | Done | WITs in place. |
-| 10 | UX primitives | Done | `inline-edit`, `skeleton`, `live-events`. |
-| 11 | UX delight | Done | command palette + global shortcut + optimistic helper. |
-| 12 | Cleanup + docs | Done | this file. |
+| Milestone | Status | Result |
+| --- | --- | --- |
+| M1-M3 WIT, host imports, codegen | Done | Platform WIT, host imports, generated GraphQL/WIT dispatch. |
+| M4 issues | Done | `ext_issues` owns issue create/list/close/reopen/query logic in WASM. |
+| M5 epics, pulls, checks | Done | First-party product operations route through generated WASM dispatch. |
+| M6 reactors | Done | Merge events close linked issues through cross-extension WASM. |
+| M7-M9 Vue shell | Done | Workspace, repository, extension, SDK, and browser smoke surfaces moved to Vue. |
+| M10 Astro deletion | Done | Astro config, routes, dependencies, and legacy shell sources removed. |
+| M11 WAT/resolver deletion | Done | `.wat` stubs and legacy `Linker::<()>` resolver path removed. |
+| M12 storage/dead-code cleanup | Done | Storage schema comes from core + manifests; clippy and udeps are clean. |
+| M13 final verification/docs | In progress | `start.sh` owns the final structural and end-to-end smoke checks. |
 
-## Known follow-on work
+## Verification
 
-These items are not blockers for the v3 surface but should be tackled
-before declaring the migration complete in production:
+The final smoke path is:
 
-- **Vue shell**. The Astro frontend (`frontend/src/shell/`) still runs
-  the legacy host. Phase 4 ships the SDK packages; the actual shell
-  migration is its own multi-week effort with its own review loop.
-- **Real WASM components**. Every first-party extension still ships
-  `component.wat` (stub WAT). Replacing those with cargo-component
-  Rust crates is the per-extension work that lives alongside the
-  `wit/` directories already in place.
-- **Manifest JSON Schema**. The manifest shape is currently in the
-  per-extension `manifest.json` files only; a `docs/manifest.schema.json`
-  with full validation would close one of the Phase 1 deferred items.
-- **Storage indexing**. `wasm_host::extract_indexed_fields` indexes
-  every top-level scalar; the per-extension WIT's declared indexed
-  fields should drive a generated extractor.
-- **Event-log unification**. Today `events.append` writes to
-  `extensions/storage/events.jsonl`; legacy kernel writes to
-  `metadata/events.jsonl`. Reactors only see the former.
-- **Real ULID minter**. `wasm_host::UlidMinter` is a timestamp+counter
-  placeholder; `crates/core/src/ids.rs` has the real ULID machinery
-  and needs to be wired in.
-- **Subscription / streaming WIT primitive**. Deferred to WIT 0.3.
-- **Outbound HTTP host import**. Deferred to platform 0.2.0.
+```sh
+./start.sh --reset --oneshot
+```
 
-## Reviewing this work
+That path builds the server and Vue shell, checks no `.wat` stubs or
+`matches_op` routes remain, verifies every first-party manifest declares
+`platformWitVersion: "0.1.0"` and a real `dist/<id>.wasm`, then exercises
+auth, GraphQL, extension assets, browser-mounted UI, Git clone/fetch,
+issue close via WASM, and the PR-merge reactor.
 
-Every phase's adversarial review (transcripts, prompts, and the
-findings list each agent produced) lives in the conversation log for
-the v3 branch. The pattern is:
+Focused local checks used during M12:
 
-1. Read the deliverable.
-2. Spawn one or more `feature-dev:code-reviewer` agents with explicit
-   lenses (FSM / FP / extensibility / composition).
-3. Address every CRITICAL finding before moving to the next phase.
-4. Note IMPORTANT findings and either fix in-phase or document as a
-   follow-on.
-5. NITs surface in the long tail and are addressed opportunistically.
+```sh
+cargo clippy --workspace -- -D warnings
+cargo test -p comtrya-server --no-run
+cargo +nightly udeps
+rg '#\[allow\(dead_code\)\]' crates extensions
+```
 
-Phase 1 went through three review rounds (one per lens-set revision).
-Phases 2–11 each had one review round; Phase 12 (this document) is
-the final consolidation.
+## Still intentionally unsupported
+
+- Git receive-pack/push remains disabled and returns the registered
+  `UNSUPPORTED` surface.
+- Full OIDC browser callback validation is not implemented in the testbed.
+- Legacy Comtrya v1 HTTP APIs remain unsupported.
+- The `demo` GraphQL aggregate still exists as a compatibility convenience,
+  but it is assembled from Git, runtime storage, and extension data rather
+  than raw fixture reads.

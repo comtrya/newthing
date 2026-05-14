@@ -1,10 +1,12 @@
-# Comtrya Demo Operator Runbook
+# Comtrya demo operator runbook
 
-> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>` (single-tenant, infinitely nested groups). Extension-owned pages at `/x/<prefix>/<...>`. Workspace homepage at `/`.
+> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>`.
+> Extension-owned pages live at `/x/<prefix>/<...>`. The workspace homepage is
+> `/`.
 
 This runbook is for the local production-testbed demo.
 
-## Clean Reset
+## Clean reset
 
 Use a reset when you want to reseed the demo repository and extension storage:
 
@@ -53,12 +55,12 @@ COMTRYA_FRONTEND_LISTEN=127.0.0.1:4321 \
 - Seeded repository: `http://127.0.0.1:4321/r/comtrya/comtrya`
 - Extension-owned pages: `http://127.0.0.1:4321/x/<prefix>/<...>`
 - Rust server: `http://127.0.0.1:8080/`
-- Server readiness through the frontend: `http://127.0.0.1:4321/readyz`
+- Readiness through the frontend: `http://127.0.0.1:4321/readyz`
 - Direct server readiness: `http://127.0.0.1:8080/readyz`
 
 When using custom listen addresses, read the URLs from `start.sh` output.
 
-## Expected Credentials
+## Credentials
 
 `.envrc.example` seeds:
 
@@ -70,23 +72,27 @@ That code is acceptable for local smoke only. With
 `COMTRYA_EXTERNAL_DEMO=1`, startup rejects it and requires a non-default
 `COMTRYA_OPERATOR_CODE`.
 
-## Smoke Output
+## Smoke output
 
-A passing `./start.sh --reset --oneshot` should print:
+A passing `./start.sh --reset --oneshot` should print evidence for:
 
-- frontend shell and readyz checks returning `200`
-- unsupported legacy v1 and OIDC callback checks returning explicit
-  `UNSUPPORTED` errors
+- static v3 cutover checks: no first-party `.wat` stubs, no legacy string
+  matcher, valid platform WIT versions, and real `dist/<id>.wasm` artifacts
+- Vue shell, health, and readiness checks returning `200`
+- unsupported legacy v1, OIDC callback, and receive-pack checks returning
+  explicit `UNSUPPORTED` errors
 - operator-code token exchange success
-- GraphQL Git/storage/resolver assertions
+- GraphQL Git/storage/extension assertions
 - seeded repository path, branch list, and installed extension list
 - event stream, session reuse, and expired-session fail-closed checks
 - extension manifest and asset checks for all first-party extensions
 - Git no-token, wrong-token, and wrong-scope failures
 - `git ls-remote`, `git clone`, and branch-specific fetch success
-- receive-pack returning the explicit `UNSUPPORTED` error
+- browser smoke against the live Vue shell
+- GraphQL `issues.close` emitting `ext_issues` WASM events
+- pull-request merge reactor closing linked issues through cross-extension WASM
 
-## Data Locations
+## Data locations
 
 Default data root:
 
@@ -99,14 +105,14 @@ Important generated paths:
 - `metadata/demo-state.json`: copied seed input.
 - `metadata/events.jsonl`: runtime event log.
 - `metadata/audit.jsonl`: runtime audit log.
-- `repositories/comtrya/comtrya.git`: seeded bare Git repository (served at `/r/comtrya/comtrya`).
+- `repositories/<owner>/<repo>.git`: seeded bare Git repositories.
 - `metadata/demo-repository-workdir`: temporary seed worktree.
 - `extensions/storage/schema.json`: extension storage schema.
 - `extensions/storage/documents.jsonl`: extension storage documents.
 - `extensions/storage/events.jsonl`: extension storage events.
 - `server.log` and `frontend.log`: logs captured by `start.sh`.
 
-## Inspect Seeded Git
+## Inspect seeded Git
 
 Set `DATA_DIR` to the value printed by `start.sh` if you override it.
 
@@ -117,11 +123,11 @@ git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" rev-parse HEAD
 git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" log --oneline --decorate --all
 ```
 
-Clone through the Astro origin with a scoped credential by using the token
+Clone through the Vue origin with a scoped credential by using the token
 exchange flow from `start.sh`, or rerun `./start.sh --reset --oneshot` and rely
 on its clone/fetch smoke assertions.
 
-## Inspect Extension Storage
+## Inspect extension storage
 
 ```sh
 DATA_DIR=/private/tmp/comtrya-production-testbed
@@ -133,14 +139,10 @@ sed -n '1,20p' "$DATA_DIR/extensions/storage/events.jsonl"
 Each document line includes the owner extension, collection, id, resource,
 indexed fields, version, update timestamp, and data payload.
 
-## Known Not Real Yet
+## Known unsupported surfaces
 
-- The Wasmtime resolver ABI is still a minimal proof ABI.
-- The host still provides repository layout/context, while code browser, pull
-  request, and checks product surfaces are composed through extension slots.
-- PR/check business behavior is not yet resolver-owned against real Git refs.
 - Receive-pack/push is disabled.
-- Full browser interaction coverage still needs a Playwright or Browser-plugin
-  path, but `start.sh` now runs the live Astro page in headless Chrome/Chromium
-  and checks that the real frontend host path mounts non-empty first-party
-  code-browser, pull-request, and checks surfaces.
+- Full OIDC browser callback validation is disabled in the testbed.
+- Legacy Comtrya v1 HTTP APIs are intentionally unsupported.
+- The `demo` GraphQL aggregate remains as a compatibility convenience, assembled
+  from Git, runtime storage, and extension data.

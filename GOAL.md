@@ -184,18 +184,18 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Update deletion inventory — final pass - *refreshed `docs/v3-deletion-inventory.md` for M12 storage rewrites, dead-code cleanup, `matches_op` deletion, and current line counts.*
 
 ## M13 — Final verification + docs
-- [ ] Add smoke check: `find extensions/first-party -name '*.wat'` returns empty
-- [ ] Add smoke check: `rg 'matches_op\(' crates/server/src/main.rs` returns zero hits in handler code
-- [ ] Add smoke check: every extension manifest declares `platformWitVersion: "0.1.0"`
-- [ ] Add smoke check: every extension ships a real `.wasm` artifact in `dist/`
-- [ ] Add smoke check: GraphQL `closeIssue` reaches WASM (assert via emitted event)
-- [ ] Add smoke check: reactor flow — merge PR triggers issue closure via cross-extension WASM
+- [x] Add smoke check: `find extensions/first-party -name '*.wat'` returns empty - *`start.sh` now fails before build if any first-party `.wat` stub exists.*
+- [x] Add smoke check: `rg 'matches_op\(' crates/server/src/main.rs` returns zero hits in handler code - *`start.sh` now requires `rg` and fails before build if `matches_op(` appears in `crates/server/src/main.rs`.*
+- [x] Add smoke check: every extension manifest declares `platformWitVersion: "0.1.0"` - *`start.sh` parses every first-party `manifest.json` with Bun and rejects any other platform WIT version.*
+- [x] Add smoke check: every extension ships a real `.wasm` artifact in `dist/` - *`start.sh` now asserts `wasmComponent` is `dist/<id>.wasm`, `component/Cargo.toml` exists, the dist artifact exists, and the artifact has the WASM magic header.*
+- [x] Add smoke check: GraphQL `closeIssue` reaches WASM (assert via emitted event) - *the smoke reads `extensions/storage/events.jsonl` after `issues.close` and asserts `emitterExtension="ext_issues"` plus `eventType="dev.comtrya.issues.closed"`.*
+- [x] Add smoke check: reactor flow — merge PR triggers issue closure via cross-extension WASM - *the PR merge smoke now asserts both the closed issue state and the `ext_issues` `dev.comtrya.issues.closed` event for the reactor-created close.*
 - [ ] All 128+ smoke checks pass
-- [ ] Rewrite `docs/v3-overhaul.md`: replace the scaffolding pretense with cutover reality; honest status per milestone
-- [ ] Rewrite `docs/extensions.md`: authoring guide for cargo-component + per-extension WIT + manifest schema
-- [ ] Update `README.md` with new architecture
-- [ ] Update `MEMORY.md` entries that reference legacy paths
-- [ ] Update every runbook that mentions the legacy resolver / Astro
+- [x] Rewrite `docs/v3-overhaul.md`: replace the scaffolding pretense with cutover reality; honest status per milestone - *rewritten around the current architecture, M1-M13 status, verification commands, and intentionally unsupported surfaces.*
+- [x] Rewrite `docs/extensions.md`: authoring guide for cargo-component + per-extension WIT + manifest schema - *rewritten with the v3 extension directory layout, cargo-component build path, WIT shape, manifest fields, UI bundle contract, and runtime checks.*
+- [x] Update `README.md` with new architecture - *added a root README covering the Rust host, Component Model extensions, platform WIT, Vue frontend, pure-Rust Git fetch path, and final smoke command.*
+- [x] Update `MEMORY.md` entries that reference legacy paths - *no repo-local `MEMORY.md` exists (`find . -maxdepth 2 -name MEMORY.md -print` returned empty); external Codex memory was not edited because it is outside the repo and requires an explicit memory-update request.*
+- [x] Update every runbook that mentions the legacy resolver / Astro - *rewrote `ARCHITECTURE.md`, `DEMO_RUNBOOK.md`, `PRODUCTION_TESTBED.md`, `V3_STATUS.md`, `V3_PLAN.md`, `TODO.md`, `SPEC_COVERAGE.md`, `docs/extensions.md`, and `docs/wit-platform-design.md` to match the v3 runtime.*
 - [ ] Final read-through: every doc reference matches the code; no stale "follow-on work" claims
 
 ## Definition of done

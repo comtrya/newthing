@@ -1,73 +1,123 @@
-# Comtrya extensions
+# Comtrya extension authoring
 
-Comtrya extensions have two distinct surfaces that travel together inside one
-extension directory but are completely independent at runtime.
+Comtrya extensions ship as one directory with a backend Component Model
+component and, optionally, a browser UI bundle.
 
-## Two surfaces per extension
+First-party extensions live at `extensions/first-party/<extension-id>/`.
 
-1. **Server-side WASM resolver** — `component.wat` (or precompiled `.wasm`)
-   compiled to a Component Model component, executed by Wasmtime on the
-   server. Defined by a WIT world (`comtrya:extension/extension`). The
-   resolver's job is *data shaping*: take server state, return typed output
-   (e.g. `comtrya.code-browser/summary.v1`). No DOM, no `document`, no
-   `window`.
-2. **Client-side UI extension** — `assets/index.js`, fetched by the browser
-   and `import()`-ed by the shell. Defines custom elements and registers slot
-   contributions through the host SDK. This is where rendering happens.
+## Directory layout
 
-A given extension can have either surface, both, or — rarely — neither (pure
-config).
+```text
+extensions/first-party/ext_issues/
+  manifest.json
+  wit/
+  component/
+    Cargo.toml
+    src/lib.rs
+  dist/ext_issues.wasm
+  ui/
+    package.json
+    manifest.json
+    src/
+  assets/index.js
+```
 
-## Slot resolution: core defaults + extension overrides
+The backend component is authoritative for product behavior. The UI bundle is
+only browser code; it talks to GraphQL through the shell SDK.
 
-The shell renders many surfaces (`repository.code`, `repository.overview`,
-`repository.checks`, `home.*`, …) through slot mounts. The slot registry has
-two tiers:
+## Backend component
 
-- **Core defaults** — registered by the shell itself before extensions load.
-  The shell ships the canonical implementation of slots that are part of the
-  forge kernel (code browsing, repo overview chrome, etc.).
-- **Extension contributions** — registered by extensions through their setup
-  function. Any extension claim on a slot fully overrides the core default
-  for that slot; among multiple extension claims, the slot registry's
-  priority rules apply.
+Each first-party backend is a Rust `cargo-component` crate under
+`component/`. The crate imports the locked platform package from
+`extensions/wit/comtrya/platform/` and exports the extension's own WIT world
+from the extension-local `wit/` directory.
 
-This means: *if you do nothing*, core renders the slot. *If you install an
-extension that claims the slot*, the extension renders the slot instead. The
-shell never composes core + extension on the same slot.
+Build one extension with:
 
-## Bundling and npm
+```sh
+extensions/bundler/build-extension.sh extensions/first-party/ext_issues
+```
 
-UI extensions can use any npm package on the client by going through the
-extension bundling pipeline (see "Stage 2" in the architecture work, when
-present). The pipeline takes `extensions/<id>/src/index.ts` plus a
-`package.json`, runs a bundler, and writes `assets/index.js` with all deps
-inlined plus a regenerated SRI integrity hash in the UI manifest.
+The bundler runs the component build, emits generated dispatch metadata, builds
+the optional UI bundle, refreshes UI manifest integrity, and writes the real
+Component Model artifact to `dist/<extension-id>.wasm`.
 
-WASM resolvers do **not** consume npm directly. If you want to author a
-resolver in JS+npm, compile it to a Component Model component via
-`@bytecodealliance/jco componentize`; the resulting `.wasm` runs server-side
-in Wasmtime exactly like any other resolver.
+`component.wat` stubs are not part of the v3 runtime. A first-party extension
+must have `component/Cargo.toml` and a real `dist/<extension-id>.wasm`.
 
-## Future direction: WASM UI
+## WIT
 
-Today, UI rendering lives in JS. A bundled extension swaps in its own
-DOM-rendering library (a different tree component, a syntax highlighter,
-etc.) through Stage 2.
+The platform WIT is locked at `comtrya:platform@0.1.0`.
 
-Two emerging Wasm-side capabilities may eventually let extensions render UI
-directly from WASM:
+Extension WIT declares product operations and reactor exports. The server build
+discovers installed extensions, runs `crates/wit-codegen`, and generates the
+typed dispatch table that maps GraphQL roots to WIT exports.
 
-- **WASI Preview 3** — promises async + composition primitives that make it
-  practical to ship richer host-imported APIs to Wasm components.
-- **WebGPU / DOM bindings in the Component Model** — there's active interest
-  in giving Wasm components host-provided imports for surface-level
-  rendering, so a Wasm UI component could paint pixels (WebGPU) or
-  manipulate a DOM subtree (DOM bindings) without going back through JS for
-  every call.
+Typical WIT shape:
 
-Neither is shippable today, and even when they land the JS bundling path
-will still be the pragmatic choice for npm-flavored UI work. We're keeping
-the JS UI surface as the canonical one. If/when P3 + WebGPU/DOM bindings
-mature, we can add a third surface ("`ui-wasm/index.wasm`" alongside
-`assets/index.js`) without changing the rest of the model.
+```wit
+package comtrya:ext-issues@0.1.0;
+
+world ext-issues {
+  import comtrya:platform/storage@0.1.0;
+  import comtrya:platform/events@0.1.0;
+  import comtrya:platform/ids@0.1.0;
+
+  export issues;
+  export reactor;
+}
+```
+
+Host imports are capability-checked against `manifest.json`.
+
+## Manifest
+
+`manifest.json` is the backend contract the host validates at startup. The
+important v3 fields are:
+
+- `id`: extension id, matching the directory name.
+- `platformWitVersion`: currently `"0.1.0"`.
+- `wasmComponent`: must be `dist/<extension-id>.wasm` for first-party
+  extensions.
+- `hostImports`: platform imports the component may call.
+- `allowedEmits`: event types the component may append.
+- `allowedEventReads`: event types the component may read.
+- `allowedCrossCalls`: cross-extension operation routes allowed through
+  `ops.invoke`.
+- `reactor`: subscription, mutation, emit, and recursion policy for event
+  reactions.
+- `contributes.resourceKinds`: resource URI kinds owned by the extension.
+- `contributes.collections`: storage collections, indexes, and demo bootstrap
+  declarations owned by the extension.
+- `uiManifest`: path to the browser-side UI manifest, when the extension has a
+  UI surface.
+
+The server validates manifests against `docs/manifest.schema.json` before the
+extension is installed into the runtime.
+
+## UI bundle
+
+The UI surface is a browser ESM bundle built from `ui/` into
+`assets/index.js`. It registers widgets and routes through
+`@comtrya/sdk-core` plus the framework adapter used by the extension, currently
+Vue for first-party UI.
+
+The shell loads installed extension UI manifests through
+`/_extensions/<id>/manifest.json`, verifies asset integrity, imports
+`assets/index.js`, and calls the bundle's default `setup(host)` function.
+
+The backend component and browser bundle are intentionally separate. Backend
+behavior runs in Wasmtime on the server; DOM rendering runs in the browser.
+
+## Runtime checks
+
+The final smoke path verifies the extension cutover:
+
+```sh
+./start.sh --reset --oneshot
+```
+
+That smoke fails if a first-party extension still has a `.wat` stub, lacks
+`platformWitVersion: "0.1.0"`, points at anything other than
+`dist/<extension-id>.wasm`, lacks `component/Cargo.toml`, or ships a non-WASM
+artifact.

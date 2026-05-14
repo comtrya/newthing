@@ -260,6 +260,62 @@ fs.writeFileSync(outputFile, JSON.stringify(found, null, 2));
 ' "$DATA_DIR/extensions/storage/events.jsonl" "$issue_id" "$output_file"
 }
 
+assert_v3_cutover_static_smoke() {
+  local wat_hit
+  wat_hit="$(find "$ROOT_DIR/extensions/first-party" -name '*.wat' -print -quit)"
+  if [[ -n "$wat_hit" ]]; then
+    fail "first-party extension still ships component WAT stub: $wat_hit"
+  fi
+
+  if rg -n 'matches_op\(' "$ROOT_DIR/crates/server/src/main.rs" >"$TMP_DIR/matches-op.txt"; then
+    printf '[comtrya] matches_op residue:\n' >&2
+    sed -n '1,80p' "$TMP_DIR/matches-op.txt" >&2 || true
+    fail "legacy matches_op handler routing still exists"
+  fi
+
+  if ! "$BUN" --eval '
+const fs = require("fs");
+const path = require("path");
+const [rootDir] = process.argv.slice(1);
+const extRoot = path.join(rootDir, "extensions", "first-party");
+const ids = fs
+  .readdirSync(extRoot)
+  .filter((name) => fs.statSync(path.join(extRoot, name)).isDirectory())
+  .sort();
+if (ids.length === 0) {
+  throw new Error("no first-party extensions found");
+}
+for (const id of ids) {
+  const root = path.join(extRoot, id);
+  const manifestPath = path.join(root, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (manifest.platformWitVersion !== "0.1.0") {
+    throw new Error(`${id} platformWitVersion is ${JSON.stringify(manifest.platformWitVersion)}`);
+  }
+  const expectedComponent = `dist/${id}.wasm`;
+  if (manifest.wasmComponent !== expectedComponent) {
+    throw new Error(`${id} wasmComponent is ${JSON.stringify(manifest.wasmComponent)}, expected ${expectedComponent}`);
+  }
+  const cargoToml = path.join(root, "component", "Cargo.toml");
+  if (!fs.existsSync(cargoToml)) {
+    throw new Error(`${id} is missing component/Cargo.toml`);
+  }
+  const wasmPath = path.join(root, "dist", `${id}.wasm`);
+  if (!fs.existsSync(wasmPath)) {
+    throw new Error(`${id} is missing ${path.relative(rootDir, wasmPath)}`);
+  }
+  const wasm = fs.readFileSync(wasmPath);
+  if (wasm.length < 8 || wasm.subarray(0, 4).toString("binary") !== "\0asm") {
+    throw new Error(`${id} dist artifact is not a real wasm module`);
+  }
+}
+' "$ROOT_DIR"; then
+    fail "first-party extension static cutover checks failed"
+  fi
+
+  log "ok - v3 static cutover checks (no WAT, no matches_op, real platform WASM)"
+}
+
 find_headless_browser() {
   if [[ -n "${COMTRYA_BROWSER_BIN:-}" ]]; then
     [[ -x "$COMTRYA_BROWSER_BIN" ]] || fail "COMTRYA_BROWSER_BIN is not executable: $COMTRYA_BROWSER_BIN"
@@ -806,6 +862,7 @@ fi
 require_command cargo
 require_command curl
 require_command git
+require_command rg
 [[ -x "$BUN" ]] || fail "missing Bun executable: $BUN"
 
 export COMTRYA_CONFIG="$CONFIG"
@@ -836,6 +893,8 @@ fi
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/comtrya-start.XXXXXX")"
 SERVER_LOG="${COMTRYA_SERVER_LOG:-$DATA_DIR/server.log}"
 FRONTEND_LOG="${COMTRYA_FRONTEND_LOG:-$DATA_DIR/frontend.log}"
+
+assert_v3_cutover_static_smoke
 
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 if [[ "$TARGET_DIR" == /* ]]; then
@@ -1364,6 +1423,9 @@ expect_status "issues.close transitions to CLOSED" 200 "$TMP_DIR/iss-close.json"
   "$FRONTEND_URL/graphql"
 json_assert "issue is now CLOSED with reason completed and closedAt set" "$TMP_DIR/iss-close.json" \
   'json.data.issues.close.state === "CLOSED" && json.data.issues.close.stateReason === "completed" && typeof json.data.issues.close.closedAt === "string"'
+write_issue_closed_wasm_event "$ISSUE_ONE_ID" "$TMP_DIR/iss-close-event.json"
+json_assert "GraphQL close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
+  'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
 
 expect_status "issues.reopen returns to OPEN" 200 "$TMP_DIR/iss-reopen.json" \
   -H "content-type: application/json" \
@@ -1532,6 +1594,9 @@ expect_status "issues.byRef shows the issue auto-closed by the reactor" 200 "$TM
   "$FRONTEND_URL/graphql"
 json_assert "issue is now CLOSED with reason=completed and closedByRef=PR" "$TMP_DIR/rx-issue-after.json" \
   "json.data.issues.byRef.state === \"CLOSED\" && json.data.issues.byRef.stateReason === \"completed\" && json.data.issues.byRef.closedByRef === \"$REACTOR_PR_REF\""
+write_issue_closed_wasm_event "$REACTOR_ISSUE_ID" "$TMP_DIR/rx-issue-closed-event.json"
+json_assert "reactor close emitted ext_issues WASM event" "$TMP_DIR/rx-issue-closed-event.json" \
+  "json.data.emitterExtension === \"ext_issues\" && json.data.eventType === \"dev.comtrya.issues.closed\" && json.decodedPayload.id === \"$REACTOR_ISSUE_ID\""
 
 expect_status "pulls.close rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json" \
   -H "content-type: application/json" \

@@ -216,10 +216,10 @@ This split keeps WIT to *interface description* and manifest to
 
 ## What changes for the GraphQL surface
 
-Today: `matches_op(query, "issues.close")` in `crates/server/src/main.rs`
-fires a hand-written Rust handler that mutates `extension_storage`.
+In the v3 runtime, GraphQL roots are mapped to generated dispatch routes before
+the kernel-owned fallback roots are considered.
 
-After Phase 3:
+Current dispatch flow:
 
 1. Extension's per-extension WIT declares:
    ```wit
@@ -228,20 +228,18 @@ After Phase 3:
      close-issue: func(input: close-issue-input) -> result<issue, error>;
    }
    ```
-2. The kernel's codegen produces, at build time, a Rust handler arm:
+2. The kernel's codegen produces, at build time, a typed route:
    ```rust
-   if op == "ext_issues.issues.close-issue" {
-       return dispatch_to_extension("ext_issues", "issues.close-issue",
-           payload).await;
-   }
+   ext_issues/issues.close-issue
    ```
-   GraphQL field names are extension-id-prefixed to prevent namespace
-   collisions across installed extensions.
-3. `dispatch_to_extension` looks up the loaded `ext_issues` component,
-   invokes its `close-issue` export with the deserialised input record,
-   returns the result.
+   The generated table accepts the stable GraphQL field name and resolves it to
+   the extension-owned WIT route.
+3. The dispatcher looks up the loaded `ext_issues` component, invokes its
+   `close-issue` export with the deserialised input record, and returns the
+   result.
 
-The string-match table goes away; the dispatch table is generated.
+The old string-match table has been removed; extension-owned GraphQL operations
+enter through generated dispatch.
 
 ## Open items deliberately deferred from this WIT
 
