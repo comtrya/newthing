@@ -8,5 +8,8 @@
     "./runtime": "./src/runtime.ts",
     "./resource-card": "./src/resource-card.ts"
   },
+  "dependencies": {
+    "tinykeys": "^3.0.0"
+  },
   "private": true
 }

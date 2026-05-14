@@ -1,3 +1,5 @@
+import { tinykeys } from "tinykeys";
+
 /**
  * Command palette — framework-agnostic, keyboard-driven.
  *
@@ -75,17 +77,22 @@ export function openPalette(): void {
   openListener?.();
 }
 
-/** Bind Cmd/Ctrl-K globally. Returns an unbind function. */
+/**
+ * Bind Cmd/Ctrl-K globally. Returns an unbind function.
+ *
+ * Implemented on top of `tinykeys` so chord support, modifier-key
+ * cross-platform handling (`$mod` = Cmd on Mac / Ctrl elsewhere),
+ * and edit-field skipping live in the library, not in our code.
+ */
 export function bindGlobalShortcut(): () => void {
   if (typeof window === "undefined") return () => {};
-  const handler = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-      e.preventDefault();
+  const unbind = tinykeys(window, {
+    "$mod+KeyK": (event: KeyboardEvent) => {
+      event.preventDefault();
       openPalette();
-    }
-  };
-  window.addEventListener("keydown", handler);
-  return () => window.removeEventListener("keydown", handler);
+    },
+  });
+  return unbind;
 }
 
 /** Test-only. */

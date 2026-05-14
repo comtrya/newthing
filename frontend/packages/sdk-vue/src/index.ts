@@ -208,3 +208,6 @@ export type {
   RelationshipTargetProvider,
   WidgetContribution,
 };
+
+export { useShortcuts } from "./use-shortcuts";
+export type { UseShortcutsOptions } from "./use-shortcuts";
