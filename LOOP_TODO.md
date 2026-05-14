@@ -1189,6 +1189,23 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 36 (URL-persisted filter state on PullsQueue)
+
+Mirrors iteration 32 onto the PR queue. `/x/pulls/?state=merged&q=auth`
+is now a shareable filtered view — same replaceState shape, same
+popstate sync, same suppression guard so the initial read doesn't
+race into a write-back.
+
+- `URL_FILTER_VALUES` covers all five PR filter states
+  (`OPEN | DRAFT | MERGED | CLOSED | ALL`).
+- `OPEN` (default) omitted from the URL so the bare `/x/pulls/`
+  link stays clean; empty search dropped.
+- `popstate` listener torn down on unmount alongside the existing
+  load watcher.
+
+Two of the three list surfaces (issues, pulls) now have
+URL-persisted filter state. EpicsList follows next.
+
 ### 2026-05-15 — iteration 35 (Assignee URL filter on IssuesList)
 
 Compounds iteration 32 (URL-persisted filter state) with

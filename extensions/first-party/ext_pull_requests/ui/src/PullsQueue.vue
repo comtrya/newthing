@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import { listPulls } from "./api";
 import {
@@ -84,8 +84,65 @@ const counts = computed(() => {
   return out;
 });
 
+/**
+ * URL-persisted filter + search state.
+ *
+ * `/x/pulls/?state=merged&q=auth` becomes a shareable filtered
+ * view. Same shape as IssuesList (iteration 32): replaceState on
+ * change (no per-keystroke history pollution), popstate listener
+ * for browser back/forward across saved filter URLs, suppression
+ * guard so the initial read doesn't immediately write back.
+ */
+const URL_FILTER_VALUES = new Set<Filter>(["OPEN", "DRAFT", "MERGED", "CLOSED", "ALL"]);
+
+function readUrlState(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const rawState = (params.get("state") ?? "").toUpperCase();
+  if (URL_FILTER_VALUES.has(rawState as Filter)) {
+    filter.value = rawState as Filter;
+  }
+  const rawQ = params.get("q");
+  if (rawQ !== null) search.value = rawQ;
+}
+
+function writeUrlState(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  // OPEN is the default — keep it out of the URL so a clean
+  // `/x/pulls/` link stays clean.
+  if (filter.value === "OPEN") params.delete("state");
+  else params.set("state", filter.value);
+  const trimmed = search.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+  if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(window.history.state, "", target);
+  }
+}
+
+let suppressUrlWrite = false;
+
+function onPopState(): void {
+  suppressUrlWrite = true;
+  readUrlState();
+  nextTick(() => {
+    suppressUrlWrite = false;
+  });
+}
+
 onMounted(() => {
+  suppressUrlWrite = true;
+  readUrlState();
+  suppressUrlWrite = false;
   void load();
+  window.addEventListener("popstate", onPopState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("popstate", onPopState);
 });
 
 watch(
@@ -97,6 +154,11 @@ watch(filtered, () => {
   if (focusedIndex.value >= filtered.value.length) {
     focusedIndex.value = Math.max(0, filtered.value.length - 1);
   }
+});
+
+watch([filter, search], () => {
+  if (suppressUrlWrite) return;
+  writeUrlState();
 });
 
 const filterShortcuts = Object.fromEntries(
