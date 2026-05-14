@@ -4,6 +4,9 @@ const RESOURCE_CARD_TAG = "comtrya-resource-card";
 
 export interface ResourceCardElement extends HTMLElement {
   ref?: string;
+  comtryaClient?: unknown;
+  viewer?: unknown;
+  capabilities?: unknown;
 }
 
 export function defineResourceCardElement(): void {
@@ -14,7 +17,51 @@ export function defineResourceCardElement(): void {
     RESOURCE_CARD_TAG,
     class extends HTMLElement implements ResourceCardElement {
       static observedAttributes = ["ref"];
-      ref?: string;
+      private currentRef?: string;
+      private currentComtryaClient?: unknown;
+      private currentViewer?: unknown;
+      private currentCapabilities?: unknown;
+
+      get ref(): string | undefined {
+        return this.currentRef;
+      }
+
+      set ref(value: string | undefined) {
+        const next = value || undefined;
+        if (this.currentRef === next) return;
+        this.currentRef = next;
+        if (this.isConnected) this.render();
+      }
+
+      get comtryaClient(): unknown {
+        return this.currentComtryaClient;
+      }
+
+      set comtryaClient(value: unknown) {
+        if (this.currentComtryaClient === value) return;
+        this.currentComtryaClient = value;
+        if (this.isConnected) this.render();
+      }
+
+      get viewer(): unknown {
+        return this.currentViewer;
+      }
+
+      set viewer(value: unknown) {
+        if (this.currentViewer === value) return;
+        this.currentViewer = value;
+        if (this.isConnected) this.render();
+      }
+
+      get capabilities(): unknown {
+        return this.currentCapabilities;
+      }
+
+      set capabilities(value: unknown) {
+        if (this.currentCapabilities === value) return;
+        this.currentCapabilities = value;
+        if (this.isConnected) this.render();
+      }
 
       connectedCallback(): void {
         this.syncRefFromAttribute();
@@ -23,21 +70,22 @@ export function defineResourceCardElement(): void {
 
       attributeChangedCallback(
         name: string,
-        _oldValue: string | null,
+        oldValue: string | null,
         newValue: string | null,
       ): void {
         if (name !== "ref") return;
-        this.ref = newValue ?? undefined;
+        if (oldValue === newValue) return;
+        this.currentRef = newValue ?? undefined;
         if (this.isConnected) this.render();
       }
 
       private syncRefFromAttribute(): void {
-        if (this.ref) return;
-        this.ref = this.getAttribute("ref") ?? undefined;
+        if (this.currentRef) return;
+        this.currentRef = this.getAttribute("ref") ?? undefined;
       }
 
       private render(): void {
-        const ref = this.ref;
+        const ref = this.currentRef;
         if (!ref) {
           this.replaceChildren(buildFallback("missing resource ref"));
           return;
@@ -62,8 +110,14 @@ export function defineResourceCardElement(): void {
 
         const node = document.createElement(contribution.element) as HTMLElement & {
           ref?: string;
+          comtryaClient?: unknown;
+          viewer?: unknown;
+          capabilities?: unknown;
         };
         node.ref = ref;
+        node.comtryaClient = this.currentComtryaClient;
+        node.viewer = this.currentViewer;
+        node.capabilities = this.currentCapabilities;
         node.setAttribute("ref", ref);
         this.replaceChildren(node);
       }

@@ -23,20 +23,27 @@ watch(
 function renderElement(): void {
   const target = mount.value;
   if (!target) return;
+  const needsNewElement = !element || element.tagName.toLowerCase() !== props.tag;
   if (!element || element.tagName.toLowerCase() !== props.tag) {
     element = document.createElement(props.tag) as HTMLElement &
       Record<string, unknown>;
-    target.replaceChildren(element);
   }
   for (const [key, value] of Object.entries(props.attributes)) {
     if (value === null || value === undefined) {
-      element.removeAttribute(key);
-    } else {
+      if (element.hasAttribute(key)) {
+        element.removeAttribute(key);
+      }
+    } else if (element.getAttribute(key) !== value) {
       element.setAttribute(key, value);
     }
   }
   for (const [key, value] of Object.entries(props.properties)) {
-    element[key] = value;
+    if (element[key] !== value) {
+      element[key] = value;
+    }
+  }
+  if (needsNewElement) {
+    target.replaceChildren(element);
   }
 }
 </script>

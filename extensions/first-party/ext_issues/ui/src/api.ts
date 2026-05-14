@@ -2,8 +2,20 @@ import type { OpResult } from "@comtrya/sdk-core";
 import { extIssuesXIssues } from "../../dist/ext_issues.client";
 import type { ComtryaGraphQLClient, Issue, IssueState, Relation } from "./types";
 
-export const ISSUE_RELATIONS_QUERY = `query($from: ResourceURN!) {
-  relations.outgoing(from: $from, kind: "comtrya://rel/part-of") { id to }
+export const ISSUE_OUTGOING_RELATIONS_QUERY = `query($from: ResourceURN!, $kind: ResourceURN) {
+  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }
+}`;
+
+export const ISSUE_INCOMING_RELATIONS_QUERY = `query($to: ResourceURN!, $kind: ResourceURN) {
+  relations.incoming(to: $to, kind: $kind) { id kind from to source target }
+}`;
+
+export const CREATE_RELATION_MUTATION = `mutation($input: RelationCreateInput!) {
+  relations.create(input: $input) { id kind from to source target }
+}`;
+
+export const DELETE_RELATION_MUTATION = `mutation($input: RelationDeleteInput!) {
+  relations.delete(input: $input)
 }`;
 
 interface WitIssue {
@@ -146,13 +158,62 @@ export async function reopenIssue(
   return normalizeIssue(opValue<WitIssue>(result, "reopenIssue"));
 }
 
-export async function issueRelations(
+export async function outgoingRelations(
   client: ComtryaGraphQLClient,
-  issueId: string,
+  from: string,
+  kind?: string | null,
 ): Promise<Relation[]> {
   const data = await client.query<{ relations?: { outgoing?: Relation[] } }>(
-    ISSUE_RELATIONS_QUERY,
-    { from: `comtrya://issue/${issueId}` },
+    ISSUE_OUTGOING_RELATIONS_QUERY,
+    kind ? { from, kind } : { from },
   );
-  return data.relations?.outgoing ?? [];
+  return (data.relations?.outgoing ?? []).map(normalizeRelation);
+}
+
+export async function incomingRelations(
+  client: ComtryaGraphQLClient,
+  to: string,
+  kind?: string | null,
+): Promise<Relation[]> {
+  const data = await client.query<{ relations?: { incoming?: Relation[] } }>(
+    ISSUE_INCOMING_RELATIONS_QUERY,
+    kind ? { to, kind } : { to },
+  );
+  return (data.relations?.incoming ?? []).map(normalizeRelation);
+}
+
+export async function createRelation(
+  client: ComtryaGraphQLClient,
+  input: { from: string; to: string; kind: string },
+): Promise<Relation> {
+  const data = await client.mutate<{ relations?: { create?: Relation } }>(
+    CREATE_RELATION_MUTATION,
+    { input },
+  );
+  const relation = data.relations?.create;
+  if (!relation) throw new Error("relations.create returned no relation");
+  return normalizeRelation(relation);
+}
+
+export async function deleteRelation(
+  client: ComtryaGraphQLClient,
+  id: string,
+): Promise<boolean> {
+  const data = await client.mutate<{ relations?: { delete?: boolean } }>(
+    DELETE_RELATION_MUTATION,
+    { input: { id } },
+  );
+  return data.relations?.delete ?? false;
+}
+
+function normalizeRelation(relation: Relation): Relation {
+  const from = relation.from ?? relation.source ?? "";
+  const to = relation.to ?? relation.target ?? "";
+  return {
+    ...relation,
+    from,
+    to,
+    source: relation.source ?? from,
+    target: relation.target ?? to,
+  };
 }

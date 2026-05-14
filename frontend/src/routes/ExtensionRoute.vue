@@ -72,52 +72,11 @@ function buildPlaceholder(message: string): HTMLElement {
 </script>
 
 <template>
-  <div data-smoke="extension-page">
-    <section class="page-header">
-      <div class="title-group">
-        <span class="overline">Extension</span>
-        <h1>{{ prefix }}</h1>
-      </div>
-      <div class="summary-grid" aria-label="Extension route summary">
-        <div>
-          <span>Prefix</span>
-          <strong>{{ prefix }}</strong>
-        </div>
-        <div>
-          <span>Route tail</span>
-          <strong>{{ routeTail || "/" }}</strong>
-        </div>
-        <div>
-          <span>Mount</span>
-          <strong>{{ matchedRoute ? matchedRoute.route.element : "Missing" }}</strong>
-        </div>
-      </div>
-    </section>
-
-    <section class="work-grid">
-      <section class="slot-frame" data-smoke="extension-route-frame">
-        <header class="slot-heading">
-          <h2>Extension Route</h2>
-          <span class="chip info">/x</span>
-        </header>
-        <div class="route-list">
-          <div class="route-row">
-            <span>prefix</span>
-            <code>{{ prefix }}</code>
-            <span class="state">required</span>
-          </div>
-          <div class="route-row">
-            <span>rest</span>
-            <code>{{ routeTail || "/" }}</code>
-            <span class="state">catch-all</span>
-          </div>
-        </div>
-        <div
-          ref="mount"
-          class="slot-mount"
-          data-extension-route-mount="true"
-        />
-      </section>
-    </section>
-  </div>
+  <section class="extension-route-page" data-smoke="extension-page">
+    <div
+      ref="mount"
+      class="extension-route-mount"
+      data-extension-route-mount="true"
+    />
+  </section>
 </template>

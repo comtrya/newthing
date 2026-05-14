@@ -755,6 +755,10 @@ kbd {
   border-top: 2px solid var(--ink);
 }
 
+.shell-app .slot-frame--bare {
+  border-top: 0;
+}
+
 .shell-app .panel-heading,
 .shell-app .slot-heading {
   min-height: 48px;
@@ -786,6 +790,16 @@ kbd {
 
 .shell-app .slot-mount {
   min-height: 110px;
+}
+
+.shell-app .extension-route-page,
+.shell-app .extension-route-mount {
+  min-width: 0;
+}
+
+.shell-app .extension-route-page {
+  display: grid;
+  gap: 24px;
 }
 
 .shell-app .route-list a,

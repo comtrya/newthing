@@ -201,6 +201,7 @@ These live in the per-extension manifest, not the WIT:
 - The extension's id and version.
 - The platform WIT version it was built against (`platformWitVersion`).
 - Which kinds it owns (`contributes.resource-kinds`).
+- Relationship type metadata (`contributes.relationship-types`).
 - Which host-import interfaces it's permitted to call (`host-imports`).
 - Which other extensions' events it can read (`allowed-event-reads`).
 - The `reactor.allowed-mutations` and `reactor.allowed-emits` allowlists.
