@@ -5,6 +5,7 @@ import {
   subscribeSlots,
   type SlotContribution,
 } from "@comtrya/sdk-core";
+import { extensionElementContext } from "../extension-runtime";
 
 const props = withDefaults(defineProps<{
   name: string;
@@ -57,6 +58,9 @@ function buildContributionElement(entry: SlotContribution): HTMLElement {
   node.dataset.extensionId = entry.extensionId;
   node.dataset.extensionSlot = props.name;
   node.extensionSlot = props.name;
+  for (const [key, value] of Object.entries(extensionElementContext())) {
+    node[key] = value;
+  }
   for (const [key, value] of Object.entries(props.elementContext)) {
     node[key] = value;
   }

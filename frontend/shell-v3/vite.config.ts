@@ -26,6 +26,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/graphql": kernelProxy(),
+      "/_extensions": kernelProxy(),
+      "/readyz": kernelProxy(),
       "/events/session": kernelProxy(),
       "/events": kernelProxy(),
     },

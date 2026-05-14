@@ -5,6 +5,7 @@ import {
   subscribeRoutes,
   type RouteMatch,
 } from "@comtrya/sdk-core";
+import { extensionElementContext } from "../extension-runtime";
 
 const props = defineProps<{
   prefix: string;
@@ -45,6 +46,9 @@ function renderRoute(): void {
     Record<string, unknown>;
   node.dataset.extensionId = match.route.extensionId;
   node.dataset.extensionRoute = match.route.path;
+  for (const [key, value] of Object.entries(extensionElementContext())) {
+    node[key] = value;
+  }
   node.routeParams = {
     scope: "extension",
     routePrefix: props.prefix,

@@ -9,6 +9,7 @@ import {
 import "../../src/styles.css";
 import "./styles.css";
 import App from "./App.vue";
+import { loadShellExtensions } from "./extension-loader";
 import { registerRepositoryShellSlots } from "./repository-slots";
 import { createShellRouter } from "./router";
 import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
@@ -46,6 +47,13 @@ registerCommand({
   run: () => {
     void router.push("/x/issues/");
   },
+});
+void loadShellExtensions().then((failures) => {
+  for (const failure of failures) {
+    console.warn(
+      `[shell-v3] extension ${failure.extensionId} ${failure.stage} failed: ${failure.message}`,
+    );
+  }
 });
 const app = createApp(App);
 app.use(router);
