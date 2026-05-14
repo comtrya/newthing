@@ -85,14 +85,14 @@ watch(
       workspaceId.value = identity.workspaceId;
       repository.value = identity.repository;
       loadState.value = identity.repository ? "ready" : "missing";
-      applyUserLayoutFor(identity.repository?.id ?? null);
+      await applyUserLayoutFor(identity.repository?.id ?? null);
     } catch (error) {
       if (controller.signal.aborted) return;
       workspaceId.value = null;
       repository.value = null;
       loadState.value = "error";
       loadError.value = error instanceof Error ? error.message : String(error);
-      applyUserLayoutFor(null);
+      await applyUserLayoutFor(null);
     }
   },
   { immediate: true },

@@ -1,14 +1,40 @@
 /**
  * User layout persistence — repository-scoped widget→slot overrides.
  *
- * For now the layout lives in localStorage, keyed on the resolved
- * repository id. The shape is identical to what a future GraphQL
- * mutation would accept (see `docs/extensions.md` for the intended
- * federated schema), so swapping the persistence layer is a single
- * function change here.
+ * Loads/saves through the federated GraphQL endpoint. Falls back to
+ * localStorage for unauthenticated principals or if the server is
+ * unreachable, so the hybrid model still works in offline / demo mode.
  */
 
-import { setUserLayout, type UserLayout } from "@comtrya/sdk-core";
+import { getGraphQLClient, setUserLayout, type UserLayout } from "@comtrya/sdk-core";
+
+const USER_LAYOUT_QUERY = `query UserLayout($repositoryId: ID!) {
+  userLayout(repositoryId: $repositoryId) {
+    repositoryId
+    entries
+  }
+}`;
+
+const SET_USER_LAYOUT_MUTATION = `mutation SetUserLayout($repositoryId: ID!, $layout: UserLayoutInput!) {
+  setUserLayout(repositoryId: $repositoryId, layout: $layout) {
+    repositoryId
+    entries
+  }
+}`;
+
+interface UserLayoutPayload {
+  userLayout?: {
+    repositoryId?: string;
+    entries?: unknown;
+  };
+}
+
+interface SetUserLayoutPayload {
+  setUserLayout?: {
+    repositoryId?: string;
+    entries?: unknown;
+  };
+}
 
 const STORAGE_PREFIX = "comtrya.userLayout.";
 
@@ -16,7 +42,7 @@ function storageKey(scope: string): string {
   return `${STORAGE_PREFIX}${scope}`;
 }
 
-export function loadUserLayout(scope: string): UserLayout {
+function readLocal(scope: string): UserLayout {
   if (typeof localStorage === "undefined") return {};
   try {
     const raw = localStorage.getItem(storageKey(scope));
@@ -28,12 +54,38 @@ export function loadUserLayout(scope: string): UserLayout {
   }
 }
 
-export function saveUserLayout(scope: string, layout: UserLayout): void {
+function writeLocal(scope: string, layout: UserLayout): void {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(storageKey(scope), JSON.stringify(layout));
   } catch {
-    // best-effort — storage may be full or disabled
+    // storage may be full or disabled — best-effort
+  }
+}
+
+export async function loadUserLayout(scope: string): Promise<UserLayout> {
+  try {
+    const data = await getGraphQLClient().query<UserLayoutPayload>(
+      USER_LAYOUT_QUERY,
+      { repositoryId: scope },
+    );
+    const entries = data.userLayout?.entries;
+    if (isUserLayout(entries)) return entries;
+    return {};
+  } catch {
+    return readLocal(scope);
+  }
+}
+
+export async function saveUserLayout(scope: string, layout: UserLayout): Promise<void> {
+  writeLocal(scope, layout);
+  try {
+    await getGraphQLClient().mutate<SetUserLayoutPayload>(
+      SET_USER_LAYOUT_MUTATION,
+      { repositoryId: scope, layout: { entries: layout } },
+    );
+  } catch {
+    // already mirrored to localStorage — surface no error to caller
   }
 }
 
@@ -42,12 +94,13 @@ export function saveUserLayout(scope: string, layout: UserLayout): void {
  * each time the active repository changes; `null` scope clears any
  * prior override so default placements take over.
  */
-export function applyUserLayoutFor(scope: string | null): void {
+export async function applyUserLayoutFor(scope: string | null): Promise<void> {
   if (scope === null) {
     setUserLayout({});
     return;
   }
-  setUserLayout(loadUserLayout(scope));
+  const layout = await loadUserLayout(scope);
+  setUserLayout(layout);
 }
 
 function isUserLayout(value: unknown): value is UserLayout {

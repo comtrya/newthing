@@ -399,12 +399,18 @@ assert_extension_browser_surfaces_render() {
 const fs = require("fs");
 const [port, pageUrl, outputFile] = process.argv.slice(1);
 
-const expectedWidgets = {
-  "repository.overview": { tagName: "comtrya-pulls-overview",    label: "Repo · pulls overview", origin: "extension" },
-  "repository.code":     { tagName: "comtrya-core-code-browser", label: "Code · ",               origin: "core" },
-  "repository.issues":   { tagName: "comtrya-issues-list",       label: "Issues",                origin: "extension" },
-  "repository.checks":   { tagName: "comtrya-checks-board",      label: "Checks board",          origin: "extension" },
-};
+// Widgets that must mount somewhere on the repo dashboard. Their default
+// slot is irrelevant to the smoke — under the hybrid model the user can
+// move any widget to any slot. We only require that each widget renders.
+const expectedWidgets = [
+  { tagName: "comtrya-repository-summary", label: "Repository",            origin: "core" },
+  { tagName: "comtrya-core-code-browser",  label: "Code · ",               origin: "core" },
+  { tagName: "comtrya-issues-list",        label: "Issues",                origin: "extension" },
+  { tagName: "comtrya-pulls-overview",     label: "Repo · pulls overview", origin: "extension" },
+  { tagName: "comtrya-checks-board",       label: "Checks board",          origin: "extension" },
+];
+
+const expectedSlots = ["repository.main", "repository.sidebar"];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -457,7 +463,7 @@ async function connect(target) {
 
 const COLLECT_EXPRESSION = `(() => {
   const slots = {};
-  for (const slot of ["repository.overview", "repository.code", "repository.issues", "repository.checks"]) {
+  for (const slot of ["repository.main", "repository.sidebar"]) {
     const mount = document.querySelector("[data-extension-slot-mount=\\\"" + slot + "\\\"]");
     if (!mount) {
       slots[slot] = { mounted: false };
@@ -469,21 +475,35 @@ const COLLECT_EXPRESSION = `(() => {
       text: (mount.innerText || mount.textContent || "").trim(),
     };
   }
+  const widgetTags = Array.from(
+    document.querySelectorAll("[data-extension-slot-mount] *")
+  ).map((node) => node.tagName.toLowerCase());
+  const dashboardText = (
+    document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]")?.parentElement?.innerText ||
+    document.body?.innerText ||
+    ""
+  ).trim();
   return {
     headings: Array.from(document.querySelectorAll("h1, h2")).map((heading) => heading.textContent?.trim()),
     pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
     slots,
+    widgetTags,
+    dashboardText,
   };
 })()`;
 
 function evidenceIsReady(evidence) {
   if (evidence.pageHeadSmoke !== "present") return false;
   if (!evidence.headings?.includes("comtrya/comtrya")) return false;
-  for (const [slot, expected] of Object.entries(expectedWidgets)) {
+  // Both generic slots must mount (even if empty until widgets resolve).
+  for (const slot of expectedSlots) {
     const got = evidence.slots?.[slot];
     if (!got?.mounted) return false;
-    if (!got.children?.includes(expected.tagName)) return false;
-    if (!got.text.includes(expected.label)) return false;
+  }
+  // Each expected widget must render somewhere inside the dashboard.
+  for (const expected of expectedWidgets) {
+    if (!evidence.widgetTags?.includes(expected.tagName)) return false;
+    if (expected.label && !evidence.dashboardText?.includes(expected.label)) return false;
   }
   return true;
 }
@@ -539,7 +559,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser repo dashboard mounted repository.* slot widgets"
+  log "ok - browser repo dashboard mounted core + extension widgets into repository.main / repository.sidebar"
 }
 
 assert_issue_close_browser_smoke() {
@@ -1056,8 +1076,11 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics; do
   expect_status "extension ${extension_id} manifest through Vue shell" 200 "$TMP_DIR/${extension_id}-manifest.json" \
     "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
   expect_contains "extension ${extension_id} manifest through Vue shell" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
-  json_assert "extension ${extension_id} manifest declares mountable slots" "$TMP_DIR/${extension_id}-manifest.json" \
-    "json.id === \"$extension_id\" && Array.isArray(json.contributes && json.contributes.slots) && json.contributes.slots.length > 0 && json.contributes.slots.every((slot) => typeof slot === \"string\" && slot.length > 0)"
+  # Manifest is identity, not behavior. Slot bindings, routes, and resource
+  # cards are runtime registrations through the SDK — they must not appear
+  # as declarative arrays in the manifest.
+  json_assert "extension ${extension_id} manifest is identity-only" "$TMP_DIR/${extension_id}-manifest.json" \
+    "json.id === \"$extension_id\" && typeof json.assets === \"object\" && Array.isArray(json.permissions) && !(json.contributes && (json.contributes.slots || json.contributes.routes || json.contributes.cards))"
 
   expect_status "extension ${extension_id} asset session" 200 "$TMP_DIR/${extension_id}-asset-session.json" \
     -X POST \

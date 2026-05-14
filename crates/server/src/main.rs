@@ -847,6 +847,103 @@ impl Runtime {
         Ok(out)
     }
 
+    // ── User layout (core-owned, per-(principal, repository)) ──────────
+    //
+    // Documents in the `user_layouts` collection persist the per-user
+    // widget→slot override map. Resolution is hybrid: extensions publish
+    // widgets with a defaultSlot; entries here move, reprioritize, or
+    // hide them. Shape per entry:
+    //
+    //   { "<widget-id>": { "slot": "...", "priority": N, "hidden": bool } }
+    //
+    // The id used for storage is `<principal-fingerprint>:<repo-id>` so
+    // the layout is scoped to the authenticated principal. Anonymous
+    // principals receive an empty layout and writes are rejected.
+
+    fn user_layout_document_id(principal_uri: &str, repository_id: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(principal_uri.as_bytes());
+        let digest = format!("{:x}", hasher.finalize());
+        format!("{}:{repository_id}", &digest[..16])
+    }
+
+    fn user_layout_resource(principal_uri: &str, repository_id: &str) -> String {
+        format!("comtrya://user-layout/{principal_uri}/{repository_id}")
+    }
+
+    fn get_user_layout(
+        &self,
+        principal_uri: &str,
+        repository_id: &str,
+    ) -> Result<Value, String> {
+        let doc_id = Self::user_layout_document_id(principal_uri, repository_id);
+        let collection = self.extension_storage.collection_data("user_layouts")?;
+        let entries = collection
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|doc| doc.get("id").and_then(Value::as_str) == Some(doc_id.as_str()))
+                    .and_then(|doc| doc.get("entries"))
+                    .cloned()
+            })
+            .unwrap_or_else(|| json!({}));
+        Ok(json!({
+            "repositoryId": repository_id,
+            "entries": entries,
+        }))
+    }
+
+    fn set_user_layout(
+        &self,
+        principal_uri: &str,
+        repository_id: &str,
+        entries: Value,
+    ) -> Result<Value, String> {
+        if !entries.is_object() {
+            return Err("layout.entries must be a JSON object".into());
+        }
+        let doc_id = Self::user_layout_document_id(principal_uri, repository_id);
+        let resource = Self::user_layout_resource(principal_uri, repository_id);
+        let now_iso = chrono_now_iso();
+        let data = json!({
+            "id": doc_id,
+            "principal": principal_uri,
+            "repositoryId": repository_id,
+            "entries": entries,
+            "updatedAt": now_iso,
+        });
+        // Upsert: try update first; on "not found" fall through to create.
+        let update_result = self.extension_storage.update_document_atomically(
+            "user_layouts",
+            &doc_id,
+            |document| {
+                if let Some(object) = document.as_object_mut() {
+                    object.insert("entries".to_string(), entries.clone());
+                    object.insert("updatedAt".to_string(), json!(now_iso));
+                }
+            },
+        );
+        if let Err(message) = update_result {
+            if !message.contains("not found") {
+                return Err(message);
+            }
+            let record = extension_document_record(
+                "core",
+                "user_layouts",
+                &doc_id,
+                &resource,
+                vec![resource.clone()],
+                data.clone(),
+                &now_iso,
+            );
+            self.extension_storage.create_document(record)?;
+        }
+        Ok(json!({
+            "repositoryId": repository_id,
+            "entries": entries,
+        }))
+    }
+
     fn create_repository_document(
         &self,
         path: &str,
@@ -1488,9 +1585,107 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
         Some("comments.delete") => {
             return comments_delete_mutation(state, headers, payload);
         }
+        Some("userLayout") => {
+            return user_layout_query(state, headers, payload);
+        }
+        Some("setUserLayout") => {
+            return user_layout_mutation(state, headers, payload);
+        }
         _ => {}
     }
     graphql_response(state, headers, payload)
+}
+
+fn user_layout_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    if principal.status == PrincipalStatus::Invalid {
+        return graphql_error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "userLayout requires an authenticated principal",
+            cors,
+        );
+    }
+    let repository_id = payload
+        .pointer("/variables/repositoryId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if repository_id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "userLayout requires variables.repositoryId",
+            cors,
+        );
+    }
+    match state.runtime.get_user_layout(&principal.uri, repository_id) {
+        Ok(layout) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "userLayout": layout } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "INTERNAL_ERROR",
+            &message,
+            cors,
+        ),
+    }
+}
+
+fn user_layout_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    if matches!(
+        principal.status,
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid
+    ) {
+        return graphql_error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "setUserLayout requires an authenticated principal",
+            cors,
+        );
+    }
+    let repository_id = payload
+        .pointer("/variables/repositoryId")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if repository_id.is_empty() {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "setUserLayout requires variables.repositoryId",
+            cors,
+        );
+    }
+    let entries = payload
+        .pointer("/variables/layout/entries")
+        .cloned()
+        .unwrap_or(json!({}));
+    match state
+        .runtime
+        .set_user_layout(&principal.uri, repository_id, entries)
+    {
+        Ok(layout) => json_response(
+            StatusCode::OK,
+            json!({ "data": { "setUserLayout": layout } }),
+            cors,
+        ),
+        Err(message) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+    }
 }
 
 async fn api_op(
@@ -7859,6 +8054,161 @@ extensions: {
         let repos = demo_repositories();
         let resolved = resolve_repository_by_path(&repos, &[]);
         assert!(resolved.is_none());
+    }
+
+    #[tokio::test]
+    async fn user_layout_returns_empty_for_unknown_principal_repo() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::Credential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($repositoryId: ID!) { userLayout(repositoryId: $repositoryId) { repositoryId entries } }",
+                "variables": { "repositoryId": "repo_unknown" }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let layout = &payload["data"]["userLayout"];
+        assert_eq!(layout["repositoryId"], "repo_unknown");
+        assert_eq!(layout["entries"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn set_user_layout_round_trips() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://user/test".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::Credential,
+        );
+        let headers = bearer_headers(&token);
+        let entries = json!({
+            "issues-list": { "slot": "repository.sidebar", "priority": 50 },
+            "checks-board": { "hidden": true }
+        });
+        let mutation = graphql_post(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers.clone(),
+            json!({
+                "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
+                "variables": {
+                    "repositoryId": "repo_demo",
+                    "layout": { "entries": entries }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(mutation.status(), StatusCode::OK);
+        let mutation_body = to_bytes(mutation.into_body(), usize::MAX).await.unwrap();
+        let mutation_payload = serde_json::from_slice::<Value>(&mutation_body).unwrap();
+        assert_eq!(
+            mutation_payload["data"]["setUserLayout"]["entries"],
+            entries
+        );
+
+        let query = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($repositoryId: ID!) { userLayout(repositoryId: $repositoryId) { entries } }",
+                "variables": { "repositoryId": "repo_demo" }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(query.status(), StatusCode::OK);
+        let body = to_bytes(query.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(payload["data"]["userLayout"]["entries"], entries);
+    }
+
+    #[tokio::test]
+    async fn set_user_layout_overwrites_previous_entries() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://user/test".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::Credential,
+        );
+        let headers = bearer_headers(&token);
+        let state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let first = graphql_post(
+            State(state.clone()),
+            headers.clone(),
+            json!({
+                "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
+                "variables": {
+                    "repositoryId": "repo_demo",
+                    "layout": { "entries": { "issues-list": { "slot": "repository.sidebar" } } }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(first.status(), StatusCode::OK);
+        let second = graphql_post(
+            State(state.clone()),
+            headers.clone(),
+            json!({
+                "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
+                "variables": {
+                    "repositoryId": "repo_demo",
+                    "layout": { "entries": { "checks-board": { "priority": 999 } } }
+                }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(second.status(), StatusCode::OK);
+        let body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["data"]["setUserLayout"]["entries"],
+            json!({ "checks-board": { "priority": 999 } }),
+            "second mutation should replace entries map, not merge",
+        );
+    }
+
+    #[tokio::test]
+    async fn set_user_layout_rejects_anonymous_principal() {
+        let runtime = dev_runtime_no_extensions();
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            HeaderMap::new(),
+            json!({
+                "query": "mutation { setUserLayout(repositoryId: \"r\", layout: { entries: {} }) { repositoryId } }",
+                "variables": { "repositoryId": "r", "layout": { "entries": {} } }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
