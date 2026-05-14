@@ -346,6 +346,7 @@ const [port, pageUrl, outputFile] = process.argv.slice(1);
 const expectedWidgets = {
   "repository.overview": { tagName: "comtrya-pulls-overview",    label: "Repo · pulls overview", origin: "extension" },
   "repository.code":     { tagName: "comtrya-core-code-browser", label: "Code · ",               origin: "core" },
+  "repository.issues":   { tagName: "comtrya-issues-list",       label: "Issues",                origin: "extension" },
   "repository.checks":   { tagName: "comtrya-checks-board",      label: "Checks board",          origin: "extension" },
 };
 
@@ -400,35 +401,32 @@ async function connect(target) {
 
 const COLLECT_EXPRESSION = `(() => {
   const slots = {};
-  for (const slot of ["repository.overview", "repository.code", "repository.checks"]) {
+  for (const slot of ["repository.overview", "repository.code", "repository.issues", "repository.checks"]) {
     const mount = document.querySelector("[data-extension-slot-mount=\\\"" + slot + "\\\"]");
     if (!mount) {
       slots[slot] = { mounted: false };
       continue;
     }
-    const child = mount.firstElementChild;
     slots[slot] = {
       mounted: true,
-      tagName: child ? child.tagName.toLowerCase() : null,
-      text: (child && (child.innerText || child.textContent) || "").trim(),
+      children: Array.from(mount.children).map((child) => child.tagName.toLowerCase()),
+      text: (mount.innerText || mount.textContent || "").trim(),
     };
   }
   return {
-    bodyScope: document.body.dataset.scope ?? null,
-    repoId: document.body.dataset.repoId ?? null,
+    headings: Array.from(document.querySelectorAll("h1, h2")).map((heading) => heading.textContent?.trim()),
     pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
     slots,
   };
 })()`;
 
 function evidenceIsReady(evidence) {
-  if (evidence.bodyScope !== "repository") return false;
-  if (!evidence.repoId) return false;
   if (evidence.pageHeadSmoke !== "present") return false;
+  if (!evidence.headings?.includes("comtrya/comtrya")) return false;
   for (const [slot, expected] of Object.entries(expectedWidgets)) {
     const got = evidence.slots?.[slot];
     if (!got?.mounted) return false;
-    if (got.tagName !== expected.tagName) return false;
+    if (!got.children?.includes(expected.tagName)) return false;
     if (!got.text.includes(expected.label)) return false;
   }
   return true;
@@ -682,7 +680,7 @@ try {
       evidence.ready &&
       evidence.issueId === issueId &&
       evidence.reopenVisible &&
-      /\bclosed\b/.test(evidence.text),
+      !evidence.closeVisible,
     "issue closed UI",
   );
 
@@ -864,14 +862,14 @@ free_port "$FRONTEND_LISTEN"
 log "building comtrya-server"
 cargo build -p comtrya-server
 
-log "building Astro frontend"
-(cd frontend && "$BUN" run build)
+log "building Vue shell"
+(cd frontend && "$BUN" run build:v3)
 
 log "checking production-testbed startup gates"
 "$SERVER_BIN" --check
 
 log "starting Rust server at $BACKEND_URL"
-log "starting Astro frontend at $FRONTEND_URL"
+log "starting Vue shell at $FRONTEND_URL"
 log "data dir: $DATA_DIR"
 log "session ttl: ${SESSION_TTL_SECONDS}s"
 log "server log: $SERVER_LOG"
@@ -885,7 +883,7 @@ wait_for_url "server readyz" "$BACKEND_URL/readyz" 200
   cd frontend
   COMTRYA_SERVER_URL="$BACKEND_URL" \
     PUBLIC_COMTRYA_OPERATOR_CODE="$PUBLIC_COMTRYA_OPERATOR_CODE" \
-    "$BUN" run preview -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
+    "$BUN" run preview:v3 -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 ) >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID="$!"
 
@@ -893,25 +891,25 @@ wait_for_url "frontend shell" "$FRONTEND_URL/" 200
 
 expect_status "frontend shell" 200 "$TMP_DIR/frontend.html" \
   "$FRONTEND_URL/"
-expect_contains "frontend shell" "$TMP_DIR/frontend.html" "Comtrya"
-expect_contains "frontend shell mounts home-shell" "$TMP_DIR/frontend.html" 'data-smoke="home-shell"'
+expect_contains "frontend shell HTML" "$TMP_DIR/frontend.html" "Comtrya Shell v3"
+expect_contains "frontend shell HTML loads Vue assets" "$TMP_DIR/frontend.html" "/assets/index-"
 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
   'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.wasmtimeResolversExecuted === true && json.checks.demoRepositoryRefs === true && json.unsupported.some((surface) => surface.id === "legacy_v1_api" && surface.pathPrefix === "/api/v1/") && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
 
-expect_status "unsupported legacy v1 route fails explicitly through Astro" 501 "$TMP_DIR/legacy-v1.json" \
+expect_status "unsupported legacy v1 route fails explicitly through Vue shell" 501 "$TMP_DIR/legacy-v1.json" \
   "$FRONTEND_URL/api/v1/repositories"
-json_assert "unsupported legacy v1 route fails explicitly through Astro" "$TMP_DIR/legacy-v1.json" \
+json_assert "unsupported legacy v1 route fails explicitly through Vue shell" "$TMP_DIR/legacy-v1.json" \
   'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "legacy_v1_api"'
 
-expect_status "unsupported OIDC callback fails explicitly through Astro" 501 "$TMP_DIR/oidc-callback.json" \
+expect_status "unsupported OIDC callback fails explicitly through Vue shell" 501 "$TMP_DIR/oidc-callback.json" \
   "$FRONTEND_URL/auth/oidc/prod/callback"
-json_assert "unsupported OIDC callback fails explicitly through Astro" "$TMP_DIR/oidc-callback.json" \
+json_assert "unsupported OIDC callback fails explicitly through Vue shell" "$TMP_DIR/oidc-callback.json" \
   'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "oidc_browser_callback"'
 
-expect_status "operator code exchange through Astro" 200 "$TMP_DIR/token.json" \
+expect_status "operator code exchange through Vue shell" 200 "$TMP_DIR/token.json" \
   -H "content-type: application/json" \
   --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"checks:read\"]}" \
   "$FRONTEND_URL/auth/token-exchange"
@@ -921,20 +919,20 @@ if [[ -z "$ACCESS_TOKEN" ]]; then
   fail "operator code exchange did not return accessToken"
 fi
 
-expect_status "GraphQL through Astro" 200 "$TMP_DIR/graphql.json" \
+expect_status "GraphQL through Vue shell" 200 "$TMP_DIR/graphql.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data '{"query":"{ viewer { authenticated } instance { capabilities } workspace repository extensionInstallations extensionResolvers activityEvents }"}' \
   "$FRONTEND_URL/graphql"
-json_assert "GraphQL viewer through Astro" "$TMP_DIR/graphql.json" \
+json_assert "GraphQL viewer through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.viewer.authenticated === true && json.data.viewer.permissions.includes("git:read")'
-json_assert "GraphQL Git data through Astro" "$TMP_DIR/graphql.json" \
+json_assert "GraphQL Git data through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.repository.path === "comtrya/comtrya" && typeof json.data.repository.headOid === "string" && json.data.repository.refs.length > 0 && json.data.repository.commits.length > 0 && json.data.repository.treeEntries.length > 0 && json.data.repository.blobs.length > 0'
-json_assert "GraphQL storage data through Astro" "$TMP_DIR/graphql.json" \
+json_assert "GraphQL storage data through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.workspace.name === "Comtrya Labs" && json.data.repository.pullRequests.length > 0 && json.data.repository.checks.length > 0 && json.data.extensionInstallations.length === 4 && json.data.activityEvents.length > 0'
-json_assert "GraphQL typed resolver data through Astro" "$TMP_DIR/graphql.json" \
+json_assert "GraphQL typed resolver data through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.extensionResolvers.length === 5 && json.data.extensionResolvers.every((resolver) => (resolver.status === "executed" || resolver.status === "platform-loaded") && !Object.prototype.hasOwnProperty.call(resolver, "result")) && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_pull_requests" && resolver.outputType === "comtrya.pull-requests/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_workspace_home" && resolver.outputType === "comtrya.workspace-home/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_issues" && resolver.status === "platform-loaded" && resolver.outputType === "comtrya.issues/summary.v1") && json.data.extensionResolvers.some((resolver) => resolver.id === "ext_epics" && resolver.outputType === "comtrya.epics/summary.v1")'
-json_assert "GraphQL demo convenience aggregate through Astro" "$TMP_DIR/graphql.json" \
+json_assert "GraphQL demo convenience aggregate through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.demo.repository.headOid === json.data.repository.headOid'
 GRAPHQL_HEAD_OID="$(json_value "$TMP_DIR/graphql.json" 'json.data.repository.headOid')"
 if [[ -z "$GRAPHQL_HEAD_OID" ]]; then
@@ -947,7 +945,7 @@ log "seeded branches: $GRAPHQL_BRANCHES"
 log "installed extensions: $GRAPHQL_EXTENSIONS"
 json_value "$TMP_DIR/graphql.json" 'json.data.repository.diff.patch' >"$TMP_DIR/graphql-diff.patch"
 
-expect_status "event session through Astro" 200 "$TMP_DIR/events-session.json" \
+expect_status "event session through Vue shell" 200 "$TMP_DIR/events-session.json" \
   -X POST \
   -H "origin: $FRONTEND_URL" \
   -H "sec-fetch-site: same-origin" \
@@ -961,16 +959,16 @@ if [[ -z "$EVENT_SESSION" ]]; then
   fail "event session request did not return session"
 fi
 
-expect_status "event stream through Astro" 200 "$TMP_DIR/events.json" \
+expect_status "event stream through Vue shell" 200 "$TMP_DIR/events.json" \
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
-expect_contains "event stream through Astro" "$TMP_DIR/events.json" 'dev.comtrya.instance.started'
-expect_status "event session reuse fails closed through Astro" 401 "$TMP_DIR/events-reuse.json" \
+expect_contains "event stream through Vue shell" "$TMP_DIR/events.json" 'dev.comtrya.instance.started'
+expect_status "event session reuse fails closed through Vue shell" 401 "$TMP_DIR/events-reuse.json" \
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
-json_assert "event session reuse fails closed through Astro" "$TMP_DIR/events-reuse.json" \
+json_assert "event session reuse fails closed through Vue shell" "$TMP_DIR/events-reuse.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
 if (( SESSION_TTL_SECONDS <= 5 )); then
-  expect_status "short-lived event session through Astro" 200 "$TMP_DIR/events-expiring-session.json" \
+  expect_status "short-lived event session through Vue shell" 200 "$TMP_DIR/events-expiring-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
     -H "sec-fetch-site: same-origin" \
@@ -983,9 +981,9 @@ if (( SESSION_TTL_SECONDS <= 5 )); then
     fail "short-lived event session request did not return session"
   fi
   sleep "$((SESSION_TTL_SECONDS + 2))"
-  expect_status "expired event session fails closed through Astro" 401 "$TMP_DIR/events-expired.json" \
+  expect_status "expired event session fails closed through Vue shell" 401 "$TMP_DIR/events-expired.json" \
     "$FRONTEND_URL/events?session=$EXPIRING_EVENT_SESSION"
-  json_assert "expired event session fails closed through Astro" "$TMP_DIR/events-expired.json" \
+  json_assert "expired event session fails closed through Vue shell" "$TMP_DIR/events-expired.json" \
     'json.errors[0].extensions.code === "UNAUTHENTICATED" && json.errors[0].message.includes("expired")'
 else
   log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
@@ -1005,9 +1003,9 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics; do
     fail "extension ${extension_id} manifest session request did not return session"
   fi
 
-  expect_status "extension ${extension_id} manifest through Astro" 200 "$TMP_DIR/${extension_id}-manifest.json" \
+  expect_status "extension ${extension_id} manifest through Vue shell" 200 "$TMP_DIR/${extension_id}-manifest.json" \
     "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
-  expect_contains "extension ${extension_id} manifest through Astro" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
+  expect_contains "extension ${extension_id} manifest through Vue shell" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
   json_assert "extension ${extension_id} manifest declares mountable slots" "$TMP_DIR/${extension_id}-manifest.json" \
     "json.id === \"$extension_id\" && Array.isArray(json.contributes && json.contributes.slots) && json.contributes.slots.length > 0 && json.contributes.slots.every((slot) => typeof slot === \"string\" && slot.length > 0)"
 
@@ -1024,9 +1022,9 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics; do
     fail "extension ${extension_id} asset session request did not return session"
   fi
 
-  expect_status "extension ${extension_id} asset through Astro" 200 "$TMP_DIR/${extension_id}-asset.js" \
+  expect_status "extension ${extension_id} asset through Vue shell" 200 "$TMP_DIR/${extension_id}-asset.js" \
     "$FRONTEND_URL/_extensions/${extension_id}/assets/index.js?session=$EXTENSION_ASSET_SESSION"
-  expect_contains "extension ${extension_id} asset through Astro" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
+  expect_contains "extension ${extension_id} asset through Vue shell" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
 
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
@@ -1038,15 +1036,15 @@ else
   log "skipping browser repo dashboard smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi
 
-expect_status "Git upload-pack without token fails closed through Astro" 401 "$TMP_DIR/git-no-token.json" \
+expect_status "Git upload-pack without token fails closed through Vue shell" 401 "$TMP_DIR/git-no-token.json" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
-json_assert "Git upload-pack without token fails closed through Astro" "$TMP_DIR/git-no-token.json" \
+json_assert "Git upload-pack without token fails closed through Vue shell" "$TMP_DIR/git-no-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
-expect_status "Git upload-pack with wrong token fails closed through Astro" 401 "$TMP_DIR/git-wrong-token.json" \
+expect_status "Git upload-pack with wrong token fails closed through Vue shell" 401 "$TMP_DIR/git-wrong-token.json" \
   -H "authorization: Bearer wrong-token" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
-json_assert "Git upload-pack with wrong token fails closed through Astro" "$TMP_DIR/git-wrong-token.json" \
+json_assert "Git upload-pack with wrong token fails closed through Vue shell" "$TMP_DIR/git-wrong-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
 expect_status "operator code exchange for non-Git credential" 200 "$TMP_DIR/no-git-token.json" \
@@ -1057,18 +1055,18 @@ NO_GIT_TOKEN="$(extract_json_string accessToken "$TMP_DIR/no-git-token.json")"
 if [[ -z "$NO_GIT_TOKEN" ]]; then
   fail "non-Git credential exchange did not return accessToken"
 fi
-expect_status "Git upload-pack without git read scope fails closed through Astro" 403 "$TMP_DIR/git-no-read-scope.json" \
+expect_status "Git upload-pack without git read scope fails closed through Vue shell" 403 "$TMP_DIR/git-no-read-scope.json" \
   -H "authorization: Bearer $NO_GIT_TOKEN" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
-json_assert "Git upload-pack without git read scope fails closed through Astro" "$TMP_DIR/git-no-read-scope.json" \
+json_assert "Git upload-pack without git read scope fails closed through Vue shell" "$TMP_DIR/git-no-read-scope.json" \
   'json.errors[0].extensions.code === "FORBIDDEN"'
 
-log "checking seeded Git refs through Astro"
+log "checking seeded Git refs through Vue shell"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   ls-remote "$FRONTEND_URL/git/comtrya/comtrya.git" \
   >"$TMP_DIR/git-ls-remote.log" 2>&1 || {
   sed -n '1,160p' "$TMP_DIR/git-ls-remote.log" >&2 || true
-  fail "git ls-remote through Astro failed"
+  fail "git ls-remote through Vue shell failed"
 }
 if ! grep -Fq "${GRAPHQL_HEAD_OID}"$'\t'"refs/heads/main" "$TMP_DIR/git-ls-remote.log"; then
   printf '[comtrya] git ls-remote output did not match GraphQL headOid %s\n' "$GRAPHQL_HEAD_OID" >&2
@@ -1076,13 +1074,13 @@ if ! grep -Fq "${GRAPHQL_HEAD_OID}"$'\t'"refs/heads/main" "$TMP_DIR/git-ls-remot
   exit 1
 fi
 
-log "cloning seeded Git repository through Astro"
+log "cloning seeded Git repository through Vue shell"
 GIT_SMOKE_CLONE="$TMP_DIR/comtrya-clone"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   clone "$FRONTEND_URL/git/comtrya/comtrya.git" "$GIT_SMOKE_CLONE" \
   >"$TMP_DIR/git-clone.log" 2>&1 || {
   sed -n '1,200p' "$TMP_DIR/git-clone.log" >&2 || true
-  fail "git clone through Astro failed"
+  fail "git clone through Vue shell failed"
 }
 test -f "$GIT_SMOKE_CLONE/README.md" || fail "git clone did not fetch README.md"
 CLONED_HEAD_OID="$(git -C "$GIT_SMOKE_CLONE" rev-parse HEAD)"
@@ -1101,81 +1099,83 @@ git -C "$GIT_SMOKE_CLONE" \
   fetch origin main \
   >"$TMP_DIR/git-fetch.log" 2>&1 || {
   sed -n '1,200p' "$TMP_DIR/git-fetch.log" >&2 || true
-  fail "git fetch through Astro failed"
+  fail "git fetch through Vue shell failed"
 }
 git -C "$GIT_SMOKE_CLONE" \
   -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
   fetch origin refs/heads/ui/repository-intelligence:refs/remotes/origin/ui/repository-intelligence \
   >"$TMP_DIR/git-fetch-branch.log" 2>&1 || {
   sed -n '1,200p' "$TMP_DIR/git-fetch-branch.log" >&2 || true
-  fail "git branch-specific fetch through Astro failed"
+  fail "git branch-specific fetch through Vue shell failed"
 }
 git -C "$GIT_SMOKE_CLONE" rev-parse refs/remotes/origin/ui/repository-intelligence \
   >"$TMP_DIR/git-fetch-branch-rev.log" || fail "branch-specific fetch did not create remote ref"
-log "ok - Git clone/fetch through Astro"
+log "ok - Git clone/fetch through Vue shell"
 
-expect_status "Git receive-pack fails closed through Astro" 501 "$TMP_DIR/git-receive-pack.json" \
+expect_status "Git receive-pack fails closed through Vue shell" 501 "$TMP_DIR/git-receive-pack.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   "$FRONTEND_URL/git/comtrya/comtrya.git/info/refs?service=git-receive-pack"
-json_assert "Git receive-pack fails closed through Astro" "$TMP_DIR/git-receive-pack.json" \
+json_assert "Git receive-pack fails closed through Vue shell" "$TMP_DIR/git-receive-pack.json" \
   'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "git_receive_pack" && json.errors[0].message.includes("receive-pack")'
 
 expect_status "workspace homepage renders" 200 "$TMP_DIR/home.html" \
   "$FRONTEND_URL/"
-expect_contains "workspace homepage has home-shell mount" "$TMP_DIR/home.html" \
-  'data-smoke="home-shell"'
+expect_contains "workspace homepage serves Vue shell" "$TMP_DIR/home.html" \
+  "Comtrya Shell v3"
 
 REPO_STATUS="$(curl -sS -o "$TMP_DIR/repo-two-segment.html" -w '%{http_code}' "$FRONTEND_URL/r/comtrya/comtrya")" \
   || fail "repo route request failed"
 if [[ "$REPO_STATUS" == "200" ]]; then
-  expect_contains "/r/comtrya/comtrya has repo-dashboard mount" "$TMP_DIR/repo-two-segment.html" \
-    'data-smoke="repo-dashboard"'
+  expect_contains "/r/comtrya/comtrya serves Vue shell" "$TMP_DIR/repo-two-segment.html" \
+    "Comtrya Shell v3"
   log "ok - /r/comtrya/comtrya returns 200 (seed two-segment)"
 elif [[ "$REPO_STATUS" == "404" ]]; then
   expect_status "/r/comtrya resolves (single-segment fallback)" 200 "$TMP_DIR/repo-one-segment.html" \
     "$FRONTEND_URL/r/comtrya"
-  expect_contains "/r/comtrya has repo-dashboard mount" "$TMP_DIR/repo-one-segment.html" \
-    'data-smoke="repo-dashboard"'
+  expect_contains "/r/comtrya serves Vue shell" "$TMP_DIR/repo-one-segment.html" \
+    "Comtrya Shell v3"
   log "ok - /r/comtrya returns 200 (single-segment)"
 else
   fail "unexpected status from /r/comtrya/comtrya: $REPO_STATUS"
 fi
 
-expect_status "unknown repo path returns 404" 404 "$TMP_DIR/repo-unknown.html" \
+expect_status "unknown repo path serves Vue fallback" 200 "$TMP_DIR/repo-unknown.html" \
   "$FRONTEND_URL/r/no-such-repo-anywhere"
+expect_contains "unknown repo path serves Vue shell" "$TMP_DIR/repo-unknown.html" \
+  "Comtrya Shell v3"
 
 expect_status "/x/pulls/ mounts extension page" 200 "$TMP_DIR/ext-pulls.html" \
   "$FRONTEND_URL/x/pulls/"
-expect_contains "/x/pulls/ has extension-page mount" "$TMP_DIR/ext-pulls.html" \
-  'data-smoke="extension-page"'
+expect_contains "/x/pulls/ serves Vue shell" "$TMP_DIR/ext-pulls.html" \
+  "Comtrya Shell v3"
 
 expect_status "/x/issues/ mounts extension page" 200 "$TMP_DIR/ext-issues.html" \
   "$FRONTEND_URL/x/issues/"
-expect_contains "/x/issues/ has extension-page mount" "$TMP_DIR/ext-issues.html" \
-  'data-smoke="extension-page"'
+expect_contains "/x/issues/ serves Vue shell" "$TMP_DIR/ext-issues.html" \
+  "Comtrya Shell v3"
 
 expect_status "/x/epics/ mounts extension page" 200 "$TMP_DIR/ext-epics.html" \
   "$FRONTEND_URL/x/epics/"
-expect_contains "/x/epics/ has extension-page mount" "$TMP_DIR/ext-epics.html" \
-  'data-smoke="extension-page"'
+expect_contains "/x/epics/ serves Vue shell" "$TMP_DIR/ext-epics.html" \
+  "Comtrya Shell v3"
 
-expect_status "unknown /x/ prefix returns 404" 404 "$TMP_DIR/ext-bogus.html" \
+expect_status "unknown /x/ prefix serves Vue fallback" 200 "$TMP_DIR/ext-bogus.html" \
   "$FRONTEND_URL/x/bogus-not-installed/"
+expect_contains "unknown /x/ prefix serves Vue shell" "$TMP_DIR/ext-bogus.html" \
+  "Comtrya Shell v3"
 
-INSTANCE_LOCATION="$(curl -sSI "$FRONTEND_URL/instance" -w '' 2>/dev/null | grep -i '^location:' | awk '{print $2}' | tr -d '\r\n')" \
-  || true
-if ! echo "$INSTANCE_LOCATION" | grep -q '#instance'; then
-  fail "/instance did not redirect to /#instance, got location: $INSTANCE_LOCATION"
-fi
-log "ok - /instance redirects to /#instance"
+expect_status "instance page renders" 200 "$TMP_DIR/instance.html" \
+  "$FRONTEND_URL/instance"
+expect_contains "/instance serves Vue shell" "$TMP_DIR/instance.html" \
+  "Comtrya Shell v3"
 
 expect_status "new-repo page renders" 200 "$TMP_DIR/new-repo.html" \
   "$FRONTEND_URL/new"
-expect_contains "/new has new-repo-shell mount" "$TMP_DIR/new-repo.html" \
-  'data-smoke="new-repo-shell"'
+expect_contains "/new serves Vue shell" "$TMP_DIR/new-repo.html" \
+  "Comtrya Shell v3"
 
 NEW_REPO_PATH="rawkode/hello/rawkode"
-expect_status "createRepository mutation through Astro" 200 "$TMP_DIR/create-repo.json" \
+expect_status "createRepository mutation through Vue shell" 200 "$TMP_DIR/create-repo.json" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path } } }\",\"variables\":{\"input\":{\"path\":\"$NEW_REPO_PATH\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1184,8 +1184,8 @@ json_assert "createRepository mutation returns nested-path repo" "$TMP_DIR/creat
 
 expect_status "newly-created nested repo path resolves" 200 "$TMP_DIR/new-repo-resolved.html" \
   "$FRONTEND_URL/r/$NEW_REPO_PATH"
-expect_contains "newly-created nested repo path has repo-dashboard mount" "$TMP_DIR/new-repo-resolved.html" \
-  'data-smoke="repo-dashboard"'
+expect_contains "newly-created nested repo path serves Vue shell" "$TMP_DIR/new-repo-resolved.html" \
+  "Comtrya Shell v3"
 
 expect_status "createRepository conflict on duplicate path" 409 "$TMP_DIR/create-repo-dup.json" \
   -H "content-type: application/json" \
@@ -1540,7 +1540,7 @@ expect_status "pulls.close rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json
 
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="file://$DATA_DIR/repositories/comtrya/comtrya.git"
-expect_status "importRepository (clone) mutation through Astro" 200 "$TMP_DIR/import-repo.json" \
+expect_status "importRepository (clone) mutation through Vue shell" 200 "$TMP_DIR/import-repo.json" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path defaultBranch importedFrom } } }\",\"variables\":{\"input\":{\"path\":\"$IMPORT_REPO_PATH\",\"cloneFromUrl\":\"$IMPORT_SOURCE_URL\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1549,8 +1549,8 @@ json_assert "imported repo carries clone source and inferred default branch" "$T
 
 expect_status "imported repo path resolves" 200 "$TMP_DIR/import-repo-resolved.html" \
   "$FRONTEND_URL/r/$IMPORT_REPO_PATH"
-expect_contains "imported repo path has repo-dashboard mount" "$TMP_DIR/import-repo-resolved.html" \
-  'data-smoke="repo-dashboard"'
+expect_contains "imported repo path serves Vue shell" "$TMP_DIR/import-repo-resolved.html" \
+  "Comtrya Shell v3"
 
 log "checking imported repo is reachable through Git smart HTTP"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
@@ -1579,7 +1579,7 @@ if [[ "$ONESHOT" == "1" ]]; then
   exit 0
 fi
 
-log "Astro frontend: $FRONTEND_URL"
+log "Vue shell: $FRONTEND_URL"
 log "Rust server: $BACKEND_URL"
 log "press Ctrl-C to stop both processes"
 wait "$FRONTEND_PID"

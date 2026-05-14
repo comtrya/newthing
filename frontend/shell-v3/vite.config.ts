@@ -13,8 +13,11 @@ const kernelProxy = (): ProxyOptions => ({
   },
 });
 const kernelProxyTable = (): Record<string, ProxyOptions> => ({
+  "/api/v1": kernelProxy(),
+  "/auth": kernelProxy(),
   "/graphql": kernelProxy(),
   "/_extensions": kernelProxy(),
+  "/git": kernelProxy(),
   "/healthz": kernelProxy(),
   "/readyz": kernelProxy(),
   "/events/session": kernelProxy(),
