@@ -12,9 +12,18 @@ const kernelProxy = (): ProxyOptions => ({
     });
   },
 });
+const kernelProxyTable = (): Record<string, ProxyOptions> => ({
+  "/graphql": kernelProxy(),
+  "/_extensions": kernelProxy(),
+  "/healthz": kernelProxy(),
+  "/readyz": kernelProxy(),
+  "/events/session": kernelProxy(),
+  "/events": kernelProxy(),
+});
 
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
+  appType: "spa",
   plugins: [vue()],
   resolve: {
     alias: {
@@ -24,14 +33,11 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 5173,
-    proxy: {
-      "/graphql": kernelProxy(),
-      "/_extensions": kernelProxy(),
-      "/healthz": kernelProxy(),
-      "/readyz": kernelProxy(),
-      "/events/session": kernelProxy(),
-      "/events": kernelProxy(),
-    },
+    proxy: kernelProxyTable(),
+  },
+  preview: {
+    host: "127.0.0.1",
+    proxy: kernelProxyTable(),
   },
   build: {
     outDir: "dist",
