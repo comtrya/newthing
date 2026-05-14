@@ -177,11 +177,11 @@ Settled in `docs/v3-decisions.md`. Summary:
 - [x] Move collection declarations from `ensure_schema` to per-extension manifests' `contributes.collections` - *`ext_issues`, `ext_epics`, `ext_pull_requests`, and `ext_checks` now declare their storage collections and indexes in `manifest.json`; core-only collections are the only declarations remaining in kernel code.*
 - [x] Generate `schema.json` from manifests at install time, not via hardcoded JSON literal - *startup loads extensions first, collects their manifest storage declarations, and writes `extensions/storage/schema.json` from typed declarations rather than an inline JSON blob.*
 - [x] Delete `EXTENSION_STORAGE_MIGRATIONS` if unused after the rewrite - *removed the migration constant and the `migrationsApplied` schema field; `rg EXTENSION_STORAGE_MIGRATIONS crates/server/src/main.rs` returns zero hits.*
-- [ ] Delete every dead helper / constant in `main.rs` (manual audit + `cargo +nightly udeps`)
-- [ ] Delete every `#[allow(dead_code)]` survivor
-- [ ] `cargo clippy --workspace -- -D warnings` clean
-- [ ] Record `main.rs` line count before/after; expect a multi-thousand-line reduction
-- [ ] Update deletion inventory — final pass
+- [x] Delete every dead helper / constant in `main.rs` (manual audit + `cargo +nightly udeps`) - *removed production-only leftovers including `Runtime::{close_issue,issue_by_id}`, `ExtensionRuntimeOutput` helper/index impls, generated `all_routes`, unused resolver/build helpers, and the legacy string matcher; `cargo +nightly udeps` completed with "All deps seem to have been used."*
+- [x] Delete every `#[allow(dead_code)]` survivor - *`rg '#\[allow\(dead_code\)\]' crates extensions` returns zero hits after removing the last generated/git-http/OCI survivors.*
+- [x] `cargo clippy --workspace -- -D warnings` clean - *passed after the M12 cleanup.*
+- [x] Record `main.rs` line count before/after; expect a multi-thousand-line reduction - *recorded in the deletion inventory: M12 cleanup reduced `main.rs` from 9883 lines / 341 functions at `6df5e68` to 9811 lines / 333 functions; net from M11 is +313 lines because manifest-driven storage/bootstrap tests landed in the same milestone.*
+- [x] Update deletion inventory — final pass - *refreshed `docs/v3-deletion-inventory.md` for M12 storage rewrites, dead-code cleanup, `matches_op` deletion, and current line counts.*
 
 ## M13 — Final verification + docs
 - [ ] Add smoke check: `find extensions/first-party -name '*.wat'` returns empty

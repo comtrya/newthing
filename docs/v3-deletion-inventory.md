@@ -2,24 +2,24 @@
 
 Every artifact slated for removal during the v3 cutover, with the milestone that retires it. Updated as each milestone deletes its rows.
 
-Baseline at audit: `crates/server/src/main.rs` is **8983 lines / 337 functions**. Current after the M11 resolver cleanup: **9498 lines / 310 functions**. Track shrinkage in the M4/M5/M6/M11/M12 cleanup commits.
+Baseline at audit: `crates/server/src/main.rs` is **8983 lines / 337 functions**. Current after the M12 cleanup: **9811 lines / 333 functions**. M12's cleanup slice reduced `main.rs` from **9883 lines / 341 functions** at `6df5e68` to **9811 lines / 333 functions**; the net increase from M11 is the manifest-driven storage/bootstrap runtime and tests added in the same milestone.
 
-## Dispatch — `matches_op` arms in `crates/server/src/main.rs`
+## Dispatch — former `matches_op` arms in `crates/server/src/main.rs`
 
-The audit listed 29 hand-written arms. After M6, 10 residual core/kernel arms live in the dispatch block at `main.rs:1580–1607`; the 8 `ext_issues`, 8 `ext_epics`, and 3 `ext_pull_requests` rows are struck through below. `ext_checks` had no residual `matches_op` arms in this table by M5; its GraphQL record/list fields now route through generated WASM dispatch.
+The audit listed 29 hand-written string-match arms. By M12, `matches_op` itself is deleted and `graphql_post` routes by one parsed root field: generated WASM dispatch first, then the residual kernel-owned fallback roots (`createRepository`, `relations.*`, `comments.*`) via a direct `match` in `main.rs:1472–1519`. The 8 `ext_issues`, 8 `ext_epics`, and 3 `ext_pull_requests` rows are struck through below. `ext_checks` had no residual string-match arms by M5; its GraphQL record/list fields route through generated WASM dispatch.
 
 | Op | Arm line | Handler fn | Handler lines | Owner | Dies in |
 |----|---------:|-----------|--------------:|-------|---------|
-| `createRepository` | 1580 | `create_repository_mutation` | 2098–2160 | core | retained (kernel-owned; routed through dispatch table in M3) |
-| `relations.create` | 1583 | `relations_create_mutation` | 1920–1961 | kernel | retained (kernel-owned; routes through `wasm_host::wit_relations` in M6) |
-| `relations.delete` | 1586 | `relations_delete_mutation` | 1963–1993 | kernel | retained, see above |
-| `relations.outgoing` | 1589 | `relations_outgoing_query` | 1995–2026 | kernel | retained, see above |
-| `relations.incoming` | 1592 | `relations_incoming_query` | 2028–2059 | kernel | retained, see above |
-| `relations.between` | 1595 | `relations_between_query` | 2061–2096 | kernel | retained, see above |
-| `comments.thread` | 1598 | `comments_thread_query` | 1751–1781 | kernel | retained (kernel-owned; routes through `wasm_host::wit_comments` in M6) |
-| `comments.create` | 1601 | `comments_create_mutation` | 1783–1827 | kernel | retained, see above |
-| `comments.update` | 1604 | `comments_update_mutation` | 1829–1870 | kernel | retained, see above |
-| `comments.delete` | 1607 | `comments_delete_mutation` | 1872–1912 | kernel | retained, see above |
+| `createRepository` | 1488 | `create_repository_mutation` | 1967–2046 | core | retained as kernel-owned fallback after generated dispatch miss |
+| `relations.create` | 1489 | `relations_create_mutation` | 1789–1830 | kernel | retained as kernel-owned fallback; WIT host relation imports back extension calls |
+| `relations.delete` | 1492 | `relations_delete_mutation` | 1832–1862 | kernel | retained, see above |
+| `relations.outgoing` | 1495 | `relations_outgoing_query` | 1864–1895 | kernel | retained, see above |
+| `relations.incoming` | 1498 | `relations_incoming_query` | 1897–1928 | kernel | retained, see above |
+| `relations.between` | 1501 | `relations_between_query` | 1930–1965 | kernel | retained, see above |
+| `comments.thread` | 1504 | `comments_thread_query` | 1623–1653 | kernel | retained as kernel-owned fallback; WIT host comment imports back extension calls |
+| `comments.create` | 1507 | `comments_create_mutation` | 1655–1699 | kernel | retained, see above |
+| `comments.update` | 1510 | `comments_update_mutation` | 1701–1742 | kernel | retained, see above |
+| `comments.delete` | 1513 | `comments_delete_mutation` | 1744–1787 | kernel | retained, see above |
 | ~~`issues.create`~~ | ~~2251~~ | ~~`issues_create_mutation`~~ | ~~2680–2735~~ | ext_issues | ~~**M4**~~ deleted in M4 |
 | ~~`issues.close`~~ | ~~2254~~ | ~~`issues_close_mutation`~~ | ~~2736–2765~~ | ext_issues | ~~**M4**~~ deleted in M4 |
 | ~~`issues.reopen`~~ | ~~2257~~ | ~~`issues_reopen_mutation`~~ | ~~2766–2791~~ | ext_issues | ~~**M4**~~ deleted in M4 |
@@ -40,9 +40,7 @@ The audit listed 29 hand-written arms. After M6, 10 residual core/kernel arms li
 | ~~`pulls.merge`~~ | ~~2187~~ | ~~`pulls_merge_mutation`~~ | ~~2254–2291~~ | ext_pull_requests | ~~**M5**~~ deleted in M5 |
 | ~~`pulls.close`~~ | ~~2190~~ | ~~`pulls_close_mutation`~~ | ~~2293–2326~~ | ext_pull_requests | ~~**M5**~~ deleted in M5 |
 
-The dispatch block itself (`graphql_post` body, lines 1522–1575) was rewritten in **M3** to consult the generated dispatch table first; the residual relations/comments/createRepository arms remain as legacy fallbacks after a generated-table miss.
-
-`fn matches_op` itself (line 1678) remains only for those residual kernel fallback arms. Final removal is tracked by M13 once the generated table is the only handler-code entry point.
+The dispatch block itself (`graphql_post` body, lines 1472–1521) was rewritten in **M3** to consult the generated dispatch table first, and **M12** deleted the `matches_op` substring helper entirely. `rg 'matches_op\(' crates/server/src/main.rs` returns zero hits.
 
 ## Legacy GraphQL snapshot path
 
@@ -50,10 +48,10 @@ These power the Astro frontend's monolithic snapshot rendering. They go away whe
 
 | Item | Line | Notes | Dies in |
 |------|-----:|-------|---------|
-| `fn graphql_response` | 2135 | Catch-all that returns the whole-kernel demo snapshot when no op matches. Vue still uses focused fields from this response for retained kernel surfaces. | retained until M12/M13 final dispatch cleanup |
-| `Runtime::demo_payload` (its caller) | 1003 | Builds the monolithic payload from runtime state + seeded extension docs, but now uses `extension_runtime_payload()` instead of resolver branches. | retained until M12/M13 final dispatch cleanup |
+| `fn graphql_response` | 2048 | Catch-all that returns the whole-kernel demo snapshot when no op matches. Vue still uses focused fields from this response for retained kernel surfaces. | retained until M13 final docs/smoke cleanup |
+| `Runtime::demo_payload` (its caller) | 949 | Builds the monolithic payload from runtime state + seeded extension docs, but now uses `extension_runtime_payload()` instead of resolver branches. | retained until M13 final docs/smoke cleanup |
 | ~~`fn extension_resolver_payload`~~ | ~~1074~~ | ~~Legacy resolver dispatch switched on `"ext_pull_requests"`, `"ext_checks"`, `"ext_epics"`, `"ext_issues"`, and `"ext_code_browser"` for Astro's snapshot `extensionResolvers`.~~ | ~~**M11**~~ deleted in M11 |
-| `fn graphql_stream` | 2318 | SSE stream still reads the legacy kernel event log via `Runtime::read_events`; WIT storage events are separate until the frontend/event-stream cleanup. | retained for now |
+| `fn graphql_stream` | 2230 | SSE stream still reads the legacy kernel event log via `Runtime::read_events`; WIT storage events are separate until the frontend/event-stream cleanup. | retained for now |
 
 ## Resolver helpers tied to deleted handlers
 
@@ -135,15 +133,25 @@ Retained:
 
 ## Storage seed coupling
 
-These items in `ExtensionRuntimeStore` hardcode today's collection shapes and are rewritten in **M12**:
+These items in `ExtensionRuntimeStore` hardcoded the old collection shapes. M12 rewrote the schema source of truth to manifest declarations plus typed core declarations, and extension-owned demo records now bootstrap through WASM create operations before the demo metadata is merged back into storage.
 
 | Item | Line | Notes |
 |------|-----:|-------|
-| `const EXTENSION_STORAGE_MIGRATIONS` | 3844 | retained only if still referenced after rewrite |
-| `ExtensionRuntimeStore::ensure_schema` | 3895 | embeds workspaces, repositories, pull_requests, check_runs, extension_installations, activity_events with hardcoded indexes — must move to per-extension `contributes.collections` |
-| `ExtensionRuntimeStore::seed_from_demo_payload` | 3960 | tightly coupled to today's collection names |
-| `fn seed_extension_documents` | 4177 | same |
-| `fn with_repository_id` | 4398 | seed helper; dead-code audit in M12 |
+| ~~`const EXTENSION_STORAGE_MIGRATIONS`~~ | ~~3844~~ | deleted in M12; `migrationsApplied` was removed from `schema.json` |
+| `ExtensionRuntimeStore::ensure_schema` | 4032 | retained, but now writes schema from `CORE_STORAGE_COLLECTIONS` plus per-extension `manifest.json` `contributes.collections`; no hardcoded extension collection JSON remains |
+| `ExtensionRuntimeStore::seed_from_demo_payload` | 4050 | retained, but now seeds kernel-owned documents directly and routes extension-owned demo records through manifest-declared WASM create ops |
+| `fn seed_extension_documents` | 4338 | retained as manifest-driven seed planning; collection source/route metadata comes from `demoSeed`, not switch logic |
+| ~~`fn with_repository_id`~~ | ~~4398~~ | deleted in M12; replaced by `with_repository_scope` at line 4643 |
+
+## M12 dead-code audit
+
+- Removed production-only `Runtime::close_issue` / `Runtime::issue_by_id`; tests now use explicit test helpers.
+- Removed `ExtensionRuntimeOutput` convenience methods and `Index` impl; call sites use the `records` map directly.
+- Removed the generated `all_routes()` table and per-extension generated `ROUTES_*` constants after deleting substring dispatch.
+- Removed `HostManifest.permissions`, `MintError::Forbidden`, `UlidMinter.authorized`, `LoadedExtension.root`, the unused WIT `type_owner_name` helper, and obsolete receive-pack/pack helpers from production builds.
+- `rg '#\[allow\(dead_code\)\]' crates extensions` returns zero hits.
+- `cargo clippy --workspace -- -D warnings` passes.
+- `cargo +nightly udeps` passes with `All deps seem to have been used.`
 
 ## `ext_code_browser` status
 
@@ -167,4 +175,4 @@ Each milestone's commit must update this file:
 - **Update line numbers** for rows it didn't delete but that shifted.
 - **Re-record** the `main.rs` line count.
 
-End state: every "Dies in" row is struck through. The baseline 8983-line `main.rs` should shrink by several thousand lines once M4/M5/M6/M11/M12 are complete.
+End state: every "Dies in" row is struck through. The expected multi-thousand-line `main.rs` shrink did not materialize by M12 because the cutover added the typed WASM runtime, manifest-driven storage bootstrap, and regression tests in the same file; the recorded M12 cleanup delta is still explicit above.
