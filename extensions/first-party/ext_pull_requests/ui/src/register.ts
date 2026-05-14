@@ -1,4 +1,5 @@
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
+import { bindPrCommands } from "./pr-commands";
 import PullsDetail from "./PullsDetail.vue";
 import PullsOverview from "./PullsOverview.vue";
 import PullsQueue from "./PullsQueue.vue";
@@ -62,6 +63,7 @@ const extension: ExtensionDefinition = {
       element: PULLS_DETAIL_TAG,
       requiredPermission: "pull-requests.read",
     });
+    bindPrCommands();
   },
 };
 

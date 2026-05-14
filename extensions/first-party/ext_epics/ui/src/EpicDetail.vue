@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useShortcuts } from "@comtrya/sdk-vue";
 import {
   changeEpicState,
   epicByRef,
   epicProgress,
   issuesInEpic,
 } from "./api";
+import { renderMarkdown } from "./markdown";
+import {
+  resolveIssues,
+  classifyIssueAuthor,
+  type ResolvedIssue,
+} from "./issue-rows";
+import { ensureEpicDetailStyles } from "./epic-detail-styles";
 import CustomElementHost from "./CustomElementHost.vue";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -35,7 +43,9 @@ const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const loadedEpic = ref<Epic | null>(props.epic ?? null);
 const progress = ref<EpicProgress | null>(null);
-const issueRefs = ref<string[]>([]);
+const issues = ref<ResolvedIssue[]>([]);
+const focusedIssueIdx = ref<number | null>(null);
+
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 const workspaceId = computed(
   () => props.workspaceId
@@ -52,9 +62,47 @@ const availableStates = computed(
 const totalIssues = computed(
   () => (progress.value?.issuesOpen ?? 0) + (progress.value?.issuesClosed ?? 0),
 );
+const percent = computed(() => Math.max(0, Math.min(100, progress.value?.percentComplete ?? 0)));
+const openCount = computed(() => issues.value.filter((i) => i.state !== "CLOSED").length);
+const closedCount = computed(() => issues.value.filter((i) => i.state === "CLOSED").length);
+const renderedBody = computed(() => renderMarkdown(epic.value?.bodyMarkdown ?? ""));
 const canLoad = computed(() => graphClient.value && Boolean(epicId.value));
+const ownerLabel = computed(() => {
+  const ref = epic.value?.ownerRef;
+  if (!ref) return null;
+  if (ref.startsWith("comtrya://user/")) return ref.slice("comtrya://user/".length);
+  if (ref.startsWith("comtrya://agent/")) return `${ref.slice("comtrya://agent/".length)} (agent)`;
+  return ref;
+});
+const createdLabel = computed(() => relativeTime(epic.value?.createdAt));
 
-onMounted(loadEpic);
+onMounted(() => {
+  ensureEpicDetailStyles();
+  void loadEpic();
+});
+
+const moveFocus = (delta: 1 | -1) => {
+  if (issues.value.length === 0) return;
+  const next = focusedIssueIdx.value === null
+    ? 0
+    : Math.max(0, Math.min(issues.value.length - 1, focusedIssueIdx.value + delta));
+  focusedIssueIdx.value = next;
+  void nextTick(() => focusIssueRow(next));
+};
+
+useShortcuts({
+  j: (event) => { event.preventDefault(); moveFocus(1); },
+  ArrowDown: (event) => { event.preventDefault(); moveFocus(1); },
+  k: (event) => { event.preventDefault(); moveFocus(-1); },
+  ArrowUp: (event) => { event.preventDefault(); moveFocus(-1); },
+  Enter: (event) => {
+    if (focusedIssueIdx.value === null) return;
+    const issue = issues.value[focusedIssueIdx.value];
+    if (!issue) return;
+    event.preventDefault();
+    openIssue(issue);
+  },
+});
 watch(
   () => [graphClient.value, props.epic, workspaceId.value, epicId.value],
   () => void loadEpic(),
@@ -71,7 +119,7 @@ async function loadEpic(): Promise<void> {
   if (!canLoad.value || !graphClient.value) {
     loadedEpic.value = null;
     progress.value = null;
-    issueRefs.value = [];
+    issues.value = [];
     loadState.value = "error";
     error.value = "epic-detail: missing params";
     return;
@@ -85,7 +133,7 @@ async function loadEpic(): Promise<void> {
   } catch (caught) {
     loadedEpic.value = null;
     progress.value = null;
-    issueRefs.value = [];
+    issues.value = [];
     loadState.value = "error";
     error.value = caught instanceof Error ? caught.message : String(caught);
   }
@@ -94,16 +142,24 @@ async function loadEpic(): Promise<void> {
 async function loadRelated(): Promise<void> {
   if (!graphClient.value || !epic.value) {
     progress.value = null;
-    issueRefs.value = [];
+    issues.value = [];
     return;
   }
   const ref = epicRef(epic.value);
-  const [progressResult, issuesResult] = await Promise.allSettled([
+  const [progressResult, refsResult] = await Promise.allSettled([
     epicProgress(graphClient.value, ref),
     issuesInEpic(graphClient.value, ref),
   ]);
   progress.value = progressResult.status === "fulfilled" ? progressResult.value : null;
-  issueRefs.value = issuesResult.status === "fulfilled" ? issuesResult.value : [];
+  const refs = refsResult.status === "fulfilled" ? refsResult.value : [];
+  issues.value = await resolveIssues(refs);
+  // Sort: open first, then closed; both by number desc so newer floats up.
+  issues.value.sort((a, b) => {
+    const aOpen = a.state !== "CLOSED";
+    const bOpen = b.state !== "CLOSED";
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
+    return (b.number ?? 0) - (a.number ?? 0);
+  });
 }
 
 async function markState(state: EpicState): Promise<void> {
@@ -123,6 +179,32 @@ async function markState(state: EpicState): Promise<void> {
 function labelForState(state: EpicState): string {
   return state.toLowerCase().replace("_", " ");
 }
+
+function openIssue(issue: ResolvedIssue): void {
+  if (issue.href) window.location.assign(issue.href);
+}
+
+function focusIssueRow(idx: number): void {
+  const list = document.querySelector(".epic-detail [data-smoke=\"epic-issues-list\"]");
+  if (!list) return;
+  const rows = list.querySelectorAll<HTMLElement>(".epic-issue-row");
+  rows[idx]?.focus();
+}
+
+function relativeTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return null;
+  const diff = Date.now() - then;
+  const min = 60_000;
+  const hr = 60 * min;
+  const day = 24 * hr;
+  if (diff < min) return "just now";
+  if (diff < hr) return `${Math.floor(diff / min)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hr)}h ago`;
+  if (diff < 30 * day) return `${Math.floor(diff / day)}d ago`;
+  return new Date(iso).toISOString().slice(0, 10);
+}
 </script>
 
 <template>
@@ -139,161 +221,136 @@ function labelForState(state: EpicState): string {
     </p>
 
     <template v-else>
-      <header>
-        <h1>{{ epic.title }}</h1>
-        <div class="epic-detail-meta">
+      <header class="epic-header">
+        <p class="epic-overline">epic</p>
+        <h1 class="epic-title">{{ epic.title }}</h1>
+        <div class="epic-meta">
           <span class="epic-pill" :class="tone.className">{{ tone.label }}</span>
-          <span>created {{ epic.createdAt ?? "unknown" }}</span>
-          <span v-if="epic.targetDate">target {{ epic.targetDate }}</span>
+          <span v-if="epic.projectName" class="epic-chip tone-blue" :title="`Scoped to project ${epic.projectName}`">
+            <span class="chip-glyph">◇</span>{{ epic.projectName }}
+          </span>
+          <span v-for="label in epic.labels" :key="label" class="epic-chip tone-teal">
+            {{ label }}
+          </span>
+          <span v-if="ownerLabel" class="epic-chip tone-grey" title="Owner">
+            <span class="chip-glyph">@</span>{{ ownerLabel }}
+          </span>
+          <span v-if="epic.targetDate" class="epic-chip tone-grey">
+            target {{ epic.targetDate }}
+          </span>
+          <span v-if="createdLabel" class="epic-meta-time">opened {{ createdLabel }}</span>
         </div>
       </header>
 
+      <section class="epic-progress" data-smoke="epic-progress" v-if="progress || issues.length > 0">
+        <div class="epic-progress-head">
+          <span class="epic-progress-stat">
+            <strong>{{ progress?.issuesClosed ?? closedCount }}</strong>
+            <span class="stat-of">/ {{ totalIssues || issues.length }}</span>
+            <span class="stat-label">closed</span>
+          </span>
+          <span class="epic-progress-sep">·</span>
+          <span class="epic-progress-stat">
+            <strong>{{ percent }}</strong>
+            <span class="stat-label">% complete</span>
+          </span>
+          <span v-if="(progress?.childEpicsOpen ?? 0) + (progress?.childEpicsClosed ?? 0) > 0" class="epic-progress-sep">·</span>
+          <span v-if="(progress?.childEpicsOpen ?? 0) + (progress?.childEpicsClosed ?? 0) > 0" class="epic-progress-stat">
+            <strong>{{ progress?.childEpicsOpen ?? 0 }}</strong>
+            <span class="stat-label">child epics open</span>
+          </span>
+        </div>
+        <div class="epic-progress-bar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
+          <div class="epic-progress-fill" :style="{ width: percent + '%' }"></div>
+        </div>
+      </section>
+
       <article
-        class="epic-body"
+        v-if="renderedBody"
+        class="epic-body prose"
         :data-epic-id="epic.id"
         data-smoke="epic-detail-main"
-      >
-        {{ epic.bodyMarkdown || "(no description)" }}
-      </article>
-
-      <section class="epic-section" data-smoke="epic-progress">
-        <h3>Progress</h3>
-        <p v-if="progress" class="epic-line">
-          {{ progress.issuesClosed ?? 0 }}/{{ totalIssues }} issues closed ·
-          {{ progress.percentComplete ?? 0 }}%
-        </p>
-        <p v-else class="epic-line muted">progress unavailable</p>
-      </section>
+        v-html="renderedBody"
+      ></article>
+      <p v-else class="epic-body muted">No description yet.</p>
 
       <section class="epic-section" data-smoke="epic-issues">
-        <h3>Issues in this epic</h3>
-        <div v-if="issueRefs.length === 0" class="epic-line muted">
-          no issues linked yet
-        </div>
-        <ul v-else>
-          <li v-for="issueRefValue in issueRefs" :key="issueRefValue">
-            <CustomElementHost
-              tag="comtrya-resource-card"
-              :attributes="{ ref: issueRefValue }"
-              :properties="{ ref: issueRefValue, comtryaClient: graphClient }"
-            />
+        <header class="epic-section-head">
+          <h3>Issues in this epic</h3>
+          <span class="epic-section-count">
+            <span :data-zero="openCount === 0">{{ openCount }}</span> open
+            <span class="sep">·</span>
+            <span :data-zero="closedCount === 0">{{ closedCount }}</span> closed
+          </span>
+        </header>
+        <p v-if="issues.length === 0" class="epic-line muted">
+          No issues linked yet. Link issues via the issue's "part of epic" relation.
+        </p>
+        <ul v-else class="epic-issues-list" data-smoke="epic-issues-list">
+          <li
+            v-for="(issue, idx) in issues"
+            :key="issue.ref"
+            class="epic-issue-row"
+            :class="[`state-${issue.state.toLowerCase()}`, { focused: focusedIssueIdx === idx }]"
+            tabindex="0"
+            @click="openIssue(issue)"
+            @keydown.enter.prevent="openIssue(issue)"
+            @keydown.space.prevent="openIssue(issue)"
+            @focus="focusedIssueIdx = idx"
+          >
+            <span class="row-state" :data-state="issue.state">
+              <span v-if="issue.state === 'CLOSED'">●</span>
+              <span v-else>○</span>
+            </span>
+            <span class="row-number">#{{ issue.number ?? "—" }}</span>
+            <span class="row-title">{{ issue.title }}</span>
+            <span class="row-trailing">
+              <span v-if="issue.projectName" class="epic-chip tone-blue compact" :title="issue.projectName">
+                <span class="chip-glyph">◇</span>{{ issue.projectName }}
+              </span>
+              <span v-for="label in issue.labels" :key="label" class="epic-chip tone-teal compact">
+                {{ label }}
+              </span>
+              <span
+                v-if="issue.authorRef"
+                class="row-author"
+                :data-author-kind="classifyIssueAuthor(issue.authorRef).kind"
+                :title="issue.authorRef"
+              >
+                <span class="author-glyph">{{ classifyIssueAuthor(issue.authorRef).glyph }}</span>
+                {{ classifyIssueAuthor(issue.authorRef).label }}
+              </span>
+            </span>
           </li>
         </ul>
+        <p v-if="issues.length > 0" class="epic-kbd-hint muted">
+          <kbd>j</kbd> / <kbd>k</kbd> move · <kbd>↵</kbd> open
+        </p>
       </section>
 
-      <div class="epic-actions">
-        <button
-          v-for="state in availableStates"
-          :key="state"
-          type="button"
-          :disabled="actionState === 'submitting'"
-          @click="markState(state)"
-        >
-          mark {{ labelForState(state) }}
-        </button>
-      </div>
-      <p v-if="actionError" class="epic-line warn" role="alert">{{ actionError }}</p>
+      <section class="epic-actions-section">
+        <h3 class="epic-actions-heading">Change state</h3>
+        <div class="epic-actions">
+          <button
+            v-for="state in availableStates"
+            :key="state"
+            type="button"
+            :disabled="actionState === 'submitting'"
+            @click="markState(state)"
+          >
+            mark {{ labelForState(state) }}
+          </button>
+        </div>
+        <p v-if="actionError" class="epic-line warn" role="alert">{{ actionError }}</p>
+      </section>
 
-      <CustomElementHost
-        tag="comtrya-comment-thread"
-        :attributes="{ target: epicRef(epic) }"
-        :properties="{ target: epicRef(epic), comtryaClient: graphClient }"
-      />
+      <section class="epic-comments">
+        <CustomElementHost
+          tag="comtrya-comment-thread"
+          :attributes="{ target: epicRef(epic) }"
+          :properties="{ target: epicRef(epic), comtryaClient: graphClient }"
+        />
+      </section>
     </template>
   </main>
 </template>
-
-<style scoped>
-.epic-detail {
-  max-width: 720px;
-  display: grid;
-  gap: 16px;
-  padding: 24px 0;
-}
-
-.epic-detail h1 {
-  margin: 0;
-  font-family: var(--display, system-ui);
-}
-
-.epic-detail-meta,
-.epic-line,
-.epic-actions button,
-.epic-section {
-  font-family: var(--mono, monospace);
-}
-
-.epic-detail-meta {
-  margin-top: 4px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  color: var(--ink-faint, #888);
-  font-size: 12px;
-}
-
-.epic-pill {
-  padding: 1px 8px;
-  border: 1px solid currentColor;
-}
-
-.epic-state-good {
-  color: var(--ink-go, #008873);
-}
-
-.epic-state-warn {
-  color: var(--ink-warn, #c2410c);
-}
-
-.epic-state-muted,
-.muted {
-  color: var(--ink-faint, #888);
-}
-
-.epic-body {
-  min-height: 96px;
-  padding: 12px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
-  white-space: pre-wrap;
-}
-
-.epic-section {
-  display: grid;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.epic-section h3 {
-  margin: 0;
-  font-family: var(--display, system-ui);
-  font-size: 13px;
-}
-
-.epic-section ul {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.epic-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.epic-actions button {
-  padding: 4px 12px;
-  cursor: pointer;
-}
-
-.epic-line {
-  margin: 4px 0;
-  font-size: 12px;
-}
-
-.warn {
-  color: var(--ink-warn, #c2410c);
-}
-</style>

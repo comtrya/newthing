@@ -261,7 +261,7 @@ kbd {
 
 .nav a {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid var(--rule-light);
@@ -278,6 +278,11 @@ kbd {
   font-weight: 650;
 }
 
+.nav a.disabled {
+  color: var(--ink-fainter);
+  pointer-events: none;
+}
+
 .nav .num {
   color: var(--ink-faint);
   font-family: var(--mono);
@@ -286,6 +291,39 @@ kbd {
 
 .nav a.router-link-active .num {
   color: var(--accent-orange);
+}
+
+.nav .label-text {
+  min-width: 0;
+}
+
+.nav .badge {
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 0 5px;
+  letter-spacing: 0.04em;
+}
+
+.nav a.router-link-active .badge {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.chip.help {
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.chip.help kbd {
+  border: 1px solid var(--ink);
+  padding: 0 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  margin-left: 4px;
 }
 
 .shell-app .topbar-actions code {
@@ -455,6 +493,27 @@ kbd {
   font-weight: 600;
   overflow-wrap: anywhere;
   text-decoration: none;
+}
+
+.shell-app .home-repo-list .repo-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.shell-app .home-repo-list .repo-meta code {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--rule-light);
+  padding: 0 5px;
+  color: var(--ink-soft);
+}
+
+.shell-app .home-repo-list .repo-meta span {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
 }
 
 .shell-app .repo-state {

@@ -19,19 +19,31 @@ const props = withDefaults(defineProps<{
   state?: string | null;
   title?: string;
   showNewLink?: boolean;
+  /** Scope listing to this Project; new-epic link stamps it on create. */
+  projectName?: string;
 }>(), {
   workspaceId: DEFAULT_WORKSPACE_ID,
   state: null,
   title: "Epics",
   showNewLink: true,
+  projectName: undefined,
 });
 
 const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
 const loadedEpics = ref<Epic[]>(props.epics ?? []);
-const epics = computed(() => props.epics ?? loadedEpics.value);
+const epics = computed(() => {
+  const all = props.epics ?? loadedEpics.value;
+  if (!props.projectName) return all;
+  return all.filter((epic) => epic.projectName === props.projectName);
+});
 const graphClient = computed(() => props.client ?? props.comtryaClient);
-const newEpicHref = computed(() => buildNewEpicHref(props.workspaceId));
+const newEpicHref = computed(() => {
+  const base = buildNewEpicHref(props.workspaceId);
+  return props.projectName
+    ? `${base}&projectName=${encodeURIComponent(props.projectName)}`
+    : base;
+});
 
 onMounted(loadEpics);
 watch(

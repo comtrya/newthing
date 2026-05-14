@@ -14,6 +14,7 @@ interface WitEpic {
   labels?: string[] | null;
   createdAt?: string | null;
   closedAt?: string | null;
+  projectName?: string | null;
 }
 
 function opValue<T>(result: OpResult<unknown>, label: string): T {
@@ -52,6 +53,7 @@ function normalizeEpic(value: WitEpic): Epic {
     labels: value.labels ?? [],
     createdAt: value.createdAt ?? null,
     closedAt: value.closedAt ?? null,
+    projectName: value.projectName ?? null,
   };
 }
 
@@ -108,6 +110,7 @@ export async function createEpic(
     workspaceId: string;
     title: string;
     bodyMarkdown?: string | null;
+    projectName?: string | null;
   },
 ): Promise<Epic> {
   const result = await extEpicsXEpics.createEpic({
@@ -118,6 +121,7 @@ export async function createEpic(
     targetDate: null,
     labels: [],
     parentEpicRef: null,
+    projectName: input.projectName ?? null,
   });
   return normalizeEpic(opValue<WitEpic>(result, "createEpic"));
 }

@@ -1,0 +1,534 @@
+<script setup lang="ts">
+/**
+ * Kernel-discovered Projects for the current repository.
+ *
+ * Reads `repository.comtryaConfig.projects` (populated by the
+ * `cuengine`-backed evaluator) and renders one card per Project with
+ * its root path, labels, owners, and every per-extension config slice
+ * (`pulls`, `issues`, `docs`, `builds`, `agents`, etc.). The kernel
+ * doesn't know what these fields mean — extensions register them via
+ * `contributes.cueSchemas` — but the panel surfaces them generically.
+ */
+
+import { computed, onMounted, ref, watch } from "vue";
+import { getGraphQLClient } from "@comtrya/sdk-core";
+import { projectHref } from "../route-paths";
+
+interface ComtryaProject {
+  name?: string;
+  root?: string;
+  labels?: string[];
+  owners?: string[];
+  declaredAt?: string;
+  implicit?: boolean;
+  [key: string]: unknown;
+}
+
+interface ComtryaConfig {
+  projects?: ComtryaProject[];
+  instances?: unknown[];
+  error?: string | null;
+  note?: string | null;
+}
+
+interface RepositoryFile {
+  path?: string;
+  kind?: string;
+}
+
+interface ResolvedRepository {
+  comtryaConfig?: ComtryaConfig | null;
+  files?: RepositoryFile[];
+}
+
+interface RepositoryPayload {
+  workspace?: {
+    repositoryByPath?: ResolvedRepository | null;
+  };
+  repository?: ResolvedRepository;
+}
+
+const props = defineProps<{
+  repositoryPath?: string;
+  segments?: string[];
+}>();
+
+const loadState = ref<"loading" | "ready" | "error">("loading");
+const config = ref<ComtryaConfig | null>(null);
+const repoFiles = ref<RepositoryFile[]>([]);
+const loadError = ref<string | null>(null);
+
+const projects = computed<ComtryaProject[]>(() => config.value?.projects ?? []);
+const instanceCount = computed(() => config.value?.instances?.length ?? 0);
+const reservedKeys = new Set([
+  "name",
+  "root",
+  "labels",
+  "owners",
+  "declaredAt",
+  "implicit",
+]);
+
+onMounted(() => void load());
+watch(() => props.repositoryPath, () => void load());
+
+async function load(): Promise<void> {
+  loadState.value = "loading";
+  loadError.value = null;
+  try {
+    const segments = props.segments ?? [];
+    const data = segments.length > 0
+      ? await getGraphQLClient().query<RepositoryPayload>(
+          `query Q($segments: [String!]!) {
+            workspace { repositoryByPath(segments: $segments) { comtryaConfig files { path kind } } }
+          }`,
+          { segments },
+        )
+      : await getGraphQLClient().query<RepositoryPayload>(
+          `{ repository { comtryaConfig files { path kind } } }`,
+        );
+    const resolved = data.workspace?.repositoryByPath ?? data.repository ?? null;
+    config.value = resolved?.comtryaConfig ?? null;
+    repoFiles.value = resolved?.files ?? [];
+    loadState.value = "ready";
+  } catch (caught) {
+    loadState.value = "error";
+    loadError.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+interface DocSurface {
+  key: string;
+  label: string;
+  scopePath: string;
+  files: string[];
+}
+
+function joinPath(root: string, sub: string): string {
+  const a = (root ?? "").trim().replace(/\/+$/g, "").replace(/^\.\/?/, "");
+  const b = (sub ?? "").trim().replace(/^\/+/g, "").replace(/^\.\//, "");
+  if (!a) return b;
+  if (!b || b === ".") return a;
+  return `${a}/${b}`;
+}
+
+function projectDocs(project: ComtryaProject): DocSurface[] {
+  const docs = project.docs;
+  if (!docs || typeof docs !== "object" || Array.isArray(docs)) return [];
+  const root = (project.root ?? "").replace(/\/+$/g, "");
+  return Object.entries(docs as Record<string, unknown>).map(([key, raw]) => {
+    const entry = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const subPath = typeof entry.path === "string" ? entry.path : "";
+    const label = typeof entry.label === "string" ? entry.label : key;
+    const scopePath = joinPath(root, subPath).replace(/\/+$/g, "");
+    const prefix = scopePath ? `${scopePath}/` : "";
+    const files = repoFiles.value
+      .filter((file) => {
+        if (!file.path) return false;
+        if (!file.path.endsWith(".mdx") && !file.path.endsWith(".md")) return false;
+        return prefix ? file.path.startsWith(prefix) : true;
+      })
+      .map((file) => file.path!)
+      .sort();
+    return { key, label, scopePath, files };
+  });
+}
+
+function projectClaims(project: ComtryaProject): Array<{ key: string; value: unknown }> {
+  return Object.entries(project)
+    .filter(([key]) => !reservedKeys.has(key))
+    .map(([key, value]) => ({ key, value }));
+}
+
+function summariseValue(value: unknown): string {
+  if (value === null || value === undefined) return "·";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(summariseValue).join(" · ");
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return "{}";
+    return entries
+      .map(([k, v]) => `${k}: ${summariseValue(v)}`)
+      .join(" · ");
+  }
+  return String(value);
+}
+
+function ownerLabel(owner: string): string {
+  return owner.replace(/^@/, "");
+}
+
+function authorKindOfOwner(_owner: string): string {
+  return "human";
+}
+</script>
+
+<template>
+  <section class="projects-panel" data-smoke="projects-panel">
+    <header class="projects-head">
+      <div class="title-block">
+        <h2>Projects</h2>
+        <span class="muted">
+          <template v-if="loadState === 'loading'">discovering…</template>
+          <template v-else-if="loadState === 'error'">unavailable</template>
+          <template v-else-if="projects.length === 1 && projects[0]?.implicit">
+            1 implicit project · add a <code>package comtrya</code> CUE
+            file anywhere in the repo to declare more
+          </template>
+          <template v-else>
+            {{ projects.length }} project<template v-if="projects.length !== 1">s</template>
+            · evaluated from {{ instanceCount }}
+            <code>package comtrya</code> instance<template v-if="instanceCount !== 1">s</template>
+          </template>
+        </span>
+      </div>
+    </header>
+
+    <p v-if="loadState === 'error'" class="muted error" role="alert">{{ loadError }}</p>
+    <p v-else-if="config?.error" class="muted error" role="alert">{{ config.error }}</p>
+    <p v-else-if="config?.note" class="muted">{{ config.note }}</p>
+
+    <ol v-if="projects.length > 0" class="projects-list">
+      <li v-for="project in projects" :key="project.name" class="project-card">
+        <header class="project-card-head">
+          <div class="project-identity">
+            <h3>
+              <RouterLink
+                v-if="props.segments && project.name"
+                :to="projectHref(props.segments, project.name)"
+              >
+                {{ project.name }}
+              </RouterLink>
+              <template v-else>{{ project.name }}</template>
+            </h3>
+            <code v-if="project.root" class="project-root">{{ project.root }}/</code>
+            <code v-else class="project-root">&lt;repo root&gt;</code>
+            <span v-if="project.implicit" class="implicit-badge">implicit</span>
+          </div>
+          <div class="project-meta">
+            <span v-if="project.labels?.length" class="labels">
+              <span v-for="label in project.labels" :key="label" class="label">{{ label }}</span>
+            </span>
+            <span v-if="project.owners?.length" class="owners">
+              <span class="owners-prefix">owners</span>
+              <span
+                v-for="owner in project.owners"
+                :key="owner"
+                class="owner"
+                :data-author-kind="authorKindOfOwner(owner)"
+              >
+                {{ ownerLabel(owner) }}
+              </span>
+            </span>
+          </div>
+        </header>
+
+        <!-- Docs are owned by ext_docs and rendered in its own widget;
+             ProjectsPanel only surfaces non-doc claims here. -->
+        <div v-if="projectClaims(project).filter(c => c.key !== 'docs').length > 0" class="project-claims">
+          <article
+            v-for="claim in projectClaims(project).filter(c => c.key !== 'docs')"
+            :key="claim.key"
+            class="claim"
+          >
+            <header>
+              <code class="claim-key">{{ claim.key }}</code>
+            </header>
+            <ul v-if="claim.value && typeof claim.value === 'object' && !Array.isArray(claim.value)" class="claim-fields">
+              <li
+                v-for="(fieldValue, fieldKey) in (claim.value as Record<string, unknown>)"
+                :key="fieldKey"
+              >
+                <code class="field-key">{{ fieldKey }}</code>
+                <span class="field-value">{{ summariseValue(fieldValue) }}</span>
+              </li>
+            </ul>
+            <p v-else class="claim-scalar">{{ summariseValue(claim.value) }}</p>
+          </article>
+        </div>
+      </li>
+    </ol>
+  </section>
+</template>
+
+<style scoped>
+.projects-panel {
+  display: grid;
+  gap: 14px;
+  font-family: var(--sans, system-ui);
+}
+
+.projects-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1.5px solid var(--ink, #111);
+  padding-bottom: 6px;
+}
+
+.title-block {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.projects-panel h2 {
+  margin: 0;
+  font-family: var(--display, system-ui);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.muted {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-faint, #68645c);
+}
+
+.muted code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-soft, #2c2b28);
+  background: var(--paper-tint, #f2efe7);
+  padding: 0 4px;
+}
+
+.muted.error {
+  color: var(--accent-err, #c9341c);
+}
+
+.projects-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.project-card {
+  border: 1.5px solid var(--ink, #111);
+  background: var(--paper, #fffdf8);
+  display: grid;
+}
+
+.project-card-head {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+}
+
+.project-identity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.project-identity h3 {
+  margin: 0;
+  font-family: var(--display, system-ui);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.project-root {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-soft, #2c2b28);
+}
+
+.implicit-badge {
+  border: 1px solid var(--ink-faint, #68645c);
+  padding: 0 6px;
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: baseline;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}
+
+.labels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.label {
+  border: 1px solid currentColor;
+  padding: 0 5px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.owners {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.owners-prefix {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.owner {
+  color: var(--ink-soft, #2c2b28);
+}
+
+.project-claims {
+  display: grid;
+  gap: 0;
+}
+
+.claim {
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  padding: 10px 14px;
+}
+
+.claim:last-child {
+  border-bottom: 0;
+}
+
+.claim header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.claim-key {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink, #111);
+}
+
+.claim-source {
+  font-size: 10px;
+}
+
+.claim-fields {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.claim-fields li {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.3fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.field-key {
+  color: var(--ink-faint, #68645c);
+}
+
+.field-value {
+  color: var(--ink-soft, #2c2b28);
+  overflow-wrap: anywhere;
+}
+
+.claim-scalar {
+  margin: 0;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-soft, #2c2b28);
+}
+
+.no-claims {
+  padding: 10px 14px;
+}
+
+.project-docs {
+  display: grid;
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+}
+
+.project-docs:last-child {
+  border-bottom: 0;
+}
+
+.docs-surface {
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  padding: 10px 14px;
+}
+
+.docs-surface:last-child {
+  border-bottom: 0;
+}
+
+.docs-surface-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+}
+
+.docs-surface-key {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-blue, #1d55a6);
+}
+
+.docs-surface-label {
+  font-family: var(--display, system-ui);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.docs-surface-scope {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-soft, #2c2b28);
+  background: var(--paper-tint, #f2efe7);
+  padding: 0 5px;
+}
+
+.docs-surface-count {
+  margin-left: auto;
+}
+
+.docs-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.docs-files li {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.docs-file-path {
+  color: var(--ink-soft, #2c2b28);
+}
+</style>

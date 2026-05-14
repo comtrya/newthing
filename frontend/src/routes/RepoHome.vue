@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
+import ProjectsPanel from "../components/ProjectsPanel.vue";
 import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
 import { applyUserLayoutFor } from "../user-layout";
@@ -70,6 +71,7 @@ const repoContext = computed<Record<string, unknown>>(() => ({
   repositoryGroups: repository.value?.groups ?? props.groups,
   repositoryName: repository.value?.name ?? props.repo,
   repositoryPath: repository.value?.path ?? repoPath.value,
+  repositorySegments: repoSegments.value,
 }));
 
 watch(
@@ -139,6 +141,8 @@ async function fetchRepositoryIdentity(
       <span>{{ repository?.openPullRequests ?? 0 }} open PRs</span>
       <span v-if="repository?.updated">{{ repository.updated }}</span>
     </section>
+
+    <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
 
     <section class="repo-slot-stack">
       <section

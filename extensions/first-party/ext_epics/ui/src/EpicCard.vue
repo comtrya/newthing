@@ -96,6 +96,14 @@ async function loadProgress(): Promise<void> {
         <div class="epic-card-title">
           <span class="epic-pill" :class="tone.className">{{ tone.label }}</span>
           <a class="epic-title-link" :href="epicHref(epic)">{{ epic.title }}</a>
+          <span
+            v-if="epic.projectName"
+            class="epic-project"
+            :title="`Scoped to project ${epic.projectName}`"
+          >
+            <span class="project-glyph">◇</span>
+            {{ epic.projectName }}
+          </span>
         </div>
         <div v-if="progress" class="epic-meta">
           <span>{{ progress.issuesClosed ?? 0 }}/{{ totalIssues }} issues</span>
@@ -144,6 +152,22 @@ async function loadProgress(): Promise<void> {
 .epic-pill {
   padding: 1px 8px;
   border: 1px solid currentColor;
+  font-size: 10px;
+}
+
+.epic-project {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--accent-blue, #1d55a6);
+  border: 1px solid currentColor;
+  padding: 0 6px;
+}
+
+.epic-project .project-glyph {
   font-size: 10px;
 }
 

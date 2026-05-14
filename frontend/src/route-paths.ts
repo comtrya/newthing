@@ -5,5 +5,15 @@ export const shellRoutePaths = {
   settings: "/settings",
   health: "/health",
   repoHome: "/r/:groups+/:repo",
+  projectHome: "/r/:groups+/:repo/p/:project",
   extensionRoute: "/x/:prefix/:rest*",
 } as const;
+
+/** Build a Project home URL. */
+export function projectHref(
+  segments: string[],
+  projectName: string,
+): string {
+  const repoPath = segments.map(encodeURIComponent).join("/");
+  return `/r/${repoPath}/p/${encodeURIComponent(projectName)}`;
+}

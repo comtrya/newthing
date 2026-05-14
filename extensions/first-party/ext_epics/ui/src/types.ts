@@ -14,6 +14,8 @@ export interface Epic {
   labels?: string[] | null;
   createdAt?: string | null;
   closedAt?: string | null;
+  /** Project this epic belongs to, stamped from the create input. */
+  projectName?: string | null;
 }
 
 export interface EpicProgress {

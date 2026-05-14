@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
 import NewRepository from "./routes/NewRepository.vue";
+import ProjectHome from "./routes/ProjectHome.vue";
 import RepoHome from "./routes/RepoHome.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
 import { shellRoutePaths } from "./route-paths";
@@ -43,6 +44,15 @@ export const shellRoutes: RouteRecordRaw[] = [
     redirect: () => ({ path: "/x/issues" }),
   },
   {
+    // The project route is more specific than repoHome and must
+    // appear FIRST so vue-router matches it before the catch-all
+    // `/r/:groups+/:repo` pattern.
+    path: shellRoutePaths.projectHome,
+    name: "project-home",
+    component: ProjectHome,
+    props: projectRouteProps,
+  },
+  {
     path: shellRoutePaths.repoHome,
     name: "repo-home",
     component: RepoHome,
@@ -67,6 +77,14 @@ function repoRouteProps(route: RouteLocationNormalizedLoaded) {
   return {
     groups: paramSegments(route.params.groups),
     repo: paramValue(route.params.repo),
+  };
+}
+
+function projectRouteProps(route: RouteLocationNormalizedLoaded) {
+  return {
+    groups: paramSegments(route.params.groups),
+    repo: paramValue(route.params.repo),
+    project: paramValue(route.params.project),
   };
 }
 

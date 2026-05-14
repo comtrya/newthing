@@ -30,6 +30,9 @@ interface WitIssue {
   createdAt?: string | null;
   updatedAt?: string | null;
   closedAt?: string | null;
+  projectName?: string | null;
+  labels?: string[] | null;
+  closeOnMerge?: boolean | null;
 }
 
 interface OpenIssueInput {
@@ -37,6 +40,9 @@ interface OpenIssueInput {
   repositoryId?: string | null;
   title: string;
   bodyMarkdown?: string | null;
+  projectName?: string | null;
+  labels?: string[] | null;
+  closeOnMerge?: boolean | null;
 }
 
 function opValue<T>(result: OpResult<unknown>, label: string): T {
@@ -88,9 +94,11 @@ function normalizeIssue(value: WitIssue): Issue {
     state: issueState(value.state),
     stateReason: value.stateReason ?? null,
     authorRef: value.authorRef ?? null,
-    labels: [],
+    labels: value.labels ?? [],
     createdAt: value.createdAt ?? null,
     closedAt: value.closedAt ?? null,
+    projectName: value.projectName ?? null,
+    closeOnMerge: value.closeOnMerge ?? null,
   };
 }
 
@@ -135,6 +143,9 @@ export async function openIssue(input: OpenIssueInput): Promise<Issue> {
     repository: repositoryUri(input.workspaceId, input.repositoryId),
     title: input.title,
     bodyMarkdown: input.bodyMarkdown ?? "",
+    projectName: input.projectName ?? null,
+    labels: input.labels ?? [],
+    closeOnMerge: input.closeOnMerge ?? null,
   });
   return normalizeIssue(opValue<WitIssue>(result, "openIssue"));
 }

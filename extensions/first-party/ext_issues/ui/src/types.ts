@@ -15,6 +15,14 @@ export interface Issue {
   labels?: string[] | null;
   createdAt?: string | null;
   closedAt?: string | null;
+  /** Project this issue belongs to, stamped from the open-issue input. */
+  projectName?: string | null;
+  /**
+   * Stamped from the Project's `issues.closeOnMerge` CUE config at open
+   * time. `false` opts the issue out of the PR merge reactor's
+   * auto-close path. `null`/undefined keeps the historical default.
+   */
+  closeOnMerge?: boolean | null;
 }
 
 export interface Relation {

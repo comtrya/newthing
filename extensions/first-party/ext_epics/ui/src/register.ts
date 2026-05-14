@@ -1,6 +1,7 @@
 import { buildExtensionUrl } from "@comtrya/sdk-core";
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
 import { createEpic, listEpics } from "./api";
+import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
 import EpicsList from "./EpicsList.vue";
@@ -110,6 +111,7 @@ const extension: ExtensionDefinition = {
       element: EPIC_DETAIL_TAG,
       requiredPermission: "epics.read",
     });
+    bindEpicCommands(host.client);
   },
 };
 
@@ -126,27 +128,41 @@ function defineEpicNewElement(): void {
       routeParams?: ExtensionRouteParams;
 
       connectedCallback(): void {
-        this.replaceChildren(epicNewForm(workspaceIdFromRoute(this.routeParams)));
+        const ctx = newEpicRouteContext(this.routeParams);
+        this.replaceChildren(epicNewForm(ctx));
       }
     },
   );
 }
 
-function workspaceIdFromRoute(routeParams?: ExtensionRouteParams): string {
-  return (
-    new URLSearchParams(window.location.search).get("workspaceId") ??
-    routeParams?.params?.workspaceId ??
-    DEFAULT_WORKSPACE_ID
-  );
+interface NewEpicContext {
+  workspaceId: string;
+  projectName: string | null;
 }
 
-function epicNewForm(workspaceId: string): HTMLElement {
+function newEpicRouteContext(routeParams?: ExtensionRouteParams): NewEpicContext {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    workspaceId:
+      params.get("workspaceId") ??
+      routeParams?.params?.workspaceId ??
+      DEFAULT_WORKSPACE_ID,
+    projectName:
+      params.get("projectName") ??
+      routeParams?.params?.projectName ??
+      null,
+  };
+}
+
+function epicNewForm(context: NewEpicContext): HTMLElement {
   const main = document.createElement("main");
   main.className = "epic-new";
   main.dataset.smoke = "epic-new";
 
   const heading = document.createElement("h3");
-  heading.textContent = "New epic";
+  heading.textContent = context.projectName
+    ? `New epic in ${context.projectName}`
+    : "New epic";
 
   const form = document.createElement("form");
   const titleInput = document.createElement("input");
@@ -171,7 +187,8 @@ function epicNewForm(workspaceId: string): HTMLElement {
     submit.disabled = true;
     errorBox.hidden = true;
     void createEpic(undefined, {
-      workspaceId,
+      workspaceId: context.workspaceId,
+      projectName: context.projectName,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
     })

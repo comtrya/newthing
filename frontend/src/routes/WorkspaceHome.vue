@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import ActivityStream from "../components/ActivityStream.vue";
 import SlotMount from "../components/SlotMount.vue";
 import type { WorkspaceHomeSlotName } from "../workspace-home-slots";
 
@@ -10,6 +11,9 @@ interface RepositorySummary {
   groups: string[];
   description: string | null;
   openPullRequests: number | null;
+  defaultBranch?: string | null;
+  visibility?: string | null;
+  updated?: string | null;
 }
 
 interface WorkspaceHomePayload {
@@ -34,7 +38,10 @@ const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
   instance { id name capabilities { extensionRuntime } }
   workspace {
     name
-    repositories { id name path groups description openPullRequests }
+    repositories {
+      id name path groups description openPullRequests
+      defaultBranch visibility updated
+    }
   }
   extensionInstallations { id routePrefix }
 }`;
@@ -115,6 +122,22 @@ function openPullRequestText(repo: RepositorySummary): string {
   const count = repo.openPullRequests ?? 0;
   return `${count} open PR${count === 1 ? "" : "s"}`;
 }
+
+function relativeUpdated(value: string | null | undefined): string {
+  if (!value) return "";
+  const then = Date.parse(value);
+  if (Number.isNaN(then)) return value;
+  const diff = Math.max(0, Date.now() - then);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  if (diff < minute) return "just now";
+  if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+  if (diff < week) return `${Math.floor(diff / day)}d ago`;
+  return `${Math.floor(diff / week)}w ago`;
+}
 </script>
 
 <template>
@@ -152,6 +175,8 @@ function openPullRequestText(repo: RepositorySummary): string {
 
     <section class="home-grid">
       <div class="home-spine" data-smoke="home-spine">
+        <ActivityStream />
+
         <SlotMount
           :name="topSlot.name"
           :label="topSlot.label"
@@ -173,7 +198,12 @@ function openPullRequestText(repo: RepositorySummary): string {
             <li v-for="repo in repositories" :key="repo.id">
               <a :href="`/r/${repo.path}`">{{ repo.path }}</a>
               <p v-if="repo.description">{{ repo.description }}</p>
-              <span>{{ openPullRequestText(repo) }}</span>
+              <span class="repo-meta">
+                <code v-if="repo.defaultBranch">{{ repo.defaultBranch }}</code>
+                <span v-if="repo.visibility">{{ repo.visibility.toLowerCase() }}</span>
+                <span>{{ openPullRequestText(repo) }}</span>
+                <span v-if="repo.updated">updated {{ relativeUpdated(repo.updated) }}</span>
+              </span>
             </li>
           </ul>
         </section>
