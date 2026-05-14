@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_docs",
+  "extension": "docs",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_docs/assets/index.js",
+    "entryIntegrity": "sha256-a8f0e525fbe26135769f70a707c307c7dccc97d5d53b1e2661c7fa079161f49b",
+    "styles": []
+  },
+  "permissions": [
+    "workspace.read"
+  ]
+}

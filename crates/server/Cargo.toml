@@ -20,3 +20,4 @@ sha2 = "0.10.9"
 tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread", "sync"] }
 wasmtime = { version = "43.0.2", default-features = false, features = ["anyhow", "component-model", "cranelift", "runtime", "std", "wat"] }
 jsonschema = { version = "0.18", default-features = false }
+cuengine = "0.40"

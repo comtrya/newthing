@@ -1,0 +1,27 @@
+// ext_docs — per-extension WIT.
+//
+// Owns the "repo-resident docs" surface. Repos declare zero or more
+// doc types per Project via the CUE schema this extension registers in
+// `manifest.contributes.cueSchemas`. The kernel walks the repo's
+// `package comtrya` configuration and exposes the result on
+// `repository.comtryaConfig`; ext_docs's UI reads it.
+//
+// No backend ops are needed in 0.1.0 — the data path is kernel-owned
+// (CUE evaluation + repo file tree). `ping` exists only because the
+// kernel requires every first-party extension to ship a real WASM
+// component with at least one exported interface op.
+
+package comtrya:ext-docs@0.1.0;
+
+interface docs {
+  use comtrya:platform/types@0.1.0.{error};
+
+  /// Liveness ping. 0.2.0 will add typed ops for front-matter
+  /// extraction once we move parsing off the UI.
+  ping: func() -> result<string, error>;
+}
+
+world ext-docs {
+  include comtrya:platform/extension@0.1.0;
+  export docs;
+}

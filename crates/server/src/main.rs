@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 
+mod cue_config;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -286,6 +287,19 @@ struct ExtensionRuntimeRecord {
     ui_manifest: PathBuf,
     #[serde(skip)]
     route_prefix: Option<String>,
+    /// CUE snippets this extension registers to participate in the repo's
+    /// `package comtrya` config. The kernel is agnostic of what `docs`,
+    /// `builds`, `agents`, etc. mean — extensions declare the shape via
+    /// these snippets and the kernel unifies them into the repo's config
+    /// before evaluation.
+    #[serde(skip)]
+    cue_schemas: Vec<CueSchemaDeclaration>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub(crate) struct CueSchemaDeclaration {
+    pub(crate) id: String,
+    pub(crate) snippet: String,
 }
 
 #[derive(Debug)]
@@ -1085,6 +1099,7 @@ impl Runtime {
             "files": git.files,
             "blobs": git.blobs,
             "diff": git.diff,
+            "comtryaConfig": git.comtrya_config,
             "pullRequests": pull_requests,
             "checks": checks,
             "extensions": extensions,
@@ -1093,7 +1108,24 @@ impl Runtime {
     }
 
     fn git_snapshot(&self) -> Result<GitDemoSnapshot, String> {
-        git_demo_snapshot(&self.demo_repository)
+        git_demo_snapshot(&self.demo_repository, &self.collected_cue_schemas())
+    }
+
+    /// Walk every loaded extension and emit one `ExtensionSchema` per
+    /// registered CUE snippet. Used by `cue_config` to unify these with
+    /// the repo's `package comtrya` declarations before evaluation.
+    fn collected_cue_schemas(&self) -> Vec<cue_config::ExtensionSchema> {
+        let mut out = Vec::new();
+        for record in self.extension_runtime.values() {
+            for schema in &record.cue_schemas {
+                out.push(cue_config::ExtensionSchema {
+                    extension_id: record.id.clone(),
+                    schema_id: schema.id.clone(),
+                    snippet: schema.snippet.clone(),
+                });
+            }
+        }
+        out
     }
 
     fn extension_manifest_body(&self, extension: &str) -> Result<Option<String>, String> {
@@ -2385,6 +2417,13 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     repo_obj.insert(key.clone(), value.clone());
                 }
             }
+            // Evaluate this repo's `package comtrya` CUE config — same
+            // pipeline the demo `repository` field uses — so the
+            // Projects panel and ext_docs work for any path-resolved
+            // repository, including the dogfood import.
+            let schemas = state.runtime.collected_cue_schemas();
+            let comtrya_config = cue_config::evaluate_repo_config(&git_dir, "main", &schemas);
+            repo_obj.insert("comtryaConfig".to_string(), comtrya_config);
         }
     }
 
@@ -2946,6 +2985,10 @@ fn typed_repository_payload(demo: &Value) -> Value {
             "diff".to_string(),
             demo.get("diff").cloned().unwrap_or(Value::Null),
         );
+        repository.insert(
+            "comtryaConfig".to_string(),
+            demo.get("comtryaConfig").cloned().unwrap_or(Value::Null),
+        );
     }
     repository
 }
@@ -3210,6 +3253,7 @@ const FIRST_PARTY_EXTENSIONS: &[&str] = &[
     "ext_workspace_home",
     "ext_issues",
     "ext_epics",
+    "ext_docs",
 ];
 
 /// Core verb vocabulary. Extensions can mint additional verbs in their own
@@ -3287,6 +3331,7 @@ struct GitDemoSnapshot {
     files: Vec<Value>,
     blobs: Vec<Value>,
     diff: Value,
+    comtrya_config: Value,
 }
 
 fn init_bare_repository_on_disk(
@@ -3499,6 +3544,16 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
         "frontend/src/main.ts",
         "export function mountRepository() {\n  return \"live refs, commits, trees, blobs, and diffs\";\n}\n\nexport const extensions = [\"pull-requests\", \"issues\", \"checks\"];\n",
     )?;
+    // Minimal CUE module so `cuengine` can evaluate. Real per-Project
+    // CUE files come from the imported source repo (start.sh imports
+    // this codebase as `comtrya/dogfood` at boot); the demo bare repo
+    // intentionally stays sparse so the kernel smoke can prove the
+    // import path end-to-end.
+    write_seed_file(
+        &workdir,
+        "cue.mod/module.cue",
+        "module: \"comtrya.dev/demo\"\nlanguage: version: \"v0.10.0\"\n",
+    )?;
     run_command(
         Command::new("git")
             .arg("-C")
@@ -3614,7 +3669,10 @@ fn validate_demo_repository_refs(repo: &DemoRepositoryRuntime) -> Result<(), Str
     Ok(())
 }
 
-fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, String> {
+fn git_demo_snapshot(
+    repo: &DemoRepositoryRuntime,
+    extension_schemas: &[cue_config::ExtensionSchema],
+) -> Result<GitDemoSnapshot, String> {
     let head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"])?;
     let head = head.trim().to_string();
     let short_head = head.chars().take(12).collect::<String>();
@@ -3629,6 +3687,8 @@ fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, St
         &["diff", "--patch", "--find-renames", "main~1", "main"],
     )
     .unwrap_or_default();
+    let comtrya_config =
+        cue_config::evaluate_repo_config(&repo.git_dir, "main", extension_schemas);
     Ok(GitDemoSnapshot {
         repository: json!({
             "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
@@ -3659,6 +3719,7 @@ fn git_demo_snapshot(repo: &DemoRepositoryRuntime) -> Result<GitDemoSnapshot, St
             "language": "diff",
             "patch": diff_patch
         }),
+        comtrya_config,
     })
 }
 
@@ -3928,7 +3989,8 @@ fn is_text_preview_path(path: &str) -> bool {
         Path::new(path)
             .extension()
             .and_then(|extension| extension.to_str()),
-        Some("md" | "rs" | "ts" | "js" | "json" | "toml" | "cue" | "txt")
+        Some("md" | "mdx" | "rs" | "ts" | "tsx" | "js" | "jsx" | "vue"
+            | "json" | "toml" | "cue" | "yaml" | "yml" | "txt")
     )
 }
 
@@ -3938,12 +4000,15 @@ fn file_kind(path: &str) -> &'static str {
         .and_then(|extension| extension.to_str())
     {
         Some("md") => "markdown",
+        Some("mdx") => "mdx",
         Some("rs") => "rust",
-        Some("ts") => "typescript",
-        Some("js") => "javascript",
+        Some("ts" | "tsx") => "typescript",
+        Some("js" | "jsx") => "javascript",
+        Some("vue") => "vue",
         Some("json") => "json",
         Some("cue") => "cue",
         Some("toml") => "toml",
+        Some("yaml" | "yml") => "yaml",
         _ => "file",
     }
 }
@@ -5036,6 +5101,34 @@ fn storage_collections_from_manifest(
     Ok(parsed)
 }
 
+fn cue_schemas_from_manifest(
+    id: &str,
+    manifest: &Value,
+) -> Result<Vec<CueSchemaDeclaration>, String> {
+    let Some(schemas) = manifest
+        .pointer("/contributes/cueSchemas")
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    let mut parsed = Vec::new();
+    for entry in schemas {
+        let declaration = serde_json::from_value::<CueSchemaDeclaration>(entry.clone())
+            .map_err(|error| format!("{id} contributes.cueSchemas entry invalid: {error}"))?;
+        if declaration.id.is_empty() {
+            return Err(format!("{id} contributes.cueSchemas entry has empty id"));
+        }
+        if declaration.snippet.is_empty() {
+            return Err(format!(
+                "{id} contributes.cueSchemas entry '{}' has empty snippet",
+                declaration.id
+            ));
+        }
+        parsed.push(declaration);
+    }
+    Ok(parsed)
+}
+
 fn relationship_types_from_manifest(
     id: &str,
     manifest: &Value,
@@ -5357,6 +5450,7 @@ fn load_extension_packages(
         }
         let storage_collections = storage_collections_from_manifest(id, &manifest)?;
         let relationship_types = relationship_types_from_manifest(id, &manifest)?;
+        let cue_schemas = cue_schemas_from_manifest(id, &manifest)?;
         registry.register_from_manifest(&root)?;
         if loaded
             .insert(
@@ -5371,6 +5465,7 @@ fn load_extension_packages(
                     root,
                     ui_manifest,
                     route_prefix,
+                    cue_schemas,
                 },
             )
             .is_some()
@@ -6210,7 +6305,7 @@ mod tests {
         let data_dir = temp_dir("demo-repository-snapshot");
         let repo = ensure_demo_repository(&data_dir).unwrap();
 
-        let snapshot = git_demo_snapshot(&repo).unwrap();
+        let snapshot = git_demo_snapshot(&repo, &[]).unwrap();
 
         assert_eq!(snapshot.repository["path"], "comtrya/comtrya");
         assert_eq!(snapshot.repository["defaultBranch"], "main");

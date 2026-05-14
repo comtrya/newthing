@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_docs",
+  "name": "docs",
+  "displayName": "Docs",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_docs.wasm",
+  "witWorld": "ext-docs",
+  "routePrefix": "docs",
+  "ui": { "manifest": "ui/manifest.json" },
+  "runtime": {
+    "resolver": "platform-wit-extension",
+    "outputType": "comtrya.docs/summary.v1"
+  },
+  "contributes": {
+    "cueSchemas": [
+      {
+        "id": "docs",
+        "snippet": "package comtrya\n\n// A reference to a person — by user, agent, or bot URN.\n#Person: {\n  ref?:  =~\"^comtrya://(user|agent|bot|credential)/.+\"\n  name?: string\n}\n\n// Allowed front-matter property types per doc. Users declare which\n// fields each type carries; values in the MDX file's YAML front-matter\n// must validate against this shape. Every doc auto-carries `body`\n// (the MDX body); that field is reserved and need not be declared.\n#DocPropertyType:\n  string |\n  int |\n  bool |\n  #Person |\n  [...string] |\n  [...#Person]\n\n#DocProperties: {\n  [string]: #DocPropertyType\n}\n\n// One doc type. The repo declares many; the slug is the directory\n// under the Project root where files of this type live.\n#DocType: {\n  slug:        string\n  label?:      string\n  description?: string\n  properties?: #DocProperties\n}\n\n// Add `docs` to every #Project, keyed by user-chosen type name\n// (\"adr\", \"rfc\", \"prd\", \"runbook\", \"playbook\", ...).\n#Project: {\n  docs?: [string]: #DocType\n}\n"
+      }
+    ]
+  },
+  "hostImports": [],
+  "allowedEmits": [],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

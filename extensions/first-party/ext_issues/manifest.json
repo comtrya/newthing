@@ -18,6 +18,12 @@
     "outputType": "comtrya.issues/summary.v1"
   },
   "contributes": {
+    "cueSchemas": [
+      {
+        "id": "issues",
+        "snippet": "package comtrya\n\n// Per-Project issue routing. Each Project may declare default labels\n// applied on issue open, plus assignment rules.\n#IssuesPolicy: {\n  defaultLabels?: [...string]\n  autoAssign?:    [...string]\n  closeOnMerge?:  bool | *true\n}\n\n#Project: { issues?: #IssuesPolicy }\n"
+      }
+    ],
     "resourceKinds": [
       { "name": "issue", "prefix": "iss" }
     ],

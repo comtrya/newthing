@@ -4,7 +4,7 @@
 // machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.0;
+package comtrya:ext-epics@0.1.1;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -29,6 +29,10 @@ interface epics {
     created-at: iso-timestamp,
     updated-at: iso-timestamp,
     closed-at: option<iso-timestamp>,
+    // 0.1.1 — Project this epic belongs to, derived from the repo's
+    // `package comtrya` CUE config at create time. Stamped by the UI
+    // when opening from a Project page. `None` for unscoped epics.
+    project-name: option<string>,
   }
 
   record create-epic-input {
@@ -39,6 +43,8 @@ interface epics {
     target-date: option<string>,
     labels: list<string>,
     parent-epic-ref: option<uri>,
+    // 0.1.1 — optional Project scope; same semantics as issues.
+    project-name: option<string>,
   }
 
   record change-state-epic-input {

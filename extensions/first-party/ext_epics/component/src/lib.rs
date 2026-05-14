@@ -43,6 +43,10 @@ struct StoredEpic {
     updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     closed_at: Option<String>,
+    /// Project this epic belongs to, stamped from the create input.
+    /// `None` for unscoped epics (legacy or repo-wide).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    project_name: Option<String>,
 }
 
 impl StoredEpic {
@@ -59,6 +63,7 @@ impl StoredEpic {
             created_at: self.created_at.clone(),
             updated_at: self.updated_at.clone(),
             closed_at: self.closed_at.clone(),
+            project_name: self.project_name.clone(),
         }
     }
 }
@@ -257,6 +262,11 @@ impl EpicsGuest for Component {
         }
         let id = ids::mint("epic")?;
         let now = time::now_iso();
+        let project_name = input
+            .project_name
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
         let stored = StoredEpic {
             id: id.clone(),
             workspace,
@@ -270,6 +280,7 @@ impl EpicsGuest for Component {
             created_at: now.clone(),
             updated_at: now,
             closed_at: None,
+            project_name,
         };
         persist_new(&stored)?;
         let epic_ref = epic_uri(&stored.id);

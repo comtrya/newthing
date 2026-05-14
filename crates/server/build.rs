@@ -224,6 +224,7 @@ fn typed_invoker_fn(id: &str) -> Option<&'static str> {
         "ext_pull_requests" => Some("dispatch_ext_pull_requests"),
         "ext_checks" => Some("dispatch_ext_checks"),
         "ext_workspace_home" => Some("dispatch_ext_workspace_home"),
+        "ext_docs" => Some("dispatch_ext_docs"),
         _ => None,
     }
 }

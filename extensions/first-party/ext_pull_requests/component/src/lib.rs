@@ -6,6 +6,7 @@ mod bindings;
 use bindings::comtrya::platform::events;
 use bindings::comtrya::platform::identity;
 use bindings::comtrya::platform::ids;
+use bindings::comtrya::platform::ops;
 use bindings::comtrya::platform::relations;
 use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
@@ -24,8 +25,21 @@ const PULL_MERGED_EVENT: &str = "dev.comtrya.pull-request.merged";
 const CLOSES_RELATION: &str = "comtrya://rel/com.comtrya.pulls/closes";
 const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
 const CLOSE_ISSUE_MUTATION: &str = "ext_issues/issues.close-issue";
+const BY_REF_ISSUE_OP: &str = "issues.by-ref-issue";
 const MAX_TITLE_LEN: usize = 512;
 const MAX_BODY_LEN: usize = 64 * 1024;
+
+/// Minimal projection of the issue record we need from
+/// `ext_issues/issues.by-ref-issue` to decide whether the reactor
+/// should skip auto-close. We deliberately don't deserialise the
+/// full issue — extra fields are tolerated, missing ones default to
+/// `None`.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueClosePolicySnapshot {
+    #[serde(default)]
+    close_on_merge: Option<bool>,
+}
 
 struct Component;
 
@@ -533,6 +547,13 @@ impl ReactorGuest for Component {
             if issue_id.trim().is_empty() {
                 continue;
             }
+            // CUE-driven policy: ask ext_issues for the issue, and if
+            // `close-on-merge` was stamped `false` at open time, skip
+            // the close. `None` keeps the historical behaviour
+            // (always close).
+            if let Some(false) = issue_close_on_merge(&relation.target) {
+                continue;
+            }
             let reaction_payload = serde_json::to_vec(&CloseIssueReactionPayload {
                 id: issue_id,
                 reason: "completed",
@@ -551,6 +572,17 @@ impl ReactorGuest for Component {
         }
         Ok(reactions)
     }
+}
+
+/// Look up an issue's `close-on-merge` policy via the kernel's
+/// cross-extension op broker. Returns `None` when the field is unset
+/// (legacy / unscoped issue) or any error happens — the caller then
+/// applies the historical default.
+fn issue_close_on_merge(issue_ref: &str) -> Option<bool> {
+    let payload = serde_json::to_vec(issue_ref).ok()?;
+    let response = ops::invoke("ext_issues", BY_REF_ISSUE_OP, &payload).ok()?;
+    let snapshot: IssueClosePolicySnapshot = serde_json::from_slice(&response).ok()?;
+    snapshot.close_on_merge
 }
 
 bindings::export!(Component with_types_in bindings);

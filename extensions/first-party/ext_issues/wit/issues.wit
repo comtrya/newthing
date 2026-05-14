@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.2;
+package comtrya:ext-issues@0.1.5;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -26,6 +26,21 @@ interface issues {
     // Cleared by `reopen-issue`. The GraphQL surface exposes it as
     // `stateReason`.
     state-reason: option<string>,
+    // 0.1.3 — Project name this issue belongs to, derived from the
+    // repo's `package comtrya` CUE config at open time. `None` means
+    // the issue is unscoped (legacy, or repos without a comtrya
+    // config). Project pages filter by this.
+    project-name: option<string>,
+    // 0.1.4 — free-form label set. Opening from a Project page
+    // pre-fills these from the Project's `issues.defaultLabels` CUE
+    // config; mutation/relabel happens via update-labels in 0.2.0.
+    labels: list<string>,
+    // 0.1.5 — opt-out for the PR merge reactor. Mirrors the
+    // `issues.closeOnMerge` field on the Project's `package comtrya`
+    // CUE config: `Some(false)` tells the reactor to skip auto-close
+    // when a merged PR claims to close this issue. `None` keeps the
+    // historical default (close).
+    close-on-merge: option<bool>,
   }
 
   variant issue-state {
@@ -43,6 +58,17 @@ interface issues {
     repository: uri,
     title: string,
     body-markdown: string,
+    // 0.1.3 — optional Project scope. The Project page passes its
+    // own name when a contributor opens an issue from it. The kernel
+    // does not validate this against the repo's CUE config — the
+    // issue is stored as-is — but the UI uses it to scope listing.
+    project-name: option<string>,
+    // 0.1.4 — initial labels. The new-issue form passes the Project's
+    // `issues.defaultLabels` from CUE plus any user-added labels.
+    labels: list<string>,
+    // 0.1.5 — initial closeOnMerge policy. Pre-filled by the new-issue
+    // form from the Project's `issues.closeOnMerge` CUE config.
+    close-on-merge: option<bool>,
   }
 
   record close-issue-input {

@@ -59,6 +59,22 @@ struct StoredIssue {
     closed_by_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     state_reason: Option<String>,
+    /// Project the issue belongs to, derived from the repo's
+    /// `package comtrya` CUE config at open time. Stamped by the UI
+    /// when opening from a Project page; `None` for unscoped issues.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    project_name: Option<String>,
+    /// Free-form labels applied at open time. Pre-filled from the
+    /// Project's `issues.defaultLabels` CUE config when the issue is
+    /// opened from a Project page.
+    #[serde(default)]
+    labels: Vec<String>,
+    /// Opt-out for the PR merge reactor. Stamped at open time from
+    /// the Project's `issues.closeOnMerge` CUE config; the reactor
+    /// reads it via `by-ref-issue` before deciding to call
+    /// `close-issue`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    close_on_merge: Option<bool>,
 }
 
 impl StoredIssue {
@@ -90,6 +106,9 @@ impl StoredIssue {
             closed_at: self.closed_at.clone(),
             closed_by_ref: self.closed_by_ref.clone(),
             state_reason: self.state_reason.clone(),
+            project_name: self.project_name.clone(),
+            labels: self.labels.clone(),
+            close_on_merge: self.close_on_merge,
         }
     }
 }
@@ -539,6 +558,21 @@ impl IssuesGuest for Component {
         let author = identity::current_principal()?;
         let scope = issue_scope(&repository);
         let number = next_issue_number(&issue_counter_key(&repository, &scope))?;
+        let project_name = input
+            .project_name
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let labels: Vec<String> = {
+            let mut seen = std::collections::BTreeSet::new();
+            input
+                .labels
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .filter(|s| seen.insert(s.clone()))
+                .collect()
+        };
         let stored = StoredIssue {
             id: id.clone(),
             repository,
@@ -554,6 +588,9 @@ impl IssuesGuest for Component {
             closed_at: None,
             closed_by_ref: None,
             state_reason: None,
+            project_name,
+            labels,
+            close_on_merge: input.close_on_merge,
         };
         persist_new(&stored)?;
         let issue = stored.to_wit();

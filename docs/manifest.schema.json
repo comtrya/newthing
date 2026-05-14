@@ -55,6 +55,19 @@
       "description": "Identity-only declarations. Slot bindings, routes, and resource-card registrations happen at runtime through the SDK (registerWidget, registerRoute, registerCard) and are not declared here.",
       "additionalProperties": false,
       "properties": {
+        "cueSchemas": {
+          "type": "array",
+          "description": "CUE schema snippets this extension registers with the repo CUE config. The kernel writes each snippet into the materialised repo workdir before evaluating `package comtrya`, so the snippet can constrain or extend per-Project shape (e.g. add `pulls?: #Pulls` to `#Project`).",
+          "items": {
+            "type": "object",
+            "required": ["id", "snippet"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "snippet": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
         "resourceKinds": {
           "type": "array",
           "items": {

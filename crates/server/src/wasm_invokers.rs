@@ -93,12 +93,28 @@ mod ext_workspace_home_bindings {
 
 use ext_workspace_home_bindings::ExtWorkspaceHome;
 
+#[allow(warnings)]
+mod ext_docs_bindings {
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_docs/wit",
+        world: "ext-docs",
+    });
+}
+
+use ext_docs_bindings::ExtDocs;
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenIssueInputJson {
     repository: String,
     title: String,
     body_markdown: String,
+    #[serde(default)]
+    project_name: Option<String>,
+    #[serde(default)]
+    labels: Vec<String>,
+    #[serde(default)]
+    close_on_merge: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -126,6 +142,8 @@ struct CreateEpicInputJson {
     target_date: Option<String>,
     labels: Vec<String>,
     parent_epic_ref: Option<String>,
+    #[serde(default)]
+    project_name: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -354,6 +372,9 @@ pub fn dispatch_ext_issues(
                 repository: parsed.repository,
                 title: parsed.title,
                 body_markdown: parsed.body_markdown,
+                project_name: parsed.project_name,
+                labels: parsed.labels,
+                close_on_merge: parsed.close_on_merge,
             };
             let result = issues
                 .call_open_issue(&mut wasm_store, &wit_input)
@@ -587,6 +608,7 @@ pub fn dispatch_ext_epics(
                 target_date: parsed.target_date,
                 labels: parsed.labels,
                 parent_epic_ref: parsed.parent_epic_ref,
+                project_name: parsed.project_name,
             };
             let result = epics
                 .call_create_epic(&mut wasm_store, &wit_input)
@@ -1208,6 +1230,9 @@ fn issue_to_json(issue: &Issue) -> Value {
         "updatedAt": issue.updated_at,
         "closedAt": issue.closed_at,
         "closedByRef": issue.closed_by_ref,
+        "projectName": issue.project_name,
+        "labels": issue.labels,
+        "closeOnMerge": issue.close_on_merge,
     })
 }
 
@@ -1233,6 +1258,7 @@ fn epic_to_json(epic: &Epic) -> Value {
         "createdAt": epic.created_at,
         "updatedAt": epic.updated_at,
         "closedAt": epic.closed_at,
+        "projectName": epic.project_name,
     })
 }
 
@@ -1507,6 +1533,98 @@ fn workspace_home_error_to_canonical(
         message: e.message,
         path: e.path,
     }
+}
+
+fn docs_error_to_canonical(
+    e: ext_docs_bindings::comtrya::platform::types::Error,
+) -> wit_types::Error {
+    use ext_docs_bindings::comtrya::platform::types as local;
+    let code = match e.code {
+        local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
+        local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
+        local::ErrorCode::Forbidden => wit_types::ErrorCode::Forbidden,
+        local::ErrorCode::Unauthenticated => wit_types::ErrorCode::Unauthenticated,
+        local::ErrorCode::BadInput => wit_types::ErrorCode::BadInput,
+        local::ErrorCode::Internal => wit_types::ErrorCode::Internal,
+        local::ErrorCode::Unavailable => wit_types::ErrorCode::Unavailable,
+    };
+    wit_types::Error {
+        code,
+        message: e.message,
+        path: e.path,
+    }
+}
+
+pub fn dispatch_ext_docs(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    current_principal: &str,
+    info: &crate::generated_dispatch::DispatchInfo,
+    _payload: &[u8],
+    depth: u32,
+    reactor_depth: u32,
+) -> Result<Vec<u8>, wit_types::Error> {
+    if info.extension_id != "ext_docs" || info.interface_name != "docs" {
+        return Err(wit_error(
+            wit_types::ErrorCode::Internal,
+            format!(
+                "ext_docs invoker received wrong route: {}.{}.{}",
+                info.extension_id, info.interface_name, info.op_name
+            ),
+        ));
+    }
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (mut host_state, ext) = build_host_state(
+        registry,
+        info.extension_id,
+        current_principal,
+        store,
+        dispatcher,
+        depth,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
+    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_docs: {e}"),
+            )
+        })?;
+    let ext_docs = ExtDocs::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-docs world: {e}"),
+        )
+    })?;
+    let docs = ext_docs.comtrya_ext_docs_docs();
+
+    let value = match info.op_name {
+        "ping" => {
+            let result = docs.call_ping(&mut wasm_store).map_err(|e| {
+                wit_error(wit_types::ErrorCode::Internal, format!("ping call: {e}"))
+            })?;
+            Value::String(result.map_err(docs_error_to_canonical)?)
+        }
+        other => {
+            return Err(wit_error(
+                wit_types::ErrorCode::NotFound,
+                format!("ext_docs has no op named '{other}'"),
+            ));
+        }
+    };
+    serde_json::to_vec(&value).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("encode result: {e}"),
+        )
+    })
 }
 
 fn wit_error(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Error {
