@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import { listIssues, openIssue } from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
@@ -135,9 +135,76 @@ function relativeTime(value: string | null | undefined): string {
   return `${Math.floor(diff / week)}w ago`;
 }
 
+/**
+ * URL-persisted filter + search state.
+ *
+ * Lets `/x/issues/?state=closed&q=auth` and
+ * `/r/comtrya/dogfood/p/kernel?state=closed` be shareable
+ * filtered views. On mount we read the current URL once and
+ * apply; on subsequent filter/search changes we write back via
+ * `history.replaceState` (no history pollution — pressing back
+ * still takes the user one logical hop up, not through every
+ * letter typed in the search box).
+ *
+ * popstate listener re-syncs from the URL when the user uses
+ * browser back/forward across saved filter URLs.
+ */
+const URL_FILTER_VALUES = new Set<Filter>(["OPEN", "CLOSED", "ALL"]);
+
+function readUrlState(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const rawState = (params.get("state") ?? "").toUpperCase();
+  if (URL_FILTER_VALUES.has(rawState as Filter)) {
+    filter.value = rawState as Filter;
+  }
+  const rawQ = params.get("q");
+  if (rawQ !== null) search.value = rawQ;
+}
+
+function writeUrlState(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  // OPEN is the default — keep it out of the URL so a clean
+  // "/x/issues/" link stays clean.
+  if (filter.value === "OPEN") params.delete("state");
+  else params.set("state", filter.value);
+  const trimmed = search.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+  if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(window.history.state, "", target);
+  }
+}
+
+let suppressUrlWrite = false;
+
 onMounted(() => {
+  suppressUrlWrite = true;
+  readUrlState();
+  suppressUrlWrite = false;
   void load();
   void loadPolicy();
+  window.addEventListener("popstate", onPopState);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("popstate", onPopState);
+});
+
+function onPopState(): void {
+  suppressUrlWrite = true;
+  readUrlState();
+  nextTick(() => {
+    suppressUrlWrite = false;
+  });
+}
+
+watch([filter, search], () => {
+  if (suppressUrlWrite) return;
+  writeUrlState();
 });
 
 // Library-driven keybindings. tinykeys skips edit fields by default,

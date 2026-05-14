@@ -1189,6 +1189,30 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 32 (URL-persisted filter state on IssuesList)
+
+`/x/issues/?state=closed&q=auth` is now a real, shareable link.
+IssuesList syncs its `filter` and `search` refs to the URL via
+`history.replaceState` (no history pollution from per-keystroke
+search updates) and reads them back on mount + on `popstate`.
+
+- `readUrlState()` parses `state` ∈ {OPEN, CLOSED, ALL} and `q`
+  from `window.location.search` on mount; applies before the
+  initial render so the list starts in the requested state.
+- `writeUrlState()` watches both refs and updates the URL.
+  `state=OPEN` (the default) is omitted from the URL so the
+  base `/x/issues/` link stays clean. Empty search is dropped
+  too. Other path + hash components are preserved.
+- `popstate` listener re-syncs from the URL when the user
+  navigates back/forward across saved filtered views. A
+  `suppressUrlWrite` guard ensures the read doesn't immediately
+  write back (which would race with the user's intent).
+
+Works at every mount point: standalone `/x/issues/`, the
+project page (`/r/comtrya/dogfood/p/kernel?state=closed`), and
+the workspace home embed. Bundle ships the `popstate` /
+`replaceState` calls.
+
 ### 2026-05-15 — iteration 31 (Sticky breadcrumb)
 
 Long-pending TODO from Quick wins — every route now starts with
