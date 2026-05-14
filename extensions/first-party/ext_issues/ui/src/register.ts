@@ -1,31 +1,51 @@
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
+import IssueRelationships from "./IssueRelationships.vue";
 import IssuesList from "./IssuesList.vue";
-import { openIssue } from "./api";
-import { DEFAULT_WORKSPACE_ID, type ExtensionRouteParams } from "./types";
+import { listIssues, openIssue } from "./api";
+import {
+  DEFAULT_WORKSPACE_ID,
+  issueHref,
+  issueRef,
+  type ComtryaGraphQLClient,
+  type ExtensionRouteParams,
+} from "./types";
 
 const EXTENSION_ID = "ext_issues";
 const ISSUE_CARD_TAG = "comtrya-issue-card";
 const ISSUES_LIST_TAG = "comtrya-issues-list";
 const ISSUES_REPO_LIST_TAG = "comtrya-issues-repo-list";
 const ISSUE_DETAIL_TAG = "comtrya-issue-detail";
+const ISSUE_RELATIONSHIPS_TAG = "comtrya-issue-relationships";
 const ISSUE_NEW_TAG = "comtrya-issue-new";
 
 interface ExtensionHost {
+  readonly client: ComtryaGraphQLClient;
   registerCard(contribution: {
     resourceKind: string;
     element: string;
     requiredPermission: string;
   }): unknown;
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): unknown;
+  registerRelationshipTargetProvider(contribution: {
+    resourceKind: string;
+    loadTargets(context: {
+      workspaceId?: string;
+      repositoryId?: string | null;
+    }): Promise<Array<{
+      ref: string;
+      kind: string;
+      title: string;
+      subtitle?: string | null;
+    }>>;
+  }): unknown;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): unknown;
   registerRoute(
     path: string,
     contribution: {
@@ -48,6 +68,7 @@ defineExtensionWidget({
 defineExtensionWidget({ tagName: ISSUES_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUES_REPO_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUE_DETAIL_TAG, component: IssueDetail });
+defineExtensionWidget({ tagName: ISSUE_RELATIONSHIPS_TAG, component: IssueRelationships });
 defineIssueNewElement();
 
 const extension: ExtensionDefinition = {
@@ -58,10 +79,27 @@ const extension: ExtensionDefinition = {
       element: ISSUE_CARD_TAG,
       requiredPermission: "issues.read",
     });
-    host.registerSlot("repository.issues", {
+    host.registerRelationshipTargetProvider({
+      resourceKind: "issue",
+      loadTargets: async (context) => {
+        const issues = await listIssues(host.client, {
+          workspaceId: context.workspaceId ?? DEFAULT_WORKSPACE_ID,
+          repositoryId: context.repositoryId,
+        });
+        return issues.map((issue) => ({
+          ref: issueRef(issue),
+          kind: "issue",
+          title: `#${issue.number} ${issue.title}`,
+          subtitle: issue.state.toLowerCase(),
+        }));
+      },
+    });
+    host.registerWidget({
+      id: "issues-list",
       element: ISSUES_LIST_TAG,
+      defaultSlot: "repository.main",
+      defaultPriority: 100,
       requiredPermission: "issues.read",
-      priority: 100,
     });
     host.registerRoute("/", {
       element: ISSUES_LIST_TAG,
@@ -85,19 +123,28 @@ function defineIssueNewElement(): void {
     return;
   }
 
-  customElements.define(
-    ISSUE_NEW_TAG,
-    class extends HTMLElement {
-      routeParams?: ExtensionRouteParams;
+  class IssueNewElement extends HTMLElement {
+    routeParams?: ExtensionRouteParams;
+    workspaceId?: string;
+    repositoryId?: string | null;
 
-      connectedCallback(): void {
-        this.replaceChildren(issueNewForm(routeContext(this.routeParams)));
-      }
-    },
-  );
+    connectedCallback(): void {
+      this.replaceChildren(issueNewForm(routeContext(this.routeParams, this)));
+    }
+  }
+
+  customElements.define(ISSUE_NEW_TAG, IssueNewElement);
 }
 
-function routeContext(routeParams?: ExtensionRouteParams): {
+interface IssueRouteContext {
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+}
+
+function routeContext(
+  routeParams?: ExtensionRouteParams,
+  context: IssueRouteContext = {},
+): {
   workspaceId: string;
   repositoryId?: string | null;
 } {
@@ -105,13 +152,21 @@ function routeContext(routeParams?: ExtensionRouteParams): {
   return {
     workspaceId:
       params.get("workspaceId") ??
+      context.workspaceId ??
       routeParams?.params?.workspaceId ??
       DEFAULT_WORKSPACE_ID,
-    repositoryId: params.get("repositoryId") ?? routeParams?.params?.repositoryId ?? null,
+    repositoryId:
+      params.get("repositoryId") ??
+      context.repositoryId ??
+      routeParams?.params?.repositoryId ??
+      null,
   };
 }
 
-function issueNewForm(context: { workspaceId: string; repositoryId?: string | null }): HTMLElement {
+function issueNewForm(context: {
+  workspaceId: string;
+  repositoryId?: string | null;
+}): HTMLElement {
   const main = document.createElement("main");
   main.className = "issue-new";
   main.dataset.smoke = "issue-new";
@@ -148,7 +203,7 @@ function issueNewForm(context: { workspaceId: string; repositoryId?: string | nu
       bodyMarkdown: bodyInput.value,
     })
       .then((created) => {
-        window.location.assign(`/x/issues/${created.workspaceId}/${created.number}`);
+        window.location.assign(issueHref(created));
       })
       .catch((error: unknown) => {
         errorBox.textContent = error instanceof Error ? error.message : String(error);

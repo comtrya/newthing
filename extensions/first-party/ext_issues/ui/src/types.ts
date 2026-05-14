@@ -19,7 +19,11 @@ export interface Issue {
 
 export interface Relation {
   id: string;
+  kind: string;
+  from?: string | null;
   to: string;
+  source?: string | null;
+  target?: string | null;
 }
 
 export interface ComtryaGraphQLClient {
@@ -51,8 +55,23 @@ export function issueRef(issue: Pick<Issue, "id">): string {
   return `comtrya://issue/${issue.id}`;
 }
 
+import { buildExtensionUrl } from "@comtrya/sdk-core";
+
+export const EXT_ISSUES_ROUTE_PREFIX = "issues";
+
 export function issueHref(issue: Pick<Issue, "workspaceId" | "number">): string {
-  return `/x/issues/${issue.workspaceId}/${issue.number}`;
+  return buildExtensionUrl(
+    EXT_ISSUES_ROUTE_PREFIX,
+    `/${issue.workspaceId}/${issue.number}`,
+  );
+}
+
+export function issuesIndexHref(): string {
+  return buildExtensionUrl(EXT_ISSUES_ROUTE_PREFIX, "/");
+}
+
+export function newIssueHref(): string {
+  return buildExtensionUrl(EXT_ISSUES_ROUTE_PREFIX, "/new");
 }
 
 export function stateTone(state: IssueState | string | undefined): IssueTone {

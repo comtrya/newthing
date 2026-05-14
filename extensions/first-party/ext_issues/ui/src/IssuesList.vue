@@ -4,6 +4,7 @@ import { listIssues } from "./api";
 import IssueCard from "./IssueCard.vue";
 import {
   DEFAULT_WORKSPACE_ID,
+  newIssueHref as newIssueHrefBuilder,
   type ComtryaGraphQLClient,
   type Issue,
   type LoadState,
@@ -31,7 +32,12 @@ const error = ref<string | null>(null);
 const loadedIssues = ref<Issue[]>(props.issues ?? []);
 const issues = computed(() => props.issues ?? loadedIssues.value);
 const graphClient = computed(() => props.client ?? props.comtryaClient);
-const newIssueHref = computed(() => `/x/issues/new?workspaceId=${props.workspaceId}`);
+const newIssueHref = computed(() => {
+  const base = newIssueHrefBuilder();
+  const params = new URLSearchParams({ workspaceId: props.workspaceId });
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  return `${base}?${params.toString()}`;
+});
 
 onMounted(loadIssues);
 watch(
@@ -87,7 +93,10 @@ async function loadIssues(): Promise<void> {
     <p v-else-if="issues.length === 0" class="issue-line muted">No issues yet.</p>
     <ul v-else class="issues-list-items">
       <li v-for="issue in issues" :key="issue.id">
-        <IssueCard :issue="issue" :client="graphClient" />
+        <IssueCard
+          :issue="issue"
+          :client="graphClient"
+        />
       </li>
     </ul>
   </section>

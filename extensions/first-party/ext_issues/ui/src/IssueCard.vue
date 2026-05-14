@@ -25,6 +25,9 @@ const graphClient = computed(() => props.client ?? props.comtryaClient);
 const issue = computed(() => props.issue ?? loadedIssue.value);
 const tone = computed(() => stateTone(issue.value?.state));
 const labelText = computed(() => issue.value?.labels?.join(", ") ?? "");
+const targetHref = computed(() =>
+  issue.value ? issueHref(issue.value) : "#",
+);
 
 onMounted(loadIssue);
 watch(
@@ -79,7 +82,7 @@ async function loadIssue(): Promise<void> {
         <div class="issue-card-title">
           <span class="issue-pill" :class="tone.className">{{ tone.label }}</span>
           <span class="issue-number">#{{ issue.number }}</span>
-          <a class="issue-title-link" :href="issueHref(issue)">{{ issue.title }}</a>
+          <a class="issue-title-link" :href="targetHref">{{ issue.title }}</a>
         </div>
         <div class="issue-meta">
           <span>by {{ issue.authorRef ?? "unknown" }}</span>
