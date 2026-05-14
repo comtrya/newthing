@@ -11,14 +11,13 @@ const ACTIVITY_TAG = "comtrya-home-activity";
 const INSTANCE_TAG = "comtrya-home-instance";
 
 interface ExtensionHost {
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): unknown;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): unknown;
 }
 
 interface ExtensionDefinition {
@@ -34,63 +33,35 @@ defineExtensionWidget({ tagName: INSTANCE_TAG, component: HomeInstance });
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
   setup(host) {
-    host.registerSlot("home.your-work", {
+    host.registerWidget({
+      id: "home-your-work",
       element: YOUR_WORK_TAG,
+      defaultSlot: "home.your-work",
+      defaultPriority: 1000,
       requiredPermission: "workspace.read",
-      priority: 1000,
     });
-    host.registerSlot("home.repositories", {
+    host.registerWidget({
+      id: "home-repositories",
       element: REPOSITORIES_TAG,
+      defaultSlot: "home.repositories",
+      defaultPriority: 1000,
       requiredPermission: "workspace.read",
-      priority: 1000,
     });
-    host.registerSlot("home.activity", {
+    host.registerWidget({
+      id: "home-activity",
       element: ACTIVITY_TAG,
+      defaultSlot: "home.activity",
+      defaultPriority: 1000,
       requiredPermission: "events.read",
-      priority: 1000,
     });
-    host.registerSlot("home.instance", {
+    host.registerWidget({
+      id: "home-instance",
       element: INSTANCE_TAG,
+      defaultSlot: "home.instance",
+      defaultPriority: 1000,
       requiredPermission: "instance.admin",
-      priority: 1000,
-    });
-    registerOptionalSlot(host, "workspace.home.top", {
-      element: YOUR_WORK_TAG,
-      requiredPermission: "workspace.read",
-      priority: 1000,
-    });
-    registerOptionalSlot(host, "workspace.home.center", {
-      element: REPOSITORIES_TAG,
-      requiredPermission: "workspace.read",
-      priority: 1000,
-    });
-    registerOptionalSlot(host, "workspace.home.left", {
-      element: ACTIVITY_TAG,
-      requiredPermission: "events.read",
-      priority: 1000,
-    });
-    registerOptionalSlot(host, "workspace.home.right", {
-      element: INSTANCE_TAG,
-      requiredPermission: "instance.admin",
-      priority: 1000,
     });
   },
 };
 
 export default extension;
-
-function registerOptionalSlot(
-  host: ExtensionHost,
-  name: string,
-  contribution: {
-    element: string;
-    requiredPermission: string;
-    priority: number;
-  },
-): void {
-  try {
-    host.registerSlot(name, contribution);
-  } catch (error) {
-    if (!name.startsWith("workspace.home.")) throw error;
-  }
-}

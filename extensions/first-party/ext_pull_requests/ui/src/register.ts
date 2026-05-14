@@ -11,14 +11,13 @@ const PULLS_YOUR_WORK_TAG = "comtrya-pulls-your-work";
 const PULLS_OVERVIEW_TAG = "comtrya-pulls-overview";
 
 interface ExtensionHost {
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): unknown;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): unknown;
   registerRoute(
     path: string,
     contribution: {
@@ -41,15 +40,19 @@ defineExtensionWidget({ tagName: PULLS_OVERVIEW_TAG, component: PullsOverview })
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
   setup(host) {
-    host.registerSlot("home.your-work", {
+    host.registerWidget({
+      id: "pulls-your-work",
       element: PULLS_YOUR_WORK_TAG,
+      defaultSlot: "home.your-work",
+      defaultPriority: 100,
       requiredPermission: "pull-requests.read",
-      priority: 100,
     });
-    host.registerSlot("repository.overview", {
+    host.registerWidget({
+      id: "pulls-overview",
       element: PULLS_OVERVIEW_TAG,
+      defaultSlot: "repository.sidebar",
+      defaultPriority: 100,
       requiredPermission: "pull-requests.read",
-      priority: 100,
     });
     host.registerRoute("/", {
       element: PULLS_QUEUE_TAG,

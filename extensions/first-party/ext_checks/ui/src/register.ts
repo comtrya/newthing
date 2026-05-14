@@ -7,14 +7,13 @@ const CHECKS_BOARD_TAG = "comtrya-checks-board";
 const CHECKS_DETAIL_TAG = "comtrya-checks-detail";
 
 interface ExtensionHost {
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): unknown;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): unknown;
   registerRoute(
     path: string,
     contribution: {
@@ -35,10 +34,12 @@ defineExtensionWidget({ tagName: CHECKS_DETAIL_TAG, component: ChecksDetail });
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
   setup(host) {
-    host.registerSlot("repository.checks", {
+    host.registerWidget({
+      id: "checks-board",
       element: CHECKS_BOARD_TAG,
+      defaultSlot: "repository.sidebar",
+      defaultPriority: 200,
       requiredPermission: "checks.read",
-      priority: 100,
     });
     host.registerRoute("/", {
       element: CHECKS_BOARD_TAG,

@@ -47,12 +47,23 @@ export interface EpicTone {
   className: string;
 }
 
+import { buildExtensionUrl } from "@comtrya/sdk-core";
+
+export const EXT_EPICS_ROUTE_PREFIX = "epics";
+
 export function epicRef(epic: Pick<Epic, "id">): string {
   return `comtrya://epic/${epic.id}`;
 }
 
 export function epicHref(epic: Pick<Epic, "workspaceId" | "id">): string {
-  return `/x/epics/${epic.workspaceId}/${epic.id}`;
+  return buildExtensionUrl(
+    EXT_EPICS_ROUTE_PREFIX,
+    `/${epic.workspaceId}/${epic.id}`,
+  );
+}
+
+export function newEpicHref(workspaceId: string): string {
+  return `${buildExtensionUrl(EXT_EPICS_ROUTE_PREFIX, "/new")}?workspaceId=${workspaceId}`;
 }
 
 export function stateTone(state: EpicState | string | undefined): EpicTone {

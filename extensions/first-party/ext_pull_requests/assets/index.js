@@ -2793,9 +2793,23 @@ function Xa(e) {
 function Za(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
+typeof fetch < "u" && fetch.bind(globalThis);
+//#endregion
+//#region packages/sdk-core/src/relationship-registry.ts
+var Qa = Symbol.for("comtrya.relationship-registry");
+$a();
+function $a() {
+	let e = globalThis;
+	return e[Qa] ??= {
+		types: /* @__PURE__ */ new Map(),
+		providers: /* @__PURE__ */ new Map(),
+		subscribers: /* @__PURE__ */ new Set()
+	}, e[Qa];
+}
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Qa(e) {
+function eo(e) {
+	to(e.tagName, e.component);
 	let t = /* @__PURE__ */ Ha(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2803,96 +2817,114 @@ function Qa(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute($a(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(ro(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function $a(e) {
+function to(e, t) {
+	if (typeof document > "u") return;
+	let n = no(t);
+	if (n.length === 0) return;
+	let r = `comtrya-widget-styles:${e}`;
+	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
+	let i = document.createElement("style");
+	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
+}
+function no(e) {
+	if (!e || typeof e != "object") return [];
+	let t = e.styles;
+	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
+}
+function ro(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/PullsDetail.vue?vue&type=script&setup=true&lang.ts
-var eo = {
+var io = {
 	class: "extension-payload",
 	"data-smoke": "pulls-detail"
-}, to = /* @__PURE__ */ An({
+}, ao = /* @__PURE__ */ An({
 	__name: "PullsDetail",
 	props: { routeParams: { type: null } },
 	setup(e) {
 		let t = e, n = ea(() => t.routeParams?.params?.pullId ?? "unknown");
-		return (e, t) => (hi(), bi("div", eo, [Ti("strong", null, "Pull #" + Se(n.value), 1)]));
+		return (e, t) => (hi(), bi("div", io, [Ti("strong", null, "Pull #" + Se(n.value), 1)]));
 	}
-}), no = ".extension-payload[data-v-9cafbeb9]{gap:4px;display:grid}", ro = (e, t) => {
+}), oo = ".extension-payload[data-v-9cafbeb9]{gap:4px;display:grid}", so = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, io = /* @__PURE__ */ ro(to, [["styles", [no]], ["__scopeId", "data-v-9cafbeb9"]]), ao = ".extension-payload[data-v-fe44303d]{gap:4px;display:grid}", oo = {}, so = {
+}, co = /* @__PURE__ */ so(ao, [["styles", [oo]], ["__scopeId", "data-v-9cafbeb9"]]), lo = ".extension-payload[data-v-fe44303d]{gap:4px;display:grid}", uo = {}, fo = {
 	class: "extension-payload",
 	"data-smoke": "pulls-overview"
 };
-function co(e, t) {
-	return hi(), bi("div", so, [...t[0] ||= [Ti("strong", null, "Repo · pulls overview", -1)]]);
+function po(e, t) {
+	return hi(), bi("div", fo, [...t[0] ||= [Ti("strong", null, "Repo · pulls overview", -1)]]);
 }
-var lo = /* @__PURE__ */ ro(oo, [
-	["render", co],
-	["styles", [ao]],
+var mo = /* @__PURE__ */ so(uo, [
+	["render", po],
+	["styles", [lo]],
 	["__scopeId", "data-v-fe44303d"]
-]), uo = ".extension-payload[data-v-eb73e5c6]{gap:4px;display:grid}", fo = {}, po = {
+]), ho = ".extension-payload[data-v-eb73e5c6]{gap:4px;display:grid}", go = {}, _o = {
 	class: "extension-payload",
 	"data-smoke": "pulls-queue"
 };
-function mo(e, t) {
-	return hi(), bi("div", po, [...t[0] ||= [Ti("strong", null, "Pulls queue", -1), Ti("span", null, "Mounted by ext_pull_requests via SDK", -1)]]);
+function vo(e, t) {
+	return hi(), bi("div", _o, [...t[0] ||= [Ti("strong", null, "Pulls queue", -1), Ti("span", null, "Mounted by ext_pull_requests via SDK", -1)]]);
 }
-var ho = /* @__PURE__ */ ro(fo, [
-	["render", mo],
-	["styles", [uo]],
+var yo = /* @__PURE__ */ so(go, [
+	["render", vo],
+	["styles", [ho]],
 	["__scopeId", "data-v-eb73e5c6"]
-]), go = ".extension-payload[data-v-51c39637]{gap:4px;display:grid}", _o = {}, vo = {
+]), bo = ".extension-payload[data-v-51c39637]{gap:4px;display:grid}", xo = {}, So = {
 	class: "extension-payload",
 	"data-smoke": "pulls-your-work"
 };
-function yo(e, t) {
-	return hi(), bi("div", vo, [...t[0] ||= [Ti("strong", null, "Your work · pulls", -1)]]);
+function Co(e, t) {
+	return hi(), bi("div", So, [...t[0] ||= [Ti("strong", null, "Your work · pulls", -1)]]);
 }
-var bo = /* @__PURE__ */ ro(_o, [
-	["render", yo],
-	["styles", [go]],
+var wo = /* @__PURE__ */ so(xo, [
+	["render", Co],
+	["styles", [bo]],
 	["__scopeId", "data-v-51c39637"]
-]), xo = "ext_pull_requests", So = "comtrya-pulls-queue", Co = "comtrya-pulls-detail", wo = "comtrya-pulls-your-work", To = "comtrya-pulls-overview";
-Qa({
-	tagName: So,
-	component: ho
-}), Qa({
-	tagName: Co,
-	component: io
-}), Qa({
-	tagName: wo,
-	component: bo
-}), Qa({
-	tagName: To,
-	component: lo
+]), To = "ext_pull_requests", Eo = "comtrya-pulls-queue", Do = "comtrya-pulls-detail", Oo = "comtrya-pulls-your-work", ko = "comtrya-pulls-overview";
+eo({
+	tagName: Eo,
+	component: yo
+}), eo({
+	tagName: Do,
+	component: co
+}), eo({
+	tagName: Oo,
+	component: wo
+}), eo({
+	tagName: ko,
+	component: mo
 });
-var Eo = {
-	id: xo,
+var Ao = {
+	id: To,
 	setup(e) {
-		e.registerSlot("home.your-work", {
-			element: wo,
-			requiredPermission: "pull-requests.read",
-			priority: 100
-		}), e.registerSlot("repository.overview", {
-			element: To,
-			requiredPermission: "pull-requests.read",
-			priority: 100
+		e.registerWidget({
+			id: "pulls-your-work",
+			element: Oo,
+			defaultSlot: "home.your-work",
+			defaultPriority: 100,
+			requiredPermission: "pull-requests.read"
+		}), e.registerWidget({
+			id: "pulls-overview",
+			element: ko,
+			defaultSlot: "repository.sidebar",
+			defaultPriority: 100,
+			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/", {
-			element: So,
+			element: Eo,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/:pullId", {
-			element: Co,
+			element: Do,
 			requiredPermission: "pull-requests.read"
 		});
 	}
 };
 //#endregion
-export { Eo as default };
+export { Ao as default };

@@ -1,9 +1,17 @@
+import { buildExtensionUrl } from "@comtrya/sdk-core";
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
-import { createEpic } from "./api";
+import { createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
 import EpicsList from "./EpicsList.vue";
-import { DEFAULT_WORKSPACE_ID, type ExtensionRouteParams } from "./types";
+import {
+  DEFAULT_WORKSPACE_ID,
+  epicRef,
+  type ComtryaGraphQLClient,
+  type ExtensionRouteParams,
+} from "./types";
+
+const EPICS_ROUTE_PREFIX = "epics";
 
 const EXTENSION_ID = "ext_epics";
 const EPIC_CARD_TAG = "comtrya-epic-card";
@@ -13,19 +21,30 @@ const EPIC_DETAIL_TAG = "comtrya-epic-detail";
 const EPIC_NEW_TAG = "comtrya-epic-new";
 
 interface ExtensionHost {
+  readonly client: ComtryaGraphQLClient;
   registerCard(contribution: {
     resourceKind: string;
     element: string;
     requiredPermission: string;
   }): unknown;
-  registerSlot(
-    name: string,
-    contribution: {
-      element: string;
-      requiredPermission: string;
-      priority?: number;
-    },
-  ): unknown;
+  registerRelationshipTargetProvider(contribution: {
+    resourceKind: string;
+    loadTargets(context: {
+      workspaceId?: string;
+    }): Promise<Array<{
+      ref: string;
+      kind: string;
+      title: string;
+      subtitle?: string | null;
+    }>>;
+  }): unknown;
+  registerWidget(contribution: {
+    id: string;
+    element: string;
+    defaultSlot?: string;
+    defaultPriority?: number;
+    requiredPermission: string;
+  }): unknown;
   registerRoute(
     path: string,
     contribution: {
@@ -58,10 +77,26 @@ const extension: ExtensionDefinition = {
       element: EPIC_CARD_TAG,
       requiredPermission: "epics.read",
     });
-    host.registerSlot("workspace.epics", {
+    host.registerRelationshipTargetProvider({
+      resourceKind: "epic",
+      loadTargets: async (context) => {
+        const epics = await listEpics(host.client, {
+          workspaceId: context.workspaceId ?? DEFAULT_WORKSPACE_ID,
+        });
+        return epics.map((epic) => ({
+          ref: epicRef(epic),
+          kind: "epic",
+          title: epic.title,
+          subtitle: epic.state.toLowerCase().replace(/_/g, " "),
+        }));
+      },
+    });
+    host.registerWidget({
+      id: "epics-board",
       element: EPICS_BOARD_TAG,
+      defaultSlot: "repository.sidebar",
+      defaultPriority: 100,
       requiredPermission: "epics.read",
-      priority: 100,
     });
     host.registerRoute("/", {
       element: EPICS_INDEX_TAG,
@@ -141,7 +176,9 @@ function epicNewForm(workspaceId: string): HTMLElement {
       bodyMarkdown: bodyInput.value,
     })
       .then((created) => {
-        window.location.assign(`/x/epics/${created.workspaceId}/${created.id}`);
+        window.location.assign(
+          buildExtensionUrl(EPICS_ROUTE_PREFIX, `/${created.workspaceId}/${created.id}`),
+        );
       })
       .catch((error: unknown) => {
         errorBox.textContent = error instanceof Error ? error.message : String(error);

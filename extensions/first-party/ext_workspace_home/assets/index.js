@@ -2834,9 +2834,23 @@ function eo(e) {
 function to(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
+typeof fetch < "u" && fetch.bind(globalThis);
+//#endregion
+//#region packages/sdk-core/src/relationship-registry.ts
+var no = Symbol.for("comtrya.relationship-registry");
+ro();
+function ro() {
+	let e = globalThis;
+	return e[no] ??= {
+		types: /* @__PURE__ */ new Map(),
+		providers: /* @__PURE__ */ new Map(),
+		subscribers: /* @__PURE__ */ new Set()
+	}, e[no];
+}
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function no(e) {
+function io(e) {
+	ao(e.tagName, e.component);
 	let t = /* @__PURE__ */ Ka(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2844,42 +2858,56 @@ function no(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(ro(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(so(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function ro(e) {
+function ao(e, t) {
+	if (typeof document > "u") return;
+	let n = oo(t);
+	if (n.length === 0) return;
+	let r = `comtrya-widget-styles:${e}`;
+	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
+	let i = document.createElement("style");
+	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
+}
+function oo(e) {
+	if (!e || typeof e != "object") return [];
+	let t = e.styles;
+	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
+}
+function so(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_workspace_home/ui/src/api.ts
-var io = "{\n  viewer {\n    reviewQueue { aggregated items }\n    authoredPulls { aggregated items }\n    failingChecks { aggregated items }\n  }\n}", ao = "{\n  workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } }\n}", oo = "{ workspace { events } }";
-async function so(e) {
-	let t = await e.query(io);
+var co = "{\n  viewer {\n    reviewQueue { aggregated items }\n    authoredPulls { aggregated items }\n    failingChecks { aggregated items }\n  }\n}", lo = "{\n  workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } }\n}", uo = "{ workspace { events } }";
+async function fo(e) {
+	let t = await e.query(co);
 	return {
 		reviewQueue: t.viewer?.reviewQueue?.items ?? [],
 		authoredPulls: t.viewer?.authoredPulls?.items ?? [],
 		failingChecks: t.viewer?.failingChecks?.items ?? []
 	};
 }
-async function co(e) {
-	return (await e.query(ao)).workspace?.repositories ?? [];
+async function po(e) {
+	return (await e.query(lo)).workspace?.repositories ?? [];
 }
-async function lo(e) {
-	return (await e.query(oo)).workspace?.events ?? [];
+async function mo(e) {
+	return (await e.query(uo)).workspace?.events ?? [];
 }
 //#endregion
 //#region ../extensions/first-party/ext_workspace_home/ui/src/HomeActivity.vue?vue&type=script&setup=true&lang.ts
-var uo = {
+var ho = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-activity"
-}, fo = {
+}, go = {
 	key: 1,
 	class: "rail-section activity",
 	"data-smoke": "home-activity"
-}, po = { class: "summary" }, mo = { class: "src" }, ho = { class: "t" }, go = /* @__PURE__ */ Fn({
+}, _o = { class: "summary" }, vo = { class: "src" }, yo = { class: "t" }, bo = /* @__PURE__ */ Fn({
 	__name: "HomeActivity",
 	props: {
 		client: { type: null },
@@ -2895,33 +2923,33 @@ var uo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await lo(a.value), n.value = "ready";
+				i.value = await mo(a.value), n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load activity: ${e instanceof Error ? e.message : String(e)}`;
 			}
 		}
-		return (e, t) => n.value === "error" ? (J(), Y("article", uo, k(r.value), 1)) : (J(), Y("div", fo, [t[0] ||= X("div", { class: "rail-strap" }, [
+		return (e, t) => n.value === "error" ? (J(), Y("article", ho, k(r.value), 1)) : (J(), Y("div", go, [t[0] ||= X("div", { class: "rail-strap" }, [
 			X("span", { class: "id" }, "05"),
 			X("h3", null, "Activity"),
 			X("span", { class: "count" }, "live")
 		], -1), (J(!0), Y(K, null, or(i.value, (e) => (J(), Y("div", {
 			key: `${e.summary}-${e.time}`,
 			class: "ev"
-		}, [X("span", po, [Pi(k(e.summary ?? "(event)") + " ", 1), X("span", mo, k(e.repositoryPath ?? e.actor ?? ""), 1)]), X("span", ho, k(e.time ?? ""), 1)]))), 128))]));
+		}, [X("span", _o, [Pi(k(e.summary ?? "(event)") + " ", 1), X("span", vo, k(e.repositoryPath ?? e.actor ?? ""), 1)]), X("span", yo, k(e.time ?? ""), 1)]))), 128))]));
 	}
-}), _o = ".rail-section[data-v-b202077f]{gap:8px;display:grid}.rail-strap[data-v-b202077f],.ev[data-v-b202077f]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-b202077f]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-b202077f],.count[data-v-b202077f],.src[data-v-b202077f],.t[data-v-b202077f],.extension-placeholder[data-v-b202077f]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-b202077f],.count[data-v-b202077f],.src[data-v-b202077f],.t[data-v-b202077f]{color:var(--ink-faint,#888)}.summary[data-v-b202077f]{min-width:0;font-family:var(--display,system-ui);font-weight:600}", vo = (e, t) => {
+}), xo = ".rail-section[data-v-b202077f]{gap:8px;display:grid}.rail-strap[data-v-b202077f],.ev[data-v-b202077f]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-b202077f]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-b202077f],.count[data-v-b202077f],.src[data-v-b202077f],.t[data-v-b202077f],.extension-placeholder[data-v-b202077f]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-b202077f],.count[data-v-b202077f],.src[data-v-b202077f],.t[data-v-b202077f]{color:var(--ink-faint,#888)}.summary[data-v-b202077f]{min-width:0;font-family:var(--display,system-ui);font-weight:600}", So = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, yo = /* @__PURE__ */ vo(go, [["styles", [_o]], ["__scopeId", "data-v-b202077f"]]), bo = {
+}, Co = /* @__PURE__ */ So(bo, [["styles", [xo]], ["__scopeId", "data-v-b202077f"]]), wo = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-instance"
-}, xo = {
+}, To = {
 	key: 1,
 	class: "instance",
 	"data-smoke": "home-instance"
-}, So = { class: "stats" }, Co = { class: "clone" }, wo = /* @__PURE__ */ vo(/* @__PURE__ */ Fn({
+}, Eo = { class: "stats" }, Do = { class: "clone" }, Oo = /* @__PURE__ */ So(/* @__PURE__ */ Fn({
 	__name: "HomeInstance",
 	setup(e) {
 		let t = /* @__PURE__ */ z("idle"), n = /* @__PURE__ */ z(null), r = /* @__PURE__ */ z(0), i = /* @__PURE__ */ z(""), a = ia(() => r.value === 0);
@@ -2934,25 +2962,25 @@ var uo = {
 				t.value = "error", n.value = `Failed to load instance: ${e instanceof Error ? e.message : String(e)}`;
 			}
 		}
-		return (e, o) => t.value === "error" ? (J(), Y("article", bo, k(n.value), 1)) : (J(), Y("section", xo, [
+		return (e, o) => t.value === "error" ? (J(), Y("article", wo, k(n.value), 1)) : (J(), Y("section", To, [
 			o[1] ||= X("span", { class: "id" }, "06", -1),
-			X("div", So, [X("span", { class: ge(a.value ? "ok" : "err") }, k(a.value ? "READY" : "NOT READY"), 3), X("span", null, [X("strong", null, k(r.value), 1), o[0] ||= Pi(" boundaries", -1)])]),
-			X("code", Co, "git clone " + k(i.value) + "/git/comtrya.git", 1),
+			X("div", Eo, [X("span", { class: ge(a.value ? "ok" : "err") }, k(a.value ? "READY" : "NOT READY"), 3), X("span", null, [X("strong", null, k(r.value), 1), o[0] ||= Pi(" boundaries", -1)])]),
+			X("code", Do, "git clone " + k(i.value) + "/git/comtrya.git", 1),
 			o[2] ||= X("a", {
 				class: "link",
 				href: "/instance"
 			}, "/instance", -1)
 		]));
 	}
-}), [["styles", [".instance[data-v-77c83c60]{gap:8px;display:grid}.id[data-v-77c83c60],.stats[data-v-77c83c60],.clone[data-v-77c83c60],.link[data-v-77c83c60],.extension-placeholder[data-v-77c83c60]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-77c83c60],.clone[data-v-77c83c60],.link[data-v-77c83c60]{color:var(--ink-faint,#888)}.stats[data-v-77c83c60]{gap:8px;display:flex}.ok[data-v-77c83c60]{color:var(--ink-go,#008873)}.err[data-v-77c83c60]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-77c83c60"]]), To = {
+}), [["styles", [".instance[data-v-77c83c60]{gap:8px;display:grid}.id[data-v-77c83c60],.stats[data-v-77c83c60],.clone[data-v-77c83c60],.link[data-v-77c83c60],.extension-placeholder[data-v-77c83c60]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-77c83c60],.clone[data-v-77c83c60],.link[data-v-77c83c60]{color:var(--ink-faint,#888)}.stats[data-v-77c83c60]{gap:8px;display:flex}.ok[data-v-77c83c60]{color:var(--ink-go,#008873)}.err[data-v-77c83c60]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-77c83c60"]]), ko = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-repositories"
-}, Eo = {
+}, Ao = {
 	key: 1,
 	class: "rail-section",
 	"data-smoke": "home-repositories"
-}, Do = { class: "rail-strap" }, Oo = { class: "count" }, ko = { class: "name" }, Ao = { class: "prefix" }, jo = { class: "leaf" }, Mo = { class: "stats" }, No = /* @__PURE__ */ vo(/* @__PURE__ */ Fn({
+}, jo = { class: "rail-strap" }, Mo = { class: "count" }, No = { class: "name" }, Po = { class: "prefix" }, Fo = { class: "leaf" }, Io = { class: "stats" }, Lo = /* @__PURE__ */ So(/* @__PURE__ */ Fn({
 	__name: "HomeRepositories",
 	props: {
 		client: { type: null },
@@ -2968,7 +2996,7 @@ var uo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await co(a.value), n.value = "ready";
+				i.value = await po(a.value), n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load repositories: ${e instanceof Error ? e.message : String(e)}`;
 			}
@@ -2983,27 +3011,27 @@ var uo = {
 		function l(e) {
 			return e.checkSummary ? c(e) ? `${e.checkSummary.total ?? 0} ok` : `${e.checkSummary.passed ?? 0}/${e.checkSummary.total ?? 0}` : "-";
 		}
-		return (e, t) => n.value === "error" ? (J(), Y("article", To, k(r.value), 1)) : (J(), Y("div", Eo, [X("div", Do, [
+		return (e, t) => n.value === "error" ? (J(), Y("article", ko, k(r.value), 1)) : (J(), Y("div", Ao, [X("div", jo, [
 			t[0] ||= X("span", { class: "id" }, "04", -1),
 			t[1] ||= X("h3", null, "Repositories", -1),
-			X("span", Oo, k(i.value.length) + " total", 1)
+			X("span", Mo, k(i.value.length) + " total", 1)
 		]), (J(!0), Y(K, null, or(i.value, (e) => (J(), Y("div", {
 			key: e.id,
 			class: "repo"
-		}, [X("span", ko, [X("span", Ao, k(s(e)), 1), X("span", jo, k(e.name ?? "(unnamed)"), 1)]), X("span", Mo, [
+		}, [X("span", No, [X("span", Po, k(s(e)), 1), X("span", Fo, k(e.name ?? "(unnamed)"), 1)]), X("span", Io, [
 			X("span", null, k(e.openPullRequests ?? 0) + " pr", 1),
 			X("span", { class: ge(c(e) ? "ok" : "warn") }, k(l(e)), 3),
 			X("span", null, k(e.lastCommitAt ?? ""), 1)
 		])]))), 128))]));
 	}
-}), [["styles", [".rail-section[data-v-c97cd25b]{gap:8px;display:grid}.rail-strap[data-v-c97cd25b],.repo[data-v-c97cd25b]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-c97cd25b]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-c97cd25b],.count[data-v-c97cd25b],.stats[data-v-c97cd25b],.prefix[data-v-c97cd25b],.extension-placeholder[data-v-c97cd25b]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-c97cd25b],.count[data-v-c97cd25b],.stats[data-v-c97cd25b],.prefix[data-v-c97cd25b]{color:var(--ink-faint,#888)}.name[data-v-c97cd25b]{min-width:0;font-family:var(--display,system-ui);font-weight:600}.stats[data-v-c97cd25b]{flex-wrap:wrap;gap:8px;display:flex}.ok[data-v-c97cd25b]{color:var(--ink-go,#008873)}.warn[data-v-c97cd25b]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-c97cd25b"]]), Po = {
+}), [["styles", [".rail-section[data-v-c97cd25b]{gap:8px;display:grid}.rail-strap[data-v-c97cd25b],.repo[data-v-c97cd25b]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-c97cd25b]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-c97cd25b],.count[data-v-c97cd25b],.stats[data-v-c97cd25b],.prefix[data-v-c97cd25b],.extension-placeholder[data-v-c97cd25b]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-c97cd25b],.count[data-v-c97cd25b],.stats[data-v-c97cd25b],.prefix[data-v-c97cd25b]{color:var(--ink-faint,#888)}.name[data-v-c97cd25b]{min-width:0;font-family:var(--display,system-ui);font-weight:600}.stats[data-v-c97cd25b]{flex-wrap:wrap;gap:8px;display:flex}.ok[data-v-c97cd25b]{color:var(--ink-go,#008873)}.warn[data-v-c97cd25b]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-c97cd25b"]]), Ro = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-your-work"
-}, Fo = {
+}, zo = {
 	key: 1,
 	"data-smoke": "home-your-work"
-}, Io = { class: "section" }, Lo = { class: "section-strap" }, Ro = { class: "meta" }, zo = { class: "idn" }, Bo = { class: "title" }, Vo = { class: "sub" }, Ho = { class: "t" }, Uo = { class: "section" }, Wo = { class: "section-strap" }, Go = { class: "meta" }, Ko = { class: "idn" }, qo = { class: "title" }, Jo = { class: "sub" }, Yo = { class: "t" }, Xo = { class: "section" }, Zo = { class: "section-strap" }, Qo = { class: "meta" }, $o = { class: "title" }, es = { class: "sub" }, ts = { class: "t" }, ns = /* @__PURE__ */ vo(/* @__PURE__ */ Fn({
+}, Bo = { class: "section" }, Vo = { class: "section-strap" }, Ho = { class: "meta" }, Uo = { class: "idn" }, Wo = { class: "title" }, Go = { class: "sub" }, Ko = { class: "t" }, qo = { class: "section" }, Jo = { class: "section-strap" }, Yo = { class: "meta" }, Xo = { class: "idn" }, Zo = { class: "title" }, Qo = { class: "sub" }, $o = { class: "t" }, es = { class: "section" }, ts = { class: "section-strap" }, ns = { class: "meta" }, rs = { class: "title" }, is = { class: "sub" }, as = { class: "t" }, os = /* @__PURE__ */ So(/* @__PURE__ */ Fn({
 	__name: "HomeYourWork",
 	props: {
 		client: { type: null },
@@ -3019,7 +3047,7 @@ var uo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				let e = await so(s.value);
+				let e = await fo(s.value);
 				i.value = e.reviewQueue, a.value = e.authoredPulls, o.value = e.failingChecks, n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load your work: ${e instanceof Error ? e.message : String(e)}`;
@@ -3037,106 +3065,91 @@ var uo = {
 		function f(e) {
 			return e.repositoryPath ?? e.repository ?? "";
 		}
-		return (e, t) => n.value === "error" ? (J(), Y("article", Po, k(r.value), 1)) : (J(), Y("div", Fo, [
-			X("section", Io, [X("div", Lo, [
+		return (e, t) => n.value === "error" ? (J(), Y("article", Ro, k(r.value), 1)) : (J(), Y("div", zo, [
+			X("section", Bo, [X("div", Vo, [
 				t[0] ||= X("span", { class: "id" }, "01", -1),
 				t[1] ||= X("h2", null, "Review queue", -1),
-				X("span", Ro, k(i.value.length) + " pulls", 1)
+				X("span", Ho, k(i.value.length) + " pulls", 1)
 			]), (J(!0), Y(K, null, or(i.value, (e) => (J(), Y("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				X("span", zo, k(l(e)), 1),
-				X("div", null, [X("div", Bo, k(e.title ?? "(untitled)"), 1), X("div", Vo, k(e.author ? `@${e.author} · ` : "") + k(f(e)), 1)]),
+				X("span", Uo, k(l(e)), 1),
+				X("div", null, [X("div", Wo, k(e.title ?? "(untitled)"), 1), X("div", Go, k(e.author ? `@${e.author} · ` : "") + k(f(e)), 1)]),
 				X("span", { class: ge(["check", d(e)]) }, k(u(e)), 3),
-				X("span", Ho, k(e.updatedAt ?? e.time ?? ""), 1)
+				X("span", Ko, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
-			X("section", Uo, [X("div", Wo, [
+			X("section", qo, [X("div", Jo, [
 				t[2] ||= X("span", { class: "id" }, "02", -1),
 				t[3] ||= X("h2", null, "Your pulls", -1),
-				X("span", Go, k(a.value.length) + " authored", 1)
+				X("span", Yo, k(a.value.length) + " authored", 1)
 			]), (J(!0), Y(K, null, or(a.value, (e) => (J(), Y("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				X("span", Ko, k(l(e)), 1),
-				X("div", null, [X("div", qo, k(e.title ?? "(untitled)"), 1), X("div", Jo, k(f(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
+				X("span", Xo, k(l(e)), 1),
+				X("div", null, [X("div", Zo, k(e.title ?? "(untitled)"), 1), X("div", Qo, k(f(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
 				t[4] ||= X("span", { class: "check ok" }, "ready", -1),
-				X("span", Yo, k(e.updatedAt ?? e.time ?? ""), 1)
+				X("span", $o, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
-			X("section", Xo, [X("div", Zo, [
+			X("section", es, [X("div", ts, [
 				t[5] ||= X("span", { class: "id" }, "03", -1),
 				t[6] ||= X("h2", null, "Failing on your branches", -1),
-				X("span", Qo, k(o.value.length) + " checks", 1)
+				X("span", ns, k(o.value.length) + " checks", 1)
 			]), (J(!0), Y(K, null, or(o.value, (e) => (J(), Y("div", {
 				key: String(e.id ?? e.name),
 				class: "row"
 			}, [
 				t[7] ||= X("span", { class: "idn" }, "!CK", -1),
-				X("div", null, [X("div", $o, k(e.name ?? "(unnamed)"), 1), X("div", es, k(f(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
+				X("div", null, [X("div", rs, k(e.name ?? "(unnamed)"), 1), X("div", is, k(f(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
 				t[8] ||= X("span", { class: "check err" }, "failing", -1),
-				X("span", ts, k(e.updatedAt ?? e.time ?? ""), 1)
+				X("span", as, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))])
 		]));
 	}
-}), [["styles", [".section[data-v-66e08d20]{gap:8px;display:grid}.section+.section[data-v-66e08d20]{margin-top:16px}.section-strap[data-v-66e08d20],.row[data-v-66e08d20]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-66e08d20]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-66e08d20],.idn[data-v-66e08d20],.sub[data-v-66e08d20],.meta[data-v-66e08d20],.check[data-v-66e08d20],.t[data-v-66e08d20],.extension-placeholder[data-v-66e08d20]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-66e08d20],.idn[data-v-66e08d20],.sub[data-v-66e08d20],.meta[data-v-66e08d20],.t[data-v-66e08d20]{color:var(--ink-faint,#888)}.title[data-v-66e08d20]{font-family:var(--display,system-ui);font-weight:600}.ok[data-v-66e08d20]{color:var(--ink-go,#008873)}.warn[data-v-66e08d20],.err[data-v-66e08d20]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-66e08d20"]]), rs = "ext_workspace_home", is = "comtrya-home-your-work", as = "comtrya-home-repositories", os = "comtrya-home-activity", ss = "comtrya-home-instance";
-no({
-	tagName: is,
-	component: ns
-}), no({
-	tagName: as,
-	component: No
-}), no({
-	tagName: os,
-	component: yo
-}), no({
-	tagName: ss,
-	component: wo
+}), [["styles", [".section[data-v-66e08d20]{gap:8px;display:grid}.section+.section[data-v-66e08d20]{margin-top:16px}.section-strap[data-v-66e08d20],.row[data-v-66e08d20]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-66e08d20]{font-family:var(--display,system-ui);margin:0;font-size:14px}.id[data-v-66e08d20],.idn[data-v-66e08d20],.sub[data-v-66e08d20],.meta[data-v-66e08d20],.check[data-v-66e08d20],.t[data-v-66e08d20],.extension-placeholder[data-v-66e08d20]{font-family:var(--mono,monospace);font-size:12px}.id[data-v-66e08d20],.idn[data-v-66e08d20],.sub[data-v-66e08d20],.meta[data-v-66e08d20],.t[data-v-66e08d20]{color:var(--ink-faint,#888)}.title[data-v-66e08d20]{font-family:var(--display,system-ui);font-weight:600}.ok[data-v-66e08d20]{color:var(--ink-go,#008873)}.warn[data-v-66e08d20],.err[data-v-66e08d20]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-66e08d20"]]), ss = "ext_workspace_home", cs = "comtrya-home-your-work", ls = "comtrya-home-repositories", us = "comtrya-home-activity", ds = "comtrya-home-instance";
+io({
+	tagName: cs,
+	component: os
+}), io({
+	tagName: ls,
+	component: Lo
+}), io({
+	tagName: us,
+	component: Co
+}), io({
+	tagName: ds,
+	component: Oo
 });
-var cs = {
-	id: rs,
+var fs = {
+	id: ss,
 	setup(e) {
-		e.registerSlot("home.your-work", {
-			element: is,
-			requiredPermission: "workspace.read",
-			priority: 1e3
-		}), e.registerSlot("home.repositories", {
-			element: as,
-			requiredPermission: "workspace.read",
-			priority: 1e3
-		}), e.registerSlot("home.activity", {
-			element: os,
-			requiredPermission: "events.read",
-			priority: 1e3
-		}), e.registerSlot("home.instance", {
-			element: ss,
-			requiredPermission: "instance.admin",
-			priority: 1e3
-		}), ls(e, "workspace.home.top", {
-			element: is,
-			requiredPermission: "workspace.read",
-			priority: 1e3
-		}), ls(e, "workspace.home.center", {
-			element: as,
-			requiredPermission: "workspace.read",
-			priority: 1e3
-		}), ls(e, "workspace.home.left", {
-			element: os,
-			requiredPermission: "events.read",
-			priority: 1e3
-		}), ls(e, "workspace.home.right", {
-			element: ss,
-			requiredPermission: "instance.admin",
-			priority: 1e3
+		e.registerWidget({
+			id: "home-your-work",
+			element: cs,
+			defaultSlot: "home.your-work",
+			defaultPriority: 1e3,
+			requiredPermission: "workspace.read"
+		}), e.registerWidget({
+			id: "home-repositories",
+			element: ls,
+			defaultSlot: "home.repositories",
+			defaultPriority: 1e3,
+			requiredPermission: "workspace.read"
+		}), e.registerWidget({
+			id: "home-activity",
+			element: us,
+			defaultSlot: "home.activity",
+			defaultPriority: 1e3,
+			requiredPermission: "events.read"
+		}), e.registerWidget({
+			id: "home-instance",
+			element: ds,
+			defaultSlot: "home.instance",
+			defaultPriority: 1e3,
+			requiredPermission: "instance.admin"
 		});
 	}
 };
-function ls(e, t, n) {
-	try {
-		e.registerSlot(t, n);
-	} catch (e) {
-		if (!t.startsWith("workspace.home.")) throw e;
-	}
-}
 //#endregion
-export { cs as default };
+export { fs as default };

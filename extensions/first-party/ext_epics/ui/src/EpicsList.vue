@@ -5,6 +5,7 @@ import EpicCard from "./EpicCard.vue";
 import {
   DEFAULT_WORKSPACE_ID,
   epicRef,
+  newEpicHref as buildNewEpicHref,
   type ComtryaGraphQLClient,
   type Epic,
   type LoadState,
@@ -30,7 +31,7 @@ const error = ref<string | null>(null);
 const loadedEpics = ref<Epic[]>(props.epics ?? []);
 const epics = computed(() => props.epics ?? loadedEpics.value);
 const graphClient = computed(() => props.client ?? props.comtryaClient);
-const newEpicHref = computed(() => `/x/epics/new?workspaceId=${props.workspaceId}`);
+const newEpicHref = computed(() => buildNewEpicHref(props.workspaceId));
 
 onMounted(loadEpics);
 watch(

@@ -2795,9 +2795,23 @@ function Ka(e) {
 function qa(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
+typeof fetch < "u" && fetch.bind(globalThis);
+//#endregion
+//#region packages/sdk-core/src/relationship-registry.ts
+var Ja = Symbol.for("comtrya.relationship-registry");
+Ya();
+function Ya() {
+	let e = globalThis;
+	return e[Ja] ??= {
+		types: /* @__PURE__ */ new Map(),
+		providers: /* @__PURE__ */ new Map(),
+		subscribers: /* @__PURE__ */ new Set()
+	}, e[Ja];
+}
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Ja(e) {
+function Xa(e) {
+	Za(e.tagName, e.component);
 	let t = /* @__PURE__ */ Ra(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2805,62 +2819,78 @@ function Ja(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(Ya(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute($a(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Ya(e) {
+function Za(e, t) {
+	if (typeof document > "u") return;
+	let n = Qa(t);
+	if (n.length === 0) return;
+	let r = `comtrya-widget-styles:${e}`;
+	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
+	let i = document.createElement("style");
+	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
+}
+function Qa(e) {
+	if (!e || typeof e != "object") return [];
+	let t = e.styles;
+	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
+}
+function $a(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_checks/ui/src/ChecksBoard.vue?vue&type=style&index=0&inline&scoped=e2bcc403&lang.css
-var Xa = ".extension-payload[data-v-e2bcc403]{gap:4px;display:grid}", Za = (e, t) => {
+var eo = ".extension-payload[data-v-e2bcc403]{gap:4px;display:grid}", to = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Qa = {}, $a = {
+}, no = {}, ro = {
 	class: "extension-payload",
 	"data-smoke": "checks-board"
 };
-function eo(e, t) {
-	return di(), gi("div", $a, [...t[0] ||= [xi("strong", null, "Checks board", -1)]]);
+function io(e, t) {
+	return di(), gi("div", ro, [...t[0] ||= [xi("strong", null, "Checks board", -1)]]);
 }
-var to = /* @__PURE__ */ Za(Qa, [
-	["render", eo],
-	["styles", [Xa]],
+var ao = /* @__PURE__ */ to(no, [
+	["render", io],
+	["styles", [eo]],
 	["__scopeId", "data-v-e2bcc403"]
-]), no = ".extension-payload[data-v-65822476]{gap:4px;display:grid}", ro = {}, io = {
+]), oo = ".extension-payload[data-v-65822476]{gap:4px;display:grid}", so = {}, co = {
 	class: "extension-payload",
 	"data-smoke": "checks-detail"
 };
-function ao(e, t) {
-	return di(), gi("div", io, [...t[0] ||= [xi("strong", null, "Check detail", -1)]]);
+function lo(e, t) {
+	return di(), gi("div", co, [...t[0] ||= [xi("strong", null, "Check detail", -1)]]);
 }
-var oo = /* @__PURE__ */ Za(ro, [
-	["render", ao],
-	["styles", [no]],
+var uo = /* @__PURE__ */ to(so, [
+	["render", lo],
+	["styles", [oo]],
 	["__scopeId", "data-v-65822476"]
-]), so = "ext_checks", co = "comtrya-checks-board";
-Ja({
-	tagName: co,
-	component: to
-}), Ja({
+]), fo = "ext_checks", po = "comtrya-checks-board";
+Xa({
+	tagName: po,
+	component: ao
+}), Xa({
 	tagName: "comtrya-checks-detail",
-	component: oo
+	component: uo
 });
-var lo = {
-	id: so,
+var mo = {
+	id: fo,
 	setup(e) {
-		e.registerSlot("repository.checks", {
-			element: co,
-			requiredPermission: "checks.read",
-			priority: 100
+		e.registerWidget({
+			id: "checks-board",
+			element: po,
+			defaultSlot: "repository.sidebar",
+			defaultPriority: 200,
+			requiredPermission: "checks.read"
 		}), e.registerRoute("/", {
-			element: co,
+			element: po,
 			requiredPermission: "checks.read"
 		});
 	}
 };
 //#endregion
-export { lo as default };
+export { mo as default };
