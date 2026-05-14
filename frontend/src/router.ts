@@ -36,6 +36,12 @@ export const shellRoutes: RouteRecordRaw[] = [
     component: InstanceHealth,
     props: { mode: "health" },
   },
+  // Permanent redirect: /r/<repo>/issues* used to live in the shell.
+  // The issues extension now owns /x/issues/... entirely.
+  {
+    path: "/r/:groups+/:repo/issues/:rest(.*)*",
+    redirect: () => ({ path: "/x/issues" }),
+  },
   {
     path: shellRoutePaths.repoHome,
     name: "repo-home",

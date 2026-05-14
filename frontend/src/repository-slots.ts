@@ -1,4 +1,4 @@
-import { registerSlot } from "@comtrya/sdk-core";
+import { registerWidget } from "@comtrya/sdk-core";
 import {
   CORE_CODE_BROWSER_ELEMENT,
   defineCoreCodeBrowser,
@@ -6,29 +6,40 @@ import {
 
 const REPOSITORY_SUMMARY_TAG = "comtrya-repository-summary";
 
+/**
+ * Generic regions the repository dashboard renders. Extensions publish
+ * widgets with a defaultSlot pointing at one of these names; the user
+ * can override placement via the layout overlay.
+ */
 export const repositoryHomeSlots = [
-  { name: "repository.overview", label: "Overview" },
-  { name: "repository.code", label: "Code" },
-  { name: "repository.issues", label: "Issues" },
-  { name: "repository.checks", label: "Checks" },
+  { name: "repository.main", label: "Main" },
+  { name: "repository.sidebar", label: "Sidebar" },
 ] as const;
 
 export type RepositoryHomeSlotName = (typeof repositoryHomeSlots)[number]["name"];
 
+/**
+ * Core (shell-owned) widgets are registered through the same widget
+ * registry every extension uses. They're treated identically — the user
+ * can move them, hide them, or override their priority just like an
+ * extension widget.
+ */
 export function registerRepositoryShellSlots(): void {
   defineRepositorySummaryElement();
   defineCoreCodeBrowser();
-  registerSlot("repository.overview", {
-    id: "core.repository-summary",
+  registerWidget({
+    id: "core:repository-summary",
     extensionId: "core",
     element: REPOSITORY_SUMMARY_TAG,
-    priority: 0,
+    defaultSlot: "repository.main",
+    defaultPriority: 0,
   });
-  registerSlot("repository.code", {
-    id: "core.repository-code",
+  registerWidget({
+    id: "core:repository-code",
     extensionId: "core",
     element: CORE_CODE_BROWSER_ELEMENT,
-    priority: 0,
+    defaultSlot: "repository.main",
+    defaultPriority: 10,
   });
 }
 

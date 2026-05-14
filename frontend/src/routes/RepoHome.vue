@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { getGraphQLClient } from "@comtrya/sdk-core";
 import SlotMount from "../components/SlotMount.vue";
 import { repositoryHomeSlots } from "../repository-slots";
 
@@ -20,8 +21,16 @@ interface RepositoryIdentity {
   openPullRequests?: number | null;
 }
 
+interface RepoHomePayload {
+  workspace?: {
+    id?: string | null;
+    repositoryByPath?: RepositoryIdentity | null;
+  };
+}
+
 const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
   workspace {
+    id
     repositoryByPath(segments: $segments) {
       id
       name
@@ -37,6 +46,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
 }`;
 
 const repository = ref<RepositoryIdentity | null>(null);
+const workspaceId = ref<string | null>(null);
 const loadState = ref<"loading" | "ready" | "missing" | "error">("loading");
 const loadError = ref<string | null>(null);
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
@@ -54,6 +64,7 @@ const repoRows = computed(() => [
 ]);
 
 const repoContext = computed<Record<string, unknown>>(() => ({
+  workspaceId: workspaceId.value ?? undefined,
   repositoryId: repositoryId.value,
   repositoryGroups: repository.value?.groups ?? props.groups,
   repositoryName: repository.value?.name ?? props.repo,
@@ -68,11 +79,14 @@ watch(
     loadState.value = "loading";
     loadError.value = null;
     try {
-      const identity = await fetchRepositoryIdentity(segments, controller.signal);
-      repository.value = identity;
-      loadState.value = identity ? "ready" : "missing";
+      const identity = await fetchRepositoryIdentity(segments);
+      if (controller.signal.aborted) return;
+      workspaceId.value = identity.workspaceId;
+      repository.value = identity.repository;
+      loadState.value = identity.repository ? "ready" : "missing";
     } catch (error) {
       if (controller.signal.aborted) return;
+      workspaceId.value = null;
       repository.value = null;
       loadState.value = "error";
       loadError.value = error instanceof Error ? error.message : String(error);
@@ -83,28 +97,15 @@ watch(
 
 async function fetchRepositoryIdentity(
   segments: string[],
-  signal: AbortSignal,
-): Promise<RepositoryIdentity | null> {
-  const response = await fetch("/graphql", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: REPOSITORY_BY_PATH_QUERY,
-      variables: { segments },
-    }),
-    signal,
-  });
-  const envelope = (await response.json()) as {
-    data?: { workspace?: { repositoryByPath?: RepositoryIdentity | null } };
-    errors?: Array<{ message?: string }>;
+): Promise<{ workspaceId: string | null; repository: RepositoryIdentity | null }> {
+  const payload = await getGraphQLClient().query<RepoHomePayload>(
+    REPOSITORY_BY_PATH_QUERY,
+    { segments },
+  );
+  return {
+    workspaceId: payload.workspace?.id ?? null,
+    repository: payload.workspace?.repositoryByPath ?? null,
   };
-  if (!response.ok || envelope.errors?.length) {
-    throw new Error(
-      envelope.errors?.[0]?.message ?? response.statusText ?? "repository lookup failed",
-    );
-  }
-  return envelope.data?.workspace?.repositoryByPath ?? null;
 }
 </script>
 
@@ -135,13 +136,6 @@ async function fetchRepositoryIdentity(
       <span>{{ repository?.openPullRequests ?? 0 }} open PRs</span>
       <span v-if="repository?.updated">{{ repository.updated }}</span>
     </section>
-
-    <nav class="repo-tabs" aria-label="Repository tabs">
-      <a href="#overview" class="active">Overview</a>
-      <a href="#code">Code</a>
-      <a href="#issues">Issues</a>
-      <a href="#checks">Checks</a>
-    </nav>
 
     <section class="repo-slot-stack">
       <section
