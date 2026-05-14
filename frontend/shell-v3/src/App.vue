@@ -17,6 +17,8 @@ const navItems = [
   { to: "/r/comtrya/comtrya", number: "02", label: "Repository" },
   { to: "/x/issues/", number: "03", label: "Issues" },
   { to: "/x/pulls/", number: "04", label: "Pull requests" },
+  { to: "/new", number: "+", label: "New repository" },
+  { to: "/instance", number: "05", label: "Instance" },
 ];
 
 const liveState = ref<"connecting" | "live" | "idle" | "error">("connecting");

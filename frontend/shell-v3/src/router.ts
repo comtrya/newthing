@@ -1,6 +1,8 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from "vue-router";
 import { createRouter, createWebHistory } from "vue-router";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
+import InstanceHealth from "./routes/InstanceHealth.vue";
+import NewRepository from "./routes/NewRepository.vue";
 import RepoHome from "./routes/RepoHome.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
 import { shellRoutePaths } from "./route-paths";
@@ -10,6 +12,29 @@ export const shellRoutes: RouteRecordRaw[] = [
     path: shellRoutePaths.workspaceHome,
     name: "workspace-home",
     component: WorkspaceHome,
+  },
+  {
+    path: shellRoutePaths.newRepository,
+    name: "new-repository",
+    component: NewRepository,
+  },
+  {
+    path: shellRoutePaths.instanceAdmin,
+    name: "instance-admin",
+    component: InstanceHealth,
+    props: { mode: "instance" },
+  },
+  {
+    path: shellRoutePaths.settings,
+    name: "settings",
+    component: InstanceHealth,
+    props: { mode: "settings" },
+  },
+  {
+    path: shellRoutePaths.health,
+    name: "health",
+    component: InstanceHealth,
+    props: { mode: "health" },
   },
   {
     path: shellRoutePaths.repoHome,

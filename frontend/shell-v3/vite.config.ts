@@ -27,6 +27,7 @@ export default defineConfig({
     proxy: {
       "/graphql": kernelProxy(),
       "/_extensions": kernelProxy(),
+      "/healthz": kernelProxy(),
       "/readyz": kernelProxy(),
       "/events/session": kernelProxy(),
       "/events": kernelProxy(),

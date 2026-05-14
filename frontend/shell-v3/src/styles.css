@@ -279,6 +279,102 @@
   word-break: break-word;
 }
 
+.shell-v3 .form-panel {
+  padding-top: 32px;
+  max-width: 720px;
+}
+
+.shell-v3 .form-panel form {
+  display: grid;
+  gap: 18px;
+}
+
+.shell-v3 .form-panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.shell-v3 .form-panel label > span,
+.shell-v3 .form-panel small,
+.shell-v3 .form-error,
+.shell-v3 .form-actions a,
+.shell-v3 .admin-list span,
+.shell-v3 .admin-list code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.shell-v3 .form-panel label > span {
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shell-v3 .form-panel small,
+.shell-v3 .form-actions a,
+.shell-v3 .admin-list span {
+  color: var(--ink-faint);
+}
+
+.shell-v3 .form-panel input {
+  width: 100%;
+  border: 1.5px solid var(--rule-light);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.shell-v3 .form-error {
+  color: var(--accent-err);
+}
+
+.shell-v3 .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shell-v3 .form-actions button {
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  padding: 10px 18px;
+  font-family: var(--display);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.shell-v3 .form-actions button:disabled {
+  color: var(--ink-faint);
+  cursor: wait;
+}
+
+.shell-v3 .admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 28px;
+  padding-top: 28px;
+}
+
+.shell-v3 .admin-list {
+  display: grid;
+}
+
+.shell-v3 .admin-list > div {
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.shell-v3 .admin-list code {
+  overflow-wrap: anywhere;
+}
+
 .cmdk {
   color: var(--ink);
   cursor: pointer;
