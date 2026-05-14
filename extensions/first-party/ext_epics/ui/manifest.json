@@ -6,13 +6,23 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_epics/assets/index.js",
-    "entryIntegrity": "sha256-01a12175944ed1f1a049ca8764ce91339bb3730364735fc1285620563be37c7d",
+    "entryIntegrity": "sha256-959b50893e1de1b4a768b053a904aad2dacd0aec75ed4545ed9aa77fca7da509",
     "styles": []
   },
-  "permissions": ["epics.read", "epics.write"],
+  "permissions": [
+    "epics.read",
+    "epics.write"
+  ],
   "contributes": {
-    "slots": ["workspace.epics"],
-    "cards": [{ "resourceKind": "epic", "element": "comtrya-epic-card" }],
+    "slots": [
+      "workspace.epics"
+    ],
+    "cards": [
+      {
+        "resourceKind": "epic",
+        "element": "comtrya-epic-card"
+      }
+    ],
     "routes": true
   }
 }

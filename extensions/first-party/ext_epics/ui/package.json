@@ -1,0 +1,8 @@
+{
+  "name": "@comtrya/ext-epics-ui",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "cd ../../../../frontend && bun ./node_modules/vite/bin/vite.js build --config ../extensions/first-party/ext_epics/ui/vite.config.ts"
+  }
+}

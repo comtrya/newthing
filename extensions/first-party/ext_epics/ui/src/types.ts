@@ -1,0 +1,73 @@
+export const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+
+export type EpicState = "PLANNED" | "IN_PROGRESS" | "AT_RISK" | "DONE" | "CANCELED";
+export type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
+
+export interface Epic {
+  id: string;
+  workspaceId: string;
+  title: string;
+  bodyMarkdown?: string | null;
+  state: EpicState;
+  targetDate?: string | null;
+  ownerRef?: string | null;
+  labels?: string[] | null;
+  createdAt?: string | null;
+  closedAt?: string | null;
+}
+
+export interface EpicProgress {
+  issuesOpen?: number | null;
+  issuesClosed?: number | null;
+  childEpicsOpen?: number | null;
+  childEpicsClosed?: number | null;
+  percentComplete?: number | null;
+}
+
+export interface ComtryaGraphQLClient {
+  query<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T>;
+  mutate<T = unknown>(
+    mutation: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T>;
+}
+
+export interface ExtensionRouteParams {
+  scope?: string;
+  routePrefix?: string;
+  subPath?: string;
+  params?: Record<string, string | undefined>;
+}
+
+export interface EpicTone {
+  label: string;
+  className: string;
+}
+
+export function epicRef(epic: Pick<Epic, "id">): string {
+  return `comtrya://epic/${epic.id}`;
+}
+
+export function epicHref(epic: Pick<Epic, "workspaceId" | "id">): string {
+  return `/x/epics/${epic.workspaceId}/${epic.id}`;
+}
+
+export function stateTone(state: EpicState | string | undefined): EpicTone {
+  switch (state) {
+    case "PLANNED":
+      return { label: "planned", className: "epic-state-muted" };
+    case "IN_PROGRESS":
+      return { label: "in progress", className: "epic-state-good" };
+    case "AT_RISK":
+      return { label: "at risk", className: "epic-state-warn" };
+    case "DONE":
+      return { label: "done", className: "epic-state-good" };
+    case "CANCELED":
+      return { label: "canceled", className: "epic-state-muted" };
+    default:
+      return { label: "unknown", className: "epic-state-muted" };
+  }
+}
