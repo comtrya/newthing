@@ -189,23 +189,12 @@ impl InstanceConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ceilings {
     pub repository: RepositoryCeilings,
     pub workspace: WorkspaceCeilings,
     pub group: GroupCeilings,
     pub publishers: PublisherCeilings,
-}
-
-impl Default for Ceilings {
-    fn default() -> Self {
-        Self {
-            repository: RepositoryCeilings::default(),
-            workspace: WorkspaceCeilings::default(),
-            group: GroupCeilings::default(),
-            publishers: PublisherCeilings::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

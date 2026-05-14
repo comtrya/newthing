@@ -18,7 +18,7 @@
 //! implemented" message; their Phase 2 wiring lands in a follow-on
 //! commit once the kernel's event-dispatcher refactor is in place.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, RwLock};
 
 use comtrya_core::{IdPrefix, OpaqueId};
@@ -38,6 +38,12 @@ pub use comtrya::platform::{
     log as wit_log, ops as wit_ops, relations as wit_relations, storage as wit_storage,
     time as wit_time, types as wit_types,
 };
+
+pub type OccTokenKey = (String, String, String);
+pub type OccTokenMap = BTreeMap<OccTokenKey, String>;
+pub type SharedOccTokens = Arc<RwLock<OccTokenMap>>;
+pub type MintedIdMap = BTreeMap<String, BTreeSet<String>>;
+pub type SharedMintedIds = Arc<RwLock<MintedIdMap>>;
 
 /// Per-invocation host state. One of these is created per WASM op
 /// invocation; it carries the calling extension's identity and a
@@ -67,7 +73,7 @@ pub struct HostState {
     /// In-progress OCC tokens: extension_id → (collection, id) → version.
     /// Held in-process for the lifetime of the kernel; on restart all
     /// outstanding tokens become invalid (callers re-read).
-    pub occ_tokens: Arc<RwLock<BTreeMap<(String, String, String), String>>>,
+    pub occ_tokens: SharedOccTokens,
     /// Cross-extension op dispatcher (kernel-supplied).
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     /// Current synchronous depth of `ops.invoke` chains. Incremented
@@ -83,15 +89,12 @@ pub struct HostState {
     /// extension cannot forge an ID it didn't mint. Shared across
     /// HostState instances because the kernel re-instantiates per
     /// call but the minted-ID set must outlive any single invocation.
-    pub minted_ids:
-        Arc<RwLock<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>>,
+    pub minted_ids: SharedMintedIds,
 }
 
 /// Parsed extension manifest — only the fields the host enforces.
 #[derive(Debug, Clone, Default)]
 pub struct HostManifest {
-    /// `<extension-id>.<verb>` permission strings the extension claims.
-    pub permissions: Vec<String>,
     /// Event types this extension may `events.append`.
     pub allowed_emits: Vec<String>,
     /// Extension ids whose events this extension may `read-recent`.
@@ -141,7 +144,6 @@ pub trait IdMinter {
 #[derive(Debug)]
 pub enum MintError {
     UnknownKind(String),
-    Forbidden(String),
     Internal(String),
 }
 
@@ -236,14 +238,12 @@ impl AuthzLayer for DefaultAuthz {
 
 pub struct UlidMinter {
     pub kinds: Arc<RwLock<BTreeMap<String, String>>>, // kind -> prefix
-    pub authorized: Arc<RwLock<BTreeMap<String, Vec<String>>>>, // extension_id -> allowed kinds
 }
 
 impl UlidMinter {
     pub fn new(kind_prefixes: BTreeMap<String, String>) -> Self {
         Self {
             kinds: Arc::new(RwLock::new(kind_prefixes)),
-            authorized: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
@@ -302,16 +302,6 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
         message: message.into(),
         path: None,
     }
-}
-
-fn internal_unimplemented(what: &str) -> wit_types::Error {
-    err(
-        wit_types::ErrorCode::Internal,
-        format!(
-            "{} is declared in WIT but the kernel host import is not yet wired",
-            what
-        ),
-    )
 }
 
 // ---- types (no methods; bindgen emits an empty Host trait) ----
@@ -441,7 +431,6 @@ impl HostState {
                     k
                 ),
             )),
-            Err(MintError::Forbidden(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
             Err(MintError::Internal(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
         }
     }
@@ -474,21 +463,20 @@ impl wit_ids::Host for HostState {
         // revisits with a configurable cap once the manifest carries
         // mint budgets.
         const MAX_PENDING_MINTS_PER_EXTENSION: usize = 10_000;
-        if let Ok(all) = self.minted_ids.read() {
-            if let Some(set) = all.get(&self.extension_id) {
-                if set.len() >= MAX_PENDING_MINTS_PER_EXTENSION {
-                    return Err(err(
-                        wit_types::ErrorCode::Unavailable,
-                        format!(
-                            "extension {} has {} pending mints (cap {}); \
-                             call storage.create on existing ids before minting more",
-                            self.extension_id,
-                            set.len(),
-                            MAX_PENDING_MINTS_PER_EXTENSION
-                        ),
-                    ));
-                }
-            }
+        if let Ok(all) = self.minted_ids.read()
+            && let Some(set) = all.get(&self.extension_id)
+            && set.len() >= MAX_PENDING_MINTS_PER_EXTENSION
+        {
+            return Err(err(
+                wit_types::ErrorCode::Unavailable,
+                format!(
+                    "extension {} has {} pending mints (cap {}); \
+                     call storage.create on existing ids before minting more",
+                    self.extension_id,
+                    set.len(),
+                    MAX_PENDING_MINTS_PER_EXTENSION
+                ),
+            ));
         }
         let id = match self.id_minter.mint(&kind_name) {
             Ok(id) => id,
@@ -497,9 +485,6 @@ impl wit_ids::Host for HostState {
                     wit_types::ErrorCode::BadInput,
                     format!("unknown resource kind: {}", k),
                 ));
-            }
-            Err(MintError::Forbidden(reason)) => {
-                return Err(err(wit_types::ErrorCode::Forbidden, reason));
             }
             Err(MintError::Internal(reason)) => {
                 return Err(err(wit_types::ErrorCode::Internal, reason));
@@ -582,12 +567,11 @@ impl wit_storage::Host for HostState {
         })?;
         // Consume the mint — successful storage.create transfers
         // ownership from "minted but un-persisted" to "persisted".
-        if !exempt_collection {
-            if let Ok(mut all) = self.minted_ids.write() {
-                if let Some(set) = all.get_mut(&self.extension_id) {
-                    set.remove(&id);
-                }
-            }
+        if !exempt_collection
+            && let Ok(mut all) = self.minted_ids.write()
+            && let Some(set) = all.get_mut(&self.extension_id)
+        {
+            set.remove(&id);
         }
         Ok(())
     }
@@ -981,7 +965,7 @@ impl wit_relations::Host for HostState {
 
 pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     let mut i = 0;
     while i + 3 <= bytes.len() {
         let n = ((bytes[i] as u32) << 16) | ((bytes[i + 1] as u32) << 8) | (bytes[i + 2] as u32);
@@ -1010,7 +994,7 @@ pub(crate) fn base64_encode(bytes: &[u8]) -> String {
 
 pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
     let bytes = s.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
     let lookup = |c: u8| -> Option<u32> {
@@ -1386,15 +1370,15 @@ impl wit_events::Host for HostState {
                     .and_then(Value::as_str)
                     .or_else(|| v.get("type").and_then(Value::as_str))?
                     .to_string();
-                if let Some(filter) = &type_filter {
-                    if &event_type != filter {
-                        return None;
-                    }
+                if let Some(filter) = &type_filter
+                    && &event_type != filter
+                {
+                    return None;
                 }
-                if let Some(filter) = &source_extension_filter {
-                    if &emitter != filter {
-                        return None;
-                    }
+                if let Some(filter) = &source_extension_filter
+                    && &emitter != filter
+                {
+                    return None;
                 }
                 let payload = data
                     .get("payloadB64")
@@ -1475,7 +1459,9 @@ pub trait OpsDispatcher: Send + Sync {
 
 /// No-op dispatcher used in tests and during the bootstrap window
 /// before the kernel registers a real implementation.
+#[cfg(test)]
 pub struct NoopDispatcher;
+#[cfg(test)]
 impl OpsDispatcher for NoopDispatcher {
     fn dispatch(
         &self,
@@ -1583,35 +1569,37 @@ pub fn make_platform_linker(engine: &Engine) -> wasmtime::Result<Linker<HostStat
 
 /// Convenience constructor: build a HostState with sensible defaults
 /// for an op invocation on behalf of `extension_id`.
-pub fn host_state_for_op(
-    extension_id: impl Into<String>,
-    extension_principal: impl Into<String>,
-    current_principal: impl Into<String>,
-    store: Arc<ExtensionRuntimeStore>,
-    manifest: Arc<HostManifest>,
-    clock: Arc<dyn Clock + Send + Sync>,
-    id_minter: Arc<dyn IdMinter + Send + Sync>,
-    log_sink: Arc<dyn LogSink + Send + Sync>,
-    authz: Arc<dyn AuthzLayer + Send + Sync>,
-    ops_dispatcher: Arc<dyn OpsDispatcher>,
-    occ_tokens: Arc<RwLock<BTreeMap<(String, String, String), String>>>,
-    minted_ids: Arc<RwLock<BTreeMap<String, std::collections::BTreeSet<String>>>>,
-) -> HostState {
+pub struct HostStateForOp {
+    pub extension_id: String,
+    pub extension_principal: String,
+    pub current_principal: String,
+    pub store: Arc<ExtensionRuntimeStore>,
+    pub manifest: Arc<HostManifest>,
+    pub clock: Arc<dyn Clock + Send + Sync>,
+    pub id_minter: Arc<dyn IdMinter + Send + Sync>,
+    pub log_sink: Arc<dyn LogSink + Send + Sync>,
+    pub authz: Arc<dyn AuthzLayer + Send + Sync>,
+    pub ops_dispatcher: Arc<dyn OpsDispatcher>,
+    pub occ_tokens: SharedOccTokens,
+    pub minted_ids: SharedMintedIds,
+}
+
+pub fn host_state_for_op(input: HostStateForOp) -> HostState {
     HostState {
-        extension_id: extension_id.into(),
-        extension_principal: extension_principal.into(),
-        current_principal: current_principal.into(),
-        store,
-        authz,
-        manifest,
-        log_sink,
-        clock,
-        id_minter,
-        occ_tokens,
-        ops_dispatcher,
+        extension_id: input.extension_id,
+        extension_principal: input.extension_principal,
+        current_principal: input.current_principal,
+        store: input.store,
+        authz: input.authz,
+        manifest: input.manifest,
+        log_sink: input.log_sink,
+        clock: input.clock,
+        id_minter: input.id_minter,
+        occ_tokens: input.occ_tokens,
+        ops_dispatcher: input.ops_dispatcher,
         ops_invoke_depth: 0,
         reactor_depth: 0,
-        minted_ids,
+        minted_ids: input.minted_ids,
     }
 }
 
@@ -1649,24 +1637,24 @@ mod tests {
         let store = Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap());
         let mut kinds = std::collections::BTreeMap::new();
         kinds.insert("issue".to_string(), "iss".to_string());
-        let mut host = host_state_for_op(
-            "ext_issues",
-            "comtrya://extension/ext_issues",
-            "comtrya://user/usr_test",
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_issues".to_string(),
+            extension_principal: "comtrya://extension/ext_issues".to_string(),
+            current_principal: "comtrya://user/usr_test".to_string(),
             store,
-            Arc::new(HostManifest {
+            manifest: Arc::new(HostManifest {
                 contributes_resource_kinds: vec!["issue".to_string()],
                 host_imports: vec!["storage.write".to_string()],
                 ..HostManifest::default()
             }),
-            Arc::new(SystemClock),
-            Arc::new(UlidMinter::with_kernel_kinds(kinds)),
-            Arc::new(StderrLogSink),
-            Arc::new(DefaultAuthz),
-            Arc::new(NoopDispatcher),
-            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
-            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
-        );
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(StderrLogSink),
+            authz: Arc::new(DefaultAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+        });
         let result = <HostState as wit_storage::Host>::create(
             &mut host,
             "issues".to_string(),
@@ -1722,24 +1710,24 @@ mod tests {
         ));
         std::fs::create_dir_all(&tmp_root).unwrap();
         let dispatcher = RecordingDispatcher::default();
-        let mut host = host_state_for_op(
-            "ext_pull_requests",
-            "comtrya://extension/ext_pull_requests",
-            "comtrya://user/usr_ops_test",
-            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
-            Arc::new(HostManifest {
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_pull_requests".to_string(),
+            extension_principal: "comtrya://extension/ext_pull_requests".to_string(),
+            current_principal: "comtrya://user/usr_ops_test".to_string(),
+            store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
+            manifest: Arc::new(HostManifest {
                 allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
-            Arc::new(SystemClock),
-            Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
-            Arc::new(StderrLogSink),
-            Arc::new(DefaultAuthz),
-            Arc::new(dispatcher.clone()),
-            Arc::new(RwLock::new(BTreeMap::new())),
-            Arc::new(RwLock::new(BTreeMap::new())),
-        );
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            log_sink: Arc::new(StderrLogSink),
+            authz: Arc::new(DefaultAuthz),
+            ops_dispatcher: Arc::new(dispatcher.clone()),
+            occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+        });
 
         let bad = <HostState as wit_ops::Host>::invoke(
             &mut host,
@@ -1830,23 +1818,23 @@ mod tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&tmp_root).unwrap();
-        let mut host = host_state_for_op(
-            "ext_issues",
-            "comtrya://extension/ext_issues",
-            "comtrya://user/usr_imports_test",
-            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
-            Arc::new(HostManifest {
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_issues".to_string(),
+            extension_principal: "comtrya://extension/ext_issues".to_string(),
+            current_principal: "comtrya://user/usr_imports_test".to_string(),
+            store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
+            manifest: Arc::new(HostManifest {
                 allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 ..HostManifest::default()
             }),
-            Arc::new(SystemClock),
-            Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
-            Arc::new(StderrLogSink),
-            Arc::new(DefaultAuthz),
-            Arc::new(NoopDispatcher),
-            Arc::new(RwLock::new(BTreeMap::new())),
-            Arc::new(RwLock::new(BTreeMap::new())),
-        );
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            log_sink: Arc::new(StderrLogSink),
+            authz: Arc::new(DefaultAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+        });
 
         let storage = <HostState as wit_storage::Host>::get(
             &mut host,
@@ -1925,7 +1913,6 @@ mod m1_ext_issues_smoke {
 
     fn fresh_host_state(store_arc: Arc<crate::ExtensionRuntimeStore>) -> HostState {
         let manifest = Arc::new(HostManifest {
-            permissions: vec!["ext_issues.write".into()],
             allowed_emits: vec![
                 "dev.comtrya.issue.created".into(),
                 "dev.comtrya.issues.opened".into(),
@@ -1954,20 +1941,20 @@ mod m1_ext_issues_smoke {
         // Kernel-internal kinds (`event`, `relation`, `comment`) are
         // added by `UlidMinter::with_kernel_kinds` below — see the
         // constructor for why this lives there.
-        host_state_for_op(
-            "ext_issues",
-            "comtrya://extension/ext_issues",
-            "comtrya://user/usr_test",
-            store_arc,
+        host_state_for_op(HostStateForOp {
+            extension_id: "ext_issues".to_string(),
+            extension_principal: "comtrya://extension/ext_issues".to_string(),
+            current_principal: "comtrya://user/usr_test".to_string(),
+            store: store_arc,
             manifest,
-            Arc::new(SystemClock),
-            Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
-            Arc::new(StderrLogSink),
-            Arc::new(DefaultAuthz),
-            Arc::new(NoopDispatcher),
-            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
-            Arc::new(RwLock::new(std::collections::BTreeMap::new())),
-        )
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
+            log_sink: Arc::new(StderrLogSink),
+            authz: Arc::new(DefaultAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+        })
     }
 
     #[test]

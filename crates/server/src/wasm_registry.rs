@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use serde_json::Value;
@@ -21,8 +21,9 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, Linker};
 
 use crate::wasm_host::{
-    AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, IdMinter, LogSink, OpsDispatcher,
-    StderrLogSink, SystemClock, UlidMinter, host_state_for_op, make_platform_linker, wit_types,
+    AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, HostStateForOp, IdMinter, LogSink,
+    OpsDispatcher, SharedMintedIds, SharedOccTokens, StderrLogSink, SystemClock, UlidMinter,
+    host_state_for_op, make_platform_linker, wit_types,
 };
 
 const REACTOR_RECURSION_DEPTH_CAP: u32 = 8;
@@ -36,7 +37,6 @@ pub struct LoadedExtension {
     pub principal: String,
     pub manifest: Arc<HostManifest>,
     pub component: Component,
-    pub root: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,8 +61,8 @@ pub struct WasmRegistry {
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
-    pub occ_tokens: Arc<RwLock<BTreeMap<(String, String, String), String>>>,
-    pub minted_ids: Arc<RwLock<BTreeMap<String, std::collections::BTreeSet<String>>>>,
+    pub occ_tokens: SharedOccTokens,
+    pub minted_ids: SharedMintedIds,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -140,7 +140,6 @@ impl WasmRegistry {
             principal: format!("comtrya://extension/{}", id),
             manifest: Arc::new(host_manifest),
             component,
-            root: root.to_path_buf(),
         });
         let mut exts = self
             .extensions
@@ -211,6 +210,7 @@ impl WasmRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn reactor_subscriptions(&self) -> BTreeMap<String, Vec<String>> {
         self.reactor_subscriptions
             .read()
@@ -522,7 +522,6 @@ fn parse_host_manifest(json: &Value) -> Result<HostManifest, String> {
         })
         .unwrap_or_default();
     Ok(HostManifest {
-        permissions: strings_at("/permissions"),
         allowed_emits: strings_at("/allowedEmits"),
         allowed_event_reads: strings_at("/allowedEventReads"),
         allowed_cross_calls: strings_at("/allowedCrossCalls"),
@@ -584,20 +583,20 @@ pub fn build_host_state(
     let ext = registry
         .get(extension_id)
         .ok_or_else(|| format!("unknown extension: {extension_id}"))?;
-    let mut state = host_state_for_op(
-        ext.id.clone(),
-        ext.principal.clone(),
-        current_principal.to_string(),
+    let mut state = host_state_for_op(HostStateForOp {
+        extension_id: ext.id.clone(),
+        extension_principal: ext.principal.clone(),
+        current_principal: current_principal.to_string(),
         store,
-        ext.manifest.clone(),
-        registry.clock.clone(),
-        registry.id_minter.clone(),
-        registry.log_sink.clone(),
-        registry.authz.clone(),
-        dispatcher,
-        registry.occ_tokens.clone(),
-        registry.minted_ids.clone(),
-    );
+        manifest: ext.manifest.clone(),
+        clock: registry.clock.clone(),
+        id_minter: registry.id_minter.clone(),
+        log_sink: registry.log_sink.clone(),
+        authz: registry.authz.clone(),
+        ops_dispatcher: dispatcher,
+        occ_tokens: registry.occ_tokens.clone(),
+        minted_ids: registry.minted_ids.clone(),
+    });
     state.ops_invoke_depth = parent_depth;
     Ok((state, ext))
 }
@@ -988,7 +987,6 @@ mod tests {
             principal: original.principal.clone(),
             manifest: Arc::new(manifest),
             component: original.component.clone(),
-            root: original.root.clone(),
         });
         registry
             .extensions
@@ -1204,12 +1202,12 @@ mod tests {
             registry: registry.clone(),
             store: store.clone(),
         });
-        let mut caller = host_state_for_op(
-            "ext_pull_requests",
-            "comtrya://extension/ext_pull_requests",
-            "comtrya://user/usr_real_invoke_test",
-            store.clone(),
-            Arc::new(HostManifest {
+        let mut caller = host_state_for_op(HostStateForOp {
+            extension_id: "ext_pull_requests".to_string(),
+            extension_principal: "comtrya://extension/ext_pull_requests".to_string(),
+            current_principal: "comtrya://user/usr_real_invoke_test".to_string(),
+            store: store.clone(),
+            manifest: Arc::new(HostManifest {
                 allowed_cross_calls: vec![
                     "ext_issues/issues.open-issue".to_string(),
                     "ext_issues/issues.close-issue".to_string(),
@@ -1217,14 +1215,14 @@ mod tests {
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
-            registry.clock.clone(),
-            registry.id_minter.clone(),
-            registry.log_sink.clone(),
-            registry.authz.clone(),
-            dispatcher,
-            registry.occ_tokens.clone(),
-            registry.minted_ids.clone(),
-        );
+            clock: registry.clock.clone(),
+            id_minter: registry.id_minter.clone(),
+            log_sink: registry.log_sink.clone(),
+            authz: registry.authz.clone(),
+            ops_dispatcher: dispatcher,
+            occ_tokens: registry.occ_tokens.clone(),
+            minted_ids: registry.minted_ids.clone(),
+        });
 
         let opened_bytes = <HostState as crate::wasm_host::wit_ops::Host>::invoke(
             &mut caller,

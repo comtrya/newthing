@@ -176,10 +176,10 @@ pub async fn receive_pack_blocked() -> impl IntoResponse {
     (StatusCode::FORBIDDEN, "push over HTTP is disabled")
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 const RECEIVE_ZERO_OID: &str = "0000000000000000000000000000000000000000";
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivePackCommandSet {
     commands: Vec<ReceivePackCommand>,
@@ -187,7 +187,7 @@ struct ReceivePackCommandSet {
     pack_bytes: usize,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ReceivePackCommand {
     old_oid: String,
@@ -195,7 +195,7 @@ struct ReceivePackCommand {
     ref_name: String,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct ReceivePackCapabilities {
     report_status: bool,
@@ -204,7 +204,7 @@ struct ReceivePackCapabilities {
     agent: Option<String>,
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
     let mut offset = 0usize;
     let mut commands = Vec::new();
@@ -253,7 +253,7 @@ fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCom
     })
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn parse_receive_pack_capabilities(
     bytes: &[u8],
     capabilities: &mut ReceivePackCapabilities,
@@ -279,7 +279,7 @@ fn parse_receive_pack_capabilities(
     Ok(())
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand> {
     let line = std::str::from_utf8(data)?.trim_end_matches('\n');
     let mut parts = line.split(' ');
@@ -300,12 +300,12 @@ fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand>
     })
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn receive_pack_is_sha1_hex(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn validate_receive_pack_ref(ref_name: &str) -> anyhow::Result<()> {
     if !(ref_name.starts_with("refs/heads/") || ref_name.starts_with("refs/tags/")) {
         anyhow::bail!("unsupported ref namespace");
@@ -458,7 +458,7 @@ where
                 patched_body.extend_from_slice(PKT_FLUSH);
                 body = patched_body;
             }
-            return Response::builder()
+            Response::builder()
                 .status(StatusCode::OK)
                 .header(
                     header::CONTENT_TYPE,
@@ -466,7 +466,7 @@ where
                 )
                 .header(header::CACHE_CONTROL, "no-cache")
                 .body(axum::body::Body::from(body))
-                .expect("response build");
+                .expect("response build")
         }
         Ok(output) => (
             StatusCode::BAD_GATEWAY,
@@ -678,12 +678,12 @@ where
     if let Ok(head) = repo.find_reference("HEAD") {
         // Determine the resolved object id for HEAD
         let mut symref_target: Option<String> = None;
-        if opts.symrefs {
-            if let gix::refs::TargetRef::Symbolic(sym) = head.target() {
-                use gix::bstr::ByteSlice;
-                if let Ok(name) = std::str::from_utf8(sym.as_bstr().as_bytes()) {
-                    symref_target = Some(name.to_string());
-                }
+        if opts.symrefs
+            && let gix::refs::TargetRef::Symbolic(sym) = head.target()
+        {
+            use gix::bstr::ByteSlice;
+            if let Ok(name) = std::str::from_utf8(sym.as_bstr().as_bytes()) {
+                symref_target = Some(name.to_string());
             }
         }
         let resolved_id = match head.try_id() {
@@ -701,79 +701,63 @@ where
         }
     }
 
-    if let Ok(iter) = repo.references() {
-        if let Ok(mut all) = iter.all() {
-            while let Some(Ok(reference)) = all.next() {
-                // name as &str
-                let name = {
-                    use gix::bstr::ByteSlice;
-                    let b = reference.name().as_bstr().as_bytes();
-                    std::str::from_utf8(b).unwrap_or("")
-                };
-                if name.is_empty() {
-                    continue;
-                }
-
-                // filter by ref-prefix if provided
-                if !opts.ref_prefix.is_empty()
-                    && !opts.ref_prefix.iter().any(|p| name.starts_with(p))
-                {
-                    continue;
-                }
-
-                // Resolve object id and attributes
-                let mut symref_target: Option<String> = None;
-                let mut peeled_attr: Option<gix::hash::ObjectId> = None;
-
-                // symref: if symbolic and requested, add target
-                if opts.symrefs {
-                    if let gix::refs::TargetRef::Symbolic(sym) = reference.target() {
-                        use gix::bstr::ByteSlice;
-                        if let Ok(t) = std::str::from_utf8(sym.as_bstr().as_bytes()) {
-                            symref_target = Some(t.to_string());
-                        }
-                    }
-                }
-
-                // obtain object id to advertise: prefer direct target id if available;
-                // otherwise, peel symbolic to a commit id for display
-                let oid = if let Some(idref) = reference.try_id() {
-                    idref.detach()
-                } else if let Ok(commit) = reference.clone().peel_to_commit() {
-                    commit.id().detach()
-                } else {
-                    continue;
-                };
-
-                // peeled: for annotated tags, include peeled-to target id
-                if opts.peel && name.starts_with("refs/tags/") {
-                    if let Ok(obj) = repo.find_object(oid) {
-                        if obj.kind == gix::objs::Kind::Tag {
-                            if let Ok(tag) = gix::objs::TagRef::from_bytes(obj.data.as_ref()) {
-                                peeled_attr = Some(tag.target());
-                            }
-                        }
-                    }
-                }
-
-                push_ref_line(oid, name, symref_target.as_deref(), peeled_attr);
+    if let Ok(iter) = repo.references()
+        && let Ok(mut all) = iter.all()
+    {
+        while let Some(Ok(reference)) = all.next() {
+            // name as &str
+            let name = {
+                use gix::bstr::ByteSlice;
+                let b = reference.name().as_bstr().as_bytes();
+                std::str::from_utf8(b).unwrap_or("")
+            };
+            if name.is_empty() {
+                continue;
             }
+
+            // filter by ref-prefix if provided
+            if !opts.ref_prefix.is_empty() && !opts.ref_prefix.iter().any(|p| name.starts_with(p)) {
+                continue;
+            }
+
+            // Resolve object id and attributes
+            let mut symref_target: Option<String> = None;
+            let mut peeled_attr: Option<gix::hash::ObjectId> = None;
+
+            // symref: if symbolic and requested, add target
+            if opts.symrefs
+                && let gix::refs::TargetRef::Symbolic(sym) = reference.target()
+            {
+                use gix::bstr::ByteSlice;
+                if let Ok(t) = std::str::from_utf8(sym.as_bstr().as_bytes()) {
+                    symref_target = Some(t.to_string());
+                }
+            }
+
+            // obtain object id to advertise: prefer direct target id if available;
+            // otherwise, peel symbolic to a commit id for display
+            let oid = if let Some(idref) = reference.try_id() {
+                idref.detach()
+            } else if let Ok(commit) = reference.clone().peel_to_commit() {
+                commit.id().detach()
+            } else {
+                continue;
+            };
+
+            // peeled: for annotated tags, include peeled-to target id
+            if opts.peel
+                && name.starts_with("refs/tags/")
+                && let Ok(obj) = repo.find_object(oid)
+                && obj.kind == gix::objs::Kind::Tag
+                && let Ok(tag) = gix::objs::TagRef::from_bytes(obj.data.as_ref())
+            {
+                peeled_attr = Some(tag.target());
+            }
+
+            push_ref_line(oid, name, symref_target.as_deref(), peeled_attr);
         }
     }
 
-    body.extend_from_slice(PKT_FLUSH);
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
-        .header(header::CACHE_CONTROL, "no-cache")
-        .body(axum::body::Body::from(body))
-        .expect("response build")
-}
-
-fn respond_fetch_error(msg: &str) -> Response {
-    let mut body = Vec::with_capacity(64 + msg.len());
-    let err_line = format!("ERR {msg}\n");
-    body.extend_from_slice(&encode_pkt_line(err_line.as_bytes()));
     body.extend_from_slice(PKT_FLUSH);
     Response::builder()
         .status(StatusCode::OK)
@@ -961,19 +945,15 @@ fn parse_fetch(pkts: &[Pkt]) -> anyhow::Result<FetchRequest> {
             continue;
         }
     }
-    if let Some(fmt) = &req.object_format {
-        if fmt != "sha1" {
-            anyhow::bail!("unsupported object-format {fmt}");
-        }
+    if let Some(fmt) = &req.object_format
+        && fmt != "sha1"
+    {
+        anyhow::bail!("unsupported object-format {fmt}");
     }
     if req.wants.is_empty() {
         anyhow::bail!("no wants provided");
     }
     Ok(req)
-}
-
-fn respond_fetch_not_implemented(_req: &FetchRequest) -> Response {
-    respond_fetch_error("fetch not implemented yet")
 }
 
 async fn proxy_to_git_upload_pack<S>(
@@ -1009,14 +989,14 @@ where
         }
     };
 
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(e) = stdin.write_all(request_body).await {
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("failed to write to git: {e}"),
-            )
-                .into_response();
-        }
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(e) = stdin.write_all(request_body).await
+    {
+        return (
+            StatusCode::BAD_GATEWAY,
+            format!("failed to write to git: {e}"),
+        )
+            .into_response();
     }
     let stdout = match child.stdout.take() {
         Some(o) => o,

@@ -92,7 +92,10 @@ impl IdPrefix {
             Self::User,
             Self::Job,
         ];
-        if let Some(found) = core.iter().find(|prefix| value.starts_with(prefix.as_str())) {
+        if let Some(found) = core
+            .iter()
+            .find(|prefix| value.starts_with(prefix.as_str()))
+        {
             return Some(found.clone());
         }
         // Owned prefix: 2-8 lowercase ASCII letters followed by `_`.
@@ -121,7 +124,7 @@ impl OpaqueId {
         Self(format!("{}{}", prefix.as_str(), body))
     }
 
-    pub fn from_str(value: impl Into<String>) -> CoreResult<Self> {
+    pub fn parse(value: impl Into<String>) -> CoreResult<Self> {
         let value = value.into();
         let prefix = IdPrefix::parse(&value)
             .ok_or_else(|| CoreError::bad_user_input("opaque ID has an unknown prefix"))?;
@@ -268,12 +271,12 @@ mod tests {
 
     #[test]
     fn opaque_ids_validate_prefix_and_crockford_body() {
-        let id = OpaqueId::from_str("repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let id = OpaqueId::parse("repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         assert_eq!(id.prefix(), IdPrefix::Repository);
         assert_eq!(id.as_str().len(), "repo_".len() + 26);
 
         assert_eq!(
-            OpaqueId::from_str("repo_01HV0K4XAVE2H6R5M8KJZ8Q1AI")
+            OpaqueId::parse("repo_01HV0K4XAVE2H6R5M8KJZ8Q1AI")
                 .unwrap_err()
                 .code,
             crate::ErrorCode::BadUserInput
@@ -284,7 +287,7 @@ mod tests {
     fn generated_ids_are_prefixed_and_parseable() {
         let id = OpaqueId::new(IdPrefix::Workspace);
         assert!(id.as_str().starts_with("ws_"));
-        assert_eq!(OpaqueId::from_str(id.as_str()).unwrap(), id);
+        assert_eq!(OpaqueId::parse(id.as_str()).unwrap(), id);
     }
 
     #[test]
@@ -307,13 +310,13 @@ mod tests {
 
     #[test]
     fn opaque_id_accepts_owned_prefix_and_round_trips() {
-        let id = OpaqueId::from_str("epc_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let id = OpaqueId::parse("epc_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         assert_eq!(id.prefix(), IdPrefix::Owned("epc_".to_string()));
         assert_eq!(id.prefix_str(), "epc_");
         // Round-trip a fresh id with the same prefix.
         let fresh = OpaqueId::new(IdPrefix::Owned("epc_".to_string()));
         assert!(fresh.as_str().starts_with("epc_"));
-        assert_eq!(OpaqueId::from_str(fresh.as_str()).unwrap(), fresh);
+        assert_eq!(OpaqueId::parse(fresh.as_str()).unwrap(), fresh);
     }
 
     #[test]

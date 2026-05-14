@@ -58,19 +58,32 @@ pub struct ExtensionInstallConfig {
 /// reserved check still applies. Tests pin the character-constraint path; this entry
 /// is defensive only.
 pub const RESERVED_ROUTE_PREFIXES: &[&str] = &[
-    "r", "x", "_extensions", "api", "auth", "git",
-    "graphql", "events", "readyz", "healthz", "instance",
+    "r",
+    "x",
+    "_extensions",
+    "api",
+    "auth",
+    "git",
+    "graphql",
+    "events",
+    "readyz",
+    "healthz",
+    "instance",
 ];
 
 fn validate_route_prefix(prefix: &str) -> Result<(), String> {
     let mut chars = prefix.chars();
-    let first = chars.next().ok_or_else(|| "route_prefix must not be empty".to_string())?;
+    let first = chars
+        .next()
+        .ok_or_else(|| "route_prefix must not be empty".to_string())?;
     if !first.is_ascii_lowercase() {
         return Err(format!("route_prefix must start with a-z, got '{first}'"));
     }
     for c in chars {
         if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-            return Err(format!("route_prefix must match [a-z][a-z0-9-]*, found '{c}'"));
+            return Err(format!(
+                "route_prefix must match [a-z][a-z0-9-]*, found '{c}'"
+            ));
         }
     }
     if RESERVED_ROUTE_PREFIXES.contains(&prefix) {
@@ -109,8 +122,7 @@ impl ExtensionInstallConfig {
             _ => {}
         }
         if let Some(prefix) = &self.route_prefix {
-            validate_route_prefix(prefix)
-                .map_err(|e| CoreError::config_invalid(e))?;
+            validate_route_prefix(prefix).map_err(CoreError::config_invalid)?;
         }
         Ok(())
     }
@@ -982,17 +994,19 @@ fn parse_directive_definition(
     Ok((name.clone(), next_definition))
 }
 
+type ParsedTypeDefinition = (
+    Option<GraphqlTypeDefinition>,
+    Option<GraphqlTypeExtension>,
+    Vec<GraphqlFieldDefinition>,
+    usize,
+);
+
 fn parse_type_definition(
     extension_name: &str,
     tokens: &[GraphqlSdlToken],
     kind_index: usize,
     is_extension: bool,
-) -> CoreResult<(
-    Option<GraphqlTypeDefinition>,
-    Option<GraphqlTypeExtension>,
-    Vec<GraphqlFieldDefinition>,
-    usize,
-)> {
+) -> CoreResult<ParsedTypeDefinition> {
     let Some(GraphqlSdlToken::Name(kind)) = tokens.get(kind_index) else {
         return Ok((None, None, Vec::new(), kind_index + 1));
     };
@@ -1656,27 +1670,30 @@ fn validate_balanced_delimiters(
             GraphqlSdlToken::LeftBrace => stack.push(GraphqlSdlToken::LeftBrace),
             GraphqlSdlToken::LeftBracket => stack.push(GraphqlSdlToken::LeftBracket),
             GraphqlSdlToken::LeftParen => stack.push(GraphqlSdlToken::LeftParen),
-            GraphqlSdlToken::RightBrace => {
-                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftBrace)) {
-                    return Err(CoreError::extension_activation_failed(format!(
-                        "extension {extension_name} SDL contains unbalanced braces"
-                    )));
-                }
+            GraphqlSdlToken::RightBrace
+                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftBrace)) =>
+            {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unbalanced braces"
+                )));
             }
-            GraphqlSdlToken::RightBracket => {
-                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftBracket)) {
-                    return Err(CoreError::extension_activation_failed(format!(
-                        "extension {extension_name} SDL contains unbalanced brackets"
-                    )));
-                }
+            GraphqlSdlToken::RightBracket
+                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftBracket)) =>
+            {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unbalanced brackets"
+                )));
             }
-            GraphqlSdlToken::RightParen => {
-                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftParen)) {
-                    return Err(CoreError::extension_activation_failed(format!(
-                        "extension {extension_name} SDL contains unbalanced parentheses"
-                    )));
-                }
+            GraphqlSdlToken::RightParen
+                if !matches!(stack.pop(), Some(GraphqlSdlToken::LeftParen)) =>
+            {
+                return Err(CoreError::extension_activation_failed(format!(
+                    "extension {extension_name} SDL contains unbalanced parentheses"
+                )));
             }
+            GraphqlSdlToken::RightBrace
+            | GraphqlSdlToken::RightBracket
+            | GraphqlSdlToken::RightParen => {}
             _ => {}
         }
     }
@@ -2666,7 +2683,9 @@ mod tests {
     fn route_prefix_accepts_valid_slug() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: Some("pulls".into()),
         };
@@ -2677,7 +2696,9 @@ mod tests {
     fn route_prefix_rejects_reserved_name() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: Some("r".into()),
         };
@@ -2688,7 +2709,9 @@ mod tests {
     fn route_prefix_rejects_invalid_chars() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: Some("With/Slash".into()),
         };
@@ -2699,7 +2722,9 @@ mod tests {
     fn route_prefix_rejects_starting_with_digit() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: Some("9abc".into()),
         };
@@ -2710,7 +2735,9 @@ mod tests {
     fn route_prefix_allows_none() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: None,
         };
@@ -2721,7 +2748,9 @@ mod tests {
     fn route_prefix_rejects_empty_string() {
         let cfg = ExtensionInstallConfig {
             id: "ext_x".into(),
-            source: ExtensionSource::Local { path: "/tmp/x".into() },
+            source: ExtensionSource::Local {
+                path: "/tmp/x".into(),
+            },
             enabled: true,
             route_prefix: Some("".into()),
         };

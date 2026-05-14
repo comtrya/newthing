@@ -204,7 +204,7 @@ impl ResourceRef {
                 let kind = ResourceKind::parse(kind).ok_or_else(|| {
                     CoreError::bad_user_input("resource reference has unknown kind")
                 })?;
-                Self::new(kind, OpaqueId::from_str(id)?)
+                Self::new(kind, OpaqueId::parse(id)?)
             }
             None => {
                 let kind = ResourceKind::parse(rest).ok_or_else(|| {

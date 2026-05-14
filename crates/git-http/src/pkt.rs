@@ -1,6 +1,5 @@
 //! pkt-line encode/decode and side-band framing (scaffold).
 
-#[allow(dead_code)]
 pub fn encode_pkt_line(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(4 + data.len());
     let len = 4 + data.len();
@@ -9,13 +8,10 @@ pub fn encode_pkt_line(data: &[u8]) -> Vec<u8> {
     out
 }
 
-#[allow(dead_code)]
 pub const PKT_FLUSH: &[u8] = b"0000";
 
-#[allow(dead_code)]
 pub const PKT_DELIM: &[u8] = b"0001";
 
-#[allow(dead_code)]
 pub fn decode_pkt_lines(mut buf: &[u8]) -> anyhow::Result<Vec<Pkt>> {
     let mut out = Vec::new();
     while !buf.is_empty() {

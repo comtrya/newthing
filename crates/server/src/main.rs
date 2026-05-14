@@ -250,7 +250,6 @@ impl StartupOptions {
 struct Runtime {
     options: StartupOptions,
     config: InstanceConfig,
-    extension_config_declared: bool,
     data_dir: PathBuf,
     extension_storage: ExtensionRuntimeStore,
     demo_repository: DemoRepositoryRuntime,
@@ -268,8 +267,9 @@ struct Runtime {
 struct DemoRepositoryRuntime {
     git_dir: PathBuf,
     project_root: PathBuf,
-    http_path: String,
 }
+
+type ResponseResult<T> = Result<T, Box<Response>>;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -361,7 +361,6 @@ impl Runtime {
             data_dir: options.data_dir.clone(),
             options,
             config,
-            extension_config_declared,
             extension_storage,
             demo_repository,
             extension_runtime,
@@ -598,10 +597,10 @@ impl Runtime {
         if let Some(array) = relations.as_array() {
             for rel in array {
                 let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
-                if let Some(filter) = kind_filter {
-                    if verb != filter {
-                        continue;
-                    }
+                if let Some(filter) = kind_filter
+                    && verb != filter
+                {
+                    continue;
                 }
                 let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
@@ -624,10 +623,10 @@ impl Runtime {
         if let Some(array) = relations.as_array() {
             for rel in array {
                 let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
-                if let Some(filter) = kind_filter {
-                    if verb != filter {
-                        continue;
-                    }
+                if let Some(filter) = kind_filter
+                    && verb != filter
+                {
+                    continue;
                 }
                 let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
@@ -651,10 +650,10 @@ impl Runtime {
         if let Some(array) = relations.as_array() {
             for rel in array {
                 let verb = rel.get("kind").and_then(Value::as_str).unwrap_or("");
-                if let Some(filter) = kind_filter {
-                    if verb != filter {
-                        continue;
-                    }
+                if let Some(filter) = kind_filter
+                    && verb != filter
+                {
+                    continue;
                 }
                 let rfrom = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let rto = rel.get("to").and_then(Value::as_str).unwrap_or("");
@@ -667,65 +666,6 @@ impl Runtime {
             }
         }
         Ok(out)
-    }
-
-    // ── Issues (legacy reactor bridge; ext_issues owns new writes) ──
-    fn close_issue(
-        &self,
-        id: &str,
-        reason: Option<&str>,
-        closed_by: Option<&str>,
-    ) -> Result<Value, String> {
-        let now_iso = chrono_now_iso();
-        let reason_owned = reason.map(|s| s.to_string());
-        let closed_by_owned = closed_by.map(|s| s.to_string());
-        let now_for_closure = now_iso.clone();
-        self.extension_storage
-            .update_document_atomically("issues", id, move |data| {
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
-                    obj.insert(
-                        "stateReason".to_string(),
-                        reason_owned
-                            .as_ref()
-                            .map(|r| Value::String(r.clone()))
-                            .unwrap_or(Value::Null),
-                    );
-                    obj.insert(
-                        "closedAt".to_string(),
-                        Value::String(now_for_closure.clone()),
-                    );
-                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
-                    obj.insert(
-                        "closedByRef".to_string(),
-                        closed_by_owned
-                            .as_ref()
-                            .map(|r| Value::String(r.clone()))
-                            .unwrap_or(Value::Null),
-                    );
-                }
-            })?;
-        let updated = self
-            .issue_by_id(id)?
-            .ok_or_else(|| format!("issue {id:?} not found after close"))?;
-        let _ = self.append_event(
-            "dev.comtrya.issue.closed",
-            json!({
-                "issueID": id,
-                "reason": reason,
-                "closedByRef": closed_by,
-            }),
-        );
-        Ok(updated)
-    }
-
-    fn issue_by_id(&self, id: &str) -> Result<Option<Value>, String> {
-        let issues = self.extension_storage.collection_data("issues")?;
-        Ok(issues.as_array().and_then(|arr| {
-            arr.iter()
-                .find(|i| i.get("id").and_then(Value::as_str) == Some(id))
-                .cloned()
-        }))
     }
 
     // ── Comments (core-owned, nested-threaded) ─────────────────────────
@@ -912,13 +852,12 @@ impl Runtime {
     ) -> Result<Value, String> {
         let (segments, canonical) = validate_repo_path(path)?;
         let existing = self.extension_storage.collection_data("repositories")?;
-        if let Some(array) = existing.as_array() {
-            if array
+        if let Some(array) = existing.as_array()
+            && array
                 .iter()
                 .any(|repo| repo.get("path").and_then(Value::as_str) == Some(canonical.as_str()))
-            {
-                return Err(format!("repository at path {canonical:?} already exists"));
-            }
+        {
+            return Err(format!("repository at path {canonical:?} already exists"));
         }
         if let Some(url) = clone_from_url {
             validate_clone_url(url)?;
@@ -1127,13 +1066,13 @@ impl Runtime {
         self.extension_runtime.get(extension)
     }
 
-    fn check_boundary(&self, headers: &HeaderMap, route: &str) -> Result<HeaderMap, Response> {
+    fn check_boundary(&self, headers: &HeaderMap, route: &str) -> ResponseResult<HeaderMap> {
         if self.config.environment == Environment::Production && !self.options.tls_terminated {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::ConfigInvalid.as_str(),
                 "production requires COMTRYA_TLS_TERMINATED=true behind a TLS terminator",
-            ));
+            )));
         }
 
         let mut out = HeaderMap::new();
@@ -1142,7 +1081,11 @@ impl Runtime {
                 allowed_origins: self.config.allowed_origins.clone(),
             };
             let cors_headers = cors.check(origin, route).map_err(|error| {
-                error_response(StatusCode::FORBIDDEN, error.code.as_str(), &error.message)
+                Box::new(error_response(
+                    StatusCode::FORBIDDEN,
+                    error.code.as_str(),
+                    &error.message,
+                ))
             })?;
             for (name, value) in cors_headers {
                 out.insert(
@@ -1160,17 +1103,17 @@ impl Runtime {
         Ok(out)
     }
 
-    fn rate_limit(&self, bucket: &str, ceiling: u32) -> Result<(), Response> {
+    fn rate_limit(&self, bucket: &str, ceiling: u32) -> ResponseResult<()> {
         let minute = now_seconds() / 60;
         let mut limits = self.rate_limits.lock().expect("rate lock not poisoned");
         let count = limits.entry((bucket.to_string(), minute)).or_insert(0);
         *count += 1;
         if *count > ceiling {
-            Err(error_response(
+            Err(Box::new(error_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 ErrorCode::RateLimited.as_str(),
                 "rate limit exceeded",
-            ))
+            )))
         } else {
             Ok(())
         }
@@ -1193,13 +1136,13 @@ impl Runtime {
             .credentials
             .lock()
             .expect("credential lock not poisoned");
-        if let Some(credential) = credentials.get(token) {
-            if credential.expires_at > now_seconds() {
-                return PrincipalContext {
-                    status: credential.principal,
-                    uri: credential.principal_uri.clone(),
-                };
-            }
+        if let Some(credential) = credentials.get(token)
+            && credential.expires_at > now_seconds()
+        {
+            return PrincipalContext {
+                status: credential.principal,
+                uri: credential.principal_uri.clone(),
+            };
         }
 
         PrincipalContext::invalid()
@@ -1241,21 +1184,21 @@ impl Runtime {
         token
     }
 
-    fn consume_session(&self, token: &str) -> Result<PrincipalStatus, Response> {
+    fn consume_session(&self, token: &str) -> ResponseResult<PrincipalStatus> {
         let mut sessions = self.sessions.lock().expect("session lock not poisoned");
         let Some(session) = sessions.get_mut(token) else {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
                 "unknown event session",
-            ));
+            )));
         };
         if session.used || session.expires_at <= now_seconds() {
-            return Err(error_response(
+            return Err(Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
                 "event session is expired or already used",
-            ));
+            )));
         }
         session.used = true;
         Ok(session.principal)
@@ -1469,14 +1412,14 @@ const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
 async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match state.runtime.check_boundary(&headers, "/healthz") {
         Ok(cors) => json_response(StatusCode::OK, json!({"status": "ok"}), cors),
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
 async fn readyz(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match state.runtime.check_boundary(&headers, "/readyz") {
         Ok(cors) => json_response(StatusCode::OK, json!(state.runtime.readiness()), cors),
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
@@ -1487,7 +1430,7 @@ async fn unsupported_route(
 ) -> Response {
     let cors = match state.runtime.check_boundary(&headers, uri.path()) {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let Some(surface) = unsupported_surface_for_path(uri.path()) else {
         return error_response(
@@ -1506,7 +1449,7 @@ async fn not_found_or_unsupported(
 ) -> Response {
     let cors = match state.runtime.check_boundary(&headers, uri.path()) {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Some(surface) = unsupported_surface_for_path(uri.path()) {
         return unsupported_response(surface, cors);
@@ -1534,41 +1477,43 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     // hand-written handlers below (which M4/M5 delete extension-
     // by-extension as their WASM components ship).
     if let Some(info) = identify_wasm_op(query) {
+        debug_assert!(matches!(info.kind, "query" | "mutation"));
         if let Some(response) =
             wasm_dispatch::dispatch(&state, &info, payload.clone(), headers.clone())
         {
             return response;
         }
     }
-    if matches_op(query, "createRepository") {
-        return create_repository_mutation(state, headers, payload);
-    }
-    if matches_op(query, "relations.create") {
-        return relations_create_mutation(state, headers, payload);
-    }
-    if matches_op(query, "relations.delete") {
-        return relations_delete_mutation(state, headers, payload);
-    }
-    if matches_op(query, "relations.outgoing") {
-        return relations_outgoing_query(state, headers, payload);
-    }
-    if matches_op(query, "relations.incoming") {
-        return relations_incoming_query(state, headers, payload);
-    }
-    if matches_op(query, "relations.between") {
-        return relations_between_query(state, headers, payload);
-    }
-    if matches_op(query, "comments.thread") {
-        return comments_thread_query(state, headers, payload);
-    }
-    if matches_op(query, "comments.create") {
-        return comments_create_mutation(state, headers, payload);
-    }
-    if matches_op(query, "comments.update") {
-        return comments_update_mutation(state, headers, payload);
-    }
-    if matches_op(query, "comments.delete") {
-        return comments_delete_mutation(state, headers, payload);
+    match extract_root_operation_field(query).as_deref() {
+        Some("createRepository") => return create_repository_mutation(state, headers, payload),
+        Some("relations.create") | Some("relationsCreate") => {
+            return relations_create_mutation(state, headers, payload);
+        }
+        Some("relations.delete") | Some("relationsDelete") => {
+            return relations_delete_mutation(state, headers, payload);
+        }
+        Some("relations.outgoing") | Some("relationsOutgoing") => {
+            return relations_outgoing_query(state, headers, payload);
+        }
+        Some("relations.incoming") | Some("relationsIncoming") => {
+            return relations_incoming_query(state, headers, payload);
+        }
+        Some("relations.between") | Some("relationsBetween") => {
+            return relations_between_query(state, headers, payload);
+        }
+        Some("comments.thread") | Some("commentsThread") => {
+            return comments_thread_query(state, headers, payload);
+        }
+        Some("comments.create") | Some("commentsCreate") => {
+            return comments_create_mutation(state, headers, payload);
+        }
+        Some("comments.update") | Some("commentsUpdate") => {
+            return comments_update_mutation(state, headers, payload);
+        }
+        Some("comments.delete") | Some("commentsDelete") => {
+            return comments_delete_mutation(state, headers, payload);
+        }
+        _ => {}
     }
     graphql_response(state, headers, payload)
 }
@@ -1675,46 +1620,10 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
     if ident.is_empty() { None } else { Some(ident) }
 }
 
-/// String-match dispatcher discriminator. The kernel's JSON-stub GraphQL
-/// handler routes by looking for an operation name
-/// in the query. To avoid false matches against field names that share a
-/// prefix (`issuesClosed` inside a selection set), we require the next
-/// byte after the name to be either `(` (a call site) or whitespace
-/// (operation declaration before the args). Both the dot and camelCase
-/// aliases are checked.
-fn matches_op(query: &str, op: &str) -> bool {
-    let dot = op.to_string();
-    let camel: String = {
-        let parts: Vec<&str> = op.split('.').collect();
-        if parts.len() == 2 {
-            let head = parts[0];
-            let tail = parts[1];
-            let mut chars = tail.chars();
-            let upper_tail = match chars.next() {
-                Some(c) => c.to_ascii_uppercase().to_string() + chars.as_str(),
-                None => String::new(),
-            };
-            format!("{}{}", head, upper_tail)
-        } else {
-            op.to_string()
-        }
-    };
-    for candidate in [dot, camel] {
-        if let Some(pos) = query.find(&candidate) {
-            let next = query.as_bytes().get(pos + candidate.len()).copied();
-            match next {
-                Some(b'(') | Some(b' ') | Some(b'\n') | Some(b'\t') | None => return true,
-                _ => continue,
-            }
-        }
-    }
-    false
-}
-
 fn comments_thread_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let target = payload
         .pointer("/variables/target")
@@ -1746,7 +1655,7 @@ fn comments_thread_query(state: AppState, headers: HeaderMap, payload: Value) ->
 fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let target = payload
         .pointer("/variables/input/target")
@@ -1792,7 +1701,7 @@ fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value)
 fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let id = payload
         .pointer("/variables/input/id")
@@ -1835,7 +1744,7 @@ fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value)
 fn comments_delete_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let id = payload
         .pointer("/variables/input/id")
@@ -1864,26 +1773,23 @@ fn comments_delete_mutation(state: AppState, headers: HeaderMap, payload: Value)
     }
 }
 
-fn cors_or_response(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
+fn cors_or_response(state: &AppState, headers: &HeaderMap) -> ResponseResult<HeaderMap> {
     state.runtime.check_boundary(headers, "/graphql")
 }
 
-pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> Result<HeaderMap, Response> {
+pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
-    state
-        .runtime
-        .rate_limit(
-            "graphql",
-            state.runtime.config.rate_limits.graphql_per_principal,
-        )
-        .map_err(|response| response)?;
+    state.runtime.rate_limit(
+        "graphql",
+        state.runtime.config.rate_limits.graphql_per_principal,
+    )?;
     Ok(cors)
 }
 
 fn relations_create_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let from = payload
         .pointer("/variables/input/from")
@@ -1926,7 +1832,7 @@ fn relations_create_mutation(state: AppState, headers: HeaderMap, payload: Value
 fn relations_delete_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let id = payload
         .pointer("/variables/input/id")
@@ -1958,7 +1864,7 @@ fn relations_delete_mutation(state: AppState, headers: HeaderMap, payload: Value
 fn relations_outgoing_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let from = payload
         .pointer("/variables/from")
@@ -1991,7 +1897,7 @@ fn relations_outgoing_query(state: AppState, headers: HeaderMap, payload: Value)
 fn relations_incoming_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let to = payload
         .pointer("/variables/to")
@@ -2024,7 +1930,7 @@ fn relations_incoming_query(state: AppState, headers: HeaderMap, payload: Value)
 fn relations_between_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let from = payload
         .pointer("/variables/from")
@@ -2061,13 +1967,13 @@ fn relations_between_query(state: AppState, headers: HeaderMap, payload: Value) 
 fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match state.runtime.check_boundary(&headers, "/graphql") {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Err(response) = state.runtime.rate_limit(
         "graphql",
         state.runtime.config.rate_limits.graphql_per_principal,
     ) {
-        return response;
+        return *response;
     }
     let path = payload
         .pointer("/variables/input/path")
@@ -2142,13 +2048,13 @@ pub(crate) fn graphql_error_response(
 fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match state.runtime.check_boundary(&headers, "/graphql") {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if let Err(response) = state.runtime.rate_limit(
         "graphql",
         state.runtime.config.rate_limits.graphql_per_principal,
     ) {
-        return response;
+        return *response;
     }
     let principal = state.runtime.principal_from_headers(&headers);
     if principal == PrincipalStatus::Invalid {
@@ -2191,25 +2097,24 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
     // so the code-browser widget can render any repo, not just the demo one.
-    if let Some(repo_obj) = repository_by_path.as_object_mut() {
-        if let Some(canonical) = repo_obj
+    if let Some(repo_obj) = repository_by_path.as_object_mut()
+        && let Some(canonical) = repo_obj
             .get("path")
             .and_then(Value::as_str)
             .map(str::to_owned)
-        {
-            let (groups, _name) = split_repo_path(&canonical);
-            repo_obj.insert("groups".to_string(), json!(groups));
-            let git_dir = state
-                .runtime
-                .data_dir
-                .join("repositories")
-                .join(format!("{canonical}.git"));
-            if git_dir.is_dir() {
-                let git_payload = repo_git_data(&git_dir);
-                if let Some(obj) = git_payload.as_object() {
-                    for (key, value) in obj {
-                        repo_obj.insert(key.clone(), value.clone());
-                    }
+    {
+        let (groups, _name) = split_repo_path(&canonical);
+        repo_obj.insert("groups".to_string(), json!(groups));
+        let git_dir = state
+            .runtime
+            .data_dir
+            .join("repositories")
+            .join(format!("{canonical}.git"));
+        if git_dir.is_dir() {
+            let git_payload = repo_git_data(&git_dir);
+            if let Some(obj) = git_payload.as_object() {
+                for (key, value) in obj {
+                    repo_obj.insert(key.clone(), value.clone());
                 }
             }
         }
@@ -2342,12 +2247,12 @@ fn event_stream_response(
 ) -> Response {
     let cors = match state.runtime.check_boundary(&headers, route) {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let principal = if let Some(session) = session {
         match state.runtime.consume_session(&session) {
             Ok(principal) => principal,
-            Err(response) => return response,
+            Err(response) => return *response,
         }
     } else {
         state.runtime.principal_from_headers(&headers)
@@ -2390,7 +2295,7 @@ async fn extension_session(State(state): State<AppState>, headers: HeaderMap) ->
 fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> Response {
     let cors = match state.runtime.check_boundary(&headers, route) {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
@@ -2431,7 +2336,7 @@ async fn token_exchange(
         .check_boundary(&headers, "/auth/token-exchange")
     {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     if request.grant_type != "urn:comtrya:grant:operator-code"
         || request.subject_token_type != "urn:comtrya:token-type:operator-code"
@@ -2491,7 +2396,7 @@ async fn extension_manifest(
         .check_boundary(&headers, "/_extensions/ext_01hv/manifest.json")
     {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match state.runtime.extension_manifest_body(&extension) {
         Ok(Some(body)) => text_response(StatusCode::OK, "application/json", body, cors),
@@ -2518,7 +2423,7 @@ async fn extension_asset(
         .check_boundary(&headers, "/_extensions/ext_01hv/assets/index.js")
     {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let asset = match state.runtime.extension_asset_body(&extension, &asset_path) {
         Ok(Some(asset)) => asset,
@@ -2569,7 +2474,7 @@ async fn git_endpoint(
 ) -> Response {
     let cors = match state.runtime.check_boundary(&headers, "/git/*") {
         Ok(cors) => cors,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
@@ -2700,7 +2605,7 @@ async fn preflight(
             *response.headers_mut() = cors;
             response
         }
-        Err(response) => response,
+        Err(response) => *response,
     }
 }
 
@@ -2795,7 +2700,7 @@ fn typed_repository_payload(demo: &Value) -> Value {
         }
         repository.insert(
             "diff".to_string(),
-            demo.get("diff").cloned().unwrap_or_else(|| json!(null)),
+            demo.get("diff").cloned().unwrap_or(Value::Null),
         );
     }
     repository
@@ -3244,7 +3149,6 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
         return Ok(DemoRepositoryRuntime {
             git_dir,
             project_root,
-            http_path: "comtrya/comtrya.git".to_string(),
         });
     }
     if git_dir.exists() {
@@ -3427,7 +3331,6 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
     Ok(DemoRepositoryRuntime {
         git_dir,
         project_root,
-        http_path: "comtrya/comtrya.git".to_string(),
     })
 }
 
@@ -3714,14 +3617,13 @@ fn repo_git_data(git_dir: &Path) -> Value {
     })
 }
 
-fn git_tree(git_dir: &Path) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), String> {
+type GitTreePayload = (Vec<Value>, Vec<Value>, Vec<Value>);
+
+fn git_tree(git_dir: &Path) -> Result<GitTreePayload, String> {
     git_tree_at_ref(git_dir, "main")
 }
 
-fn git_tree_at_ref(
-    git_dir: &Path,
-    reference: &str,
-) -> Result<(Vec<Value>, Vec<Value>, Vec<Value>), String> {
+fn git_tree_at_ref(git_dir: &Path, reference: &str) -> Result<GitTreePayload, String> {
     let output = git_bytes(git_dir, &["ls-tree", "-r", "-z", "--long", reference])?;
     let mut entries = Vec::new();
     let mut files = Vec::new();
@@ -4316,7 +4218,6 @@ impl ExtensionRuntimeStore {
         )
     }
 
-    #[allow(dead_code)]
     pub(crate) fn update_document_atomically(
         &self,
         collection: &str,
@@ -4345,13 +4246,13 @@ impl ExtensionRuntimeStore {
             else {
                 return Err(format!("extension document not found: {collection}/{id}"));
             };
-            if let Some(expected) = expected_version {
-                if record.version != expected {
-                    return Err(format!(
-                        "version conflict: expected {} current {}",
-                        expected, record.version
-                    ));
-                }
+            if let Some(expected) = expected_version
+                && record.version != expected
+            {
+                return Err(format!(
+                    "version conflict: expected {} current {}",
+                    expected, record.version
+                ));
             }
             let current = record.version;
             update(&mut record.data, current);
@@ -4496,10 +4397,10 @@ fn seed_extension_documents(
 
 fn demo_seed_values(seed: &Value, seed_decl: &StorageDemoSeedDeclaration) -> Vec<(usize, Value)> {
     let mut values = Vec::new();
-    if let Some(primary_source) = &seed_decl.primary_source {
-        if let Some(value) = seed.get(primary_source).cloned() {
-            values.push((0, value));
-        }
+    if let Some(primary_source) = &seed_decl.primary_source
+        && let Some(value) = seed.get(primary_source).cloned()
+    {
+        values.push((0, value));
     }
     if let Some(value) = seed.get(&seed_decl.source) {
         if let Some(array) = value.as_array() {
@@ -4983,13 +4884,13 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
 pub fn validate_route_prefix_uniqueness(configs: &[ExtensionInstallConfig]) -> Result<(), String> {
     let mut seen: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
     for cfg in configs {
-        if let Some(prefix) = &cfg.route_prefix {
-            if let Some(prev) = seen.insert(prefix.as_str(), cfg.id.as_str()) {
-                return Err(format!(
-                    "route_prefix '{prefix}' is claimed by both '{prev}' and '{}'",
-                    cfg.id
-                ));
-            }
+        if let Some(prefix) = &cfg.route_prefix
+            && let Some(prev) = seen.insert(prefix.as_str(), cfg.id.as_str())
+        {
+            return Err(format!(
+                "route_prefix '{prefix}' is claimed by both '{prev}' and '{}'",
+                cfg.id
+            ));
         }
     }
     Ok(())
@@ -5198,38 +5099,6 @@ pub(crate) struct ExtensionRuntimeOutput {
     pub(crate) registry: wasm_registry::WasmRegistry,
 }
 
-impl ExtensionRuntimeOutput {
-    pub(crate) fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-    pub(crate) fn len(&self) -> usize {
-        self.records.len()
-    }
-    pub(crate) fn get(&self, id: &str) -> Option<&ExtensionRuntimeRecord> {
-        self.records.get(id)
-    }
-    pub(crate) fn contains_key(&self, id: &str) -> bool {
-        self.records.contains_key(id)
-    }
-    pub(crate) fn values(
-        &self,
-    ) -> std::collections::btree_map::Values<'_, String, ExtensionRuntimeRecord> {
-        self.records.values()
-    }
-    pub(crate) fn iter(
-        &self,
-    ) -> std::collections::btree_map::Iter<'_, String, ExtensionRuntimeRecord> {
-        self.records.iter()
-    }
-}
-
-impl std::ops::Index<&str> for ExtensionRuntimeOutput {
-    type Output = ExtensionRuntimeRecord;
-    fn index(&self, key: &str) -> &Self::Output {
-        &self.records[key]
-    }
-}
-
 fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
     path.ends_with("/git-receive-pack")
         || query
@@ -5435,10 +5304,10 @@ fn validate_production_testbed(
         return Err("production instance.allowedOrigins entries must use https://".to_string());
     }
     for backend in config.repository_storage_backends.values() {
-        if let RepoStorageBackend::Local { path } = backend {
-            if !Path::new(path).is_absolute() {
-                return Err("production local repository storage path must be absolute".to_string());
-            }
+        if let RepoStorageBackend::Local { path } = backend
+            && !Path::new(path).is_absolute()
+        {
+            return Err("production local repository storage path must be absolute".to_string());
         }
     }
     Ok(())
@@ -5450,6 +5319,7 @@ struct LoadedConfig {
     extension_config_declared: bool,
 }
 
+#[cfg(test)]
 fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
     load_config_file_with_metadata(path).map(|loaded| loaded.config)
 }
@@ -5511,14 +5381,14 @@ fn load_config_file_with_metadata(path: &Path) -> Result<LoadedConfig, String> {
             .repository_storage_backends
             .insert("local".to_string(), RepoStorageBackend::Local { path });
     }
-    if let Some(value) = cue_string_after(&source, "workspaces", "visibility") {
-        if let Some(workspace) = config.workspaces.get_mut("default") {
-            workspace.visibility = match value.as_str() {
-                "PUBLIC" => comtrya_core::Visibility::Public,
-                "INTERNAL" => comtrya_core::Visibility::Internal,
-                _ => comtrya_core::Visibility::Private,
-            };
-        }
+    if let Some(value) = cue_string_after(&source, "workspaces", "visibility")
+        && let Some(workspace) = config.workspaces.get_mut("default")
+    {
+        workspace.visibility = match value.as_str() {
+            "PUBLIC" => comtrya_core::Visibility::Public,
+            "INTERNAL" => comtrya_core::Visibility::Internal,
+            _ => comtrya_core::Visibility::Private,
+        };
     }
     let extensions = cue_extension_install_configs(&source)?;
     let extension_config_declared = extensions.is_some();
@@ -5612,12 +5482,12 @@ fn cue_extension_install_configs(
 }
 
 fn cue_extension_install_config(id: String, block: &str) -> Result<ExtensionInstallConfig, String> {
-    if let Some(field_id) = cue_field_string(block, "id") {
-        if field_id != id {
-            return Err(format!(
-                "extension keyed as {id:?} must not declare mismatched id {field_id:?}"
-            ));
-        }
+    if let Some(field_id) = cue_field_string(block, "id")
+        && field_id != id
+    {
+        return Err(format!(
+            "extension keyed as {id:?} must not declare mismatched id {field_id:?}"
+        ));
     }
     let source = cue_balanced_body_after_key(block, "source", '{', '}')?
         .ok_or_else(|| format!("extension {id} missing source block"))?;
@@ -5677,10 +5547,10 @@ fn cue_key_offset(source: &str, key: &str) -> Option<usize> {
     for line in source.split_inclusive('\n') {
         let trimmed = line.trim_start();
         let start = offset + line.len() - trimmed.len();
-        if let Some(rest) = trimmed.strip_prefix(key) {
-            if rest.trim_start().starts_with(':') {
-                return Some(start);
-            }
+        if let Some(rest) = trimmed.strip_prefix(key)
+            && rest.trim_start().starts_with(':')
+        {
+            return Some(start);
         }
         offset += line.len();
     }
@@ -6209,6 +6079,68 @@ mod tests {
         data
     }
 
+    fn issue_by_id(runtime: &Runtime, id: &str) -> Option<Value> {
+        runtime
+            .extension_storage
+            .collection_data("issues")
+            .unwrap()
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|issue| issue.get("id").and_then(Value::as_str) == Some(id))
+                    .cloned()
+            })
+    }
+
+    fn close_issue_record(
+        runtime: &Runtime,
+        id: &str,
+        reason: Option<&str>,
+        closed_by: Option<&str>,
+    ) -> Value {
+        let now_iso = chrono_now_iso();
+        let reason_owned = reason.map(str::to_string);
+        let closed_by_owned = closed_by.map(str::to_string);
+        let now_for_closure = now_iso.clone();
+        runtime
+            .extension_storage
+            .update_document_atomically("issues", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("state".to_string(), Value::String("CLOSED".to_string()));
+                    obj.insert(
+                        "stateReason".to_string(),
+                        reason_owned
+                            .as_ref()
+                            .map(|reason| Value::String(reason.clone()))
+                            .unwrap_or(Value::Null),
+                    );
+                    obj.insert(
+                        "closedAt".to_string(),
+                        Value::String(now_for_closure.clone()),
+                    );
+                    obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
+                    obj.insert(
+                        "closedByRef".to_string(),
+                        closed_by_owned
+                            .as_ref()
+                            .map(|closed_by| Value::String(closed_by.clone()))
+                            .unwrap_or(Value::Null),
+                    );
+                }
+            })
+            .unwrap();
+        let updated = issue_by_id(runtime, id).expect("issue exists after close");
+        let _ = runtime.append_event(
+            "dev.comtrya.issue.closed",
+            json!({
+                "issueID": id,
+                "reason": reason,
+                "closedByRef": closed_by,
+            }),
+        );
+        updated
+    }
+
     #[tokio::test]
     async fn readyz_reports_runtime_checks() {
         let state = AppState {
@@ -6274,7 +6206,6 @@ mod tests {
 
         assert_eq!(reopened.git_dir, repo.git_dir);
         assert_eq!(reopened.project_root, repo.project_root);
-        assert_eq!(reopened.http_path, "comtrya/comtrya.git");
         assert_eq!(first_head, second_head);
         validate_demo_repository_refs(&reopened).unwrap();
     }
@@ -6769,7 +6700,7 @@ extensions: {}
 
         assert!(loaded.extension_config_declared);
         assert!(loaded.config.extensions.is_empty());
-        assert!(runtime.is_empty());
+        assert!(runtime.records.is_empty());
     }
 
     #[tokio::test]
@@ -7346,9 +7277,12 @@ extensions: {
     fn extension_runtime_loads_first_party_manifests_from_disk() {
         let runtime = load_extension_runtime(&test_extension_dir()).unwrap();
 
-        assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
+        assert_eq!(runtime.records.len(), FIRST_PARTY_EXTENSIONS.len());
         for id in FIRST_PARTY_EXTENSIONS {
-            let resolver = runtime.get(*id).expect("first-party extension loaded");
+            let resolver = runtime
+                .records
+                .get(*id)
+                .expect("first-party extension loaded");
             assert_eq!(resolver.id, *id);
             assert_eq!(resolver.component, format!("dist/{id}.wasm"));
             assert_eq!(resolver.status, "platform-loaded");
@@ -8216,10 +8150,7 @@ extensions: {
         );
         let issue_b_id = issue_b["id"].as_str().unwrap().to_string();
         let issue_b_ref = format!("comtrya://issue/{issue_b_id}");
-        state
-            .runtime
-            .close_issue(&issue_b_id, Some("completed"), None)
-            .unwrap();
+        close_issue_record(&state.runtime, &issue_b_id, Some("completed"), None);
         state
             .runtime
             .create_relation(&issue_a_ref, &epic_ref, "comtrya://rel/part-of", None)
@@ -8488,11 +8419,8 @@ extensions: {
                 .as_str()
                 .is_some()
         );
-        let closed_issue = state
-            .runtime
-            .issue_by_id(&linked_issue_id)
-            .unwrap()
-            .expect("linked issue still exists");
+        let closed_issue =
+            issue_by_id(&state.runtime, &linked_issue_id).expect("linked issue still exists");
         assert_eq!(closed_issue["state"], "CLOSED");
         assert_eq!(closed_issue["stateReason"], "completed");
         assert_eq!(closed_issue["closedByRef"], pull_ref);
@@ -8520,11 +8448,8 @@ extensions: {
         assert_eq!(merge_again_status, StatusCode::OK, "{payload}");
         assert_eq!(payload["data"]["pulls"]["merge"]["state"], "MERGED");
 
-        let closed_issue_again = state
-            .runtime
-            .issue_by_id(&linked_issue_id)
-            .unwrap()
-            .expect("linked issue still exists");
+        let closed_issue_again =
+            issue_by_id(&state.runtime, &linked_issue_id).expect("linked issue still exists");
         assert_eq!(closed_issue_again["state"], "CLOSED");
         assert_eq!(closed_issue_again["stateReason"], "completed");
         assert_eq!(closed_issue_again["closedByRef"], pull_ref);
@@ -8994,9 +8919,12 @@ extensions: {
 
         let runtime = load_configured_extension_runtime(&extension_dir, true, &configs).unwrap();
 
-        assert_eq!(runtime.len(), 1);
-        assert!(runtime.contains_key("ext_checks"));
-        assert_eq!(runtime["ext_checks"].root, extension_dir.join("ext_checks"));
+        assert_eq!(runtime.records.len(), 1);
+        assert!(runtime.records.contains_key("ext_checks"));
+        assert_eq!(
+            runtime.records["ext_checks"].root,
+            extension_dir.join("ext_checks")
+        );
     }
 
     #[test]
@@ -9043,7 +8971,7 @@ extensions: {
         let runtime =
             load_configured_extension_runtime(&test_extension_dir(), true, &configs).unwrap();
 
-        assert!(runtime.is_empty());
+        assert!(runtime.records.is_empty());
     }
 
     #[test]
@@ -9051,9 +8979,9 @@ extensions: {
     fn configured_extensions_fall_back_to_first_party_when_not_declared() {
         let runtime = load_configured_extension_runtime(&test_extension_dir(), false, &[]).unwrap();
 
-        assert_eq!(runtime.len(), FIRST_PARTY_EXTENSIONS.len());
+        assert_eq!(runtime.records.len(), FIRST_PARTY_EXTENSIONS.len());
         for id in FIRST_PARTY_EXTENSIONS {
-            assert!(runtime.contains_key(*id));
+            assert!(runtime.records.contains_key(*id));
         }
     }
 

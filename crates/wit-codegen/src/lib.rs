@@ -18,7 +18,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use wit_parser::{Resolve, TypeDefKind, TypeOwner, WorldKey};
+use wit_parser::{Resolve, TypeDefKind, WorldKey};
 
 /// One op the kernel knows how to dispatch. Lives in an interface
 /// declared inside the extension's per-extension WIT.
@@ -104,10 +104,10 @@ fn singular_of(s: &str) -> Option<String> {
     if let Some(stem) = s.strip_suffix("ies") {
         return Some(format!("{}y", stem));
     }
-    if let Some(stem) = s.strip_suffix('s') {
-        if !stem.is_empty() {
-            return Some(stem.to_string());
-        }
+    if let Some(stem) = s.strip_suffix('s')
+        && !stem.is_empty()
+    {
+        return Some(stem.to_string());
     }
     None
 }
@@ -134,10 +134,10 @@ fn legacy_verb(interface_name: &str, op_name: &str) -> Option<String> {
         return Some("create".to_string());
     }
     let singular = singular_of(interface_name);
-    if let Some(s) = &singular {
-        if let Some(verb) = op_name.strip_suffix(&format!("-{}", s)) {
-            return Some(verb.to_string());
-        }
+    if let Some(s) = &singular
+        && let Some(verb) = op_name.strip_suffix(&format!("-{}", s))
+    {
+        return Some(verb.to_string());
     }
     if let Some(verb) = op_name.strip_suffix(&format!("-{}", interface_name)) {
         return Some(verb.to_string());
@@ -185,10 +185,10 @@ pub fn parse_extension_wit(
             // (e.g. `reactor` from `comtrya:platform`) that the kernel
             // invokes directly via `on-event` / `subscribed-event-types`,
             // not via the GraphQL dispatch table.
-            if let Some(pkg_id) = iface.package {
-                if resolve.packages[pkg_id].name != main_package_name {
-                    continue;
-                }
+            if let Some(pkg_id) = iface.package
+                && resolve.packages[pkg_id].name != main_package_name
+            {
+                continue;
             }
             let iface_name = match key {
                 WorldKey::Name(n) => n.clone(),
@@ -204,10 +204,7 @@ pub fn parse_extension_wit(
                     .params
                     .first()
                     .map(|(_, ty)| ty_to_schema(&resolve, ty));
-                let output_schema = match &func.result {
-                    Some(ty) => Some(ty_to_schema(&resolve, ty)),
-                    None => None,
-                };
+                let output_schema = func.result.as_ref().map(|ty| ty_to_schema(&resolve, ty));
                 ops.push(OpSpec {
                     route,
                     extension_id: extension_id.to_string(),
@@ -263,16 +260,17 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
         );
         let mut aliases = Vec::new();
         // Legacy <interface><Verb> camelCase form (e.g. issuesClose).
-        if let Some(a) = legacy_graphql_field(&op.interface_name, &op.op_name) {
-            if a != op.route {
-                aliases.push(a);
-            }
+        if let Some(a) = legacy_graphql_field(&op.interface_name, &op.op_name)
+            && a != op.route
+        {
+            aliases.push(a);
         }
         // Legacy <interface>.<verb> dotted form (e.g. issues.close).
-        if let Some(a) = legacy_dotted_field(&op.interface_name, &op.op_name) {
-            if a != op.route && !aliases.contains(&a) {
-                aliases.push(a);
-            }
+        if let Some(a) = legacy_dotted_field(&op.interface_name, &op.op_name)
+            && a != op.route
+            && !aliases.contains(&a)
+        {
+            aliases.push(a);
         }
         for key in std::iter::once(&op.route).chain(aliases.iter()) {
             if let Some(previous) = seen_route_keys.get(key) {
@@ -305,18 +303,6 @@ pub fn render_rust_handlers(ops: &[OpSpec]) -> String {
     }
     out.push_str("        _ => None,\n    }\n}\n\n");
 
-    // ROUTES: every key the dispatch_route function will accept.
-    out.push_str(&format!(
-        "pub const ROUTES_{}: &[&str] = &[\n",
-        fn_name.trim_start_matches("dispatch_route_").to_uppercase()
-    ));
-    for (route_key, _, aliases) in &routes {
-        out.push_str(&format!("    \"{}\",\n", route_key));
-        for alias_key in aliases {
-            out.push_str(&format!("    \"{}\",\n", alias_key));
-        }
-    }
-    out.push_str("];\n");
     out
 }
 
@@ -491,13 +477,6 @@ fn ty_to_schema_guarded(
                 _ => serde_json::json!({"description": "opaque"}),
             }
         }
-    }
-}
-
-#[allow(dead_code)]
-fn type_owner_name(owner: &TypeOwner) -> Option<String> {
-    match owner {
-        TypeOwner::World(_) | TypeOwner::Interface(_) | TypeOwner::None => None,
     }
 }
 

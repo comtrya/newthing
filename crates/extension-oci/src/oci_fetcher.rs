@@ -286,7 +286,6 @@ impl OciExtensionFetcher {
     }
 
     /// Get reference to the cache
-    #[allow(dead_code)]
     pub fn cache(&self) -> &ExtensionCache {
         &self.cache
     }

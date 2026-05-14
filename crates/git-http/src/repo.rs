@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Trait representing repository storage that can resolve repository paths.
 pub trait RepositoryProvider {
@@ -24,7 +24,7 @@ where
     }
 }
 
-pub fn is_public_repo(dir: &PathBuf) -> bool {
+pub fn is_public_repo(dir: &Path) -> bool {
     // Allow-all override (use cautiously in prod)
     if std::env::var("COMTRYA_GIT_HTTP_EXPORT_ALL").ok().as_deref() == Some("true") {
         return true;

@@ -83,7 +83,7 @@ pub fn dispatch(
 ) -> Option<Response> {
     let cors = match crate::graphql_guard(state, &headers) {
         Ok(cors) => cors,
-        Err(response) => return Some(response),
+        Err(response) => return Some(*response),
     };
     let principal = state.runtime.principal_context_from_headers(&headers);
     if principal.status == crate::PrincipalStatus::Invalid {
@@ -896,15 +896,15 @@ fn normalize_legacy_issues_for_list(
         if issue.get("repository").and_then(Value::as_str).is_some() {
             continue;
         }
-        if let Some(workspace_id) = &call.workspace_id {
-            if issue.get("workspaceId").and_then(Value::as_str) != Some(workspace_id.as_str()) {
-                continue;
-            }
+        if let Some(workspace_id) = &call.workspace_id
+            && issue.get("workspaceId").and_then(Value::as_str) != Some(workspace_id.as_str())
+        {
+            continue;
         }
-        if let Some(repository_id) = &call.repository_id {
-            if issue.get("repositoryId").and_then(Value::as_str) != Some(repository_id.as_str()) {
-                continue;
-            }
+        if let Some(repository_id) = &call.repository_id
+            && issue.get("repositoryId").and_then(Value::as_str) != Some(repository_id.as_str())
+        {
+            continue;
         }
         let Some(id) = issue.get("id").and_then(Value::as_str).map(str::to_string) else {
             continue;

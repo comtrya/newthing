@@ -16,7 +16,6 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::pkt::{PKT_DELIM, PKT_FLUSH, encode_pkt_line};
 use crate::v2::FetchRequest;
 
-#[allow(dead_code)]
 pub struct PackBuildStats {
     pub objects: usize,
     pub bytes: u64,
@@ -47,10 +46,10 @@ pub async fn serve_fetch(
 
     // Resolve want-ref(s) into object ids and augment wants list
     let mut req_effective = req.clone();
-    if !req.want_refs().is_empty() {
-        if let Err(e) = resolve_want_refs(repo_dir, &mut req_effective).await {
-            tracing::debug!("resolve_want_refs failed: {}", e);
-        }
+    if !req.want_refs().is_empty()
+        && let Err(e) = resolve_want_refs(repo_dir, &mut req_effective).await
+    {
+        tracing::debug!("resolve_want_refs failed: {}", e);
     }
 
     // If client sent haves and did not also send 'done', emit an acknowledgments section.
@@ -193,228 +192,6 @@ pub async fn serve_fetch(
         .expect("response")
 }
 
-fn build_and_stream_pack(
-    repo_dir: PathBuf,
-    req: &FetchRequest,
-    sideband_64k: bool,
-    tx: mpsc::Sender<Bytes>,
-) -> anyhow::Result<()> {
-    let repo = gix::open(repo_dir)?;
-
-    // Collect reachable objects starting from wants (commits), stop at direct 'have' commits.
-    let mut want_commits: VecDeque<gix::hash::ObjectId> = VecDeque::new();
-    let mut seen: HashSet<gix::hash::ObjectId> = HashSet::new();
-    for w in req.wants() {
-        if let Ok(oid) = gix::hash::ObjectId::from_hex(w.as_bytes()) {
-            want_commits.push_back(oid);
-        }
-    }
-    let mut have_set: HashSet<gix::hash::ObjectId> = HashSet::new();
-    for h in req.haves() {
-        if let Ok(oid) = gix::hash::ObjectId::from_hex(h.as_bytes()) {
-            have_set.insert(oid);
-        }
-    }
-
-    let mut commits = Vec::new();
-    let mut trees = VecDeque::new();
-    let mut blobs: Vec<gix::hash::ObjectId> = Vec::new();
-    let mut seen_blob = HashSet::new();
-
-    while let Some(cid) = want_commits.pop_front() {
-        if have_set.contains(&cid) {
-            continue;
-        } // boundary: client already has this commit
-        if !seen.insert(cid) {
-            continue;
-        }
-        let commit = match repo.find_object(cid) {
-            Ok(o) => o,
-            Err(_) => continue,
-        };
-        if commit.kind != gix::objs::Kind::Commit {
-            continue;
-        }
-        let (tree_id, parents) = parse_commit_raw(commit.data.as_ref())?;
-        commits.push(cid);
-        trees.push_back(tree_id);
-        for parent in parents {
-            want_commits.push_back(parent);
-        }
-    }
-
-    // walk tree recursively to collect all trees and blobs
-    let mut seen_tree = HashSet::new();
-    while let Some(tid) = trees.pop_front() {
-        if !seen_tree.insert(tid) {
-            continue;
-        }
-        let tree = repo.find_object(tid)?;
-        let t = gix::objs::TreeRef::from_bytes(tree.data.as_ref())?;
-        for entry in t.entries.iter() {
-            if entry.mode.is_tree() {
-                trees.push_back(entry.oid.into());
-            } else if entry.mode.is_blob() || entry.mode.is_link() {
-                if !req.filter_blob_none() {
-                    let blob_oid = entry.oid.into();
-                    if seen_blob.insert(blob_oid) {
-                        blobs.push(blob_oid);
-                    }
-                }
-            }
-        }
-    }
-
-    // Prepare pack writer with header and SHA1 trailer
-    let mut out = SidebandPktWriter::new(tx.clone(), sideband_64k, req.no_progress());
-    let start = std::time::Instant::now();
-    let mut hasher = sha1::Sha1::new();
-
-    // Minimal progress (band 2) for client UX when no-progress is off
-    let total_objects = (commits.len() + seen_tree.len() + blobs.len()) as u32;
-    if sideband_64k {
-        let _ = out.progress_line(format!("Enumerating objects: {}", total_objects));
-        if req.filter_requested() {
-            let _ = out.progress_line("Filter requested; sending full objects".to_string());
-        }
-    }
-
-    // Write pack header: 'PACK' + version(2) + num_objects
-    let mut header = Vec::with_capacity(12);
-    header.extend_from_slice(b"PACK");
-    header.extend_from_slice(&2u32.to_be_bytes());
-    header.extend_from_slice(&total_objects.to_be_bytes());
-    hasher.update(&header);
-    out.send_chunk(&header)?;
-
-    fn encode_varint(mut n: u64) -> Vec<u8> {
-        let mut v = Vec::new();
-        loop {
-            let mut byte = (n & 0x7f) as u8;
-            n >>= 7;
-            if n != 0 {
-                byte |= 0x80;
-            }
-            v.push(byte);
-            if n == 0 {
-                break;
-            }
-        }
-        v
-    }
-
-    fn write_full_object(
-        repo: &gix::Repository,
-        out: &mut SidebandPktWriter,
-        hasher: &mut sha1::Sha1,
-        oid: gix::hash::ObjectId,
-    ) -> anyhow::Result<()> {
-        let obj = repo.find_object(oid)?;
-        let (kind, data) = match obj.kind {
-            gix::objs::Kind::Commit => (1u8, obj.data.to_vec()),
-            gix::objs::Kind::Tree => (2u8, obj.data.to_vec()),
-            gix::objs::Kind::Blob => (3u8, obj.data.to_vec()),
-            gix::objs::Kind::Tag => (4u8, obj.data.to_vec()),
-        };
-        let hdr = encode_obj_header(kind, data.len() as u64);
-        hasher.update(&hdr);
-        out.send_chunk(&hdr)?;
-        let mut encoder =
-            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(&data)?;
-        let compressed = encoder.finish()?;
-        hasher.update(&compressed);
-        out.send_chunk(&compressed)?;
-        Ok(())
-    }
-
-    fn write_commit_ref_delta(
-        repo: &gix::Repository,
-        out: &mut SidebandPktWriter,
-        hasher: &mut sha1::Sha1,
-        target_oid: gix::hash::ObjectId,
-        base_oid: gix::hash::ObjectId,
-    ) -> anyhow::Result<()> {
-        let base_obj = repo.find_object(base_oid)?;
-        if base_obj.kind != gix::objs::Kind::Commit {
-            anyhow::bail!("delta base is not a commit");
-        }
-        let base_size = base_obj.data.len() as u64;
-
-        let targ_obj = repo.find_object(target_oid)?;
-        if targ_obj.kind != gix::objs::Kind::Commit {
-            anyhow::bail!("target is not a commit");
-        }
-        let data = targ_obj.data.to_vec();
-
-        let mut delta = Vec::with_capacity(16 + data.len());
-        delta.extend_from_slice(&encode_varint(base_size));
-        delta.extend_from_slice(&encode_varint(data.len() as u64));
-        let mut i = 0;
-        while i < data.len() {
-            let take = (data.len() - i).min(127);
-            delta.push(take as u8);
-            delta.extend_from_slice(&data[i..i + take]);
-            i += take;
-        }
-
-        let hdr = encode_obj_header(7u8, data.len() as u64);
-        hasher.update(&hdr);
-        out.send_chunk(&hdr)?;
-
-        let base_raw = base_oid.as_bytes();
-        hasher.update(base_raw);
-        out.send_chunk(base_raw)?;
-
-        let mut encoder =
-            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(&delta)?;
-        let compressed = encoder.finish()?;
-        hasher.update(&compressed);
-        out.send_chunk(&compressed)?;
-        Ok(())
-    }
-
-    let mut have_set: HashSet<gix::hash::ObjectId> = HashSet::new();
-    for h in req.haves() {
-        if let Ok(oid) = gix::hash::ObjectId::from_hex(h.as_bytes()) {
-            have_set.insert(oid);
-        }
-    }
-
-    for id in &commits {
-        // For correctness first: emit full objects even if the client requested thin-pack.
-        // Proper delta encoding (copy/insert ops) can be added later.
-        write_full_object(&repo, &mut out, &mut hasher, (*id).into())?;
-    }
-
-    for id in &seen_tree {
-        write_full_object(&repo, &mut out, &mut hasher, (*id).into())?;
-    }
-    for id in &blobs {
-        write_full_object(&repo, &mut out, &mut hasher, (*id).into())?;
-    }
-
-    let trailer = hasher.finalize();
-    out.send_chunk(trailer.as_slice())?;
-
-    if sideband_64k && !req.no_progress() {
-        let _ = out.progress_line("Done".to_string());
-    }
-
-    // metrics
-    counter!("git_http.pack.objects").increment(total_objects as u64);
-    // best-effort byte count: header + objects + trailer were all sent through SidebandPktWriter; we can't know exact framed bytes here.
-    // Still, record logical pack bytes: header.len() + sum(compressed) + 20 trailer
-    // Not tracked precisely; emit 0 to ensure metric exists
-    histogram!("git_http.pack.logical_bytes").record(0.0);
-    histogram!("git_http.pack.build_ms").record(start.elapsed().as_millis() as f64);
-
-    // Final flush for the whole fetch response
-    tx.blocking_send(Bytes::from_static(PKT_FLUSH)).ok();
-    Ok(())
-}
-
 struct SidebandPktWriter {
     tx: mpsc::Sender<Bytes>,
     max_payload: usize,
@@ -540,13 +317,12 @@ fn parse_commit_meta(
             // committer Name <email> <timestamp> <tz>
             // We find the penultimate space-separated token as timestamp
             let parts: Vec<&[u8]> = rest.split(|b| *b == b' ').collect();
-            if parts.len() >= 2 {
-                if let Some(val) = std::str::from_utf8(parts[parts.len() - 2])
+            if parts.len() >= 2
+                && let Some(val) = std::str::from_utf8(parts[parts.len() - 2])
                     .ok()
                     .and_then(|s| s.parse::<i64>().ok())
-                {
-                    ts = Some(val);
-                }
+            {
+                ts = Some(val);
             }
         }
     }
@@ -591,22 +367,22 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
     // Exclusions from deepen-not: build full reachable set from each excluded ref tip
     let mut exclude: HashSet<gix::hash::ObjectId> = HashSet::new();
     for r in req.deepen_not().iter() {
-        if let Ok(reference) = repo.find_reference(r) {
-            if let Some(idref) = reference.try_id() {
-                let tip = idref.detach();
-                let mut q: VecDeque<gix::hash::ObjectId> = VecDeque::new();
-                q.push_back(tip);
-                while let Some(id) = q.pop_front() {
-                    if !exclude.insert(id) {
-                        continue;
-                    }
-                    if let Ok(obj) = repo.find_object(id) {
-                        if obj.kind == gix::objs::Kind::Commit {
-                            let (_, parents) = parse_commit_raw(obj.data.as_ref())?;
-                            for p in parents {
-                                q.push_back(p);
-                            }
-                        }
+        if let Ok(reference) = repo.find_reference(r)
+            && let Some(idref) = reference.try_id()
+        {
+            let tip = idref.detach();
+            let mut q: VecDeque<gix::hash::ObjectId> = VecDeque::new();
+            q.push_back(tip);
+            while let Some(id) = q.pop_front() {
+                if !exclude.insert(id) {
+                    continue;
+                }
+                if let Ok(obj) = repo.find_object(id)
+                    && obj.kind == gix::objs::Kind::Commit
+                {
+                    let (_, parents) = parse_commit_raw(obj.data.as_ref())?;
+                    for p in parents {
+                        q.push_back(p);
                     }
                 }
             }
@@ -660,15 +436,14 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
                 continue;
             }
             // Since limit boundary
-            if let Some(since) = since_limit {
-                if let Ok(obj) = repo.find_object(p) {
-                    if obj.kind == gix::objs::Kind::Commit {
-                        let (_, _, pts) = parse_commit_meta(obj.data.as_ref())?;
-                        if pts < since {
-                            shallows.insert(cid);
-                            continue;
-                        }
-                    }
+            if let Some(since) = since_limit
+                && let Ok(obj) = repo.find_object(p)
+                && obj.kind == gix::objs::Kind::Commit
+            {
+                let (_, _, pts) = parse_commit_meta(obj.data.as_ref())?;
+                if pts < since {
+                    shallows.insert(cid);
+                    continue;
                 }
             }
             want_q.push_back((p, d + 1));
@@ -692,13 +467,12 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
                 if req.filter_blob_none() {
                     continue;
                 }
-                if let Some(limit) = blob_limit {
-                    // Look up blob size and include only if <= limit
-                    if let Ok(obj) = repo.find_object(entry.oid) {
-                        if obj.kind == gix::objs::Kind::Blob && obj.data.len() > limit {
-                            continue;
-                        }
-                    }
+                if let Some(limit) = blob_limit
+                    && let Ok(obj) = repo.find_object(entry.oid)
+                    && obj.kind == gix::objs::Kind::Blob
+                    && obj.data.len() > limit
+                {
+                    continue;
                 }
                 let blob_oid = entry.oid.into();
                 if seen_blob.insert(blob_oid) {
@@ -710,12 +484,12 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
 
     // Include any direct blob wants (lazy fetches)
     for oid in direct_blobs {
-        if let Some(limit) = blob_limit {
-            if let Ok(obj) = repo.find_object(oid) {
-                if obj.kind == gix::objs::Kind::Blob && obj.data.len() > limit {
-                    continue;
-                }
-            }
+        if let Some(limit) = blob_limit
+            && let Ok(obj) = repo.find_object(oid)
+            && obj.kind == gix::objs::Kind::Blob
+            && obj.data.len() > limit
+        {
+            continue;
         }
         if seen_blob.insert(oid) {
             blobs.push(oid);
@@ -894,21 +668,21 @@ async fn emit_acknowledgments(
         if !reachable.insert(cid) {
             continue;
         }
-        if let Ok(obj) = repo.find_object(cid) {
-            if obj.kind == gix::objs::Kind::Commit {
-                let (_, parents) = parse_commit_raw(obj.data.as_ref())?;
-                for p in parents {
-                    queue.push_back(p);
-                }
+        if let Ok(obj) = repo.find_object(cid)
+            && obj.kind == gix::objs::Kind::Commit
+        {
+            let (_, parents) = parse_commit_raw(obj.data.as_ref())?;
+            for p in parents {
+                queue.push_back(p);
             }
         }
     }
     let mut common: Vec<gix::hash::ObjectId> = Vec::new();
     for h in req.haves() {
-        if let Ok(oid) = gix::hash::ObjectId::from_hex(h.as_bytes()) {
-            if reachable.contains(&oid) {
-                common.push(oid);
-            }
+        if let Ok(oid) = gix::hash::ObjectId::from_hex(h.as_bytes())
+            && reachable.contains(&oid)
+        {
+            common.push(oid);
         }
     }
     if common.is_empty() {

@@ -138,7 +138,6 @@ impl ExtensionCache {
     }
 
     /// List all cached extensions
-    #[allow(dead_code)]
     pub fn list_cached(&self) -> Result<Vec<String>> {
         let mut cache_keys = Vec::new();
 
@@ -163,7 +162,6 @@ impl ExtensionCache {
     }
 
     /// Get cache directory path
-    #[allow(dead_code)]
     pub fn cache_dir(&self) -> &Path {
         &self.cache_dir
     }
