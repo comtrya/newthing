@@ -1189,6 +1189,40 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 49 (Project URL filter on EpicsList)
+
+Mirrors iter 46 (project filter on IssuesList) onto epics.
+Click any project chip on an EpicCard, queue narrows to that
+Project, URL becomes `/x/epics/?project=kernel`.
+
+EpicCard:
+- New `activeProject?: string | null` prop drives the chip's
+  active state (inverted ink/paper when matching).
+- New `@project-click` emit fires on click with the project
+  name; chip becomes a `<button>` with `@click.prevent.stop`.
+
+EpicsList:
+- New `projectFilter` ref URL-synced as `?project=<name>`,
+  validated against `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` to
+  guard against crafted URLs.
+- **Prop wins** rule (iter 46 pattern): when the list is
+  mounted on a project page (`props.projectName` set), the URL
+  filter is ignored and not written — the route already
+  provides the scope.
+- `toggleProjectFilter(name)` wired to `@project-click`.
+- `.epics-project-filter` indicator strip appears below the
+  state filter row when active: `project · ◇ kernel · clear ✕`.
+
+Combined filters now possible on the epics queue:
+- `/x/epics/?state=in_progress&project=kernel`
+- `/x/epics/?owner=comtrya://user/rawkode&project=frontend`
+- `/x/epics/?state=planned&owner=comtrya://team/platform-maintainers&project=kernel`
+
+The third planning queue surface (epics) now has the same
+shareable-filter chip recipe as issues — state, owner/assignee,
+project. All three click → filter → URL → share moves work the
+same way across surfaces.
+
 ### 2026-05-15 — iteration 48 (Owner URL filter on EpicsList)
 
 Mirrors iter 35 (assignee filter on IssuesList) for epics:

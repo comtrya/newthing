@@ -63,6 +63,13 @@ const filter = ref<Filter>("ALL");
  */
 const ownerFilter = ref("");
 
+/**
+ * Active project filter — a CUE Project name. URL-synced as
+ * `?project=<name>`. Skipped when `props.projectName` is set
+ * (project page wins, matches iter 46 IssuesList rule).
+ */
+const projectFilter = ref("");
+
 const scopedEpics = computed(() => {
   const all = props.epics ?? loadedEpics.value;
   if (!props.projectName) return all;
@@ -73,6 +80,12 @@ const epics = computed(() => {
   let result = scopedEpics.value;
   if (filter.value !== "ALL") {
     result = result.filter((epic) => epic.state === filter.value);
+  }
+  // Prop wins: when on a project page, scopedEpics is already
+  // narrowed, so we don't re-apply the URL filter.
+  const project = props.projectName ? "" : projectFilter.value;
+  if (project) {
+    result = result.filter((epic) => epic.projectName === project);
   }
   if (ownerFilter.value) {
     result = result.filter((epic) => epic.ownerRef === ownerFilter.value);
@@ -87,6 +100,15 @@ function toggleOwnerFilter(ref: string): void {
 
 function clearOwnerFilter(): void {
   ownerFilter.value = "";
+}
+
+function toggleProjectFilter(name: string): void {
+  if (projectFilter.value === name) projectFilter.value = "";
+  else projectFilter.value = name;
+}
+
+function clearProjectFilter(): void {
+  projectFilter.value = "";
 }
 
 function shortOwnerLabel(ref: string): string {
@@ -134,6 +156,8 @@ function readUrlState(): void {
   }
   const rawOwner = params.get("owner") ?? "";
   ownerFilter.value = rawOwner.startsWith("comtrya://") ? rawOwner : "";
+  const rawProject = params.get("project") ?? "";
+  projectFilter.value = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(rawProject) ? rawProject : "";
 }
 
 function writeUrlState(): void {
@@ -143,6 +167,8 @@ function writeUrlState(): void {
   else params.set("state", filter.value);
   if (ownerFilter.value) params.set("owner", ownerFilter.value);
   else params.delete("owner");
+  if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
+  else params.delete("project");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -177,7 +203,7 @@ watch(
   () => void loadEpics(),
 );
 
-watch([filter, ownerFilter], () => {
+watch([filter, ownerFilter, projectFilter], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -255,6 +281,24 @@ async function loadEpics(): Promise<void> {
       >clear ✕</button>
     </div>
 
+    <div
+      v-if="projectFilter && !props.projectName"
+      class="epics-project-filter"
+      data-smoke="epics-project-filter"
+    >
+      <span class="prefix">project</span>
+      <span class="active-chip" :title="`Scoped to project ${projectFilter}`">
+        <span class="project-glyph">◇</span>
+        {{ projectFilter }}
+      </span>
+      <button
+        type="button"
+        class="clear"
+        @click="clearProjectFilter"
+        aria-label="Clear project filter"
+      >clear ✕</button>
+    </div>
+
     <p v-if="loadState === 'loading'" class="epic-line muted">Loading epics</p>
     <p v-else-if="loadState === 'error'" class="epic-line warn">{{ error }}</p>
     <p v-else-if="scopedEpics.length === 0" class="epic-line muted">No epics yet.</p>
@@ -268,7 +312,9 @@ async function loadEpics(): Promise<void> {
           :resource-ref="epicRef(epic)"
           :client="graphClient"
           :active-owner="ownerFilter"
+          :active-project="projectFilter"
           @owner-click="toggleOwnerFilter"
+          @project-click="toggleProjectFilter"
         />
       </li>
     </ul>
@@ -383,6 +429,54 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-owner-filter .clear:hover {
+  color: var(--ink, #111);
+}
+
+/* Project filter indicator — same shape as owner but blue chip
+   matching `.epic-project`. */
+.epics-project-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  align-self: flex-start;
+}
+
+.epics-project-filter .prefix {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.epics-project-filter .active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  color: var(--accent-blue, #1d55a6);
+}
+
+.epics-project-filter .project-glyph {
+  font-size: 10px;
+}
+
+.epics-project-filter .clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.epics-project-filter .clear:hover {
   color: var(--ink, #111);
 }
 

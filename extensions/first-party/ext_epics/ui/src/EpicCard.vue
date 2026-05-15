@@ -22,6 +22,12 @@ const props = defineProps<{
    * the active (inverted ink/paper) state.
    */
   activeOwner?: string | null;
+  /**
+   * Optional project name currently driving a list-level filter.
+   * Set by the parent when an EpicsList consumer wants the chip
+   * to show its active state.
+   */
+  activeProject?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -29,6 +35,8 @@ const emit = defineEmits<{
    * filter state, so the click bubbles up rather than mutating
    * here. */
   (event: "owner-click", ownerRef: string): void;
+  /** Same pattern for the project chip. */
+  (event: "project-click", projectName: string): void;
 }>();
 
 const loadState = ref<LoadState>("idle");
@@ -144,14 +152,17 @@ function ownerLabel(ownerRef: string | null | undefined): {
             <span class="owner-glyph">{{ ownerLabel(epic.ownerRef).glyph }}</span>
             {{ ownerLabel(epic.ownerRef).label }}
           </button>
-          <span
+          <button
             v-if="epic.projectName"
+            type="button"
             class="epic-project"
-            :title="`Scoped to project ${epic.projectName}`"
+            :class="{ active: props.activeProject === epic.projectName }"
+            :title="`${epic.projectName}\nClick to filter by this project`"
+            @click.prevent.stop="emit('project-click', epic.projectName)"
           >
             <span class="project-glyph">◇</span>
             {{ epic.projectName }}
-          </span>
+          </button>
         </div>
         <div v-if="progress" class="epic-meta">
           <span>{{ progress.issuesClosed ?? 0 }}/{{ totalIssues }} issues</span>
@@ -213,6 +224,20 @@ function ownerLabel(ownerRef: string | null | undefined): {
   color: var(--accent-blue, #1d55a6);
   border: 1px solid currentColor;
   padding: 0 6px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono, monospace);
+}
+
+.epic-project:hover {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.epic-project.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-color: var(--ink, #111);
 }
 
 /* When owner + project are both present, owner pushes right and
