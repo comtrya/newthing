@@ -11,7 +11,8 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
-    ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState, Guest as EpicsGuest,
+    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
+    Guest as EpicsGuest,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -242,6 +243,23 @@ struct EpicEventPayload<'a> {
     project_name: Option<&'a str>,
 }
 
+/// Payload for `dev.comtrya.epic.project-changed`. Carries both
+/// the previous and next project names so subscribers can adjust
+/// per-Project counts in a single bucket-swap. Mirrors the
+/// iter 67 `ProjectChangedPayload` shape on `ext_issues` so
+/// workspace-wide consumers can use one parsing path.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicProjectChangedPayload<'a> {
+    #[serde(rename = "epicID")]
+    epic_id: &'a str,
+    workspace_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_project: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_name: Option<&'a str>,
+}
+
 fn epic_uri(id: &str) -> String {
     format!("comtrya://epic/{id}")
 }
@@ -327,6 +345,42 @@ impl EpicsGuest for Component {
                 title: None,
                 state: Some(&state),
                 project_name: stored.project_name.as_deref(),
+            },
+            &epic_uri(&stored.id),
+        )?;
+        Ok(stored.to_wit())
+    }
+
+    /// 0.1.2 — retroactively assign (or clear) the Project this
+    /// epic belongs to. Mirrors iter 67's `ext_issues.assign-project`:
+    /// trim + normalise the incoming name so blank/whitespace
+    /// collapses to `None`. No-op writes return the existing
+    /// snapshot without emitting an event so SSE consumers don't
+    /// see echoes on idempotent UI calls. Emits
+    /// `dev.comtrya.epic.project-changed` carrying previous + next
+    /// names for the iter-65 workspace count bucket-swap.
+    fn assign_project(input: AssignProjectInput) -> Result<Epic, Error> {
+        let snap = storage::update_begin(COLLECTION, &input.id)?;
+        let mut stored = decode(&input.id, &snap.data)?;
+        let previous = stored.project_name.clone();
+        let normalised = input
+            .project_name
+            .as_deref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if normalised == previous {
+            return Ok(stored.to_wit());
+        }
+        stored.project_name = normalised.clone();
+        stored.updated_at = time::now_iso();
+        commit_update(&input.id, &stored, &snap.version)?;
+        emit(
+            "dev.comtrya.epic.project-changed",
+            &EpicProjectChangedPayload {
+                epic_id: &stored.id,
+                workspace_id: &stored.workspace_id,
+                previous_project: previous.as_deref(),
+                project_name: normalised.as_deref(),
             },
             &epic_uri(&stored.id),
         )?;

@@ -125,3 +125,21 @@ export async function createEpic(
   });
   return normalizeEpic(opValue<WitEpic>(result, "createEpic"));
 }
+
+/**
+ * Retroactively assign (or clear) the Project this epic belongs
+ * to. Routes through the iter 69 `assign-project` op (mirror of
+ * iter 67's issues version). The kernel emits
+ * `dev.comtrya.epic.project-changed` so workspace per-project
+ * counts (iter 65) update live.
+ */
+export async function assignEpicProject(
+  id: string,
+  projectName: string | null,
+): Promise<Epic> {
+  const result = await extEpicsXEpics.assignProject({
+    id,
+    projectName: projectName ?? null,
+  });
+  return normalizeEpic(opValue<WitEpic>(result, "assignProject"));
+}

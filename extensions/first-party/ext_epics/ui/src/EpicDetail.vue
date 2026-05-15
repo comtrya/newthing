@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 import {
+  fetchComtryaProjects,
+  renderMarkdown,
+  useShortcuts,
+  type ComtryaProject,
+} from "@comtrya/sdk-vue";
+import {
+  assignEpicProject,
   changeEpicState,
   epicByRef,
   epicProgress,
@@ -111,6 +117,49 @@ watch(
 // iter 62 routes through `classifyIssueAuthor` (re-export of
 // the canonical `classifyPrincipal` from sdk-vue).
 const classifyOwner = classifyIssueAuthor;
+
+/**
+ * Project picker — retroactively assigns or clears the Project
+ * via the iter 69 `assign-project` op. Mirrors the iter 68
+ * IssueDetail picker: optimistic update, rollback on error,
+ * disabled select while the op is in flight.
+ */
+const availableProjects = ref<ComtryaProject[]>([]);
+const projectActionState = ref<"idle" | "submitting">("idle");
+const projectActionError = ref<string | null>(null);
+
+onMounted(async () => {
+  try {
+    availableProjects.value = await fetchComtryaProjects();
+  } catch {
+    availableProjects.value = [];
+  }
+});
+
+async function onProjectChange(event: Event): Promise<void> {
+  const target = event.target as HTMLSelectElement | null;
+  if (!target || !epic.value) return;
+  const current = epic.value;
+  const nextName = target.value || null;
+  if ((current.projectName ?? null) === nextName) return;
+  projectActionState.value = "submitting";
+  projectActionError.value = null;
+  const previous = current.projectName ?? null;
+  // Optimistic update: hero meta chip + Routed-to panel refresh
+  // before the op returns so the page stays responsive.
+  loadedEpic.value = { ...current, projectName: nextName };
+  try {
+    const updated = await assignEpicProject(current.id, nextName);
+    loadedEpic.value = updated;
+  } catch (caught) {
+    loadedEpic.value = { ...current, projectName: previous };
+    target.value = previous ?? "";
+    projectActionError.value =
+      caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    projectActionState.value = "idle";
+  }
+}
 
 onMounted(() => {
   ensureEpicDetailStyles();
@@ -299,6 +348,39 @@ function relativeTime(iso: string | null | undefined): string | null {
         <div class="epic-progress-bar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
           <div class="epic-progress-fill" :style="{ width: percent + '%' }"></div>
         </div>
+      </section>
+
+      <section class="epic-routed" data-smoke="epic-project-picker">
+        <header class="epic-routed-head">
+          <span class="epic-routed-label">Project</span>
+          <a
+            v-if="epic.projectName"
+            :href="`/x/epics/?project=${encodeURIComponent(epic.projectName)}`"
+            class="epic-routed-project"
+            :title="`Filter epics to project ${epic.projectName}`"
+          >◇ {{ epic.projectName }}</a>
+        </header>
+        <select
+          class="epic-project-select"
+          data-smoke="epic-project-select"
+          :value="epic.projectName ?? ''"
+          :disabled="projectActionState === 'submitting'"
+          @change="onProjectChange"
+        >
+          <option value="">— no project —</option>
+          <option
+            v-for="proj in availableProjects"
+            :key="proj.name"
+            :value="proj.name ?? ''"
+          >{{ proj.name }}</option>
+        </select>
+        <p v-if="projectActionError" class="epic-line warn" role="alert">
+          {{ projectActionError }}
+        </p>
+        <p class="epic-routed-source">
+          Stamps <code>projectName</code> on this epic. Lights up workspace
+          per-Project counts.
+        </p>
       </section>
 
       <section

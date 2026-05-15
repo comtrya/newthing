@@ -147,6 +147,30 @@ const CSS = `
   text-underline-offset: 2px;
 }
 
+/* iter 69 — inline Project picker on EpicDetail. Mirrors the
+ * iter 68 IssueDetail select styling so both detail surfaces
+ * read identically. */
+.epic-project-select {
+  width: 100%;
+  border: 1.5px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+  padding: 8px 10px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.epic-project-select:focus {
+  border-color: var(--ink, #1a1a1a);
+}
+
+.epic-project-select:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .epic-routed-list {
   list-style: none;
   padding: 0;

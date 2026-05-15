@@ -419,7 +419,13 @@ onMounted(() => {
       onError: () => {},
     }),
   );
-  for (const type of ["dev.comtrya.epic.created", "dev.comtrya.epic.state-changed"]) {
+  for (const type of [
+    "dev.comtrya.epic.created",
+    "dev.comtrya.epic.state-changed",
+    // iter 69 emits on retroactive epic-Project reassignment;
+    // same bucket-swap motivation as the issues equivalent.
+    "dev.comtrya.epic.project-changed",
+  ]) {
     issueUnsubscribers.push(
       subscribeLiveEvents({
         type,

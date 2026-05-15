@@ -1189,6 +1189,51 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 69 (Symmetric: epic assign-project (WIT 0.1.2 + UI consumer))
+
+Mirrors iters 67+68 on the epic side - one cohesive iteration
+covering WIT + handler + UI + shell SSE wiring. Retroactive
+Project assignment now works for both issues and epics; the
+workspace per-Project counts shift live for either.
+
+WIT (`ext_epics/wit/epics.wit` 0.1.1 -> 0.1.2):
+- New `assign-project-input { id, project-name: option<string> }`
+  record.
+- New `assign-project: func(input) -> result<epic, error>` op.
+
+Component (`ext_epics/component/src/lib.rs`):
+- `fn assign_project(input)` mirrors the iter 67 issues impl:
+  trim/normalise, no-op write returns the existing snapshot,
+  storage::update_begin -> commit, emit
+  `dev.comtrya.epic.project-changed`.
+- New `EpicProjectChangedPayload { epicID, workspaceId,
+  previousProject, projectName }` struct - same camelCase shape
+  as the issues version so consumers can use one parsing path.
+- `AssignProjectInput` added to the bindings import line.
+
+UI (`ext_epics/ui/src/`):
+- `api.ts`: new `assignEpicProject(id, projectName)` over the
+  wit-codegen `assignProject` client method.
+- `EpicDetail.vue`: inline "Project" sidebar panel above
+  "Routed to". `<select>` populated from
+  `fetchComtryaProjects()`, defaults to `epic.projectName`,
+  optimistic update + rollback on failure, disabled while in
+  flight. Header link to `/x/epics/?project=<name>`.
+- `epic-detail-styles.ts`: `.epic-project-select` styling
+  matches the iter 68 IssueDetail picker.
+
+Shell (`frontend/src/routes/WorkspaceHome.vue`):
+- Subscribes to `dev.comtrya.epic.project-changed` alongside
+  the existing epic topics so the workspace per-Project
+  counts (iter 65) update on retroactive epic reassignment.
+
+The dogfood kernel still runs 0.1.1 of ext_epics. After a
+restart picks up 0.1.2's dispatch table, every untagged seed
+epic (`reactor target` planned + the `1 done` from iter 65)
+can be retroactively scoped via the picker. typecheck +
+shell build + ext_epics bundle clean, `entryIntegrity`
+refreshed.
+
 ### 2026-05-15 - iteration 68 (UI consumer: inline Project picker on IssueDetail)
 
 Wires the iter 67 `assign-project` op into IssueDetail.
