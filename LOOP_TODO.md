@@ -1189,6 +1189,50 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 52 (README rendering on RepoHome)
+
+Major DX win: RepoHome now actually surfaces README content
+under the chip row + clone affordance, instead of jumping
+straight into the slot stack. Closes the most visible gap
+between the shell repo home and what users expect from a
+forge.
+
+Shell:
+- Added `frontend/src/markdown.ts`, a tiny markdown shim
+  (headings, paragraphs, fenced code, lists, inline
+  `code`/`**bold**`/`*em*`). Deliberately mirrors
+  `ext_docs/ui/src/markdown.ts` and `ext_epics/ui/src/markdown.ts`
+  — kept as a shell-side duplicate (like the classifier
+  glyphs) so the shell never has to depend on an extension
+  bundle to render its own surface. The call site `renderMarkdown`
+  is stable; a future shiki + rehype upgrade swaps the
+  internals without touching RepoHome.
+- `frontend/src/routes/RepoHome.vue`:
+  - Extended `RepositoryIdentity` with `blobs[]` and added
+    `blobs { path preview size }` to `REPOSITORY_BY_PATH_QUERY`.
+  - Added `readmeBlob` computed that picks the top-level
+    blob whose `path` matches `^README(\.(md|mdx))?$` (case
+    insensitive). Skips nested matches (`docs/README.md`).
+    Prefers `README.md` when several candidates exist.
+  - Added `renderedReadme = renderMarkdown(readmeBlob.preview)`
+    and `readmeTruncated` (size > preview length) so the
+    UI can label preview-only renderings as such.
+  - New `<section class="repo-readme">` renders after the
+    `ProjectsPanel` and before the slot stack. Head strip
+    shows the blob path and a `preview` chip when the
+    kernel returned a truncated preview.
+- `frontend/src/styles.css`:
+  - `.shell-app .repo-readme*` rules — paper-card with a
+    rule border, mono header strip showing the path, and
+    a typographic body styled to match the editorial chip-row
+    aesthetic (Helvetica-class headings + IBM Plex Mono code
+    blocks; `--ink-tint` background for inline `<code>`).
+
+Verified against dogfood: `repositoryByPath(segments:["comtrya","dogfood"])`
+returns a 1.7KB README preview that renders cleanly through
+the shim, including the two fenced `sh` blocks and the
+bulleted "Useful docs" list. typecheck + vite build clean.
+
 ### 2026-05-15 — iteration 51 (Bulk select + bulk close on IssuesList)
 
 First concrete progress on the "Bulk actions everywhere" macro

@@ -734,6 +734,121 @@ kbd {
   color: var(--ink-warn, #c2410c);
 }
 
+.shell-app .repo-readme {
+  margin-top: 28px;
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
+}
+
+.shell-app .repo-readme-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-readme-path {
+  color: var(--ink);
+}
+
+.shell-app .repo-readme-truncated {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.shell-app .repo-readme-body {
+  padding: 20px 24px;
+  line-height: 1.65;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.shell-app .repo-readme-body h1,
+.shell-app .repo-readme-body h2,
+.shell-app .repo-readme-body h3,
+.shell-app .repo-readme-body h4,
+.shell-app .repo-readme-body h5,
+.shell-app .repo-readme-body h6 {
+  margin: 1.3em 0 0.5em;
+  line-height: 1.25;
+  font-weight: 600;
+}
+
+.shell-app .repo-readme-body h1 {
+  font-size: 26px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  padding-bottom: 6px;
+}
+
+.shell-app .repo-readme-body h2 {
+  font-size: 21px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  padding-bottom: 4px;
+}
+
+.shell-app .repo-readme-body h3 {
+  font-size: 17px;
+}
+
+.shell-app .repo-readme-body h4,
+.shell-app .repo-readme-body h5,
+.shell-app .repo-readme-body h6 {
+  font-size: 15px;
+}
+
+.shell-app .repo-readme-body p {
+  margin: 0.7em 0;
+}
+
+.shell-app .repo-readme-body ul {
+  margin: 0.5em 0 0.7em;
+  padding-left: 22px;
+}
+
+.shell-app .repo-readme-body li {
+  margin: 0.2em 0;
+}
+
+.shell-app .repo-readme-body code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  background: var(--ink-tint, #f2efe6);
+  border-radius: 2px;
+}
+
+.shell-app .repo-readme-body pre {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0.9em 0;
+  padding: 12px 14px;
+  background: var(--ink-tint, #f2efe6);
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  overflow-x: auto;
+}
+
+.shell-app .repo-readme-body pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.shell-app .repo-readme-body strong {
+  font-weight: 600;
+}
+
+.shell-app .repo-readme-body em {
+  font-style: italic;
+}
+
 .shell-app .repo-slot-stack {
   display: grid;
   gap: 28px;

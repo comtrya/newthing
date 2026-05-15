@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import SlotMount from "../components/SlotMount.vue";
+import { renderMarkdown } from "../markdown";
 import { repositoryHomeSlots } from "../repository-slots";
 import { applyUserLayoutFor } from "../user-layout";
 
@@ -10,6 +11,12 @@ const props = defineProps<{
   groups: string[];
   repo: string;
 }>();
+
+interface RepositoryBlob {
+  path: string;
+  preview?: string | null;
+  size?: number | null;
+}
 
 interface RepositoryIdentity {
   id: string;
@@ -22,6 +29,7 @@ interface RepositoryIdentity {
   updated?: string | null;
   openPullRequests?: number | null;
   gitHttpPath?: string | null;
+  blobs?: RepositoryBlob[] | null;
 }
 
 interface RepoHomePayload {
@@ -45,6 +53,11 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       updated
       openPullRequests
       gitHttpPath
+      blobs {
+        path
+        preview
+        size
+      }
     }
   }
 }`;
@@ -216,6 +229,44 @@ const repoChips = computed<Chip[]>(() => {
   return chips;
 });
 
+/**
+ * Top-level README on the repo home — the most-requested DX
+ * affordance in any forge. The kernel surfaces blob previews on
+ * `repository.blobs`; we pick the first top-level
+ * `README{,.md,.mdx}` (case-insensitive) and render its preview
+ * through the tiny markdown shim. Long-form rendering (shiki +
+ * rehype) will replace `renderMarkdown` later without changing
+ * the call site.
+ */
+const README_PATTERN = /^README(\.(md|mdx))?$/i;
+
+const readmeBlob = computed<RepositoryBlob | null>(() => {
+  const blobs = repository.value?.blobs;
+  if (!blobs || blobs.length === 0) return null;
+  let best: RepositoryBlob | null = null;
+  for (const blob of blobs) {
+    if (!blob?.path) continue;
+    if (blob.path.includes("/")) continue;
+    if (!README_PATTERN.test(blob.path)) continue;
+    if (!best || (blob.path.toLowerCase() === "readme.md" && best.path.toLowerCase() !== "readme.md")) {
+      best = blob;
+    }
+  }
+  return best;
+});
+
+const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
+const renderedReadme = computed(() =>
+  readmePreview.value ? renderMarkdown(readmePreview.value) : "",
+);
+const readmeTruncated = computed(() => {
+  const blob = readmeBlob.value;
+  if (!blob) return false;
+  const preview = blob.preview ?? "";
+  const size = typeof blob.size === "number" ? blob.size : preview.length;
+  return size > preview.length;
+});
+
 const repoContext = computed<Record<string, unknown>>(() => ({
   workspaceId: workspaceId.value ?? undefined,
   repositoryId: repositoryId.value,
@@ -316,6 +367,21 @@ async function fetchRepositoryIdentity(
 
   <template v-if="loadState === 'ready'">
     <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
+
+    <section
+      v-if="renderedReadme"
+      class="repo-readme"
+      data-smoke="repo-readme"
+      aria-label="README"
+    >
+      <header class="repo-readme-head">
+        <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
+        <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
+          preview
+        </span>
+      </header>
+      <article class="repo-readme-body prose" v-html="renderedReadme" />
+    </section>
 
     <section class="repo-slot-stack">
       <section
