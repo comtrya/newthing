@@ -477,6 +477,50 @@ kbd {
   display: grid;
 }
 
+/* iter 74 — Project filter chip strip for the activity stream.
+ * Sits above the ActivityStream on workspace home; click a chip
+ * to scope the SSE feed to events carrying that `projectName`,
+ * click "all" (or the active chip again) to clear. Editorial
+ * underline-on-active, no pill background. */
+.shell-app .activity-project-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.shell-app .activity-project-filter .filter-label {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.shell-app .activity-project-filter .filter-chip {
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  letter-spacing: 0.02em;
+  transition: color 80ms ease, border-color 80ms ease;
+}
+
+.shell-app .activity-project-filter .filter-chip:hover {
+  color: var(--ink, #111);
+}
+
+.shell-app .activity-project-filter .filter-chip.active {
+  color: var(--ink, #111);
+  border-bottom-color: var(--ink, #111);
+  font-weight: 600;
+}
+
 /* "Projects" panel on WorkspaceHome (iter 64) - aggregates CUE
  * Projects declared across every repo in the workspace. Sits in
  * the right rail under the per-repo widgets. Editorial chip-row

@@ -264,6 +264,34 @@ function countsFor(name: string | undefined): ProjectCounts {
   return projectCounts.value[name] ?? emptyCounts();
 }
 
+/**
+ * Project filter for the workspace activity stream. The
+ * ActivityStream component (iter 33) accepts a `projectName`
+ * prop and drops events whose payload doesn't carry a matching
+ * project; iter 74 surfaces a chip row above it so users can
+ * scope the workspace canvas's "what just happened" feed to
+ * one project without leaving the home.
+ *
+ * Compounds iter 64's `projectRows`: the chips dedupe by name
+ * so cross-repo same-named projects collapse into a single
+ * filter chip. "All" clears.
+ */
+const activityProjectFilter = ref("");
+
+const uniqueActivityProjects = computed<string[]>(() => {
+  const seen = new Set<string>();
+  for (const row of projectRows.value) {
+    const name = row.project.name;
+    if (name) seen.add(name);
+  }
+  return Array.from(seen).sort();
+});
+
+function toggleActivityProject(name: string): void {
+  activityProjectFilter.value =
+    activityProjectFilter.value === name ? "" : name;
+}
+
 function projectFilterHref(
   surface: "issues" | "epics",
   name: string,
@@ -558,7 +586,30 @@ function relativeUpdated(value: string | null | undefined): string {
 
     <section class="home-grid">
       <div class="home-spine" data-smoke="home-spine">
-        <ActivityStream />
+        <div
+          v-if="uniqueActivityProjects.length > 0"
+          class="activity-project-filter"
+          data-smoke="activity-project-filter"
+          aria-label="Filter activity stream by project"
+        >
+          <span class="filter-label">scope ·</span>
+          <button
+            type="button"
+            class="filter-chip"
+            :class="{ active: activityProjectFilter === '' }"
+            @click="activityProjectFilter = ''"
+          >all</button>
+          <button
+            v-for="name in uniqueActivityProjects"
+            :key="name"
+            type="button"
+            class="filter-chip"
+            :class="{ active: activityProjectFilter === name }"
+            @click="toggleActivityProject(name)"
+          >◇ {{ name }}</button>
+        </div>
+        <ActivityStream :project-name="activityProjectFilter || undefined" />
+
 
         <SlotMount
           :name="topSlot.name"

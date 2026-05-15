@@ -1189,6 +1189,45 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 74 (Project filter for WorkspaceHome activity stream)
+
+The workspace canvas's "what just happened" feed gains a
+keyboard-free project scope. Compounds iters 33 (ActivityStream
+`projectName` prop) + 64 (workspace Projects panel that
+already aggregates the unique project names): the chip strip
+above the stream lets users pivot the workspace-wide view to
+any single project's events without leaving the home.
+
+WorkspaceHome:
+- New `activityProjectFilter: ref<string>` (empty = all).
+- `uniqueActivityProjects` computed dedupes the iter-64
+  `projectRows` by name so cross-repo same-named projects
+  (e.g. `kernel` declared in two repos) collapse into one
+  chip.
+- `toggleActivityProject(name)` flips the active filter -
+  same chip click toggles off.
+- `<ActivityStream :project-name="activityProjectFilter ||
+  undefined" />` so an empty string maps to no prop (the
+  unfiltered stream).
+
+Template:
+- New `.activity-project-filter` chip strip rendered above
+  the ActivityStream. `scope ·` label, then one button per
+  unique project plus `all` to clear. Editorial bottom-
+  border underline on the active chip - same vocabulary as
+  iter-73 RepoTabs and iter-46 IssuesList chip toggles.
+
+Styles in `frontend/src/styles.css`. Sits below the Projects
+panel in semantic terms but renders above the
+ActivityStream in the home-spine column so the user sees the
+filter before scanning the feed.
+
+Verified against dogfood: with 3 declared projects (ext_docs,
+frontend, kernel) the chip strip renders 4 buttons (`all` +
+3). Clicking one filters the SSE-driven event list to
+events whose payload carries that `projectName`. typecheck +
+shell build clean.
+
 ### 2026-05-15 - iteration 73 (Repo home tabs - navigation seed for Workbench layout)
 
 The repo home gets a Linear-style tab strip surfacing the
