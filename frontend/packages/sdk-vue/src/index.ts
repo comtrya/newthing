@@ -225,3 +225,6 @@ export type {
 
 export { fetchComtryaProjects, resolveProjectOwners } from "./comtrya-config";
 export type { ComtryaOwnerRef, ComtryaProject } from "./comtrya-config";
+
+export { useProjectCounts, emptyProjectCounts } from "./use-project-counts";
+export type { ProjectCounts, UseProjectCountsOptions } from "./use-project-counts";

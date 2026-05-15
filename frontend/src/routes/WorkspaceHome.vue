@@ -5,6 +5,7 @@ import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import {
   classifyPrincipal,
   fetchComtryaProjects,
+  useProjectCounts,
   useShortcuts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
@@ -189,80 +190,15 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
  * opening an issue elsewhere updates the workspace panel without
  * refresh.
  */
-interface ProjectCounts {
-  openIssues: number;
-  closedIssues: number;
-  epicsPlanned: number;
-  epicsInProgress: number;
-  epicsDone: number;
-}
-
-const emptyCounts = (): ProjectCounts => ({
-  openIssues: 0,
-  closedIssues: 0,
-  epicsPlanned: 0,
-  epicsInProgress: 0,
-  epicsDone: 0,
-});
-
-interface IssueLite {
-  state?: string;
-  projectName?: string | null;
-}
-
-interface EpicLite {
-  state?: string;
-  projectName?: string | null;
-}
-
-const projectCounts = ref<Record<string, ProjectCounts>>({});
-
-async function refreshProjectCounts(): Promise<void> {
-  const ws = workspaceId.value;
-  if (!ws) return;
-  const workspaceUri = `comtrya://workspace/${ws}`;
-  const [issuesRes, epicsRes] = await Promise.all([
-    invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
-      repository: workspaceUri,
-      limit: 4096,
-    }),
-    invokeOp<EpicLite[]>("ext_epics", "epics", "list-epics", {
-      workspace: workspaceUri,
-      limit: 4096,
-    }),
-  ]);
-  const next: Record<string, ProjectCounts> = {};
-  const bucket = (name: string): ProjectCounts =>
-    (next[name] ??= emptyCounts());
-  if (issuesRes.ok && Array.isArray(issuesRes.value)) {
-    for (const issue of issuesRes.value) {
-      const project = (issue.projectName ?? "").trim();
-      if (!project) continue;
-      const counts = bucket(project);
-      const state = (issue.state ?? "").toUpperCase();
-      if (state === "CLOSED") counts.closedIssues += 1;
-      else counts.openIssues += 1;
-    }
-  }
-  if (epicsRes.ok && Array.isArray(epicsRes.value)) {
-    for (const epic of epicsRes.value) {
-      const project = (epic.projectName ?? "").trim();
-      if (!project) continue;
-      const counts = bucket(project);
-      const state = (epic.state ?? "").toUpperCase();
-      if (state === "DONE" || state === "CANCELED") counts.epicsDone += 1;
-      else if (state === "IN_PROGRESS" || state === "AT_RISK") {
-        counts.epicsInProgress += 1;
-      } else counts.epicsPlanned += 1;
-    }
-  }
-  projectCounts.value = next;
-}
-
-function countsFor(name: string | undefined): ProjectCounts {
-  if (!name) return emptyCounts();
-  return projectCounts.value[name] ?? emptyCounts();
-}
+// iter 76 — routed through the canonical
+// `@comtrya/sdk-vue::useProjectCounts` composable so this surface
+// and `ProjectsPanel` (iter 75) share one fetch + SSE subscriber
+// implementation. The composable runs two workspace-wide ops on
+// mount and re-fires on the seven topics that mutate
+// project-tagged work; the watch below remains for resilience
+// against the kernel re-emitting workspace id after initial
+// mount.
+const { countsFor, refresh: refreshProjectCounts } = useProjectCounts();
 
 /**
  * Project filter for the workspace activity stream. The
@@ -421,6 +357,10 @@ let loadController: AbortController | undefined;
 
 onMounted(() => {
   void loadWorkspaceHome();
+  // The per-repo open-issue counts are independent of the
+  // workspace-wide per-project counts; iter 76 leaves only this
+  // subscription here. The `useProjectCounts` composable owns
+  // the seven topics that mutate project-tagged work.
   for (const type of [
     "dev.comtrya.issues.opened",
     "dev.comtrya.issues.closed",
@@ -429,35 +369,7 @@ onMounted(() => {
     issueUnsubscribers.push(
       subscribeLiveEvents({
         type,
-        onEvent: () => {
-          void refreshAllOpenIssues();
-          void refreshProjectCounts();
-        },
-        onError: () => {},
-      }),
-    );
-  }
-  // iter 67 emits this when an issue is retroactively assigned
-  // to a Project; the workspace per-Project counts (iter 65)
-  // need to swap one bucket without a full re-scan.
-  issueUnsubscribers.push(
-    subscribeLiveEvents({
-      type: "dev.comtrya.issues.project-changed",
-      onEvent: () => void refreshProjectCounts(),
-      onError: () => {},
-    }),
-  );
-  for (const type of [
-    "dev.comtrya.epic.created",
-    "dev.comtrya.epic.state-changed",
-    // iter 69 emits on retroactive epic-Project reassignment;
-    // same bucket-swap motivation as the issues equivalent.
-    "dev.comtrya.epic.project-changed",
-  ]) {
-    issueUnsubscribers.push(
-      subscribeLiveEvents({
-        type,
-        onEvent: () => void refreshProjectCounts(),
+        onEvent: () => void refreshAllOpenIssues(),
         onError: () => {},
       }),
     );

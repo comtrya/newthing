@@ -1189,6 +1189,54 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 76 (useProjectCounts composable in sdk-vue)
+
+Compounds iter 62 + 63 cleanup pattern. The per-Project work
+counts logic was duplicated in WorkspaceHome (iter 65) and
+ProjectsPanel (iter 75) - same two-ops fetch, same bucketing
+loop, same seven SSE topic subscribers. Iter 76 promotes the
+whole shape to a single sdk-vue composable.
+
+Shared package:
+- `frontend/packages/sdk-vue/src/use-project-counts.ts`:
+  `useProjectCounts(options?)` returns
+  `{ counts, isReady, refresh, countsFor }`. Internally runs
+  the two parallel `list-issues` + `list-epics` ops on mount,
+  buckets the responses by `projectName` into
+  `{openIssues, closedIssues, epicsPlanned, epicsInProgress,
+  epicsDone}`, and subscribes to the seven topics that mutate
+  project-tagged work (issues opened/closed/reopened/
+  project-changed + epic created/state-changed/project-
+  changed). Auto-cleanups on unmount.
+- `emptyProjectCounts()` and `countsFor()` helpers exposed so
+  templates bind unconditionally.
+- `index.ts` re-exports `useProjectCounts`, `emptyProjectCounts`,
+  `ProjectCounts`, `UseProjectCountsOptions`.
+
+Migrations:
+- `frontend/src/routes/WorkspaceHome.vue`: drops the inline
+  `refreshProjectCounts` impl (~90 lines), local `ProjectCounts`
+  / `IssueLite` / `EpicLite` interfaces, the seven inline SSE
+  subscribers + their unsubscribers, and the redundant
+  watch-on-workspaceId-or-repositories trigger. Replaces with
+  `const { countsFor } = useProjectCounts()`. Per-repo
+  open-issue subscriptions stay - those track repo state, not
+  project tallies.
+- `frontend/src/components/ProjectsPanel.vue`: drops the
+  inline `refreshProjectCounts` (~75 lines), `IssueLite` /
+  `EpicLite` types, the seven inline SSE subscribers + their
+  `onUnmounted` cleanup, the `WORKSPACE_URI` constant. The
+  `onMounted` collapses back to `void load()`.
+
+Net effect: ~165 lines of duplicate fetch + subscribe + bucket
+code retired. Both surfaces now share one composable; any
+future Project-spine surface (EpicCard counts, ProjectHome
+inline counts) can opt in with one line.
+
+Verified: typecheck + shell build clean. The two call sites
+exhibit the same counts behaviour and live-refresh on the
+same SSE events.
+
 ### 2026-05-15 - iteration 75 (Per-Project work counts on RepoHome ProjectsPanel)
 
 Brings the iter-65 workspace Projects-panel vocabulary to the

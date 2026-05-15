@@ -10,12 +10,9 @@
  * `contributes.cueSchemas` — but the panel surfaces them generically.
  */
 
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import {
-  getGraphQLClient,
-  invokeOp,
-  subscribeLiveEvents,
-} from "@comtrya/sdk-core";
+import { computed, onMounted, ref, watch } from "vue";
+import { getGraphQLClient } from "@comtrya/sdk-core";
+import { useProjectCounts } from "@comtrya/sdk-vue";
 import { projectHref } from "../route-paths";
 
 /**
@@ -88,78 +85,13 @@ const reservedKeys = new Set([
   "implicit",
 ]);
 
-/**
- * Per-Project work counts — mirror of the iter 65 workspace
- * Projects panel logic, scoped to this repo's project cards.
- * Two workspace-wide ops (`list-issues` + `list-epics`),
- * bucketed by `projectName`. Live-refreshed via the existing
- * SSE topics so the chips track reality without a refresh.
- */
-const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-
-interface ProjectCounts {
-  openIssues: number;
-  closedIssues: number;
-  epicsInProgress: number;
-  epicsPlanned: number;
-  epicsDone: number;
-}
-
-const emptyCounts = (): ProjectCounts => ({
-  openIssues: 0,
-  closedIssues: 0,
-  epicsInProgress: 0,
-  epicsPlanned: 0,
-  epicsDone: 0,
-});
-
-interface IssueLite { state?: string; projectName?: string | null }
-interface EpicLite { state?: string; projectName?: string | null }
-
-const projectCounts = ref<Record<string, ProjectCounts>>({});
-const countSubscribers: Array<() => void> = [];
-
-async function refreshProjectCounts(): Promise<void> {
-  const [issuesRes, epicsRes] = await Promise.all([
-    invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
-      repository: WORKSPACE_URI,
-      limit: 4096,
-    }),
-    invokeOp<EpicLite[]>("ext_epics", "epics", "list-epics", {
-      workspace: WORKSPACE_URI,
-      limit: 4096,
-    }),
-  ]);
-  const next: Record<string, ProjectCounts> = {};
-  const bucket = (name: string): ProjectCounts => (next[name] ??= emptyCounts());
-  if (issuesRes.ok && Array.isArray(issuesRes.value)) {
-    for (const issue of issuesRes.value) {
-      const project = (issue.projectName ?? "").trim();
-      if (!project) continue;
-      const counts = bucket(project);
-      const state = (issue.state ?? "").toUpperCase();
-      if (state === "CLOSED") counts.closedIssues += 1;
-      else counts.openIssues += 1;
-    }
-  }
-  if (epicsRes.ok && Array.isArray(epicsRes.value)) {
-    for (const epic of epicsRes.value) {
-      const project = (epic.projectName ?? "").trim();
-      if (!project) continue;
-      const counts = bucket(project);
-      const state = (epic.state ?? "").toUpperCase();
-      if (state === "DONE" || state === "CANCELED") counts.epicsDone += 1;
-      else if (state === "IN_PROGRESS" || state === "AT_RISK") counts.epicsInProgress += 1;
-      else counts.epicsPlanned += 1;
-    }
-  }
-  projectCounts.value = next;
-}
-
-function countsFor(name: string | undefined): ProjectCounts {
-  if (!name) return emptyCounts();
-  return projectCounts.value[name] ?? emptyCounts();
-}
+// iter 76 — per-project work counts routed through the shared
+// `@comtrya/sdk-vue::useProjectCounts` composable. The composable
+// fetches both lists in parallel on mount, buckets by
+// `projectName`, and subscribes to the seven SSE topics that
+// mutate project-tagged work. WorkspaceHome (iter 65) uses the
+// same composable so both surfaces share one fetch implementation.
+const { countsFor } = useProjectCounts();
 
 function projectFilterHref(
   surface: "issues" | "epics",
@@ -171,33 +103,7 @@ function projectFilterHref(
   return `/x/${surface}/?project=${encoded}${suffix}`;
 }
 
-onMounted(() => {
-  void load();
-  void refreshProjectCounts();
-  for (const type of [
-    "dev.comtrya.issues.opened",
-    "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened",
-    "dev.comtrya.issues.project-changed",
-    "dev.comtrya.epic.created",
-    "dev.comtrya.epic.state-changed",
-    "dev.comtrya.epic.project-changed",
-  ]) {
-    countSubscribers.push(
-      subscribeLiveEvents({
-        type,
-        onEvent: () => void refreshProjectCounts(),
-        onError: () => {},
-      }),
-    );
-  }
-});
-
-onUnmounted(() => {
-  for (const off of countSubscribers) off();
-  countSubscribers.length = 0;
-});
-
+onMounted(() => void load());
 watch(() => props.repositoryPath, () => void load());
 
 async function load(): Promise<void> {
