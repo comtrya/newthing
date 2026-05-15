@@ -1189,6 +1189,43 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 42 (PR affected-projects chips, derived)
+
+PRs gain Project visibility without changing the storage shape
+or persisting a project name. The footer from iter 24
+parked PR project-scoping with a precise recipe:
+
+> When project-PR scoping matters, derive it in the UI from
+> `repository.diff` + `repository.comtryaConfig.projects`
+> (longest-prefix match) and expose as `affectedProjects:
+> string[]` for filtering.
+
+That's what shipped this iteration.
+
+`PullsDetail.vue` now requests `repository.comtryaConfig`
+alongside the existing diff in the same `PullDiff` GraphQL
+query. `parseUnifiedDiff(patch)` (the same parser DiffView
+uses) yields every changed file's path. `affectedProjects` is
+computed by longest-prefix-matching each path against each
+Project's normalised `root`:
+
+- `crates/server/src/main.rs` → matches kernel (`root:
+  "crates/server"`).
+- `frontend/src/App.vue` → matches frontend (`root: "frontend"`).
+- A PR touching both → returns `["frontend", "kernel"]`.
+- Repo-root files only (no project root match) → empty list,
+  no chips, no noise.
+
+Rendered in the existing chip strip right after the branch
+chip: `◇ kernel · ◇ frontend` (`tone-project` blue, matching
+the project chip styling on IssuesList and IssueDetail). Hover
+tooltip explains the longest-prefix-match rule.
+
+Multi-project PRs are now visible at a glance on the detail
+page. The data is purely derived — no kernel changes, no WIT
+bump, no migration. When the access pattern justifies it later,
+a `cachedAffectedProjects` field can land server-side.
+
 ### 2026-05-15 — iteration 41 (PullsDetail — editorial chip strip)
 
 The last detail surface still using a verbose inline meta strip.

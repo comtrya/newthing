@@ -10,6 +10,7 @@ import {
   type LinkedIssue,
 } from "./api";
 import DiffView from "./DiffView.vue";
+import { parseUnifiedDiff } from "./diff";
 import {
   classifyAuthor,
   pullsIndexHref,
@@ -36,6 +37,61 @@ const diffState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const diffError = ref<string | null>(null);
 const linkedIssues = ref<LinkedIssue[]>([]);
 const linkedState = ref<"idle" | "loading" | "ready" | "error">("idle");
+
+/**
+ * Projects declared by the repo's `package comtrya` CUE config,
+ * loaded alongside the diff. Used to derive `affectedProjects[]`
+ * from the diff's changed-file paths via longest-prefix-match
+ * on each Project's `root` — the path called out in iter 24's
+ * footer ("derive it in the UI from `repository.diff` +
+ * `repository.comtryaConfig.projects`").
+ */
+interface CueProject {
+  name?: string;
+  root?: string;
+  labels?: string[];
+}
+const projects = ref<CueProject[]>([]);
+
+/**
+ * Normalise a Project's CUE `root` field. `"."`, `""`, `"./"`
+ * all mean "repo root"; everything else is a path prefix
+ * (no trailing slash) we can use for longest-prefix-match.
+ */
+function normaliseRoot(root: string | undefined): string {
+  const cleaned = (root ?? "").replace(/^\.\//, "").replace(/\/+$/g, "");
+  return cleaned === "." ? "" : cleaned;
+}
+
+/**
+ * Longest-prefix-match each changed file path against the
+ * declared Project roots. A repo with `kernel = "crates/server"`
+ * and `frontend = "frontend"` returns `["kernel", "frontend"]`
+ * for a PR that touched files in both directories. Returns at
+ * most one Project per changed file (the most-specific match).
+ */
+const affectedProjects = computed<string[]>(() => {
+  if (projects.value.length === 0 || !diffPatch.value) return [];
+  const ranked = projects.value
+    .map((p) => ({ name: p.name ?? "", root: normaliseRoot(p.root) }))
+    .filter((p) => p.name)
+    .sort((a, b) => b.root.length - a.root.length); // longest first
+  const seen = new Set<string>();
+  for (const file of parseUnifiedDiff(diffPatch.value)) {
+    const path = file.displayPath.replace(/^\/+/, "");
+    for (const proj of ranked) {
+      const matches =
+        proj.root === ""
+          ? true
+          : path === proj.root || path.startsWith(`${proj.root}/`);
+      if (matches) {
+        seen.add(proj.name);
+        break;
+      }
+    }
+  }
+  return Array.from(seen).sort();
+});
 
 const tone = computed(() => stateTone(pull.value?.state));
 const canMerge = computed(
@@ -132,15 +188,22 @@ async function loadDiff(): Promise<void> {
   diffError.value = null;
   try {
     const data = await getGraphQLClient().query<{
-      repository?: { diff?: { path?: string; patch?: string } | null };
+      repository?: {
+        diff?: { path?: string; patch?: string } | null;
+        comtryaConfig?: { projects?: CueProject[] | null } | null;
+      };
     }>(
       `query PullDiff {
-        repository { diff { path language patch } }
+        repository {
+          diff { path language patch }
+          comtryaConfig
+        }
       }`,
     );
     const diff = data.repository?.diff;
     diffPatch.value = diff?.patch ?? "";
     diffPath.value = diff?.path ?? "";
+    projects.value = data.repository?.comtryaConfig?.projects ?? [];
     diffState.value = "ready";
   } catch (caught) {
     diffState.value = "error";
@@ -200,6 +263,14 @@ async function onClose(): Promise<void> {
             <code>{{ pull.headRef }}</code>
             <span class="branch-arrow" aria-hidden="true">→</span>
             <code>{{ pull.baseRef }}</code>
+          </span>
+          <span
+            v-for="project in affectedProjects"
+            :key="`project-${project}`"
+            class="pull-chip tone-project"
+            :title="`Touches files inside the ${project} Project's root`"
+          >
+            <span class="chip-glyph">◇</span>{{ project }}
           </span>
           <span
             class="pull-chip tone-author"
@@ -387,6 +458,12 @@ async function onClose(): Promise<void> {
 .pull-chip.tone-state.pr-state-draft   { color: var(--ink-faint, #68645c); }
 .pull-chip.tone-state.pr-state-merged  { color: var(--accent-blue, #1d55a6); }
 .pull-chip.tone-state.pr-state-closed  { color: var(--accent-err, #c9341c); }
+
+.pull-chip.tone-project {
+  color: var(--accent-blue, #1d55a6);
+  border-color: currentColor;
+  cursor: help;
+}
 
 .pull-chip.tone-branch {
   gap: 4px;
