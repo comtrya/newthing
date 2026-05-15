@@ -1189,6 +1189,64 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 63 (Canonical fetchComtryaProjects in sdk-vue)
+
+Compounds iter 62's cleanup pattern. The CUE projects fetch
+was duplicated across `frontend/src/project-commands.ts`
+(palette verbs per Project, iter 22 + 58) and
+`ext_epics/ui/src/project-policy.ts` (the "Routed to" panel
+on EpicDetail, iter 59); ext_issues/policy.ts and
+ext_pull_requests/PullsDetail.vue have it inline too but
+batch with other queries so they keep their existing fetch.
+
+Shared package:
+- `frontend/packages/sdk-vue/src/comtrya-config.ts`:
+  - `fetchComtryaProjects(segments?)` returns the
+    `ComtryaProject[]` array. Reads segments from the
+    location (`/r/<segments>` or `/r/<segments>/p/<project>`)
+    when not provided. Empty array on any failure.
+  - `resolveProjectOwners(projectName, segments?)` returns
+    just the `owners[].ref` URNs for one Project - the
+    common Project-spine routing case.
+  - `ComtryaProject` interface keeps the open-shape
+    (`[key: string]: unknown`) so extension-specific
+    sub-policies (`issues.closeOnMerge`,
+    `pulls.requiredChecks`) flow through without the
+    canonical type having to enumerate every consumer.
+- `index.ts` re-exports `fetchComtryaProjects`,
+  `resolveProjectOwners`, `ComtryaProject`, `ComtryaOwnerRef`.
+
+Migrations:
+- `frontend/src/project-commands.ts`: drops the inline
+  `COMTRYA_CONFIG_QUERY` + `fetchProjects` (~45 lines)
+  and `CueProject` interface; calls
+  `fetchComtryaProjects(segments)`. The four-verb palette
+  registration loop is unchanged.
+- `ext_epics/ui/src/project-policy.ts`: collapsed from
+  82 lines to a ~30-line facade that returns
+  `{ ownerRefs }` via `resolveProjectOwners`. The
+  `ProjectPolicy` interface and `EMPTY_POLICY` constant stay
+  exported so `EpicDetail.vue`'s import shape doesn't
+  change.
+
+Kept as-is (batch with other fetches, refactor candidates
+for later iterations):
+- `ext_issues/policy.ts::resolveIssuesPolicy` - reads the
+  same config plus `issues.defaultLabels` and
+  `issues.closeOnMerge`. Could compose
+  `fetchComtryaProjects` + local extraction; out of scope
+  here.
+- `ext_pull_requests/PullsDetail.vue` - batches CUE config
+  with the diff fetch (single round trip is cheaper).
+  Could split if the batching ever costs more than it
+  saves.
+
+Verified against `/r/comtrya/dogfood`: the canonical query
+returns three projects (`ext_docs`, `frontend`, `kernel`)
+with their full owner sets - identical shape to the
+pre-refactor code. typecheck + shell build + ext_epics
+bundle clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 62 (Canonical classifyPrincipal in sdk-vue - kills 6 duplicates)
 
 The URN-to-visual-identity classifier was duplicated across

@@ -222,3 +222,6 @@ export type {
   PrincipalClassification,
   PrincipalKind,
 } from "./classify-principal";
+
+export { fetchComtryaProjects, resolveProjectOwners } from "./comtrya-config";
+export type { ComtryaOwnerRef, ComtryaProject } from "./comtrya-config";

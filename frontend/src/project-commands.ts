@@ -5,40 +5,25 @@
  * When the user is on a repo page (`/r/<segments>` or
  * `/r/<segments>/p/<project>`), we fetch the repo's
  * `comtryaConfig.projects` and register one
- * `Switch to project <name>` command per Project. These commands
- * are dynamic — they unregister when the route leaves the repo
- * and re-register (possibly with a different set) when the user
+ * `Switch to project <name>` command per Project plus three
+ * Project-scoped queue verbs (iter 58). These commands are
+ * dynamic — they unregister when the route leaves the repo and
+ * re-register (possibly with a different set) when the user
  * navigates to a new repo.
  *
  * This is the Projects spine, surfaced through the keyboard:
  * Cmd-K, type "kernel", Enter → navigates to
  * `/r/<repo>/p/kernel`. No mouse needed.
+ *
+ * Iter 63 routes the CUE fetch through
+ * `@comtrya/sdk-vue::fetchComtryaProjects` so this module
+ * shares the canonical reader with `ext_epics/project-policy.ts`
+ * and (eventually) every other Project-spine consumer.
  */
 import type { Router } from "vue-router";
 import { registerCommand } from "@comtrya/sdk-core";
+import { fetchComtryaProjects } from "@comtrya/sdk-vue";
 import { projectHref } from "./route-paths";
-
-interface CueProject {
-  name?: string;
-  root?: string;
-  labels?: string[];
-}
-
-interface ComtryaConfigPayload {
-  workspace?: {
-    repositoryByPath?: {
-      comtryaConfig?: { projects?: CueProject[] | null } | null;
-    } | null;
-  };
-}
-
-const COMTRYA_CONFIG_QUERY = `query ProjectCommandsConfig($segments: [String!]!) {
-  workspace {
-    repositoryByPath(segments: $segments) {
-      comtryaConfig
-    }
-  }
-}`;
 
 export function bindProjectCommands(router: Router): void {
   let activeUnregisters: Array<() => void> = [];
@@ -66,7 +51,7 @@ export function bindProjectCommands(router: Router): void {
     inFlight = controller;
 
     try {
-      const projects = await fetchProjects(segments, controller.signal);
+      const projects = await fetchComtryaProjects(segments);
       if (controller.signal.aborted) return;
       for (const project of projects) {
         if (!project.name) continue;
@@ -139,23 +124,4 @@ function repoSegmentsFromRoute(path: string): string[] {
   const projectIdx = rest.indexOf("/p/");
   const repoPath = projectIdx >= 0 ? rest.slice(0, projectIdx) : rest;
   return repoPath.split("/").filter(Boolean).map(decodeURIComponent);
-}
-
-async function fetchProjects(
-  segments: string[],
-  signal: AbortSignal,
-): Promise<CueProject[]> {
-  const response = await fetch("/graphql", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: COMTRYA_CONFIG_QUERY,
-      variables: { segments },
-    }),
-    signal,
-  });
-  const envelope = (await response.json()) as { data?: ComtryaConfigPayload };
-  const projects = envelope.data?.workspace?.repositoryByPath?.comtryaConfig?.projects ?? [];
-  return projects.filter((p): p is CueProject => p !== null && typeof p === "object");
 }
