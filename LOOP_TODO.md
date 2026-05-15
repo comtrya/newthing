@@ -1189,6 +1189,36 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 45 (EpicCard owner chip with classifier glyph)
+
+Epics already carry `ownerRef` as a typed `comtrya://` URN, but
+EpicCard never surfaced it. The card now renders an owner chip
+next to the project chip on the title row, with the same
+classifier glyph palette the rest of the shell uses:
+- `✦ rawkode` for `comtrya://agent/rawkode`
+- `◆ <slug>` for `bot`
+- `⚙ <slug>` for `credential`
+- `◇ <slug>` for `team`
+- `R rawkode` for `user` (initial-letter glyph)
+- `· <slug>` fallback for unknown schemes
+
+Layout: dashed border for the owner chip (matches IssueDetail's
+tone-assignee shape — "this is *who*, not *which*"), solid blue
+border for the project chip (matches the existing tone-project
+across IssuesList / IssueDetail / PullsDetail / ProjectHome).
+Owner pushes right with `margin-left: auto`; when both owner and
+project are present, project sits snug against owner with
+`margin-left: 4px`.
+
+`ownerLabel()` classifier function is duplicated locally in
+EpicCard — kept in sync deliberately with IssuesList,
+IssueDetail, and EpicDetail so the glyph palette is one
+consistent vocabulary across surfaces.
+
+Now every entity type (issue, epic, PR) renders its identity
+URNs with the same classifier vocabulary across list rows,
+detail headers, and the assigned-issues rail.
+
 ### 2026-05-15 — iteration 44 (HomeYourWork — assigned issues section)
 
 The workspace home "your work" rail (rendered by

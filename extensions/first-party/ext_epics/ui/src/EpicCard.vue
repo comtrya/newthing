@@ -83,6 +83,29 @@ async function loadProgress(): Promise<void> {
     progress.value = null;
   }
 }
+
+/**
+ * Classifier for typed `comtrya://` owner refs. Same palette as
+ * IssuesList / IssueDetail / PullsDetail — kept in sync
+ * deliberately so the glyph + tone match across every surface
+ * that renders an identity URN.
+ */
+function ownerLabel(ownerRef: string | null | undefined): {
+  label: string;
+  glyph: string;
+  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
+} {
+  if (!ownerRef) return { label: "unknown", glyph: "·", kind: "unknown" };
+  const stripped = ownerRef.replace(/^comtrya:\/\//, "");
+  const [scheme = "", ...rest] = stripped.split("/");
+  const id = rest.join("/") || ownerRef;
+  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
+  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
+  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
+  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
+  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
+  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
+}
 </script>
 
 <template>
@@ -96,6 +119,15 @@ async function loadProgress(): Promise<void> {
         <div class="epic-card-title">
           <span class="epic-pill" :class="tone.className">{{ tone.label }}</span>
           <a class="epic-title-link" :href="epicHref(epic)">{{ epic.title }}</a>
+          <span
+            v-if="epic.ownerRef"
+            class="epic-owner"
+            :data-author-kind="ownerLabel(epic.ownerRef).kind"
+            :title="epic.ownerRef"
+          >
+            <span class="owner-glyph">{{ ownerLabel(epic.ownerRef).glyph }}</span>
+            {{ ownerLabel(epic.ownerRef).label }}
+          </span>
           <span
             v-if="epic.projectName"
             class="epic-project"
@@ -167,9 +199,42 @@ async function loadProgress(): Promise<void> {
   padding: 0 6px;
 }
 
+/* When owner + project are both present, owner pushes right and
+   project sits snug against it. */
+.epic-owner + .epic-project {
+  margin-left: 4px;
+}
+
 .epic-project .project-glyph {
   font-size: 10px;
 }
+
+.epic-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px dashed currentColor;
+  color: var(--ink-soft, #2c2b28);
+  cursor: help;
+}
+
+.epic-owner .owner-glyph {
+  width: 12px;
+  height: 12px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.epic-owner[data-author-kind="agent"]      { color: #6b3fa0; }
+.epic-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.epic-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.epic-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
 
 .epic-state-good {
   color: var(--ink-go, #008873);
