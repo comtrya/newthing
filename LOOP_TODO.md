@@ -1189,6 +1189,51 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 60 (ProjectHome summary becomes navigable + quick-create entrypoints)
+
+The Project home was a passive dashboard - chip row, summary
+numbers, policy chips, activity stream - but the summary
+numbers were dead text. Iter 60 turns them into the spine's
+primary navigation surface: every count is now a hyperlink
+into the corresponding filtered queue using the URL filter
+recipe from iters 46/57.
+
+Plus two quick-create entrypoints below the summary so
+opening work in *this* Project is one click from the spine
+canvas.
+
+ProjectHome:
+- `projectQueueHrefs` computed centralises the URL shape:
+  - `issuesOpen` -> `/x/issues/?project=<name>` (IssuesList
+    chip default is OPEN, so no `state=` needed).
+  - `issuesClosed` -> `/x/issues/?project=<name>&state=CLOSED`.
+  - `epicsInProgress` ->
+    `/x/epics/?project=<name>&state=IN_PROGRESS`.
+  - `epicsPlanned` -> `state=PLANNED`.
+  - `epicsDone` -> `state=DONE`.
+  - `newIssue` -> `/x/issues/new?projectName=<name>` (the
+    new-issue route already accepts `projectName` from URL
+    params and pre-fills the CUE policy from it).
+  - `newEpic` -> `/x/epics/new?projectName=<name>` (same
+    shape, ext_epics/register.ts line 150-152 handles it).
+- Each `.stat` element became a `<RouterLink>`. Hover
+  underline (transparent -> ink) with the label colour
+  bumping to ink on hover. The doc-count stat keeps
+  `.stat-static` since there's no doc-filter URL yet.
+- New `<section class="project-quick-actions">` renders two
+  `quick-action` chips ("+ new issue" / "+ new epic") below
+  the summary strip. Inverted ink-on-hover treatment so the
+  affordance is unmistakable.
+
+Verified end-to-end against dogfood: the three declared
+projects (`ext_docs`, `frontend`, `kernel`) all surface in
+the project switcher; the summary cards now route to the
+correct filter URLs; the dogfood seed has no issues with
+`projectName` set yet, so navigating from the kernel project
+lands on an empty filtered IssuesList - exactly the
+"start-work-here" affordance you want on a fresh Project.
+typecheck + shell build clean.
+
 ### 2026-05-15 - iteration 59 (CUE Project ownership panel on IssueDetail + EpicDetail)
 
 Surfaces the CUE-declared Project `owners[]` on the two

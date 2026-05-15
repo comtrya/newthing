@@ -269,6 +269,43 @@ watch(
   () => void loadSummary(),
   { immediate: true },
 );
+
+/**
+ * Build queue-filter URLs scoped to this Project. Each card on
+ * the summary strip becomes a hyperlink to the corresponding
+ * filtered queue, using the URL filter shape that iter 46
+ * (IssuesList) and iter 57 (EpicsList) shipped. Centralised here
+ * so the template stays declarative.
+ */
+const projectQueueHrefs = computed(() => {
+  const name = project.value?.name;
+  if (!name) {
+    return {
+      issuesOpen: "#",
+      issuesClosed: "#",
+      epicsInProgress: "#",
+      epicsPlanned: "#",
+      epicsDone: "#",
+      newIssue: "#",
+      newEpic: "#",
+    };
+  }
+  const encoded = encodeURIComponent(name);
+  return {
+    // IssuesList chip default is OPEN, so this lands on the
+    // "open + this-project" slice with no state= param.
+    issuesOpen: `/x/issues/?project=${encoded}`,
+    issuesClosed: `/x/issues/?project=${encoded}&state=CLOSED`,
+    epicsInProgress: `/x/epics/?project=${encoded}&state=IN_PROGRESS`,
+    epicsPlanned: `/x/epics/?project=${encoded}&state=PLANNED`,
+    epicsDone: `/x/epics/?project=${encoded}&state=DONE`,
+    // New-issue / new-epic routes already accept `projectName`
+    // in the URL (see ext_issues/register.ts + ext_epics/
+    // register.ts). The form pre-fills CUE policy from this.
+    newIssue: `/x/issues/new?projectName=${encoded}`,
+    newEpic: `/x/epics/new?projectName=${encoded}`,
+  };
+});
 </script>
 
 <template>
@@ -343,32 +380,57 @@ watch(
 
   <template v-else>
     <section class="project-summary" data-smoke="project-summary">
-      <div class="stat">
+      <RouterLink :to="projectQueueHrefs.issuesOpen" class="stat" :title="`Open issues in ${project?.name}`">
         <span class="stat-num" :data-zero="summary.issuesOpen === 0">{{ summary.issuesOpen }}</span>
         <span class="stat-label">open issue<template v-if="summary.issuesOpen !== 1">s</template></span>
-      </div>
-      <div class="stat">
+      </RouterLink>
+      <RouterLink :to="projectQueueHrefs.issuesClosed" class="stat" :title="`Closed issues in ${project?.name}`">
         <span class="stat-num muted">{{ summary.issuesClosed }}</span>
         <span class="stat-label">closed</span>
-      </div>
+      </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
-      <div class="stat">
+      <RouterLink
+        :to="projectQueueHrefs.epicsInProgress"
+        class="stat"
+        :title="`In-progress epics in ${project?.name}`"
+      >
         <span class="stat-num" :data-zero="summary.epicsInProgress === 0">{{ summary.epicsInProgress }}</span>
         <span class="stat-label">epic<template v-if="summary.epicsInProgress !== 1">s</template> in progress</span>
-      </div>
-      <div class="stat">
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.epicsPlanned"
+        class="stat"
+        :title="`Planned epics in ${project?.name}`"
+      >
         <span class="stat-num muted">{{ summary.epicsPlanned }}</span>
         <span class="stat-label">planned</span>
-      </div>
-      <div class="stat">
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.epicsDone"
+        class="stat"
+        :title="`Done epics in ${project?.name}`"
+      >
         <span class="stat-num muted">{{ summary.epicsDone }}</span>
         <span class="stat-label">done</span>
-      </div>
+      </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
-      <div class="stat">
+      <div class="stat stat-static">
         <span class="stat-num">{{ docsByType.length }}</span>
         <span class="stat-label">doc type<template v-if="docsByType.length !== 1">s</template></span>
       </div>
+    </section>
+
+    <section class="project-quick-actions" data-smoke="project-quick-actions" aria-label="Quick actions">
+      <RouterLink
+        :to="projectQueueHrefs.newIssue"
+        class="quick-action"
+        :title="`Open a new issue scoped to ${project?.name}`"
+      >+ new issue</RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.newEpic"
+        class="quick-action"
+        :title="`Open a new epic scoped to ${project?.name}`"
+      >+ new epic</RouterLink>
     </section>
 
     <section v-if="policyChips.length > 0" class="project-policy" data-smoke="project-policy">
@@ -535,6 +597,24 @@ watch(
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 80ms ease;
+}
+
+/* Hover affordance on navigable stats. The doc-count stat is
+ * static (no filter URL yet); `.stat-static` opts it out. */
+a.stat:hover {
+  border-bottom-color: var(--ink, #111);
+}
+
+a.stat:hover .stat-label {
+  color: var(--ink, #111);
+}
+
+.stat-static {
+  cursor: default;
 }
 
 .stat-num {
@@ -564,6 +644,36 @@ watch(
   width: 1px;
   height: 22px;
   background: var(--rule-light, #d8d1c4);
+}
+
+/* Quick-create entrypoints — small editorial chips that
+ * pre-stamp `projectName` on the new-issue / new-epic forms.
+ * Sit below the navigable summary so creating work in this
+ * Project is one click from the spine canvas. */
+.project-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 0 4px;
+}
+
+.quick-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--ink, #111);
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: background 80ms ease, color 80ms ease;
+}
+
+.quick-action:hover {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
 }
 
 .project-policy {
