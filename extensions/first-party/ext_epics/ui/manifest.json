@@ -6,7 +6,7 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_epics/assets/index.js",
-    "entryIntegrity": "sha256-2bbcae42048a687060597cda4776e71d6db3e70a91bb67fc970b6ac216a25e6d",
+    "entryIntegrity": "sha256-d41b36ccd46ea6ed8db036c34033eb43c23d1915df2f079a2c599fb544c381ae",
     "styles": []
   },
   "permissions": [

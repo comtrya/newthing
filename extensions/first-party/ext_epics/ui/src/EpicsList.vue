@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
-import { createEpic, listEpics } from "./api";
+import {
+  fetchComtryaProjects,
+  parseQueryFilters,
+  useShortcuts,
+  type ComtryaProject,
+} from "@comtrya/sdk-vue";
+import { assignEpicProject, createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -308,10 +313,118 @@ async function submitQuickAdd(): Promise<void> {
   }
 }
 
+/**
+ * Bulk selection scaffolding — mirror of iter 51's IssuesList
+ * pattern. `focused` walks the rendered `epics` list via `j`/`k`;
+ * `space` toggles the focused row's id into `selectedIds`; the
+ * bulk action bar appears when ≥1 selected and offers a
+ * `<select>` to reproject the whole selection via the iter 69
+ * `assign-project` op. `Esc` clears the selection so the bar
+ * dismisses. Mirrors the IssuesList iter-71 reproject shape
+ * exactly so the keyboard vocabulary is identical across the
+ * two planning queues.
+ */
+const focused = ref(0);
+const selectedIds = ref<Set<string>>(new Set());
+const bulkBusy = ref(false);
+const bulkError = ref<string | null>(null);
+const availableProjects = ref<ComtryaProject[]>([]);
+
+onMounted(async () => {
+  try {
+    availableProjects.value = await fetchComtryaProjects();
+  } catch {
+    availableProjects.value = [];
+  }
+});
+
+watch(epics, (next) => {
+  if (focused.value >= next.length) {
+    focused.value = Math.max(0, next.length - 1);
+  }
+});
+
+function toggleSelection(id: string): void {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+}
+
+function clearSelection(): void {
+  selectedIds.value = new Set();
+  bulkError.value = null;
+}
+
+async function reprojectSelected(projectName: string | null): Promise<void> {
+  if (selectedIds.value.size === 0 || bulkBusy.value) return;
+  const ids = Array.from(selectedIds.value);
+  bulkBusy.value = true;
+  bulkError.value = null;
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => assignEpicProject(id, projectName)),
+    );
+    const successById = new Map<string, Epic>();
+    const failed = new Set<string>();
+    results.forEach((result, idx) => {
+      const id = ids[idx]!;
+      if (result.status === "fulfilled") successById.set(id, result.value);
+      else failed.add(id);
+    });
+    loadedEpics.value = loadedEpics.value.map((epic) =>
+      successById.get(epic.id) ?? epic,
+    );
+    selectedIds.value = failed;
+    if (failed.size > 0) {
+      const label = projectName ?? "(no project)";
+      bulkError.value =
+        `${failed.size} of ${ids.length} reassignments to ${label} failed; retry the remaining selection.`;
+    }
+  } catch (caught) {
+    bulkError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+function onBulkReprojectChange(event: Event): void {
+  const target = event.target as HTMLSelectElement | null;
+  if (!target) return;
+  const raw = target.value;
+  // `__NONE__` sentinel distinguishes "clear project" from the
+  // unactionable placeholder option (matches iter-71 IssuesList).
+  const projectName = raw === "__NONE__" ? null : raw || null;
+  target.value = "";
+  if (raw === "") return;
+  void reprojectSelected(projectName);
+}
+
 useShortcuts({
   c: (event) => {
     event.preventDefault();
     focusQuickAdd();
+  },
+  j: (event) => {
+    if (epics.value.length === 0) return;
+    event.preventDefault();
+    focused.value = Math.min(epics.value.length - 1, focused.value + 1);
+  },
+  k: (event) => {
+    if (epics.value.length === 0) return;
+    event.preventDefault();
+    focused.value = Math.max(0, focused.value - 1);
+  },
+  " ": (event) => {
+    const epic = epics.value[focused.value];
+    if (!epic) return;
+    event.preventDefault();
+    toggleSelection(epic.id);
+  },
+  Escape: (event) => {
+    if (selectedIds.value.size === 0) return;
+    event.preventDefault();
+    clearSelection();
   },
 });
 
@@ -536,14 +649,59 @@ async function loadEpics(): Promise<void> {
     </form>
     <p v-if="quickAddError" class="epic-line warn" role="alert">{{ quickAddError }}</p>
 
+    <div
+      v-if="selectedIds.size > 0"
+      class="epics-bulk-bar"
+      data-smoke="epics-bulk-bar"
+    >
+      <span class="count">{{ selectedIds.size }} selected</span>
+      <label class="bulk-reproject">
+        <span class="bulk-reproject-label">reproject →</span>
+        <select
+          class="bulk-reproject-select"
+          data-smoke="epics-bulk-reproject"
+          :disabled="bulkBusy"
+          @change="onBulkReprojectChange"
+        >
+          <option value="" disabled selected>pick project…</option>
+          <option value="__NONE__">— no project —</option>
+          <option
+            v-for="proj in availableProjects"
+            :key="proj.name"
+            :value="proj.name ?? ''"
+          >◇ {{ proj.name }}</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        class="bulk-clear"
+        :disabled="bulkBusy"
+        @click="clearSelection"
+      >clear <kbd>esc</kbd></button>
+      <span class="hint">
+        <kbd>space</kbd> toggle row
+      </span>
+    </div>
+    <p v-if="bulkError" class="epic-line warn" role="alert">{{ bulkError }}</p>
+
     <p v-if="loadState === 'loading'" class="epic-line muted">Loading epics</p>
     <p v-else-if="loadState === 'error'" class="epic-line warn">{{ error }}</p>
     <p v-else-if="scopedEpics.length === 0" class="epic-line muted">No epics yet.</p>
     <p v-else-if="epics.length === 0" class="epic-line muted">
       No {{ filter.toLowerCase().replace("_", " ") }} epics in scope.
     </p>
-    <ul v-else class="epics-list-items">
-      <li v-for="epic in epics" :key="epic.id">
+    <ul v-else class="epics-list-items" role="listbox" aria-label="Epic list">
+      <li
+        v-for="(epic, idx) in epics"
+        :key="epic.id"
+        :class="{
+          focused: idx === focused,
+          selected: selectedIds.has(epic.id),
+        }"
+        :aria-selected="selectedIds.has(epic.id)"
+        role="option"
+        @mouseenter="focused = idx"
+      >
         <EpicCard
           :epic="epic"
           :resource-ref="epicRef(epic)"
@@ -555,6 +713,9 @@ async function loadEpics(): Promise<void> {
         />
       </li>
     </ul>
+    <footer v-if="epics.length > 0" class="epics-list-foot">
+      <kbd>j</kbd> <kbd>k</kbd> navigate · <kbd>space</kbd> select · <kbd>c</kbd> create
+    </footer>
   </section>
 </template>
 
@@ -900,6 +1061,127 @@ async function loadEpics(): Promise<void> {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* iter 72 — focused / selected row affordances. Same 3px ink
+ * inset shadow + paper-tint background as IssuesList iter 51, so
+ * the visual vocabulary for "current row" + "in selection" is
+ * identical across the two planning queues. */
+.epics-list-items > li {
+  position: relative;
+  transition: background 80ms ease;
+}
+
+.epics-list-items > li.focused {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.epics-list-items > li.selected {
+  box-shadow: inset 3px 0 0 var(--ink, #111);
+}
+
+.epics-list-items > li.focused.selected {
+  box-shadow: inset 3px 0 0 var(--accent-teal, #087f6f);
+}
+
+.epics-list-foot {
+  margin-top: 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+}
+
+.epics-list-foot kbd {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  padding: 0 4px;
+  margin: 0 1px;
+}
+
+/* Bulk action bar — inverted ink-on-paper-tint, same shape as
+ * the iter-51 IssuesList bar. Reproject `<select>` matches the
+ * iter-71 wire-up exactly. */
+.epics-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.epics-bulk-bar .count {
+  font-weight: 600;
+}
+
+.epics-bulk-bar .bulk-reproject {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.epics-bulk-bar .bulk-reproject-label {
+  color: var(--paper-tint, #f2efe7);
+  letter-spacing: 0.04em;
+}
+
+.epics-bulk-bar .bulk-reproject-select {
+  border: 1px solid var(--paper-tint, #f2efe7);
+  background: transparent;
+  color: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.epics-bulk-bar .bulk-reproject-select:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.epics-bulk-bar .bulk-reproject-select option {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+}
+
+.epics-bulk-bar .bulk-clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.epics-bulk-bar .bulk-clear kbd {
+  margin-left: 4px;
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.epics-bulk-bar .hint {
+  color: var(--paper-tint, #f2efe7);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.epics-bulk-bar .hint kbd {
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  font-size: 10px;
 }
 
 .epic-line {

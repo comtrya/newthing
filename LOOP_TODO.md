@@ -1189,6 +1189,48 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 72 (Bulk selection + bulk reproject on EpicsList)
+
+Symmetric to iters 51 + 71 - epics get the same bulk
+selection + reproject affordance issues already had. One
+cohesive iteration since neither half existed yet on epics.
+
+EpicsList:
+- New `focused: number` + `selectedIds: Set<string>` refs,
+  with a `watch(epics)` that clamps `focused` when the list
+  shrinks (mirror of iter 51's IssuesList behaviour).
+- `availableProjects: ComtryaProject[]` loaded once on mount
+  via `fetchComtryaProjects()`.
+- `toggleSelection(id)` + `clearSelection()` + the
+  `reprojectSelected(projectName)` async function calling
+  `assignEpicProject` per selected id via
+  `Promise.allSettled` (optimistic local update; failures
+  stay selected for retry; error names the chosen project).
+- `onBulkReprojectChange()` maps a `__NONE__` sentinel to
+  `null` (distinct from the placeholder option).
+- `useShortcuts` extended with `j`/`k` row nav, `" "`
+  (space) toggle of the focused row's selection, and
+  `Escape` to clear the selection. The literal-space key
+  syntax matches the iter-51 IssuesList convention.
+- Template: bulk action bar with count + `reproject →`
+  `<select>` (placeholder, "(no project)", per-project
+  options) + `clear esc` button + `space toggle row` hint.
+  Row template gets `focused` / `selected` classes and a
+  hover handler so pointer + keyboard track the same state.
+- Footer hint `j k navigate · space select · c create`
+  visible whenever the list has rows.
+- SFC-scoped styles add `.focused` (paper-tint background),
+  `.selected` (3px ink inset shadow), `.focused.selected`
+  (teal inset), the inverted dark `.epics-bulk-bar` with
+  matching `.bulk-reproject-select` chrome, and the
+  `.epics-list-foot` hint row.
+
+The keyboard vocabulary now matches across IssuesList and
+EpicsList: `c` creates, `j`/`k` walk, `space` toggles
+selection, `Esc` clears, and the bulk bar lets a batch jump
+to a Project in one pass. typecheck + ext_epics bundle
+clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 71 (Bulk reproject on IssuesList)
 
 Closes a three-iteration arc:
