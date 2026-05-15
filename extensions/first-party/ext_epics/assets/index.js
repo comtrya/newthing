@@ -3961,17 +3961,25 @@ var Ys = /* @__PURE__ */ Ms(/* @__PURE__ */ mr({
 	}
 }), Vc = ["data-state"], Hc = { class: "epics-list-header" }, Uc = ["href"], Wc = {
 	key: 0,
-	class: "epic-line muted"
-}, Gc = {
+	class: "epics-filter-row",
+	role: "tablist",
+	"aria-label": "Filter epics by state"
+}, Gc = ["aria-selected", "onClick"], Kc = { class: "count" }, qc = {
 	key: 1,
-	class: "epic-line warn"
-}, Kc = {
-	key: 2,
 	class: "epic-line muted"
-}, qc = {
+}, Jc = {
+	key: 2,
+	class: "epic-line warn"
+}, Yc = {
 	key: 3,
+	class: "epic-line muted"
+}, Xc = {
+	key: 4,
+	class: "epic-line muted"
+}, Zc = {
+	key: 5,
 	class: "epics-list-items"
-}, Jc = /* @__PURE__ */ Ms(/* @__PURE__ */ mr({
+}, Qc = /* @__PURE__ */ Ms(/* @__PURE__ */ mr({
 	__name: "EpicsList",
 	props: {
 		client: { type: null },
@@ -3999,76 +4007,153 @@ var Ys = /* @__PURE__ */ Ms(/* @__PURE__ */ mr({
 		}
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ B("idle"), r = /* @__PURE__ */ B(null), i = /* @__PURE__ */ B(t.epics ?? []), a = $(() => {
-			let e = t.epics ?? i.value;
+		let t = e, n = [
+			{
+				id: "IN_PROGRESS",
+				label: "In progress",
+				key: "i"
+			},
+			{
+				id: "PLANNED",
+				label: "Planned",
+				key: "p"
+			},
+			{
+				id: "DONE",
+				label: "Done",
+				key: "d"
+			},
+			{
+				id: "CANCELED",
+				label: "Canceled",
+				key: "x"
+			},
+			{
+				id: "ALL",
+				label: "All",
+				key: "a"
+			}
+		], r = new Set([
+			"PLANNED",
+			"IN_PROGRESS",
+			"DONE",
+			"CANCELED",
+			"ALL"
+		]), i = /* @__PURE__ */ B("idle"), a = /* @__PURE__ */ B(null), o = /* @__PURE__ */ B(t.epics ?? []), s = /* @__PURE__ */ B("ALL"), c = $(() => {
+			let e = t.epics ?? o.value;
 			return t.projectName ? e.filter((e) => e.projectName === t.projectName) : e;
-		}), o = $(() => t.client ?? t.comtryaClient), s = $(() => {
+		}), l = $(() => s.value === "ALL" ? c.value : c.value.filter((e) => e.state === s.value)), u = $(() => {
+			let e = {
+				PLANNED: 0,
+				IN_PROGRESS: 0,
+				DONE: 0,
+				CANCELED: 0,
+				ALL: c.value.length
+			};
+			for (let t of c.value) t.state === "PLANNED" ? e.PLANNED += 1 : t.state === "IN_PROGRESS" ? e.IN_PROGRESS += 1 : t.state === "DONE" ? e.DONE += 1 : t.state === "CANCELED" && (e.CANCELED += 1);
+			return e;
+		}), d = $(() => t.client ?? t.comtryaClient), f = $(() => {
 			let e = us(t.workspaceId);
 			return t.projectName ? `${e}&projectName=${encodeURIComponent(t.projectName)}` : e;
 		});
-		kr(c), or(() => [
-			o.value,
+		function p() {
+			if (typeof window > "u") return;
+			let e = (new URLSearchParams(window.location.search).get("state") ?? "").toUpperCase();
+			r.has(e) && (s.value = e);
+		}
+		function m() {
+			if (typeof window > "u") return;
+			let e = new URLSearchParams(window.location.search);
+			s.value === "ALL" ? e.delete("state") : e.set("state", s.value);
+			let t = e.toString(), n = `${window.location.pathname}${t ? `?${t}` : ""}${window.location.hash}`;
+			n !== `${window.location.pathname}${window.location.search}${window.location.hash}` && window.history.replaceState(window.history.state, "", n);
+		}
+		let h = !1;
+		function g() {
+			h = !0, p(), Hn(() => {
+				h = !1;
+			});
+		}
+		kr(() => {
+			h = !0, p(), h = !1, _(), window.addEventListener("popstate", g);
+		}), Nr(() => {
+			window.removeEventListener("popstate", g);
+		}), or(() => [
+			d.value,
 			t.epics,
 			t.workspaceId,
 			t.state
-		], () => void c());
-		async function c() {
+		], () => void _()), or(s, () => {
+			h || m();
+		});
+		async function _() {
 			if (t.epics) {
-				i.value = t.epics, n.value = t.epics.length > 0 ? "ready" : "empty", r.value = null;
+				o.value = t.epics, i.value = t.epics.length > 0 ? "ready" : "empty", a.value = null;
 				return;
 			}
-			if (!o.value) {
-				i.value = [], n.value = "error", r.value = "epics: no client";
+			if (!d.value) {
+				o.value = [], i.value = "error", a.value = "epics: no client";
 				return;
 			}
-			n.value = "loading", r.value = null;
+			i.value = "loading", a.value = null;
 			try {
-				i.value = await ts(o.value, {
+				o.value = await ts(d.value, {
 					workspaceId: t.workspaceId,
 					state: t.state
-				}), n.value = i.value.length > 0 ? "ready" : "empty";
+				}), i.value = o.value.length > 0 ? "ready" : "empty";
 			} catch (e) {
-				i.value = [], n.value = "error", r.value = e instanceof Error ? e.message : String(e);
+				o.value = [], i.value = "error", a.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		return (t, i) => (K(), q("section", {
+		return (t, r) => (K(), q("section", {
 			class: "epics-list",
-			"data-state": n.value,
+			"data-state": i.value,
 			"data-smoke": "epics-list"
-		}, [J("header", Hc, [J("h3", null, j(e.title), 1), e.showNewLink ? (K(), q("a", {
-			key: 0,
-			href: s.value
-		}, "+ new", 8, Uc)) : Z("", !0)]), n.value === "loading" ? (K(), q("p", Wc, "Loading epics")) : n.value === "error" ? (K(), q("p", Gc, j(r.value), 1)) : a.value.length === 0 ? (K(), q("p", Kc, "No epics yet.")) : (K(), q("ul", qc, [(K(!0), q(W, null, zr(a.value, (e) => (K(), q("li", { key: e.id }, [Y(Ns, {
-			epic: e,
-			"resource-ref": xn(cs)(e),
-			client: o.value
-		}, null, 8, [
-			"epic",
-			"resource-ref",
-			"client"
-		])]))), 128))]))], 8, Vc));
+		}, [
+			J("header", Hc, [J("h3", null, j(e.title), 1), e.showNewLink ? (K(), q("a", {
+				key: 0,
+				href: f.value
+			}, "+ new", 8, Uc)) : Z("", !0)]),
+			c.value.length > 0 ? (K(), q("div", Wc, [(K(), q(W, null, zr(n, (e) => J("button", {
+				key: e.id,
+				type: "button",
+				role: "tab",
+				"aria-selected": s.value === e.id,
+				class: Ge(["epics-filter", { active: s.value === e.id }]),
+				onClick: (t) => s.value = e.id
+			}, [J("span", null, j(e.label), 1), J("span", Kc, j(u.value[e.id]), 1)], 10, Gc)), 64))])) : Z("", !0),
+			i.value === "loading" ? (K(), q("p", qc, "Loading epics")) : i.value === "error" ? (K(), q("p", Jc, j(a.value), 1)) : c.value.length === 0 ? (K(), q("p", Yc, "No epics yet.")) : l.value.length === 0 ? (K(), q("p", Xc, " No " + j(s.value.toLowerCase().replace("_", " ")) + " epics in scope. ", 1)) : (K(), q("ul", Zc, [(K(!0), q(W, null, zr(l.value, (e) => (K(), q("li", { key: e.id }, [Y(Ns, {
+				epic: e,
+				"resource-ref": xn(cs)(e),
+				client: d.value
+			}, null, 8, [
+				"epic",
+				"resource-ref",
+				"client"
+			])]))), 128))]))
+		], 8, Vc));
 	}
-}), [["styles", [".epics-list[data-v-a1fef0c9]{gap:8px;display:grid}.epics-list-header[data-v-a1fef0c9]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.epics-list-header h3[data-v-a1fef0c9]{font-family:var(--display,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-a1fef0c9],.epic-line[data-v-a1fef0c9]{font-family:var(--mono,monospace);font-size:12px}.epics-list-header a[data-v-a1fef0c9]{color:var(--ink-faint,#888);text-decoration:none}.epics-list-items[data-v-a1fef0c9]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epic-line[data-v-a1fef0c9]{margin:4px 0}.muted[data-v-a1fef0c9]{color:var(--ink-faint,#888)}.warn[data-v-a1fef0c9]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-a1fef0c9"]]), Yc = "epics", Xc = "ext_epics", Zc = "comtrya-epic-card", Qc = "comtrya-epics-board", $c = "comtrya-epics-index", el = "comtrya-epic-detail", tl = "comtrya-epic-new";
+}), [["styles", [".epics-list[data-v-664c3610]{gap:8px;display:grid}.epics-list-header[data-v-664c3610]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.epics-list-header h3[data-v-664c3610]{font-family:var(--display,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-664c3610],.epic-line[data-v-664c3610]{font-family:var(--mono,monospace);font-size:12px}.epics-list-header a[data-v-664c3610]{color:var(--ink-faint,#888);text-decoration:none}.epics-filter-row[data-v-664c3610]{border:1px solid var(--ink,#111);flex-wrap:wrap;align-self:flex-start;gap:0;margin-bottom:4px;display:inline-flex}.epics-filter[data-v-664c3610]{color:inherit;cursor:pointer;font-family:var(--mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:4px 9px;font-size:11px;display:inline-flex}.epics-filter[data-v-664c3610]:not(:last-child){border-right:1px solid var(--rule-light,#d8d1c4)}.epics-filter.active[data-v-664c3610]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.epics-filter .count[data-v-664c3610]{color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums}.epics-filter.active .count[data-v-664c3610]{color:var(--paper-tint,#f2efe7)}.epics-list-items[data-v-664c3610]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epic-line[data-v-664c3610]{margin:4px 0}.muted[data-v-664c3610]{color:var(--ink-faint,#888)}.warn[data-v-664c3610]{color:var(--ink-warn,#c2410c)}"]], ["__scopeId", "data-v-664c3610"]]), $c = "epics", el = "ext_epics", tl = "comtrya-epic-card", nl = "comtrya-epics-board", rl = "comtrya-epics-index", il = "comtrya-epic-detail", al = "comtrya-epic-new";
 Go({
-	tagName: Zc,
+	tagName: tl,
 	component: Ns,
 	propertyAliases: { ref: "resourceRef" }
 }), Go({
-	tagName: Qc,
-	component: Jc
+	tagName: nl,
+	component: Qc
 }), Go({
-	tagName: $c,
-	component: Jc
+	tagName: rl,
+	component: Qc
 }), Go({
-	tagName: el,
+	tagName: il,
 	component: Bc
-}), rl();
-var nl = {
-	id: Xc,
+}), sl();
+var ol = {
+	id: el,
 	setup(e) {
 		e.registerCard({
 			resourceKind: "epic",
-			element: Zc,
+			element: tl,
 			requiredPermission: "epics.read"
 		}), e.registerRelationshipTargetProvider({
 			resourceKind: "epic",
@@ -4080,39 +4165,39 @@ var nl = {
 			}))
 		}), e.registerWidget({
 			id: "epics-board",
-			element: Qc,
+			element: nl,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "epics.read"
 		}), e.registerRoute("/", {
-			element: $c,
+			element: rl,
 			requiredPermission: "epics.read"
 		}), e.registerRoute("/new", {
-			element: tl,
+			element: al,
 			requiredPermission: "epics.write"
 		}), e.registerRoute("/:workspaceId/:id", {
-			element: el,
+			element: il,
 			requiredPermission: "epics.read"
 		}), vs(e.client);
 	}
 };
-function rl() {
-	typeof customElements > "u" || customElements.get(tl) || customElements.define(tl, class extends HTMLElement {
+function sl() {
+	typeof customElements > "u" || customElements.get(al) || customElements.define(al, class extends HTMLElement {
 		routeParams;
 		connectedCallback() {
-			let e = il(this.routeParams);
-			this.replaceChildren(al(e));
+			let e = cl(this.routeParams);
+			this.replaceChildren(ll(e));
 		}
 	});
 }
-function il(e) {
+function cl(e) {
 	let t = new URLSearchParams(window.location.search);
 	return {
 		workspaceId: t.get("workspaceId") ?? e?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
 		projectName: t.get("projectName") ?? e?.params?.projectName ?? null
 	};
 }
-function al(e) {
+function ll(e) {
 	let t = document.createElement("main");
 	t.className = "epic-new", t.dataset.smoke = "epic-new";
 	let n = document.createElement("h3");
@@ -4123,7 +4208,7 @@ function al(e) {
 	o.rows = 5, o.placeholder = "Description (optional)";
 	let s = document.createElement("button");
 	s.type = "submit", s.textContent = "Create epic";
-	let c = ol("", "warn");
+	let c = ul("", "warn");
 	return c.setAttribute("role", "alert"), c.hidden = !0, r.append(i, o, s, c), r.addEventListener("submit", (t) => {
 		t.preventDefault(), s.disabled = !0, c.hidden = !0, as(void 0, {
 			workspaceId: e.workspaceId,
@@ -4131,15 +4216,15 @@ function al(e) {
 			title: i.value.trim(),
 			bodyMarkdown: o.value
 		}).then((e) => {
-			window.location.assign(a(Yc, `/${e.workspaceId}/${e.id}`));
+			window.location.assign(a($c, `/${e.workspaceId}/${e.id}`));
 		}).catch((e) => {
 			c.textContent = e instanceof Error ? e.message : String(e), c.hidden = !1, s.disabled = !1;
 		});
 	}), t.append(n, r), t;
 }
-function ol(e, t) {
+function ul(e, t) {
 	let n = document.createElement("p");
 	return n.className = `epic-line ${t}`, n.textContent = e, n;
 }
 //#endregion
-export { nl as default };
+export { ol as default };

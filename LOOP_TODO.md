@@ -1189,6 +1189,34 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 37 (Filter row + URL state on EpicsList)
+
+EpicsList catches up to the other two list surfaces. Previously
+the only filtering was via the parent's `state?` prop or the
+project-scope filter — no UI affordance, no shareable URL.
+
+Now:
+- **State filter row** rendered above the epic cards when any
+  epics are in scope: `In progress · Planned · Done · Canceled
+  · All` with per-state counts. Same editorial shape as the
+  PullsQueue filter row, single-pixel inset borders.
+- **`?state=<state>` URL persistence** via the same
+  read/write/popstate trio established in iter 32 (issues) and
+  iter 36 (pulls). `state=ALL` (the default) is omitted from
+  the URL so the bare `/x/epics/` link stays clean.
+- **Empty-state copy** distinguishes "no epics yet" (scope is
+  empty) from "no <filter> epics in scope" (scope has epics but
+  none match the active filter).
+- Defaults to `ALL` because epics are skewed across states by
+  project lifecycle — defaulting to `IN_PROGRESS` would hide
+  too much on first load.
+
+All three list surfaces (issues, pulls, epics) now have
+URL-persisted filter state. The same shape — `readUrlState`,
+`writeUrlState`, `popstate` listener, `suppressUrlWrite` guard
+— is the canonical filtered-view recipe across the extension
+queues.
+
 ### 2026-05-15 — iteration 36 (URL-persisted filter state on PullsQueue)
 
 Mirrors iteration 32 onto the PR queue. `/x/pulls/?state=merged&q=auth`
