@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { useShortcuts } from "@comtrya/sdk-vue";
+import { renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 import {
   changeEpicState,
   epicByRef,
   epicProgress,
   issuesInEpic,
 } from "./api";
-import { renderMarkdown } from "./markdown";
 import {
   resolveIssues,
   classifyIssueAuthor,

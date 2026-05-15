@@ -1189,6 +1189,57 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 53 (Shared safe-markdown in sdk-vue + PR description rendering)
+
+Pulls the three diverging markdown renderers (`frontend/src/
+markdown.ts`, `ext_docs/ui/src/markdown.ts`,
+`ext_epics/ui/src/markdown.ts`) into a single canonical
+implementation in `@comtrya/sdk-vue` and wires the missing
+fourth consumer: PR detail descriptions, which had been
+rendering as `<pre>{{ bodyMarkdown }}</pre>` since the iter-2
+PullsDetail rewrite.
+
+Shared package:
+- `frontend/packages/sdk-vue/src/markdown.ts` is the new
+  canonical home. Public API stays `renderMarkdown(body)` +
+  `bodyExcerpt(body, limit?)` so callers don't change shape.
+- Token set: headings 1-6, paragraphs, fenced code with
+  `data-lang`, ordered + unordered lists, inline
+  code/bold/italic, plus bare-URL autolinking.
+- New: ordered-list (`1.`), bare-URL autolinking with
+  `rel="noopener noreferrer"`. Carry-over: every non-token
+  character is HTML-escaped so the output is safe to
+  `v-html`.
+- Code spans are stashed behind Private-Use Area sentinels
+  (`CODE<n>END`) before URL/bold/italic pass, then restored
+  so a backticked literal can't be re-parsed mid-emphasis.
+- `frontend/packages/sdk-vue/src/index.ts` re-exports.
+
+Migrations:
+- Deleted `frontend/src/markdown.ts` (created in iter 52),
+  `extensions/first-party/ext_docs/ui/src/markdown.ts`,
+  `extensions/first-party/ext_epics/ui/src/markdown.ts`.
+- Updated callers: `RepoHome.vue`, `DocsPanel.vue`,
+  `EpicDetail.vue`, and the new `PullsDetail.vue` consumer
+  all import `renderMarkdown` / `bodyExcerpt` from
+  `@comtrya/sdk-vue`.
+
+PR description rendering:
+- `PullsDetail.vue` swaps `<pre>{{ pull.bodyMarkdown }}</pre>`
+  for `<div v-html="renderedBody">` and a new
+  `.pulls-detail-body-prose` block of editorial typography
+  (Helvetica display headings, IBM Plex Mono fenced code,
+  `--ink-tint` inline code background, teal underline
+  autolinks). Mirrors the prose scale already used in
+  `EpicDetail.vue` and `RepoHome.vue`'s `.repo-readme`.
+
+Verified: typecheck + shell build clean, all three affected
+extensions rebuilt + `entryIntegrity` refreshed. Tested
+`renderMarkdown` on a synthetic doc covering every token
+class - headings, bold, em, inline code, autolink, unordered
+list, ordered list, fenced code, excerpt truncation - all
+emit clean HTML with no embedded sentinels leaking.
+
 ### 2026-05-15 — iteration 52 (README rendering on RepoHome)
 
 Major DX win: RepoHome now actually surfaces README content

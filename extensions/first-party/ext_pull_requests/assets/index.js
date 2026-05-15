@@ -171,19 +171,19 @@ var M, Ee = /* @__PURE__ */ new WeakSet(), De = class {
 	}
 	run() {
 		if (!(this.flags & 1)) return this.fn();
-		this.flags |= 2, We(this), Pe(this);
-		let e = M, t = Be;
-		M = this, Be = !0;
+		this.flags |= 2, Ue(this), Pe(this);
+		let e = M, t = N;
+		M = this, N = !0;
 		try {
 			return this.fn();
 		} finally {
-			Fe(this), M = e, Be = t, this.flags &= -3;
+			Fe(this), M = e, N = t, this.flags &= -3;
 		}
 	}
 	stop() {
 		if (this.flags & 1) {
 			for (let e = this.deps; e; e = e.nextDep) Re(e);
-			this.deps = this.depsTail = void 0, We(this), this.onStop && this.onStop(), this.flags &= -2;
+			this.deps = this.depsTail = void 0, Ue(this), this.onStop && this.onStop(), this.flags &= -2;
 		}
 	}
 	trigger() {
@@ -246,10 +246,10 @@ function Ie(e) {
 	return !!e._dirty;
 }
 function Le(e) {
-	if (e.flags & 4 && !(e.flags & 16) || (e.flags &= -17, e.globalVersion === Ge) || (e.globalVersion = Ge, !e.isSSR && e.flags & 128 && (!e.deps && !e._dirty || !Ie(e)))) return;
+	if (e.flags & 4 && !(e.flags & 16) || (e.flags &= -17, e.globalVersion === We) || (e.globalVersion = We, !e.isSSR && e.flags & 128 && (!e.deps && !e._dirty || !Ie(e)))) return;
 	e.flags |= 2;
-	let t = e.dep, n = M, r = Be;
-	M = e, Be = !0;
+	let t = e.dep, n = M, r = N;
+	M = e, N = !0;
 	try {
 		Pe(e);
 		let n = e.fn(e._value);
@@ -257,7 +257,7 @@ function Le(e) {
 	} catch (e) {
 		throw t.version++, e;
 	} finally {
-		M = n, Be = r, Fe(e), e.flags &= -3;
+		M = n, N = r, Fe(e), e.flags &= -3;
 	}
 }
 function Re(e, t = !1) {
@@ -272,15 +272,15 @@ function ze(e) {
 	let { prevDep: t, nextDep: n } = e;
 	t && (t.nextDep = n, e.prevDep = void 0), n && (n.prevDep = t, e.nextDep = void 0);
 }
-var Be = !0, Ve = [];
+var N = !0, Be = [];
+function Ve() {
+	Be.push(N), N = !1;
+}
 function He() {
-	Ve.push(Be), Be = !1;
+	let e = Be.pop();
+	N = e === void 0 ? !0 : e;
 }
-function Ue() {
-	let e = Ve.pop();
-	Be = e === void 0 ? !0 : e;
-}
-function We(e) {
+function Ue(e) {
 	let { cleanup: t } = e;
 	if (e.cleanup = void 0, t) {
 		let e = M;
@@ -292,18 +292,18 @@ function We(e) {
 		}
 	}
 }
-var Ge = 0, Ke = class {
+var We = 0, Ge = class {
 	constructor(e, t) {
 		this.sub = e, this.dep = t, this.version = t.version, this.nextDep = this.prevDep = this.nextSub = this.prevSub = this.prevActiveLink = void 0;
 	}
-}, qe = class {
+}, Ke = class {
 	constructor(e) {
 		this.computed = e, this.version = 0, this.activeLink = void 0, this.subs = void 0, this.map = void 0, this.key = void 0, this.sc = 0, this.__v_skip = !0;
 	}
 	track(e) {
-		if (!M || !Be || M === this.computed) return;
+		if (!M || !N || M === this.computed) return;
 		let t = this.activeLink;
-		if (t === void 0 || t.sub !== M) t = this.activeLink = new Ke(M, this), M.deps ? (t.prevDep = M.depsTail, M.depsTail.nextDep = t, M.depsTail = t) : M.deps = M.depsTail = t, Je(t);
+		if (t === void 0 || t.sub !== M) t = this.activeLink = new Ge(M, this), M.deps ? (t.prevDep = M.depsTail, M.depsTail.nextDep = t, M.depsTail = t) : M.deps = M.depsTail = t, qe(t);
 		else if (t.version === -1 && (t.version = this.version, t.nextDep)) {
 			let e = t.nextDep;
 			e.prevDep = t.prevDep, t.prevDep && (t.prevDep.nextDep = e), t.prevDep = M.depsTail, t.nextDep = void 0, M.depsTail.nextDep = t, M.depsTail = t, M.deps === t && (M.deps = e);
@@ -311,7 +311,7 @@ var Ge = 0, Ke = class {
 		return t;
 	}
 	trigger(e) {
-		this.version++, Ge++, this.notify(e);
+		this.version++, We++, this.notify(e);
 	}
 	notify(e) {
 		Me();
@@ -322,30 +322,30 @@ var Ge = 0, Ke = class {
 		}
 	}
 };
-function Je(e) {
+function qe(e) {
 	if (e.dep.sc++, e.sub.flags & 4) {
 		let t = e.dep.computed;
 		if (t && !e.dep.subs) {
 			t.flags |= 20;
-			for (let e = t.deps; e; e = e.nextDep) Je(e);
+			for (let e = t.deps; e; e = e.nextDep) qe(e);
 		}
 		let n = e.dep.subs;
 		n !== e && (e.prevSub = n, n && (n.nextSub = e)), e.dep.subs = e;
 	}
 }
-var Ye = /* @__PURE__ */ new WeakMap(), Xe = /* @__PURE__ */ Symbol(""), Ze = /* @__PURE__ */ Symbol(""), Qe = /* @__PURE__ */ Symbol("");
-function N(e, t, n) {
-	if (Be && M) {
-		let t = Ye.get(e);
-		t || Ye.set(e, t = /* @__PURE__ */ new Map());
+var Je = /* @__PURE__ */ new WeakMap(), Ye = /* @__PURE__ */ Symbol(""), Xe = /* @__PURE__ */ Symbol(""), Ze = /* @__PURE__ */ Symbol("");
+function P(e, t, n) {
+	if (N && M) {
+		let t = Je.get(e);
+		t || Je.set(e, t = /* @__PURE__ */ new Map());
 		let r = t.get(n);
-		r || (t.set(n, r = new qe()), r.map = t, r.key = n), r.track();
+		r || (t.set(n, r = new Ke()), r.map = t, r.key = n), r.track();
 	}
 }
-function $e(e, t, n, r, i, a) {
-	let o = Ye.get(e);
+function Qe(e, t, n, r, i, a) {
+	let o = Je.get(e);
 	if (!o) {
-		Ge++;
+		We++;
 		return;
 	}
 	let s = (e) => {
@@ -357,167 +357,167 @@ function $e(e, t, n, r, i, a) {
 		if (i && n === "length") {
 			let e = Number(r);
 			o.forEach((t, n) => {
-				(n === "length" || n === Qe || !_(n) && n >= e) && s(t);
+				(n === "length" || n === Ze || !_(n) && n >= e) && s(t);
 			});
-		} else switch ((n !== void 0 || o.has(void 0)) && s(o.get(n)), a && s(o.get(Qe)), t) {
+		} else switch ((n !== void 0 || o.has(void 0)) && s(o.get(n)), a && s(o.get(Ze)), t) {
 			case "add":
-				i ? a && s(o.get("length")) : (s(o.get(Xe)), f(e) && s(o.get(Ze)));
+				i ? a && s(o.get("length")) : (s(o.get(Ye)), f(e) && s(o.get(Xe)));
 				break;
 			case "delete":
-				i || (s(o.get(Xe)), f(e) && s(o.get(Ze)));
+				i || (s(o.get(Ye)), f(e) && s(o.get(Xe)));
 				break;
 			case "set":
-				f(e) && s(o.get(Xe));
+				f(e) && s(o.get(Ye));
 				break;
 		}
 	}
 	Ne();
 }
+function $e(e) {
+	let t = /* @__PURE__ */ I(e);
+	return t === e ? t : (P(t, "iterate", Ze), /* @__PURE__ */ F(e) ? t : t.map(Vt));
+}
 function et(e) {
-	let t = /* @__PURE__ */ F(e);
-	return t === e ? t : (N(t, "iterate", Qe), /* @__PURE__ */ P(e) ? t : t.map(I));
+	return P(e = /* @__PURE__ */ I(e), "iterate", Ze), e;
 }
-function tt(e) {
-	return N(e = /* @__PURE__ */ F(e), "iterate", Qe), e;
+function tt(e, t) {
+	return /* @__PURE__ */ Rt(e) ? Ht(/* @__PURE__ */ Lt(e) ? Vt(t) : t) : Vt(t);
 }
-function nt(e, t) {
-	return /* @__PURE__ */ zt(e) ? Ht(/* @__PURE__ */ Rt(e) ? I(t) : t) : I(t);
-}
-var rt = {
+var nt = {
 	__proto__: null,
 	[Symbol.iterator]() {
-		return it(this, Symbol.iterator, (e) => nt(this, e));
+		return rt(this, Symbol.iterator, (e) => tt(this, e));
 	},
 	concat(...e) {
-		return et(this).concat(...e.map((e) => d(e) ? et(e) : e));
+		return $e(this).concat(...e.map((e) => d(e) ? $e(e) : e));
 	},
 	entries() {
-		return it(this, "entries", (e) => (e[1] = nt(this, e[1]), e));
+		return rt(this, "entries", (e) => (e[1] = tt(this, e[1]), e));
 	},
 	every(e, t) {
-		return ot(this, "every", e, t, void 0, arguments);
+		return at(this, "every", e, t, void 0, arguments);
 	},
 	filter(e, t) {
-		return ot(this, "filter", e, t, (e) => e.map((e) => nt(this, e)), arguments);
+		return at(this, "filter", e, t, (e) => e.map((e) => tt(this, e)), arguments);
 	},
 	find(e, t) {
-		return ot(this, "find", e, t, (e) => nt(this, e), arguments);
+		return at(this, "find", e, t, (e) => tt(this, e), arguments);
 	},
 	findIndex(e, t) {
-		return ot(this, "findIndex", e, t, void 0, arguments);
+		return at(this, "findIndex", e, t, void 0, arguments);
 	},
 	findLast(e, t) {
-		return ot(this, "findLast", e, t, (e) => nt(this, e), arguments);
+		return at(this, "findLast", e, t, (e) => tt(this, e), arguments);
 	},
 	findLastIndex(e, t) {
-		return ot(this, "findLastIndex", e, t, void 0, arguments);
+		return at(this, "findLastIndex", e, t, void 0, arguments);
 	},
 	forEach(e, t) {
-		return ot(this, "forEach", e, t, void 0, arguments);
+		return at(this, "forEach", e, t, void 0, arguments);
 	},
 	includes(...e) {
-		return ct(this, "includes", e);
+		return st(this, "includes", e);
 	},
 	indexOf(...e) {
-		return ct(this, "indexOf", e);
+		return st(this, "indexOf", e);
 	},
 	join(e) {
-		return et(this).join(e);
+		return $e(this).join(e);
 	},
 	lastIndexOf(...e) {
-		return ct(this, "lastIndexOf", e);
+		return st(this, "lastIndexOf", e);
 	},
 	map(e, t) {
-		return ot(this, "map", e, t, void 0, arguments);
+		return at(this, "map", e, t, void 0, arguments);
 	},
 	pop() {
-		return lt(this, "pop");
+		return ct(this, "pop");
 	},
 	push(...e) {
-		return lt(this, "push", e);
+		return ct(this, "push", e);
 	},
 	reduce(e, ...t) {
-		return st(this, "reduce", e, t);
+		return ot(this, "reduce", e, t);
 	},
 	reduceRight(e, ...t) {
-		return st(this, "reduceRight", e, t);
+		return ot(this, "reduceRight", e, t);
 	},
 	shift() {
-		return lt(this, "shift");
+		return ct(this, "shift");
 	},
 	some(e, t) {
-		return ot(this, "some", e, t, void 0, arguments);
+		return at(this, "some", e, t, void 0, arguments);
 	},
 	splice(...e) {
-		return lt(this, "splice", e);
+		return ct(this, "splice", e);
 	},
 	toReversed() {
-		return et(this).toReversed();
+		return $e(this).toReversed();
 	},
 	toSorted(e) {
-		return et(this).toSorted(e);
+		return $e(this).toSorted(e);
 	},
 	toSpliced(...e) {
-		return et(this).toSpliced(...e);
+		return $e(this).toSpliced(...e);
 	},
 	unshift(...e) {
-		return lt(this, "unshift", e);
+		return ct(this, "unshift", e);
 	},
 	values() {
-		return it(this, "values", (e) => nt(this, e));
+		return rt(this, "values", (e) => tt(this, e));
 	}
 };
-function it(e, t, n) {
-	let r = tt(e), i = r[t]();
-	return r !== e && !/* @__PURE__ */ P(e) && (i._next = i.next, i.next = () => {
+function rt(e, t, n) {
+	let r = et(e), i = r[t]();
+	return r !== e && !/* @__PURE__ */ F(e) && (i._next = i.next, i.next = () => {
 		let e = i._next();
 		return e.done || (e.value = n(e.value)), e;
 	}), i;
 }
-var at = Array.prototype;
-function ot(e, t, n, r, i, a) {
-	let o = tt(e), s = o !== e && !/* @__PURE__ */ P(e), c = o[t];
-	if (c !== at[t]) {
+var it = Array.prototype;
+function at(e, t, n, r, i, a) {
+	let o = et(e), s = o !== e && !/* @__PURE__ */ F(e), c = o[t];
+	if (c !== it[t]) {
 		let t = c.apply(e, a);
-		return s ? I(t) : t;
+		return s ? Vt(t) : t;
 	}
 	let l = n;
 	o !== e && (s ? l = function(t, r) {
-		return n.call(this, nt(e, t), r, e);
+		return n.call(this, tt(e, t), r, e);
 	} : n.length > 2 && (l = function(t, r) {
 		return n.call(this, t, r, e);
 	}));
 	let u = c.call(o, l, r);
 	return s && i ? i(u) : u;
 }
-function st(e, t, n, r) {
-	let i = tt(e), a = i !== e && !/* @__PURE__ */ P(e), o = n, s = !1;
+function ot(e, t, n, r) {
+	let i = et(e), a = i !== e && !/* @__PURE__ */ F(e), o = n, s = !1;
 	i !== e && (a ? (s = r.length === 0, o = function(t, r, i) {
-		return s && (s = !1, t = nt(e, t)), n.call(this, t, nt(e, r), i, e);
+		return s && (s = !1, t = tt(e, t)), n.call(this, t, tt(e, r), i, e);
 	}) : n.length > 3 && (o = function(t, r, i) {
 		return n.call(this, t, r, i, e);
 	}));
 	let c = i[t](o, ...r);
-	return s ? nt(e, c) : c;
+	return s ? tt(e, c) : c;
 }
-function ct(e, t, n) {
-	let r = /* @__PURE__ */ F(e);
-	N(r, "iterate", Qe);
+function st(e, t, n) {
+	let r = /* @__PURE__ */ I(e);
+	P(r, "iterate", Ze);
 	let i = r[t](...n);
-	return (i === -1 || i === !1) && /* @__PURE__ */ Bt(n[0]) ? (n[0] = /* @__PURE__ */ F(n[0]), r[t](...n)) : i;
+	return (i === -1 || i === !1) && /* @__PURE__ */ zt(n[0]) ? (n[0] = /* @__PURE__ */ I(n[0]), r[t](...n)) : i;
 }
-function lt(e, t, n = []) {
-	He(), Me();
-	let r = (/* @__PURE__ */ F(e))[t].apply(e, n);
-	return Ne(), Ue(), r;
+function ct(e, t, n = []) {
+	Ve(), Me();
+	let r = (/* @__PURE__ */ I(e))[t].apply(e, n);
+	return Ne(), He(), r;
 }
-var ut = /* @__PURE__ */ e("__proto__,__v_isRef,__isVue"), dt = new Set(/* @__PURE__ */ Object.getOwnPropertyNames(Symbol).filter((e) => e !== "arguments" && e !== "caller").map((e) => Symbol[e]).filter(_));
-function ft(e) {
+var lt = /* @__PURE__ */ e("__proto__,__v_isRef,__isVue"), ut = new Set(/* @__PURE__ */ Object.getOwnPropertyNames(Symbol).filter((e) => e !== "arguments" && e !== "caller").map((e) => Symbol[e]).filter(_));
+function dt(e) {
 	_(e) || (e = String(e));
-	let t = /* @__PURE__ */ F(this);
-	return N(t, "has", e), t.hasOwnProperty(e);
+	let t = /* @__PURE__ */ I(this);
+	return P(t, "has", e), t.hasOwnProperty(e);
 }
-var pt = class {
+var ft = class {
 	constructor(e = !1, t = !1) {
 		this._isReadonly = e, this._isShallow = t;
 	}
@@ -527,46 +527,46 @@ var pt = class {
 		if (t === "__v_isReactive") return !r;
 		if (t === "__v_isReadonly") return r;
 		if (t === "__v_isShallow") return i;
-		if (t === "__v_raw") return n === (r ? i ? jt : At : i ? kt : Ot).get(e) || Object.getPrototypeOf(e) === Object.getPrototypeOf(n) ? e : void 0;
+		if (t === "__v_raw") return n === (r ? i ? At : kt : i ? Ot : Dt).get(e) || Object.getPrototypeOf(e) === Object.getPrototypeOf(n) ? e : void 0;
 		let a = d(e);
 		if (!r) {
 			let e;
-			if (a && (e = rt[t])) return e;
-			if (t === "hasOwnProperty") return ft;
+			if (a && (e = nt[t])) return e;
+			if (t === "hasOwnProperty") return dt;
 		}
 		let o = Reflect.get(e, t, /* @__PURE__ */ L(e) ? e : n);
-		if ((_(t) ? dt.has(t) : ut(t)) || (r || N(e, "get", t), i)) return o;
+		if ((_(t) ? ut.has(t) : lt(t)) || (r || P(e, "get", t), i)) return o;
 		if (/* @__PURE__ */ L(o)) {
 			let e = a && w(t) ? o : o.value;
-			return r && v(e) ? /* @__PURE__ */ It(e) : e;
+			return r && v(e) ? /* @__PURE__ */ Ft(e) : e;
 		}
-		return v(o) ? r ? /* @__PURE__ */ It(o) : /* @__PURE__ */ Pt(o) : o;
+		return v(o) ? r ? /* @__PURE__ */ Ft(o) : /* @__PURE__ */ Nt(o) : o;
 	}
-}, mt = class extends pt {
+}, pt = class extends ft {
 	constructor(e = !1) {
 		super(!1, e);
 	}
 	set(e, t, n, r) {
 		let i = e[t], a = d(e) && w(t);
 		if (!this._isShallow) {
-			let e = /* @__PURE__ */ zt(i);
-			if (!/* @__PURE__ */ P(n) && !/* @__PURE__ */ zt(n) && (i = /* @__PURE__ */ F(i), n = /* @__PURE__ */ F(n)), !a && /* @__PURE__ */ L(i) && !/* @__PURE__ */ L(n)) return e || (i.value = n), !0;
+			let e = /* @__PURE__ */ Rt(i);
+			if (!/* @__PURE__ */ F(n) && !/* @__PURE__ */ Rt(n) && (i = /* @__PURE__ */ I(i), n = /* @__PURE__ */ I(n)), !a && /* @__PURE__ */ L(i) && !/* @__PURE__ */ L(n)) return e || (i.value = n), !0;
 		}
 		let o = a ? Number(t) < e.length : u(e, t), s = Reflect.set(e, t, n, /* @__PURE__ */ L(e) ? e : r);
-		return e === /* @__PURE__ */ F(r) && (o ? D(n, i) && $e(e, "set", t, n, i) : $e(e, "add", t, n)), s;
+		return e === /* @__PURE__ */ I(r) && (o ? D(n, i) && Qe(e, "set", t, n, i) : Qe(e, "add", t, n)), s;
 	}
 	deleteProperty(e, t) {
 		let n = u(e, t), r = e[t], i = Reflect.deleteProperty(e, t);
-		return i && n && $e(e, "delete", t, void 0, r), i;
+		return i && n && Qe(e, "delete", t, void 0, r), i;
 	}
 	has(e, t) {
 		let n = Reflect.has(e, t);
-		return (!_(t) || !dt.has(t)) && N(e, "has", t), n;
+		return (!_(t) || !ut.has(t)) && P(e, "has", t), n;
 	}
 	ownKeys(e) {
-		return N(e, "iterate", d(e) ? "length" : Xe), Reflect.ownKeys(e);
+		return P(e, "iterate", d(e) ? "length" : Ye), Reflect.ownKeys(e);
 	}
-}, ht = class extends pt {
+}, mt = class extends ft {
 	constructor(e = !1) {
 		super(!0, e);
 	}
@@ -576,11 +576,11 @@ var pt = class {
 	deleteProperty(e, t) {
 		return !0;
 	}
-}, gt = /* @__PURE__ */ new mt(), _t = /* @__PURE__ */ new ht(), vt = /* @__PURE__ */ new mt(!0), yt = (e) => e, bt = (e) => Reflect.getPrototypeOf(e);
-function xt(e, t, n) {
+}, ht = /* @__PURE__ */ new pt(), gt = /* @__PURE__ */ new mt(), _t = /* @__PURE__ */ new pt(!0), vt = (e) => e, yt = (e) => Reflect.getPrototypeOf(e);
+function bt(e, t, n) {
 	return function(...r) {
-		let i = this.__v_raw, a = /* @__PURE__ */ F(i), o = f(a), c = e === "entries" || e === Symbol.iterator && o, l = e === "keys" && o, u = i[e](...r), d = n ? yt : t ? Ht : I;
-		return !t && N(a, "iterate", l ? Ze : Xe), s(Object.create(u), { next() {
+		let i = this.__v_raw, a = /* @__PURE__ */ I(i), o = f(a), c = e === "entries" || e === Symbol.iterator && o, l = e === "keys" && o, u = i[e](...r), d = n ? vt : t ? Ht : Vt;
+		return !t && P(a, "iterate", l ? Xe : Ye), s(Object.create(u), { next() {
 			let { value: e, done: t } = u.next();
 			return t ? {
 				value: e,
@@ -592,60 +592,60 @@ function xt(e, t, n) {
 		} });
 	};
 }
-function St(e) {
+function xt(e) {
 	return function(...t) {
 		return e === "delete" ? !1 : e === "clear" ? void 0 : this;
 	};
 }
-function Ct(e, t) {
+function St(e, t) {
 	let n = {
 		get(n) {
-			let r = this.__v_raw, i = /* @__PURE__ */ F(r), a = /* @__PURE__ */ F(n);
-			e || (D(n, a) && N(i, "get", n), N(i, "get", a));
-			let { has: o } = bt(i), s = t ? yt : e ? Ht : I;
+			let r = this.__v_raw, i = /* @__PURE__ */ I(r), a = /* @__PURE__ */ I(n);
+			e || (D(n, a) && P(i, "get", n), P(i, "get", a));
+			let { has: o } = yt(i), s = t ? vt : e ? Ht : Vt;
 			if (o.call(i, n)) return s(r.get(n));
 			if (o.call(i, a)) return s(r.get(a));
 			r !== i && r.get(n);
 		},
 		get size() {
 			let t = this.__v_raw;
-			return !e && N(/* @__PURE__ */ F(t), "iterate", Xe), t.size;
+			return !e && P(/* @__PURE__ */ I(t), "iterate", Ye), t.size;
 		},
 		has(t) {
-			let n = this.__v_raw, r = /* @__PURE__ */ F(n), i = /* @__PURE__ */ F(t);
-			return e || (D(t, i) && N(r, "has", t), N(r, "has", i)), t === i ? n.has(t) : n.has(t) || n.has(i);
+			let n = this.__v_raw, r = /* @__PURE__ */ I(n), i = /* @__PURE__ */ I(t);
+			return e || (D(t, i) && P(r, "has", t), P(r, "has", i)), t === i ? n.has(t) : n.has(t) || n.has(i);
 		},
 		forEach(n, r) {
-			let i = this, a = i.__v_raw, o = /* @__PURE__ */ F(a), s = t ? yt : e ? Ht : I;
-			return !e && N(o, "iterate", Xe), a.forEach((e, t) => n.call(r, s(e), s(t), i));
+			let i = this, a = i.__v_raw, o = /* @__PURE__ */ I(a), s = t ? vt : e ? Ht : Vt;
+			return !e && P(o, "iterate", Ye), a.forEach((e, t) => n.call(r, s(e), s(t), i));
 		}
 	};
 	return s(n, e ? {
-		add: St("add"),
-		set: St("set"),
-		delete: St("delete"),
-		clear: St("clear")
+		add: xt("add"),
+		set: xt("set"),
+		delete: xt("delete"),
+		clear: xt("clear")
 	} : {
 		add(e) {
-			let n = /* @__PURE__ */ F(this), r = bt(n), i = /* @__PURE__ */ F(e), a = !t && !/* @__PURE__ */ P(e) && !/* @__PURE__ */ zt(e) ? i : e;
-			return r.has.call(n, a) || D(e, a) && r.has.call(n, e) || D(i, a) && r.has.call(n, i) || (n.add(a), $e(n, "add", a, a)), this;
+			let n = /* @__PURE__ */ I(this), r = yt(n), i = /* @__PURE__ */ I(e), a = !t && !/* @__PURE__ */ F(e) && !/* @__PURE__ */ Rt(e) ? i : e;
+			return r.has.call(n, a) || D(e, a) && r.has.call(n, e) || D(i, a) && r.has.call(n, i) || (n.add(a), Qe(n, "add", a, a)), this;
 		},
 		set(e, n) {
-			!t && !/* @__PURE__ */ P(n) && !/* @__PURE__ */ zt(n) && (n = /* @__PURE__ */ F(n));
-			let r = /* @__PURE__ */ F(this), { has: i, get: a } = bt(r), o = i.call(r, e);
-			o ||= (e = /* @__PURE__ */ F(e), i.call(r, e));
+			!t && !/* @__PURE__ */ F(n) && !/* @__PURE__ */ Rt(n) && (n = /* @__PURE__ */ I(n));
+			let r = /* @__PURE__ */ I(this), { has: i, get: a } = yt(r), o = i.call(r, e);
+			o ||= (e = /* @__PURE__ */ I(e), i.call(r, e));
 			let s = a.call(r, e);
-			return r.set(e, n), o ? D(n, s) && $e(r, "set", e, n, s) : $e(r, "add", e, n), this;
+			return r.set(e, n), o ? D(n, s) && Qe(r, "set", e, n, s) : Qe(r, "add", e, n), this;
 		},
 		delete(e) {
-			let t = /* @__PURE__ */ F(this), { has: n, get: r } = bt(t), i = n.call(t, e);
-			i ||= (e = /* @__PURE__ */ F(e), n.call(t, e));
+			let t = /* @__PURE__ */ I(this), { has: n, get: r } = yt(t), i = n.call(t, e);
+			i ||= (e = /* @__PURE__ */ I(e), n.call(t, e));
 			let a = r ? r.call(t, e) : void 0, o = t.delete(e);
-			return i && $e(t, "delete", e, void 0, a), o;
+			return i && Qe(t, "delete", e, void 0, a), o;
 		},
 		clear() {
-			let e = /* @__PURE__ */ F(this), t = e.size !== 0, n = e.clear();
-			return t && $e(e, "clear", void 0, void 0, void 0), n;
+			let e = /* @__PURE__ */ I(this), t = e.size !== 0, n = e.clear();
+			return t && Qe(e, "clear", void 0, void 0, void 0), n;
 		}
 	}), [
 		"keys",
@@ -653,15 +653,15 @@ function Ct(e, t) {
 		"entries",
 		Symbol.iterator
 	].forEach((r) => {
-		n[r] = xt(r, e, t);
+		n[r] = bt(r, e, t);
 	}), n;
 }
-function wt(e, t) {
-	let n = Ct(e, t);
+function Ct(e, t) {
+	let n = St(e, t);
 	return (t, r, i) => r === "__v_isReactive" ? !e : r === "__v_isReadonly" ? e : r === "__v_raw" ? t : Reflect.get(u(n, r) && r in t ? n : t, r, i);
 }
-var Tt = { get: /* @__PURE__ */ wt(!1, !1) }, Et = { get: /* @__PURE__ */ wt(!1, !0) }, Dt = { get: /* @__PURE__ */ wt(!0, !1) }, Ot = /* @__PURE__ */ new WeakMap(), kt = /* @__PURE__ */ new WeakMap(), At = /* @__PURE__ */ new WeakMap(), jt = /* @__PURE__ */ new WeakMap();
-function Mt(e) {
+var wt = { get: /* @__PURE__ */ Ct(!1, !1) }, Tt = { get: /* @__PURE__ */ Ct(!1, !0) }, Et = { get: /* @__PURE__ */ Ct(!0, !1) }, Dt = /* @__PURE__ */ new WeakMap(), Ot = /* @__PURE__ */ new WeakMap(), kt = /* @__PURE__ */ new WeakMap(), At = /* @__PURE__ */ new WeakMap();
+function jt(e) {
 	switch (e) {
 		case "Object":
 		case "Array": return 1;
@@ -672,24 +672,24 @@ function Mt(e) {
 		default: return 0;
 	}
 }
+function Mt(e) {
+	return e.__v_skip || !Object.isExtensible(e) ? 0 : jt(S(e));
+}
+/* @__NO_SIDE_EFFECTS__ */
 function Nt(e) {
-	return e.__v_skip || !Object.isExtensible(e) ? 0 : Mt(S(e));
+	return /* @__PURE__ */ Rt(e) ? e : It(e, !1, ht, wt, Dt);
 }
 /* @__NO_SIDE_EFFECTS__ */
 function Pt(e) {
-	return /* @__PURE__ */ zt(e) ? e : Lt(e, !1, gt, Tt, Ot);
+	return It(e, !1, _t, Tt, Ot);
 }
 /* @__NO_SIDE_EFFECTS__ */
 function Ft(e) {
-	return Lt(e, !1, vt, Et, kt);
+	return It(e, !0, gt, Et, kt);
 }
-/* @__NO_SIDE_EFFECTS__ */
-function It(e) {
-	return Lt(e, !0, _t, Dt, At);
-}
-function Lt(e, t, n, r, i) {
+function It(e, t, n, r, i) {
 	if (!v(e) || e.__v_raw && !(t && e.__v_isReactive)) return e;
-	let a = Nt(e);
+	let a = Mt(e);
 	if (a === 0) return e;
 	let o = i.get(e);
 	if (o) return o;
@@ -697,30 +697,30 @@ function Lt(e, t, n, r, i) {
 	return i.set(e, s), s;
 }
 /* @__NO_SIDE_EFFECTS__ */
-function Rt(e) {
-	return /* @__PURE__ */ zt(e) ? /* @__PURE__ */ Rt(e.__v_raw) : !!(e && e.__v_isReactive);
+function Lt(e) {
+	return /* @__PURE__ */ Rt(e) ? /* @__PURE__ */ Lt(e.__v_raw) : !!(e && e.__v_isReactive);
 }
 /* @__NO_SIDE_EFFECTS__ */
-function zt(e) {
+function Rt(e) {
 	return !!(e && e.__v_isReadonly);
 }
 /* @__NO_SIDE_EFFECTS__ */
-function P(e) {
+function F(e) {
 	return !!(e && e.__v_isShallow);
 }
 /* @__NO_SIDE_EFFECTS__ */
-function Bt(e) {
+function zt(e) {
 	return e ? !!e.__v_raw : !1;
 }
 /* @__NO_SIDE_EFFECTS__ */
-function F(e) {
+function I(e) {
 	let t = e && e.__v_raw;
-	return t ? /* @__PURE__ */ F(t) : e;
+	return t ? /* @__PURE__ */ I(t) : e;
 }
-function Vt(e) {
+function Bt(e) {
 	return !u(e, "__v_skip") && Object.isExtensible(e) && O(e, "__v_skip", !0), e;
 }
-var I = (e) => v(e) ? /* @__PURE__ */ Pt(e) : e, Ht = (e) => v(e) ? /* @__PURE__ */ It(e) : e;
+var Vt = (e) => v(e) ? /* @__PURE__ */ Nt(e) : e, Ht = (e) => v(e) ? /* @__PURE__ */ Ft(e) : e;
 /* @__NO_SIDE_EFFECTS__ */
 function L(e) {
 	return e ? e.__v_isRef === !0 : !1;
@@ -734,14 +734,14 @@ function Ut(e, t) {
 }
 var Wt = class {
 	constructor(e, t) {
-		this.dep = new qe(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = t ? e : /* @__PURE__ */ F(e), this._value = t ? e : I(e), this.__v_isShallow = t;
+		this.dep = new Ke(), this.__v_isRef = !0, this.__v_isShallow = !1, this._rawValue = t ? e : /* @__PURE__ */ I(e), this._value = t ? e : Vt(e), this.__v_isShallow = t;
 	}
 	get value() {
 		return this.dep.track(), this._value;
 	}
 	set value(e) {
-		let t = this._rawValue, n = this.__v_isShallow || /* @__PURE__ */ P(e) || /* @__PURE__ */ zt(e);
-		e = n ? e : /* @__PURE__ */ F(e), D(e, t) && (this._rawValue = e, this._value = n ? e : I(e), this.dep.trigger());
+		let t = this._rawValue, n = this.__v_isShallow || /* @__PURE__ */ F(e) || /* @__PURE__ */ Rt(e);
+		e = n ? e : /* @__PURE__ */ I(e), D(e, t) && (this._rawValue = e, this._value = n ? e : Vt(e), this.dep.trigger());
 	}
 };
 function z(e) {
@@ -755,11 +755,11 @@ var Gt = {
 	}
 };
 function Kt(e) {
-	return /* @__PURE__ */ Rt(e) ? e : new Proxy(e, Gt);
+	return /* @__PURE__ */ Lt(e) ? e : new Proxy(e, Gt);
 }
 var qt = class {
 	constructor(e, t, n) {
-		this.fn = e, this.setter = t, this._value = void 0, this.dep = new qe(this), this.__v_isRef = !0, this.deps = void 0, this.depsTail = void 0, this.flags = 16, this.globalVersion = Ge - 1, this.next = void 0, this.effect = this, this.__v_isReadonly = !t, this.isSSR = n;
+		this.fn = e, this.setter = t, this._value = void 0, this.dep = new Ke(this), this.__v_isRef = !0, this.deps = void 0, this.depsTail = void 0, this.flags = 16, this.globalVersion = We - 1, this.next = void 0, this.effect = this, this.__v_isReadonly = !t, this.isSSR = n;
 	}
 	notify() {
 		if (this.flags |= 16, !(this.flags & 8) && M !== this) return je(this, !0), !0;
@@ -785,18 +785,18 @@ function Qt(e, t = !1, n = Zt) {
 	}
 }
 function $t(e, n, i = t) {
-	let { immediate: a, deep: o, once: s, scheduler: l, augmentJob: u, call: f } = i, p = (e) => o ? e : /* @__PURE__ */ P(e) || o === !1 || o === 0 ? en(e, 1) : en(e), m, g, _, v, y = !1, b = !1;
-	if (/* @__PURE__ */ L(e) ? (g = () => e.value, y = /* @__PURE__ */ P(e)) : /* @__PURE__ */ Rt(e) ? (g = () => p(e), y = !0) : d(e) ? (b = !0, y = e.some((e) => /* @__PURE__ */ Rt(e) || /* @__PURE__ */ P(e)), g = () => e.map((e) => {
+	let { immediate: a, deep: o, once: s, scheduler: l, augmentJob: u, call: f } = i, p = (e) => o ? e : /* @__PURE__ */ F(e) || o === !1 || o === 0 ? en(e, 1) : en(e), m, g, _, v, y = !1, b = !1;
+	if (/* @__PURE__ */ L(e) ? (g = () => e.value, y = /* @__PURE__ */ F(e)) : /* @__PURE__ */ Lt(e) ? (g = () => p(e), y = !0) : d(e) ? (b = !0, y = e.some((e) => /* @__PURE__ */ Lt(e) || /* @__PURE__ */ F(e)), g = () => e.map((e) => {
 		if (/* @__PURE__ */ L(e)) return e.value;
-		if (/* @__PURE__ */ Rt(e)) return p(e);
+		if (/* @__PURE__ */ Lt(e)) return p(e);
 		if (h(e)) return f ? f(e, 2) : e();
 	})) : g = h(e) ? n ? f ? () => f(e, 2) : e : () => {
 		if (_) {
-			He();
+			Ve();
 			try {
 				_();
 			} finally {
-				Ue();
+				He();
 			}
 		}
 		let t = Zt;
@@ -895,11 +895,11 @@ function rn(e, n, r, i = !0) {
 			t = t.parent;
 		}
 		if (o) {
-			He(), tn(o, null, 10, [
+			Ve(), tn(o, null, 10, [
 				e,
 				i,
 				a
-			]), Ue();
+			]), He();
 			return;
 		}
 	}
@@ -1016,12 +1016,12 @@ function Tn(e, t, n, r) {
 		let s = i[o];
 		a && (s.oldValue = a[o].value);
 		let c = s.dir[r];
-		c && (He(), nn(c, n, 8, [
+		c && (Ve(), nn(c, n, 8, [
 			e.el,
 			s,
 			e,
 			t
-		]), Ue());
+		]), He());
 	}
 }
 function En(e, t) {
@@ -1109,7 +1109,7 @@ function Vn(e, n, r, a, o = !1) {
 		a.shapeFlag & 512 && a.type.__asyncResolved && a.component.subTree.component && Vn(e, n, r, a.component.subTree);
 		return;
 	}
-	let s = a.shapeFlag & 4 ? sa(a.component) : a.el, l = o ? null : s, { i: f, r: p } = e, m = n && n.r, _ = f.refs === t ? f.refs = {} : f.refs, v = f.setupState, y = /* @__PURE__ */ F(v), b = v === t ? i : (e) => zn(_, e) ? !1 : u(y, e), x = (e, t) => !(t && zn(_, t));
+	let s = a.shapeFlag & 4 ? sa(a.component) : a.el, l = o ? null : s, { i: f, r: p } = e, m = n && n.r, _ = f.refs === t ? f.refs = {} : f.refs, v = f.setupState, y = /* @__PURE__ */ I(v), b = v === t ? i : (e) => zn(_, e) ? !1 : u(y, e), x = (e, t) => !(t && zn(_, t));
 	if (m != null && m !== p) {
 		if (Hn(n), g(m)) _[m] = null, b(m) && (v[m] = null);
 		else if (/* @__PURE__ */ L(m)) {
@@ -1177,9 +1177,9 @@ function Jn(e, t, n, r) {
 function Yn(e, t, n = Q, r = !1) {
 	if (n) {
 		let i = n[e] || (n[e] = []), a = t.__weh ||= (...r) => {
-			He();
+			Ve();
 			let i = Yi(n), a = nn(t, n, e, r);
-			return i(), Ue(), a;
+			return i(), He(), a;
 		};
 		return r ? i.unshift(a) : i.push(a), a;
 	}
@@ -1194,9 +1194,9 @@ var sr = /* @__PURE__ */ Symbol.for("v-ndc");
 function cr(e, t, n, r) {
 	let i, a = n && n[r], o = d(e);
 	if (o || g(e)) {
-		let n = o && /* @__PURE__ */ Rt(e), r = !1, s = !1;
-		n && (r = !/* @__PURE__ */ P(e), s = /* @__PURE__ */ zt(e), e = tt(e)), i = Array(e.length);
-		for (let n = 0, o = e.length; n < o; n++) i[n] = t(r ? s ? Ht(I(e[n])) : I(e[n]) : e[n], n, void 0, a && a[n]);
+		let n = o && /* @__PURE__ */ Lt(e), r = !1, s = !1;
+		n && (r = !/* @__PURE__ */ F(e), s = /* @__PURE__ */ Rt(e), e = et(e)), i = Array(e.length);
+		for (let n = 0, o = e.length; n < o; n++) i[n] = t(r ? s ? Ht(Vt(e[n])) : Vt(e[n]) : e[n], n, void 0, a && a[n]);
 	} else if (typeof e == "number") {
 		i = Array(e);
 		for (let n = 0; n < e; n++) i[n] = t(n + 1, n, void 0, a && a[n]);
@@ -1249,7 +1249,7 @@ var lr = (e) => e ? Zi(e) ? sa(e) : lr(e.parent) : null, ur = /* @__PURE__ */ s(
 			else mr && (s[n] = 0);
 		}
 		let d = ur[n], f, p;
-		if (d) return n === "$attrs" && N(e.attrs, "get", ""), d(e);
+		if (d) return n === "$attrs" && P(e.attrs, "get", ""), d(e);
 		if ((f = c.__cssModules) && (f = f[n])) return f;
 		if (r !== t && u(r, n)) return s[n] = 4, r[n];
 		if (p = l.config.globalProperties, u(p, n)) return p[n];
@@ -1280,7 +1280,7 @@ function hr(e) {
 	}
 	if (a) {
 		let t = a.call(n, n);
-		v(t) && (e.data = /* @__PURE__ */ Pt(t));
+		v(t) && (e.data = /* @__PURE__ */ Nt(t));
 	}
 	if (mr = !0, o) for (let e in o) {
 		let t = o[e], a = $({
@@ -1598,10 +1598,10 @@ function qr(e, t, n, r = !1) {
 	let i = {}, a = Gr();
 	e.propsDefaults = /* @__PURE__ */ Object.create(null), Yr(e, t, i, a);
 	for (let t in e.propsOptions[0]) t in i || (i[t] = void 0);
-	n ? e.props = r ? i : /* @__PURE__ */ Ft(i) : e.type.props ? e.props = i : e.props = a, e.attrs = a;
+	n ? e.props = r ? i : /* @__PURE__ */ Pt(i) : e.type.props ? e.props = i : e.props = a, e.attrs = a;
 }
 function Jr(e, t, n, r) {
-	let { props: i, attrs: a, vnode: { patchFlag: o } } = e, s = /* @__PURE__ */ F(i), [c] = e.propsOptions, l = !1;
+	let { props: i, attrs: a, vnode: { patchFlag: o } } = e, s = /* @__PURE__ */ I(i), [c] = e.propsOptions, l = !1;
 	if ((r || o > 0) && !(o & 16)) {
 		if (o & 8) {
 			let n = e.vnode.dynamicProps;
@@ -1623,7 +1623,7 @@ function Jr(e, t, n, r) {
 		for (let a in s) (!t || !u(t, a) && ((r = E(a)) === a || !u(t, r))) && (c ? n && (n[a] !== void 0 || n[r] !== void 0) && (i[a] = Xr(c, s, a, void 0, e, !0)) : delete i[a]);
 		if (a !== s) for (let e in a) (!t || !u(t, e)) && (delete a[e], l = !0);
 	}
-	l && $e(e.attrs, "set", "");
+	l && Qe(e.attrs, "set", "");
 }
 function Yr(e, n, r, i) {
 	let [a, o] = e.propsOptions, s = !1, c;
@@ -1633,7 +1633,7 @@ function Yr(e, n, r, i) {
 		a && u(a, d = T(t)) ? !o || !o.includes(d) ? r[d] = l : (c ||= {})[d] = l : Ir(e.emitsOptions, t) || (!(t in i) || l !== i[t]) && (i[t] = l, s = !0);
 	}
 	if (o) {
-		let n = /* @__PURE__ */ F(r), i = c || t;
+		let n = /* @__PURE__ */ I(r), i = c || t;
 		for (let t = 0; t < o.length; t++) {
 			let s = o[t];
 			r[s] = Xr(a, n, s, i[s], e, !u(i, s));
@@ -1911,7 +1911,7 @@ function li(e, i) {
 	}, le = (e, t, n) => {
 		t.component = e;
 		let r = e.vnode.props;
-		e.vnode = t, e.next = null, Jr(e, t.props, r, n), si(e, t.children, n), He(), _n(e), Ue();
+		e.vnode = t, e.next = null, Jr(e, t.props, r, n), si(e, t.children, n), Ve(), _n(e), He();
 	}, de = (e, t, n, r, i, a, o, s, c = !1) => {
 		let l = e && e.children, u = e ? e.shapeFlag : 0, d = t.children, { patchFlag: f, shapeFlag: m } = t;
 		if (f > 0) {
@@ -2018,7 +2018,7 @@ function li(e, i) {
 		else o(a, t, n);
 	}, he = (e, t, n, r = !1, i = !1) => {
 		let { type: a, props: o, ref: s, children: c, dynamicChildren: l, shapeFlag: u, patchFlag: d, dirs: f, cacheIndex: p, memo: m } = e;
-		if (d === -2 && (i = !1), s != null && (He(), Vn(s, null, n, e, !0), Ue()), p != null && (t.renderCache[p] = void 0), u & 256) {
+		if (d === -2 && (i = !1), s != null && (Ve(), Vn(s, null, n, e, !0), He()), p != null && (t.renderCache[p] = void 0), u & 256) {
 			t.ctx.deactivate(e);
 			return;
 		}
@@ -2210,13 +2210,13 @@ function Ni(e, t = null, n = null, r = 0, i = null, a = !1) {
 	if (ca(e) && (e = e.__vccOpts), t) {
 		t = Pi(t);
 		let { class: e, style: n } = t;
-		e && !g(e) && (t.class = k(e)), v(n) && (/* @__PURE__ */ Bt(n) && !d(n) && (n = s({}, n)), t.style = de(n));
+		e && !g(e) && (t.class = k(e)), v(n) && (/* @__PURE__ */ zt(n) && !d(n) && (n = s({}, n)), t.style = de(n));
 	}
 	let o = g(e) ? 1 : vi(e) ? 128 : Pn(e) ? 64 : v(e) ? 4 : h(e) ? 2 : 0;
 	return Y(e, t, n, r, i, o, a, !0);
 }
 function Pi(e) {
-	return e ? /* @__PURE__ */ Bt(e) || Kr(e) ? s({}, e) : e : null;
+	return e ? /* @__PURE__ */ zt(e) || Kr(e) ? s({}, e) : e : null;
 }
 function Fi(e, t, n = !1, r = !1) {
 	let { props: i, ref: a, patchFlag: o, children: s, transition: c } = e, l = t ? Vi(i || {}, t) : i, u = {
@@ -2405,9 +2405,9 @@ function ea(e, t) {
 	e.accessCache = /* @__PURE__ */ Object.create(null), e.proxy = new Proxy(e.ctx, fr);
 	let { setup: r } = n;
 	if (r) {
-		He();
+		Ve();
 		let n = e.setupContext = r.length > 1 ? oa(e) : null, i = Yi(e), a = tn(r, e, 0, [e.props, n]), o = y(a);
-		if (Ue(), i(), (o || e.sp) && !Un(e) && Rn(e), o) {
+		if (He(), i(), (o || e.sp) && !Un(e) && Rn(e), o) {
 			if (a.then(Xi, Xi), t) return a.then((n) => {
 				ta(e, n, t);
 			}).catch((t) => {
@@ -2438,16 +2438,16 @@ function ia(e, t, n) {
 	}
 	{
 		let t = Yi(e);
-		He();
+		Ve();
 		try {
 			hr(e);
 		} finally {
-			Ue(), t();
+			He(), t();
 		}
 	}
 }
 var aa = { get(e, t) {
-	return N(e, "get", ""), e[t];
+	return P(e, "get", ""), e[t];
 } };
 function oa(e) {
 	return {
@@ -2460,7 +2460,7 @@ function oa(e) {
 	};
 }
 function sa(e) {
-	return e.exposed ? e.exposeProxy ||= new Proxy(Kt(Vt(e.exposed)), {
+	return e.exposed ? e.exposeProxy ||= new Proxy(Kt(Bt(e.exposed)), {
 		get(t, n) {
 			if (n in t) return t[n];
 			if (n in ur) return ur[n](e);
@@ -3247,9 +3247,116 @@ function ns(e, t = {}) {
 	}, { immediate: !0 }) : i(), nr(a);
 }
 //#endregion
+//#region packages/sdk-vue/src/markdown.ts
+var rs = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	"\"": "&quot;",
+	"'": "&#39;"
+};
+function is(e) {
+	return e.replace(/[&<>"']/g, (e) => rs[e] ?? e);
+}
+var as = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, os = "CODE", ss = "END";
+function cs(e) {
+	let t = [], n = e.replace(/`([^`]+)`/g, (e, n) => (t.push("<code>" + n + "</code>"), os + (t.length - 1) + ss));
+	n = n.replace(as, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), n = n.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), n = n.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
+	let r = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
+	return n.replace(r, (e, n) => t[Number(n)] ?? "");
+}
+function ls(e) {
+	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
+	for (; r < t.length;) {
+		let e = t[r] ?? "";
+		if (e.trim() === "") {
+			r += 1;
+			continue;
+		}
+		let i = e.match(/^```(\w*)\s*$/);
+		if (i) {
+			let e = (i[1] ?? "").trim();
+			r += 1;
+			let a = [];
+			for (; r < t.length && !(t[r] ?? "").startsWith("```");) a.push(t[r] ?? ""), r += 1;
+			r += 1, n.push({
+				kind: "code",
+				lang: e,
+				text: a.join("\n")
+			});
+			continue;
+		}
+		let a = e.match(/^(#{1,6})\s+(.+?)\s*$/);
+		if (a) {
+			n.push({
+				kind: "heading",
+				level: Math.min(6, (a[1] ?? "").length),
+				text: a[2] ?? ""
+			}), r += 1;
+			continue;
+		}
+		if (/^\s*[-*]\s+/.test(e)) {
+			let e = [];
+			for (; r < t.length && /^\s*[-*]\s+/.test(t[r] ?? "");) e.push((t[r] ?? "").replace(/^\s*[-*]\s+/, "")), r += 1;
+			n.push({
+				kind: "list",
+				ordered: !1,
+				text: "",
+				items: e
+			});
+			continue;
+		}
+		if (/^\s*\d+\.\s+/.test(e)) {
+			let e = [];
+			for (; r < t.length && /^\s*\d+\.\s+/.test(t[r] ?? "");) e.push((t[r] ?? "").replace(/^\s*\d+\.\s+/, "")), r += 1;
+			n.push({
+				kind: "list",
+				ordered: !0,
+				text: "",
+				items: e
+			});
+			continue;
+		}
+		let o = [e];
+		for (r += 1; r < t.length && (t[r] ?? "").trim() !== "" && !/^```/.test(t[r] ?? "") && !/^#{1,6}\s+/.test(t[r] ?? "") && !/^\s*[-*]\s+/.test(t[r] ?? "") && !/^\s*\d+\.\s+/.test(t[r] ?? "");) o.push(t[r] ?? ""), r += 1;
+		n.push({
+			kind: "paragraph",
+			text: o.join("\n")
+		});
+	}
+	return n;
+}
+function us(e) {
+	if (!e) return "";
+	let t = ls(e), n = [];
+	for (let e of t) switch (e.kind) {
+		case "heading": {
+			let t = e.level ?? 1, r = cs(is(e.text));
+			n.push("<h" + t + ">" + r + "</h" + t + ">");
+			break;
+		}
+		case "paragraph": {
+			let t = cs(is(e.text));
+			n.push("<p>" + t.replace(/\n/g, "<br />") + "</p>");
+			break;
+		}
+		case "code": {
+			let t = e.lang ? " data-lang=\"" + is(e.lang) + "\"" : "";
+			n.push("<pre" + t + "><code>" + is(e.text) + "</code></pre>");
+			break;
+		}
+		case "list": {
+			let t = e.ordered ? "ol" : "ul", r = (e.items ?? []).map((e) => "  <li>" + cs(is(e)) + "</li>").join("\n");
+			n.push("<" + t + ">\n" + r + "\n</" + t + ">");
+			break;
+		}
+	}
+	return n.join("\n");
+}
+//#endregion
 //#region packages/sdk-vue/src/index.ts
-function rs(e) {
-	is(e.tagName, e.component);
+function ds(e) {
+	fs(e.tagName, e.component);
 	let t = /* @__PURE__ */ Xa(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -3257,37 +3364,37 @@ function rs(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(os(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(ms(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function is(e, t) {
+function fs(e, t) {
 	if (typeof document > "u") return;
-	let n = as(t);
+	let n = ps(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function as(e) {
+function ps(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function os(e) {
+function ms(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
-var ss = "ext_pull_requests", cs = "pulls";
-function ls(e, t) {
+var hs = "ext_pull_requests", gs = "pulls";
+function _s(e, t) {
 	return t ? `comtrya://workspace/${e}/repository/${t}` : `comtrya://workspace/${e}`;
 }
-function us(e, t) {
+function vs(e, t) {
 	if (e.ok) return e.value;
 	throw Error(`${t}: ${e.error.message}`);
 }
-function ds(e) {
+function ys(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "draft": return "DRAFT";
 		case "merged": return "MERGED";
@@ -3295,7 +3402,7 @@ function ds(e) {
 		default: return "READY";
 	}
 }
-function fs(e) {
+function bs(e) {
 	return {
 		id: e.id,
 		repository: e.repository,
@@ -3303,7 +3410,7 @@ function fs(e) {
 		number: e.number,
 		title: e.title,
 		bodyMarkdown: e.bodyMarkdown ?? "",
-		state: ds(e.state),
+		state: ys(e.state),
 		authorRef: e.authorRef,
 		headRef: e.headRef,
 		baseRef: e.baseRef,
@@ -3315,44 +3422,44 @@ function fs(e) {
 		closedByRef: e.closedByRef ?? null
 	};
 }
-async function ps(e) {
-	return us(await vo(ss, cs, "list-pulls", {
-		repository: ls(e.workspaceId, e.repositoryId),
+async function xs(e) {
+	return vs(await vo(hs, gs, "list-pulls", {
+		repository: _s(e.workspaceId, e.repositoryId),
 		limit: e.limit ?? 256
-	}), "list-pulls").map(fs);
+	}), "list-pulls").map(bs);
 }
-async function ms(e) {
-	let t = us(await vo(ss, cs, "get-pull", e), "get-pull");
-	return t ? fs(t) : null;
+async function Ss(e) {
+	let t = vs(await vo(hs, gs, "get-pull", e), "get-pull");
+	return t ? bs(t) : null;
 }
-async function hs(e, t) {
-	return fs(us(await vo(ss, cs, "merge-pull", {
+async function Cs(e, t) {
+	return bs(vs(await vo(hs, gs, "merge-pull", {
 		id: e,
 		mergedByRef: t ?? null
 	}), "merge-pull"));
 }
-async function gs(e, t) {
-	return fs(us(await vo(ss, cs, "close-pull", {
+async function ws(e, t) {
+	return bs(vs(await vo(hs, gs, "close-pull", {
 		id: e,
 		closedByRef: t ?? null
 	}), "close-pull"));
 }
-function _s(e) {
+function Ts(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "closed": return "CLOSED";
 		case "reopened": return "REOPENED";
 		default: return "OPEN";
 	}
 }
-async function vs(e) {
+async function Es(e) {
 	if (!e) return [];
 	let t = `comtrya://pull_request/${e}`, n = (await Co().query("query LinkedIssues($from: ResourceURN!, $kind: ResourceURN) {\n      relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n    }", {
 		from: t,
 		kind: "comtrya://rel/com.comtrya.pulls/closes"
 	})).relations?.outgoing ?? [], r = Array.from(new Set(n.map((e) => e.to ?? e.target ?? "").filter((e) => e.startsWith("comtrya://issue/"))));
-	return (await Promise.all(r.map(ys))).filter((e) => e !== null);
+	return (await Promise.all(r.map(Ds))).filter((e) => e !== null);
 }
-async function ys(e) {
+async function Ds(e) {
 	let t = await vo("ext_issues", "issues", "by-ref-issue", e);
 	if (!t.ok) return null;
 	let n = t.value;
@@ -3360,20 +3467,20 @@ async function ys(e) {
 		id: typeof n.id == "string" ? n.id : "",
 		number: typeof n.number == "number" ? n.number : null,
 		title: typeof n.title == "string" ? n.title : "(untitled)",
-		state: _s(n.state),
+		state: Ts(n.state),
 		uri: e
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/types.ts
-var bs = "pulls";
-function xs() {
-	return Do(bs, "/");
+var Os = "pulls";
+function ks() {
+	return Do(Os, "/");
 }
-function Ss(e) {
-	return Do(bs, `/${e.id}`);
+function As(e) {
+	return Do(Os, `/${e.id}`);
 }
-function Cs(e) {
+function js(e) {
 	switch (e) {
 		case "READY": return {
 			label: "open",
@@ -3397,24 +3504,24 @@ function Cs(e) {
 		};
 	}
 }
-function ws(e) {
+function Ms(e) {
 	if (!e) return "";
 	let t = Date.parse(e);
 	if (Number.isNaN(t)) return e;
 	let n = Math.max(0, Date.now() - t), r = 6e4, i = 60 * r, a = 24 * i, o = 7 * a;
 	return n < r ? "just now" : n < i ? `${Math.floor(n / r)}m ago` : n < a ? `${Math.floor(n / i)}h ago` : n < o ? `${Math.floor(n / a)}d ago` : `${Math.floor(n / o)}w ago`;
 }
-function Ts(e) {
+function Ns(e) {
 	return e ? (e.split("/").pop() ?? e) || e : "unknown";
 }
-function Es(e) {
+function Ps(e) {
 	if (!e) return {
 		kind: "unknown",
 		label: "unknown",
 		glyph: "·",
 		tone: "neutral"
 	};
-	let [t = "", ...n] = e.replace(/^comtrya:\/\//, "").split("/"), r = n.join("/") || Ts(e);
+	let [t = "", ...n] = e.replace(/^comtrya:\/\//, "").split("/"), r = n.join("/") || Ns(e);
 	switch (t) {
 		case "user": return {
 			kind: "human",
@@ -3450,8 +3557,8 @@ function Es(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/pr-commands.ts
-var Ds = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Os = /* @__PURE__ */ new Map();
-function ks(e) {
+var Fs = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Is = /* @__PURE__ */ new Map();
+function Ls(e) {
 	return [
 		e.id,
 		e.number,
@@ -3459,7 +3566,7 @@ function ks(e) {
 		e.state
 	].join("|");
 }
-function As(e) {
+function Rs(e) {
 	let t = [];
 	return t.push(Qo({
 		id: `ext_pull_requests.open.${e.id}`,
@@ -3467,7 +3574,7 @@ function As(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: () => {
-			window.location.href = Ss(e);
+			window.location.href = As(e);
 		}
 	})), (e.state === "READY" || e.state === "DRAFT") && t.push(Qo({
 		id: `ext_pull_requests.merge.${e.id}`,
@@ -3475,7 +3582,7 @@ function As(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await hs(e.id);
+			await Cs(e.id);
 		}
 	})), e.state !== "CLOSED" && e.state !== "MERGED" && t.push(Qo({
 		id: `ext_pull_requests.close.${e.id}`,
@@ -3483,14 +3590,14 @@ function As(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await gs(e.id);
+			await ws(e.id);
 		}
 	})), () => t.forEach((e) => e());
 }
-async function js(e) {
+async function zs(e) {
 	let t;
 	try {
-		t = await ps({ workspaceId: e });
+		t = await xs({ workspaceId: e });
 	} catch (e) {
 		console.warn("[ext_pull_requests] palette sync failed:", e);
 		return;
@@ -3498,17 +3605,17 @@ async function js(e) {
 	let n = /* @__PURE__ */ new Set();
 	for (let e of t) {
 		n.add(e.id);
-		let t = ks(e), r = Os.get(e.id);
-		r && r.signature === t || (r?.unregister(), Os.set(e.id, {
+		let t = Ls(e), r = Is.get(e.id);
+		r && r.signature === t || (r?.unregister(), Is.set(e.id, {
 			signature: t,
-			unregister: As(e)
+			unregister: Rs(e)
 		}));
 	}
-	for (let [e, t] of Os) n.has(e) || (t.unregister(), Os.delete(e));
+	for (let [e, t] of Is) n.has(e) || (t.unregister(), Is.delete(e));
 }
-function Ms() {
-	let e = Ds;
-	js(e);
+function Bs() {
+	let e = Fs;
+	zs(e);
 	let t = [
 		"dev.comtrya.pull-request.created",
 		"dev.comtrya.pull-request.merged",
@@ -3516,20 +3623,20 @@ function Ms() {
 	].map((t) => Oo({
 		type: t,
 		onEvent: () => {
-			js(e);
+			zs(e);
 		},
 		onError: () => {}
 	}));
 	return () => {
 		for (let e of t) e();
-		for (let e of Os.values()) e.unregister();
-		Os.clear();
+		for (let e of Is.values()) e.unregister();
+		Is.clear();
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/diff.ts
-var Ns = /^diff --git a\/(.+?) b\/(.+)$/, Ps = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
-function Fs(e) {
+var Vs = /^diff --git a\/(.+?) b\/(.+)$/, Hs = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+function Us(e) {
 	if (!e) return [];
 	let t = [], n = e.split("\n"), r = null, i = null, a = 0, o = 0, s = () => {
 		r && i && r.hunks.push(i), i = null;
@@ -3537,7 +3644,7 @@ function Fs(e) {
 		s(), r && t.push(r), r = null;
 	};
 	for (let e of n) {
-		let t = e.match(Ns);
+		let t = e.match(Vs);
 		if (t) {
 			c();
 			let [, e, n] = t;
@@ -3546,7 +3653,7 @@ function Fs(e) {
 				newPath: n ?? "",
 				displayPath: n || e || "",
 				status: "modified",
-				language: Ls(n || e || ""),
+				language: Gs(n || e || ""),
 				hunks: [],
 				additions: 0,
 				deletions: 0,
@@ -3572,7 +3679,7 @@ function Fs(e) {
 			continue;
 		}
 		if (e.startsWith("index ") || e.startsWith("---") || e.startsWith("+++")) continue;
-		let n = e.match(Ps);
+		let n = e.match(Hs);
 		if (n) {
 			s();
 			let t = Number(n[1] ?? 0), r = Number(n[2] ?? 1), c = Number(n[3] ?? 0);
@@ -3610,7 +3717,7 @@ function Fs(e) {
 	}
 	return c(), t;
 }
-var Is = {
+var Ws = {
 	rs: "rust",
 	ts: "typescript",
 	tsx: "tsx",
@@ -3628,11 +3735,11 @@ var Is = {
 	css: "css",
 	html: "html"
 };
-function Ls(e) {
+function Gs(e) {
 	let t = e.lastIndexOf(".");
-	return t < 0 ? "plain" : Is[e.slice(t + 1).toLowerCase()] ?? "plain";
+	return t < 0 ? "plain" : Ws[e.slice(t + 1).toLowerCase()] ?? "plain";
 }
-function Rs(e) {
+function Ks(e) {
 	let t = 0, n = 0;
 	for (let r of e) t += r.additions, n += r.deletions;
 	return {
@@ -3643,44 +3750,44 @@ function Rs(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/diff-styles.ts
-var zs = "comtrya-diff-view-styles", Bs = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
-function Vs() {
-	if (typeof document > "u" || document.getElementById(zs)) return;
+var qs = "comtrya-diff-view-styles", Js = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
+function Ys() {
+	if (typeof document > "u" || document.getElementById(qs)) return;
 	let e = document.createElement("style");
-	e.id = zs, e.textContent = Bs, document.head.appendChild(e);
+	e.id = qs, e.textContent = Js, document.head.appendChild(e);
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/DiffView.vue?vue&type=script&setup=true&lang.ts
-var Hs = {
+var Xs = {
 	class: "diff-view",
 	"data-smoke": "pulls-diff-view"
-}, Us = { class: "diff-summary" }, Ws = { class: "diff-totals" }, Gs = { class: "adds" }, Ks = { class: "dels" }, qs = {
+}, Zs = { class: "diff-summary" }, Qs = { class: "diff-totals" }, $s = { class: "adds" }, ec = { class: "dels" }, tc = {
 	key: 0,
 	class: "muted"
-}, Js = {
+}, nc = {
 	key: 1,
 	class: "muted error"
-}, Ys = {
+}, rc = {
 	key: 2,
 	class: "muted"
-}, Xs = {
+}, ic = {
 	key: 3,
 	class: "diff-files"
-}, Zs = ["data-diff-file-index"], Qs = [
+}, ac = ["data-diff-file-index"], oc = [
 	"aria-expanded",
 	"onClick",
 	"onKeydown",
 	"onFocus"
-], $s = { class: "caret" }, ec = { class: "file-path" }, tc = {
+], sc = { class: "caret" }, cc = { class: "file-path" }, lc = {
 	key: 0,
 	class: "file-rename"
-}, nc = { class: "file-counts" }, rc = { class: "adds" }, ic = { class: "dels" }, ac = {
+}, uc = { class: "file-counts" }, dc = { class: "adds" }, fc = { class: "dels" }, pc = {
 	key: 0,
 	class: "diff-file-body"
-}, oc = {
+}, mc = {
 	key: 0,
 	class: "muted"
-}, sc = { class: "diff-hunk-head" }, cc = { class: "ln old" }, lc = { class: "ln new" }, uc = { class: "marker" }, dc = { class: "content" }, fc = /* @__PURE__ */ Ln({
+}, hc = { class: "diff-hunk-head" }, gc = { class: "ln old" }, _c = { class: "ln new" }, vc = { class: "marker" }, yc = { class: "content" }, bc = /* @__PURE__ */ Ln({
 	__name: "DiffView",
 	props: {
 		patch: { type: String },
@@ -3688,8 +3795,8 @@ var Hs = {
 		error: { type: [String, null] }
 	},
 	setup(e) {
-		Vs();
-		let t = e, n = /* @__PURE__ */ R({}), r = /* @__PURE__ */ R(0), i = $(() => Fs(t.patch)), a = $(() => Rs(i.value));
+		Ys();
+		let t = e, n = /* @__PURE__ */ R({}), r = /* @__PURE__ */ R(0), i = $(() => Us(t.patch)), a = $(() => Ks(i.value));
 		H(i, (e) => {
 			r.value >= e.length && (r.value = Math.max(0, e.length - 1));
 		}), ns({
@@ -3733,10 +3840,10 @@ var Hs = {
 				block: "start"
 			});
 		}
-		return (t, n) => (q(), J("section", Hs, [Y("header", Us, [n[1] ||= Y("h2", null, "Files changed", -1), Y("div", Ws, [
+		return (t, n) => (q(), J("section", Xs, [Y("header", Zs, [n[1] ||= Y("h2", null, "Files changed", -1), Y("div", Qs, [
 			Y("span", null, [Z(A(a.value.files) + " file", 1), a.value.files === 1 ? Li("", !0) : (q(), J(G, { key: 0 }, [Z("s")], 64))]),
-			Y("span", Gs, "+" + A(a.value.additions), 1),
-			Y("span", Ks, "-" + A(a.value.deletions), 1),
+			Y("span", $s, "+" + A(a.value.additions), 1),
+			Y("span", ec, "-" + A(a.value.deletions), 1),
 			n[0] ||= Y("span", { class: "hint" }, [
 				Y("kbd", null, "n"),
 				Z("/"),
@@ -3745,7 +3852,7 @@ var Hs = {
 				Y("kbd", null, "space"),
 				Z(" collapse ")
 			], -1)
-		])]), e.loading ? (q(), J("p", qs, "Loading diff…")) : e.error ? (q(), J("p", Js, A(e.error), 1)) : i.value.length === 0 ? (q(), J("p", Ys, " No diff to show. Push commits to head and base refs to populate this view. ")) : (q(), J("ol", Xs, [(q(!0), J(G, null, cr(i.value, (e, t) => (q(), J("li", {
+		])]), e.loading ? (q(), J("p", tc, "Loading diff…")) : e.error ? (q(), J("p", nc, A(e.error), 1)) : i.value.length === 0 ? (q(), J("p", rc, " No diff to show. Push commits to head and base refs to populate this view. ")) : (q(), J("ol", ic, [(q(!0), J(G, null, cr(i.value, (e, t) => (q(), J("li", {
 			key: e.displayPath + t,
 			class: k(["diff-file", { focused: t === r.value }]),
 			"data-diff-file-index": t
@@ -3758,63 +3865,63 @@ var Hs = {
 			onKeydown: lo(so((t) => o(e.displayPath), ["prevent"]), ["enter"]),
 			onFocus: (e) => r.value = t
 		}, [
-			Y("span", $s, A(s(e.displayPath) ? "▸" : "▾"), 1),
+			Y("span", sc, A(s(e.displayPath) ? "▸" : "▾"), 1),
 			Y("span", { class: k(["file-status", `status-${e.status}`]) }, A(c(e)), 3),
-			Y("code", ec, A(e.displayPath), 1),
-			e.status === "renamed" && e.oldPath !== e.newPath ? (q(), J("span", tc, [n[2] ||= Z(" from ", -1), Y("code", null, A(e.oldPath), 1)])) : Li("", !0),
-			Y("span", nc, [Y("span", rc, "+" + A(e.additions), 1), Y("span", ic, "-" + A(e.deletions), 1)])
-		], 40, Qs), s(e.displayPath) ? Li("", !0) : (q(), J("div", ac, [e.binary ? (q(), J("p", oc, "Binary file — no preview.")) : (q(!0), J(G, { key: 1 }, cr(e.hunks, (e, t) => (q(), J("section", {
+			Y("code", cc, A(e.displayPath), 1),
+			e.status === "renamed" && e.oldPath !== e.newPath ? (q(), J("span", lc, [n[2] ||= Z(" from ", -1), Y("code", null, A(e.oldPath), 1)])) : Li("", !0),
+			Y("span", uc, [Y("span", dc, "+" + A(e.additions), 1), Y("span", fc, "-" + A(e.deletions), 1)])
+		], 40, oc), s(e.displayPath) ? Li("", !0) : (q(), J("div", pc, [e.binary ? (q(), J("p", mc, "Binary file — no preview.")) : (q(!0), J(G, { key: 1 }, cr(e.hunks, (e, t) => (q(), J("section", {
 			key: t,
 			class: "diff-hunk"
-		}, [Y("header", sc, [Y("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), Y("table", null, [Y("tbody", null, [(q(!0), J(G, null, cr(e.lines, (e, t) => (q(), J("tr", {
+		}, [Y("header", hc, [Y("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), Y("table", null, [Y("tbody", null, [(q(!0), J(G, null, cr(e.lines, (e, t) => (q(), J("tr", {
 			key: t,
 			class: k(["diff-line", `line-${e.kind}`])
 		}, [
-			Y("td", cc, A(e.oldNumber ?? ""), 1),
-			Y("td", lc, A(e.newNumber ?? ""), 1),
-			Y("td", uc, [e.kind === "add" ? (q(), J(G, { key: 0 }, [Z("+")], 64)) : e.kind === "del" ? (q(), J(G, { key: 1 }, [Z("-")], 64)) : e.kind === "meta" ? (q(), J(G, { key: 2 }, [Z("\\")], 64)) : (q(), J(G, { key: 3 }, [], 64))]),
-			Y("td", dc, A(e.text), 1)
-		], 2))), 128))])])]))), 128))]))], 10, Zs))), 128))]))]));
+			Y("td", gc, A(e.oldNumber ?? ""), 1),
+			Y("td", _c, A(e.newNumber ?? ""), 1),
+			Y("td", vc, [e.kind === "add" ? (q(), J(G, { key: 0 }, [Z("+")], 64)) : e.kind === "del" ? (q(), J(G, { key: 1 }, [Z("-")], 64)) : e.kind === "meta" ? (q(), J(G, { key: 2 }, [Z("\\")], 64)) : (q(), J(G, { key: 3 }, [], 64))]),
+			Y("td", yc, A(e.text), 1)
+		], 2))), 128))])])]))), 128))]))], 10, ac))), 128))]))]));
 	}
-}), pc = {
+}), xc = {
 	class: "pulls-detail",
 	"data-smoke": "pulls-detail"
-}, mc = {
+}, Sc = {
 	key: 0,
 	class: "pulls-empty"
-}, hc = {
+}, Cc = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, gc = {
+}, wc = {
 	key: 2,
 	class: "pulls-empty"
-}, _c = ["href"], vc = { class: "pulls-detail-head" }, yc = { class: "pulls-detail-title" }, bc = ["href"], xc = { class: "pulls-detail-number" }, Sc = {
+}, Tc = ["href"], Ec = { class: "pulls-detail-head" }, Dc = { class: "pulls-detail-title" }, Oc = ["href"], kc = { class: "pulls-detail-number" }, Ac = {
 	class: "pulls-chip-row",
 	"aria-label": "Pull request metadata"
-}, Cc = { class: "pull-chip tone-branch" }, wc = ["title"], Tc = ["data-author-kind", "title"], Ec = { class: "chip-glyph" }, Dc = {
+}, jc = { class: "pull-chip tone-branch" }, Mc = ["title"], Nc = ["data-author-kind", "title"], Pc = { class: "chip-glyph" }, Fc = {
 	key: 0,
 	class: "pull-chip tone-time tone-merged"
-}, Oc = {
+}, Ic = {
 	key: 1,
 	class: "pull-chip tone-time tone-closed"
-}, kc = {
+}, Lc = {
 	key: 2,
 	class: "pull-chip tone-time"
-}, Ac = { class: "pulls-detail-actions" }, jc = ["disabled"], Mc = ["disabled"], Nc = {
+}, Rc = { class: "pulls-detail-actions" }, zc = ["disabled"], Bc = ["disabled"], Vc = {
 	key: 0,
 	class: "pulls-action-message"
-}, Pc = {
+}, Hc = {
 	key: 0,
 	class: "pulls-detail-body"
-}, Fc = {
+}, Uc = ["innerHTML"], Wc = {
 	key: 1,
 	class: "pulls-detail-body muted"
-}, Ic = {
+}, Gc = {
 	key: 2,
 	class: "pulls-linked-issues",
 	"data-smoke": "pulls-linked-issues"
-}, Lc = { class: "muted" }, Rc = { key: 0 }, zc = ["href"], Bc = { class: "issue-num" }, Vc = { class: "issue-title" }, Hc = /* @__PURE__ */ Ln({
+}, Kc = { class: "muted" }, qc = { key: 0 }, Jc = ["href"], Yc = { class: "issue-num" }, Xc = { class: "issue-title" }, Zc = /* @__PURE__ */ Ln({
 	__name: "PullsDetail",
 	props: { routeParams: { type: null } },
 	setup(e) {
@@ -3829,7 +3936,7 @@ var Hs = {
 				name: e.name ?? "",
 				root: h(e.root)
 			})).filter((e) => e.name).sort((e, t) => t.root.length - e.root.length), t = /* @__PURE__ */ new Set();
-			for (let n of Fs(c.value)) {
+			for (let n of Us(c.value)) {
 				let r = n.displayPath.replace(/^\/+/, "");
 				for (let n of e) if (n.root === "" || r === n.root || r.startsWith(`${n.root}/`)) {
 					t.add(n.name);
@@ -3837,52 +3944,52 @@ var Hs = {
 				}
 			}
 			return Array.from(t).sort();
-		}), _ = $(() => Cs(r.value?.state)), v = $(() => r.value && (r.value.state === "READY" || r.value.state === "DRAFT")), y = $(() => r.value && r.value.state !== "CLOSED" && r.value.state !== "MERGED");
+		}), _ = $(() => js(r.value?.state)), v = $(() => r.value && (r.value.state === "READY" || r.value.state === "DRAFT")), y = $(() => r.value && r.value.state !== "CLOSED" && r.value.state !== "MERGED"), b = $(() => r.value?.bodyMarkdown ? us(r.value.bodyMarkdown) : "");
 		Qn(() => {
-			b(), w(), x();
-		}), H(n, () => void x()), ns({
+			x(), ee(), S();
+		}), H(n, () => void S()), ns({
 			m: (e) => {
-				v.value && (e.preventDefault(), ee());
+				v.value && (e.preventDefault(), te());
 			},
 			x: (e) => {
-				y.value && (e.preventDefault(), te());
+				y.value && (e.preventDefault(), ne());
 			},
 			Escape: (e) => {
-				document.querySelector(".shortcuts-backdrop, .palette-backdrop") || (e.preventDefault(), window.location.href = xs());
+				document.querySelector(".shortcuts-backdrop, .palette-backdrop") || (e.preventDefault(), window.location.href = ks());
 			}
-		}), H(n, () => void b());
-		async function b() {
+		}), H(n, () => void x());
+		async function x() {
 			if (!n.value) {
 				i.value = "error", a.value = "Missing pull id";
 				return;
 			}
 			i.value = "loading", a.value = null;
 			try {
-				r.value = await ms(n.value), i.value = r.value ? "ready" : "empty";
+				r.value = await Ss(n.value), i.value = r.value ? "ready" : "empty";
 			} catch (e) {
 				i.value = "error", a.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		async function x() {
+		async function S() {
 			if (n.value) {
 				p.value = "loading";
 				try {
-					f.value = await vs(n.value), p.value = "ready";
+					f.value = await Es(n.value), p.value = "ready";
 				} catch {
 					f.value = [], p.value = "error";
 				}
 			}
 		}
-		function S(e) {
+		function C(e) {
 			return e.id ? `/x/issues/${e.id}` : "/x/issues/";
 		}
-		function C(e) {
+		function w(e) {
 			switch (e) {
 				case "CLOSED": return "issue-state-closed";
 				default: return "issue-state-open";
 			}
 		}
-		async function w() {
+		async function ee() {
 			u.value = "loading", d.value = null;
 			try {
 				let e = await Co().query("query PullDiff {\n        repository {\n          diff { path language patch }\n          comtryaConfig\n        }\n      }"), t = e.repository?.diff;
@@ -3891,11 +3998,11 @@ var Hs = {
 				u.value = "error", d.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		async function ee() {
+		async function te() {
 			if (!(!r.value || !v.value)) {
 				o.value = "merging", s.value = null;
 				try {
-					r.value = await hs(r.value.id), s.value = `Merged pull #${r.value.number}`;
+					r.value = await Cs(r.value.id), s.value = `Merged pull #${r.value.number}`;
 				} catch (e) {
 					s.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -3903,11 +4010,11 @@ var Hs = {
 				}
 			}
 		}
-		async function te() {
+		async function ne() {
 			if (!(!r.value || !y.value)) {
 				o.value = "closing", s.value = null;
 				try {
-					r.value = await gs(r.value.id), s.value = `Closed pull #${r.value.number}`;
+					r.value = await ws(r.value.id), s.value = `Closed pull #${r.value.number}`;
 				} catch (e) {
 					s.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -3915,27 +4022,27 @@ var Hs = {
 				}
 			}
 		}
-		return (e, t) => (q(), J("article", pc, [i.value === "loading" ? (q(), J("p", mc, "Loading pull request…")) : i.value === "error" ? (q(), J("p", hc, A(a.value), 1)) : i.value === "empty" || !r.value ? (q(), J("p", gc, [
+		return (e, t) => (q(), J("article", xc, [i.value === "loading" ? (q(), J("p", Sc, "Loading pull request…")) : i.value === "error" ? (q(), J("p", Cc, A(a.value), 1)) : i.value === "empty" || !r.value ? (q(), J("p", wc, [
 			t[0] ||= Z(" No pull request found for ", -1),
 			Y("code", null, A(n.value), 1),
 			t[1] ||= Z(". ", -1),
-			Y("a", { href: z(xs)() }, "← back to queue", 8, _c)
+			Y("a", { href: z(ks)() }, "← back to queue", 8, Tc)
 		])) : (q(), J(G, { key: 3 }, [
-			Y("header", vc, [Y("div", yc, [
+			Y("header", Ec, [Y("div", Dc, [
 				Y("a", {
-					href: z(xs)(),
+					href: z(ks)(),
 					class: "back",
 					"aria-label": "Back to pull request queue"
-				}, "←", 8, bc),
-				Y("span", xc, "#" + A(r.value.number), 1),
+				}, "←", 8, Oc),
+				Y("span", kc, "#" + A(r.value.number), 1),
 				Y("h1", null, A(r.value.title), 1)
-			]), Y("div", Sc, [
+			]), Y("div", Ac, [
 				Y("span", { class: k([
 					"pull-chip",
 					"tone-state",
 					_.value.className
 				]) }, A(_.value.label), 3),
-				Y("span", Cc, [
+				Y("span", jc, [
 					Y("code", null, A(r.value.headRef), 1),
 					t[2] ||= Y("span", {
 						class: "branch-arrow",
@@ -3947,41 +4054,44 @@ var Hs = {
 					key: `project-${e}`,
 					class: "pull-chip tone-project",
 					title: `Touches files inside the ${e} Project's root`
-				}, [t[3] ||= Y("span", { class: "chip-glyph" }, "◇", -1), Z(A(e), 1)], 8, wc))), 128)),
+				}, [t[3] ||= Y("span", { class: "chip-glyph" }, "◇", -1), Z(A(e), 1)], 8, Mc))), 128)),
 				Y("span", {
 					class: "pull-chip tone-author",
-					"data-author-kind": z(Es)(r.value.authorRef).kind,
+					"data-author-kind": z(Ps)(r.value.authorRef).kind,
 					title: `Opened by ${r.value.authorRef}`
-				}, [Y("span", Ec, A(z(Es)(r.value.authorRef).glyph), 1), Z(" by " + A(z(Es)(r.value.authorRef).label), 1)], 8, Tc),
-				r.value.mergedAt ? (q(), J("span", Dc, " merged " + A(z(ws)(r.value.mergedAt)), 1)) : r.value.closedAt ? (q(), J("span", Oc, " closed " + A(z(ws)(r.value.closedAt)), 1)) : Li("", !0),
-				r.value.createdAt ? (q(), J("span", kc, " opened " + A(z(ws)(r.value.createdAt)), 1)) : Li("", !0)
+				}, [Y("span", Pc, A(z(Ps)(r.value.authorRef).glyph), 1), Z(" by " + A(z(Ps)(r.value.authorRef).label), 1)], 8, Nc),
+				r.value.mergedAt ? (q(), J("span", Fc, " merged " + A(z(Ms)(r.value.mergedAt)), 1)) : r.value.closedAt ? (q(), J("span", Ic, " closed " + A(z(Ms)(r.value.closedAt)), 1)) : Li("", !0),
+				r.value.createdAt ? (q(), J("span", Lc, " opened " + A(z(Ms)(r.value.createdAt)), 1)) : Li("", !0)
 			])]),
-			Y("section", Ac, [
+			Y("section", Rc, [
 				Y("button", {
 					type: "button",
 					class: "pulls-action primary",
 					disabled: !v.value || o.value !== "idle",
-					onClick: ee
-				}, [Z(A(o.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= Y("kbd", null, "m", -1)], 8, jc),
+					onClick: te
+				}, [Z(A(o.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= Y("kbd", null, "m", -1)], 8, zc),
 				Y("button", {
 					type: "button",
 					class: "pulls-action",
 					disabled: !y.value || o.value !== "idle",
-					onClick: te
-				}, [Z(A(o.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= Y("kbd", null, "x", -1)], 8, Mc),
-				s.value ? (q(), J("span", Nc, A(s.value), 1)) : Li("", !0)
+					onClick: ne
+				}, [Z(A(o.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= Y("kbd", null, "x", -1)], 8, Bc),
+				s.value ? (q(), J("span", Vc, A(s.value), 1)) : Li("", !0)
 			]),
-			r.value.bodyMarkdown ? (q(), J("section", Pc, [t[6] ||= Y("h2", null, "Description", -1), Y("pre", null, A(r.value.bodyMarkdown), 1)])) : (q(), J("section", Fc, [...t[7] ||= [Y("h2", null, "Description", -1), Y("p", null, "No description provided.", -1)]])),
-			p.value !== "idle" || f.value.length > 0 ? (q(), J("section", Ic, [Y("header", null, [t[8] ||= Y("h2", null, "Closes", -1), Y("span", Lc, [p.value === "loading" ? (q(), J(G, { key: 0 }, [Z("resolving…")], 64)) : f.value.length === 0 ? (q(), J(G, { key: 1 }, [Z(" no linked issues ")], 64)) : (q(), J(G, { key: 2 }, [
+			b.value ? (q(), J("section", Hc, [t[6] ||= Y("h2", null, "Description", -1), Y("div", {
+				class: "pulls-detail-body-prose",
+				innerHTML: b.value
+			}, null, 8, Uc)])) : (q(), J("section", Wc, [...t[7] ||= [Y("h2", null, "Description", -1), Y("p", null, "No description provided.", -1)]])),
+			p.value !== "idle" || f.value.length > 0 ? (q(), J("section", Gc, [Y("header", null, [t[8] ||= Y("h2", null, "Closes", -1), Y("span", Kc, [p.value === "loading" ? (q(), J(G, { key: 0 }, [Z("resolving…")], 64)) : f.value.length === 0 ? (q(), J(G, { key: 1 }, [Z(" no linked issues ")], 64)) : (q(), J(G, { key: 2 }, [
 				Z(A(f.value.length) + " issue", 1),
 				f.value.length === 1 ? Li("", !0) : (q(), J(G, { key: 0 }, [Z("s")], 64)),
 				r.value.state === "MERGED" ? (q(), J(G, { key: 1 }, [Z(" — auto-closed on merge")], 64)) : (q(), J(G, { key: 2 }, [Z(" — will close on merge")], 64))
-			], 64))])]), f.value.length > 0 ? (q(), J("ul", Rc, [(q(!0), J(G, null, cr(f.value, (e) => (q(), J("li", { key: e.uri }, [Y("a", { href: S(e) }, [
-				Y("span", Bc, [e.number === null ? (q(), J(G, { key: 1 }, [Z("issue")], 64)) : (q(), J(G, { key: 0 }, [Z("#" + A(e.number), 1)], 64))]),
-				Y("span", Vc, A(e.title), 1),
-				Y("span", { class: k(["issue-state", C(e.state)]) }, A(e.state.toLowerCase()), 3)
-			], 8, zc)]))), 128))])) : Li("", !0)])) : Li("", !0),
-			X(fc, {
+			], 64))])]), f.value.length > 0 ? (q(), J("ul", qc, [(q(!0), J(G, null, cr(f.value, (e) => (q(), J("li", { key: e.uri }, [Y("a", { href: C(e) }, [
+				Y("span", Yc, [e.number === null ? (q(), J(G, { key: 1 }, [Z("issue")], 64)) : (q(), J(G, { key: 0 }, [Z("#" + A(e.number), 1)], 64))]),
+				Y("span", Xc, A(e.title), 1),
+				Y("span", { class: k(["issue-state", w(e.state)]) }, A(e.state.toLowerCase()), 3)
+			], 8, Jc)]))), 128))])) : Li("", !0)])) : Li("", !0),
+			X(bc, {
 				patch: c.value,
 				loading: u.value === "loading",
 				error: d.value
@@ -3992,23 +4102,23 @@ var Hs = {
 			])
 		], 64))]));
 	}
-}), Uc = ".pulls-detail[data-v-ce34fe76]{font-family:var(--sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-ce34fe76]{border-bottom:1.5px solid var(--ink,#111);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-ce34fe76]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-ce34fe76]{font-family:var(--display,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:16px;text-decoration:none}.back[data-v-ce34fe76]:hover{color:var(--ink,#111)}.pulls-detail-number[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:14px}.pulls-chip-row[data-v-ce34fe76]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-ce34fe76]{border:1px solid var(--rule-light,#d8d1c4);font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-ce34fe76]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-ce34fe76]{text-transform:lowercase;letter-spacing:.02em;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-ce34fe76]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-ce34fe76]{color:var(--ink-faint,#68645c)}.pull-chip.tone-state.pr-state-merged[data-v-ce34fe76]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-ce34fe76]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-ce34fe76]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-ce34fe76]{gap:4px}.pull-chip.tone-branch code[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-ce34fe76]{color:var(--ink-fainter,#918b80);padding:0 2px}.pull-chip.tone-author[data-v-ce34fe76]{color:var(--ink-soft,#2c2b28)}.pull-chip.tone-author[data-author-kind=agent][data-v-ce34fe76]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-ce34fe76]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-ce34fe76]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-ce34fe76]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-ce34fe76]{color:var(--ink-faint,#68645c);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-ce34fe76]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-ce34fe76]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-ce34fe76]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-ce34fe76]{border:1.5px solid var(--ink,#111);background:var(--paper,#fffdf8);color:var(--ink,#111);font-family:var(--display,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-ce34fe76]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-action[disabled][data-v-ce34fe76]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-ce34fe76]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-detail-body h2[data-v-ce34fe76]{font-family:var(--display,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body pre[data-v-ce34fe76]{font-family:var(--mono,monospace);white-space:pre-wrap;word-break:break-word;color:var(--ink-soft,#2c2b28);margin:0;font-size:12px}.pulls-detail-body.muted p[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues[data-v-ce34fe76]{gap:8px;display:grid}.pulls-linked-issues header[data-v-ce34fe76]{border-bottom:1.5px solid var(--ink,#111);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-ce34fe76]{font-family:var(--display,system-ui);margin:0;font-size:18px}.pulls-linked-issues .muted[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues ul[data-v-ce34fe76]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li a[data-v-ce34fe76]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:12px;padding:8px 0;text-decoration:none;display:grid}.pulls-linked-issues li:last-child a[data-v-ce34fe76]{border-bottom:0}.pulls-linked-issues .issue-num[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-ce34fe76]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-ce34fe76]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-ce34fe76]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-ce34fe76]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-ce34fe76],.pulls-error[data-v-ce34fe76]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:13px}.pulls-error[data-v-ce34fe76]{color:var(--accent-err,#c9341c)}", Wc = (e, t) => {
+}), Qc = ".pulls-detail[data-v-e6224917]{font-family:var(--sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-e6224917]{border-bottom:1.5px solid var(--ink,#111);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-e6224917]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-e6224917]{font-family:var(--display,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:16px;text-decoration:none}.back[data-v-e6224917]:hover{color:var(--ink,#111)}.pulls-detail-number[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:14px}.pulls-chip-row[data-v-e6224917]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-e6224917]{border:1px solid var(--rule-light,#d8d1c4);font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-e6224917]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-e6224917]{text-transform:lowercase;letter-spacing:.02em;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-e6224917]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-e6224917]{color:var(--ink-faint,#68645c)}.pull-chip.tone-state.pr-state-merged[data-v-e6224917]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-e6224917]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-e6224917]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-e6224917]{gap:4px}.pull-chip.tone-branch code[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-e6224917]{color:var(--ink-fainter,#918b80);padding:0 2px}.pull-chip.tone-author[data-v-e6224917]{color:var(--ink-soft,#2c2b28)}.pull-chip.tone-author[data-author-kind=agent][data-v-e6224917]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-e6224917]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-e6224917]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-e6224917]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-e6224917]{color:var(--ink-faint,#68645c);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-e6224917]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-e6224917]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-e6224917]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-e6224917]{border:1.5px solid var(--ink,#111);background:var(--paper,#fffdf8);color:var(--ink,#111);font-family:var(--display,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-e6224917]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-action[disabled][data-v-e6224917]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-e6224917]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-detail-body h2[data-v-e6224917]{font-family:var(--display,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-e6224917]{color:var(--ink,#1a1916);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-e6224917],.pulls-detail-body-prose h2[data-v-e6224917],.pulls-detail-body-prose h3[data-v-e6224917],.pulls-detail-body-prose h4[data-v-e6224917],.pulls-detail-body-prose h5[data-v-e6224917],.pulls-detail-body-prose h6[data-v-e6224917]{font-family:var(--display,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-e6224917]{font-size:20px}.pulls-detail-body-prose h2[data-v-e6224917]{font-size:17px}.pulls-detail-body-prose h3[data-v-e6224917],.pulls-detail-body-prose h4[data-v-e6224917]{font-size:15px}.pulls-detail-body-prose p[data-v-e6224917]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-e6224917],.pulls-detail-body-prose ol[data-v-e6224917]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-e6224917]{margin:.15em 0}.pulls-detail-body-prose code[data-v-e6224917]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-e6224917]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border:1px solid var(--ink-rule,#d8d6cf);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-e6224917]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-e6224917]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-e6224917]{font-weight:600}.pulls-detail-body-prose em[data-v-e6224917]{font-style:italic}.pulls-detail-body.muted p[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues[data-v-e6224917]{gap:8px;display:grid}.pulls-linked-issues header[data-v-e6224917]{border-bottom:1.5px solid var(--ink,#111);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-e6224917]{font-family:var(--display,system-ui);margin:0;font-size:18px}.pulls-linked-issues .muted[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues ul[data-v-e6224917]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li a[data-v-e6224917]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:12px;padding:8px 0;text-decoration:none;display:grid}.pulls-linked-issues li:last-child a[data-v-e6224917]{border-bottom:0}.pulls-linked-issues .issue-num[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-e6224917]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-e6224917]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-e6224917]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-e6224917]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-e6224917],.pulls-error[data-v-e6224917]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:13px}.pulls-error[data-v-e6224917]{color:var(--accent-err,#c9341c)}", $c = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Gc = /* @__PURE__ */ Wc(Hc, [["styles", [Uc]], ["__scopeId", "data-v-ce34fe76"]]), Kc = {
+}, el = /* @__PURE__ */ $c(Zc, [["styles", [Qc]], ["__scopeId", "data-v-e6224917"]]), tl = {
 	class: "pulls-overview",
 	"data-smoke": "pulls-overview"
-}, qc = ["href"], Jc = {
+}, nl = ["href"], rl = {
 	key: 0,
 	class: "muted"
-}, Yc = {
+}, il = {
 	key: 1,
 	class: "muted"
-}, Xc = {
+}, al = {
 	key: 2,
 	class: "muted"
-}, Zc = { key: 3 }, Qc = ["href"], $c = { class: "num" }, el = { class: "title" }, tl = { class: "age" }, nl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", rl = /* @__PURE__ */ Wc(/* @__PURE__ */ Ln({
+}, ol = { key: 3 }, sl = ["href"], cl = { class: "num" }, ll = { class: "title" }, ul = { class: "age" }, dl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", fl = /* @__PURE__ */ $c(/* @__PURE__ */ Ln({
 	__name: "PullsOverview",
 	props: {
 		host: { type: Object },
@@ -4016,7 +4126,7 @@ var Hs = {
 		repositoryId: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = $(() => t.workspaceId ?? t.host?.workspaceId ?? nl), a = $(() => t.repositoryId ?? t.host?.repositoryId ?? null), o = $(() => n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").sort((e, t) => {
+		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = $(() => t.workspaceId ?? t.host?.workspaceId ?? dl), a = $(() => t.repositoryId ?? t.host?.repositoryId ?? null), o = $(() => n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").sort((e, t) => {
 			let n = Date.parse(e.updatedAt ?? e.createdAt ?? "") || 0;
 			return (Date.parse(t.updatedAt ?? t.createdAt ?? "") || 0) - n;
 		}).slice(0, 5)), s = $(() => n.value.filter((e) => e.state === "READY").length);
@@ -4024,7 +4134,7 @@ var Hs = {
 		async function c() {
 			r.value = "loading";
 			try {
-				n.value = await ps({
+				n.value = await xs({
 					workspaceId: i.value,
 					repositoryId: a.value,
 					limit: 32
@@ -4033,47 +4143,47 @@ var Hs = {
 				r.value = "error", n.value = [];
 			}
 		}
-		return (e, t) => (q(), J("section", Kc, [Y("header", null, [t[0] ||= Y("h3", null, "Pull requests", -1), Y("a", { href: z(xs)() }, A(s.value) + " open", 9, qc)]), r.value === "loading" ? (q(), J("p", Jc, "Loading…")) : r.value === "error" ? (q(), J("p", Yc, "Could not load pulls.")) : o.value.length === 0 ? (q(), J("p", Xc, "No open pull requests.")) : (q(), J("ul", Zc, [(q(!0), J(G, null, cr(o.value, (e) => (q(), J("li", { key: e.id }, [Y("a", { href: z(Ss)(e) }, [
-			Y("span", $c, "#" + A(e.number), 1),
-			Y("span", el, A(e.title), 1),
-			Y("span", { class: k(["state", z(Cs)(e.state).className]) }, A(z(Cs)(e.state).label), 3),
-			Y("span", tl, A(z(ws)(e.updatedAt ?? e.createdAt)), 1)
-		], 8, Qc)]))), 128))]))]));
+		return (e, t) => (q(), J("section", tl, [Y("header", null, [t[0] ||= Y("h3", null, "Pull requests", -1), Y("a", { href: z(ks)() }, A(s.value) + " open", 9, nl)]), r.value === "loading" ? (q(), J("p", rl, "Loading…")) : r.value === "error" ? (q(), J("p", il, "Could not load pulls.")) : o.value.length === 0 ? (q(), J("p", al, "No open pull requests.")) : (q(), J("ul", ol, [(q(!0), J(G, null, cr(o.value, (e) => (q(), J("li", { key: e.id }, [Y("a", { href: z(As)(e) }, [
+			Y("span", cl, "#" + A(e.number), 1),
+			Y("span", ll, A(e.title), 1),
+			Y("span", { class: k(["state", z(js)(e.state).className]) }, A(z(js)(e.state).label), 3),
+			Y("span", ul, A(z(Ms)(e.updatedAt ?? e.createdAt)), 1)
+		], 8, sl)]))), 128))]))]));
 	}
-}), [["styles", [".pulls-overview[data-v-c112b1d8]{gap:8px;display:grid}.pulls-overview header[data-v-c112b1d8]{justify-content:space-between;align-items:baseline;display:flex}.pulls-overview h3[data-v-c112b1d8]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-c112b1d8],.muted[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-overview ul[data-v-c112b1d8]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-c112b1d8]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:8px;padding:6px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-c112b1d8]{border-bottom:0}.num[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-c112b1d8]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.state[data-v-c112b1d8]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-c112b1d8]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-c112b1d8]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-c112b1d8]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-c112b1d8]{color:var(--accent-err,#c9341c)}.age[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}"]], ["__scopeId", "data-v-c112b1d8"]]), il = {
+}), [["styles", [".pulls-overview[data-v-c112b1d8]{gap:8px;display:grid}.pulls-overview header[data-v-c112b1d8]{justify-content:space-between;align-items:baseline;display:flex}.pulls-overview h3[data-v-c112b1d8]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-c112b1d8],.muted[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-overview ul[data-v-c112b1d8]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-c112b1d8]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:8px;padding:6px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-c112b1d8]{border-bottom:0}.num[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-c112b1d8]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.state[data-v-c112b1d8]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-c112b1d8]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-c112b1d8]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-c112b1d8]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-c112b1d8]{color:var(--accent-err,#c9341c)}.age[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}"]], ["__scopeId", "data-v-c112b1d8"]]), pl = {
 	class: "pulls-queue",
 	"data-smoke": "pulls-queue"
-}, al = { class: "pulls-queue-head" }, ol = { class: "pulls-queue-controls" }, sl = {
+}, ml = { class: "pulls-queue-head" }, hl = { class: "pulls-queue-controls" }, gl = {
 	class: "pulls-filter-row",
 	role: "tablist",
 	"aria-label": "Filter pulls by state"
-}, cl = ["aria-selected", "onClick"], ll = { class: "count" }, ul = { class: "pulls-search" }, dl = {
+}, _l = ["aria-selected", "onClick"], vl = { class: "count" }, yl = { class: "pulls-search" }, bl = {
 	key: 0,
 	class: "pulls-author-filter",
 	"data-smoke": "pulls-author-filter"
-}, fl = ["data-author-kind", "title"], pl = { class: "author-glyph" }, ml = {
+}, xl = ["data-author-kind", "title"], Sl = { class: "author-glyph" }, Cl = {
 	key: 0,
 	class: "pulls-empty"
-}, hl = {
+}, wl = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, gl = {
+}, Tl = {
 	key: 2,
 	class: "pulls-empty"
-}, _l = {
+}, El = {
 	key: 3,
 	class: "pulls-empty"
-}, vl = {
+}, Dl = {
 	key: 4,
 	class: "pulls-list",
 	role: "listbox",
 	"aria-label": "Pull request queue"
-}, yl = ["aria-selected", "onMouseenter"], bl = ["href"], xl = { class: "pulls-row-number" }, Sl = { class: "pulls-row-body" }, Cl = { class: "pulls-row-title" }, wl = { class: "pulls-row-meta" }, Tl = { class: "pulls-branch" }, El = [
+}, Ol = ["aria-selected", "onMouseenter"], kl = ["href"], Al = { class: "pulls-row-number" }, jl = { class: "pulls-row-body" }, Ml = { class: "pulls-row-title" }, Nl = { class: "pulls-row-meta" }, Pl = { class: "pulls-branch" }, Fl = [
 	"data-author-kind",
 	"title",
 	"onClick"
-], Dl = { class: "author-glyph" }, Ol = { class: "author-label" }, kl = { class: "pulls-row-age" }, Al = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", jl = /* @__PURE__ */ Wc(/* @__PURE__ */ Ln({
+], Il = { class: "author-glyph" }, Ll = { class: "author-label" }, Rl = { class: "pulls-row-age" }, zl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Bl = /* @__PURE__ */ $c(/* @__PURE__ */ Ln({
 	__name: "PullsQueue",
 	props: {
 		host: { type: Object },
@@ -4107,11 +4217,11 @@ var Hs = {
 				label: "All",
 				key: "a"
 			}
-		], r = /* @__PURE__ */ R("OPEN"), i = /* @__PURE__ */ R(""), a = /* @__PURE__ */ R(""), o = /* @__PURE__ */ R([]), s = /* @__PURE__ */ R("idle"), c = /* @__PURE__ */ R(null), l = /* @__PURE__ */ R(0), u = $(() => t.workspaceId ?? t.host?.workspaceId ?? Al), d = $(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "READY" : e.state === t, p = $(() => {
+		], r = /* @__PURE__ */ R("OPEN"), i = /* @__PURE__ */ R(""), a = /* @__PURE__ */ R(""), o = /* @__PURE__ */ R([]), s = /* @__PURE__ */ R("idle"), c = /* @__PURE__ */ R(null), l = /* @__PURE__ */ R(0), u = $(() => t.workspaceId ?? t.host?.workspaceId ?? zl), d = $(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "READY" : e.state === t, p = $(() => {
 			let e = i.value.trim().toLowerCase(), t = a.value;
 			return o.value.filter((e) => f(e, r.value)).filter((e) => t ? e.authorRef === t : !0).filter((t) => {
 				if (!e) return !0;
-				let n = Es(t.authorRef);
+				let n = Ps(t.authorRef);
 				return `${t.number} ${t.title} ${t.headRef} ${t.baseRef} ${n.label} ${n.kind}`.toLowerCase().includes(e);
 			});
 		});
@@ -4189,7 +4299,7 @@ var Hs = {
 			},
 			Enter: (e) => {
 				let t = p.value[l.value];
-				t && (e.preventDefault(), window.location.href = Ss(t));
+				t && (e.preventDefault(), window.location.href = As(t));
 			},
 			"/": (e) => {
 				e.preventDefault(), document.querySelector("[data-pulls-search]")?.focus();
@@ -4204,7 +4314,7 @@ var Hs = {
 		async function C() {
 			s.value = "loading", c.value = null;
 			try {
-				o.value = (await ps({
+				o.value = (await xs({
 					workspaceId: u.value,
 					repositoryId: d.value
 				})).sort((e, t) => {
@@ -4215,10 +4325,10 @@ var Hs = {
 				o.value = [], s.value = "error", c.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		return (e, t) => (q(), J("section", il, [
-			Y("header", al, [
+		return (e, t) => (q(), J("section", pl, [
+			Y("header", ml, [
 				t[3] ||= Y("h2", null, "Pull requests", -1),
-				Y("div", ol, [Y("div", sl, [(q(), J(G, null, cr(n, (e) => Y("button", {
+				Y("div", hl, [Y("div", gl, [(q(), J(G, null, cr(n, (e) => Y("button", {
 					key: e.id,
 					type: "button",
 					role: "tab",
@@ -4227,9 +4337,9 @@ var Hs = {
 					onClick: (t) => r.value = e.id
 				}, [
 					Y("span", null, A(e.label), 1),
-					Y("span", ll, A(g.value[e.id]), 1),
+					Y("span", vl, A(g.value[e.id]), 1),
 					Y("kbd", null, A(e.key), 1)
-				], 10, cl)), 64))]), Y("label", ul, [wn(Y("input", {
+				], 10, _l)), 64))]), Y("label", yl, [wn(Y("input", {
 					"data-pulls-search": "",
 					"onUpdate:modelValue": t[0] ||= (e) => i.value = e,
 					type: "search",
@@ -4237,13 +4347,13 @@ var Hs = {
 					autocomplete: "off",
 					onKeydown: lo(S, ["esc"])
 				}, null, 544), [[io, i.value]]), t[1] ||= Y("kbd", null, "/", -1)])]),
-				a.value ? (q(), J("div", dl, [
+				a.value ? (q(), J("div", bl, [
 					t[2] ||= Y("span", { class: "prefix" }, "authored by", -1),
 					Y("span", {
 						class: "active-chip",
-						"data-author-kind": z(Es)(a.value).kind,
+						"data-author-kind": z(Ps)(a.value).kind,
 						title: a.value
-					}, [Y("span", pl, A(z(Es)(a.value).glyph), 1), Z(" " + A(z(Es)(a.value).label), 1)], 8, fl),
+					}, [Y("span", Sl, A(z(Ps)(a.value).glyph), 1), Z(" " + A(z(Ps)(a.value).label), 1)], 8, xl),
 					Y("button", {
 						type: "button",
 						class: "clear",
@@ -4252,24 +4362,24 @@ var Hs = {
 					}, "clear ✕")
 				])) : Li("", !0)
 			]),
-			s.value === "loading" ? (q(), J("p", ml, "Loading pull requests…")) : s.value === "error" ? (q(), J("p", hl, A(c.value), 1)) : o.value.length === 0 ? (q(), J("p", gl, [...t[4] ||= [
+			s.value === "loading" ? (q(), J("p", Cl, "Loading pull requests…")) : s.value === "error" ? (q(), J("p", wl, A(c.value), 1)) : o.value.length === 0 ? (q(), J("p", Tl, [...t[4] ||= [
 				Z(" No pull requests yet. Push a branch and open one through the ", -1),
 				Y("code", null, "create-pull", -1),
 				Z(" op or the SDK. ", -1)
-			]])) : p.value.length === 0 ? (q(), J("p", _l, " No pull requests match the current filter. ")) : (q(), J("ol", vl, [(q(!0), J(G, null, cr(p.value, (e, n) => (q(), J("li", {
+			]])) : p.value.length === 0 ? (q(), J("p", El, " No pull requests match the current filter. ")) : (q(), J("ol", Dl, [(q(!0), J(G, null, cr(p.value, (e, n) => (q(), J("li", {
 				key: e.id,
 				class: k(["pulls-row", { focused: n === l.value }]),
 				role: "option",
 				"aria-selected": n === l.value,
 				onMouseenter: (e) => l.value = n
 			}, [Y("a", {
-				href: z(Ss)(e),
+				href: z(As)(e),
 				class: "pulls-row-link"
 			}, [
-				Y("span", xl, "#" + A(e.number), 1),
-				Y("span", Sl, [Y("span", Cl, A(e.title), 1), Y("span", wl, [
-					Y("span", { class: k(["pulls-state", z(Cs)(e.state).className]) }, A(z(Cs)(e.state).label), 3),
-					Y("code", Tl, [
+				Y("span", Al, "#" + A(e.number), 1),
+				Y("span", jl, [Y("span", Ml, A(e.title), 1), Y("span", Nl, [
+					Y("span", { class: k(["pulls-state", z(js)(e.state).className]) }, A(z(js)(e.state).label), 3),
+					Y("code", Pl, [
 						Z(A(e.headRef) + " ", 1),
 						t[5] ||= Y("span", null, "→", -1),
 						Z(" " + A(e.baseRef), 1)
@@ -4277,29 +4387,29 @@ var Hs = {
 					Y("button", {
 						type: "button",
 						class: k(["pulls-author", { active: a.value === e.authorRef }]),
-						"data-author-kind": z(Es)(e.authorRef).kind,
+						"data-author-kind": z(Ps)(e.authorRef).kind,
 						title: `${e.authorRef}\nClick to filter by this author`,
 						onClick: so((t) => m(e.authorRef), ["prevent", "stop"])
-					}, [Y("span", Dl, A(z(Es)(e.authorRef).glyph), 1), Y("span", Ol, A(z(Es)(e.authorRef).label), 1)], 10, El)
+					}, [Y("span", Il, A(z(Ps)(e.authorRef).glyph), 1), Y("span", Ll, A(z(Ps)(e.authorRef).label), 1)], 10, Fl)
 				])]),
-				Y("span", kl, A(z(ws)(e.updatedAt ?? e.createdAt)), 1)
-			], 8, bl)], 42, yl))), 128))])),
+				Y("span", Rl, A(z(Ms)(e.updatedAt ?? e.createdAt)), 1)
+			], 8, kl)], 42, Ol))), 128))])),
 			t[6] ||= Ii("<footer class=\"pulls-queue-foot\" data-v-9ee93795><span data-v-9ee93795><kbd data-v-9ee93795>j</kbd> <kbd data-v-9ee93795>k</kbd> navigate · <kbd data-v-9ee93795>↵</kbd> open · <kbd data-v-9ee93795>/</kbd> search · <kbd data-v-9ee93795>o</kbd> open <kbd data-v-9ee93795>d</kbd> draft <kbd data-v-9ee93795>m</kbd> merged <kbd data-v-9ee93795>c</kbd> closed <kbd data-v-9ee93795>a</kbd> all </span></footer>", 1)
 		]));
 	}
-}), [["styles", [".pulls-queue[data-v-9ee93795]{font-family:var(--sans,system-ui);color:var(--ink,#111);gap:16px;display:grid}.pulls-queue-head[data-v-9ee93795]{gap:12px;display:grid}.pulls-queue-head h2[data-v-9ee93795]{font-family:var(--display,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-9ee93795]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-9ee93795]{border:1.5px solid var(--ink,#111);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-9ee93795]{color:inherit;cursor:pointer;font-family:var(--mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-9ee93795]:not(:last-child){border-right:1px solid var(--rule-light,#d8d1c4)}.pulls-filter.active[data-v-9ee93795]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-filter .count[data-v-9ee93795]{color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-9ee93795]{color:var(--paper-tint,#f2efe7)}.pulls-filter kbd[data-v-9ee93795]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-9ee93795]{border:1.5px solid var(--ink,#111);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-9ee93795]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-9ee93795]{border:1px solid var(--ink,#111);font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);padding:0 4px;font-size:10px}.pulls-list[data-v-9ee93795]{border-top:1.5px solid var(--ink,#111);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-9ee93795]{border-bottom:1px solid var(--rule-light,#d8d1c4)}.pulls-row.focused[data-v-9ee93795]{background:var(--paper-tint,#f2efe7)}.pulls-row-link[data-v-9ee93795]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-9ee93795]:hover{background:var(--paper-tint,#f2efe7);text-decoration:none}.pulls-row-number[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-9ee93795]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-9ee93795]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-9ee93795]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-9ee93795]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-9ee93795]{color:var(--ink-faint,#68645c)}.pulls-state.pr-state-merged[data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-9ee93795]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:12px}.pulls-branch span[data-v-9ee93795]{color:var(--ink-fainter,#918b80);padding:0 4px}.pulls-author[data-v-9ee93795]{color:inherit;font:inherit;font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-9ee93795]:hover{background:var(--paper-tint,#f2efe7);border-color:currentColor}.pulls-author.active[data-v-9ee93795]{background:var(--ink,#111);color:var(--paper,#fffdf8);border-color:var(--ink,#111);border-style:solid}.pulls-author.active .author-glyph[data-v-9ee93795],.pulls-author.active .author-label[data-v-9ee93795]{color:inherit}.pulls-author-filter[data-v-9ee93795]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper-tint,#f2efe7);font-family:var(--mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-9ee93795]{color:var(--ink-faint,#68645c);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-9ee93795]{color:var(--ink,#111);border:1px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-9ee93795]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-9ee93795]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-9ee93795]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-9ee93795]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-9ee93795]{color:var(--ink-faint,#68645c);font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-9ee93795]:hover{color:var(--ink,#111)}.pulls-author .author-glyph[data-v-9ee93795]{width:14px;height:14px;color:var(--ink-faint,#68645c);border:1px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=agent] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=agent] .author-badge[data-v-9ee93795]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=credential] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=credential] .author-badge[data-v-9ee93795]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=bot] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=bot] .author-badge[data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-9ee93795]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);white-space:nowrap;font-size:12px}.pulls-empty[data-v-9ee93795],.pulls-error[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border-top:1.5px solid var(--rule-light,#d8d1c4);padding:18px 0;font-size:13px}.pulls-error[data-v-9ee93795]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-queue-foot kbd[data-v-9ee93795]{font-family:var(--mono,monospace);border:1px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-9ee93795"]]), Ml = {
+}), [["styles", [".pulls-queue[data-v-9ee93795]{font-family:var(--sans,system-ui);color:var(--ink,#111);gap:16px;display:grid}.pulls-queue-head[data-v-9ee93795]{gap:12px;display:grid}.pulls-queue-head h2[data-v-9ee93795]{font-family:var(--display,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-9ee93795]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-9ee93795]{border:1.5px solid var(--ink,#111);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-9ee93795]{color:inherit;cursor:pointer;font-family:var(--mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-9ee93795]:not(:last-child){border-right:1px solid var(--rule-light,#d8d1c4)}.pulls-filter.active[data-v-9ee93795]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-filter .count[data-v-9ee93795]{color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-9ee93795]{color:var(--paper-tint,#f2efe7)}.pulls-filter kbd[data-v-9ee93795]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-9ee93795]{border:1.5px solid var(--ink,#111);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-9ee93795]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-9ee93795]{border:1px solid var(--ink,#111);font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);padding:0 4px;font-size:10px}.pulls-list[data-v-9ee93795]{border-top:1.5px solid var(--ink,#111);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-9ee93795]{border-bottom:1px solid var(--rule-light,#d8d1c4)}.pulls-row.focused[data-v-9ee93795]{background:var(--paper-tint,#f2efe7)}.pulls-row-link[data-v-9ee93795]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-9ee93795]:hover{background:var(--paper-tint,#f2efe7);text-decoration:none}.pulls-row-number[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-9ee93795]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-9ee93795]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-9ee93795]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-9ee93795]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-9ee93795]{color:var(--ink-faint,#68645c)}.pulls-state.pr-state-merged[data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-9ee93795]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:12px}.pulls-branch span[data-v-9ee93795]{color:var(--ink-fainter,#918b80);padding:0 4px}.pulls-author[data-v-9ee93795]{color:inherit;font:inherit;font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-9ee93795]:hover{background:var(--paper-tint,#f2efe7);border-color:currentColor}.pulls-author.active[data-v-9ee93795]{background:var(--ink,#111);color:var(--paper,#fffdf8);border-color:var(--ink,#111);border-style:solid}.pulls-author.active .author-glyph[data-v-9ee93795],.pulls-author.active .author-label[data-v-9ee93795]{color:inherit}.pulls-author-filter[data-v-9ee93795]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper-tint,#f2efe7);font-family:var(--mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-9ee93795]{color:var(--ink-faint,#68645c);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-9ee93795]{color:var(--ink,#111);border:1px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-9ee93795]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-9ee93795]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-9ee93795]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-9ee93795]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-9ee93795]{color:var(--ink-faint,#68645c);font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-9ee93795]:hover{color:var(--ink,#111)}.pulls-author .author-glyph[data-v-9ee93795]{width:14px;height:14px;color:var(--ink-faint,#68645c);border:1px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=agent] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=agent] .author-badge[data-v-9ee93795]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=credential] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=credential] .author-badge[data-v-9ee93795]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-9ee93795],.pulls-author[data-author-kind=bot] .author-label[data-v-9ee93795],.pulls-author[data-author-kind=bot] .author-badge[data-v-9ee93795]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-9ee93795]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);white-space:nowrap;font-size:12px}.pulls-empty[data-v-9ee93795],.pulls-error[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border-top:1.5px solid var(--rule-light,#d8d1c4);padding:18px 0;font-size:13px}.pulls-error[data-v-9ee93795]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-9ee93795]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-queue-foot kbd[data-v-9ee93795]{font-family:var(--mono,monospace);border:1px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-9ee93795"]]), Vl = {
 	class: "pulls-your-work",
 	"data-smoke": "pulls-your-work"
-}, Nl = ["href"], Pl = {
+}, Hl = ["href"], Ul = {
 	key: 0,
 	class: "muted"
-}, Fl = {
+}, Wl = {
 	key: 1,
 	class: "muted"
-}, Il = {
+}, Gl = {
 	key: 2,
 	class: "muted"
-}, Ll = { key: 3 }, Rl = ["href"], zl = { class: "num" }, Bl = { class: "title" }, Vl = { class: "meta" }, Hl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Ul = /* @__PURE__ */ Wc(/* @__PURE__ */ Ln({
+}, Kl = { key: 3 }, ql = ["href"], Jl = { class: "num" }, Yl = { class: "title" }, Xl = { class: "meta" }, Zl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Ql = /* @__PURE__ */ $c(/* @__PURE__ */ Ln({
 	__name: "PullsYourWork",
 	props: {
 		host: { type: Object },
@@ -4307,12 +4417,12 @@ var Hs = {
 		viewerRef: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = $(() => t.workspaceId ?? t.host?.workspaceId ?? Hl), a = $(() => t.viewerRef ?? t.host?.viewerRef ?? null), o = $(() => a.value ? n.value.filter((e) => e.authorRef === a.value).filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5) : n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5));
+		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = $(() => t.workspaceId ?? t.host?.workspaceId ?? Zl), a = $(() => t.viewerRef ?? t.host?.viewerRef ?? null), o = $(() => a.value ? n.value.filter((e) => e.authorRef === a.value).filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5) : n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5));
 		Qn(() => void s()), H(() => [i.value], () => void s());
 		async function s() {
 			r.value = "loading";
 			try {
-				n.value = await ps({
+				n.value = await xs({
 					workspaceId: i.value,
 					limit: 64
 				}), r.value = n.value.length > 0 ? "ready" : "empty";
@@ -4320,50 +4430,50 @@ var Hs = {
 				r.value = "error", n.value = [];
 			}
 		}
-		return (e, t) => (q(), J("section", Ml, [Y("header", null, [t[0] ||= Y("h3", null, "Your pull requests", -1), Y("a", { href: z(xs)() }, "queue", 8, Nl)]), r.value === "loading" ? (q(), J("p", Pl, "Loading…")) : r.value === "error" ? (q(), J("p", Fl, "Could not load pulls.")) : o.value.length === 0 ? (q(), J("p", Il, " Nothing here yet. Open a pull request to see it in this rail. ")) : (q(), J("ul", Ll, [(q(!0), J(G, null, cr(o.value, (e) => (q(), J("li", { key: e.id }, [Y("a", { href: z(Ss)(e) }, [
-			Y("span", zl, "#" + A(e.number), 1),
-			Y("span", Bl, A(e.title), 1),
-			Y("span", { class: k(["state", z(Cs)(e.state).className]) }, A(z(Cs)(e.state).label), 3),
-			Y("span", Vl, A(z(Ts)(e.authorRef)) + " · " + A(z(ws)(e.updatedAt ?? e.createdAt)), 1)
-		], 8, Rl)]))), 128))]))]));
+		return (e, t) => (q(), J("section", Vl, [Y("header", null, [t[0] ||= Y("h3", null, "Your pull requests", -1), Y("a", { href: z(ks)() }, "queue", 8, Hl)]), r.value === "loading" ? (q(), J("p", Ul, "Loading…")) : r.value === "error" ? (q(), J("p", Wl, "Could not load pulls.")) : o.value.length === 0 ? (q(), J("p", Gl, " Nothing here yet. Open a pull request to see it in this rail. ")) : (q(), J("ul", Kl, [(q(!0), J(G, null, cr(o.value, (e) => (q(), J("li", { key: e.id }, [Y("a", { href: z(As)(e) }, [
+			Y("span", Jl, "#" + A(e.number), 1),
+			Y("span", Yl, A(e.title), 1),
+			Y("span", { class: k(["state", z(js)(e.state).className]) }, A(z(js)(e.state).label), 3),
+			Y("span", Xl, A(z(Ns)(e.authorRef)) + " · " + A(z(Ms)(e.updatedAt ?? e.createdAt)), 1)
+		], 8, ql)]))), 128))]))]));
 	}
-}), [["styles", [".pulls-your-work[data-v-cf9251fe]{gap:8px;display:grid}.pulls-your-work header[data-v-cf9251fe]{justify-content:space-between;align-items:baseline;display:flex}.pulls-your-work h3[data-v-cf9251fe]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-your-work header a[data-v-cf9251fe],.muted[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-your-work ul[data-v-cf9251fe]{margin:0;padding:0;list-style:none;display:grid}.pulls-your-work li a[data-v-cf9251fe]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:8px 0;text-decoration:none;display:grid}.pulls-your-work li:last-child a[data-v-cf9251fe]{border-bottom:0}.num[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-cf9251fe]{text-overflow:ellipsis;white-space:nowrap;grid-row:1;overflow:hidden}.state[data-v-cf9251fe]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-cf9251fe]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-cf9251fe]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-cf9251fe]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-cf9251fe]{color:var(--accent-err,#c9341c)}.meta[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-column:1/-1;font-size:11px}"]], ["__scopeId", "data-v-cf9251fe"]]), Wl = "ext_pull_requests", Gl = "comtrya-pulls-queue", Kl = "comtrya-pulls-detail", ql = "comtrya-pulls-your-work", Jl = "comtrya-pulls-overview";
-rs({
-	tagName: Gl,
-	component: jl
-}), rs({
-	tagName: Kl,
-	component: Gc
-}), rs({
-	tagName: ql,
-	component: Ul
-}), rs({
-	tagName: Jl,
-	component: rl
+}), [["styles", [".pulls-your-work[data-v-cf9251fe]{gap:8px;display:grid}.pulls-your-work header[data-v-cf9251fe]{justify-content:space-between;align-items:baseline;display:flex}.pulls-your-work h3[data-v-cf9251fe]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-your-work header a[data-v-cf9251fe],.muted[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-your-work ul[data-v-cf9251fe]{margin:0;padding:0;list-style:none;display:grid}.pulls-your-work li a[data-v-cf9251fe]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:8px 0;text-decoration:none;display:grid}.pulls-your-work li:last-child a[data-v-cf9251fe]{border-bottom:0}.num[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-cf9251fe]{text-overflow:ellipsis;white-space:nowrap;grid-row:1;overflow:hidden}.state[data-v-cf9251fe]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-cf9251fe]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-cf9251fe]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-cf9251fe]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-cf9251fe]{color:var(--accent-err,#c9341c)}.meta[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-column:1/-1;font-size:11px}"]], ["__scopeId", "data-v-cf9251fe"]]), $l = "ext_pull_requests", eu = "comtrya-pulls-queue", tu = "comtrya-pulls-detail", nu = "comtrya-pulls-your-work", ru = "comtrya-pulls-overview";
+ds({
+	tagName: eu,
+	component: Bl
+}), ds({
+	tagName: tu,
+	component: el
+}), ds({
+	tagName: nu,
+	component: Ql
+}), ds({
+	tagName: ru,
+	component: fl
 });
-var Yl = {
-	id: Wl,
+var iu = {
+	id: $l,
 	setup(e) {
 		e.registerWidget({
 			id: "pulls-your-work",
-			element: ql,
+			element: nu,
 			defaultSlot: "home.your-work",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerWidget({
 			id: "pulls-overview",
-			element: Jl,
+			element: ru,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/", {
-			element: Gl,
+			element: eu,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/:pullId", {
-			element: Kl,
+			element: tu,
 			requiredPermission: "pull-requests.read"
-		}), Ms();
+		}), Bs();
 	}
 };
 //#endregion
-export { Yl as default };
+export { iu as default };

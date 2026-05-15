@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
-import { useShortcuts } from "@comtrya/sdk-vue";
+import { renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 import {
   closePull,
   getPull,
@@ -99,6 +99,9 @@ const canMerge = computed(
 );
 const canClose = computed(
   () => pull.value && pull.value.state !== "CLOSED" && pull.value.state !== "MERGED",
+);
+const renderedBody = computed(() =>
+  pull.value?.bodyMarkdown ? renderMarkdown(pull.value.bodyMarkdown) : "",
 );
 
 onMounted(() => {
@@ -314,9 +317,9 @@ async function onClose(): Promise<void> {
         <span v-if="actionMessage" class="pulls-action-message">{{ actionMessage }}</span>
       </section>
 
-      <section v-if="pull.bodyMarkdown" class="pulls-detail-body">
+      <section v-if="renderedBody" class="pulls-detail-body">
         <h2>Description</h2>
-        <pre>{{ pull.bodyMarkdown }}</pre>
+        <div class="pulls-detail-body-prose" v-html="renderedBody" />
       </section>
       <section v-else class="pulls-detail-body muted">
         <h2>Description</h2>
@@ -548,13 +551,90 @@ async function onClose(): Promise<void> {
   font-size: 16px;
 }
 
-.pulls-detail-body pre {
-  margin: 0;
+.pulls-detail-body-prose {
+  color: var(--ink, #1a1916);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.pulls-detail-body-prose h1,
+.pulls-detail-body-prose h2,
+.pulls-detail-body-prose h3,
+.pulls-detail-body-prose h4,
+.pulls-detail-body-prose h5,
+.pulls-detail-body-prose h6 {
+  margin: 1.1em 0 0.4em;
+  font-family: var(--display, system-ui);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.pulls-detail-body-prose h1 {
+  font-size: 20px;
+}
+
+.pulls-detail-body-prose h2 {
+  font-size: 17px;
+}
+
+.pulls-detail-body-prose h3,
+.pulls-detail-body-prose h4 {
+  font-size: 15px;
+}
+
+.pulls-detail-body-prose p {
+  margin: 0.55em 0;
+}
+
+.pulls-detail-body-prose ul,
+.pulls-detail-body-prose ol {
+  margin: 0.4em 0 0.6em;
+  padding-left: 22px;
+}
+
+.pulls-detail-body-prose li {
+  margin: 0.15em 0;
+}
+
+.pulls-detail-body-prose code {
   font-family: var(--mono, monospace);
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--ink-soft, #2c2b28);
+  font-size: 0.88em;
+  padding: 1px 5px;
+  background: var(--ink-tint, #f2efe6);
+  border-radius: 2px;
+}
+
+.pulls-detail-body-prose pre {
+  margin: 0.7em 0;
+  padding: 12px 14px;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--ink-tint, #f2efe6);
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  overflow-x: auto;
+  white-space: pre;
+  word-break: normal;
+}
+
+.pulls-detail-body-prose pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.pulls-detail-body-prose a {
+  color: var(--accent-teal, #087f6f);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pulls-detail-body-prose strong {
+  font-weight: 600;
+}
+
+.pulls-detail-body-prose em {
+  font-style: italic;
 }
 
 .pulls-detail-body.muted p {

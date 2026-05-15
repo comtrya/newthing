@@ -211,3 +211,5 @@ export type {
 
 export { useShortcuts } from "./use-shortcuts";
 export type { UseShortcutsOptions } from "./use-shortcuts";
+
+export { renderMarkdown, bodyExcerpt } from "./markdown";

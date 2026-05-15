@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import SlotMount from "../components/SlotMount.vue";
-import { renderMarkdown } from "../markdown";
+import { renderMarkdown } from "@comtrya/sdk-vue";
 import { repositoryHomeSlots } from "../repository-slots";
 import { applyUserLayoutFor } from "../user-layout";
 

@@ -19,8 +19,7 @@
 
 import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
-import { useShortcuts } from "@comtrya/sdk-vue";
-import { renderMarkdown, bodyExcerpt } from "./markdown";
+import { bodyExcerpt, renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 
 interface DocProperty {
   // intentionally any — typed by the per-type `properties` CUE block
