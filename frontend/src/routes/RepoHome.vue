@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
+import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import { renderMarkdown } from "@comtrya/sdk-vue";
 import { repositoryHomeSlots } from "../repository-slots";
@@ -357,6 +358,10 @@ async function fetchRepositoryIdentity(
         {{ cloneCopied ? "copied" : "copy" }}
       </button>
     </div>
+    <RepoTabs
+      :segments="repoSegments"
+      :repository-id="repository?.id ?? null"
+    />
   </header>
 
   <section v-if="loadState !== 'ready'" class="repo-state" :data-state="loadState">

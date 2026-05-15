@@ -1012,6 +1012,40 @@ kbd {
   font-style: italic;
 }
 
+/* iter 73 — RepoTabs strip. Editorial bottom-border underline
+ * on the active tab, no background pill - matches the LOOP_TODO
+ * "editorial density" direction. Seeds the future Workbench
+ * layout's persistent top-of-pane strip. */
+.shell-app .repo-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 10px;
+  border-bottom: 1px solid var(--rule-light, #d8d6cf);
+}
+
+.shell-app .repo-tab {
+  padding: 8px 14px 7px;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-bottom: 1.5px solid transparent;
+  margin-bottom: -1px;
+  transition: color 80ms ease, border-color 80ms ease;
+}
+
+.shell-app .repo-tab:hover {
+  color: var(--ink, #111);
+}
+
+.shell-app .repo-tab.active {
+  color: var(--ink, #111);
+  border-bottom-color: var(--ink, #111);
+  font-weight: 600;
+}
+
 .shell-app .repo-slot-stack {
   display: grid;
   gap: 28px;

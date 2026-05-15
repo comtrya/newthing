@@ -1189,6 +1189,49 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 73 (Repo home tabs - navigation seed for Workbench layout)
+
+The repo home gets a Linear-style tab strip surfacing the
+five sub-surfaces a repo has: Overview / Code / Pulls /
+Issues / Checks. Modest in scope, but a real product
+improvement (clicks to find a repo's PR queue drop from
+sidebar-travel to one tab) and the seed for the
+LOOP_TODO Workbench-layout macro bet - the tabs become the
+persistent top-of-pane strip once queues become nested
+routes.
+
+frontend:
+- New `frontend/src/components/RepoTabs.vue`. Props:
+  `segments: string[]` + `repositoryId: string | null`.
+  Renders five `<RouterLink>` tabs:
+    - Overview -> `/r/<segments>` (current page).
+    - Code -> `/r/<segments>#code` (in-page anchor for the
+      core code-browser slot).
+    - Pulls -> `/x/pulls/?repositoryId=<id>` (the queue's
+      iter-33+ URL param). Falls back to the unscoped queue
+      when the id is still loading.
+    - Issues -> `/x/issues/?repositoryId=<id>` (same
+      pattern; queues already filter by repositoryId per
+      iters 33+ / 35+).
+    - Checks -> `/x/checks/?repositoryId=<id>`.
+- Active highlight follows `route.path`. Overview is active
+  on `/r/<segments>`; other tabs intentionally don't
+  highlight today (they navigate away to `/x/<ext>/`). Once
+  the Workbench arc lands and queues nest under `/r/<repo>/`
+  the `isActive` predicate will pick them up via the same
+  `route.path.startsWith(...)` check without UI changes.
+- Mounted in `RepoHome.vue` below the clone command (still
+  inside the header) so the strip sits with the repo
+  identity, not the slot stack.
+
+Styles in `frontend/src/styles.css` (`.shell-app .repo-tabs`
++ `.repo-tab`). Editorial direction per LOOP_TODO:
+bottom-border underline on the active tab, no background
+pill, mono labels, `-1px` margin-bottom on the underlines so
+the active border sits flush with the parent rule.
+
+typecheck + shell build clean.
+
 ### 2026-05-15 - iteration 72 (Bulk selection + bulk reproject on EpicsList)
 
 Symmetric to iters 51 + 71 - epics get the same bulk
