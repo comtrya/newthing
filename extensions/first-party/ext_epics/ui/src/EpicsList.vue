@@ -53,6 +53,16 @@ const error = ref<string | null>(null);
 const loadedEpics = ref<Epic[]>(props.epics ?? []);
 const filter = ref<Filter>("ALL");
 
+/**
+ * Active owner filter — a canonical `comtrya://` URN or empty.
+ * Set by clicking an owner chip on a card, cleared via the
+ * controls-row clear button. URL-synced as `?owner=<urn>` so
+ * `/x/epics/?owner=comtrya://user/rawkode` is a shareable
+ * "rawkode's epics" view. Mirrors iter 35's IssuesList assignee
+ * filter, scoped to the epic's single `ownerRef`.
+ */
+const ownerFilter = ref("");
+
 const scopedEpics = computed(() => {
   const all = props.epics ?? loadedEpics.value;
   if (!props.projectName) return all;
@@ -60,9 +70,28 @@ const scopedEpics = computed(() => {
 });
 
 const epics = computed(() => {
-  if (filter.value === "ALL") return scopedEpics.value;
-  return scopedEpics.value.filter((epic) => epic.state === filter.value);
+  let result = scopedEpics.value;
+  if (filter.value !== "ALL") {
+    result = result.filter((epic) => epic.state === filter.value);
+  }
+  if (ownerFilter.value) {
+    result = result.filter((epic) => epic.ownerRef === ownerFilter.value);
+  }
+  return result;
 });
+
+function toggleOwnerFilter(ref: string): void {
+  if (ownerFilter.value === ref) ownerFilter.value = "";
+  else ownerFilter.value = ref;
+}
+
+function clearOwnerFilter(): void {
+  ownerFilter.value = "";
+}
+
+function shortOwnerLabel(ref: string): string {
+  return ref.replace(/^comtrya:\/\/[a-z]+\//, "");
+}
 
 const counts = computed(() => {
   const out: Record<Filter, number> = {
@@ -103,6 +132,8 @@ function readUrlState(): void {
   if (URL_FILTER_VALUES.has(rawState as Filter)) {
     filter.value = rawState as Filter;
   }
+  const rawOwner = params.get("owner") ?? "";
+  ownerFilter.value = rawOwner.startsWith("comtrya://") ? rawOwner : "";
 }
 
 function writeUrlState(): void {
@@ -110,6 +141,8 @@ function writeUrlState(): void {
   const params = new URLSearchParams(window.location.search);
   if (filter.value === "ALL") params.delete("state");
   else params.set("state", filter.value);
+  if (ownerFilter.value) params.set("owner", ownerFilter.value);
+  else params.delete("owner");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -144,7 +177,7 @@ watch(
   () => void loadEpics(),
 );
 
-watch(filter, () => {
+watch([filter, ownerFilter], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -205,6 +238,23 @@ async function loadEpics(): Promise<void> {
       </button>
     </div>
 
+    <div
+      v-if="ownerFilter"
+      class="epics-owner-filter"
+      data-smoke="epics-owner-filter"
+    >
+      <span class="prefix">owner</span>
+      <span class="active-chip" :title="ownerFilter">
+        {{ shortOwnerLabel(ownerFilter) }}
+      </span>
+      <button
+        type="button"
+        class="clear"
+        @click="clearOwnerFilter"
+        aria-label="Clear owner filter"
+      >clear ✕</button>
+    </div>
+
     <p v-if="loadState === 'loading'" class="epic-line muted">Loading epics</p>
     <p v-else-if="loadState === 'error'" class="epic-line warn">{{ error }}</p>
     <p v-else-if="scopedEpics.length === 0" class="epic-line muted">No epics yet.</p>
@@ -213,7 +263,13 @@ async function loadEpics(): Promise<void> {
     </p>
     <ul v-else class="epics-list-items">
       <li v-for="epic in epics" :key="epic.id">
-        <EpicCard :epic="epic" :resource-ref="epicRef(epic)" :client="graphClient" />
+        <EpicCard
+          :epic="epic"
+          :resource-ref="epicRef(epic)"
+          :client="graphClient"
+          :active-owner="ownerFilter"
+          @owner-click="toggleOwnerFilter"
+        />
       </li>
     </ul>
   </section>
@@ -287,6 +343,47 @@ async function loadEpics(): Promise<void> {
 
 .epics-filter.active .count {
   color: var(--paper-tint, #f2efe7);
+}
+
+/* Owner filter indicator — mirrors IssuesList's assignee filter
+   shape (iter 35). Single dashed-border chip + clear button. */
+.epics-owner-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  align-self: flex-start;
+}
+
+.epics-owner-filter .prefix {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.epics-owner-filter .active-chip {
+  padding: 0 5px;
+  border: 1px solid var(--ink, #111);
+  color: var(--ink, #111);
+}
+
+.epics-owner-filter .clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.epics-owner-filter .clear:hover {
+  color: var(--ink, #111);
 }
 
 .epics-list-items {

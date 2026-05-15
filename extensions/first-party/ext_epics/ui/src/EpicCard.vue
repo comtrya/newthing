@@ -16,6 +16,19 @@ const props = defineProps<{
   epic?: Epic | null;
   ref?: string;
   resourceRef?: string;
+  /**
+   * Optional owner URN currently driving a list-level filter.
+   * When set + matches this card's owner, the chip renders in
+   * the active (inverted ink/paper) state.
+   */
+  activeOwner?: string | null;
+}>();
+
+const emit = defineEmits<{
+  /** Fired when the user clicks the owner chip — list owns the
+   * filter state, so the click bubbles up rather than mutating
+   * here. */
+  (event: "owner-click", ownerRef: string): void;
 }>();
 
 const loadState = ref<LoadState>("idle");
@@ -119,15 +132,18 @@ function ownerLabel(ownerRef: string | null | undefined): {
         <div class="epic-card-title">
           <span class="epic-pill" :class="tone.className">{{ tone.label }}</span>
           <a class="epic-title-link" :href="epicHref(epic)">{{ epic.title }}</a>
-          <span
+          <button
             v-if="epic.ownerRef"
+            type="button"
             class="epic-owner"
+            :class="{ active: props.activeOwner === epic.ownerRef }"
             :data-author-kind="ownerLabel(epic.ownerRef).kind"
-            :title="epic.ownerRef"
+            :title="`${epic.ownerRef}\nClick to filter by this owner`"
+            @click.prevent.stop="emit('owner-click', epic.ownerRef)"
           >
             <span class="owner-glyph">{{ ownerLabel(epic.ownerRef).glyph }}</span>
             {{ ownerLabel(epic.ownerRef).label }}
-          </span>
+          </button>
           <span
             v-if="epic.projectName"
             class="epic-project"
@@ -219,7 +235,25 @@ function ownerLabel(ownerRef: string | null | undefined): {
   padding: 0 6px;
   border: 1px dashed currentColor;
   color: var(--ink-soft, #2c2b28);
-  cursor: help;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono, monospace);
+}
+
+.epic-owner:hover {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.epic-owner.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-style: solid;
+  border-color: var(--ink, #111);
+}
+
+.epic-owner.active .owner-glyph {
+  color: inherit;
 }
 
 .epic-owner .owner-glyph {

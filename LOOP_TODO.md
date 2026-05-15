@@ -1189,6 +1189,38 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 48 (Owner URL filter on EpicsList)
+
+Mirrors iter 35 (assignee filter on IssuesList) for epics:
+click any owner chip on an EpicCard, queue narrows to that
+owner's epics, URL becomes `/x/epics/?owner=<urn>`.
+
+EpicCard becomes a controlled component for owner UI:
+- `activeOwner?: string | null` prop drives the chip's active
+  state (inverted ink/paper when matching).
+- `@owner-click` emit fires on click with the URN; parent owns
+  the filter state. The chip is a real `<button>` with
+  `@click.prevent.stop` so it doesn't navigate.
+
+EpicsList:
+- `ownerFilter` ref URL-synced as `?owner=<urn>` via the
+  existing read/write/popstate trio from iter 37. Only accepts
+  canonical `comtrya://` URNs.
+- `epics` computed extended: when `ownerFilter` is set, narrow
+  to epics where `epic.ownerRef === ownerFilter`.
+- `toggleOwnerFilter(ref)` handler bound to `@owner-click`.
+- New `.epics-owner-filter` indicator strip below the state
+  filter row when a filter is active: `owner · rawkode · clear ✕`.
+
+Combines with state filter, so:
+- `/x/epics/?state=in_progress&owner=comtrya://user/rawkode`
+- `/x/epics/?state=planned&owner=comtrya://team/platform-maintainers`
+
+All three queue surfaces now carry the same shareable-filter
+recipe applied to their canonical identity field — Issues (`?
+assignee=`), Pulls (state-only for now since PRs don't have an
+explicit assignee field), Epics (`?owner=`).
+
 ### 2026-05-15 — iteration 47 (?-overlay reads live command registry)
 
 Resolves the long-pending user-requested TODO. The
