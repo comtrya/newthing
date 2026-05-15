@@ -107,22 +107,10 @@ watch(
   { immediate: true },
 );
 
-function classifyOwner(ref: string): {
-  label: string;
-  glyph: string;
-  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
-} {
-  if (!ref) return { label: "unknown", glyph: "·", kind: "unknown" };
-  const stripped = ref.replace(/^comtrya:\/\//, "");
-  const [scheme = "", ...rest] = stripped.split("/");
-  const id = rest.join("/") || ref;
-  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
-  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
-  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
-  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
-  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
-  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
-}
+// `classifyOwner` was a local copy of the iter 59 classifier;
+// iter 62 routes through `classifyIssueAuthor` (re-export of
+// the canonical `classifyPrincipal` from sdk-vue).
+const classifyOwner = classifyIssueAuthor;
 
 onMounted(() => {
   ensureEpicDetailStyles();

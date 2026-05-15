@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { applyOptimistic } from "@comtrya/sdk-core";
+import { classifyPrincipal as authorLabel } from "@comtrya/sdk-vue";
 import { computed, onMounted, ref, watch } from "vue";
 import {
   closeIssue,
@@ -156,28 +157,9 @@ function relativeTime(value?: string | null): string | null {
   return `${Math.floor(diff / wk)}w ago`;
 }
 
-/**
- * Classifier identical to IssuesList.vue's `authorLabel()` — kept in
- * sync deliberately so the hero chip glyph palette matches every
- * other surface that classifies typed `comtrya://` URNs (issue rows,
- * PR queue/detail, epic detail).
- */
-function authorLabel(authorRef: string | null | undefined): {
-  label: string;
-  glyph: string;
-  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
-} {
-  if (!authorRef) return { label: "unknown", glyph: "·", kind: "unknown" };
-  const stripped = authorRef.replace(/^comtrya:\/\//, "");
-  const [scheme = "", ...rest] = stripped.split("/");
-  const id = rest.join("/") || authorRef;
-  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
-  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
-  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
-  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
-  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
-  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
-}
+// Classifier moved to `@comtrya/sdk-vue::classifyPrincipal`
+// (iter 62); imported above as `authorLabel` so existing
+// template bindings keep working.
 
 async function closeCurrentIssue(): Promise<void> {
   if (!graphClient.value || !issue.value) return;

@@ -1189,6 +1189,60 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 62 (Canonical classifyPrincipal in sdk-vue - kills 6 duplicates)
+
+The URN-to-visual-identity classifier was duplicated across
+six call sites with drifting glyphs and missing kinds:
+ext_pull_requests/types.ts (`classifyAuthor`, no `team`),
+ext_issues/IssuesList.vue + IssueDetail.vue (inline
+`authorLabel` with `team`), ext_epics/issue-rows.ts
+(`classifyIssueAuthor` with bespoke glyphs `●`/`◉`/`○`),
+ext_epics/EpicDetail.vue + ext_pull_requests/PullsDetail.vue
+(inline `classifyOwner` from iters 59 + 61). Each variant
+had drifted subtly from the others.
+
+Iter 62 promotes a single canonical helper to sdk-vue and
+re-routes every caller through it.
+
+Shared package:
+- `frontend/packages/sdk-vue/src/classify-principal.ts`:
+  `classifyPrincipal(value)` returning
+  `{ kind, label, glyph, tone }`. Kind union covers humans
+  (initial-letter glyph), agents (`✦`), bots (`◆`),
+  credentials (`⚙`), and teams (`◇`) - the superset of all
+  six prior variants. Preserves the `tone` field PRs used
+  for tone-class lookup.
+- `index.ts` re-exports `classifyPrincipal`, `principalLabel`,
+  `PrincipalClassification`, `PrincipalKind`.
+
+Migrations:
+- `ext_pull_requests/types.ts`: replaces local `classifyAuthor`
+  + `authorLabel` + `AuthorIdentity` + `AuthorKind` with
+  named re-exports from sdk-vue. The PR's `AuthorKind` now
+  includes `team`, so CUE team URNs in PR contexts (rare but
+  possible) classify correctly.
+- `ext_pull_requests/PullsDetail.vue`: deletes the iter-61
+  inline `classifyOwner` (21 lines) and re-binds to the
+  canonical helper.
+- `ext_issues/IssuesList.vue`: deletes the inline `authorLabel`
+  (16 lines), imports `classifyPrincipal as authorLabel`.
+- `ext_issues/IssueDetail.vue`: same shape - drops the
+  16-line copy, imports the canonical.
+- `ext_epics/issue-rows.ts`: replaces `classifyIssueAuthor`
+  (37 lines with the bespoke `●`/`◉`/`○` glyphs) with
+  a re-export of `classifyPrincipal`. Issue-row authors now
+  render with the same glyph set as every other surface.
+- `ext_epics/EpicDetail.vue`: deletes the iter-59 inline
+  `classifyOwner` (16 lines) and re-binds via
+  `classifyIssueAuthor`.
+
+Net: -110 lines of duplicated classifier code, six surfaces
+now share one source of truth, the diverging `●`/`◉`/`○`
+glyphs from ext_epics/issue-rows are gone. Verified via
+direct invocation: every URN scheme returns the expected
+canonical shape. typecheck + shell build + all three
+extension bundles clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 61 (PullsDetail "Routed to" panel - projects + CUE owners)
 
 PullsDetail joins IssueDetail and EpicDetail in surfacing CUE

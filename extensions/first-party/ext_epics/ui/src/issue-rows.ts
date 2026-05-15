@@ -82,41 +82,13 @@ export async function resolveIssues(refs: string[]): Promise<ResolvedIssue[]> {
   return resolved.filter((value): value is ResolvedIssue => value !== null);
 }
 
-export interface IssueAuthor {
-  kind: "user" | "agent" | "bot" | "credential" | "unknown";
-  glyph: string;
-  label: string;
-}
-
-export function classifyIssueAuthor(value: string | null): IssueAuthor {
-  if (!value) return { kind: "unknown", glyph: "○", label: "unknown" };
-  if (value.startsWith("comtrya://agent/")) {
-    return {
-      kind: "agent",
-      glyph: "✦",
-      label: value.slice("comtrya://agent/".length) || "agent",
-    };
-  }
-  if (value.startsWith("comtrya://bot/")) {
-    return {
-      kind: "bot",
-      glyph: "◉",
-      label: value.slice("comtrya://bot/".length) || "bot",
-    };
-  }
-  if (value.startsWith("comtrya://credential/")) {
-    return {
-      kind: "credential",
-      glyph: "⚙",
-      label: value.slice("comtrya://credential/".length) || "credential",
-    };
-  }
-  if (value.startsWith("comtrya://user/")) {
-    return {
-      kind: "user",
-      glyph: "●",
-      label: value.slice("comtrya://user/".length) || "user",
-    };
-  }
-  return { kind: "unknown", glyph: "○", label: value };
-}
+/**
+ * `classifyIssueAuthor` previously shipped its own glyphs (`●`,
+ * `◉`, `○`) that drifted from the rest of the forge. Iter 62
+ * routes through the canonical `@comtrya/sdk-vue::classifyPrincipal`
+ * so issue-row authors render with the same glyph set as the
+ * hero chip rows and the "Routed to" panels (initial letter for
+ * humans, ✦/◆/⚙/◇ for agents/bots/credentials/teams).
+ */
+export { classifyPrincipal as classifyIssueAuthor } from "@comtrya/sdk-vue";
+export type { PrincipalClassification as IssueAuthor } from "@comtrya/sdk-vue";

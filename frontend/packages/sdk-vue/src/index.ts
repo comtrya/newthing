@@ -216,3 +216,9 @@ export { renderMarkdown, bodyExcerpt } from "./markdown";
 
 export { parseQueryFilters } from "./parse-query";
 export type { ParsedQuery } from "./parse-query";
+
+export { classifyPrincipal, principalLabel } from "./classify-principal";
+export type {
+  PrincipalClassification,
+  PrincipalKind,
+} from "./classify-principal";

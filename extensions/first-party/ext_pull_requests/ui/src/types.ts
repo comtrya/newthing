@@ -77,52 +77,18 @@ export function relativeTime(value: string | null | undefined): string {
   return `${Math.floor(diff / week)}w ago`;
 }
 
-export function authorLabel(value: string | null | undefined): string {
-  if (!value) return "unknown";
-  const tail = value.split("/").pop() ?? value;
-  return tail || value;
-}
-
-export type AuthorKind = "human" | "agent" | "credential" | "bot" | "unknown";
-
-export interface AuthorIdentity {
-  kind: AuthorKind;
-  label: string;
-  glyph: string;
-  tone: string;
-}
-
 /**
- * Classify an author URN. The forge treats agent- and credential-issued
- * commits as first-class identities with their own visible badge so a
- * reviewer can tell at a glance whether a pull came from a human, an
- * automation, or an AI agent. URN conventions:
- *
- *   comtrya://user/<name>         human
- *   comtrya://agent/<id>          named AI agent (claude-code, cursor, etc.)
- *   comtrya://bot/<id>            named bot
- *   comtrya://credential/<id>     scoped automation credential (PRN_*)
+ * Re-export the canonical principal classifier from sdk-vue as
+ * `classifyAuthor` / `authorLabel` so existing call sites in this
+ * extension keep their imports. The canonical helper (iter 62)
+ * adds the `team` kind which the previous local implementation
+ * missed, so CUE team URNs now render with the correct glyph.
  */
-export function classifyAuthor(value: string | null | undefined): AuthorIdentity {
-  if (!value) return { kind: "unknown", label: "unknown", glyph: "·", tone: "neutral" };
-  const stripped = value.replace(/^comtrya:\/\//, "");
-  const [scheme = "", ...rest] = stripped.split("/");
-  const id = rest.join("/") || authorLabel(value);
-  switch (scheme) {
-    case "user":
-      return { kind: "human", label: id, glyph: id.slice(0, 1).toUpperCase(), tone: "human" };
-    case "agent":
-      return { kind: "agent", label: id, glyph: "✦", tone: "agent" };
-    case "bot":
-      return { kind: "bot", label: id, glyph: "◆", tone: "bot" };
-    case "credential":
-      return { kind: "credential", label: id, glyph: "⚙", tone: "credential" };
-    default:
-      return {
-        kind: "unknown",
-        label: id,
-        glyph: id.slice(0, 1).toUpperCase() || "·",
-        tone: "neutral",
-      };
-  }
-}
+export {
+  classifyPrincipal as classifyAuthor,
+  principalLabel as authorLabel,
+} from "@comtrya/sdk-vue";
+export type {
+  PrincipalClassification as AuthorIdentity,
+  PrincipalKind as AuthorKind,
+} from "@comtrya/sdk-vue";

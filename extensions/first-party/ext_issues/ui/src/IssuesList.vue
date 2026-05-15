@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
+import {
+  classifyPrincipal as authorLabel,
+  parseQueryFilters,
+  useShortcuts,
+} from "@comtrya/sdk-vue";
 import { closeIssue, listIssues, openIssue } from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
@@ -315,22 +319,9 @@ const counts = computed(() => {
   return out;
 });
 
-function authorLabel(authorRef: string | null | undefined): {
-  label: string;
-  glyph: string;
-  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
-} {
-  if (!authorRef) return { label: "unknown", glyph: "·", kind: "unknown" };
-  const stripped = authorRef.replace(/^comtrya:\/\//, "");
-  const [scheme = "", ...rest] = stripped.split("/");
-  const id = rest.join("/") || authorRef;
-  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
-  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
-  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
-  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
-  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
-  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
-}
+// `authorLabel` was an inline classifier duplicate; iter 62
+// re-routes to the canonical `@comtrya/sdk-vue::classifyPrincipal`
+// imported above as `authorLabel`.
 
 function relativeTime(value: string | null | undefined): string {
   if (!value) return "";

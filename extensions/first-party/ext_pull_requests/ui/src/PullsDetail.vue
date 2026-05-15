@@ -151,27 +151,10 @@ const routedProjectsWithOwners = computed<Array<{
   });
 });
 
-/**
- * Owner classifier matching the iter 59 IssueDetail / EpicDetail
- * vocabulary so the "Routed to" panel reads the same across
- * every detail surface in the forge.
- */
-function classifyOwner(ref: string): {
-  label: string;
-  glyph: string;
-  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
-} {
-  if (!ref) return { label: "unknown", glyph: "·", kind: "unknown" };
-  const stripped = ref.replace(/^comtrya:\/\//, "");
-  const [scheme = "", ...rest] = stripped.split("/");
-  const id = rest.join("/") || ref;
-  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
-  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
-  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
-  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
-  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
-  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
-}
+// Owner classifier moved to `@comtrya/sdk-vue` (iter 62);
+// re-exported through `./types` as `classifyAuthor` and used
+// directly here for owner chips on the "Routed to" panel.
+const classifyOwner = classifyAuthor;
 
 const tone = computed(() => stateTone(pull.value?.state));
 const canMerge = computed(
