@@ -7,6 +7,7 @@ import {
   reopenIssue,
 } from "./api";
 import CustomElementHost from "./CustomElementHost.vue";
+import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
   DEFAULT_WORKSPACE_ID,
   issueRef,
@@ -54,6 +55,36 @@ const issueNumber = computed(() => Number(
   props.number ?? props.routeParams?.params?.number,
 ));
 const canLoad = computed(() => graphClient.value && Number.isFinite(issueNumber.value));
+
+/**
+ * CUE Project ownership routing — when an issue is scoped to a
+ * Project, surface the Project's declared `owners[].ref` so the
+ * detail page reads as "this work is routed to <team> +
+ * <maintainer>". Reuses `resolveIssuesPolicy()` (which already
+ * extracts `ownerRefs` from the merged CUE config) so the
+ * vocabulary stays single-sourced.
+ *
+ * Re-resolved whenever `issue.projectName` changes; cleared when
+ * the issue has no project so the panel hides cleanly.
+ */
+const policy = ref<IssuesPolicy | null>(null);
+const projectOwners = computed<string[]>(() => policy.value?.ownerRefs ?? []);
+
+watch(
+  () => issue.value?.projectName ?? "",
+  async (projectName) => {
+    if (!projectName) {
+      policy.value = null;
+      return;
+    }
+    try {
+      policy.value = await resolveIssuesPolicy(projectName);
+    } catch {
+      policy.value = null;
+    }
+  },
+  { immediate: true },
+);
 
 onMounted(loadIssue);
 watch(
@@ -343,6 +374,36 @@ async function reopenCurrentIssue(): Promise<void> {
             <p v-if="actionError" class="issue-line warn" role="alert">{{ actionError }}</p>
           </section>
 
+          <section
+            v-if="issue.projectName && projectOwners.length > 0"
+            class="issue-panel"
+            data-smoke="issue-project-owners"
+          >
+            <header>
+              <h2>Routed to</h2>
+              <a
+                :href="`/x/issues/?project=${encodeURIComponent(issue.projectName)}`"
+                class="issue-panel-link"
+                :title="`Filter to project ${issue.projectName}`"
+              >◇ {{ issue.projectName }}</a>
+            </header>
+            <ul class="issue-owners">
+              <li
+                v-for="ref in projectOwners"
+                :key="ref"
+                class="issue-owner"
+                :data-author-kind="authorLabel(ref).kind"
+                :title="ref"
+              >
+                <span class="chip-glyph">{{ authorLabel(ref).glyph }}</span>
+                {{ authorLabel(ref).label }}
+              </li>
+            </ul>
+            <p class="issue-line muted">
+              From <code>package comtrya</code> · projects.{{ issue.projectName }}.owners
+            </p>
+          </section>
+
           <CustomElementHost
             :tag="ISSUE_RELATIONSHIPS_TAG"
             :properties="{
@@ -579,6 +640,66 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-actions {
   display: grid;
   gap: 8px;
+}
+
+/* "Routed to" panel — surfaces CUE project owners. The header
+ * carries an inline link back to the project-scoped queue so
+ * the panel doubles as a Project shortcut. */
+.issue-panel header .issue-panel-link {
+  margin-left: auto;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--accent-blue, #1d55a6);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.issue-panel header .issue-panel-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.issue-owners {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.issue-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.issue-owner .chip-glyph {
+  font-family: var(--display, system-ui);
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Tone the chip border by classifier kind — same palette the
+ * hero chip row uses so the visual vocabulary is consistent. */
+.issue-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+.issue-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.issue-owner[data-author-kind="agent"]      { color: #6b3fa0; }
+.issue-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.issue-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+
+.issue-line.muted code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
 }
 
 .issue-actions button {

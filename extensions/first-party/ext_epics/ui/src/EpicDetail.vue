@@ -14,6 +14,7 @@ import {
 } from "./issue-rows";
 import { ensureEpicDetailStyles } from "./epic-detail-styles";
 import CustomElementHost from "./CustomElementHost.vue";
+import { resolveProjectPolicy, type ProjectPolicy } from "./project-policy";
 import {
   DEFAULT_WORKSPACE_ID,
   epicRef,
@@ -74,6 +75,54 @@ const ownerLabel = computed(() => {
   return ref;
 });
 const createdLabel = computed(() => relativeTime(epic.value?.createdAt));
+
+/**
+ * CUE Project ownership routing — when the epic is scoped to a
+ * Project, surface the Project's declared `owners[].ref` so the
+ * detail page reads as "this work is routed to <team> +
+ * <maintainer>". Pulled from the repo's merged `package comtrya`
+ * CUE evaluation (`comtryaConfig.projects[].owners[].ref`).
+ *
+ * Re-resolved whenever `epic.projectName` changes; cleared when
+ * the epic has no project so the panel hides cleanly.
+ */
+const projectPolicy = ref<ProjectPolicy | null>(null);
+const projectOwners = computed<string[]>(
+  () => projectPolicy.value?.ownerRefs ?? [],
+);
+
+watch(
+  () => epic.value?.projectName ?? "",
+  async (projectName) => {
+    if (!projectName) {
+      projectPolicy.value = null;
+      return;
+    }
+    try {
+      projectPolicy.value = await resolveProjectPolicy(projectName);
+    } catch {
+      projectPolicy.value = null;
+    }
+  },
+  { immediate: true },
+);
+
+function classifyOwner(ref: string): {
+  label: string;
+  glyph: string;
+  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
+} {
+  if (!ref) return { label: "unknown", glyph: "·", kind: "unknown" };
+  const stripped = ref.replace(/^comtrya:\/\//, "");
+  const [scheme = "", ...rest] = stripped.split("/");
+  const id = rest.join("/") || ref;
+  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
+  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
+  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
+  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
+  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
+  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
+}
 
 onMounted(() => {
   ensureEpicDetailStyles();
@@ -262,6 +311,36 @@ function relativeTime(iso: string | null | undefined): string | null {
         <div class="epic-progress-bar" :aria-valuenow="percent" aria-valuemin="0" aria-valuemax="100">
           <div class="epic-progress-fill" :style="{ width: percent + '%' }"></div>
         </div>
+      </section>
+
+      <section
+        v-if="epic.projectName && projectOwners.length > 0"
+        class="epic-routed"
+        data-smoke="epic-project-owners"
+      >
+        <header class="epic-routed-head">
+          <span class="epic-routed-label">Routed to</span>
+          <a
+            :href="`/x/epics/?project=${encodeURIComponent(epic.projectName)}`"
+            class="epic-routed-project"
+            :title="`Filter epics to project ${epic.projectName}`"
+          >◇ {{ epic.projectName }}</a>
+        </header>
+        <ul class="epic-routed-list">
+          <li
+            v-for="ref in projectOwners"
+            :key="ref"
+            class="epic-routed-owner"
+            :data-author-kind="classifyOwner(ref).kind"
+            :title="ref"
+          >
+            <span class="chip-glyph">{{ classifyOwner(ref).glyph }}</span>
+            {{ classifyOwner(ref).label }}
+          </li>
+        </ul>
+        <p class="epic-routed-source">
+          From <code>package comtrya</code> · projects.{{ epic.projectName }}.owners
+        </p>
       </section>
 
       <article

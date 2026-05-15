@@ -107,6 +107,94 @@ const CSS = `
   background: var(--surface-2, #faf9f5);
 }
 
+/* "Routed to" panel — CUE Project ownership surfaced on the
+ * detail page. Same paper-card aesthetic as the progress
+ * panel above; owner chips carry classifier-glyph borders
+ * so the visual vocabulary matches IssueDetail iter 59. */
+.epic-routed {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--surface-2, #faf9f5);
+}
+
+.epic-routed-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.epic-routed-label {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint, #6e6a62);
+}
+
+.epic-routed-project {
+  margin-left: auto;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--accent-blue, #1d55a6);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.epic-routed-project:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.epic-routed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.epic-routed-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.epic-routed-owner .chip-glyph {
+  font-family: var(--display, system-ui);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.epic-routed-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+.epic-routed-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.epic-routed-owner[data-author-kind="agent"]      { color: #6b3fa0; }
+.epic-routed-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.epic-routed-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+
+.epic-routed-source {
+  margin: 0;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #6e6a62);
+}
+
+.epic-routed-source code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
+}
+
 .epic-progress-head {
   display: flex;
   flex-wrap: wrap;

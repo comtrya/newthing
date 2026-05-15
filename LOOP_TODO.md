@@ -1189,6 +1189,63 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 59 (CUE Project ownership panel on IssueDetail + EpicDetail)
+
+Surfaces the CUE-declared Project `owners[]` on the two
+biggest planning detail surfaces. When an issue or epic is
+scoped to a Project, the sidebar / paper-card now answers
+"who is this work routed to?" with a chip per owner -
+classifier glyphs, teal team accent, link back to the
+project-scoped queue.
+
+This makes the Projects spine visible at the routing level,
+not just the filter level. Iters 55-58 surfaced
+`project:<name>` in queues and the palette; iter 59 surfaces
+the ownership side of the same CUE config.
+
+IssueDetail:
+- Imports `resolveIssuesPolicy` (already extracts
+  `ownerRefs` from the merged CUE config since iter 26+).
+- New `policy` ref + watcher re-resolves on
+  `issue.projectName` change. Clears when the issue has no
+  project so the panel hides cleanly.
+- New sidebar `<section class="issue-panel">` titled
+  "Routed to" with a `◇ <project>` link header that filters
+  IssuesList to that project, and a chip list of
+  `authorLabel()`-classified owner refs. Footer mono
+  attribution: `From package comtrya · projects.<name>.owners`.
+- Chip border-tone palette keyed by `data-author-kind` -
+  team teal, human ink, agent purple, bot blue, credential
+  yellow. Same vocabulary the hero chip row uses, so the
+  detail page reads as one continuous classifier-driven
+  surface.
+
+EpicDetail:
+- New `project-policy.ts` mirroring the issues policy
+  shape, scoped to just the cross-cutting `ownerRefs`
+  field. Kept extension-local (no cross-extension import)
+  per the workspace boundary rule; a future iteration can
+  promote this to sdk-vue if a third consumer appears.
+- `EpicDetail.vue` imports `resolveProjectPolicy`, adds a
+  `projectPolicy` ref + watcher, and renders a paper-card
+  `<section class="epic-routed">` between the progress bar
+  and the body. Header chip links back to
+  `/x/epics/?project=<name>` (the iter 57 EpicsList filter
+  URL).
+- `classifyOwner()` local helper matches the IssueDetail
+  classifier exactly so the glyph set is consistent.
+- Card aesthetic matches the existing progress panel
+  (paper-tint background, `--ink-rule` border, mono
+  attribution footer).
+
+Verified against `/r/comtrya/dogfood`'s CUE config: three
+projects each declare real owners - `ext_docs` ->
+`comtrya://team/platform-maintainers`; `frontend` ->
+`comtrya://team/frontend-maintainers` + `comtrya://user/rawkode`;
+`kernel` -> `comtrya://team/platform-maintainers` +
+`comtrya://user/rawkode`. typecheck + both ext bundles
+clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 58 (Per-project queue commands in the palette)
 
 Extends `bindProjectCommands` so every CUE Project gets four
