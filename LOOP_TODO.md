@@ -1189,6 +1189,54 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 57 (Linear-style filter syntax on EpicsList - is:/owner:/project: completes the trio)
+
+EpicsList adopts the iter 55 `parseQueryFilters` helper so
+all three planning queues (PullsQueue, IssuesList, EpicsList)
+share one tokeniser and one chip-row aesthetic. Project
+spine is now expressible as `project:<name>` across every
+queue.
+
+EpicsList consumer:
+- Adds the previously-missing search input (EpicsList had
+  URL-pinned chip filters but no free-text or token entry).
+  The input uses the same compact mono affordance as the
+  other queues with a placeholder that advertises the
+  vocabulary.
+- `EPICS_FILTER_KEYS = ["is", "owner", "project"]`.
+- `STATE_TOKEN_TO_FILTER` maps `planned`, `in-progress` /
+  `in_progress` / `inprogress`, `done`, `canceled` /
+  `cancelled`, and `all` to the `Filter` enum. Dash and
+  underscore synonyms accepted so muscle memory from either
+  GitHub or Linear works.
+- `effectiveStateFilter` / `effectiveOwnerFilter` /
+  `effectiveProjectFilter` derive from tokens with the URL-
+  pinned refs as the fallback. `props.projectName` still
+  wins when mounted on a project page.
+- `epics` computed now reads the parsed-text remainder for
+  substring match against title + owner short label +
+  projectName, so `project:ui spike` returns the UI
+  project's spike epic.
+- `queueFilterChips` renders the editorial chip strip:
+  tealed `is · in progress`, ink `→ <owner short label>`,
+  `--accent-blue` `◇ <project>`, dashed-warn `unknown ·
+  <key>:`. Same palette + glyph as iter 56.
+- URL state extended to `?q=<search>` so a fully-tokenised
+  view (`?state=IN_PROGRESS&project=ui&q=spike` or just
+  `?q=is:in-progress project:ui spike`) is a shareable
+  link.
+
+Verified parser × filter logic across a synthetic epic set
+spanning all five states + three owners + two projects:
+- `is:in-progress` / `is:in_progress` → identical results
+- `project:ui is:in-progress` → both filters compose
+- `owner:comtrya://team/kernel` → kernel team's epics
+- `project:ui spike` → free-text + project compose
+- unknown `label:bug` surfaces a dashed chip without
+  breaking the rest of the filter
+typecheck + ext_epics bundle clean, `entryIntegrity`
+refreshed.
+
 ### 2026-05-15 - iteration 56 (Linear-style filter syntax on IssuesList - project:/assignee:/is:)
 
 Adopts the iter 55 `parseQueryFilters` helper on IssuesList,

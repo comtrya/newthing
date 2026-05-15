@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { parseQueryFilters } from "@comtrya/sdk-vue";
 import { listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
@@ -52,6 +53,7 @@ const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
 const loadedEpics = ref<Epic[]>(props.epics ?? []);
 const filter = ref<Filter>("ALL");
+const search = ref("");
 
 /**
  * Active owner filter — a canonical `comtrya://` URN or empty.
@@ -76,21 +78,129 @@ const scopedEpics = computed(() => {
   return all.filter((epic) => epic.projectName === props.projectName);
 });
 
+/**
+ * Linear-style filter syntax inside the search input, mirroring
+ * iter 55 (PullsQueue) and iter 56 (IssuesList) so the three
+ * planning queues share one vocabulary. Recognised tokens:
+ *   `is:<state>`    — planned / in-progress / done / canceled / all
+ *   `owner:<urn>`   — canonical comtrya:// URN
+ *   `project:<name>`— CUE Project name
+ *
+ * Token wins over the corresponding chip / URL ref for the
+ * duration of the search; clearing the input restores the chip
+ * state. `props.projectName` (mounted on a project page) still
+ * wins regardless.
+ */
+const EPICS_FILTER_KEYS = ["is", "owner", "project"] as const;
+
+const STATE_TOKEN_TO_FILTER: Record<string, Filter> = {
+  planned: "PLANNED",
+  "in-progress": "IN_PROGRESS",
+  in_progress: "IN_PROGRESS",
+  inprogress: "IN_PROGRESS",
+  done: "DONE",
+  canceled: "CANCELED",
+  cancelled: "CANCELED",
+  all: "ALL",
+};
+
+const parsedQuery = computed(() =>
+  parseQueryFilters(search.value, EPICS_FILTER_KEYS),
+);
+
+const effectiveStateFilter = computed<Filter>(() => {
+  for (const token of parsedQuery.value.filters.is ?? []) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    if (mapped) return mapped;
+  }
+  return filter.value;
+});
+
+const effectiveOwnerFilter = computed<string>(() => {
+  for (const token of parsedQuery.value.filters.owner ?? []) {
+    if (token.startsWith("comtrya://")) return token;
+  }
+  return ownerFilter.value;
+});
+
+const effectiveProjectFilter = computed<string>(() => {
+  if (props.projectName) return "";
+  for (const token of parsedQuery.value.filters.project ?? []) {
+    if (token.trim()) return token.trim();
+  }
+  return projectFilter.value;
+});
+
 const epics = computed(() => {
   let result = scopedEpics.value;
-  if (filter.value !== "ALL") {
-    result = result.filter((epic) => epic.state === filter.value);
+  const state = effectiveStateFilter.value;
+  if (state !== "ALL") {
+    result = result.filter((epic) => epic.state === state);
   }
-  // Prop wins: when on a project page, scopedEpics is already
-  // narrowed, so we don't re-apply the URL filter.
-  const project = props.projectName ? "" : projectFilter.value;
+  const project = effectiveProjectFilter.value;
   if (project) {
     result = result.filter((epic) => epic.projectName === project);
   }
-  if (ownerFilter.value) {
-    result = result.filter((epic) => epic.ownerRef === ownerFilter.value);
+  const owner = effectiveOwnerFilter.value;
+  if (owner) {
+    result = result.filter((epic) => epic.ownerRef === owner);
+  }
+  const q = parsedQuery.value.text.trim().toLowerCase();
+  if (q) {
+    result = result.filter((epic) => {
+      const owner = (epic.ownerRef ?? "").split("/").pop() ?? "";
+      const haystack = `${epic.title} ${owner} ${epic.projectName ?? ""}`.toLowerCase();
+      return haystack.includes(q);
+    });
   }
   return result;
+});
+
+interface QueueFilterChip {
+  key: string;
+  value: string;
+  label: string;
+  tone: "is" | "owner" | "project" | "unknown";
+}
+
+const queueFilterChips = computed<QueueFilterChip[]>(() => {
+  const chips: QueueFilterChip[] = [];
+  for (const token of parsedQuery.value.filters.is ?? []) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    chips.push({
+      key: "is",
+      value: token,
+      label: mapped
+        ? `is · ${mapped.toLowerCase().replace("_", " ")}`
+        : `is · ${token}`,
+      tone: "is",
+    });
+  }
+  for (const token of parsedQuery.value.filters.owner ?? []) {
+    chips.push({
+      key: "owner",
+      value: token,
+      label: `→ ${shortOwnerLabel(token)}`,
+      tone: "owner",
+    });
+  }
+  for (const token of parsedQuery.value.filters.project ?? []) {
+    chips.push({
+      key: "project",
+      value: token,
+      label: `◇ ${token}`,
+      tone: "project",
+    });
+  }
+  for (const key of parsedQuery.value.unknown) {
+    chips.push({
+      key,
+      value: "",
+      label: `unknown · ${key}:`,
+      tone: "unknown",
+    });
+  }
+  return chips;
 });
 
 function toggleOwnerFilter(ref: string): void {
@@ -158,6 +268,8 @@ function readUrlState(): void {
   ownerFilter.value = rawOwner.startsWith("comtrya://") ? rawOwner : "";
   const rawProject = params.get("project") ?? "";
   projectFilter.value = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(rawProject) ? rawProject : "";
+  const rawQ = params.get("q");
+  if (rawQ !== null) search.value = rawQ;
 }
 
 function writeUrlState(): void {
@@ -169,6 +281,9 @@ function writeUrlState(): void {
   else params.delete("owner");
   if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
   else params.delete("project");
+  const trimmedQ = search.value.trim();
+  if (trimmedQ) params.set("q", trimmedQ);
+  else params.delete("q");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -203,7 +318,7 @@ watch(
   () => void loadEpics(),
 );
 
-watch([filter, ownerFilter, projectFilter], () => {
+watch([filter, ownerFilter, projectFilter, search], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -246,22 +361,52 @@ async function loadEpics(): Promise<void> {
 
     <div
       v-if="scopedEpics.length > 0"
-      class="epics-filter-row"
-      role="tablist"
-      aria-label="Filter epics by state"
+      class="epics-controls"
     >
-      <button
-        v-for="f in FILTERS"
-        :key="f.id"
-        type="button"
-        role="tab"
-        :aria-selected="filter === f.id"
-        :class="['epics-filter', { active: filter === f.id }]"
-        @click="filter = f.id"
+      <div
+        class="epics-filter-row"
+        role="tablist"
+        aria-label="Filter epics by state"
       >
-        <span>{{ f.label }}</span>
-        <span class="count">{{ counts[f.id] }}</span>
-      </button>
+        <button
+          v-for="f in FILTERS"
+          :key="f.id"
+          type="button"
+          role="tab"
+          :aria-selected="filter === f.id"
+          :class="['epics-filter', { active: filter === f.id }]"
+          @click="filter = f.id"
+        >
+          <span>{{ f.label }}</span>
+          <span class="count">{{ counts[f.id] }}</span>
+        </button>
+      </div>
+      <label class="epics-search">
+        <input
+          data-epics-search
+          v-model="search"
+          type="search"
+          placeholder="Filter — try is:in-progress · project:&lt;name&gt; · owner:&lt;urn&gt; · text"
+          autocomplete="off"
+        />
+      </label>
+    </div>
+
+    <div
+      v-if="queueFilterChips.length > 0"
+      class="epics-query-chips"
+      data-smoke="epics-query-chips"
+      aria-label="Parsed search filters"
+    >
+      <span
+        v-for="chip in queueFilterChips"
+        :key="`${chip.key}:${chip.value || 'unknown'}`"
+        :class="['query-chip', `tone-${chip.tone}`]"
+        :title="chip.tone === 'unknown' ? `Unknown filter key: ${chip.key}` : chip.value"
+      >{{ chip.label }}</span>
+      <span class="query-chips-hint">
+        syntax: <code>is:in-progress</code> · <code>project:&lt;name&gt;</code> · <code>owner:&lt;urn&gt;</code>
+      </span>
     </div>
 
     <div
@@ -351,13 +496,103 @@ async function loadEpics(): Promise<void> {
   text-decoration: none;
 }
 
+.epics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.epics-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 280px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  padding: 0 8px;
+}
+
+.epics-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  padding: 6px 0;
+  outline: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.epics-search input::placeholder {
+  color: var(--ink-faint, #68645c);
+}
+
+/* Parsed-filter chip strip — mirrors the IssuesList iter-56
+ * aesthetic so the three planning queues read identically. Tone
+ * colours match the cross-queue palette:
+ *   is:       accent-teal
+ *   owner:    ink
+ *   project:  accent-blue (Project-spine accent)
+ *   unknown:  dashed warning */
+.epics-query-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.epics-query-chips .query-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.epics-query-chips .query-chip.tone-is {
+  color: var(--accent-teal, #087f6f);
+}
+
+.epics-query-chips .query-chip.tone-owner {
+  color: var(--ink, #111);
+}
+
+.epics-query-chips .query-chip.tone-project {
+  color: var(--accent-blue, #1d55a6);
+}
+
+.epics-query-chips .query-chip.tone-unknown {
+  color: var(--accent-yellow, #c89300);
+  border-style: dashed;
+}
+
+.epics-query-chips .query-chips-hint {
+  margin-left: 4px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0;
+}
+
+.epics-query-chips .query-chips-hint code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
+}
+
 .epics-filter-row {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0;
   border: 1px solid var(--ink, #111);
   align-self: flex-start;
-  margin-bottom: 4px;
 }
 
 .epics-filter {
