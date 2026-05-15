@@ -1189,6 +1189,39 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 41 (PullsDetail — editorial chip strip)
+
+The last detail surface still using a verbose inline meta strip.
+Brings PullsDetail in line with the iter-28 / iter-30 / iter-38
+chip-row aesthetic.
+
+The old `.pulls-detail-meta` div mixed `.pulls-state`,
+`.pulls-branch`, `.pulls-author`, and three different
+inline-text spans for opened/merged/closed times — plus three
+duplicate `.author-badge` spans saying "agent" / "bot" / "bot"
+that re-declared what the data-author-kind colour already
+showed. Replaced with one `.pulls-chip-row` carrying:
+
+- `.pull-chip.tone-state` (ready / draft / merged / closed —
+  tonal border colour matches the queue row badge).
+- `.pull-chip.tone-branch` with `<code>head</code> → <code>base</code>`,
+  arrow in `ink-fainter`.
+- `.pull-chip.tone-author` with the classifier glyph palette
+  (`✦` agent / `◆` bot / `⚙` credential / `◇` team / initial-
+  letter user). Duplicate badge spans dropped — the data-author-
+  kind colour does the work.
+- `merged <rel>` / `closed <rel>` chip in the matching state
+  tone (`tone-merged` blue, `tone-closed` red), then `opened
+  <rel>` borderless in `ink-faint`.
+
+Net change: −40 lines of stale `.pulls-detail-meta` CSS +
+template, +75 lines of chip styles consistent with the rest of
+the shell.
+
+All three detail surfaces (issue, PR, epic) now share the chip
+row aesthetic. Visual consistency across the planning surfaces
+is closed.
+
 ### 2026-05-15 — iteration 40 (Workspace home — repos grouped by owner)
 
 The flat repo list on the workspace home becomes a set of

@@ -194,30 +194,30 @@ async function onClose(): Promise<void> {
           <span class="pulls-detail-number">#{{ pull.number }}</span>
           <h1>{{ pull.title }}</h1>
         </div>
-        <div class="pulls-detail-meta">
-          <span :class="['pulls-state', tone.className]">{{ tone.label }}</span>
-          <code class="pulls-branch">
-            {{ pull.headRef }} <span>→</span> {{ pull.baseRef }}
-          </code>
-          <span class="pulls-author" :data-author-kind="classifyAuthor(pull.authorRef).kind">
-            <span class="author-glyph">{{ classifyAuthor(pull.authorRef).glyph }}</span>
-            by {{ classifyAuthor(pull.authorRef).label }}
-            <span
-              v-if="classifyAuthor(pull.authorRef).kind === 'agent'"
-              class="author-badge"
-            >agent</span>
-            <span
-              v-else-if="classifyAuthor(pull.authorRef).kind === 'credential'"
-              class="author-badge"
-            >bot</span>
-            <span
-              v-else-if="classifyAuthor(pull.authorRef).kind === 'bot'"
-              class="author-badge"
-            >bot</span>
+        <div class="pulls-chip-row" aria-label="Pull request metadata">
+          <span :class="['pull-chip', 'tone-state', tone.className]">{{ tone.label }}</span>
+          <span class="pull-chip tone-branch">
+            <code>{{ pull.headRef }}</code>
+            <span class="branch-arrow" aria-hidden="true">→</span>
+            <code>{{ pull.baseRef }}</code>
           </span>
-          <span v-if="pull.createdAt">opened {{ relativeTime(pull.createdAt) }}</span>
-          <span v-if="pull.mergedAt">merged {{ relativeTime(pull.mergedAt) }}</span>
-          <span v-else-if="pull.closedAt">closed {{ relativeTime(pull.closedAt) }}</span>
+          <span
+            class="pull-chip tone-author"
+            :data-author-kind="classifyAuthor(pull.authorRef).kind"
+            :title="`Opened by ${pull.authorRef}`"
+          >
+            <span class="chip-glyph">{{ classifyAuthor(pull.authorRef).glyph }}</span>
+            by {{ classifyAuthor(pull.authorRef).label }}
+          </span>
+          <span v-if="pull.mergedAt" class="pull-chip tone-time tone-merged">
+            merged {{ relativeTime(pull.mergedAt) }}
+          </span>
+          <span v-else-if="pull.closedAt" class="pull-chip tone-time tone-closed">
+            closed {{ relativeTime(pull.closedAt) }}
+          </span>
+          <span v-if="pull.createdAt" class="pull-chip tone-time">
+            opened {{ relativeTime(pull.createdAt) }}
+          </span>
         </div>
       </header>
 
@@ -342,48 +342,84 @@ async function onClose(): Promise<void> {
   color: var(--ink-faint, #68645c);
 }
 
-.pulls-detail-meta {
+/**
+ * Editorial chip row — same shape as IssueDetail's chip strip
+ * (iteration 38), RepoHome (iter 28), ProjectHome (iter 30). Every
+ * routing fact about this PR (state, branch arrow, author,
+ * timestamps) reads as a chip with consistent borders and tone.
+ */
+.pulls-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px 16px;
-  align-items: baseline;
+  gap: 6px;
+  margin: 4px 0 0;
+  align-items: center;
+}
+
+.pull-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-light, #d8d1c4);
   font-family: var(--mono, monospace);
-  font-size: 12px;
-  color: var(--ink-faint, #68645c);
-}
-
-.pulls-state {
-  border: 1px solid currentColor;
-  padding: 0 6px;
   font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.pulls-state.pr-state-ready {
-  color: var(--accent-teal, #087f6f);
-}
-
-.pulls-state.pr-state-draft {
-  color: var(--ink-faint, #68645c);
-}
-
-.pulls-state.pr-state-merged {
-  color: var(--accent-blue, #1d55a6);
-}
-
-.pulls-state.pr-state-closed {
-  color: var(--accent-err, #c9341c);
-}
-
-.pulls-branch {
+  line-height: 16px;
   color: var(--ink-soft, #2c2b28);
 }
 
-.pulls-branch span {
-  color: var(--ink-fainter, #918b80);
-  padding: 0 4px;
+.pull-chip .chip-glyph {
+  width: 13px;
+  height: 13px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
 }
+
+.pull-chip.tone-state {
+  border-color: currentColor;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+
+.pull-chip.tone-state.pr-state-ready   { color: var(--accent-teal, #087f6f); }
+.pull-chip.tone-state.pr-state-draft   { color: var(--ink-faint, #68645c); }
+.pull-chip.tone-state.pr-state-merged  { color: var(--accent-blue, #1d55a6); }
+.pull-chip.tone-state.pr-state-closed  { color: var(--accent-err, #c9341c); }
+
+.pull-chip.tone-branch {
+  gap: 4px;
+}
+
+.pull-chip.tone-branch code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-soft, #2c2b28);
+}
+
+.pull-chip.tone-branch .branch-arrow {
+  color: var(--ink-fainter, #918b80);
+  padding: 0 2px;
+}
+
+.pull-chip.tone-author {
+  color: var(--ink-soft, #2c2b28);
+}
+
+.pull-chip.tone-author[data-author-kind="agent"]      { color: #6b3fa0; }
+.pull-chip.tone-author[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.pull-chip.tone-author[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.pull-chip.tone-author[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+
+.pull-chip.tone-time {
+  color: var(--ink-faint, #68645c);
+  border-style: none;
+  padding-left: 2px;
+}
+
+.pull-chip.tone-time.tone-merged { color: var(--accent-blue, #1d55a6); }
+.pull-chip.tone-time.tone-closed { color: var(--accent-err, #c9341c); }
 
 .pulls-detail-actions {
   display: flex;
@@ -448,49 +484,6 @@ async function onClose(): Promise<void> {
   font-family: var(--mono, monospace);
   font-size: 12px;
   color: var(--ink-faint, #68645c);
-}
-
-.pulls-detail-meta .pulls-author {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pulls-detail-meta .author-glyph {
-  width: 14px;
-  height: 14px;
-  display: inline-grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 700;
-  border: 1px solid currentColor;
-  color: var(--ink-faint, #68645c);
-}
-
-.pulls-detail-meta .pulls-author[data-author-kind="agent"] .author-glyph,
-.pulls-detail-meta .pulls-author[data-author-kind="agent"] .author-badge,
-.pulls-detail-meta .pulls-author[data-author-kind="agent"] {
-  color: #6b3fa0;
-}
-
-.pulls-detail-meta .pulls-author[data-author-kind="credential"] .author-glyph,
-.pulls-detail-meta .pulls-author[data-author-kind="credential"] .author-badge,
-.pulls-detail-meta .pulls-author[data-author-kind="credential"] {
-  color: var(--accent-yellow, #c89300);
-}
-
-.pulls-detail-meta .pulls-author[data-author-kind="bot"] .author-glyph,
-.pulls-detail-meta .pulls-author[data-author-kind="bot"] .author-badge,
-.pulls-detail-meta .pulls-author[data-author-kind="bot"] {
-  color: var(--accent-blue, #1d55a6);
-}
-
-.pulls-detail-meta .author-badge {
-  border: 1px solid currentColor;
-  padding: 0 4px;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .pulls-linked-issues {
