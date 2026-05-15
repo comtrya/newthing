@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useShortcuts } from "@comtrya/sdk-vue";
+import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
 import { listPulls } from "./api";
 import {
   classifyAuthor,
@@ -63,11 +63,56 @@ const matchesFilter = (pull: PullRequest, f: Filter): boolean => {
   return pull.state === (f as PrState);
 };
 
+/**
+ * Linear-style filter syntax inside the search input. The parser
+ * extracts known tokens (`is:`, `author:`) into structured filters
+ * and leaves the rest as free text. Tokens compose with the URL
+ * filter chips: typing `is:draft` narrows on top of the row
+ * filter; typing the same chip-key surfaces a "redundant" path
+ * (handled by the consumer — currently `is:` overrides the row
+ * chip so the search input is the source of truth).
+ *
+ * The set of recognised keys is declared at the call site so a
+ * future addition (`label:`, `repo:`, `project:`) is a one-line
+ * extension of `QUEUE_FILTER_KEYS` plus a consumer branch below.
+ */
+const QUEUE_FILTER_KEYS = ["is", "author"] as const;
+
+const STATE_TOKEN_TO_FILTER: Record<string, Filter> = {
+  open: "OPEN",
+  draft: "DRAFT",
+  merged: "MERGED",
+  closed: "CLOSED",
+  all: "ALL",
+};
+
+const parsedQuery = computed(() =>
+  parseQueryFilters(search.value, QUEUE_FILTER_KEYS),
+);
+
+const effectiveStateFilter = computed<Filter>(() => {
+  const tokens = parsedQuery.value.filters.is ?? [];
+  for (const token of tokens) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    if (mapped) return mapped;
+  }
+  return filter.value;
+});
+
+const effectiveAuthorFilter = computed<string>(() => {
+  const tokens = parsedQuery.value.filters.author ?? [];
+  for (const token of tokens) {
+    if (token.startsWith("comtrya://")) return token;
+  }
+  return authorFilter.value;
+});
+
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  const author = authorFilter.value;
+  const q = parsedQuery.value.text.trim().toLowerCase();
+  const author = effectiveAuthorFilter.value;
+  const state = effectiveStateFilter.value;
   return pulls.value
-    .filter((p) => matchesFilter(p, filter.value))
+    .filter((p) => matchesFilter(p, state))
     .filter((p) => {
       if (!author) return true;
       return p.authorRef === author;
@@ -80,6 +125,44 @@ const filtered = computed(() => {
           .toLowerCase();
       return haystack.includes(q);
     });
+});
+
+interface QueueFilterChip {
+  key: string;
+  value: string;
+  label: string;
+  tone: "is" | "author" | "unknown";
+}
+
+const queueFilterChips = computed<QueueFilterChip[]>(() => {
+  const chips: QueueFilterChip[] = [];
+  for (const token of parsedQuery.value.filters.is ?? []) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    chips.push({
+      key: "is",
+      value: token,
+      label: mapped ? `is · ${mapped.toLowerCase()}` : `is · ${token}`,
+      tone: "is",
+    });
+  }
+  for (const token of parsedQuery.value.filters.author ?? []) {
+    const cls = classifyAuthor(token);
+    chips.push({
+      key: "author",
+      value: token,
+      label: `author · ${cls.label}`,
+      tone: "author",
+    });
+  }
+  for (const key of parsedQuery.value.unknown) {
+    chips.push({
+      key,
+      value: "",
+      label: `unknown · ${key}:`,
+      tone: "unknown",
+    });
+  }
+  return chips;
 });
 
 function toggleAuthorFilter(ref: string): void {
@@ -284,13 +367,30 @@ async function load(): Promise<void> {
             data-pulls-search
             v-model="search"
             type="search"
-            placeholder="Filter by title, branch, author"
+            placeholder="Filter — try is:open · author:&lt;urn&gt; · text"
             autocomplete="off"
             @keydown.esc="onSearchEscape"
           />
           <kbd>/</kbd>
         </label>
       </div>
+      <div
+        v-if="queueFilterChips.length > 0"
+        class="pulls-query-chips"
+        data-smoke="pulls-query-chips"
+        aria-label="Parsed search filters"
+      >
+        <span
+          v-for="chip in queueFilterChips"
+          :key="`${chip.key}:${chip.value || 'unknown'}`"
+          :class="['query-chip', `tone-${chip.tone}`]"
+          :title="chip.tone === 'unknown' ? `Unknown filter key: ${chip.key}` : chip.value"
+        >{{ chip.label }}</span>
+        <span class="query-chips-hint">
+          syntax: <code>is:open</code> · <code>is:draft</code> · <code>author:&lt;urn&gt;</code>
+        </span>
+      </div>
+
       <div
         v-if="authorFilter"
         class="pulls-author-filter"
@@ -603,6 +703,56 @@ async function load(): Promise<void> {
 .pulls-author.active .author-glyph,
 .pulls-author.active .author-label {
   color: inherit;
+}
+
+/* Parsed-filter chip strip — surfaces tokens extracted from
+ * the search input (is:, author:, unknown:). Mirrors the
+ * existing chip-row aesthetic; tone colour communicates the
+ * filter kind without an icon. */
+.pulls-query-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.pulls-query-chips .query-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.pulls-query-chips .query-chip.tone-is {
+  color: var(--accent-teal, #087f6f);
+}
+
+.pulls-query-chips .query-chip.tone-author {
+  color: var(--ink, #111);
+}
+
+.pulls-query-chips .query-chip.tone-unknown {
+  color: var(--accent-warn, #c89300);
+  border-style: dashed;
+}
+
+.pulls-query-chips .query-chips-hint {
+  margin-left: 4px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0;
+}
+
+.pulls-query-chips .query-chips-hint code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
 }
 
 /* Author filter indicator — mirrors iter 35's IssuesList shape. */

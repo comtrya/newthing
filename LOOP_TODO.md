@@ -1189,6 +1189,62 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 55 (Linear-style filter syntax on PullsQueue + shared parseQueryFilters)
+
+Adds Linear-style filter token syntax to the PR queue search
+input (`is:open`, `is:draft`, `author:<urn>`) with structured
+parsing and inline filter chips. The parser lives in
+`@comtrya/sdk-vue` as a shared helper so IssuesList and
+EpicsList can adopt the same vocabulary next iteration.
+
+Shared package:
+- `frontend/packages/sdk-vue/src/parse-query.ts`:
+  `parseQueryFilters(input, knownKeys)` returning
+  `{ text, filters: Record<string, string[]>, unknown: string[] }`.
+  Grammar:
+  - `key:value` where `key` is declared in `knownKeys`.
+  - `key:"quoted value"` keeps internal whitespace.
+  - Repeated keys accumulate (`label:bug label:kernel`).
+  - Unknown keys captured separately so the UI can surface
+    "unknown filter" hints rather than silently dropping.
+  - Bare words become free text.
+  Single-pass tokeniser with a strict key character class
+  (`[A-Za-z][\w-]*`) so URN-shaped values
+  (`comtrya://user/...`) parse as values, not nested keys.
+- `index.ts` re-exports `parseQueryFilters` + `ParsedQuery`.
+
+PullsQueue consumer:
+- `QUEUE_FILTER_KEYS = ["is", "author"]` declares the
+  recognised tokens.
+- `effectiveStateFilter` derives from `is:` tokens (maps
+  `open`/`draft`/`merged`/`closed`/`all` to the queue's
+  `Filter` enum) and falls back to the row chip when no
+  token matches. The row chip stays interactive; typing
+  `is:draft` overrides it for the duration of the search.
+- `effectiveAuthorFilter` accepts any `comtrya://` URN from
+  `author:` tokens; falls back to the chip-set
+  `authorFilter` ref.
+- `filtered` now reads from the parsed-text remainder, so
+  `is:draft code` finds only DRAFT PRs whose haystack
+  matches "code".
+- `queueFilterChips` computed renders an inline chip strip
+  above the queue: tealed `is · draft` for state filters,
+  ink-coloured `author · <classifier label>` for author
+  filters, dashed warning `unknown · <key>:` for unrecognised
+  tokens. Includes a small mono hint at the right with the
+  syntax shorthand.
+
+Verified end-to-end against dogfood (1 READY, 2 DRAFT, 1
+MERGED, the merge-reactor's credential-authored PR):
+- empty input + OPEN chip → only #42
+- `is:draft` → #41 + #40
+- `is:merged` → #43
+- `is:all` → all four
+- `is:draft code` → #41 (DRAFT + title match)
+- `author:comtrya://principal/anonymous is:draft` → #41 + #40
+typecheck + shell build + ext_pull_requests bundle clean,
+`entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 54 (Closes panel: project chip + keyboard nav + live refresh)
 
 The PR detail "Closes" panel (originally shipped to surface

@@ -213,3 +213,6 @@ export { useShortcuts } from "./use-shortcuts";
 export type { UseShortcutsOptions } from "./use-shortcuts";
 
 export { renderMarkdown, bodyExcerpt } from "./markdown";
+
+export { parseQueryFilters } from "./parse-query";
+export type { ParsedQuery } from "./parse-query";
