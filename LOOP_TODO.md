@@ -1189,6 +1189,48 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 65 (Per-project counts on the WorkspaceHome Projects panel)
+
+Compounds iter 64. The Projects panel surfaced every CUE
+Project across the workspace with owner chips, but the rows
+were informational - no work counts. Iter 65 makes each row
+actionable: open-issue count, in-progress-epic count, and
+closed count chip, each clickable into the iter 60 URL-
+filter recipe.
+
+WorkspaceHome:
+- New `projectCounts: Record<string, ProjectCounts>` ref
+  bucketing per-project work tallies (`openIssues`,
+  `closedIssues`, `epicsPlanned`, `epicsInProgress`,
+  `epicsDone`).
+- `refreshProjectCounts()` runs two workspace-wide ops calls
+  in parallel (`ext_issues/list-issues` +
+  `ext_epics/list-epics`, each with the workspace URN as
+  `repository`/`workspace`), buckets by `projectName`. Total
+  cost: two ops calls, regardless of project count -
+  much cheaper than fanning out per-project queries.
+- Triggered on `[workspaceId, repositories]` change. Live-
+  refreshed via the existing issues SSE topics (extended
+  to also fire `refreshProjectCounts`) plus new
+  `dev.comtrya.epic.{created,state-changed}` subscriptions.
+- `countsFor(name)` returns the bucketed counts (empty
+  defaults when no project match) for template binding.
+  `projectFilterHref(surface, name, state?)` builds the
+  destination URL.
+- Template renders a `.home-project-counts` row per
+  project with three chips - open issues / in-progress
+  epics / closed issues - each a `<RouterLink>`. Zero
+  counts dim via `data-zero` to focus the eye on actionable
+  numbers. Tabular-nums + display font for the count, mono
+  faint label, hover underline.
+
+Verified against dogfood: the seed has no `projectName`-
+tagged issues or epics yet, so every count renders as 0
+across all 6 panel rows (3 from dogfood, 3 default `repo`
+from other repos). The instant a team starts stamping
+projects on issues/epics, the counts populate live without
+refresh. typecheck + shell build clean.
+
 ### 2026-05-15 - iteration 64 (Projects panel on WorkspaceHome - the spine surfaces from the canvas)
 
 The first visible product surface built on the iter 63

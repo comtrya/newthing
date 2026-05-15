@@ -535,6 +535,55 @@ kbd {
   text-align: right;
 }
 
+/* Project work counts — open issues / in-progress epics /
+ * closed. Each chip links to the corresponding filtered queue
+ * using the iter 60 URL recipe (`?project=<name>&state=...`).
+ * Zero-count chips dim to faint ink so the eye lands on the
+ * actionable counts first. */
+.shell-app .home-project-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  padding: 2px 0 6px;
+}
+
+.shell-app .home-project-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid transparent;
+  transition: border-color 80ms ease;
+}
+
+.shell-app .home-project-count:hover {
+  border-bottom-color: var(--ink, #111);
+}
+
+.shell-app .home-project-count .count-num {
+  font-family: var(--display, system-ui);
+  font-weight: 650;
+  font-size: 14px;
+  color: var(--ink, #111);
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-app .home-project-count[data-zero="true"] .count-num,
+.shell-app .home-project-count.muted .count-num {
+  color: var(--ink-fainter, #918b80);
+  font-weight: 500;
+}
+
+.shell-app .home-project-count .count-label {
+  color: var(--ink-faint, #68645c);
+  text-transform: lowercase;
+}
+
 .shell-app .home-project-owners {
   list-style: none;
   padding: 0;

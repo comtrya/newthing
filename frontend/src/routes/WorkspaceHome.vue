@@ -177,6 +177,104 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
 }
 
 /**
+ * Per-Project work counts — open / closed issues + epic state
+ * tally bucketed by `projectName`. Workspace-wide single fetch
+ * per resource so a workspace with N repos × M projects costs
+ * exactly two ops calls, not N × M. Renders count chips on each
+ * panel row; each chip links to the corresponding filtered queue
+ * (iter 60 URL recipe).
+ *
+ * Live-synced via SSE on `dev.comtrya.issues.{opened,closed,
+ * reopened}` and `dev.comtrya.epic.{created,state-changed}` so
+ * opening an issue elsewhere updates the workspace panel without
+ * refresh.
+ */
+interface ProjectCounts {
+  openIssues: number;
+  closedIssues: number;
+  epicsPlanned: number;
+  epicsInProgress: number;
+  epicsDone: number;
+}
+
+const emptyCounts = (): ProjectCounts => ({
+  openIssues: 0,
+  closedIssues: 0,
+  epicsPlanned: 0,
+  epicsInProgress: 0,
+  epicsDone: 0,
+});
+
+interface IssueLite {
+  state?: string;
+  projectName?: string | null;
+}
+
+interface EpicLite {
+  state?: string;
+  projectName?: string | null;
+}
+
+const projectCounts = ref<Record<string, ProjectCounts>>({});
+
+async function refreshProjectCounts(): Promise<void> {
+  const ws = workspaceId.value;
+  if (!ws) return;
+  const workspaceUri = `comtrya://workspace/${ws}`;
+  const [issuesRes, epicsRes] = await Promise.all([
+    invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
+      repository: workspaceUri,
+      limit: 4096,
+    }),
+    invokeOp<EpicLite[]>("ext_epics", "epics", "list-epics", {
+      workspace: workspaceUri,
+      limit: 4096,
+    }),
+  ]);
+  const next: Record<string, ProjectCounts> = {};
+  const bucket = (name: string): ProjectCounts =>
+    (next[name] ??= emptyCounts());
+  if (issuesRes.ok && Array.isArray(issuesRes.value)) {
+    for (const issue of issuesRes.value) {
+      const project = (issue.projectName ?? "").trim();
+      if (!project) continue;
+      const counts = bucket(project);
+      const state = (issue.state ?? "").toUpperCase();
+      if (state === "CLOSED") counts.closedIssues += 1;
+      else counts.openIssues += 1;
+    }
+  }
+  if (epicsRes.ok && Array.isArray(epicsRes.value)) {
+    for (const epic of epicsRes.value) {
+      const project = (epic.projectName ?? "").trim();
+      if (!project) continue;
+      const counts = bucket(project);
+      const state = (epic.state ?? "").toUpperCase();
+      if (state === "DONE" || state === "CANCELED") counts.epicsDone += 1;
+      else if (state === "IN_PROGRESS" || state === "AT_RISK") {
+        counts.epicsInProgress += 1;
+      } else counts.epicsPlanned += 1;
+    }
+  }
+  projectCounts.value = next;
+}
+
+function countsFor(name: string | undefined): ProjectCounts {
+  if (!name) return emptyCounts();
+  return projectCounts.value[name] ?? emptyCounts();
+}
+
+function projectFilterHref(
+  surface: "issues" | "epics",
+  name: string,
+  state?: string,
+): string {
+  const encoded = encodeURIComponent(name);
+  const suffix = state ? `&state=${state}` : "";
+  return `/x/${surface}/?project=${encoded}${suffix}`;
+}
+
+/**
  * Group repositories by their first path segment (owner). Path
  * shapes the kernel returns include `comtrya/dogfood`,
  * `rawkode/rawkode`, `rawkode/hello/rawkode`, etc. — the first
@@ -303,7 +401,19 @@ onMounted(() => {
     issueUnsubscribers.push(
       subscribeLiveEvents({
         type,
-        onEvent: () => void refreshAllOpenIssues(),
+        onEvent: () => {
+          void refreshAllOpenIssues();
+          void refreshProjectCounts();
+        },
+        onError: () => {},
+      }),
+    );
+  }
+  for (const type of ["dev.comtrya.epic.created", "dev.comtrya.epic.state-changed"]) {
+    issueUnsubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void refreshProjectCounts(),
         onError: () => {},
       }),
     );
@@ -322,6 +432,11 @@ watch([workspaceId, repositories], () => void refreshAllOpenIssues());
 // triggered on repos changing (mount or live insert from
 // imported-repository events).
 watch(repositories, () => void refreshAllProjects(), { immediate: true });
+
+// Per-project work counts depend on the workspace id being
+// available; refresh once that and the repo set resolve, then
+// keep the counts hot via the issue/epic SSE topics below.
+watch([workspaceId, repositories], () => void refreshProjectCounts());
 
 async function loadWorkspaceHome(): Promise<void> {
   loadController?.abort();
@@ -524,6 +639,35 @@ function relativeUpdated(value: string | null | undefined): string {
                 <span class="home-project-name">{{ row.project.name }}</span>
                 <span class="home-project-repo">{{ row.repoPath }}</span>
               </RouterLink>
+              <div class="home-project-counts" aria-label="Project work counts">
+                <RouterLink
+                  :to="projectFilterHref('issues', row.project.name ?? '')"
+                  class="home-project-count"
+                  :data-zero="countsFor(row.project.name).openIssues === 0"
+                  :title="`Open issues in ${row.project.name}`"
+                >
+                  <span class="count-num">{{ countsFor(row.project.name).openIssues }}</span>
+                  <span class="count-label">open</span>
+                </RouterLink>
+                <RouterLink
+                  :to="projectFilterHref('epics', row.project.name ?? '', 'IN_PROGRESS')"
+                  class="home-project-count"
+                  :data-zero="countsFor(row.project.name).epicsInProgress === 0"
+                  :title="`In-progress epics in ${row.project.name}`"
+                >
+                  <span class="count-num">{{ countsFor(row.project.name).epicsInProgress }}</span>
+                  <span class="count-label">epics</span>
+                </RouterLink>
+                <RouterLink
+                  :to="projectFilterHref('issues', row.project.name ?? '', 'CLOSED')"
+                  class="home-project-count muted"
+                  :data-zero="countsFor(row.project.name).closedIssues === 0"
+                  :title="`Closed issues in ${row.project.name}`"
+                >
+                  <span class="count-num">{{ countsFor(row.project.name).closedIssues }}</span>
+                  <span class="count-label">closed</span>
+                </RouterLink>
+              </div>
               <ul v-if="projectOwnerRefs(row.project).length > 0" class="home-project-owners">
                 <li
                   v-for="ref in projectOwnerRefs(row.project)"
