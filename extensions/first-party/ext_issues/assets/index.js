@@ -3447,6 +3447,7 @@ var Ss = {
 	openIssue: async (e) => Co("ext_issues", "issues", "open-issue", e),
 	closeIssue: async (e) => Co("ext_issues", "issues", "close-issue", e),
 	reopenIssue: async (e) => Co("ext_issues", "issues", "reopen-issue", e),
+	assignProject: async (e) => Co("ext_issues", "issues", "assign-project", e),
 	getIssue: async (e) => Co("ext_issues", "issues", "get-issue", e),
 	listIssues: async (e) => Co("ext_issues", "issues", "list-issues", e),
 	byRefIssue: async (e) => Co("ext_issues", "issues", "by-ref-issue", e),

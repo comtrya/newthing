@@ -1189,6 +1189,54 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 67 (Kernel slice: ext_issues 0.1.7 - assign-project op)
+
+Iter 66 closed the loop on *new* issues - the picker stamps
+`projectName` at creation. Issues opened before iter 66 (and
+the dogfood seed's 9 issues) stay untagged forever without a
+mutation. Iter 67 ships the kernel/WIT slice that unlocks
+retroactive Project assignment; iter 68 will add the UI
+editor that consumes it.
+
+WIT (`extensions/first-party/ext_issues/wit/issues.wit`):
+- Package bumped `0.1.6 -> 0.1.7`.
+- New `assign-project-input { id, project-name: option<string> }`
+  record.
+- New `assign-project: func(input) -> result<issue, error>` op.
+
+Component handler (`component/src/lib.rs`):
+- `fn assign_project(input)` reads + mutates the stored issue
+  via the canonical `storage::update_begin -> update_commit`
+  pattern. Trims/normalises the incoming name so blank/whitespace
+  reads as `None` (matches `open-issue` shape: `Some("")` is not
+  a valid project scope).
+- No-op writes (same project name as currently stored) return
+  the existing snapshot without emitting an event - keeps the
+  SSE stream from echoing on idempotent UI calls.
+- Emits `dev.comtrya.issues.project-changed` carrying both
+  `previousProject` and `projectName` so iter-65 per-project
+  counts on WorkspaceHome can shift their tallies in a single
+  bucket-swap without re-scanning the whole list.
+- New `ProjectChangedPayload` struct (camelCase, skip none
+  fields) - sibling of the existing `IssueEventPayload`.
+
+Build:
+- cargo-component built the new wasm artifact.
+- wit-codegen regenerated `dist/ext_issues.client.ts` (now 10
+  ops; new `assignProject(input)` function). The UI consumer
+  in iter 68 will wire this client method into IssueDetail.
+- ext_issues UI bundle rebuilt to refresh the manifest's
+  `entryIntegrity` (no UI changes in iter 67 - the bundle
+  changes only because the kernel-side hash propagates
+  through the bundler).
+
+The op is registered in the wasm binary but the kernel
+instance running on dogfood today still serves the 0.1.6
+bundle; a kernel restart picks up the new dispatch table.
+Once iter 68's UI ships, the new editor will trigger the op
+and the workspace-wide per-Project counts will populate for
+the seed's previously untagged issues.
+
 ### 2026-05-15 - iteration 66 (Project picker on IssueNew + EpicNew forms - closes the dogfood loop)
 
 Closes the data loop iters 59-65 exposed: every Project-spine

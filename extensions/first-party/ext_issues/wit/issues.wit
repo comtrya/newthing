@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.6;
+package comtrya:ext-issues@0.1.7;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -92,9 +92,23 @@ interface issues {
     closed-by-ref: option<uri>,
   }
 
+  // 0.1.7 — retroactive Project assignment. The new-issue form
+  // stamps `project-name` at open time (iter 66), but issues
+  // opened before that change or via API calls without a project
+  // page can be untagged. This op lets the UI re-route an
+  // existing issue to a Project (or clear it) by passing
+  // `None`. The kernel emits `dev.comtrya.issues.project-changed`
+  // so the workspace-wide per-Project counts (iter 65) refresh
+  // live.
+  record assign-project-input {
+    %id: id,
+    project-name: option<string>,
+  }
+
   open-issue: func(input: open-issue-input) -> result<issue, error>;
   close-issue: func(input: close-issue-input) -> result<issue, error>;
   reopen-issue: func(%id: id) -> result<issue, error>;
+  assign-project: func(input: assign-project-input) -> result<issue, error>;
   get-issue: func(%id: id) -> result<option<issue>, error>;
   list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;

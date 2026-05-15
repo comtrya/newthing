@@ -22,7 +22,8 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    CloseIssueInput, Guest as IssuesGuest, Issue, IssueState, IssueStateCounts, OpenIssueInput,
+    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState,
+    IssueStateCounts, OpenIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -673,6 +674,49 @@ impl IssuesGuest for Component {
         Ok(issue)
     }
 
+    /// 0.1.7 — retroactively assign (or clear) the Project this
+    /// issue belongs to. Trim + normalise the incoming name so a
+    /// blank/whitespace value reads as "unscoped"; collapsing
+    /// `Some("")` to `None` keeps the storage shape consistent
+    /// with `open-issue` (where `None` means unscoped). Emits
+    /// `dev.comtrya.issues.project-changed` carrying both the
+    /// previous and next project names so consumers (workspace
+    /// per-Project counts iter 65, palette, future inbox) can
+    /// shift their tallies without scanning.
+    fn assign_project(input: AssignProjectInput) -> Result<Issue, Error> {
+        let snap = storage::update_begin(COLLECTION, &input.id)?;
+        let mut stored = decode_stored_issue(&input.id, &snap.data)?;
+        let previous = stored.project_name.clone();
+        let normalised = input
+            .project_name
+            .as_deref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if normalised == previous {
+            // No-op write would still produce an event burst.
+            // Bail with the current snapshot instead.
+            return Ok(stored.to_wit());
+        }
+        stored.project_name = normalised.clone();
+        stored.updated_at = time::now_iso();
+        let bytes = serde_json::to_vec(&stored)
+            .map_err(|e| err(ErrorCode::Internal, format!("serialise issue: {e}")))?;
+        storage::update_commit(COLLECTION, &input.id, &snap.version, &bytes)?;
+        let issue = stored.to_wit();
+        emit(
+            "dev.comtrya.issues.project-changed",
+            &ProjectChangedPayload {
+                id: &issue.id,
+                repository: &issue.repository,
+                number: issue.number,
+                previous_project: previous.as_deref(),
+                project_name: normalised.as_deref(),
+            },
+            &issue_uri(&issue.id),
+        )?;
+        Ok(issue)
+    }
+
     fn get_issue(id: String) -> Result<Option<Issue>, Error> {
         Ok(read_stored(&id)?.map(|s| s.to_wit()))
     }
@@ -744,6 +788,22 @@ fn issue_event_payload(issue: &Issue) -> IssueEventPayload<'_> {
         state: state_to_str(issue.state),
         project_name: issue.project_name.as_deref(),
     }
+}
+
+/// Payload for `dev.comtrya.issues.project-changed`. Carries both
+/// the previous and next project names so subscribers can adjust
+/// per-Project counts in a single pass without a follow-up
+/// lookup.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectChangedPayload<'a> {
+    id: &'a str,
+    repository: &'a str,
+    number: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_project: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    project_name: Option<&'a str>,
 }
 
 fn issue_uri(id: &str) -> String {
