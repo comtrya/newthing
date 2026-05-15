@@ -1189,6 +1189,48 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 64 (Projects panel on WorkspaceHome - the spine surfaces from the canvas)
+
+The first visible product surface built on the iter 63
+`fetchComtryaProjects` helper. Until iter 64, you had to
+visit a specific repo before you could see its CUE Projects.
+The workspace home now aggregates every Project declared by
+every repo so the spine is visible from the canonical canvas.
+
+WorkspaceHome:
+- New `projectRows: ProjectRow[]` ref aggregated by
+  `refreshAllProjects()` after the repos resolve. For each
+  repo, calls `fetchComtryaProjects(segments)` (the iter 63
+  sdk-vue helper) and flattens the results into `{ repoPath,
+  segments, project }` rows. Sorted alphabetically by
+  project name then repo path so same-named projects across
+  repos cluster together.
+- `projectHomeHref()` builds `/r/<repo>/p/<project>` so each
+  row is a hyperlink into the Project home. `projectOwnerRefs()`
+  surfaces the typed-#Ref owner URNs for chip rendering.
+- New rail section `.home-projects` renders above the
+  existing extension slots. Per row: `◇ project · repo path`
+  on a clickable link line, plus a chip strip of owners
+  using `classifyPrincipal` (iter 62 canonical) for the
+  glyph + tone-by-kind palette. Footer attribution: `From
+  package comtrya across every repo in this workspace`.
+- New `.home-projects-*` styles in shell `styles.css`. The
+  panel inherits the editorial top-border + panel-heading
+  aesthetic from the rest of the workspace home. Owner-chip
+  tones key off `data-author-kind` exactly like every other
+  iter 59/61 routing surface.
+
+Verified end-to-end against `/r/comtrya/dogfood` plus the
+seed workspace's three other repos. The aggregation surfaces
+six rows total:
+- `comtrya/dogfood` -> `ext_docs` (platform-maintainers)
+- `comtrya/dogfood` -> `frontend` (frontend-maintainers + rawkode)
+- `comtrya/dogfood` -> `kernel` (platform-maintainers + rawkode)
+- `comtrya/comtrya` -> `repo` (no owners)
+- `rawkode/hello/rawkode` -> `repo` (no owners)
+- `imported/comtrya-mirror` -> `repo` (no owners)
+typecheck + shell build clean.
+
 ### 2026-05-15 - iteration 63 (Canonical fetchComtryaProjects in sdk-vue)
 
 Compounds iter 62's cleanup pattern. The CUE projects fetch

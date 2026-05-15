@@ -2,7 +2,12 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
-import { useShortcuts } from "@comtrya/sdk-vue";
+import {
+  classifyPrincipal,
+  fetchComtryaProjects,
+  useShortcuts,
+  type ComtryaProject,
+} from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import SlotMount from "../components/SlotMount.vue";
 import type { WorkspaceHomeSlotName } from "../workspace-home-slots";
@@ -101,6 +106,74 @@ async function refreshAllOpenIssues(): Promise<void> {
   await Promise.all(
     repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
   );
+}
+
+/**
+ * Aggregate CUE Projects declared across every repo in the
+ * workspace. The Project spine is workspace-wide, not repo-wide:
+ * a maintainer of `kernel` in `comtrya/dogfood` should see that
+ * project from the workspace home without having to first know
+ * which repo it lives in.
+ *
+ * Resolved lazily after repos load. Uses the iter 63 sdk-vue
+ * helper for the actual fetch (one query per repo; the kernel's
+ * `workspace.repositories[] { comtryaConfig }` listing doesn't
+ * evaluate CUE per repo today). Failures per-repo are silent so
+ * one bad repo doesn't break the panel.
+ */
+interface ProjectRow {
+  /** Repo path (`comtrya/dogfood`) — disambiguates same-named projects. */
+  repoPath: string;
+  /** Repo path segments used to build /r/<...>/p/<project>. */
+  segments: string[];
+  project: ComtryaProject;
+}
+
+const projectRows = ref<ProjectRow[]>([]);
+const projectsLoadState = ref<"idle" | "loading" | "ready">("idle");
+
+async function refreshAllProjects(): Promise<void> {
+  if (repositories.value.length === 0) {
+    projectRows.value = [];
+    projectsLoadState.value = "ready";
+    return;
+  }
+  projectsLoadState.value = "loading";
+  const fetched = await Promise.all(
+    repositories.value.map(async (repo) => {
+      const segments = (repo.path ?? "")
+        .split("/")
+        .filter(Boolean)
+        .map(decodeURIComponent);
+      const projects = segments.length > 0
+        ? await fetchComtryaProjects(segments)
+        : [];
+      return projects.map((project): ProjectRow => ({
+        repoPath: repo.path,
+        segments,
+        project,
+      }));
+    }),
+  );
+  const rows = fetched.flat().filter((row) => Boolean(row.project.name));
+  rows.sort((a, b) => {
+    const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
+    if (byProject !== 0) return byProject;
+    return a.repoPath.localeCompare(b.repoPath);
+  });
+  projectRows.value = rows;
+  projectsLoadState.value = "ready";
+}
+
+function projectHomeHref(row: ProjectRow): string {
+  const repoPath = row.segments.map(encodeURIComponent).join("/");
+  return `/r/${repoPath}/p/${encodeURIComponent(row.project.name ?? "")}`;
+}
+
+function projectOwnerRefs(project: ComtryaProject): string[] {
+  return (project.owners ?? [])
+    .map((owner) => owner?.ref)
+    .filter((ref): ref is string => typeof ref === "string" && ref.length > 0);
 }
 
 /**
@@ -244,6 +317,11 @@ onUnmounted(() => {
 
 // Hydrate per-repo issue counts once the workspace summary resolves.
 watch([workspaceId, repositories], () => void refreshAllOpenIssues());
+
+// Hydrate the workspace-wide CUE Projects list at the same time -
+// triggered on repos changing (mount or live insert from
+// imported-repository events).
+watch(repositories, () => void refreshAllProjects(), { immediate: true });
 
 async function loadWorkspaceHome(): Promise<void> {
   loadController?.abort();
@@ -421,6 +499,50 @@ function relativeUpdated(value: string | null | undefined): string {
       </div>
 
       <aside class="home-rail">
+        <section
+          v-if="projectRows.length > 0 || projectsLoadState === 'loading'"
+          class="panel home-projects"
+          data-smoke="home-projects"
+        >
+          <header class="panel-heading">
+            <h2>Projects</h2>
+            <span class="meta" aria-hidden="true">
+              {{ projectRows.length }} declared
+            </span>
+          </header>
+          <p v-if="projectsLoadState === 'loading'" class="home-empty">
+            Resolving CUE projects…
+          </p>
+          <ul v-else class="home-projects-list" aria-label="CUE projects across the workspace">
+            <li
+              v-for="row in projectRows"
+              :key="`${row.repoPath}::${row.project.name}`"
+              class="home-project-row"
+            >
+              <RouterLink :to="projectHomeHref(row)" class="home-project-link">
+                <span class="home-project-glyph" aria-hidden="true">◇</span>
+                <span class="home-project-name">{{ row.project.name }}</span>
+                <span class="home-project-repo">{{ row.repoPath }}</span>
+              </RouterLink>
+              <ul v-if="projectOwnerRefs(row.project).length > 0" class="home-project-owners">
+                <li
+                  v-for="ref in projectOwnerRefs(row.project)"
+                  :key="ref"
+                  class="home-project-owner"
+                  :data-author-kind="classifyPrincipal(ref).kind"
+                  :title="ref"
+                >
+                  <span class="chip-glyph">{{ classifyPrincipal(ref).glyph }}</span>
+                  {{ classifyPrincipal(ref).label }}
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <p class="home-projects-source">
+            From <code>package comtrya</code> across every repo in this workspace
+          </p>
+        </section>
+
         <SlotMount
           :name="centerSlot.name"
           :label="centerSlot.label"

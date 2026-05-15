@@ -477,6 +477,120 @@ kbd {
   display: grid;
 }
 
+/* "Projects" panel on WorkspaceHome (iter 64) - aggregates CUE
+ * Projects declared across every repo in the workspace. Sits in
+ * the right rail under the per-repo widgets. Editorial chip-row
+ * aesthetic: ◇ name · repo path · classifier-toned owners. */
+.shell-app .home-projects-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+}
+
+.shell-app .home-project-row {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+}
+
+.shell-app .home-project-row:last-child {
+  border-bottom: 0;
+}
+
+.shell-app .home-project-link {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+  color: inherit;
+  text-decoration: none;
+}
+
+.shell-app .home-project-link:hover .home-project-name {
+  border-bottom-color: var(--ink, #111);
+}
+
+.shell-app .home-project-glyph {
+  font-family: var(--display, system-ui);
+  color: var(--accent-blue, #1d55a6);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.shell-app .home-project-name {
+  font-family: var(--display, system-ui);
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid transparent;
+  transition: border-color 80ms ease;
+}
+
+.shell-app .home-project-repo {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.02em;
+  text-align: right;
+}
+
+.shell-app .home-project-owners {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.shell-app .home-project-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.shell-app .home-project-owner .chip-glyph {
+  font-family: var(--display, system-ui);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.shell-app .home-project-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+.shell-app .home-project-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.shell-app .home-project-owner[data-author-kind="agent"]      { color: #6b3fa0; }
+.shell-app .home-project-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.shell-app .home-project-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+
+.shell-app .home-projects-source {
+  margin: 8px 0 0;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}
+
+.shell-app .home-projects-source code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
+}
+
+.shell-app .home-projects .panel-heading .meta {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
 .shell-app .home-repo-group {
   border-bottom: 1.5px solid var(--ink);
 }
