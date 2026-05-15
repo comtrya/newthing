@@ -1189,6 +1189,36 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 43 (Clone URL chip + copy button on RepoHome)
+
+Resolves a long-standing Quick wins TODO: "Show a per-repository
+'clone URL' affordance with one-click copy on `RepoHome.vue`;
+this is the single most-used DX touchpoint and currently hidden
+behind extension widgets."
+
+`RepoHome.vue` requests `gitHttpPath` alongside the existing
+identity fields. Below the chip row in the header strip, a
+compact two-segment chip:
+
+```
+[ git clone http://localhost:8080/git/comtrya/dogfood.git ]  [ COPY ]
+```
+
+- The `git clone …` segment is monospace, `user-select: all`,
+  click anywhere on it to trigger the copy too.
+- The COPY segment is inverted ink/paper. On click it calls
+  `navigator.clipboard.writeText(cloneCommand)` and flips to
+  `COPIED` in `--accent-teal` for 1.4s.
+- Absolute URL constructed from `window.location.origin +
+  gitHttpPath` so the copied command works from anywhere on
+  the LAN that can reach the kernel.
+- Hidden when the repo has no `gitHttpPath` (defensive — the
+  kernel always returns one for tracked repos today, but a
+  synthesised / virtual repo might not).
+
+Single chip, no other surface noise added. Concrete DX win
+without competing with the chip row's editorial layout.
+
 ### 2026-05-15 — iteration 42 (PR affected-projects chips, derived)
 
 PRs gain Project visibility without changing the storage shape

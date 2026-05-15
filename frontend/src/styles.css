@@ -636,6 +636,58 @@ kbd {
   margin-top: 6px;
 }
 
+.shell-app .repo-clone {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  margin-top: 10px;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  border: 1px solid var(--ink, #111);
+  background: var(--paper, #fffdf8);
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.shell-app .repo-clone-cmd {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  cursor: pointer;
+  -webkit-user-select: all;
+  user-select: all;
+  white-space: nowrap;
+  overflow-x: auto;
+  background: transparent;
+}
+
+.shell-app .repo-clone-copy {
+  border: 0;
+  border-left: 1px solid var(--ink, #111);
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 14px;
+  min-width: 72px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.shell-app .repo-clone-copy[aria-pressed="true"] {
+  background: var(--accent-teal, #087f6f);
+  color: var(--paper, #fffdf8);
+}
+
+.shell-app .repo-clone-copy:hover {
+  background: var(--ink-soft, #2c2b28);
+}
+
 .shell-app .repo-chip {
   display: inline-flex;
   align-items: baseline;

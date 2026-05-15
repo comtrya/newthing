@@ -21,6 +21,7 @@ interface RepositoryIdentity {
   visibility?: string | null;
   updated?: string | null;
   openPullRequests?: number | null;
+  gitHttpPath?: string | null;
 }
 
 interface RepoHomePayload {
@@ -43,6 +44,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       visibility
       updated
       openPullRequests
+      gitHttpPath
     }
   }
 }`;
@@ -55,6 +57,41 @@ const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
 const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
 const displayPath = computed(() => repository.value?.path ?? repoPath.value);
+
+/**
+ * Clone command for the repository — absolute URL built from the
+ * frontend origin + the kernel's `gitHttpPath` (e.g.
+ * `/git/comtrya/dogfood.git`). One of the most-used DX touchpoints
+ * in a forge; previously surfaced only inside extension widgets.
+ *
+ * Click-to-copy uses `navigator.clipboard.writeText()` with a
+ * 1.4s "copied" flash so the user gets visual confirmation
+ * without needing to lift focus from the header.
+ */
+const cloneUrl = computed(() => {
+  const httpPath = repository.value?.gitHttpPath;
+  if (!httpPath) return "";
+  if (typeof window === "undefined") return httpPath;
+  return `${window.location.origin}${httpPath}`;
+});
+const cloneCommand = computed(() => (cloneUrl.value ? `git clone ${cloneUrl.value}` : ""));
+const cloneCopied = ref(false);
+let cloneCopyTimer: number | undefined;
+
+async function copyClone(): Promise<void> {
+  if (!cloneCommand.value) return;
+  try {
+    await navigator.clipboard.writeText(cloneCommand.value);
+    cloneCopied.value = true;
+    if (cloneCopyTimer !== undefined) window.clearTimeout(cloneCopyTimer);
+    cloneCopyTimer = window.setTimeout(() => {
+      cloneCopied.value = false;
+    }, 1400);
+  } catch {
+    // Clipboard API can fail in non-secure contexts; the chip stays
+    // selectable so the user can still copy manually.
+  }
+}
 
 /**
  * Per-repo open issue count. Hydrated when the repo identity
@@ -252,6 +289,22 @@ async function fetchRepositoryIdentity(
         <strong>{{ chip.value }}</strong>
         <span>{{ chip.label }}</span>
       </span>
+    </div>
+    <div
+      v-if="cloneCommand"
+      class="repo-clone"
+      data-smoke="repo-clone"
+    >
+      <code class="repo-clone-cmd" @click="copyClone">{{ cloneCommand }}</code>
+      <button
+        type="button"
+        class="repo-clone-copy"
+        :aria-pressed="cloneCopied"
+        :title="cloneCopied ? 'Copied' : 'Copy clone command'"
+        @click="copyClone"
+      >
+        {{ cloneCopied ? "copied" : "copy" }}
+      </button>
     </div>
   </header>
 
