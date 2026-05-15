@@ -173,6 +173,25 @@ export async function reopenIssue(
   return normalizeIssue(opValue<WitIssue>(result, "reopenIssue"));
 }
 
+/**
+ * Retroactively assign (or clear) the Project this issue belongs
+ * to. Routes through the iter 67 `assign-project` op, which trims
+ * and normalises `projectName` server-side so blank values
+ * become `null`. The op emits `dev.comtrya.issues.project-changed`
+ * so workspace per-project counts (iter 65) update without a
+ * refresh.
+ */
+export async function assignIssueProject(
+  id: string,
+  projectName: string | null,
+): Promise<Issue> {
+  const result = await extIssuesXIssues.assignProject({
+    id,
+    projectName: projectName ?? null,
+  });
+  return normalizeIssue(opValue<WitIssue>(result, "assignProject"));
+}
+
 export async function outgoingRelations(
   client: ComtryaGraphQLClient,
   from: string,

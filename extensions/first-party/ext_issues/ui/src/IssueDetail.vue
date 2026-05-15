@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { applyOptimistic } from "@comtrya/sdk-core";
-import { classifyPrincipal as authorLabel } from "@comtrya/sdk-vue";
+import {
+  classifyPrincipal as authorLabel,
+  fetchComtryaProjects,
+  type ComtryaProject,
+} from "@comtrya/sdk-vue";
 import { computed, onMounted, ref, watch } from "vue";
 import {
+  assignIssueProject,
   closeIssue,
   issueByNumber,
   reopenIssue,
@@ -86,6 +91,57 @@ watch(
   },
   { immediate: true },
 );
+
+/**
+ * Project picker — retroactively assigns (or clears) the
+ * Project this issue belongs to via the iter 67
+ * `assign-project` op. Routes the kernel event
+ * `dev.comtrya.issues.project-changed` so workspace-wide
+ * per-project counts (iter 65) update without refresh.
+ *
+ * `availableProjects` is loaded once on mount from the repo's
+ * CUE config (iter 63 helper). If the helper fails or no
+ * Projects are declared, the dropdown still includes the
+ * current project as a fallback option so the user isn't
+ * locked out of seeing what's stamped.
+ */
+const availableProjects = ref<ComtryaProject[]>([]);
+const projectActionState = ref<"idle" | "submitting">("idle");
+const projectActionError = ref<string | null>(null);
+
+onMounted(async () => {
+  try {
+    availableProjects.value = await fetchComtryaProjects();
+  } catch {
+    availableProjects.value = [];
+  }
+});
+
+async function onProjectChange(event: Event): Promise<void> {
+  const target = event.target as HTMLSelectElement | null;
+  if (!target || !issue.value) return;
+  const current = issue.value;
+  const nextName = target.value || null;
+  if ((current.projectName ?? null) === nextName) return;
+  projectActionState.value = "submitting";
+  projectActionError.value = null;
+  // Optimistic update so the rest of the page (Routed-to panel,
+  // hero chip row) reflects the new value immediately.
+  const previous = current.projectName ?? null;
+  loadedIssue.value = { ...current, projectName: nextName };
+  try {
+    const updated = await assignIssueProject(current.id, nextName);
+    loadedIssue.value = updated;
+  } catch (caught) {
+    // Roll back optimistic update on failure.
+    loadedIssue.value = { ...current, projectName: previous };
+    target.value = previous ?? "";
+    projectActionError.value =
+      caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    projectActionState.value = "idle";
+  }
+}
 
 onMounted(loadIssue);
 watch(
@@ -356,6 +412,39 @@ async function reopenCurrentIssue(): Promise<void> {
             <p v-if="actionError" class="issue-line warn" role="alert">{{ actionError }}</p>
           </section>
 
+          <section class="issue-panel" data-smoke="issue-project-picker">
+            <header>
+              <h2>Project</h2>
+              <a
+                v-if="issue.projectName"
+                :href="`/x/issues/?project=${encodeURIComponent(issue.projectName)}`"
+                class="issue-panel-link"
+                :title="`Filter issues to project ${issue.projectName}`"
+              >◇ {{ issue.projectName }}</a>
+            </header>
+            <select
+              class="issue-project-select"
+              data-smoke="issue-project-select"
+              :value="issue.projectName ?? ''"
+              :disabled="projectActionState === 'submitting'"
+              @change="onProjectChange"
+            >
+              <option value="">— no project —</option>
+              <option
+                v-for="proj in availableProjects"
+                :key="proj.name"
+                :value="proj.name ?? ''"
+              >{{ proj.name }}</option>
+            </select>
+            <p v-if="projectActionError" class="issue-line warn" role="alert">
+              {{ projectActionError }}
+            </p>
+            <p class="issue-line muted">
+              Stamps <code>projectName</code> on this issue. Lights up the
+              workspace per-Project counts.
+            </p>
+          </section>
+
           <section
             v-if="issue.projectName && projectOwners.length > 0"
             class="issue-panel"
@@ -622,6 +711,30 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-actions {
   display: grid;
   gap: 8px;
+}
+
+/* iter 68 — inline Project picker. Linear-style autosave on
+ * change; native `<select>` element keeps the keyboard
+ * affordance (arrows + Enter) without a custom dropdown. */
+.issue-project-select {
+  width: 100%;
+  border: 1.5px solid var(--ink-rule, #d0cfc8);
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+  padding: 8px 10px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.issue-project-select:focus {
+  border-color: var(--ink, #111);
+}
+
+.issue-project-select:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 /* "Routed to" panel — surfaces CUE project owners. The header

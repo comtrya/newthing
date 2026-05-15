@@ -409,6 +409,16 @@ onMounted(() => {
       }),
     );
   }
+  // iter 67 emits this when an issue is retroactively assigned
+  // to a Project; the workspace per-Project counts (iter 65)
+  // need to swap one bucket without a full re-scan.
+  issueUnsubscribers.push(
+    subscribeLiveEvents({
+      type: "dev.comtrya.issues.project-changed",
+      onEvent: () => void refreshProjectCounts(),
+      onError: () => {},
+    }),
+  );
   for (const type of ["dev.comtrya.epic.created", "dev.comtrya.epic.state-changed"]) {
     issueUnsubscribers.push(
       subscribeLiveEvents({

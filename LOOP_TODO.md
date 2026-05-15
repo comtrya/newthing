@@ -1189,6 +1189,53 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 68 (UI consumer: inline Project picker on IssueDetail)
+
+Wires the iter 67 `assign-project` op into IssueDetail.
+Retroactive Project tagging now works from any existing
+issue's detail page; the workspace per-Project counts
+(iter 65) shift in real-time via the
+`dev.comtrya.issues.project-changed` SSE topic.
+
+ext_issues:
+- `api.ts`: new `assignIssueProject(id, projectName)` routes
+  through the generated `assignProject` client method that
+  iter 67's wit-codegen produced. Returns the updated `Issue`
+  shape so callers can swap the local state.
+- `IssueDetail.vue`:
+  - New `availableProjects: ComtryaProject[]` loaded once on
+    mount via `fetchComtryaProjects()` (iter 63 sdk-vue).
+  - New `<section>` "Project" sidebar panel above "Routed to":
+    `<select>` populated from CUE projects, defaults to the
+    issue's current `projectName`. Header shows the live
+    `◇ <name>` link to the filtered queue.
+  - `onProjectChange()` optimistic-updates `loadedIssue.value`
+    so the hero chip row + Routed-to panel reflect the new
+    project immediately, then calls `assignIssueProject`.
+    Rolls back the local state + restores the dropdown if
+    the op throws.
+  - `projectActionState` / `projectActionError` refs gate the
+    select while the op flies and surface failures inline.
+- `.issue-project-select` styling matches the existing
+  form-input aesthetic (mono 13px, `--ink-rule` border,
+  focus = ink border).
+
+frontend (WorkspaceHome):
+- Adds a `dev.comtrya.issues.project-changed` subscription
+  alongside the existing opened/closed/reopened topics. On
+  each event, `refreshProjectCounts()` fires so the per-
+  Project tallies on the workspace canvas reflect the swap.
+
+The dogfood kernel still runs the 0.1.6 bundle, so the live
+op will return "op not found" until the kernel is restarted.
+On restart, every existing untagged issue in the seed (9 of
+them) can be retroactively scoped via the new picker - which
+will populate the iter 65 counts and the iter 64 Projects
+panel with real numbers.
+
+typecheck + shell build + ext_issues bundle clean,
+`entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 67 (Kernel slice: ext_issues 0.1.7 - assign-project op)
 
 Iter 66 closed the loop on *new* issues - the picker stamps
