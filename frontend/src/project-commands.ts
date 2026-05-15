@@ -71,7 +71,8 @@ export function bindProjectCommands(router: Router): void {
       for (const project of projects) {
         if (!project.name) continue;
         const name = project.name;
-        const unregister = registerCommand({
+        // 1. Navigate to the Project home.
+        activeUnregisters.push(registerCommand({
           id: `core.switch-to-project.${repoKey}.${name}`,
           title: `Switch to project ${name}`,
           category: "Projects",
@@ -79,8 +80,51 @@ export function bindProjectCommands(router: Router): void {
           run: () => {
             void router.push(projectHref(segments, name));
           },
-        });
-        activeUnregisters.push(unregister);
+        }));
+        // 2. Issues queue scoped to this project. The URL filter
+        //    shape mirrors iter 46's IssuesList `?project=<name>`;
+        //    state defaults to OPEN so "open issues in <name>" is
+        //    what the queue actually renders.
+        activeUnregisters.push(registerCommand({
+          id: `core.project-issues.${repoKey}.${name}`,
+          title: `Open issues in ${name}`,
+          category: "Projects",
+          extensionId: "core",
+          run: () => {
+            void router.push(
+              `/x/issues/?project=${encodeURIComponent(name)}`,
+            );
+          },
+        }));
+        // 3. Epics queue scoped to this project (all states).
+        //    Iter 46 of EpicsList added URL `?project=<name>`; the
+        //    chip-row default is ALL so this lands on every epic
+        //    in the project.
+        activeUnregisters.push(registerCommand({
+          id: `core.project-epics.${repoKey}.${name}`,
+          title: `Epics in ${name}`,
+          category: "Projects",
+          extensionId: "core",
+          run: () => {
+            void router.push(
+              `/x/epics/?project=${encodeURIComponent(name)}`,
+            );
+          },
+        }));
+        // 4. In-progress slice of the project's epics — the most
+        //    common "what is the team actively doing" query, one
+        //    keystroke away.
+        activeUnregisters.push(registerCommand({
+          id: `core.project-epics-in-progress.${repoKey}.${name}`,
+          title: `In-progress epics in ${name}`,
+          category: "Projects",
+          extensionId: "core",
+          run: () => {
+            void router.push(
+              `/x/epics/?project=${encodeURIComponent(name)}&state=IN_PROGRESS`,
+            );
+          },
+        }));
       }
     } catch (caught) {
       if ((caught as Error).name === "AbortError") return;

@@ -1189,6 +1189,42 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 58 (Per-project queue commands in the palette)
+
+Extends `bindProjectCommands` so every CUE Project gets four
+palette entries, not one. Compounds iters 55-57: the URL
+filter shape those queues understand is now bound to a
+keyboard verb per Project. Press Cmd-K, type a project name,
+hit Enter on the action - no clicks.
+
+`frontend/src/project-commands.ts`:
+- For each `comtryaConfig.projects[]` entry on the current
+  repo route, register:
+  1. `Switch to project <name>` (already shipped).
+  2. `Open issues in <name>` -> `/x/issues/?project=<name>`.
+     IssuesList defaults the state chip to OPEN, so this
+     lands on the "open + this-project" slice immediately.
+  3. `Epics in <name>` -> `/x/epics/?project=<name>`.
+     EpicsList defaults to ALL state so this surfaces every
+     epic in the project.
+  4. `In-progress epics in <name>` ->
+     `/x/epics/?project=<name>&state=IN_PROGRESS`. The
+     most-asked "what is the team actively doing" query,
+     one keystroke from anywhere.
+- All four register/unregister on the same route-change
+  cycle as before; navigating off the repo (or to a
+  different repo with different projects) tears down the
+  prior set in one pass.
+
+Verified against `/r/comtrya/dogfood`: the kernel returns
+three projects (`ext_docs`, `frontend`, `kernel`), so the
+palette adds 12 project commands on visit. typecheck +
+shell build clean. The same dogfood reproduces the
+`extensionInstallations` shadow problem in the GraphQL
+endpoint when the query lacks an `operationName` - the
+production query in this file already names its op
+(`ProjectCommandsConfig`) so it's unaffected.
+
 ### 2026-05-15 - iteration 57 (Linear-style filter syntax on EpicsList - is:/owner:/project: completes the trio)
 
 EpicsList adopts the iter 55 `parseQueryFilters` helper so
