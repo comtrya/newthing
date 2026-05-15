@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { useShortcuts } from "@comtrya/sdk-vue";
+import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
 import { closeIssue, listIssues, openIssue } from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
@@ -155,14 +155,66 @@ const matchesFilter = (issue: Issue, f: Filter): boolean => {
   return issue.state === "CLOSED";
 };
 
+/**
+ * Linear-style filter syntax inside the search input. Uses the
+ * shared `parseQueryFilters` (iter 55) with the issues-specific
+ * vocabulary: `is:` (state), `assignee:` (assignee URN),
+ * `project:` (Project name from CUE). The recognised key list
+ * stays small on purpose — every new token is one extra branch
+ * below and one extra entry in the chip strip.
+ *
+ * Compose with the URL-pinned refs: a token always overrides
+ * the corresponding chip ref for the duration of the search.
+ * `project:kernel` typed in the input is equivalent to clicking
+ * the kernel project chip but doesn't mutate `projectFilter.value`
+ * itself, so clearing the search restores the prior chip state.
+ */
+const ISSUES_FILTER_KEYS = ["is", "assignee", "project"] as const;
+
+const STATE_TOKEN_TO_FILTER: Record<string, Filter> = {
+  open: "OPEN",
+  closed: "CLOSED",
+  reopened: "OPEN",
+  all: "ALL",
+};
+
+const parsedQuery = computed(() =>
+  parseQueryFilters(search.value, ISSUES_FILTER_KEYS),
+);
+
+const effectiveStateFilter = computed<Filter>(() => {
+  for (const token of parsedQuery.value.filters.is ?? []) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    if (mapped) return mapped;
+  }
+  return filter.value;
+});
+
+const effectiveAssigneeFilter = computed<string>(() => {
+  for (const token of parsedQuery.value.filters.assignee ?? []) {
+    if (token.startsWith("comtrya://")) return token;
+  }
+  return assigneeFilter.value;
+});
+
+const effectiveProjectFilter = computed<string>(() => {
+  // Prop wins regardless of input: mounted on a project page,
+  // the list is already scoped and a `project:` token would be
+  // contradictory.
+  if (props.projectName) return "";
+  for (const token of parsedQuery.value.filters.project ?? []) {
+    if (token.trim()) return token.trim();
+  }
+  return projectFilter.value;
+});
+
 const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  const assignee = assigneeFilter.value;
-  // Prop wins: when the list is mounted on a project page, the
-  // URL filter is ignored — `issues.value` is already scoped.
-  const project = props.projectName ? "" : projectFilter.value;
+  const q = parsedQuery.value.text.trim().toLowerCase();
+  const assignee = effectiveAssigneeFilter.value;
+  const project = effectiveProjectFilter.value;
+  const state = effectiveStateFilter.value;
   return issues.value
-    .filter((issue) => matchesFilter(issue, filter.value))
+    .filter((issue) => matchesFilter(issue, state))
     .filter((issue) => {
       if (!project) return true;
       return issue.projectName === project;
@@ -177,6 +229,52 @@ const filtered = computed(() => {
       const haystack = `${issue.number} ${issue.title} ${author}`.toLowerCase();
       return haystack.includes(q);
     });
+});
+
+interface QueueFilterChip {
+  key: string;
+  value: string;
+  label: string;
+  tone: "is" | "assignee" | "project" | "unknown";
+}
+
+const queueFilterChips = computed<QueueFilterChip[]>(() => {
+  const chips: QueueFilterChip[] = [];
+  for (const token of parsedQuery.value.filters.is ?? []) {
+    const mapped = STATE_TOKEN_TO_FILTER[token.toLowerCase()];
+    chips.push({
+      key: "is",
+      value: token,
+      label: mapped ? `is · ${mapped.toLowerCase()}` : `is · ${token}`,
+      tone: "is",
+    });
+  }
+  for (const token of parsedQuery.value.filters.assignee ?? []) {
+    const cls = authorLabel(token);
+    chips.push({
+      key: "assignee",
+      value: token,
+      label: `→ ${cls.label}`,
+      tone: "assignee",
+    });
+  }
+  for (const token of parsedQuery.value.filters.project ?? []) {
+    chips.push({
+      key: "project",
+      value: token,
+      label: `◇ ${token}`,
+      tone: "project",
+    });
+  }
+  for (const key of parsedQuery.value.unknown) {
+    chips.push({
+      key,
+      value: "",
+      label: `unknown · ${key}:`,
+      tone: "unknown",
+    });
+  }
+  return chips;
 });
 
 function toggleAssigneeFilter(ref: string): void {
@@ -528,13 +626,30 @@ async function submitQuickAdd(): Promise<void> {
             data-issues-search
             v-model="search"
             type="search"
-            placeholder="Filter by title or author"
+            placeholder="Filter — try is:open · project:&lt;name&gt; · assignee:&lt;urn&gt; · text"
             autocomplete="off"
             @keydown.esc="onSearchEscape"
           />
           <kbd>/</kbd>
         </label>
       </div>
+      <div
+        v-if="queueFilterChips.length > 0"
+        class="issues-query-chips"
+        data-smoke="issues-query-chips"
+        aria-label="Parsed search filters"
+      >
+        <span
+          v-for="chip in queueFilterChips"
+          :key="`${chip.key}:${chip.value || 'unknown'}`"
+          :class="['query-chip', `tone-${chip.tone}`]"
+          :title="chip.tone === 'unknown' ? `Unknown filter key: ${chip.key}` : chip.value"
+        >{{ chip.label }}</span>
+        <span class="query-chips-hint">
+          syntax: <code>is:open</code> · <code>project:&lt;name&gt;</code> · <code>assignee:&lt;urn&gt;</code>
+        </span>
+      </div>
+
       <div
         v-if="assigneeFilter"
         class="issues-assignee-filter"
@@ -772,6 +887,62 @@ async function submitQuickAdd(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* Parsed-filter chip strip — mirrors the PullsQueue iter-55
+ * aesthetic. Tone colour communicates the filter kind:
+ *   is:        accent-teal
+ *   assignee:  ink (carries the classifier glyph via label)
+ *   project:   accent-blue (the Project spine accent)
+ *   unknown:   dashed warning */
+.issues-query-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.issues-query-chips .query-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.issues-query-chips .query-chip.tone-is {
+  color: var(--accent-teal, #087f6f);
+}
+
+.issues-query-chips .query-chip.tone-assignee {
+  color: var(--ink, #111);
+}
+
+.issues-query-chips .query-chip.tone-project {
+  color: var(--accent-blue, #1d55a6);
+}
+
+.issues-query-chips .query-chip.tone-unknown {
+  color: var(--accent-yellow, #c89300);
+  border-style: dashed;
+}
+
+.issues-query-chips .query-chips-hint {
+  margin-left: 4px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0;
+}
+
+.issues-query-chips .query-chips-hint code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
 }
 
 .issues-assignee-filter {

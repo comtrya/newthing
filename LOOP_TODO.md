@@ -1189,6 +1189,54 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 56 (Linear-style filter syntax on IssuesList - project:/assignee:/is:)
+
+Adopts the iter 55 `parseQueryFilters` helper on IssuesList,
+adding the Project-spine token `project:<name>` plus
+`is:<state>` and `assignee:<urn>`. Two of the three planning
+queues now share one tokeniser; EpicsList adoption can follow
+without re-deriving the grammar.
+
+IssuesList consumer:
+- `ISSUES_FILTER_KEYS = ["is", "assignee", "project"]`.
+- `effectiveStateFilter`, `effectiveAssigneeFilter`,
+  `effectiveProjectFilter` derive from the parsed tokens
+  and fall back to the URL-pinned refs. Token always wins
+  for the duration of the search; clearing the input
+  restores the prior chip state. `props.projectName`
+  (list mounted on a project page) still wins regardless -
+  the list is already scoped.
+- `STATE_TOKEN_TO_FILTER` maps `open`/`closed`/`reopened`/`all`
+  to the IssuesList `Filter` enum. `reopened` collapses to
+  OPEN so the queue matches the same set as the chip.
+- `filtered` now reads from the parsed-text remainder, so
+  `project:kernel reactor` finds kernel-project issues whose
+  title matches "reactor". `is:closed` jumps straight to the
+  closed pane without clicking the chip.
+- `queueFilterChips` renders the editorial chip strip above
+  the queue: tealed `is · open`, ink `→ <classifier label>`
+  for assignees, `--accent-blue` `◇ <project>` for projects
+  (the Project-spine tone), dashed warn for unknowns. The
+  diamond glyph matches the existing chip aesthetic on
+  EpicCard / IssuesList row chips.
+- Placeholder hint advertises the syntax inline.
+
+Verified end-to-end against a synthetic issue set (mix of
+projects + assignees + states, dogfood doesn't yet seed
+those fields):
+- `""` + OPEN chip → all OPEN + REOPENED
+- `project:kernel` → kernel-scoped subset
+- `project:kernel assignee:comtrya://user/rawkode` → both
+  filters compose
+- `is:closed` → CLOSED subset
+- `is:all project:kernel` → all kernel issues regardless
+  of state
+- `tabs` → free-text substring
+- `label:bug stale` → unknown filter surfaces a dashed
+  chip; "stale" applies as free text
+typecheck + ext_issues bundle clean, `entryIntegrity`
+refreshed.
+
 ### 2026-05-15 - iteration 55 (Linear-style filter syntax on PullsQueue + shared parseQueryFilters)
 
 Adds Linear-style filter token syntax to the PR queue search
