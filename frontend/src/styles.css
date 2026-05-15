@@ -473,6 +473,63 @@ kbd {
   border-bottom: 1px solid var(--rule-light);
 }
 
+.shell-app .home-repo-groups {
+  display: grid;
+}
+
+.shell-app .home-repo-group {
+  border-bottom: 1.5px solid var(--ink);
+}
+
+.shell-app .home-repo-group:last-child {
+  border-bottom: 0;
+}
+
+.shell-app .home-repo-group-head {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.shell-app .home-repo-group-head::-webkit-details-marker { display: none; }
+
+.shell-app .home-repo-group-head::before {
+  content: "▸";
+  display: inline-block;
+  width: 12px;
+  color: var(--ink-faint, #68645c);
+  transition: transform 80ms ease-out;
+}
+
+.shell-app .home-repo-group[open] > .home-repo-group-head::before {
+  transform: rotate(90deg);
+}
+
+.shell-app .home-repo-group-head .owner {
+  flex: 1;
+  font-family: var(--display, system-ui);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink, #111);
+}
+
+.shell-app .home-repo-group-head .counts {
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.shell-app .home-repo-group-head .counts .sep {
+  padding: 0 4px;
+  color: var(--ink-fainter, #918b80);
+}
+
 .shell-app .home-repo-list {
   display: grid;
 }

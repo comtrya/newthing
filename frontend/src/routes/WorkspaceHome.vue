@@ -104,6 +104,52 @@ async function refreshAllOpenIssues(): Promise<void> {
 }
 
 /**
+ * Group repositories by their first path segment (owner). Path
+ * shapes the kernel returns include `comtrya/dogfood`,
+ * `rawkode/rawkode`, `rawkode/hello/rawkode`, etc. — the first
+ * segment is always the workspace's notion of "owner" (a user, a
+ * team, or an imported source). Grouped collapsibles are the
+ * polyrepo-scannable affordance from the LOOP_TODO macro bet.
+ */
+interface RepoGroup {
+  owner: string;
+  repos: RepositorySummary[];
+  openPRs: number;
+  openIssues: number;
+}
+
+const repoGroups = computed<RepoGroup[]>(() => {
+  const buckets = new Map<string, RepositorySummary[]>();
+  for (const repo of repositories.value) {
+    const owner = (repo.path ?? "").split("/").filter(Boolean)[0] ?? "—";
+    const bucket = buckets.get(owner) ?? [];
+    bucket.push(repo);
+    buckets.set(owner, bucket);
+  }
+  const groups: RepoGroup[] = [];
+  for (const [owner, repos] of buckets.entries()) {
+    let openPRs = 0;
+    let openIssues = 0;
+    for (const r of repos) {
+      openPRs += r.openPullRequests ?? 0;
+      openIssues += openIssuesByRepoId.value[r.id] ?? 0;
+    }
+    groups.push({ owner, repos, openPRs, openIssues });
+  }
+  groups.sort((a, b) => a.owner.localeCompare(b.owner));
+  return groups;
+});
+
+/**
+ * Flat order matching the visual order across groups, so the j/k
+ * keyboard nav indexes into a single list and crosses group
+ * boundaries transparently.
+ */
+const orderedRepos = computed<RepositorySummary[]>(() =>
+  repoGroups.value.flatMap((g) => g.repos),
+);
+
+/**
  * Keyboard focus index into the repo list. Mirrors `IssuesList.vue`
  * and `PullsQueue.vue` — j/k advance, Enter opens the focused row.
  * Clamped on load so it never points past the end of the list, and
@@ -112,7 +158,7 @@ async function refreshAllOpenIssues(): Promise<void> {
 const focusedRepoIdx = ref(0);
 const router = useRouter();
 
-watch(repositories, (next) => {
+watch(orderedRepos, (next) => {
   if (next.length === 0) {
     focusedRepoIdx.value = 0;
     return;
@@ -124,33 +170,33 @@ watch(repositories, (next) => {
 
 useShortcuts({
   j: (event) => {
-    if (repositories.value.length === 0) return;
+    if (orderedRepos.value.length === 0) return;
     event.preventDefault();
     focusedRepoIdx.value = Math.min(
       focusedRepoIdx.value + 1,
-      repositories.value.length - 1,
+      orderedRepos.value.length - 1,
     );
   },
   ArrowDown: (event) => {
-    if (repositories.value.length === 0) return;
+    if (orderedRepos.value.length === 0) return;
     event.preventDefault();
     focusedRepoIdx.value = Math.min(
       focusedRepoIdx.value + 1,
-      repositories.value.length - 1,
+      orderedRepos.value.length - 1,
     );
   },
   k: (event) => {
-    if (repositories.value.length === 0) return;
+    if (orderedRepos.value.length === 0) return;
     event.preventDefault();
     focusedRepoIdx.value = Math.max(focusedRepoIdx.value - 1, 0);
   },
   ArrowUp: (event) => {
-    if (repositories.value.length === 0) return;
+    if (orderedRepos.value.length === 0) return;
     event.preventDefault();
     focusedRepoIdx.value = Math.max(focusedRepoIdx.value - 1, 0);
   },
   Enter: (event) => {
-    const repo = repositories.value[focusedRepoIdx.value];
+    const repo = orderedRepos.value[focusedRepoIdx.value];
     if (!repo) return;
     event.preventDefault();
     void router.push(`/r/${repo.path}`);
@@ -247,6 +293,10 @@ function openIssuesText(repo: RepositorySummary): string {
   return `${count} open issue${count === 1 ? "" : "s"}`;
 }
 
+function flatIndexOf(repo: RepositorySummary): number {
+  return orderedRepos.value.indexOf(repo);
+}
+
 function relativeUpdated(value: string | null | undefined): string {
   if (!value) return "";
   const then = Date.parse(value);
@@ -318,26 +368,45 @@ function relativeUpdated(value: string | null | undefined): string {
           <p v-else-if="repositories.length === 0" class="home-empty">
             No repositories yet. <a href="/new">Create one</a> to get started.
           </p>
-          <ul v-else class="home-repo-list" role="listbox" aria-label="Repositories">
-            <li
-              v-for="(repo, idx) in repositories"
-              :key="repo.id"
-              :class="{ focused: idx === focusedRepoIdx }"
-              :aria-selected="idx === focusedRepoIdx"
-              role="option"
-              @mouseenter="focusedRepoIdx = idx"
+          <div v-else class="home-repo-groups" role="listbox" aria-label="Repositories">
+            <details
+              v-for="group in repoGroups"
+              :key="group.owner"
+              class="home-repo-group"
+              open
             >
-              <a :href="`/r/${repo.path}`">{{ repo.path }}</a>
-              <p v-if="repo.description">{{ repo.description }}</p>
-              <span class="repo-meta">
-                <code v-if="repo.defaultBranch">{{ repo.defaultBranch }}</code>
-                <span v-if="repo.visibility">{{ repo.visibility.toLowerCase() }}</span>
-                <span>{{ openPullRequestText(repo) }}</span>
-                <span>{{ openIssuesText(repo) }}</span>
-                <span v-if="repo.updated">updated {{ relativeUpdated(repo.updated) }}</span>
-              </span>
-            </li>
-          </ul>
+              <summary class="home-repo-group-head">
+                <span class="owner">{{ group.owner }}/</span>
+                <span class="counts">
+                  {{ group.repos.length }} repo<template v-if="group.repos.length !== 1">s</template>
+                  <span class="sep">·</span>
+                  {{ group.openPRs }} open PR<template v-if="group.openPRs !== 1">s</template>
+                  <span class="sep">·</span>
+                  {{ group.openIssues }} open issue<template v-if="group.openIssues !== 1">s</template>
+                </span>
+              </summary>
+              <ul class="home-repo-list">
+                <li
+                  v-for="repo in group.repos"
+                  :key="repo.id"
+                  :class="{ focused: flatIndexOf(repo) === focusedRepoIdx }"
+                  :aria-selected="flatIndexOf(repo) === focusedRepoIdx"
+                  role="option"
+                  @mouseenter="focusedRepoIdx = flatIndexOf(repo)"
+                >
+                  <a :href="`/r/${repo.path}`">{{ repo.path }}</a>
+                  <p v-if="repo.description">{{ repo.description }}</p>
+                  <span class="repo-meta">
+                    <code v-if="repo.defaultBranch">{{ repo.defaultBranch }}</code>
+                    <span v-if="repo.visibility">{{ repo.visibility.toLowerCase() }}</span>
+                    <span>{{ openPullRequestText(repo) }}</span>
+                    <span>{{ openIssuesText(repo) }}</span>
+                    <span v-if="repo.updated">updated {{ relativeUpdated(repo.updated) }}</span>
+                  </span>
+                </li>
+              </ul>
+            </details>
+          </div>
           <footer v-if="repositories.length > 0" class="home-repo-foot">
             <kbd>j</kbd> <kbd>k</kbd> navigate · <kbd>↵</kbd> open
           </footer>

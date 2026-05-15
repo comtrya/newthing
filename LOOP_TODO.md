@@ -1189,6 +1189,36 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 40 (Workspace home — repos grouped by owner)
+
+The flat repo list on the workspace home becomes a set of
+collapsible, owner-grouped sections. Compounds iter 29
+(keyboard nav) + iter 39 (per-repo issue counts) and lands the
+first piece of the "polyrepo, scannable" macro bet.
+
+`WorkspaceHome.vue` derives `repoGroups` by first path segment:
+- `comtrya/` — dogfood + comtrya
+- `imported/` — comtrya-mirror
+- `rawkode/` — rawkode + rawkode/hello
+
+Each group renders as a native `<details>`/`<summary>` for
+keyboard + a11y. Summary line: `<owner>/ · N repos · M open
+PRs · K open issues` (sums computed from the existing per-repo
+state; live-synced via the same SSE topics from iter 39).
+
+Disclosure caret (`▸ / ▾`) rotates on open. Groups default to
+expanded — five-repo workspaces shouldn't hide anything by
+default — but the affordance is there for 100-repo workspaces.
+
+Keyboard nav now operates on a flat `orderedRepos` computed
+that flattens the visual order across groups, so `j/k` crosses
+group boundaries transparently and `Enter` still opens the
+focused row. `flatIndexOf(repo)` maps each grouped row back to
+its position for the focused-class + mouse-hover bridge.
+
+No data model change — purely a presentation refactor with the
+ownership grouping derived from the existing path strings.
+
 ### 2026-05-15 — iteration 39 (Per-repo open-issues on workspace home rows)
 
 Workspace home repo list now shows `N open issues` per row,
