@@ -1189,6 +1189,40 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 70 (Quick-add input on EpicsList)
+
+Mirror of IssuesList iter 17 - inline Linear-style epic
+creation directly on the queue. Compounds the iter 66
+new-epic form + the iter 57 filter-token URL so a contributor
+working on `kernel` epics never leaves the list to spin up a
+new one.
+
+EpicsList:
+- New quick-add state: `quickAddTitle`, `quickAddBusy`,
+  `quickAddError` refs. `quickAddProject` computed prefers
+  `props.projectName` (mounted on a project page), then
+  `effectiveProjectFilter` (URL filter or `project:` token
+  from iter 57), then `null`.
+- `quickAddPlaceholder` reads `New epic in <project>...` or
+  `New epic...`.
+- `submitQuickAdd()` calls `createEpic` with the current
+  workspaceId + projectName. Optimistic prepend on the local
+  list, then refresh from server to settle anything missed.
+- `c` shortcut (via `useShortcuts`) focuses the input from
+  anywhere. `Esc` clears + blurs.
+- Template: inline `<form>` above the list with `+` glyph,
+  large display-class title input, optional `◇ <project>`
+  chip when one's in scope, and the hint `↵ create · esc
+  clear · c focus`. Matches the IssuesList visual exactly.
+- Styles in the SFC's `<style scoped>` block.
+
+Verified the bundle ships the new symbols + class strings.
+typecheck + ext_epics bundle clean, `entryIntegrity`
+refreshed. The IssuesList `c` shortcut was already wired iter
+17; this brings the same affordance to the epics surface, so
+the keyboard vocabulary now matches across the two main
+planning queues.
+
 ### 2026-05-15 - iteration 69 (Symmetric: epic assign-project (WIT 0.1.2 + UI consumer))
 
 Mirrors iters 67+68 on the epic side - one cohesive iteration

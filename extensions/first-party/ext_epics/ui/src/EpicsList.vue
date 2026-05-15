@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { parseQueryFilters } from "@comtrya/sdk-vue";
-import { listEpics } from "./api";
+import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
+import { createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -251,6 +251,71 @@ const newEpicHref = computed(() => {
 });
 
 /**
+ * Linear-shape inline quick-add — mirror of IssuesList iter 17.
+ * Stamps the page Project on create when one is in scope (prop
+ * wins over URL filter wins over nothing). `c` focuses the
+ * input from anywhere on the page; `Esc` clears the field and
+ * blurs; `Enter` submits.
+ */
+const quickAddTitle = ref("");
+const quickAddBusy = ref(false);
+const quickAddError = ref<string | null>(null);
+
+const quickAddProject = computed(() =>
+  props.projectName ?? effectiveProjectFilter.value ?? null,
+);
+
+const quickAddPlaceholder = computed(() => {
+  const project = quickAddProject.value;
+  return project ? `New epic in ${project}…` : "New epic…";
+});
+
+function focusQuickAdd(): void {
+  document.querySelector<HTMLInputElement>("[data-smoke=\"epics-quick-add\"]")?.focus();
+}
+
+function onQuickAddEscape(event: KeyboardEvent): void {
+  event.preventDefault();
+  quickAddTitle.value = "";
+  quickAddError.value = null;
+  (event.target as HTMLInputElement | null)?.blur();
+}
+
+async function submitQuickAdd(): Promise<void> {
+  const title = quickAddTitle.value.trim();
+  if (!title || quickAddBusy.value) return;
+  quickAddBusy.value = true;
+  quickAddError.value = null;
+  try {
+    const created = await createEpic(graphClient.value, {
+      workspaceId: props.workspaceId,
+      title,
+      bodyMarkdown: "",
+      projectName: quickAddProject.value,
+    });
+    // Optimistic-merge: prepend if not already present.
+    if (!loadedEpics.value.some((e) => e.id === created.id)) {
+      loadedEpics.value = [created, ...loadedEpics.value];
+    }
+    quickAddTitle.value = "";
+    loadState.value = "ready";
+    void loadEpics();
+    void nextTick(focusQuickAdd);
+  } catch (caught) {
+    quickAddError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    quickAddBusy.value = false;
+  }
+}
+
+useShortcuts({
+  c: (event) => {
+    event.preventDefault();
+    focusQuickAdd();
+  },
+});
+
+/**
  * URL-persisted filter state. Mirrors IssuesList (iter 32) +
  * PullsQueue (iter 36): readUrlState on mount, replaceState on
  * change, popstate sync. Defaults to `ALL` (epics are fewer than
@@ -443,6 +508,33 @@ async function loadEpics(): Promise<void> {
         aria-label="Clear project filter"
       >clear ✕</button>
     </div>
+
+    <form
+      class="epics-quick-add"
+      :data-busy="quickAddBusy ? 'true' : 'false'"
+      @submit.prevent="submitQuickAdd"
+    >
+      <span class="quick-add-glyph" aria-hidden="true">+</span>
+      <input
+        v-model="quickAddTitle"
+        data-smoke="epics-quick-add"
+        type="text"
+        autocomplete="off"
+        :placeholder="quickAddPlaceholder"
+        :disabled="quickAddBusy"
+        @keydown.esc="onQuickAddEscape"
+      />
+      <span v-if="quickAddBusy" class="quick-add-status">creating…</span>
+      <span
+        v-else-if="quickAddProject"
+        class="quick-add-chip tone-blue"
+        :title="`Stamps projectName = ${quickAddProject} on create`"
+      >◇ {{ quickAddProject }}</span>
+      <span class="quick-add-hint">
+        <kbd>↵</kbd> create · <kbd>esc</kbd> clear · <kbd>c</kbd> focus
+      </span>
+    </form>
+    <p v-if="quickAddError" class="epic-line warn" role="alert">{{ quickAddError }}</p>
 
     <p v-if="loadState === 'loading'" class="epic-line muted">Loading epics</p>
     <p v-else-if="loadState === 'error'" class="epic-line warn">{{ error }}</p>
@@ -713,6 +805,93 @@ async function loadEpics(): Promise<void> {
 
 .epics-project-filter .clear:hover {
   color: var(--ink, #111);
+}
+
+/* iter 70 — inline quick-add. Mirror of the IssuesList iter 17
+ * shape: large display title input, mono hint chip, `c` focuses,
+ * `Esc` clears. Project chip when one is in scope. */
+.epics-quick-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 6px;
+  border: 1.5px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  transition: border-color 120ms ease;
+}
+
+.epics-quick-add:focus-within {
+  border-color: var(--ink, #111);
+}
+
+.epics-quick-add[data-busy="true"] {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+.epics-quick-add .quick-add-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  color: var(--ink-faint, #68645c);
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+
+.epics-quick-add input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--display, system-ui);
+  font-size: 15px;
+  outline: none;
+  padding: 4px 0;
+}
+
+.epics-quick-add input::placeholder {
+  color: var(--ink-fainter, #918b80);
+  font-style: italic;
+}
+
+.epics-quick-add .quick-add-status {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}
+
+.epics-quick-add .quick-add-chip {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.epics-quick-add .quick-add-chip.tone-blue {
+  color: var(--accent-blue, #1d55a6);
+}
+
+.epics-quick-add .quick-add-hint {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: var(--ink-fainter, #918b80);
+  white-space: nowrap;
+}
+
+.epics-quick-add .quick-add-hint kbd {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  padding: 0 4px;
+  margin: 0 1px;
 }
 
 .epics-list-items {
