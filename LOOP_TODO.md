@@ -1189,6 +1189,45 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 51 (Bulk select + bulk close on IssuesList)
+
+First concrete progress on the "Bulk actions everywhere" macro
+bet. Linear pattern: space toggles the focused row's selection,
+an action bar appears above the list with count + bulk-close
+button, Esc clears the selection.
+
+IssuesList:
+- `selectedIds: Set<string>` ref. `toggleSelection(id)`
+  immutably swaps the Set so Vue's reactivity tracks per-key
+  changes.
+- `space` shortcut added to `useShortcuts({…})` — toggles the
+  focused row's id when a row is focused.
+- `Esc` shortcut clears the selection (compounds with the
+  existing `Esc`-on-search-input from iter 32; the global
+  Escape kicks in only when there's no input focused and
+  `selectedIds.size > 0`).
+- Row template gets a `selected` class when its id is in the
+  set. CSS adds a 3px `--ink` inset shadow on the left edge so
+  the selection is visible without rearranging the meta strip.
+- When the row is both selected AND focused, the inset turns
+  `--accent-teal` so the two states are distinguishable.
+
+Bulk action bar:
+- Renders above the list when `selectedIds.size > 0`. Sticky
+  to the top of the scrollable area so it stays visible while
+  the user scans for more rows.
+- Inverted ink/paper. Shows `N selected`, a `close N` button,
+  `clear · esc`, and a `space toggle row` hint.
+- `closeSelected()` fires `Promise.allSettled(closeIssue(id))`
+  in parallel. Failures stay in the selection so the user can
+  retry; successes are optimistically swapped into
+  `loaded.value` with the returned closed state.
+
+Tested live: select 3 rows with space, click `close 3`, all
+three flip to CLOSED state in one round-trip. The shareable
+filter chain still works during selection (state filter on
+CLOSED hides the just-closed rows automatically).
+
 ### 2026-05-15 — iteration 50 (PullsQueue author URL filter)
 
 Mirrors iter 35 (issue assignee filter) onto the PR queue:

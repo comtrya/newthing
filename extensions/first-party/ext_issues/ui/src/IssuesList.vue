@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useShortcuts } from "@comtrya/sdk-vue";
-import { listIssues, openIssue } from "./api";
+import { closeIssue, listIssues, openIssue } from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -69,6 +69,64 @@ const assigneeFilter = ref("");
  * the filter is set by clicking a row's project chip.
  */
 const projectFilter = ref("");
+
+/**
+ * Bulk selection — Linear pattern. Space toggles the focused
+ * row's id in this Set. When non-empty, the floating action bar
+ * appears with count + bulk close. Esc clears the selection.
+ * Closed issues are dropped from the selection automatically
+ * once the bulk action returns.
+ */
+const selectedIds = ref<Set<string>>(new Set());
+const bulkBusy = ref(false);
+const bulkError = ref<string | null>(null);
+
+function toggleSelection(id: string): void {
+  const next = new Set(selectedIds.value);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  selectedIds.value = next;
+}
+
+function clearSelection(): void {
+  selectedIds.value = new Set();
+  bulkError.value = null;
+}
+
+async function closeSelected(): Promise<void> {
+  if (selectedIds.value.size === 0 || bulkBusy.value) return;
+  if (!graphClient.value) return;
+  const client = graphClient.value;
+  const ids = Array.from(selectedIds.value);
+  bulkBusy.value = true;
+  bulkError.value = null;
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => closeIssue(client, id)),
+    );
+    // Optimistic local update — replace closed issues in `loaded`
+    // with their new state. Failures stay in selection so the
+    // user can retry.
+    const successById = new Map<string, Issue>();
+    const failed = new Set<string>();
+    results.forEach((result, idx) => {
+      const id = ids[idx]!;
+      if (result.status === "fulfilled") successById.set(id, result.value);
+      else failed.add(id);
+    });
+    loaded.value = loaded.value.map((issue) =>
+      successById.get(issue.id) ?? issue,
+    );
+    selectedIds.value = failed;
+    if (failed.size > 0) {
+      bulkError.value = `${failed.size} of ${ids.length} close calls failed; retry the remaining selection.`;
+    }
+  } catch (caught) {
+    bulkError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    bulkBusy.value = false;
+  }
+}
 
 // Quick-add (Linear-style) — projectName scope auto-stamps policy from CUE.
 const quickAddTitle = ref("");
@@ -317,6 +375,17 @@ useShortcuts({
     event.preventDefault();
     window.location.href = issueHref(issue);
   },
+  " ": (event) => {
+    const issue = filtered.value[focused.value];
+    if (!issue) return;
+    event.preventDefault();
+    toggleSelection(issue.id);
+  },
+  Escape: (event) => {
+    if (selectedIds.value.size === 0) return;
+    event.preventDefault();
+    clearSelection();
+  },
   "/": (event) => {
     event.preventDefault();
     document.querySelector<HTMLInputElement>("[data-issues-search]")?.focus();
@@ -543,6 +612,32 @@ async function submitQuickAdd(): Promise<void> {
       role="alert"
     >{{ quickAddError }}</p>
 
+    <div
+      v-if="selectedIds.size > 0"
+      class="issues-bulk-bar"
+      data-smoke="issues-bulk-bar"
+    >
+      <span class="count">{{ selectedIds.size }} selected</span>
+      <button
+        type="button"
+        class="bulk-action"
+        :disabled="bulkBusy"
+        @click="closeSelected"
+      >
+        {{ bulkBusy ? "closing…" : `close ${selectedIds.size}` }}
+      </button>
+      <button
+        type="button"
+        class="bulk-clear"
+        :disabled="bulkBusy"
+        @click="clearSelection"
+      >clear <kbd>esc</kbd></button>
+      <span class="hint">
+        <kbd>space</kbd> toggle row
+      </span>
+    </div>
+    <p v-if="bulkError" class="quick-add-error" role="alert">{{ bulkError }}</p>
+
     <p v-if="loadState === 'loading'" class="muted">Loading issues…</p>
     <p v-else-if="loadState === 'error'" class="muted error" role="alert">{{ error }}</p>
     <p v-else-if="issues.length === 0" class="muted">
@@ -556,7 +651,7 @@ async function submitQuickAdd(): Promise<void> {
       <li
         v-for="(issue, index) in filtered"
         :key="issue.id"
-        :class="['issues-row', { focused: index === focused }]"
+        :class="['issues-row', { focused: index === focused, selected: selectedIds.has(issue.id) }]"
         role="option"
         :aria-selected="index === focused"
         @mouseenter="focused = index"
@@ -974,10 +1069,99 @@ async function submitQuickAdd(): Promise<void> {
 
 .issues-row {
   border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  position: relative;
 }
 
 .issues-row.focused {
   background: var(--paper-tint, #f2efe7);
+}
+
+.issues-row.selected {
+  background: var(--paper-tint, #f2efe7);
+  box-shadow: inset 3px 0 0 var(--ink, #111);
+}
+
+.issues-row.selected.focused {
+  background: var(--paper-tint, #f2efe7);
+  box-shadow: inset 3px 0 0 var(--accent-teal, #087f6f);
+}
+
+/**
+ * Bulk action bar — appears above the list when at least one
+ * row is selected. Sticky to the top of the scrollable area so
+ * it stays visible as the user scans for more rows to select.
+ */
+.issues-bulk-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1.5px solid var(--ink, #111);
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.issues-bulk-bar .count {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.issues-bulk-bar .bulk-action {
+  border: 1px solid var(--paper, #fffdf8);
+  background: transparent;
+  color: var(--paper, #fffdf8);
+  padding: 4px 10px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.issues-bulk-bar .bulk-action:hover:not(:disabled) {
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+}
+
+.issues-bulk-bar .bulk-action:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.issues-bulk-bar .bulk-clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.issues-bulk-bar .bulk-clear kbd {
+  margin-left: 4px;
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  font-size: 10px;
+}
+
+.issues-bulk-bar .hint {
+  color: var(--paper-tint, #f2efe7);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+.issues-bulk-bar .hint kbd {
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  font-size: 10px;
 }
 
 .issues-row-link {
