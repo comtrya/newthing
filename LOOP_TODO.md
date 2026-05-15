@@ -1189,6 +1189,33 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 39 (Per-repo open-issues on workspace home rows)
+
+Workspace home repo list now shows `N open issues` per row,
+mirroring the existing `N open PRs`. Closes the symmetry loop
+started by:
+- iter 27 — workspace-wide nav badge
+- iter 28 — per-repo on RepoHome chip row
+
+`WorkspaceHome.vue`:
+- New `openIssuesByRepoId: Record<repoId, number>` ref hydrated
+  in parallel via `invokeOp("ext_issues", "issues", "list-issues")`
+  scoped to each repo's URI, counted client-side for OPEN +
+  REOPENED states.
+- Live-synced via the canonical `dev.comtrya.issues.{opened,
+  closed,reopened}` SSE topic trio. Subscriptions torn down on
+  unmount alongside the existing `loadController.abort()`.
+- `watch([workspaceId, repositories], …)` re-runs the parallel
+  fetch when the summary resolves (initial paint) and any time
+  the repo list changes.
+- New `openIssuesText(repo)` helper renders next to the existing
+  `openPullRequestText(repo)` in the repo-meta line.
+- Workspace summary GraphQL now requests `workspace { id }` so
+  we can construct the per-repo URI without re-deriving it.
+
+Now every repo row carries:
+`<branch> · <visibility> · <N> open PRs · <N> open issues · updated <rel>`
+
 ### 2026-05-15 — iteration 38 (IssueDetail hero — editorial chip strip)
 
 IssueDetail used to render the hero metadata as a three-row

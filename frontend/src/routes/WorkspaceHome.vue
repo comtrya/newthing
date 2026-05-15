@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import SlotMount from "../components/SlotMount.vue";
@@ -27,6 +28,7 @@ interface WorkspaceHomePayload {
     };
   };
   workspace?: {
+    id?: string | null;
     name: string;
     repositories: RepositorySummary[];
   };
@@ -39,6 +41,7 @@ interface WorkspaceHomePayload {
 const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
   instance { id name capabilities { extensionRuntime } }
   workspace {
+    id
     name
     repositories {
       id name path groups description openPullRequests
@@ -61,6 +64,44 @@ const extensionRuntime = computed(
   () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
 );
 const repositoryWord = computed(() => repositories.value.length === 1 ? "repository" : "repositories");
+
+/**
+ * Per-repo open-issue counts. Hydrated in parallel via
+ * `invokeOp("ext_issues", "issues", "list-issues")` filtered to the
+ * repo URI, counted client-side for OPEN + REOPENED. Live-synced
+ * via the same SSE topics App.vue + RepoHome listen to, so opening
+ * an issue from another tab updates the row's chip without reload.
+ */
+const openIssuesByRepoId = ref<Record<string, number>>({});
+const issueUnsubscribers: Array<() => void> = [];
+const workspaceId = computed(() => payload.value?.workspace?.id ?? null);
+
+function repoUri(workspaceUlid: string, repositoryUlid: string): string {
+  return `comtrya://workspace/${workspaceUlid}/repository/${repositoryUlid}`;
+}
+
+async function refreshOpenIssueCount(repoId: string, ws: string): Promise<void> {
+  const result = await invokeOp<Array<{ state?: string }>>(
+    "ext_issues",
+    "issues",
+    "list-issues",
+    { repository: repoUri(ws, repoId), limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) return;
+  const count = result.value.filter((issue) => {
+    const s = (issue.state ?? "").toUpperCase();
+    return s === "OPEN" || s === "REOPENED";
+  }).length;
+  openIssuesByRepoId.value = { ...openIssuesByRepoId.value, [repoId]: count };
+}
+
+async function refreshAllOpenIssues(): Promise<void> {
+  const ws = workspaceId.value;
+  if (!ws || repositories.value.length === 0) return;
+  await Promise.all(
+    repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
+  );
+}
 
 /**
  * Keyboard focus index into the repo list. Mirrors `IssuesList.vue`
@@ -133,8 +174,30 @@ const workspaceSlotContext = computed<Record<string, unknown>>(() => ({
 }));
 let loadController: AbortController | undefined;
 
-onMounted(() => void loadWorkspaceHome());
-onUnmounted(() => loadController?.abort());
+onMounted(() => {
+  void loadWorkspaceHome();
+  for (const type of [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened",
+  ]) {
+    issueUnsubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void refreshAllOpenIssues(),
+        onError: () => {},
+      }),
+    );
+  }
+});
+onUnmounted(() => {
+  loadController?.abort();
+  for (const off of issueUnsubscribers) off();
+  issueUnsubscribers.length = 0;
+});
+
+// Hydrate per-repo issue counts once the workspace summary resolves.
+watch([workspaceId, repositories], () => void refreshAllOpenIssues());
 
 async function loadWorkspaceHome(): Promise<void> {
   loadController?.abort();
@@ -177,6 +240,11 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
 function openPullRequestText(repo: RepositorySummary): string {
   const count = repo.openPullRequests ?? 0;
   return `${count} open PR${count === 1 ? "" : "s"}`;
+}
+
+function openIssuesText(repo: RepositorySummary): string {
+  const count = openIssuesByRepoId.value[repo.id] ?? 0;
+  return `${count} open issue${count === 1 ? "" : "s"}`;
 }
 
 function relativeUpdated(value: string | null | undefined): string {
@@ -265,6 +333,7 @@ function relativeUpdated(value: string | null | undefined): string {
                 <code v-if="repo.defaultBranch">{{ repo.defaultBranch }}</code>
                 <span v-if="repo.visibility">{{ repo.visibility.toLowerCase() }}</span>
                 <span>{{ openPullRequestText(repo) }}</span>
+                <span>{{ openIssuesText(repo) }}</span>
                 <span v-if="repo.updated">updated {{ relativeUpdated(repo.updated) }}</span>
               </span>
             </li>
