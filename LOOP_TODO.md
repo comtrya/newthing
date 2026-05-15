@@ -1189,6 +1189,45 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 38 (IssueDetail hero — editorial chip strip)
+
+IssueDetail used to render the hero metadata as a three-row
+`<dl>` with raw `authorRef` URN text:
+
+```
+Author    comtrya://credential/prn_1778789459_8
+Opened    May 14, 2026, 9:18 PM
+Labels    kernel, iteration-16
+```
+
+Replaced with one editorial chip strip surfacing every routing
+fact at a glance — same shape as the IssuesList row meta strip
+and the RepoHome chip row (iter 28):
+
+- `◇ kernel` project chip (when scoped, tone-project blue)
+- `kernel` / `iteration-16` label chips (tone-label teal)
+- `closeOnMerge · off` chip (tone-warn yellow) when the issue
+  opts out of the PR merge reactor
+- `→ <slug>` typed assignee chips (tone-assignee, dashed border,
+  classifier glyph + colour by URN scheme so `◇ platform-
+  maintainers` shows in team-teal, `⚙ prn_…` in credential-yellow
+  etc.) — one per `issue.assignees[]` from iteration 34
+- `by <slug>` author chip (tone-author with the same classifier
+  palette)
+- `opened 2h ago` relative time (no border, ink-faint)
+
+Net effect: the routing chain (Project → owners → assignees →
+state policy) is visible in one glance instead of buried in a
+URN dump. The full URN is still available via each chip's
+`title` attribute for power users.
+
+Shared `authorLabel()` classifier is duplicated locally from
+IssuesList (deliberately — kept in sync so the glyph palette
+matches every other surface). `relativeTime()` likewise.
+
+Net change: ~50 lines of new template + style; removed ~25
+lines of `.issue-facts` styles + dl markup.
+
 ### 2026-05-15 — iteration 37 (Filter row + URL state on EpicsList)
 
 EpicsList catches up to the other two list surfaces. Previously

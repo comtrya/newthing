@@ -48,6 +48,7 @@ const descriptionText = computed(() => (
   issue.value?.bodyMarkdown?.trim() || "No description has been added yet."
 ));
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));
+const openedRelative = computed(() => relativeTime(issue.value?.createdAt));
 const repositoryLabel = computed(() => props.repositoryPath ?? issue.value?.repositoryId ?? null);
 const issueNumber = computed(() => Number(
   props.number ?? props.routeParams?.params?.number,
@@ -109,6 +110,42 @@ function formatTimestamp(value?: string | null): string | null {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function relativeTime(value?: string | null): string | null {
+  if (!value) return null;
+  const then = Date.parse(value);
+  if (!Number.isFinite(then)) return null;
+  const diff = Math.max(0, Date.now() - then);
+  const min = 60_000, hr = 60 * min, day = 24 * hr, wk = 7 * day;
+  if (diff < min) return "just now";
+  if (diff < hr) return `${Math.floor(diff / min)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hr)}h ago`;
+  if (diff < wk) return `${Math.floor(diff / day)}d ago`;
+  return `${Math.floor(diff / wk)}w ago`;
+}
+
+/**
+ * Classifier identical to IssuesList.vue's `authorLabel()` — kept in
+ * sync deliberately so the hero chip glyph palette matches every
+ * other surface that classifies typed `comtrya://` URNs (issue rows,
+ * PR queue/detail, epic detail).
+ */
+function authorLabel(authorRef: string | null | undefined): {
+  label: string;
+  glyph: string;
+  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
+} {
+  if (!authorRef) return { label: "unknown", glyph: "·", kind: "unknown" };
+  const stripped = authorRef.replace(/^comtrya:\/\//, "");
+  const [scheme = "", ...rest] = stripped.split("/");
+  const id = rest.join("/") || authorRef;
+  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
+  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
+  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
+  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
+  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
+  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
 }
 
 async function closeCurrentIssue(): Promise<void> {
@@ -210,20 +247,49 @@ async function reopenCurrentIssue(): Promise<void> {
               <span v-if="repositoryLabel" class="issue-repository">{{ repositoryLabel }}</span>
             </div>
             <h1>{{ issue.title }}</h1>
-            <dl class="issue-facts" aria-label="Issue metadata">
-              <div>
-                <dt>Author</dt>
-                <dd>{{ issue.authorRef ?? "unknown" }}</dd>
-              </div>
-              <div v-if="createdAtLabel">
-                <dt>Opened</dt>
-                <dd>{{ createdAtLabel }}</dd>
-              </div>
-              <div v-if="issue.labels?.length">
-                <dt>Labels</dt>
-                <dd>{{ issue.labels.join(", ") }}</dd>
-              </div>
-            </dl>
+            <div class="issue-chip-row" aria-label="Issue metadata">
+              <span
+                v-if="issue.projectName"
+                class="issue-chip tone-project"
+                :title="`Scoped to project ${issue.projectName}`"
+              >
+                <span class="chip-glyph">◇</span>{{ issue.projectName }}
+              </span>
+              <span
+                v-for="label in (issue.labels ?? [])"
+                :key="`label-${label}`"
+                class="issue-chip tone-label"
+              >{{ label }}</span>
+              <span
+                v-if="issue.closeOnMerge === false"
+                class="issue-chip tone-warn"
+                title="closeOnMerge=false — opted out of the PR merge reactor's auto-close path."
+              >closeOnMerge · off</span>
+              <span
+                v-for="ref in (issue.assignees ?? [])"
+                :key="`assignee-${ref}`"
+                class="issue-chip tone-assignee"
+                :data-author-kind="authorLabel(ref).kind"
+                :title="ref"
+              >
+                <span class="chip-glyph">{{ authorLabel(ref).glyph }}</span>
+                {{ authorLabel(ref).label }}
+              </span>
+              <span
+                v-if="issue.authorRef"
+                class="issue-chip tone-author"
+                :data-author-kind="authorLabel(issue.authorRef).kind"
+                :title="`Opened by ${issue.authorRef}`"
+              >
+                <span class="chip-glyph">{{ authorLabel(issue.authorRef).glyph }}</span>
+                by {{ authorLabel(issue.authorRef).label }}
+              </span>
+              <span
+                v-if="openedRelative"
+                class="issue-chip tone-time"
+                :title="createdAtLabel ?? ''"
+              >opened {{ openedRelative }}</span>
+            </div>
           </header>
 
           <article
@@ -350,16 +416,78 @@ async function reopenCurrentIssue(): Promise<void> {
   gap: 8px;
 }
 
-.issue-facts {
+.issue-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  margin: 0;
+  gap: 6px;
+  margin: 4px 0 0;
+}
+
+.issue-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--ink-soft, #2c2b28);
+}
+
+.issue-chip .chip-glyph {
+  width: 13px;
+  height: 13px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.issue-chip.tone-project {
+  color: var(--accent-blue, #1d55a6);
+  border-color: currentColor;
+}
+
+.issue-chip.tone-label {
+  color: var(--accent-teal, #087f6f);
+  border-color: currentColor;
+}
+
+.issue-chip.tone-warn {
+  color: var(--accent-yellow, #c89300);
+  border-color: currentColor;
+  text-transform: lowercase;
+}
+
+.issue-chip.tone-assignee {
+  border-style: dashed;
+  border-color: currentColor;
+  cursor: help;
+}
+
+.issue-chip.tone-author,
+.issue-chip.tone-assignee {
+  color: var(--ink-soft, #2c2b28);
+}
+
+.issue-chip.tone-author[data-author-kind="agent"],
+.issue-chip.tone-assignee[data-author-kind="agent"] { color: #6b3fa0; }
+.issue-chip.tone-author[data-author-kind="credential"],
+.issue-chip.tone-assignee[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.issue-chip.tone-author[data-author-kind="bot"],
+.issue-chip.tone-assignee[data-author-kind="bot"] { color: var(--accent-blue, #1d55a6); }
+.issue-chip.tone-author[data-author-kind="team"],
+.issue-chip.tone-assignee[data-author-kind="team"] { color: var(--accent-teal, #087f6f); }
+
+.issue-chip.tone-time {
+  color: var(--ink-faint, #68645c);
+  border-style: none;
+  padding-left: 2px;
 }
 
 .issue-line,
 .issue-kicker,
-.issue-facts,
 .issue-panel,
 .issue-actions button {
   font-family: var(--mono, monospace);
@@ -381,29 +509,6 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-repository {
   color: var(--ink-faint, #888);
   font-size: 12px;
-}
-
-.issue-facts div {
-  display: grid;
-  gap: 4px;
-}
-
-.issue-facts dt,
-.issue-facts dd {
-  margin: 0;
-}
-
-.issue-facts dt {
-  color: var(--ink-faint, #888);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.issue-facts dd {
-  color: var(--ink-soft, #2c2b28);
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 
 .issue-state-open {
