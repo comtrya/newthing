@@ -1189,6 +1189,40 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 46 (Project URL filter on IssuesList)
+
+Adds a fourth dimension to the IssuesList shareable-filter
+recipe (state · search · assignee · **project**). Click any
+row's project chip to narrow the queue to that Project, URL
+becomes `/x/issues/?project=kernel`, share the link.
+
+`projectFilter` ref URL-synced as `?project=<name>` via the
+same read/write/popstate trio established in iter 32 + 35.
+Validated against `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` so
+crafted URLs can't sneak HTML through. **Prop wins**: when the
+list is mounted on a project page (`props.projectName` set),
+the URL `?project=` is ignored and not written, because the
+project scope comes from the route itself.
+
+Row `.issue-project` chip is now a `<button>` with
+`@click.prevent.stop="toggleProjectFilter"` so clicking it
+filters instead of navigating into the issue detail. Active
+chip flips to inverted ink/paper, matching the assignee chip
+pattern from iter 35.
+
+Controls-row gains an `.issues-project-filter` indicator strip
+when the filter is active: `project · ◇ kernel · clear ✕`.
+
+Combines with every other filter. Some real URLs now possible:
+- `/x/issues/?state=closed&project=frontend` — closed frontend
+- `/x/issues/?assignee=comtrya://user/rawkode&project=kernel`
+  — rawkode's open kernel work
+- `/x/issues/?q=auth&project=kernel` — auth-mentioning kernel
+  issues
+
+Net change: ~80 lines of script/template/style added; zero
+kernel changes, the data was already there.
+
 ### 2026-05-15 — iteration 45 (EpicCard owner chip with classifier glyph)
 
 Epics already carry `ownerRef` as a typed `comtrya://` URN, but

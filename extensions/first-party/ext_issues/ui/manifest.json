@@ -6,7 +6,7 @@
   "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_issues/assets/index.js",
-    "entryIntegrity": "sha256-8050fb2fcc275ce56e1a75649117d344fbc3ac45c596630e41d99d55094b817f",
+    "entryIntegrity": "sha256-984a2d858ed9c9df655bc332664d1e7c4620351acf0559896a0999a6b263d11f",
     "styles": []
   },
   "permissions": [

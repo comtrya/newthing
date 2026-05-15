@@ -59,6 +59,17 @@ const focused = ref(0);
  */
 const assigneeFilter = ref("");
 
+/**
+ * Active project filter — a CUE Project name, or empty. URL-synced
+ * as `?project=<name>` so `/x/issues/?project=kernel` is a
+ * shareable "everything scoped to the kernel project" view.
+ *
+ * Skipped when `props.projectName` is already set (i.e. the list
+ * is mounted on a project page — the prop wins). At `/x/issues/`
+ * the filter is set by clicking a row's project chip.
+ */
+const projectFilter = ref("");
+
 // Quick-add (Linear-style) — projectName scope auto-stamps policy from CUE.
 const quickAddTitle = ref("");
 const quickAddBusy = ref(false);
@@ -89,8 +100,15 @@ const matchesFilter = (issue: Issue, f: Filter): boolean => {
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
   const assignee = assigneeFilter.value;
+  // Prop wins: when the list is mounted on a project page, the
+  // URL filter is ignored — `issues.value` is already scoped.
+  const project = props.projectName ? "" : projectFilter.value;
   return issues.value
     .filter((issue) => matchesFilter(issue, filter.value))
+    .filter((issue) => {
+      if (!project) return true;
+      return issue.projectName === project;
+    })
     .filter((issue) => {
       if (!assignee) return true;
       return (issue.assignees ?? []).includes(assignee);
@@ -113,6 +131,18 @@ function toggleAssigneeFilter(ref: string): void {
 
 function clearAssigneeFilter(): void {
   assigneeFilter.value = "";
+}
+
+function toggleProjectFilter(name: string): void {
+  if (projectFilter.value === name) {
+    projectFilter.value = "";
+  } else {
+    projectFilter.value = name;
+  }
+}
+
+function clearProjectFilter(): void {
+  projectFilter.value = "";
 }
 
 const quickAddPlaceholder = computed(() => {
@@ -191,6 +221,12 @@ function readUrlState(): void {
   // Only accept canonical comtrya:// URNs — guards against junk
   // sneaking in via crafted URLs.
   assigneeFilter.value = rawAssignee.startsWith("comtrya://") ? rawAssignee : "";
+  const rawProject = params.get("project") ?? "";
+  // Accept slug-ish identifiers (project names in CUE are
+  // `string`-typed without further constraint, but the URL should
+  // not become a vector for HTML). Strip anything that's not a
+  // safe identifier character.
+  projectFilter.value = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(rawProject) ? rawProject : "";
 }
 
 function writeUrlState(): void {
@@ -205,6 +241,10 @@ function writeUrlState(): void {
   else params.delete("q");
   if (assigneeFilter.value) params.set("assignee", assigneeFilter.value);
   else params.delete("assignee");
+  // Skip writing `?project=` when the list is project-scoped via
+  // its prop — the project comes from the route already.
+  if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
+  else params.delete("project");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -235,7 +275,7 @@ function onPopState(): void {
   });
 }
 
-watch([filter, search, assigneeFilter], () => {
+watch([filter, search, assigneeFilter, projectFilter], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -444,6 +484,20 @@ async function submitQuickAdd(): Promise<void> {
           clear ✕
         </button>
       </div>
+      <div
+        v-if="projectFilter && !props.projectName"
+        class="issues-project-filter"
+        data-smoke="issues-project-filter"
+      >
+        <span class="prefix">project</span>
+        <span class="active-chip" :title="`Scoped to project ${projectFilter}`">
+          <span class="project-glyph">◇</span>
+          {{ projectFilter }}
+        </span>
+        <button type="button" class="clear" @click="clearProjectFilter" aria-label="Clear project filter">
+          clear ✕
+        </button>
+      </div>
     </header>
 
     <form
@@ -515,14 +569,17 @@ async function submitQuickAdd(): Promise<void> {
               <span :class="['issue-state', stateTone(issue.state).className]">
                 {{ stateTone(issue.state).label }}
               </span>
-              <span
+              <button
                 v-if="issue.projectName"
+                type="button"
                 class="issue-project"
-                :title="`Scoped to project ${issue.projectName}`"
+                :class="{ active: projectFilter === issue.projectName }"
+                :title="`${issue.projectName}\nClick to filter by this project`"
+                @click.prevent.stop="toggleProjectFilter(issue.projectName)"
               >
                 <span class="project-glyph">◇</span>
                 {{ issue.projectName }}
-              </span>
+              </button>
               <span
                 v-for="label in (issue.labels ?? [])"
                 :key="label"
@@ -653,6 +710,54 @@ async function submitQuickAdd(): Promise<void> {
 .issues-assignee-filter .active-chip[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
 .issues-assignee-filter .active-chip[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
 .issues-assignee-filter .active-chip[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+
+/* Project filter indicator — same shape as assignee filter but
+   blue tone matching the row .issue-project chip. */
+.issues-project-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.issues-project-filter .prefix {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.issues-project-filter .active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  color: var(--accent-blue, #1d55a6);
+}
+
+.issues-project-filter .project-glyph {
+  font-size: 10px;
+}
+
+.issues-project-filter .clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.issues-project-filter .clear:hover {
+  color: var(--ink, #111);
+}
 
 .issues-assignee-filter .author-glyph {
   width: 12px;
@@ -948,6 +1053,20 @@ async function submitQuickAdd(): Promise<void> {
   color: var(--accent-blue, #1d55a6);
   border: 1px solid currentColor;
   padding: 0 6px;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--mono, monospace);
+}
+
+.issue-project:hover {
+  background: var(--paper-tint, #f2efe7);
+}
+
+.issue-project.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-color: var(--ink, #111);
 }
 
 .issue-project .project-glyph {
