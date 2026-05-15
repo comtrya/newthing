@@ -37,6 +37,16 @@ const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 const filter = ref<Filter>("OPEN");
 const search = ref("");
+
+/**
+ * Active author filter — a canonical `comtrya://` URN or empty.
+ * Set by clicking an author chip on a row, cleared via the
+ * controls-row clear button. URL-synced as `?author=<urn>` so
+ * `/x/pulls/?author=comtrya://user/rawkode` is a shareable
+ * "rawkode's PRs" view. Mirrors iter 35's IssuesList assignee
+ * filter pattern.
+ */
+const authorFilter = ref("");
 const pulls = ref<PullRequest[]>([]);
 const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
@@ -55,17 +65,31 @@ const matchesFilter = (pull: PullRequest, f: Filter): boolean => {
 
 const filtered = computed(() => {
   const q = search.value.trim().toLowerCase();
+  const author = authorFilter.value;
   return pulls.value
     .filter((p) => matchesFilter(p, filter.value))
     .filter((p) => {
+      if (!author) return true;
+      return p.authorRef === author;
+    })
+    .filter((p) => {
       if (!q) return true;
-      const author = classifyAuthor(p.authorRef);
+      const cls = classifyAuthor(p.authorRef);
       const haystack =
-        `${p.number} ${p.title} ${p.headRef} ${p.baseRef} ${author.label} ${author.kind}`
+        `${p.number} ${p.title} ${p.headRef} ${p.baseRef} ${cls.label} ${cls.kind}`
           .toLowerCase();
       return haystack.includes(q);
     });
 });
+
+function toggleAuthorFilter(ref: string): void {
+  if (authorFilter.value === ref) authorFilter.value = "";
+  else authorFilter.value = ref;
+}
+
+function clearAuthorFilter(): void {
+  authorFilter.value = "";
+}
 
 const counts = computed(() => {
   const out: Record<Filter, number> = {
@@ -104,6 +128,9 @@ function readUrlState(): void {
   }
   const rawQ = params.get("q");
   if (rawQ !== null) search.value = rawQ;
+  const rawAuthor = params.get("author") ?? "";
+  // Only accept canonical comtrya:// URNs — same guard as iter 35.
+  authorFilter.value = rawAuthor.startsWith("comtrya://") ? rawAuthor : "";
 }
 
 function writeUrlState(): void {
@@ -116,6 +143,8 @@ function writeUrlState(): void {
   const trimmed = search.value.trim();
   if (trimmed) params.set("q", trimmed);
   else params.delete("q");
+  if (authorFilter.value) params.set("author", authorFilter.value);
+  else params.delete("author");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
   if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
@@ -156,7 +185,7 @@ watch(filtered, () => {
   }
 });
 
-watch([filter, search], () => {
+watch([filter, search, authorFilter], () => {
   if (suppressUrlWrite) return;
   writeUrlState();
 });
@@ -262,6 +291,27 @@ async function load(): Promise<void> {
           <kbd>/</kbd>
         </label>
       </div>
+      <div
+        v-if="authorFilter"
+        class="pulls-author-filter"
+        data-smoke="pulls-author-filter"
+      >
+        <span class="prefix">authored by</span>
+        <span
+          class="active-chip"
+          :data-author-kind="classifyAuthor(authorFilter).kind"
+          :title="authorFilter"
+        >
+          <span class="author-glyph">{{ classifyAuthor(authorFilter).glyph }}</span>
+          {{ classifyAuthor(authorFilter).label }}
+        </span>
+        <button
+          type="button"
+          class="clear"
+          @click="clearAuthorFilter"
+          aria-label="Clear author filter"
+        >clear ✕</button>
+      </div>
     </header>
 
     <p v-if="loadState === 'loading'" class="pulls-empty">Loading pull requests…</p>
@@ -294,22 +344,17 @@ async function load(): Promise<void> {
               <code class="pulls-branch">
                 {{ pull.headRef }} <span>→</span> {{ pull.baseRef }}
               </code>
-              <span class="pulls-author" :data-author-kind="classifyAuthor(pull.authorRef).kind">
+              <button
+                type="button"
+                class="pulls-author"
+                :class="{ active: authorFilter === pull.authorRef }"
+                :data-author-kind="classifyAuthor(pull.authorRef).kind"
+                :title="`${pull.authorRef}\nClick to filter by this author`"
+                @click.prevent.stop="toggleAuthorFilter(pull.authorRef)"
+              >
                 <span class="author-glyph">{{ classifyAuthor(pull.authorRef).glyph }}</span>
                 <span class="author-label">{{ classifyAuthor(pull.authorRef).label }}</span>
-                <span
-                  v-if="classifyAuthor(pull.authorRef).kind === 'agent'"
-                  class="author-badge"
-                >agent</span>
-                <span
-                  v-else-if="classifyAuthor(pull.authorRef).kind === 'credential'"
-                  class="author-badge"
-                >bot</span>
-                <span
-                  v-else-if="classifyAuthor(pull.authorRef).kind === 'bot'"
-                  class="author-badge"
-                >bot</span>
-              </span>
+              </button>
             </span>
           </span>
           <span class="pulls-row-age">{{ relativeTime(pull.updatedAt ?? pull.createdAt) }}</span>
@@ -533,8 +578,88 @@ async function load(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 0 5px;
+  border: 1px dashed transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-family: var(--mono, monospace);
   font-size: 12px;
+  cursor: pointer;
+}
+
+.pulls-author:hover {
+  border-color: currentColor;
+  background: var(--paper-tint, #f2efe7);
+}
+
+.pulls-author.active {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  border-color: var(--ink, #111);
+  border-style: solid;
+}
+
+.pulls-author.active .author-glyph,
+.pulls-author.active .author-label {
+  color: inherit;
+}
+
+/* Author filter indicator — mirrors iter 35's IssuesList shape. */
+.pulls-author-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper-tint, #f2efe7);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.pulls-author-filter .prefix {
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.pulls-author-filter .active-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+}
+
+.pulls-author-filter .active-chip[data-author-kind="agent"]      { color: #6b3fa0; }
+.pulls-author-filter .active-chip[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.pulls-author-filter .active-chip[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.pulls-author-filter .active-chip[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+
+.pulls-author-filter .author-glyph {
+  width: 12px;
+  height: 12px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.pulls-author-filter .clear {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.pulls-author-filter .clear:hover {
+  color: var(--ink, #111);
 }
 
 .pulls-author .author-glyph {

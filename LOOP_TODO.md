@@ -1189,6 +1189,44 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 50 (PullsQueue author URL filter)
+
+Mirrors iter 35 (issue assignee filter) onto the PR queue:
+click any author chip on a PR row, queue narrows, URL becomes
+`/x/pulls/?author=<urn>`.
+
+PullsQueue:
+- `authorFilter` ref URL-synced as `?author=<urn>` via the
+  existing read/write/popstate trio. Only accepts canonical
+  `comtrya://` URNs.
+- `filtered` computed narrows by `pull.authorRef === authorFilter`
+  when set.
+- Row author chip becomes a `<button>` with
+  `@click.prevent.stop="toggleAuthorFilter"` so clicking
+  filters instead of navigating to the PR detail.
+- Active chip flips to inverted ink/paper. The hover state gets
+  a dashed currentColor border (transparent at rest) so the
+  affordance is discoverable.
+- `.pulls-author-filter` indicator strip when active:
+  `authored by · <chip with classifier glyph> · clear ✕`.
+- Dropped the redundant agent / bot / bot `.author-badge`
+  spans — the data-author-kind colour already conveys the
+  classification (same cleanup iter 41 did on PullsDetail and
+  iter 35 deliberately avoided on the row chip).
+
+Combines with state + search: `/x/pulls/?state=merged&author=
+comtrya://user/rawkode&q=auth` is a real URL.
+
+Across the three planning queue surfaces the identity-axis
+filter is now complete:
+- **Issues**: `?assignee=<urn>` (iter 35) — many assignees per row
+- **Epics**: `?owner=<urn>` (iter 48) — single owner per epic
+- **Pulls**: `?author=<urn>` (iter 50) — single author per PR
+
+Plus state, project (issues + epics), search filters from
+earlier iterations. The shareable-filter chip recipe spans
+every queue surface in the shell.
+
 ### 2026-05-15 — iteration 49 (Project URL filter on EpicsList)
 
 Mirrors iter 46 (project filter on IssuesList) onto epics.
