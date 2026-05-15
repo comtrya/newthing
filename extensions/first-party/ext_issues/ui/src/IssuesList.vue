@@ -2,10 +2,17 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   classifyPrincipal as authorLabel,
+  fetchComtryaProjects,
   parseQueryFilters,
   useShortcuts,
+  type ComtryaProject,
 } from "@comtrya/sdk-vue";
-import { closeIssue, listIssues, openIssue } from "./api";
+import {
+  assignIssueProject,
+  closeIssue,
+  listIssues,
+  openIssue,
+} from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -130,6 +137,79 @@ async function closeSelected(): Promise<void> {
   } finally {
     bulkBusy.value = false;
   }
+}
+
+/**
+ * Bulk reproject — assign (or clear) the Project on every
+ * selected issue in one pass. Compounds iter 51 (bulk close) +
+ * iter 68 (assign-project op) so a team can drag a batch of
+ * untagged issues into their right Project from the queue
+ * canvas. Mirrors `closeSelected`: Promise.allSettled, optimistic
+ * local update, failures stay in `selectedIds` for retry.
+ *
+ * Triggered from the bulk action bar's `<select>`. Loading
+ * `availableProjects` happens once on mount; until that resolves
+ * the picker just shows "(no project)" so the user can at least
+ * unscope a selection.
+ */
+const availableProjects = ref<ComtryaProject[]>([]);
+
+onMounted(async () => {
+  try {
+    availableProjects.value = await fetchComtryaProjects();
+  } catch {
+    availableProjects.value = [];
+  }
+});
+
+async function reprojectSelected(projectName: string | null): Promise<void> {
+  if (selectedIds.value.size === 0 || bulkBusy.value) return;
+  const ids = Array.from(selectedIds.value);
+  bulkBusy.value = true;
+  bulkError.value = null;
+  try {
+    const results = await Promise.allSettled(
+      ids.map((id) => assignIssueProject(id, projectName)),
+    );
+    const successById = new Map<string, Issue>();
+    const failed = new Set<string>();
+    results.forEach((result, idx) => {
+      const id = ids[idx]!;
+      if (result.status === "fulfilled") successById.set(id, result.value);
+      else failed.add(id);
+    });
+    // Optimistic local update — patch each updated issue in
+    // place so the row's project chip flips immediately.
+    loaded.value = loaded.value.map((issue) =>
+      successById.get(issue.id) ?? issue,
+    );
+    selectedIds.value = failed;
+    if (failed.size > 0) {
+      const label = projectName ?? "(no project)";
+      bulkError.value =
+        `${failed.size} of ${ids.length} reassignments to ${label} failed; retry the remaining selection.`;
+    }
+  } catch (caught) {
+    bulkError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    bulkBusy.value = false;
+  }
+}
+
+function onBulkReprojectChange(event: Event): void {
+  const target = event.target as HTMLSelectElement | null;
+  if (!target) return;
+  const raw = target.value;
+  // Sentinel for the "no project" option — distinguishes the
+  // "clear scope" verb from the placeholder option's empty
+  // string, which isn't actionable.
+  const projectName = raw === "__NONE__" ? null : raw || null;
+  // Reset the select so a repeat-pick of the same value still
+  // fires a change event next time. The actual stamped value
+  // lives on the issues, not on the picker control.
+  target.value = "";
+  if (raw === "") return;
+  void reprojectSelected(projectName);
 }
 
 // Quick-add (Linear-style) — projectName scope auto-stamps policy from CUE.
@@ -732,6 +812,23 @@ async function submitQuickAdd(): Promise<void> {
       >
         {{ bulkBusy ? "closing…" : `close ${selectedIds.size}` }}
       </button>
+      <label class="bulk-reproject">
+        <span class="bulk-reproject-label">reproject →</span>
+        <select
+          class="bulk-reproject-select"
+          data-smoke="issues-bulk-reproject"
+          :disabled="bulkBusy"
+          @change="onBulkReprojectChange"
+        >
+          <option value="" disabled selected>pick project…</option>
+          <option value="__NONE__">— no project —</option>
+          <option
+            v-for="proj in availableProjects"
+            :key="proj.name"
+            :value="proj.name ?? ''"
+          >◇ {{ proj.name }}</option>
+        </select>
+      </label>
       <button
         type="button"
         class="bulk-clear"
@@ -1294,6 +1391,43 @@ async function submitQuickAdd(): Promise<void> {
 .issues-bulk-bar .bulk-action:disabled {
   opacity: 0.5;
   cursor: wait;
+}
+
+/* iter 71 — bulk reproject control. Sits in the inverted dark
+ * bulk-action bar, so the select uses paper text on the same
+ * background, keeping the editorial aesthetic. */
+.issues-bulk-bar .bulk-reproject {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.issues-bulk-bar .bulk-reproject-label {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--paper-tint, #f2efe7);
+  letter-spacing: 0.04em;
+}
+
+.issues-bulk-bar .bulk-reproject-select {
+  border: 1px solid var(--paper-tint, #f2efe7);
+  background: transparent;
+  color: var(--paper, #fffdf8);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 2px 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.issues-bulk-bar .bulk-reproject-select:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.issues-bulk-bar .bulk-reproject-select option {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
 }
 
 .issues-bulk-bar .bulk-clear {

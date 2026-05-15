@@ -1189,6 +1189,46 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 71 (Bulk reproject on IssuesList)
+
+Closes a three-iteration arc:
+- Iter 51 - bulk selection + bulk close on IssuesList.
+- Iter 67/68 - kernel `assign-project` op + inline picker on
+  IssueDetail.
+- Iter 71 - bulk-pick the project from the bulk action bar so
+  a team can drag a batch of untagged issues into their right
+  Project from the queue canvas without leaving it.
+
+IssuesList:
+- New `availableProjects: ComtryaProject[]` ref loaded once on
+  mount via `fetchComtryaProjects()` (iter 63).
+- New `reprojectSelected(projectName)` async function. Mirrors
+  `closeSelected` shape: `Promise.allSettled` over
+  `assignIssueProject(id, projectName)` for each selected id,
+  optimistic local update, failures stay in `selectedIds` for
+  retry, error message names the chosen project.
+- `onBulkReprojectChange()` reads the select, maps the
+  `__NONE__` sentinel to `null` (so "clear project" is
+  distinct from the placeholder option), resets the control
+  so a repeat-pick of the same value still triggers, and
+  fires the bulk op.
+- Bulk action bar template gets a new `<label>` group:
+  `reproject → <select>` with placeholder + "(no project)" +
+  one option per CUE project. Disabled while another bulk op
+  is in flight.
+- New `.bulk-reproject*` styles in the inverted dark bar -
+  paper-tint border + text on the same ink background so the
+  control sits flush with the iter-51 chrome.
+
+The kernel still runs the iter-66 (pre-67) ext_issues bundle
+on dogfood; once restarted, this control becomes the fastest
+path to making the spine real - select the 7 untagged seed
+issues, pick a project, watch the iter-65 workspace counts
+populate.
+
+typecheck + ext_issues bundle clean, `entryIntegrity`
+refreshed.
+
 ### 2026-05-15 - iteration 70 (Quick-add input on EpicsList)
 
 Mirror of IssuesList iter 17 - inline Linear-style epic
