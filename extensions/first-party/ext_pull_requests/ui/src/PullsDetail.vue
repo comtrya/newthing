@@ -50,10 +50,23 @@ const focusedLinkedIdx = ref(-1);
  * footer ("derive it in the UI from `repository.diff` +
  * `repository.comtryaConfig.projects`").
  */
+interface CueOwnerRef {
+  kind?: string;
+  slug?: string;
+  ref?: string;
+}
 interface CueProject {
   name?: string;
   root?: string;
   labels?: string[];
+  /**
+   * Project owners declared by the repo's `package comtrya` CUE.
+   * The kernel emits these as typed `#Ref` records (`{kind, slug,
+   * ref}` since iter 26). Surfaced on the PR detail's "Routed to"
+   * panel so a reviewer can see who the PR routes through without
+   * leaving the page.
+   */
+  owners?: CueOwnerRef[];
 }
 const projects = ref<CueProject[]>([]);
 
@@ -96,6 +109,69 @@ const affectedProjects = computed<string[]>(() => {
   }
   return Array.from(seen).sort();
 });
+
+/**
+ * Project names derived from the PR's linked issues - each
+ * `LinkedIssue.projectName` is one piece of routing evidence. A PR
+ * that closes issues in projects `kernel` and `frontend` should
+ * surface both, even when its diff doesn't touch those project
+ * roots (e.g. a docs-only PR closing a kernel issue).
+ */
+const projectsFromLinks = computed<string[]>(() => {
+  const names = new Set<string>();
+  for (const issue of linkedIssues.value) {
+    if (issue.projectName) names.add(issue.projectName);
+  }
+  return Array.from(names).sort();
+});
+
+/**
+ * Routing fact: every Project this PR touches, derived from
+ * either (a) the diff's changed paths (`affectedProjects`,
+ * iter 42) or (b) issues this PR closes (`projectsFromLinks`,
+ * iter 54 metadata). The union is what shows up in the "Routed
+ * to" panel below, with the CUE-declared owners per project so
+ * the reviewer sees who is on the hook.
+ */
+const routedProjectsWithOwners = computed<Array<{
+  name: string;
+  owners: string[];
+}>>(() => {
+  const names = new Set<string>([
+    ...affectedProjects.value,
+    ...projectsFromLinks.value,
+  ]);
+  const ordered = Array.from(names).sort();
+  return ordered.map((name) => {
+    const project = projects.value.find((p) => p.name === name);
+    const owners = (project?.owners ?? [])
+      .map((owner) => owner?.ref)
+      .filter((ref): ref is string => typeof ref === "string" && ref.length > 0);
+    return { name, owners };
+  });
+});
+
+/**
+ * Owner classifier matching the iter 59 IssueDetail / EpicDetail
+ * vocabulary so the "Routed to" panel reads the same across
+ * every detail surface in the forge.
+ */
+function classifyOwner(ref: string): {
+  label: string;
+  glyph: string;
+  kind: "human" | "agent" | "credential" | "bot" | "team" | "unknown";
+} {
+  if (!ref) return { label: "unknown", glyph: "·", kind: "unknown" };
+  const stripped = ref.replace(/^comtrya:\/\//, "");
+  const [scheme = "", ...rest] = stripped.split("/");
+  const id = rest.join("/") || ref;
+  if (scheme === "agent") return { label: id, glyph: "✦", kind: "agent" };
+  if (scheme === "bot") return { label: id, glyph: "◆", kind: "bot" };
+  if (scheme === "credential") return { label: id, glyph: "⚙", kind: "credential" };
+  if (scheme === "team") return { label: id, glyph: "◇", kind: "team" };
+  if (scheme === "user") return { label: id, glyph: id.slice(0, 1).toUpperCase(), kind: "human" };
+  return { label: id, glyph: id.slice(0, 1).toUpperCase() || "·", kind: "unknown" };
+}
 
 const tone = computed(() => stateTone(pull.value?.state));
 const canMerge = computed(
@@ -383,6 +459,52 @@ async function onClose(): Promise<void> {
       <section v-else class="pulls-detail-body muted">
         <h2>Description</h2>
         <p>No description provided.</p>
+      </section>
+
+      <section
+        v-if="routedProjectsWithOwners.length > 0"
+        class="pulls-routed"
+        data-smoke="pulls-routed"
+        aria-label="CUE project routing"
+      >
+        <header>
+          <h2>Routed to</h2>
+          <span class="muted">
+            {{ routedProjectsWithOwners.length }} project<template v-if="routedProjectsWithOwners.length !== 1">s</template>
+          </span>
+        </header>
+        <ul class="pulls-routed-list">
+          <li
+            v-for="entry in routedProjectsWithOwners"
+            :key="entry.name"
+            class="pulls-routed-project"
+          >
+            <a
+              :href="`/x/issues/?project=${encodeURIComponent(entry.name)}`"
+              class="pulls-routed-name"
+              :title="`Filter issues to project ${entry.name}`"
+            >◇ {{ entry.name }}</a>
+            <ul v-if="entry.owners.length > 0" class="pulls-routed-owners">
+              <li
+                v-for="ref in entry.owners"
+                :key="ref"
+                class="pulls-routed-owner"
+                :data-author-kind="classifyOwner(ref).kind"
+                :title="ref"
+              >
+                <span class="chip-glyph">{{ classifyOwner(ref).glyph }}</span>
+                {{ classifyOwner(ref).label }}
+              </li>
+            </ul>
+            <span v-else class="pulls-routed-owners muted">
+              no owners declared
+            </span>
+          </li>
+        </ul>
+        <p class="pulls-routed-source">
+          From paths the diff touched · issues this PR closes ·
+          <code>package comtrya</code> owners
+        </p>
       </section>
 
       <section
@@ -717,6 +839,125 @@ async function onClose(): Promise<void> {
   font-family: var(--mono, monospace);
   font-size: 12px;
   color: var(--ink-faint, #68645c);
+}
+
+/* "Routed to" panel — union of (a) projects whose root the
+ * diff touched and (b) projects of the issues this PR closes.
+ * For each, surfaces the CUE-declared owners as classifier
+ * chips. Mirrors the iter 59 IssueDetail / EpicDetail panel
+ * so the routing vocabulary is identical across detail
+ * surfaces. */
+.pulls-routed {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--ink-rule, #d0cfc8);
+  background: var(--paper-tint, #f2efe7);
+}
+
+.pulls-routed > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--ink-rule, #d0cfc8);
+  padding-bottom: 6px;
+}
+
+.pulls-routed > header h2 {
+  margin: 0;
+  font-family: var(--display, system-ui);
+  font-size: 16px;
+}
+
+.pulls-routed > header .muted {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}
+
+.pulls-routed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.pulls-routed-project {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+}
+
+.pulls-routed-name {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--accent-blue, #1d55a6);
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.pulls-routed-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pulls-routed-owners {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pulls-routed-owners.muted {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  font-style: italic;
+}
+
+.pulls-routed-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid currentColor;
+  color: var(--ink, #111);
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.pulls-routed-owner .chip-glyph {
+  font-family: var(--display, system-ui);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pulls-routed-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
+.pulls-routed-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.pulls-routed-owner[data-author-kind="agent"]      { color: #6b3fa0; }
+.pulls-routed-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
+.pulls-routed-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+
+.pulls-routed-source {
+  margin: 0;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}
+
+.pulls-routed-source code {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  padding: 0 4px;
+  background: var(--paper-tint, #f2efe7);
+  color: var(--ink-soft, #2c2b28);
 }
 
 .pulls-linked-issues {

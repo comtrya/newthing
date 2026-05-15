@@ -1189,6 +1189,50 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 61 (PullsDetail "Routed to" panel - projects + CUE owners)
+
+PullsDetail joins IssueDetail and EpicDetail in surfacing CUE
+Project ownership at the routing level. A PR doesn't have its
+own `projectName`, but it routes through Projects two ways:
+the diff's changed paths (`affectedProjects`, iter 42) and the
+issues it closes (`linkedIssues[].projectName`, iter 54). The
+panel unions both, then resolves the CUE-declared owners per
+project.
+
+PullsDetail:
+- `CueProject` interface extended with `owners: { kind, slug,
+  ref }[]` (the typed `#Ref` family from iter 26 already
+  serialises this way - the field was just unread).
+- New `projectsFromLinks` computed reads
+  `linkedIssues[].projectName` and dedupes - a PR that closes
+  three kernel issues registers `kernel` once.
+- New `routedProjectsWithOwners` computed unions
+  `affectedProjects` (path-derived, iter 42) with
+  `projectsFromLinks` (closes-derived) and looks up each
+  project's `owners[]` from the already-loaded
+  `comtryaConfig.projects[]`. A docs-only PR closing a kernel
+  issue surfaces both `ext_docs` and `kernel` even though the
+  diff only touched the docs root.
+- New `classifyOwner()` helper matching the iter 59
+  IssueDetail / EpicDetail glyph palette so the "Routed to"
+  panel reads identically across every detail surface.
+- New `<section class="pulls-routed">` renders between the
+  Description and the Closes panel. Each project gets a
+  header link to its filtered IssuesList
+  (`/x/issues/?project=<name>`) plus a row of classifier-
+  toned owner chips - team teal, human ink, agent purple,
+  bot blue, credential yellow. Footer attribution captures
+  the three derivation sources: paths the diff touched,
+  issues this PR closes, `package comtrya` owners.
+
+Verified end-to-end against the dogfood data: simulating a
+docs-only PR (`affectedProjects: ["ext_docs"]`) closing
+kernel + frontend issues, the derivation returns all three
+projects with their full owner sets - `platform-maintainers`
+(ext_docs), `frontend-maintainers + rawkode` (frontend),
+`platform-maintainers + rawkode` (kernel). typecheck +
+ext_pull_requests bundle clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 60 (ProjectHome summary becomes navigable + quick-create entrypoints)
 
 The Project home was a passive dashboard - chip row, summary
