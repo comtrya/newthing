@@ -1189,6 +1189,46 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 75 (Per-Project work counts on RepoHome ProjectsPanel)
+
+Brings the iter-65 workspace Projects-panel vocabulary to the
+RepoHome ProjectsPanel. Each project card now shows open
+issues / in-progress epics / closed counts, each navigable to
+the filtered queue, live-refreshing via the SSE topics iter
+67-69 plumbed.
+
+ProjectsPanel:
+- New `projectCounts: Record<string, ProjectCounts>` ref.
+- `refreshProjectCounts()` runs two workspace-wide ops calls
+  in parallel (`ext_issues/list-issues` +
+  `ext_epics/list-epics`) and buckets by `projectName`. Same
+  two-ops-total shape iter 65 uses.
+- Triggered on mount alongside the existing CUE config load.
+  Live-refreshed via subscriptions to the same seven topics
+  WorkspaceHome listens to: issues opened/closed/reopened/
+  project-changed + epic created/state-changed/project-
+  changed. Tears down on unmount.
+- `countsFor(name)` falls back to empty counts so the template
+  binds unconditionally; `projectFilterHref(surface, name,
+  state?)` builds the destination URLs.
+- Template: new `.project-counts` row inside each
+  `.project-card-head` block, three `<RouterLink>`s - open
+  issues / in-progress epics / closed - each
+  `<RouterLink>` to the filtered queue. Zero counts dim via
+  `data-zero` so the eye lands on actionable numbers.
+- `.project-count*` styles match the iter-65 workspace
+  aesthetic exactly so the per-Project tally chips read the
+  same on both surfaces.
+
+Verified against dogfood: the 3 project cards (ext_docs,
+frontend, kernel) all render the count chips. Counts are 0
+across the board today (no issues/epics carry `projectName`
+in the seed), but the moment the kernel restart picks up
+iter 67-69's `assign-project` ops and a user batch-tags via
+iter 71-72, every card lights up live.
+
+typecheck + shell build clean.
+
 ### 2026-05-15 - iteration 74 (Project filter for WorkspaceHome activity stream)
 
 The workspace canvas's "what just happened" feed gains a

@@ -10,8 +10,12 @@
  * `contributes.cueSchemas` — but the panel surfaces them generically.
  */
 
-import { computed, onMounted, ref, watch } from "vue";
-import { getGraphQLClient } from "@comtrya/sdk-core";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+  getGraphQLClient,
+  invokeOp,
+  subscribeLiveEvents,
+} from "@comtrya/sdk-core";
 import { projectHref } from "../route-paths";
 
 /**
@@ -84,7 +88,116 @@ const reservedKeys = new Set([
   "implicit",
 ]);
 
-onMounted(() => void load());
+/**
+ * Per-Project work counts — mirror of the iter 65 workspace
+ * Projects panel logic, scoped to this repo's project cards.
+ * Two workspace-wide ops (`list-issues` + `list-epics`),
+ * bucketed by `projectName`. Live-refreshed via the existing
+ * SSE topics so the chips track reality without a refresh.
+ */
+const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+
+interface ProjectCounts {
+  openIssues: number;
+  closedIssues: number;
+  epicsInProgress: number;
+  epicsPlanned: number;
+  epicsDone: number;
+}
+
+const emptyCounts = (): ProjectCounts => ({
+  openIssues: 0,
+  closedIssues: 0,
+  epicsInProgress: 0,
+  epicsPlanned: 0,
+  epicsDone: 0,
+});
+
+interface IssueLite { state?: string; projectName?: string | null }
+interface EpicLite { state?: string; projectName?: string | null }
+
+const projectCounts = ref<Record<string, ProjectCounts>>({});
+const countSubscribers: Array<() => void> = [];
+
+async function refreshProjectCounts(): Promise<void> {
+  const [issuesRes, epicsRes] = await Promise.all([
+    invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
+      repository: WORKSPACE_URI,
+      limit: 4096,
+    }),
+    invokeOp<EpicLite[]>("ext_epics", "epics", "list-epics", {
+      workspace: WORKSPACE_URI,
+      limit: 4096,
+    }),
+  ]);
+  const next: Record<string, ProjectCounts> = {};
+  const bucket = (name: string): ProjectCounts => (next[name] ??= emptyCounts());
+  if (issuesRes.ok && Array.isArray(issuesRes.value)) {
+    for (const issue of issuesRes.value) {
+      const project = (issue.projectName ?? "").trim();
+      if (!project) continue;
+      const counts = bucket(project);
+      const state = (issue.state ?? "").toUpperCase();
+      if (state === "CLOSED") counts.closedIssues += 1;
+      else counts.openIssues += 1;
+    }
+  }
+  if (epicsRes.ok && Array.isArray(epicsRes.value)) {
+    for (const epic of epicsRes.value) {
+      const project = (epic.projectName ?? "").trim();
+      if (!project) continue;
+      const counts = bucket(project);
+      const state = (epic.state ?? "").toUpperCase();
+      if (state === "DONE" || state === "CANCELED") counts.epicsDone += 1;
+      else if (state === "IN_PROGRESS" || state === "AT_RISK") counts.epicsInProgress += 1;
+      else counts.epicsPlanned += 1;
+    }
+  }
+  projectCounts.value = next;
+}
+
+function countsFor(name: string | undefined): ProjectCounts {
+  if (!name) return emptyCounts();
+  return projectCounts.value[name] ?? emptyCounts();
+}
+
+function projectFilterHref(
+  surface: "issues" | "epics",
+  name: string,
+  state?: string,
+): string {
+  const encoded = encodeURIComponent(name);
+  const suffix = state ? `&state=${state}` : "";
+  return `/x/${surface}/?project=${encoded}${suffix}`;
+}
+
+onMounted(() => {
+  void load();
+  void refreshProjectCounts();
+  for (const type of [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened",
+    "dev.comtrya.issues.project-changed",
+    "dev.comtrya.epic.created",
+    "dev.comtrya.epic.state-changed",
+    "dev.comtrya.epic.project-changed",
+  ]) {
+    countSubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void refreshProjectCounts(),
+        onError: () => {},
+      }),
+    );
+  }
+});
+
+onUnmounted(() => {
+  for (const off of countSubscribers) off();
+  countSubscribers.length = 0;
+});
+
 watch(() => props.repositoryPath, () => void load());
 
 async function load(): Promise<void> {
@@ -250,6 +363,40 @@ function authorKindOfOwner(owner: ComtryaRef): string {
                 {{ ownerLabel(owner) }}
               </span>
             </span>
+          </div>
+          <div
+            v-if="project.name"
+            class="project-counts"
+            data-smoke="project-counts"
+            aria-label="Project work counts"
+          >
+            <RouterLink
+              :to="projectFilterHref('issues', project.name)"
+              class="project-count"
+              :data-zero="countsFor(project.name).openIssues === 0"
+              :title="`Open issues in ${project.name}`"
+            >
+              <span class="count-num">{{ countsFor(project.name).openIssues }}</span>
+              <span class="count-label">open</span>
+            </RouterLink>
+            <RouterLink
+              :to="projectFilterHref('epics', project.name, 'IN_PROGRESS')"
+              class="project-count"
+              :data-zero="countsFor(project.name).epicsInProgress === 0"
+              :title="`In-progress epics in ${project.name}`"
+            >
+              <span class="count-num">{{ countsFor(project.name).epicsInProgress }}</span>
+              <span class="count-label">epics</span>
+            </RouterLink>
+            <RouterLink
+              :to="projectFilterHref('issues', project.name, 'CLOSED')"
+              class="project-count muted"
+              :data-zero="countsFor(project.name).closedIssues === 0"
+              :title="`Closed issues in ${project.name}`"
+            >
+              <span class="count-num">{{ countsFor(project.name).closedIssues }}</span>
+              <span class="count-label">closed</span>
+            </RouterLink>
           </div>
         </header>
 
@@ -417,6 +564,54 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .owner {
   color: var(--ink-soft, #2c2b28);
+}
+
+/* iter 75 — per-project work counts on RepoHome's
+ * ProjectsPanel. Mirror of iter 65 (workspace Projects panel)
+ * for the per-repo card view. Editorial chip aesthetic: count
+ * in display weight + mono lowercase label, bottom-border
+ * underline on hover, zero-count dim. */
+.project-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 2px;
+}
+
+.project-count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid transparent;
+  transition: border-color 80ms ease;
+}
+
+.project-count:hover {
+  border-bottom-color: var(--ink, #111);
+}
+
+.project-count .count-num {
+  font-family: var(--display, system-ui);
+  font-weight: 650;
+  font-size: 14px;
+  color: var(--ink, #111);
+  font-variant-numeric: tabular-nums;
+}
+
+.project-count[data-zero="true"] .count-num,
+.project-count.muted .count-num {
+  color: var(--ink-fainter, #918b80);
+  font-weight: 500;
+}
+
+.project-count .count-label {
+  color: var(--ink-faint, #68645c);
+  text-transform: lowercase;
 }
 
 .project-claims {
