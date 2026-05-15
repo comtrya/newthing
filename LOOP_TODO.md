@@ -1189,6 +1189,45 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 47 (?-overlay reads live command registry)
+
+Resolves the long-pending user-requested TODO. The
+ShortcutsOverlay shed its hand-edited "Global" navigation list
+that had drifted from reality after iters 18-24's library
+migration. The overlay now has two kinds of sections:
+
+**Live sections** (badged `live`) sourced from
+`listCommands() / subscribeCommands()`. Every `registerCommand`
+entry with a `.shortcut` field appears here, grouped by its
+`category`:
+- `Navigation` — `g h`, `g r`, `g i`, `g p`, `g n` from
+  `main.ts::registerNavigationCommands`
+- `Projects` — `Switch to project <name>` (currently no
+  shortcut, future-proofed)
+- `Repositories` — `Switch to repository <path>`
+
+Re-renders automatically when commands register/unregister
+(project + repo commands change when you navigate between
+repos thanks to iter 22/25). Subscription torn down on unmount.
+
+**Static sections** — keyboard shortcuts that are
+intrinsically scoped per surface (j/k inside lists, m/x on
+PullsDetail, n/p in DiffView). These don't live in the global
+registry because they only make sense when the relevant
+surface is focused. Kept as a hand-curated cheat sheet:
+- `Global (always)` — Cmd-K + `?`
+- `Lists (issues, pulls, epics)` — j/k/↵/`/`/c/o/x/a
+- `Issue / epic detail` — j/k/↵/Esc
+- `Pull request detail` — m/x/n/p/[/]/Esc
+
+Live sections render first so the user sees what the command
+palette can actually do, then the static cheat sheet documents
+the scoped keyboard surfaces.
+
+The static list has been updated from the iter 17 / 19 / 20
+changes — `c` for create, `x` for closed-filter, `n/p/[/]` for
+diff nav — which the original hardcoded list had drifted from.
+
 ### 2026-05-15 — iteration 46 (Project URL filter on IssuesList)
 
 Adds a fourth dimension to the IssuesList shareable-filter

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { listCommands, subscribeCommands, type CommandContribution } from "@comtrya/sdk-core";
+
 defineProps<{
   cmdLabel: string;
 }>();
@@ -12,29 +15,42 @@ interface ShortcutGroup {
   shortcuts: Array<{ keys: string[]; description: string }>;
 }
 
-const groups: ShortcutGroup[] = [
+/**
+ * Static cheat sheet for keyboard shortcuts that are scoped per
+ * component (j/k inside lists, m/x on PullsDetail, etc.) — these
+ * aren't in the global command registry because they only make
+ * sense when the relevant surface is focused. The dynamic
+ * "Commands" group below sources every `registerCommand` entry
+ * with a `.shortcut` from the live registry.
+ */
+const staticGroups: ShortcutGroup[] = [
   {
-    title: "Global",
+    title: "Global (always)",
     shortcuts: [
       { keys: ["%cmd%", "K"], description: "Open command palette" },
       { keys: ["?"], description: "Show / hide this cheat sheet" },
-      { keys: ["g", "h"], description: "Go to workspace home" },
-      { keys: ["g", "r"], description: "Go to the first repository" },
-      { keys: ["g", "i"], description: "Go to issues" },
-      { keys: ["g", "p"], description: "Go to pull requests" },
-      { keys: ["g", "n"], description: "New repository" },
     ],
   },
   {
-    title: "Lists (issues, pulls)",
+    title: "Lists (issues, pulls, epics)",
     shortcuts: [
       { keys: ["j"], description: "Move focus down" },
       { keys: ["k"], description: "Move focus up" },
       { keys: ["↵"], description: "Open the focused row" },
       { keys: ["/"], description: "Focus search field" },
+      { keys: ["c"], description: "Focus the quick-add (issues)" },
       { keys: ["o"], description: "Show open items" },
-      { keys: ["m"], description: "Show merged / closed items" },
+      { keys: ["x"], description: "Show closed items (issues)" },
       { keys: ["a"], description: "Show all items" },
+    ],
+  },
+  {
+    title: "Issue / epic detail",
+    shortcuts: [
+      { keys: ["j"], description: "Move focus down (issue rows in epic)" },
+      { keys: ["k"], description: "Move focus up" },
+      { keys: ["↵"], description: "Open the focused entity" },
+      { keys: ["Esc"], description: "Clear focus / close overlay" },
     ],
   },
   {
@@ -42,10 +58,56 @@ const groups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ["m"], description: "Merge the pull request" },
       { keys: ["x"], description: "Close the pull request" },
+      { keys: ["n"], description: "Next file in diff" },
+      { keys: ["p"], description: "Previous file in diff" },
+      { keys: ["["], description: "Collapse file" },
+      { keys: ["]"], description: "Expand file" },
       { keys: ["Esc"], description: "Back to queue" },
     ],
   },
 ];
+
+/**
+ * Live snapshot of every command registered via `registerCommand`
+ * that has a `.shortcut` field. Subscribes to the registry so the
+ * overlay reflects whatever's currently registered (dynamic
+ * Project + Repository + entity commands count too).
+ */
+const commands = ref<CommandContribution[]>([]);
+let unsubscribe: (() => void) | undefined;
+
+function refresh(): void {
+  commands.value = listCommands();
+}
+
+onMounted(() => {
+  refresh();
+  unsubscribe = subscribeCommands(refresh);
+});
+
+onUnmounted(() => {
+  unsubscribe?.();
+});
+
+interface CommandGroup {
+  category: string;
+  entries: Array<{ keys: string[]; description: string }>;
+}
+
+const commandGroups = computed<CommandGroup[]>(() => {
+  const byCategory = new Map<string, Array<{ keys: string[]; description: string }>>();
+  for (const cmd of commands.value) {
+    if (!cmd.shortcut) continue;
+    const keys = cmd.shortcut.split(/\s+/);
+    const category = cmd.category ?? cmd.extensionId;
+    const bucket = byCategory.get(category) ?? [];
+    bucket.push({ keys, description: cmd.title });
+    byCategory.set(category, bucket);
+  }
+  return Array.from(byCategory.entries())
+    .map(([category, entries]) => ({ category, entries }))
+    .sort((a, b) => a.category.localeCompare(b.category));
+});
 </script>
 
 <template>
@@ -63,7 +125,29 @@ const groups: ShortcutGroup[] = [
         </header>
 
         <div class="groups">
-          <section v-for="group in groups" :key="group.title">
+          <section
+            v-for="group in commandGroups"
+            :key="`cmd-${group.category}`"
+            class="group group-live"
+          >
+            <h3>
+              {{ group.category }}
+              <span class="live-badge" title="Sourced from the live command registry">live</span>
+            </h3>
+            <dl>
+              <template v-for="entry in group.entries" :key="entry.description">
+                <dt>
+                  <template v-for="(key, i) in entry.keys" :key="i">
+                    <kbd>{{ key === "%cmd%" ? cmdLabel : key }}</kbd>
+                    <span v-if="i < entry.keys.length - 1" class="sep">·</span>
+                  </template>
+                </dt>
+                <dd>{{ entry.description }}</dd>
+              </template>
+            </dl>
+          </section>
+
+          <section v-for="group in staticGroups" :key="`static-${group.title}`" class="group">
             <h3>{{ group.title }}</h3>
             <dl>
               <template v-for="entry in group.shortcuts" :key="entry.description">
@@ -141,6 +225,20 @@ const groups: ShortcutGroup[] = [
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-faint, #68645c);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-badge {
+  font-family: var(--mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--accent-teal, #087f6f);
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  cursor: help;
 }
 
 dl {
