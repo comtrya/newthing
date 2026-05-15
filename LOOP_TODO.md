@@ -1189,6 +1189,52 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 66 (Project picker on IssueNew + EpicNew forms - closes the dogfood loop)
+
+Closes the data loop iters 59-65 exposed: every Project-spine
+surface (`project:` filter tokens, palette commands, owner
+panels, workspace Projects panel, per-project counts) lights
+up the moment an issue or epic carries `projectName`. Until
+iter 66, the only way to stamp `projectName` was to navigate
+to a Project page first or hand-craft the `?projectName=...`
+URL query. The new forms let any operator pick a project at
+creation time from any entry point.
+
+ext_issues/ui/src/register.ts (issueNewForm):
+- New `<select>` populated from
+  `fetchComtryaProjects()` (iter 63 sdk-vue helper). Defaults
+  to `context.projectName` when set, otherwise
+  `— no project —`.
+- Wraps the existing label / closeOnMerge policy logic in
+  `applyPolicy(projectName)` so the chip + label hint
+  refresh live when the user changes the dropdown. Tracks
+  `lastPolicyAutoLabels` so swapping projects strips the
+  prior auto-fill labels while preserving user-typed ones.
+- Header overline (`<project> · issue` vs plain `Issue`)
+  updates with the selection.
+- Submit reads `projectSelect.value` instead of the route's
+  `context.projectName`, so the stamped value reflects the
+  user's choice.
+- Form style extended to cover `<select>` matching the
+  existing input/textarea aesthetic.
+
+ext_epics/ui/src/register.ts (epicNewForm):
+- Same picker pattern (smaller form, no CUE policy chips
+  on epics yet so no policy refresh logic needed).
+- Heading updates on change so `New epic in kernel` /
+  `New epic` reflects the current pick.
+- Submit reads `projectSelect.value`.
+
+Verified end-to-end against `/r/comtrya/dogfood`:
+`fetchComtryaProjects()` resolves the three declared
+projects (`ext_docs`, `frontend`, `kernel`); both forms
+ship the `<select>` populated correctly; selecting a
+project flows into the open-issue / create-epic ops. With
+this iteration, the seed's "0 / 0 / 0" project counts will
+populate the instant a real issue or epic is opened with a
+selected project. typecheck + ext_issues + ext_epics
+bundles clean, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 65 (Per-project counts on the WorkspaceHome Projects panel)
 
 Compounds iter 64. The Projects panel surfaced every CUE

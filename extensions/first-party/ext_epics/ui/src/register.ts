@@ -1,5 +1,5 @@
 import { buildExtensionUrl } from "@comtrya/sdk-core";
-import { defineExtensionWidget } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
 import { createEpic, listEpics } from "./api";
 import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
@@ -169,6 +169,38 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
   titleInput.required = true;
   titleInput.placeholder = "Epic title";
 
+  /**
+   * Project picker — mirrors the iter-66 IssueNew addition.
+   * Populated from the repo's CUE `comtryaConfig.projects` so an
+   * epic can be scoped to a Project on creation without
+   * pre-stamping the URL with `?projectName=...`. Closes the
+   * iter 64/65 loop on the epic side: per-project counts and the
+   * workspace Projects panel light up the moment an epic gets
+   * tagged.
+   */
+  const projectSelect = document.createElement("select");
+  projectSelect.className = "epic-new-project-select";
+  projectSelect.dataset.smoke = "epic-new-project";
+  const placeholderOption = document.createElement("option");
+  placeholderOption.value = "";
+  placeholderOption.textContent = "— no project —";
+  projectSelect.append(placeholderOption);
+  void fetchComtryaProjects().then((projects) => {
+    for (const project of projects) {
+      if (!project.name) continue;
+      const option = document.createElement("option");
+      option.value = project.name;
+      option.textContent = project.name;
+      if (project.name === context.projectName) option.selected = true;
+      projectSelect.append(option);
+    }
+  });
+  projectSelect.addEventListener("change", () => {
+    heading.textContent = projectSelect.value
+      ? `New epic in ${projectSelect.value}`
+      : "New epic";
+  });
+
   const bodyInput = document.createElement("textarea");
   bodyInput.rows = 5;
   bodyInput.placeholder = "Description (optional)";
@@ -181,14 +213,14 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
   errorBox.setAttribute("role", "alert");
   errorBox.hidden = true;
 
-  form.append(titleInput, bodyInput, submit, errorBox);
+  form.append(titleInput, projectSelect, bodyInput, submit, errorBox);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     submit.disabled = true;
     errorBox.hidden = true;
     void createEpic(undefined, {
       workspaceId: context.workspaceId,
-      projectName: context.projectName,
+      projectName: projectSelect.value || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
     })

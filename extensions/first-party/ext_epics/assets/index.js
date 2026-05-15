@@ -4630,21 +4630,33 @@ function ql(e) {
 	n.textContent = e.projectName ? `New epic in ${e.projectName}` : "New epic";
 	let r = document.createElement("form"), i = document.createElement("input");
 	i.required = !0, i.placeholder = "Epic title";
-	let a = document.createElement("textarea");
-	a.rows = 5, a.placeholder = "Description (optional)";
-	let o = document.createElement("button");
-	o.type = "submit", o.textContent = "Create epic";
-	let s = Jl("", "warn");
-	return s.setAttribute("role", "alert"), s.hidden = !0, r.append(i, a, o, s), r.addEventListener("submit", (t) => {
-		t.preventDefault(), o.disabled = !0, s.hidden = !0, js(void 0, {
+	let a = document.createElement("select");
+	a.className = "epic-new-project-select", a.dataset.smoke = "epic-new-project";
+	let o = document.createElement("option");
+	o.value = "", o.textContent = "— no project —", a.append(o), hs().then((t) => {
+		for (let n of t) {
+			if (!n.name) continue;
+			let t = document.createElement("option");
+			t.value = n.name, t.textContent = n.name, n.name === e.projectName && (t.selected = !0), a.append(t);
+		}
+	}), a.addEventListener("change", () => {
+		n.textContent = a.value ? `New epic in ${a.value}` : "New epic";
+	});
+	let s = document.createElement("textarea");
+	s.rows = 5, s.placeholder = "Description (optional)";
+	let c = document.createElement("button");
+	c.type = "submit", c.textContent = "Create epic";
+	let u = Jl("", "warn");
+	return u.setAttribute("role", "alert"), u.hidden = !0, r.append(i, a, s, c, u), r.addEventListener("submit", (t) => {
+		t.preventDefault(), c.disabled = !0, u.hidden = !0, js(void 0, {
 			workspaceId: e.workspaceId,
-			projectName: e.projectName,
+			projectName: a.value || null,
 			title: i.value.trim(),
-			bodyMarkdown: a.value
+			bodyMarkdown: s.value
 		}).then((e) => {
 			window.location.assign(l(Ll, `/${e.workspaceId}/${e.id}`));
 		}).catch((e) => {
-			s.textContent = e instanceof Error ? e.message : String(e), s.hidden = !1, o.disabled = !1;
+			u.textContent = e instanceof Error ? e.message : String(e), u.hidden = !1, c.disabled = !1;
 		});
 	}), t.append(n, r), t;
 }

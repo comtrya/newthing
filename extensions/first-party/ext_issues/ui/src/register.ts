@@ -1,4 +1,4 @@
-import { defineExtensionWidget } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
 import IssueRelationships from "./IssueRelationships.vue";
@@ -201,6 +201,32 @@ function issueNewForm(context: {
   titleInput.placeholder = "What needs to be done?";
   titleField.append(titleInput);
 
+  /**
+   * Project picker — populated from the repo's CUE config via the
+   * iter 63 `fetchComtryaProjects` helper. Lands on
+   * `context.projectName` when set (e.g. arrived from a Project
+   * page); otherwise defaults to "no project" until the user
+   * picks. Changing the selection re-resolves the issue policy so
+   * `defaultLabels` + `closeOnMerge` chip refresh live.
+   *
+   * Closes the iter 64/65 loop: the workspace-wide Projects panel
+   * and per-project counts only light up once issues carry
+   * `projectName`. Before iter 66 you needed a project URL to
+   * stamp it; now you can pick from any new-issue form.
+   */
+  const projectField = field(
+    "Project",
+    "Stamps the Project on this issue and pulls its CUE policy.",
+  );
+  const projectSelect = document.createElement("select");
+  projectSelect.className = "issue-new-project-select";
+  projectSelect.dataset.smoke = "issue-new-project";
+  const placeholderOption = document.createElement("option");
+  placeholderOption.value = "";
+  placeholderOption.textContent = "— no project —";
+  projectSelect.append(placeholderOption);
+  projectField.append(projectSelect);
+
   const bodyField = field("Description", "Optional. Supports Markdown.");
   const bodyInput = document.createElement("textarea");
   bodyInput.rows = 6;
@@ -224,16 +250,51 @@ function issueNewForm(context: {
   policyRow.dataset.smoke = "issue-new-policy";
 
   let resolvedCloseOnMerge: boolean | null = null;
+  let lastPolicyAutoLabels: string[] = [];
 
-  if (context.projectName) {
-    void resolveIssuesPolicy(context.projectName, "referrer").then((policy) => {
+  function applyPolicy(projectName: string | null): void {
+    if (!projectName) {
+      // Clear policy-derived state when no project is selected.
+      // Strip auto-stamped labels but preserve anything the user
+      // typed manually after the previous auto-fill.
+      if (lastPolicyAutoLabels.length > 0 && labelsInput.value.trim()) {
+        const userTokens = parseLabels(labelsInput.value).filter(
+          (token) => !lastPolicyAutoLabels.includes(token),
+        );
+        labelsInput.value = userTokens.join(", ");
+      }
+      lastPolicyAutoLabels = [];
+      labelsHint.hidden = true;
+      labelsHint.textContent = "";
+      policyRow.hidden = true;
+      policyRow.replaceChildren();
+      resolvedCloseOnMerge = null;
+      overline.textContent = "Issue";
+      return;
+    }
+    overline.textContent = `${projectName} · issue`;
+    void resolveIssuesPolicy(projectName, "referrer").then((policy) => {
+      // Refresh defaultLabels — replace any prior auto-fill with
+      // the new project's, preserving user-typed entries.
+      const existing = parseLabels(labelsInput.value);
+      const preserved = existing.filter(
+        (token) => !lastPolicyAutoLabels.includes(token),
+      );
+      const merged: string[] = [];
+      const seen = new Set<string>();
+      for (const token of [...policy.defaultLabels, ...preserved]) {
+        if (seen.has(token)) continue;
+        seen.add(token);
+        merged.push(token);
+      }
+      labelsInput.value = merged.join(", ");
+      lastPolicyAutoLabels = [...policy.defaultLabels];
       if (policy.defaultLabels.length > 0) {
-        if (labelsInput.value.trim().length === 0) {
-          labelsInput.value = policy.defaultLabels.join(", ");
-        }
         labelsHint.hidden = false;
         labelsHint.textContent =
-          `Pre-filled from CUE · ${context.projectName} → issues.defaultLabels`;
+          `Pre-filled from CUE · ${projectName} → issues.defaultLabels`;
+      } else {
+        labelsHint.hidden = true;
       }
       resolvedCloseOnMerge = policy.closeOnMerge;
       if (policy.closeOnMerge !== null) {
@@ -249,9 +310,31 @@ function issueNewForm(context: {
           ? "Auto-closes when a linked PR merges."
           : "Stays open when a linked PR merges.";
         policyRow.replaceChildren(chip, detail);
+      } else {
+        policyRow.hidden = true;
+        policyRow.replaceChildren();
       }
     });
   }
+
+  // Hydrate the picker from the repo's CUE projects. Failure paths
+  // (no repo segments, network) leave the placeholder option only,
+  // so the form still works as a "no project" submission.
+  void fetchComtryaProjects().then((projects) => {
+    for (const project of projects) {
+      if (!project.name) continue;
+      const option = document.createElement("option");
+      option.value = project.name;
+      option.textContent = project.name;
+      if (project.name === context.projectName) option.selected = true;
+      projectSelect.append(option);
+    }
+    if (context.projectName) applyPolicy(context.projectName);
+  });
+
+  projectSelect.addEventListener("change", () => {
+    applyPolicy(projectSelect.value || null);
+  });
 
   const actions = document.createElement("div");
   actions.className = "issue-new-actions";
@@ -266,7 +349,15 @@ function issueNewForm(context: {
   errorBox.setAttribute("role", "alert");
   errorBox.hidden = true;
 
-  form.append(titleField, bodyField, labelsField, policyRow, actions, errorBox);
+  form.append(
+    titleField,
+    projectField,
+    bodyField,
+    labelsField,
+    policyRow,
+    actions,
+    errorBox,
+  );
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     submit.disabled = true;
@@ -274,7 +365,7 @@ function issueNewForm(context: {
     void openIssue({
       workspaceId: context.workspaceId,
       repositoryId: context.repositoryId,
-      projectName: context.projectName ?? null,
+      projectName: projectSelect.value || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
       labels: parseLabels(labelsInput.value),
@@ -360,7 +451,8 @@ const ISSUE_NEW_CSS = `
   color: var(--ink-fainter, #918b80);
 }
 .issue-new input,
-.issue-new textarea {
+.issue-new textarea,
+.issue-new select {
   width: 100%;
   border: 1.5px solid var(--rule-light, #d8d1c4);
   background: var(--paper, #fffdf8);
@@ -372,7 +464,8 @@ const ISSUE_NEW_CSS = `
   transition: border-color 120ms ease;
 }
 .issue-new input:focus,
-.issue-new textarea:focus {
+.issue-new textarea:focus,
+.issue-new select:focus {
   border-color: var(--ink, #111);
 }
 .issue-new textarea {
