@@ -1189,6 +1189,39 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 — iteration 44 (HomeYourWork — assigned issues section)
+
+The workspace home "your work" rail (rendered by
+`ext_workspace_home`) previously had three sections — review
+queue, authored pulls, failing checks — all sourced from a
+synthesised `viewer.*` GraphQL surface. None of them
+acknowledged the iteration-34 typed assignees.
+
+Added a new top section ("00 · Assigned issues") sourced
+directly from `ext_issues/list-issues` and filtered to open
+issues that carry at least one assignee. Each row renders:
+
+- `#N` issue number
+- title
+- `→ rawkode, platform-maintainers` — the assignee slugs
+  joined (URN prefix stripped)
+- `◇ kernel` — the project chip (when scoped)
+- state pill in the existing `.check.ok` slot
+
+Live-synced via the canonical
+`dev.comtrya.issues.{opened,closed,reopened}` SSE topics so
+moving an issue between OPEN / CLOSED / REOPENED in another
+tab ticks the rail without reload. Subscriptions torn down on
+`onUnmounted`.
+
+Capped at 8 rows — the rail is a glance surface, not a queue.
+
+This is the **fallback shape until viewer auth lands**. The
+filter currently shows "everything routed to anyone"; once the
+kernel resolves `viewer { urn }`, the predicate tightens to
+`assignees.includes(viewer.urn)` and the section becomes
+literally "issues routed to you".
+
 ### 2026-05-15 — iteration 43 (Clone URL chip + copy button on RepoHome)
 
 Resolves a long-standing Quick wins TODO: "Show a per-repository

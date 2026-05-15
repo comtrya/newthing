@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { loadYourWork } from "./api";
 import type { ComtryaGraphQLClient, LoadState, WorkItem } from "./types";
+
+const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
@@ -13,9 +16,46 @@ const error = ref<string | null>(null);
 const reviewQueue = ref<WorkItem[]>([]);
 const authoredPulls = ref<WorkItem[]>([]);
 const failingChecks = ref<WorkItem[]>([]);
+
+/**
+ * Open issues with at least one assignee. Until the kernel
+ * resolves `viewer { urn }`, the fallback shape is "everything
+ * routed to anyone" — once viewer auth lands, this filter
+ * narrows to assignees that include the viewer.
+ *
+ * Sources from `ext_issues/list-issues` directly so it picks up
+ * the iteration-34 `assignees: list<uri>` field. Subscribes to
+ * the canonical `dev.comtrya.issues.{opened,closed,reopened}`
+ * SSE topics for live updates.
+ */
+const assignedIssues = ref<WorkItem[]>([]);
+const issueUnsubscribers: Array<() => void> = [];
+
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 
-onMounted(load);
+onMounted(() => {
+  void load();
+  void refreshAssignedIssues();
+  for (const type of [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened",
+  ]) {
+    issueUnsubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void refreshAssignedIssues(),
+        onError: () => {},
+      }),
+    );
+  }
+});
+
+onUnmounted(() => {
+  for (const off of issueUnsubscribers) off();
+  issueUnsubscribers.length = 0;
+});
+
 watch(graphClient, () => void load());
 
 async function load(): Promise<void> {
@@ -44,6 +84,49 @@ function issueId(item: WorkItem): string {
   return `#${item.number ?? item.id ?? "?"}`;
 }
 
+interface AssigneeIssue {
+  id?: string;
+  number?: number;
+  title?: string;
+  state?: string;
+  projectName?: string | null;
+  assignees?: string[];
+}
+
+function shortAssignee(ref: string): string {
+  return ref.replace(/^comtrya:\/\/[a-z]+\//, "");
+}
+
+async function refreshAssignedIssues(): Promise<void> {
+  const result = await invokeOp<AssigneeIssue[]>(
+    "ext_issues",
+    "issues",
+    "list-issues",
+    { repository: WORKSPACE_URI, limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) {
+    assignedIssues.value = [];
+    return;
+  }
+  assignedIssues.value = result.value
+    .filter((issue) => {
+      const state = (issue.state ?? "").toUpperCase();
+      const isOpen = state === "OPEN" || state === "REOPENED";
+      const hasAssignee = Array.isArray(issue.assignees) && issue.assignees.length > 0;
+      return isOpen && hasAssignee;
+    })
+    .slice(0, 8)
+    .map((issue) => ({
+      id: issue.id,
+      number: issue.number,
+      title: issue.title ?? "(untitled)",
+      state: issue.state,
+      author:
+        (issue.assignees ?? []).map(shortAssignee).join(", ") || null,
+      repositoryPath: issue.projectName ?? null,
+    }));
+}
+
 function reviewCheckText(item: WorkItem): string {
   if (item.checks?.passed == null) return "-";
   return `${item.checks.passed}/${item.checks.total ?? item.checks.passed}`;
@@ -63,6 +146,32 @@ function repoLine(item: WorkItem): string {
     {{ error }}
   </article>
   <div v-else data-smoke="home-your-work">
+    <section v-if="assignedIssues.length > 0" class="section">
+      <div class="section-strap">
+        <span class="id">00</span>
+        <h2>Assigned issues</h2>
+        <span class="meta">{{ assignedIssues.length }} routed</span>
+      </div>
+      <div
+        v-for="item in assignedIssues"
+        :key="String(item.id ?? item.number)"
+        class="row"
+      >
+        <span class="idn">{{ issueId(item) }}</span>
+        <div>
+          <div class="title">{{ item.title ?? "(untitled)" }}</div>
+          <div class="sub">
+            <template v-if="item.author">→ {{ item.author }}</template>
+            <template v-if="item.repositoryPath">
+              <template v-if="item.author"> · </template>◇ {{ item.repositoryPath }}
+            </template>
+          </div>
+        </div>
+        <span class="check ok">{{ (item.state ?? '').toLowerCase() }}</span>
+        <span class="t"></span>
+      </div>
+    </section>
+
     <section class="section">
       <div class="section-strap">
         <span class="id">01</span>
