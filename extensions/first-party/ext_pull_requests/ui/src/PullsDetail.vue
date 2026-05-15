@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
-import { getGraphQLClient } from "@comtrya/sdk-core";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { getGraphQLClient, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 import {
   closePull,
@@ -37,6 +37,10 @@ const diffState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const diffError = ref<string | null>(null);
 const linkedIssues = ref<LinkedIssue[]>([]);
 const linkedState = ref<"idle" | "loading" | "ready" | "error">("idle");
+// j/k focus index within the Closes panel. -1 means "no row focused";
+// the first `j` press moves to 0. Reset whenever the linked list
+// changes so a freshly-resolved set starts cold.
+const focusedLinkedIdx = ref(-1);
 
 /**
  * Projects declared by the repo's `package comtrya` CUE config,
@@ -104,10 +108,35 @@ const renderedBody = computed(() =>
   pull.value?.bodyMarkdown ? renderMarkdown(pull.value.bodyMarkdown) : "",
 );
 
+const linkedUnsubscribers: Array<() => void> = [];
+
 onMounted(() => {
   void load();
   void loadDiff();
   void loadLinked();
+  // When any issue in the workspace transitions state, a linked
+  // target may have just opened/closed/reopened. Cheap response:
+  // re-resolve the Closes panel on every issue event. Per-target
+  // filtering can ship once the kernel emits a relation-scoped
+  // topic.
+  for (const type of [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened",
+  ]) {
+    linkedUnsubscribers.push(
+      subscribeLiveEvents({
+        type,
+        onEvent: () => void loadLinked(),
+        onError: () => {},
+      }),
+    );
+  }
+});
+
+onUnmounted(() => {
+  for (const off of linkedUnsubscribers) off();
+  linkedUnsubscribers.length = 0;
 });
 
 watch(pullId, () => void loadLinked());
@@ -122,6 +151,29 @@ useShortcuts({
     if (!canClose.value) return;
     event.preventDefault();
     void onClose();
+  },
+  // Closes-panel keyboard nav. `j`/`k` walk the linked-issue rows
+  // (no-op when the panel is empty so the keys stay reserved for a
+  // future diff-row nav); Enter opens the focused row in the
+  // issues route. Mirrors the IssuesList row-nav recipe.
+  j: (event) => {
+    if (linkedIssues.value.length === 0) return;
+    event.preventDefault();
+    const next = focusedLinkedIdx.value + 1;
+    focusedLinkedIdx.value = next >= linkedIssues.value.length ? 0 : next;
+  },
+  k: (event) => {
+    if (linkedIssues.value.length === 0) return;
+    event.preventDefault();
+    const next = focusedLinkedIdx.value - 1;
+    focusedLinkedIdx.value = next < 0 ? linkedIssues.value.length - 1 : next;
+  },
+  Enter: (event) => {
+    if (focusedLinkedIdx.value < 0) return;
+    const issue = linkedIssues.value[focusedLinkedIdx.value];
+    if (!issue) return;
+    event.preventDefault();
+    window.location.href = issueHref(issue);
   },
   Escape: (event) => {
     // Defer to overlays (palette / shortcuts overlay) when one is open.
@@ -168,11 +220,18 @@ async function loadLinked(): Promise<void> {
     linkedIssues.value = [];
     linkedState.value = "error";
   }
+  focusedLinkedIdx.value = -1;
 }
 
 function issueHref(issue: LinkedIssue): string {
-  if (issue.id) return `/x/issues/${issue.id}`;
+  if (issue.workspaceId && issue.number !== null) {
+    return `/x/issues/${issue.workspaceId}/${issue.number}`;
+  }
   return "/x/issues/";
+}
+
+function projectHref(projectName: string): string {
+  return `/x/issues/?project=${encodeURIComponent(projectName)}`;
 }
 
 function issueStateClass(state: LinkedIssue["state"]): string {
@@ -345,20 +404,37 @@ async function onClose(): Promise<void> {
             </template>
           </span>
         </header>
-        <ul v-if="linkedIssues.length > 0">
-          <li v-for="issue in linkedIssues" :key="issue.uri">
+        <ul v-if="linkedIssues.length > 0" role="listbox" aria-label="Linked issues">
+          <li
+            v-for="(issue, idx) in linkedIssues"
+            :key="issue.uri"
+            :class="{ focused: idx === focusedLinkedIdx }"
+            :aria-selected="idx === focusedLinkedIdx"
+            role="option"
+            @mouseenter="focusedLinkedIdx = idx"
+          >
             <a :href="issueHref(issue)">
               <span class="issue-num">
                 <template v-if="issue.number !== null">#{{ issue.number }}</template>
                 <template v-else>issue</template>
               </span>
               <span class="issue-title">{{ issue.title }}</span>
+              <a
+                v-if="issue.projectName"
+                class="issue-project"
+                :href="projectHref(issue.projectName)"
+                :title="`Filter to project ${issue.projectName}`"
+                @click.stop
+              >◇ {{ issue.projectName }}</a>
               <span :class="['issue-state', issueStateClass(issue.state)]">
                 {{ issue.state.toLowerCase() }}
               </span>
             </a>
           </li>
         </ul>
+        <footer v-if="linkedIssues.length > 0" class="pulls-linked-foot">
+          <kbd>j</kbd> <kbd>k</kbd> walk · <kbd>↵</kbd> open
+        </footer>
       </section>
 
       <DiffView
@@ -676,12 +752,24 @@ async function onClose(): Promise<void> {
   display: grid;
 }
 
+.pulls-linked-issues li {
+  position: relative;
+}
+
+.pulls-linked-issues li.focused {
+  box-shadow: inset 3px 0 0 var(--ink, #111);
+}
+
+.pulls-linked-issues li.focused a {
+  background: var(--paper-tint, #f2efe7);
+}
+
 .pulls-linked-issues li a {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: baseline;
-  padding: 8px 0;
+  padding: 8px 10px;
   color: inherit;
   text-decoration: none;
   border-bottom: 1px solid var(--rule-light, #d8d1c4);
@@ -689,6 +777,38 @@ async function onClose(): Promise<void> {
 
 .pulls-linked-issues li:last-child a {
   border-bottom: 0;
+}
+
+.pulls-linked-issues .issue-project {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  text-decoration: none;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  padding: 1px 7px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.pulls-linked-issues .issue-project:hover {
+  color: var(--ink, #111);
+  border-color: var(--ink, #111);
+}
+
+.pulls-linked-foot {
+  margin-top: 6px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+  letter-spacing: 0.04em;
+}
+
+.pulls-linked-foot kbd {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  padding: 0 4px;
+  margin: 0 1px;
 }
 
 .pulls-linked-issues .issue-num {

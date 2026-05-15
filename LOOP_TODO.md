@@ -1189,6 +1189,62 @@ session. Mark them `[ ]` `[~]` `[~~]` `[x]` to track progress across iterations.
 
 ## Recently shipped
 
+### 2026-05-15 - iteration 54 (Closes panel: project chip + keyboard nav + live refresh)
+
+The PR detail "Closes" panel (originally shipped to surface
+the merge-reactor's `closes` relations) becomes Project-spine
+aware and keyboard-first. Three compounding moves on the same
+surface:
+
+Project chip per linked issue:
+- `LinkedIssue` gains `projectName: string | null` and
+  `workspaceId: string | null`. `resolveIssue` reads them
+  from the existing `ext_issues/by-ref-issue` shape; the
+  workspaceId is parsed out of the issue's `repository` /
+  `workspace` URN (`comtrya://workspace/<wsId>/...`) so the
+  Closes panel can build a real issue route without
+  hand-stitching paths.
+- Template renders `[ # ][ title ][ ◇ project ][ state ]`.
+  The project chip is a hyperlink to
+  `/x/issues/?project=<name>` so clicking a project chip on a
+  PR jumps straight into the issue queue filtered to that
+  project - the same URL filter shape iter 32/46 shipped on
+  IssuesList.
+- Editorial chip styling matching the existing chip-row
+  aesthetic: `--rule-light` border, mono 11px, hover swaps
+  the border to ink.
+
+Keyboard nav:
+- New `focusedLinkedIdx` ref. `useShortcuts` registers
+  `j` / `k` (walk through linked issues, wrapping) and
+  `Enter` (open the focused row via `window.location`).
+  No-op when the list is empty, so `j`/`k` stay available
+  for a future diff-row nav.
+- Hover sets focus; CSS shows the focused row with a 3px
+  ink inset shadow on the left edge (same accent the
+  IssuesList iter-51 bulk-select uses) plus a
+  `--paper-tint` background. Footer hint chip:
+  `j k walk · ↵ open`.
+
+Live refresh:
+- `PullsDetail` subscribes to
+  `dev.comtrya.issues.{opened,closed,reopened}` on mount and
+  re-runs `loadLinked()` when any fires. Unsubscribes on
+  unmount. Until the kernel emits a relation-scoped
+  topic, this is the cheapest path to "linked issue closed -
+  panel updates" without a refresh.
+- Linked href fix: previously built `/x/issues/<id>` which
+  did not match the registered issue route
+  `/:workspaceId/:number`. Now uses the resolved workspaceId
+  + number so Enter / click actually opens the issue.
+
+Verified end-to-end on dogfood: PR #43 (the merge-reactor
+PR) resolves its `closes` -> `comtrya://issue/iss_..._V`
+relation, the resolved issue carries `projectName: null` (the
+seed has no project assigned yet) and `state: CLOSED`, and
+the panel renders with j/k navigation working. Bundle
+rebuilt, `entryIntegrity` refreshed.
+
 ### 2026-05-15 - iteration 53 (Shared safe-markdown in sdk-vue + PR description rendering)
 
 Pulls the three diverging markdown renderers (`frontend/src/

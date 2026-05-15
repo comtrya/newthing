@@ -19,6 +19,8 @@ export interface LinkedIssue {
   title: string;
   state: "OPEN" | "CLOSED" | "REOPENED";
   uri: string;
+  projectName: string | null;
+  workspaceId: string | null;
 }
 
 interface WitPullRequest {
@@ -154,6 +156,9 @@ interface WitIssueShape {
   number?: number;
   title?: string;
   state?: string | { tag?: string } | null;
+  projectName?: string | null;
+  repository?: string | null;
+  workspace?: string | null;
 }
 
 function normalizeIssueState(value: WitIssueShape["state"]): LinkedIssue["state"] {
@@ -223,11 +228,34 @@ async function resolveIssue(uri: string): Promise<LinkedIssue | null> {
   if (!result.ok) return null;
   const value = result.value;
   if (!value || typeof value !== "object") return null;
+  const projectName =
+    typeof value.projectName === "string" && value.projectName.trim().length > 0
+      ? value.projectName.trim()
+      : null;
+  // Repository URIs come in three shapes:
+  //   comtrya://workspace/<wsId>
+  //   comtrya://workspace/<wsId>/repository/<repoId>
+  //   comtrya://workspace/<wsId>/...
+  // Anything else (e.g. a bare workspace URN passed in `workspace`)
+  // falls back to that field. Either way the workspaceId is the
+  // segment between `workspace/` and the next slash.
+  const repoUri =
+    typeof value.repository === "string" ? value.repository : null;
+  const wsUri = typeof value.workspace === "string" ? value.workspace : null;
+  const workspaceId = extractWorkspaceId(repoUri ?? wsUri);
   return {
     id: typeof value.id === "string" ? value.id : "",
     number: typeof value.number === "number" ? value.number : null,
     title: typeof value.title === "string" ? value.title : "(untitled)",
     state: normalizeIssueState(value.state),
     uri,
+    projectName,
+    workspaceId,
   };
+}
+
+function extractWorkspaceId(uri: string | null): string | null {
+  if (!uri) return null;
+  const match = uri.match(/^comtrya:\/\/workspace\/([^/]+)/);
+  return match ? (match[1] ?? null) : null;
 }
