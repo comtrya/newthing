@@ -330,11 +330,18 @@ function relativeUpdated(value: string | null | undefined): string | null {
 const repoChips = computed<Chip[]>(() => {
   const chips: Chip[] = [];
   const branch = repository.value?.defaultBranch ?? "main";
+  const vcs = (repository.value?.vcs ?? "git").toLowerCase();
+  // In jj the default ref is a "bookmark", not a branch. The chip
+  // label flips to match the repo's declared vcs so the
+  // terminology stays honest. The wire (`defaultBranch`) keeps
+  // its name on the CUE side and on the GraphQL projection;
+  // only the user-facing label adapts.
+  const refLabel = vcs === "jj" ? "bookmark" : "branch";
   chips.push({
-    label: "branch",
+    label: refLabel,
     value: branch,
     tone: "ink",
-    title: `default branch · ${branch}`,
+    title: `default ${refLabel} · ${branch}`,
   });
   const visibility = (repository.value?.visibility ?? "PRIVATE").toLowerCase();
   chips.push({
@@ -342,7 +349,6 @@ const repoChips = computed<Chip[]>(() => {
     value: visibility,
     tone: visibility === "public" ? "good" : "muted",
   });
-  const vcs = (repository.value?.vcs ?? "git").toLowerCase();
   chips.push({
     label: "vcs",
     value: vcs,
