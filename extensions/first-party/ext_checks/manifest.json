@@ -18,6 +18,12 @@
     "outputType": "comtrya.checks/summary.v1"
   },
   "contributes": {
+    "cueSchemas": [
+      {
+        "id": "checks",
+        "snippet": "package comtrya\n\n// String set mirroring the WIT `check-state` variant exposed by\n// ext_checks. Adding a state on either side requires adding it on\n// the other.\n#CheckState: \"pending\" | \"running\" | \"succeeded\" | \"failed\" | \"skipped\"\n\n// A single named check the Project expects results for. The\n// catalog is informational — ext_checks records runs as they\n// arrive — but declaring it lets the kernel surface\n// \"expected check is missing\" without depending on a particular CI.\n//\n// PR gating lives on `pulls.requiredChecks` (ext_pull_requests);\n// `required` here marks a check as required at the *catalog* level\n// so other extensions can read a single source of truth.\n#Check: {\n  name:         string\n  displayName?: string\n  description?: string\n  required?:    bool | *false\n}\n\n#ChecksPolicy: {\n  catalog?: [string]: #Check\n}\n\n#Project: { checks?: #ChecksPolicy }\n"
+      }
+    ],
     "resourceKinds": [{ "name": "check-run", "prefix": "chk" }],
     "collections": [
       {

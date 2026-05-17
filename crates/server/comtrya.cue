@@ -52,4 +52,18 @@ projects: kernel: {
 		defaultStatus:  "planned"
 		requiredFields: ["title"]
 	}
+
+	checks: {
+		catalog: {
+			"cargo test": {
+				displayName: "cargo test"
+				required:    true
+			}
+			"cargo clippy": {
+				displayName: "cargo clippy"
+				description: "Run with `-D warnings`; warnings are errors."
+				required:    true
+			}
+		}
+	}
 }
