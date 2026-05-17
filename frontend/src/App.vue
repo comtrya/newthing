@@ -244,6 +244,20 @@ async function loadShellSummary(): Promise<void> {
  */
 const failingChecksByRepoId = ref<Record<string, number>>({});
 
+/**
+ * Workspace-wide failing-required-check tally. Drives the small
+ * red dot next to the sidebar's Inbox link so the user sees
+ * "something is broken, go look" from any page without
+ * navigating. Matches the same alarm semantic as the per-repo
+ * dot in the repo list and the chip on RepoHome.
+ */
+const totalFailingChecks = computed(() =>
+  Object.values(failingChecksByRepoId.value).reduce(
+    (sum, n) => sum + (n ?? 0),
+    0,
+  ),
+);
+
 async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
   const repos = workspace.value.repositories;
   if (repos.length === 0) {
@@ -319,7 +333,15 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
             to="/inbox"
             class="sb-link"
             :class="{ 'sb-link-active': route.path === '/inbox' }"
-          >Inbox</RouterLink>
+          >
+            <span class="sb-link-text">Inbox</span>
+            <span
+              v-if="totalFailingChecks > 0"
+              class="sb-link-alarm"
+              aria-label="failing required checks workspace-wide"
+              :title="`${totalFailingChecks} failing required check${totalFailingChecks === 1 ? '' : 's'} across the workspace`"
+            />
+          </RouterLink>
         </nav>
 
         <section class="sb-section sb-repos" aria-label="Repositories">

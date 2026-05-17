@@ -267,13 +267,28 @@ kbd {
 }
 
 .sb-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 8px;
   font-family: var(--display);
   font-size: 14px;
   font-weight: 600;
   color: var(--ink-soft);
   border-left: 2px solid transparent;
+}
+
+.sb-link-text {
+  min-width: 0;
+}
+
+.sb-link-alarm {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-red, #b34040);
 }
 
 .sb-link:hover {
