@@ -1502,6 +1502,9 @@ kbd {
 }
 
 .shell-app .repo-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px 14px 7px;
   color: var(--ink-faint, #68645c);
   font-family: var(--mono, monospace);
@@ -1511,6 +1514,26 @@ kbd {
   border-bottom: 1.5px solid transparent;
   margin-bottom: -1px;
   transition: color 80ms ease, border-color 80ms ease;
+}
+
+.shell-app .repo-tab-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--rule-light);
+  color: var(--ink-soft);
+}
+
+.shell-app .repo-tab.active .repo-tab-count {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.shell-app .repo-tab-count.tone-alarm {
+  background: var(--accent-red, #b34040);
+  border-color: var(--accent-red, #b34040);
+  color: #fffdf8;
 }
 
 .shell-app .repo-tab:hover {

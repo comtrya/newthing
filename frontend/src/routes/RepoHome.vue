@@ -512,6 +512,9 @@ async function fetchRepositoryIdentity(
     <RepoTabs
       :segments="repoSegments"
       :repository-id="repository?.id ?? null"
+      :open-issues="openIssues"
+      :open-pulls="repository?.openPullRequests ?? 0"
+      :failing-checks="failingChecks"
     />
   </header>
 

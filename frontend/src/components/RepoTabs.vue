@@ -25,8 +25,16 @@ const props = withDefaults(defineProps<{
   segments: string[];
   /** Resolved repository ULID used to scope queue links. */
   repositoryId?: string | null;
+  /** Counts surfaced on the matching tab labels.
+   *  Zero or undefined hides the count chip. */
+  openIssues?: number | null;
+  openPulls?: number | null;
+  failingChecks?: number | null;
 }>(), {
   repositoryId: null,
+  openIssues: 0,
+  openPulls: 0,
+  failingChecks: 0,
 });
 
 const route = useRoute();
@@ -35,6 +43,8 @@ interface Tab {
   id: string;
   label: string;
   to: string;
+  count?: number;
+  countTone?: "ink" | "alarm";
 }
 
 const repoPath = computed(() =>
@@ -62,10 +72,20 @@ function repoExtPath(slug: string): string {
 const tabs = computed<Tab[]>(() => [
   { id: "overview", label: "Overview", to: repoHomePath.value },
   { id: "code",     label: "Code",     to: repoCodePath.value },
-  { id: "issues",   label: "Issues",   to: repoExtPath("issues") },
-  { id: "pulls",    label: "Pulls",    to: repoExtPath("pulls") },
-  { id: "epics",    label: "Epics",    to: repoExtPath("epics") },
-  { id: "checks",   label: "Checks",   to: repoExtPath("checks") },
+  {
+    id: "issues", label: "Issues", to: repoExtPath("issues"),
+    count: props.openIssues ?? 0,
+  },
+  {
+    id: "pulls", label: "Pulls", to: repoExtPath("pulls"),
+    count: props.openPulls ?? 0,
+  },
+  { id: "epics", label: "Epics", to: repoExtPath("epics") },
+  {
+    id: "checks", label: "Checks", to: repoExtPath("checks"),
+    count: props.failingChecks ?? 0,
+    countTone: "alarm",
+  },
 ]);
 
 function isActive(tab: Tab): boolean {
@@ -95,7 +115,11 @@ function isActive(tab: Tab): boolean {
       :aria-selected="isActive(tab)"
       role="tab"
     >
-      {{ tab.label }}
+      <span class="repo-tab-label">{{ tab.label }}</span>
+      <span
+        v-if="(tab.count ?? 0) > 0"
+        :class="['repo-tab-count', `tone-${tab.countTone ?? 'ink'}`]"
+      >{{ tab.count }}</span>
     </RouterLink>
   </nav>
 </template>
