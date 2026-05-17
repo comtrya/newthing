@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
+import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
@@ -207,12 +207,13 @@ async function loadShellSummary(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query:
-          "{ workspace { name repositories { id name path groups openPullRequests } } }",
+          "{ workspace { id name repositories { id name path groups openPullRequests } } }",
       }),
     });
     const envelope = (await response.json()) as {
       data?: {
         workspace?: {
+          id?: string;
           name?: string;
           repositories?: ShellRepositorySummary[];
         };
@@ -223,9 +224,52 @@ async function loadShellSummary(): Promise<void> {
       name: envelope.data?.workspace?.name ?? workspace.value.name,
       repositories: envelope.data?.workspace?.repositories ?? [],
     };
+    const workspaceId = envelope.data?.workspace?.id;
+    if (workspaceId) {
+      void refreshFailingChecksMap(workspaceId);
+    }
   } catch {
     // Keep the static fallback; route components surface their own load errors.
   }
+}
+
+/**
+ * Per-repo failing-required-check counts, refreshed alongside the
+ * sidebar's repo list. Fans out one `list-checks` call per repo
+ * (the op is repo-scoped) in parallel, filters to
+ * `required && state ∈ {FAILURE, FAILED}`, and writes the resulting
+ * counts into a ref the sidebar template consults to render a red
+ * dot next to repos with ship-blocking state. Mirrors the per-repo
+ * RepoHome chip from iter 27 — same data, different surface.
+ */
+const failingChecksByRepoId = ref<Record<string, number>>({});
+
+async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
+  const repos = workspace.value.repositories;
+  if (repos.length === 0) {
+    failingChecksByRepoId.value = {};
+    return;
+  }
+  const entries = await Promise.all(
+    repos.map(async (repo) => {
+      const result = await invokeOp<
+        Array<{ state?: string; required?: boolean }>
+      >("ext_checks", "checks", "list-checks", {
+        repository: `comtrya://workspace/${workspaceId}/repository/${repo.id}`,
+        limit: 256,
+      });
+      if (!result.ok || !Array.isArray(result.value)) return [repo.id, 0] as const;
+      const failing = result.value.filter((c) => {
+        if (c.required !== true) return false;
+        const s = (c.state ?? "").toUpperCase();
+        return s === "FAILURE" || s === "FAILED";
+      }).length;
+      return [repo.id, failing] as const;
+    }),
+  );
+  const map: Record<string, number> = {};
+  for (const [id, n] of entries) map[id] = n;
+  failingChecksByRepoId.value = map;
 }
 </script>
 
@@ -297,7 +341,15 @@ async function loadShellSummary(): Promise<void> {
               :class="{ 'sb-repo-active': activeRepoPath === repo.path }"
               :title="repo.path"
             >
-              <span class="sb-repo-path">{{ repo.path }}</span>
+              <span class="sb-repo-path">
+                <span
+                  v-if="(failingChecksByRepoId[repo.id] ?? 0) > 0"
+                  class="sb-repo-alarm"
+                  aria-label="failing required checks"
+                  :title="`${failingChecksByRepoId[repo.id]} failing required check${failingChecksByRepoId[repo.id] === 1 ? '' : 's'}`"
+                />
+                {{ repo.path }}
+              </span>
               <span
                 v-if="(repo.openPullRequests ?? 0) > 0"
                 class="sb-repo-badge"
