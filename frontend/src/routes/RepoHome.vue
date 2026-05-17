@@ -27,6 +27,7 @@ interface RepositoryIdentity {
   description?: string | null;
   defaultBranch?: string | null;
   visibility?: string | null;
+  vcs?: string | null;
   updated?: string | null;
   openPullRequests?: number | null;
   gitHttpPath?: string | null;
@@ -51,6 +52,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       description
       defaultBranch
       visibility
+      vcs
       updated
       openPullRequests
       gitHttpPath
@@ -210,6 +212,13 @@ const repoChips = computed<Chip[]>(() => {
     label: "visibility",
     value: visibility,
     tone: visibility === "public" ? "good" : "muted",
+  });
+  const vcs = (repository.value?.vcs ?? "git").toLowerCase();
+  chips.push({
+    label: "vcs",
+    value: vcs,
+    tone: vcs === "jj" ? "ink" : "muted",
+    title: `version control · ${vcs}`,
   });
   const prs = repository.value?.openPullRequests ?? 0;
   chips.push({

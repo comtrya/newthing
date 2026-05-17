@@ -3434,6 +3434,9 @@ fn apply_repository_cue_overrides(
     if let Some(branch) = repo_block.get("defaultBranch").and_then(Value::as_str) {
         repo_obj.insert("defaultBranch".to_string(), json!(branch));
     }
+    if let Some(vcs) = repo_block.get("vcs").and_then(Value::as_str) {
+        repo_obj.insert("vcs".to_string(), json!(vcs));
+    }
     if let Some(description) = repo_block.get("description").and_then(Value::as_str) {
         repo_obj.insert("description".to_string(), json!(description));
     }

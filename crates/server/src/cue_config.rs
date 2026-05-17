@@ -141,6 +141,11 @@ projects: [Name=string]: #Project & { name: Name }
     // this to declare the default bookmark name.
     defaultBranch?: string
 
+    // Version-control system backing the repo. "git" is the default;
+    // "jj" declares a Jujutsu-native repo (and, for jj-on-git, lets the
+    // forge prefer bookmarks over refs when both are present).
+    vcs?: "git" | "jj" | *"git"
+
     // Short human description, surfaced on the repo home page.
     description?: string
 }

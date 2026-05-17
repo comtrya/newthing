@@ -7,5 +7,6 @@ package comtrya
 repository: {
 	visibility:    "private"
 	defaultBranch: "v3"
+	vcs:           "git"
 	description:   "Comtrya — a self-hosted Git forge and product-management platform built around a Rust kernel and WIT-typed extensions."
 }
