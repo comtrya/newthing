@@ -20,16 +20,30 @@ interface ShellRepositorySummary {
 const workspace = ref<{
   name: string;
   repositories: ShellRepositorySummary[];
-  serverURL: string;
 }>({
   name: "Workspace",
   repositories: [],
-  serverURL: "same-origin kernel proxy",
 });
 
+/**
+ * Live-event subscription state. The topbar only surfaces it when
+ * the stream is in trouble — "connecting" briefly on first load,
+ * "error" when the SSE source disconnects. Healthy "live" / "idle"
+ * is the default and shows nothing (no chrome the user has to
+ * decode just to know things are fine).
+ */
 const liveState = ref<"connecting" | "live" | "idle" | "error">("connecting");
-const liveEvents = ref(0);
 let unsubscribeLiveEvents: (() => void) | undefined;
+const degradedLiveState = computed<"connecting" | "error" | null>(() => {
+  if (liveState.value === "connecting") return "connecting";
+  if (liveState.value === "error") return "error";
+  return null;
+});
+const liveStateTitle = computed(() => {
+  if (liveState.value === "error") return "Live event stream disconnected.";
+  if (liveState.value === "connecting") return "Connecting to the live event stream…";
+  return "Live event stream is connected.";
+});
 
 const isMac =
   typeof navigator !== "undefined"
@@ -158,7 +172,6 @@ onMounted(() => {
     unsubscribeLiveEvents = subscribeLiveEvents({
       token,
       onEvent: () => {
-        liveEvents.value += 1;
         liveState.value = "live";
       },
       onError: () => {
@@ -220,32 +233,29 @@ async function loadShellSummary(): Promise<void> {
 <template>
   <div class="shell shell-app">
     <header class="topbar" role="banner">
-      <div class="brand">
+      <RouterLink to="/" class="brand" aria-label="Home">
         <div class="mark">C</div>
-        <div class="name">
-          <span class="word">Comtrya</span>
-          <span class="sub">workspace</span>
-        </div>
-      </div>
+        <span class="word">Comtrya</span>
+      </RouterLink>
       <button class="cmdk" type="button" @click="openPalette">
-        <span class="label">Cmd</span>
-        <span class="cmdk-text">repository, pull, file, ref...</span>
+        <span class="cmdk-text">repository, pull, file, ref…</span>
         <kbd>{{ cmdLabel }} K</kbd>
       </button>
       <div class="topbar-actions">
-        <span :class="['chip', liveState === 'live' ? 'ok' : liveState === 'error' ? 'err' : '']">
-          {{ liveState }}
-        </span>
-        <span class="chip bare">{{ liveEvents }} events</span>
+        <span
+          v-if="degradedLiveState"
+          :class="['chip', degradedLiveState === 'error' ? 'err' : '']"
+          :title="liveStateTitle"
+        >{{ degradedLiveState }}</span>
         <button
           type="button"
-          class="chip bare help"
+          class="topbar-shortcuts"
           @click="shortcutsVisible = !shortcutsVisible"
+          :title="shortcutsVisible ? 'Hide keyboard shortcuts' : 'Show keyboard shortcuts (?)'"
           aria-label="Show keyboard shortcuts"
         >
-          shortcuts <kbd>?</kbd>
+          <kbd>?</kbd>
         </button>
-        <code>{{ workspace.serverURL }}</code>
       </div>
     </header>
 

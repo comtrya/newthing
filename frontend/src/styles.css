@@ -108,6 +108,11 @@ kbd {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  color: var(--ink);
+}
+
+.brand:hover .mark {
+  background: var(--accent-orange);
 }
 
 .brand .mark {
@@ -124,25 +129,12 @@ kbd {
   line-height: 1;
 }
 
-.brand .name {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-
 .brand .word {
   font-family: var(--display);
   font-size: 22px;
   font-weight: 750;
   line-height: 1;
-}
-
-.brand .sub {
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--ink);
 }
 
 .cmdk {
@@ -150,18 +142,11 @@ kbd {
   min-height: 38px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   border: 2px solid var(--ink);
   background: var(--paper);
   padding: 6px 12px;
-}
-
-.cmdk .label {
-  color: var(--ink-faint);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .topbar-actions {
@@ -170,6 +155,32 @@ kbd {
   justify-content: flex-end;
   gap: 10px;
   min-width: 0;
+}
+
+.topbar-shortcuts {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--rule-light);
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.topbar-shortcuts:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.topbar-shortcuts kbd {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 
 .chip {
@@ -449,24 +460,6 @@ kbd {
 .nav a.router-link-active .badge {
   background: var(--ink);
   color: var(--paper);
-}
-
-.chip.help {
-  border: 1.5px solid var(--ink);
-  background: var(--paper);
-  cursor: pointer;
-}
-
-.chip.help kbd {
-  border: 1px solid var(--ink);
-  padding: 0 4px;
-  font-family: var(--mono);
-  font-size: 10px;
-  margin-left: 4px;
-}
-
-.shell-app .topbar-actions code {
-  color: var(--ink-faint);
 }
 
 .shell-app .page {
