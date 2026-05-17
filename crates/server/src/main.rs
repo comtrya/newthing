@@ -2423,6 +2423,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             // repository, including the dogfood import.
             let schemas = state.runtime.collected_cue_schemas();
             let comtrya_config = cue_config::evaluate_repo_config(&git_dir, "main", &schemas);
+            apply_repository_cue_overrides(repo_obj, &comtrya_config);
             repo_obj.insert("comtryaConfig".to_string(), comtrya_config);
         }
     }
@@ -3415,6 +3416,29 @@ fn read_default_branch(git_dir: &Path) -> Option<String> {
     Some(branch.to_string())
 }
 
+/// Overlay the repo's CUE `repository` block onto a repo JSON object.
+/// CUE is the source of truth where present; falls through to the
+/// stored / git-derived defaults otherwise. CUE visibility is
+/// lowercase; the JSON API contract is uppercase, so we uppercase
+/// here at the I/O boundary.
+fn apply_repository_cue_overrides(
+    repo_obj: &mut serde_json::Map<String, Value>,
+    comtrya_config: &Value,
+) {
+    let Some(repo_block) = comtrya_config.get("repository").and_then(Value::as_object) else {
+        return;
+    };
+    if let Some(visibility) = repo_block.get("visibility").and_then(Value::as_str) {
+        repo_obj.insert("visibility".to_string(), json!(visibility.to_ascii_uppercase()));
+    }
+    if let Some(branch) = repo_block.get("defaultBranch").and_then(Value::as_str) {
+        repo_obj.insert("defaultBranch".to_string(), json!(branch));
+    }
+    if let Some(description) = repo_block.get("description").and_then(Value::as_str) {
+        repo_obj.insert("description".to_string(), json!(description));
+    }
+}
+
 fn chrono_now_iso() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3689,25 +3713,29 @@ fn git_demo_snapshot(
     .unwrap_or_default();
     let comtrya_config =
         cue_config::evaluate_repo_config(&repo.git_dir, "main", extension_schemas);
+    let mut repository = json!({
+        "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+        "owner": "comtrya",
+        "name": "comtrya",
+        "path": "comtrya/comtrya",
+        "gitHttpPath": "/git/comtrya/comtrya.git",
+        "visibility": "PRIVATE",
+        "description": "Local bare Git repository opened by the Comtrya production-testbed runtime.",
+        "defaultBranch": "main",
+        "currentCommit": short_head,
+        "headOid": head,
+        "stars": 0,
+        "forks": 0,
+        "watchers": 0,
+        "language": language,
+        "license": license,
+        "updated": commits.first().and_then(|commit| commit.get("time")).cloned().unwrap_or_else(|| json!("unknown"))
+    });
+    if let Some(obj) = repository.as_object_mut() {
+        apply_repository_cue_overrides(obj, &comtrya_config);
+    }
     Ok(GitDemoSnapshot {
-        repository: json!({
-            "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-            "owner": "comtrya",
-            "name": "comtrya",
-            "path": "comtrya/comtrya",
-            "gitHttpPath": "/git/comtrya/comtrya.git",
-            "visibility": "PRIVATE",
-            "description": "Local bare Git repository opened by the Comtrya production-testbed runtime.",
-            "defaultBranch": "main",
-            "currentCommit": short_head,
-            "headOid": head,
-            "stars": 0,
-            "forks": 0,
-            "watchers": 0,
-            "language": language,
-            "license": license,
-            "updated": commits.first().and_then(|commit| commit.get("time")).cloned().unwrap_or_else(|| json!("unknown"))
-        }),
+        repository,
         refs,
         branches,
         commits,

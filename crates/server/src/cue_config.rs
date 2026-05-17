@@ -174,6 +174,7 @@ pub fn evaluate_repo_config(
         Err(message) => {
             return json!({
                 "projects": [implicit_default_project()],
+                "repository": Value::Null,
                 "instances": [],
                 "error": message,
             });
@@ -309,9 +310,11 @@ fn run_cuengine(workdir: &Path) -> Value {
             if projects.is_empty() {
                 projects.push(implicit_default_project());
             }
+            let repository = discover_repository(&instances);
 
             json!({
                 "projects": projects,
+                "repository": repository,
                 "instances": instances,
                 "error": null,
             })
@@ -330,6 +333,7 @@ fn run_cuengine(workdir: &Path) -> Value {
                 || message.contains("no CUE files");
             json!({
                 "projects": [implicit_default_project()],
+                "repository": Value::Null,
                 "instances": [],
                 "error": if benign { Value::Null } else { Value::String(message) },
             })
@@ -391,6 +395,38 @@ fn join_repo_path(instance: &str, relative: &str) -> String {
         (false, true) => instance.to_string(),
         (false, false) => format!("{instance}/{rel}"),
     }
+}
+
+/// Walk the per-directory instances looking for the kernel-level
+/// `repository: {...}` block. The block is conceptually unique per
+/// repo; if more than one instance declares it (e.g. the user dropped
+/// `repository:` in two subdirectories) prefer the root-path instance,
+/// otherwise pick the lexicographically first declaration. Returns
+/// `Value::Null` when no instance declares the block.
+fn discover_repository(instances: &[Value]) -> Value {
+    let mut root_repo: Option<Value> = None;
+    let mut other_repo: Option<(String, Value)> = None;
+    for instance in instances {
+        let path = instance
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let Some(repo) = instance.get("value").and_then(|v| v.get("repository")) else {
+            continue;
+        };
+        if !repo.is_object() {
+            continue;
+        }
+        if path.is_empty() {
+            root_repo = Some(repo.clone());
+        } else if other_repo.as_ref().map(|(p, _)| path < *p).unwrap_or(true) {
+            other_repo = Some((path, repo.clone()));
+        }
+    }
+    root_repo
+        .or_else(|| other_repo.map(|(_, v)| v))
+        .unwrap_or(Value::Null)
 }
 
 fn implicit_default_project() -> Value {
