@@ -29,6 +29,19 @@ const staticGroups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ["%cmd%", "K"], description: "Open command palette" },
       { keys: ["?"], description: "Show / hide this cheat sheet" },
+      { keys: ["c"], description: "Create on the current surface (issue / epic / from Inbox)" },
+    ],
+  },
+  {
+    title: "Inside a repo workbench",
+    shortcuts: [
+      { keys: ["g", "o"], description: "Overview" },
+      { keys: ["g", "c"], description: "Code" },
+      { keys: ["g", "i"], description: "Issues" },
+      { keys: ["g", "p"], description: "Pulls" },
+      { keys: ["g", "e"], description: "Epics" },
+      { keys: ["g", "k"], description: "Checks" },
+      { keys: ["g", "f"], description: "Config" },
     ],
   },
   {
@@ -38,7 +51,7 @@ const staticGroups: ShortcutGroup[] = [
       { keys: ["k"], description: "Move focus up" },
       { keys: ["↵"], description: "Open the focused row" },
       { keys: ["/"], description: "Focus search field" },
-      { keys: ["c"], description: "Focus the quick-add (issues)" },
+      { keys: ["c"], description: "Focus the inline quick-add" },
       { keys: ["o"], description: "Show open items" },
       { keys: ["x"], description: "Show closed items (issues)" },
       { keys: ["a"], description: "Show all items" },

@@ -214,25 +214,29 @@ function bindGoChord(router: Router): void {
     });
   /**
    * Single-key `c` ("create") routes to the create form for whatever
-   * the user is currently looking at — issues if on any issues
-   * surface, epics if on any epics surface, no-op otherwise. From
-   * the Inbox, default to a new issue since the inbox is open-work
-   * focused. Falls through silently when there's no obvious
-   * "create" verb for the current surface.
+   * the user is currently looking at — but only on surfaces that
+   * don't already own a `c` handler. The issues / epics LIST routes
+   * mount IssuesList / EpicsList, both of which bind `c` to focus
+   * an inline quick-add (Linear-style); the inline path is faster
+   * than navigating to a separate form, so we defer to the component
+   * by returning null. The DETAIL routes (e.g. `/x/issues/<ws>/<n>`)
+   * and the Inbox don't have a quick-add — `c` there means "create
+   * a new one of the same kind". Everywhere else, no-op.
    *
    * `c` (not `n`) so it doesn't collide with the `g n` chord —
    * tinykeys fires both the sequence and the standalone last key,
    * which would double-route every `g n` press.
    */
+  const ISSUE_LIST = /^\/(?:r\/.+?\/issues|x\/issues)\/?$/;
+  const EPIC_LIST = /^\/(?:r\/.+?\/epics|x\/epics)\/?$/;
+  const ISSUE_DETAIL_OR_SUB = /^\/(?:r\/.+?\/issues|x\/issues)\//;
+  const EPIC_DETAIL_OR_SUB = /^\/(?:r\/.+?\/epics|x\/epics)\//;
   const currentCreateTarget = (): string | null => {
     const path = router.currentRoute.value.path;
     if (path === "/x/issues/new" || path === "/x/epics/new") return null;
-    if (/^\/r\/.+?\/issues(?:\/|$)/.test(path) || /^\/x\/issues(?:\/|$)/.test(path)) {
-      return "/x/issues/new";
-    }
-    if (/^\/r\/.+?\/epics(?:\/|$)/.test(path) || /^\/x\/epics(?:\/|$)/.test(path)) {
-      return "/x/epics/new";
-    }
+    if (ISSUE_LIST.test(path) || EPIC_LIST.test(path)) return null;
+    if (ISSUE_DETAIL_OR_SUB.test(path)) return "/x/issues/new";
+    if (EPIC_DETAIL_OR_SUB.test(path)) return "/x/epics/new";
     if (path === "/inbox") return "/x/issues/new";
     return null;
   };
