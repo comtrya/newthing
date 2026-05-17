@@ -272,6 +272,11 @@ async function loadShellSummary(): Promise<void> {
             class="sb-link"
             :class="{ 'sb-link-active': route.path === '/' }"
           >Home</RouterLink>
+          <RouterLink
+            to="/inbox"
+            class="sb-link"
+            :class="{ 'sb-link-active': route.path === '/inbox' }"
+          >Inbox</RouterLink>
         </nav>
 
         <section class="sb-section sb-repos" aria-label="Repositories">

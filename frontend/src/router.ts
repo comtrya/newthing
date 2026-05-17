@@ -1,6 +1,7 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from "vue-router";
 import { createRouter, createWebHistory } from "vue-router";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
+import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
 import NewRepository from "./routes/NewRepository.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
@@ -13,6 +14,11 @@ export const shellRoutes: RouteRecordRaw[] = [
     path: shellRoutePaths.workspaceHome,
     name: "workspace-home",
     component: WorkspaceHome,
+  },
+  {
+    path: shellRoutePaths.inbox,
+    name: "inbox",
+    component: Inbox,
   },
   {
     path: shellRoutePaths.newRepository,

@@ -1,5 +1,6 @@
 export const shellRoutePaths = {
   workspaceHome: "/",
+  inbox: "/inbox",
   newRepository: "/new",
   instanceAdmin: "/instance",
   settings: "/settings",
