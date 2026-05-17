@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
-import Breadcrumb from "./components/Breadcrumb.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
 
@@ -317,7 +316,6 @@ async function loadShellSummary(): Promise<void> {
       </aside>
 
       <main class="page" @click="onPageClick">
-        <Breadcrumb />
         <RouterView />
       </main>
     </div>
