@@ -1020,6 +1020,26 @@ kbd {
   margin-top: 2px;
 }
 
+.shell-app .repo-bookmark-commit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-bookmark-unresolved {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border: 1px dashed var(--rule-light);
+  padding: 0 5px;
+}
+
+.shell-app .repo-bookmark.unresolved code {
+  color: var(--ink-faint);
+}
+
 .shell-app .repo-readme {
   margin-top: 28px;
   border: 1px solid var(--ink-rule, #d8d6cf);

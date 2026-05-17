@@ -2424,6 +2424,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             let schemas = state.runtime.collected_cue_schemas();
             let comtrya_config = cue_config::evaluate_repo_config(&git_dir, "main", &schemas);
             apply_repository_cue_overrides(repo_obj, &comtrya_config);
+            annotate_bookmarks_with_resolution(repo_obj, &git_dir);
             repo_obj.insert("comtryaConfig".to_string(), comtrya_config);
         }
     }
@@ -2461,6 +2462,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                             &schemas_for_overlay,
                         );
                         apply_repository_cue_overrides(obj, &comtrya_config);
+                        annotate_bookmarks_with_resolution(obj, &git_dir);
                     }
                 }
                 summary
@@ -3467,6 +3469,62 @@ fn apply_repository_cue_overrides(
     }
 }
 
+/// Walk the projected `bookmarks` array (if any) and annotate each
+/// entry with `resolved` (bool) and, when resolved, `commit` (12-char
+/// short OID) plus `oid` (full). The forge treats CUE bookmarks as
+/// declarations of intent — unresolved is not an error, just a
+/// signal to the user that the declared ref has drifted from the
+/// backing repo.
+fn annotate_bookmarks_with_resolution(
+    repo_obj: &mut serde_json::Map<String, Value>,
+    git_dir: &Path,
+) {
+    let Some(bookmarks) = repo_obj
+        .get_mut("bookmarks")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    for bookmark in bookmarks.iter_mut() {
+        let Some(obj) = bookmark.as_object_mut() else {
+            continue;
+        };
+        let Some(name) = obj.get("name").and_then(Value::as_str).map(str::to_owned) else {
+            continue;
+        };
+        match resolve_bookmark_oid(git_dir, &name) {
+            Some(oid) => {
+                obj.insert("resolved".to_string(), json!(true));
+                obj.insert(
+                    "commit".to_string(),
+                    json!(oid.chars().take(12).collect::<String>()),
+                );
+                obj.insert("oid".to_string(), json!(oid));
+            }
+            None => {
+                obj.insert("resolved".to_string(), json!(false));
+            }
+        }
+    }
+}
+
+/// Resolve a bookmark name against the backing git repo. Looks for a
+/// branch first, then a tag — common bookmark intents in both git and
+/// jj-on-git. Constraining to explicit ref paths avoids `rev-parse`
+/// interpreting the name as a revspec (e.g. `HEAD@{1}`, `name..other`)
+/// since CUE-declared names are untrusted input.
+fn resolve_bookmark_oid(git_dir: &Path, name: &str) -> Option<String> {
+    for ref_path in [format!("refs/heads/{name}"), format!("refs/tags/{name}")] {
+        if let Ok(out) = git_text(git_dir, &["rev-parse", "--verify", "--quiet", &ref_path]) {
+            let trimmed = out.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn chrono_now_iso() -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -3761,6 +3819,7 @@ fn git_demo_snapshot(
     });
     if let Some(obj) = repository.as_object_mut() {
         apply_repository_cue_overrides(obj, &comtrya_config);
+        annotate_bookmarks_with_resolution(obj, &repo.git_dir);
     }
     Ok(GitDemoSnapshot {
         repository,

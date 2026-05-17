@@ -23,6 +23,8 @@ interface RepositoryBookmark {
   name: string;
   label?: string | null;
   description?: string | null;
+  resolved?: boolean | null;
+  commit?: string | null;
 }
 
 interface RepositoryIdentity {
@@ -72,6 +74,8 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
         name
         label
         description
+        resolved
+        commit
       }
     }
   }
@@ -413,12 +417,23 @@ async function fetchRepositoryIdentity(
           v-for="bookmark in bookmarks"
           :key="bookmark.name"
           class="repo-bookmark"
+          :class="{ unresolved: bookmark.resolved === false }"
         >
           <code>{{ bookmark.name }}</code>
           <span
             v-if="bookmark.label && bookmark.label !== bookmark.name"
             class="repo-bookmark-label"
           >{{ bookmark.label }}</span>
+          <span
+            v-if="bookmark.resolved && bookmark.commit"
+            class="repo-bookmark-commit"
+            :title="`Resolves to ${bookmark.commit}`"
+          >{{ bookmark.commit.slice(0, 7) }}</span>
+          <span
+            v-else-if="bookmark.resolved === false"
+            class="repo-bookmark-unresolved"
+            title="No ref matches this bookmark on the backing repo"
+          >unresolved</span>
           <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
         </li>
       </ul>
