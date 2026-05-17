@@ -4025,7 +4025,8 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 		epic: { type: null },
 		workspaceId: { type: String },
 		id: { type: String },
-		routeParams: { type: null }
+		routeParams: { type: null },
+		labelCatalog: { type: null }
 	},
 	setup(e) {
 		let t = e, n = [
@@ -4166,14 +4167,14 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 			let n = Date.now() - t, r = 6e4, i = 60 * r, a = 24 * i;
 			return n < r ? "just now" : n < i ? `${Math.floor(n / r)}m ago` : n < a ? `${Math.floor(n / i)}h ago` : n < 30 * a ? `${Math.floor(n / a)}d ago` : new Date(e).toISOString().slice(0, 10);
 		}
-		return (e, t) => (q(), J("main", {
+		return (t, n) => (q(), J("main", {
 			class: "epic-detail",
 			"data-state": r.value,
 			"data-epic-id": h.value?.id,
 			"data-smoke": "epic-detail"
 		}, [r.value === "loading" ? (q(), J("p", Ec, "Loading epic")) : r.value === "error" ? (q(), J("p", Dc, F(a.value), 1)) : h.value ? (q(), J(K, { key: 3 }, [
 			Y("header", kc, [
-				t[2] ||= Y("p", { class: "epic-overline" }, "epic", -1),
+				n[2] ||= Y("p", { class: "epic-overline" }, "epic", -1),
 				Y("h1", Ac, F(h.value.title), 1),
 				Y("div", jc, [
 					Y("span", { class: Ge(["epic-pill", g.value.className]) }, F(g.value.label), 3),
@@ -4181,12 +4182,13 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 						key: 0,
 						class: "epic-chip tone-blue",
 						title: `Scoped to project ${h.value.projectName}`
-					}, [t[0] ||= Y("span", { class: "chip-glyph" }, "◇", -1), X(F(h.value.projectName), 1)], 8, Mc)) : Z("", !0),
-					(q(!0), J(K, null, Hr(h.value.labels, (e) => (q(), la(H(xs), {
-						key: e,
-						name: e
-					}, null, 8, ["name"]))), 128)),
-					ie.value ? (q(), J("span", Nc, [t[1] ||= Y("span", { class: "chip-glyph" }, "@", -1), X(F(ie.value), 1)])) : Z("", !0),
+					}, [n[0] ||= Y("span", { class: "chip-glyph" }, "◇", -1), X(F(h.value.projectName), 1)], 8, Mc)) : Z("", !0),
+					(q(!0), J(K, null, Hr(h.value.labels, (t) => (q(), la(H(xs), {
+						key: t,
+						name: t,
+						catalog: e.labelCatalog
+					}, null, 8, ["name", "catalog"]))), 128)),
+					ie.value ? (q(), J("span", Nc, [n[1] ||= Y("span", { class: "chip-glyph" }, "@", -1), X(F(ie.value), 1)])) : Z("", !0),
 					h.value.targetDate ? (q(), J("span", Pc, " target " + F(h.value.targetDate), 1)) : Z("", !0),
 					ae.value ? (q(), J("span", Fc, "opened " + F(ae.value), 1)) : Z("", !0)
 				])
@@ -4195,12 +4197,12 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 				Y("span", Rc, [
 					Y("strong", null, F(c.value?.issuesClosed ?? te.value), 1),
 					Y("span", zc, "/ " + F(v.value || l.value.length), 1),
-					t[3] ||= Y("span", { class: "stat-label" }, "closed", -1)
+					n[3] ||= Y("span", { class: "stat-label" }, "closed", -1)
 				]),
-				t[6] ||= Y("span", { class: "epic-progress-sep" }, "·", -1),
-				Y("span", Bc, [Y("strong", null, F(y.value), 1), t[4] ||= Y("span", { class: "stat-label" }, "% complete", -1)]),
+				n[6] ||= Y("span", { class: "epic-progress-sep" }, "·", -1),
+				Y("span", Bc, [Y("strong", null, F(y.value), 1), n[4] ||= Y("span", { class: "stat-label" }, "% complete", -1)]),
 				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (q(), J("span", Vc, "·")) : Z("", !0),
-				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (q(), J("span", Hc, [Y("strong", null, F(c.value?.childEpicsOpen ?? 0), 1), t[5] ||= Y("span", { class: "stat-label" }, "child epics open", -1)])) : Z("", !0)
+				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (q(), J("span", Hc, [Y("strong", null, F(c.value?.childEpicsOpen ?? 0), 1), n[5] ||= Y("span", { class: "stat-label" }, "child epics open", -1)])) : Z("", !0)
 			]), Y("div", {
 				class: "epic-progress-bar",
 				"aria-valuenow": y.value,
@@ -4211,7 +4213,7 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 				style: Be({ width: y.value + "%" })
 			}, null, 4)], 8, Uc)])) : Z("", !0),
 			Y("section", Wc, [
-				Y("header", Gc, [t[7] ||= Y("span", { class: "epic-routed-label" }, "Project", -1), h.value.projectName ? (q(), J("a", {
+				Y("header", Gc, [n[7] ||= Y("span", { class: "epic-routed-label" }, "Project", -1), h.value.projectName ? (q(), J("a", {
 					key: 0,
 					href: `/x/epics/?project=${encodeURIComponent(h.value.projectName)}`,
 					class: "epic-routed-project",
@@ -4223,19 +4225,19 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 					value: h.value.projectName ?? "",
 					disabled: le.value === "submitting",
 					onChange: ue
-				}, [t[8] ||= Y("option", { value: "" }, "— no project —", -1), (q(!0), J(K, null, Hr(ce.value, (e) => (q(), J("option", {
+				}, [n[8] ||= Y("option", { value: "" }, "— no project —", -1), (q(!0), J(K, null, Hr(ce.value, (e) => (q(), J("option", {
 					key: e.name,
 					value: e.name ?? ""
 				}, F(e.name), 9, Jc))), 128))], 40, qc),
 				x.value ? (q(), J("p", Yc, F(x.value), 1)) : Z("", !0),
-				t[9] ||= Y("p", { class: "epic-routed-source" }, [
+				n[9] ||= Y("p", { class: "epic-routed-source" }, [
 					X(" Stamps "),
 					Y("code", null, "projectName"),
 					X(" on this epic. Lights up workspace per-Project counts. ")
 				], -1)
 			]),
 			h.value.projectName && oe.value.length > 0 ? (q(), J("section", Xc, [
-				Y("header", Zc, [t[10] ||= Y("span", { class: "epic-routed-label" }, "Routed to", -1), Y("a", {
+				Y("header", Zc, [n[10] ||= Y("span", { class: "epic-routed-label" }, "Routed to", -1), Y("a", {
 					href: `/x/epics/?project=${encodeURIComponent(h.value.projectName)}`,
 					class: "epic-routed-project",
 					title: `Filter epics to project ${h.value.projectName}`
@@ -4247,8 +4249,8 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 					title: e
 				}, [Y("span", tl, F(H(se)(e).glyph), 1), X(" " + F(H(se)(e).label), 1)], 8, el))), 128))]),
 				Y("p", nl, [
-					t[11] ||= X(" From ", -1),
-					t[12] ||= Y("code", null, "package comtrya", -1),
+					n[11] ||= X(" From ", -1),
+					n[12] ||= Y("code", null, "package comtrya", -1),
 					X(" · projects." + F(h.value.projectName) + ".owners ", 1)
 				])
 			])) : Z("", !0),
@@ -4260,20 +4262,20 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 				innerHTML: ne.value
 			}, null, 8, rl)) : (q(), J("p", il, "No description yet.")),
 			Y("section", al, [
-				Y("header", ol, [t[16] ||= Y("h3", null, "Issues in this epic", -1), Y("span", sl, [
+				Y("header", ol, [n[16] ||= Y("h3", null, "Issues in this epic", -1), Y("span", sl, [
 					Y("span", { "data-zero": ee.value === 0 }, F(ee.value), 9, cl),
-					t[13] ||= X(" open ", -1),
-					t[14] ||= Y("span", { class: "sep" }, "·", -1),
+					n[13] ||= X(" open ", -1),
+					n[14] ||= Y("span", { class: "sep" }, "·", -1),
 					Y("span", { "data-zero": te.value === 0 }, F(te.value), 9, ll),
-					t[15] ||= X(" closed ", -1)
+					n[15] ||= X(" closed ", -1)
 				])]),
-				l.value.length === 0 ? (q(), J("p", ul, " No issues linked yet. Link issues via the issue's \"part of epic\" relation. ")) : (q(), J("ul", dl, [(q(!0), J(K, null, Hr(l.value, (e, n) => (q(), J("li", {
+				l.value.length === 0 ? (q(), J("p", ul, " No issues linked yet. Link issues via the issue's \"part of epic\" relation. ")) : (q(), J("ul", dl, [(q(!0), J(K, null, Hr(l.value, (e, t) => (q(), J("li", {
 					key: e.ref,
-					class: Ge(["epic-issue-row", [`state-${e.state.toLowerCase()}`, { focused: u.value === n }]]),
+					class: Ge(["epic-issue-row", [`state-${e.state.toLowerCase()}`, { focused: u.value === t }]]),
 					tabindex: "0",
 					onClick: (t) => w(e),
 					onKeydown: [Wo(Ho((t) => w(e), ["prevent"]), ["enter"]), Wo(Ho((t) => w(e), ["prevent"]), ["space"])],
-					onFocus: (e) => u.value = n
+					onFocus: (e) => u.value = t
 				}, [
 					Y("span", {
 						class: "row-state",
@@ -4286,7 +4288,7 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 							key: 0,
 							class: "epic-chip tone-blue compact",
 							title: e.projectName
-						}, [t[17] ||= Y("span", { class: "chip-glyph" }, "◇", -1), X(F(e.projectName), 1)], 8, yl)) : Z("", !0),
+						}, [n[17] ||= Y("span", { class: "chip-glyph" }, "◇", -1), X(F(e.projectName), 1)], 8, yl)) : Z("", !0),
 						(q(!0), J(K, null, Hr(e.labels, (e) => (q(), la(H(xs), {
 							key: e,
 							name: e
@@ -4299,7 +4301,7 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 						}, [Y("span", xl, F(H(fs)(e.authorRef).glyph), 1), X(" " + F(H(fs)(e.authorRef).label), 1)], 8, bl)) : Z("", !0)
 					])
 				], 42, fl))), 128))])),
-				l.value.length > 0 ? (q(), J("p", Sl, [...t[18] ||= [
+				l.value.length > 0 ? (q(), J("p", Sl, [...n[18] ||= [
 					Y("kbd", null, "j", -1),
 					X(" / ", -1),
 					Y("kbd", null, "k", -1),
@@ -4309,7 +4311,7 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 				]])) : Z("", !0)
 			]),
 			Y("section", Cl, [
-				t[19] ||= Y("h3", { class: "epic-actions-heading" }, "Change state", -1),
+				n[19] ||= Y("h3", { class: "epic-actions-heading" }, "Change state", -1),
 				Y("div", wl, [(q(!0), J(K, null, Hr(_.value, (e) => (q(), J("button", {
 					key: e,
 					type: "button",

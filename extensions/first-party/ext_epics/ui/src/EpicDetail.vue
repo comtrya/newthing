@@ -6,6 +6,7 @@ import {
   renderMarkdown,
   useShortcuts,
   type ComtryaProject,
+  type LabelCatalog,
 } from "@comtrya/sdk-vue";
 import {
   assignEpicProject,
@@ -41,6 +42,7 @@ const props = defineProps<{
   workspaceId?: string;
   id?: string;
   routeParams?: ExtensionRouteParams;
+  labelCatalog?: LabelCatalog | null;
 }>();
 
 const targetStates: EpicState[] = ["PLANNED", "IN_PROGRESS", "DONE", "CANCELED"];
@@ -315,7 +317,7 @@ function relativeTime(iso: string | null | undefined): string | null {
           <span v-if="epic.projectName" class="epic-chip tone-blue" :title="`Scoped to project ${epic.projectName}`">
             <span class="chip-glyph">◇</span>{{ epic.projectName }}
           </span>
-          <LabelPill v-for="label in epic.labels" :key="label" :name="label" />
+          <LabelPill v-for="label in epic.labels" :key="label" :name="label" :catalog="labelCatalog" />
           <span v-if="ownerLabel" class="epic-chip tone-grey" title="Owner">
             <span class="chip-glyph">@</span>{{ ownerLabel }}
           </span>

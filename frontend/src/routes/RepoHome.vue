@@ -12,6 +12,7 @@ import {
   type LabelCatalogEntry,
 } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
+import { setActiveLabelCatalog } from "../extension-runtime";
 
 const props = withDefaults(defineProps<{
   groups: string[];
@@ -358,6 +359,9 @@ watch(
       workspaceId.value = identity.workspaceId;
       repository.value = identity.repository;
       loadState.value = identity.repository ? "ready" : "missing";
+      setActiveLabelCatalog(
+        (identity.repository?.labelCatalog as Record<string, unknown> | null) ?? null,
+      );
       await applyUserLayoutFor(identity.repository?.id ?? null);
       if (identity.repository && identity.workspaceId) {
         void refreshOpenIssues();
@@ -372,6 +376,7 @@ watch(
       repository.value = null;
       loadState.value = "error";
       loadError.value = error instanceof Error ? error.message : String(error);
+      setActiveLabelCatalog(null);
       await applyUserLayoutFor(null);
     }
   },

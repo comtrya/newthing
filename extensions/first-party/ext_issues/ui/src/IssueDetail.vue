@@ -5,6 +5,7 @@ import {
   fetchComtryaProjects,
   LabelPill,
   type ComtryaProject,
+  type LabelCatalog,
 } from "@comtrya/sdk-vue";
 import { computed, onMounted, ref, watch } from "vue";
 import {
@@ -36,6 +37,14 @@ const props = defineProps<{
   repositoryPath?: string | null;
   number?: number | string;
   routeParams?: ExtensionRouteParams;
+  /**
+   * Active repo's label catalog, stamped onto the custom element by
+   * the shell's extension runtime when the user is inside a repo
+   * workbench. Threads through to `LabelPill` so typed labels
+   * declared as `#ExclusiveLabel` render with the exclusive class
+   * instead of falling back to scoped.
+   */
+  labelCatalog?: LabelCatalog | null;
 }>();
 
 const loadState = ref<LoadState>("idle");
@@ -329,6 +338,7 @@ async function reopenCurrentIssue(): Promise<void> {
                 v-for="label in (issue.labels ?? [])"
                 :key="`label-${label}`"
                 :name="label"
+                :catalog="labelCatalog ?? null"
               />
               <span
                 v-if="issue.closeOnMerge === false"

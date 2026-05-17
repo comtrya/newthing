@@ -7,6 +7,7 @@ import {
   parseQueryFilters,
   useShortcuts,
   type ComtryaProject,
+  type LabelCatalog,
 } from "@comtrya/sdk-vue";
 import {
   assignIssueProject,
@@ -37,6 +38,8 @@ const props = withDefaults(defineProps<{
   showNewLink?: boolean;
   /** Scope listing to this Project; new-issue link stamps it on open. */
   projectName?: string;
+  /** Active repo's label catalog (see IssueDetail for details). */
+  labelCatalog?: LabelCatalog | null;
 }>(), {
   workspaceId: DEFAULT_WORKSPACE_ID,
   repositoryId: null,
@@ -44,6 +47,7 @@ const props = withDefaults(defineProps<{
   title: "Issues",
   showNewLink: true,
   projectName: undefined,
+  labelCatalog: null,
 });
 
 type Filter = "OPEN" | "CLOSED" | "ALL";
@@ -883,6 +887,7 @@ async function submitQuickAdd(): Promise<void> {
                 v-for="label in (issue.labels ?? [])"
                 :key="label"
                 :name="label"
+                :catalog="labelCatalog"
               />
               <button
                 v-for="ref in (issue.assignees ?? [])"
