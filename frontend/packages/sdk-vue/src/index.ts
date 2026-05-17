@@ -235,3 +235,5 @@ export type {
   LabelCatalogEntry,
   LabelCatalog,
 } from "./LabelPill.vue";
+
+export { useDiagrams } from "./use-diagrams";

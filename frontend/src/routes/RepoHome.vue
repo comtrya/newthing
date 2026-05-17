@@ -9,6 +9,7 @@ import ExtensionRoute from "./ExtensionRoute.vue";
 import {
   LabelPill,
   renderMarkdown,
+  useDiagrams,
   type LabelCatalogEntry,
 } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
@@ -476,6 +477,12 @@ const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
 const renderedReadme = computed(() =>
   readmePreview.value ? renderMarkdown(readmePreview.value) : "",
 );
+
+/** Container for the rendered README; the `useDiagrams` hook
+ *  walks this subtree for `pre[data-lang="mermaid|d2"]` blocks
+ *  and swaps them for inline SVGs. */
+const readmeBody = ref<HTMLElement | null>(null);
+useDiagrams(readmeBody);
 const readmeTruncated = computed(() => {
   const blob = readmeBlob.value;
   if (!blob) return false;
@@ -626,7 +633,7 @@ async function fetchRepositoryIdentity(
               preview
             </span>
           </header>
-          <article class="repo-readme-body prose" v-html="renderedReadme" />
+          <article ref="readmeBody" class="repo-readme-body prose" v-html="renderedReadme" />
         </section>
         <section v-else class="repo-readme repo-readme-empty">
           <p>No README at the repo root. Add one to introduce this repository.</p>

@@ -28,6 +28,27 @@ proves issue close plus pull-request merge reactor flows through WASM.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+  shell["Vue shell"] -- invokeOp --> kernel["Rust kernel"]
+  kernel -- WIT --> ext["Component-Model<br/>extension"]
+  kernel -- Smart HTTP --> git["git client"]
+  shell -- GraphQL --> kernel
+```
+
+The kernel projects every repo's `package comtrya` block to the JSON
+api, which is what the CUE config viewer surfaces:
+
+```d2
+direction: right
+cue: package comtrya
+cuengine: cue evaluation
+projection: JSON projection
+viewer: /r/<path>/config
+
+cue -> cuengine -> projection -> viewer
+```
+
 Product operations route through canonical WIT operation endpoints into
 Wasmtime Component Model components. First-party extensions are authored as
 Rust `cargo-component` crates and ship real artifacts at
