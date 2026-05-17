@@ -1399,7 +1399,7 @@ ISSUE_REPOSITORY_URI="comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"first issue","bodyMarkdown":"","labels":["kind::ux","priority::p0","good-first-issue"]}' \
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"first issue","bodyMarkdown":"","projectName":"kernel","labels":["kind::ux","priority::p0","good-first-issue"]}' \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
   'json.id.startsWith("iss_") && json.number === 1 && json.state === "open"'
@@ -1408,7 +1408,7 @@ ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.id')"
 expect_status "open-issue increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"second issue","bodyMarkdown":"","labels":["kind::bug","priority::p1"]}' \
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"second issue","bodyMarkdown":"","projectName":"kernel","labels":["kind::bug","priority::p1"]}' \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
   'json.number === 2'

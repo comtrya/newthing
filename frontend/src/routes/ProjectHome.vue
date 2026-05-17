@@ -126,15 +126,26 @@ async function load(): Promise<void> {
 onUnmounted(() => setActiveLabelCatalog(null));
 
 interface IssueLite {
+  id?: string;
+  number?: number;
+  title?: string;
   state?: string;
   projectName?: string | null;
   labels?: string[];
+  updatedAt?: string | null;
 }
 
 interface EpicLite {
+  id?: string;
+  title?: string;
   state?: string;
   projectName?: string | null;
+  labels?: string[];
+  updatedAt?: string | null;
 }
+
+const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+const MINI_LIST_LIMIT = 6;
 
 const summary = ref<{
   issuesOpen: number;
@@ -144,6 +155,8 @@ const summary = ref<{
   epicsDone: number;
   docsCount: number;
   loaded: boolean;
+  openIssues: IssueLite[];
+  inProgressEpics: EpicLite[];
 }>({
   issuesOpen: 0,
   issuesClosed: 0,
@@ -152,6 +165,8 @@ const summary = ref<{
   epicsDone: 0,
   docsCount: 0,
   loaded: false,
+  openIssues: [],
+  inProgressEpics: [],
 });
 
 /** Scalar (on/off, single value) policy chips rendered as plain key·value. */
@@ -243,22 +258,38 @@ async function loadSummary(): Promise<void> {
   let epicsPlanned = 0;
   let epicsInProgress = 0;
   let epicsDone = 0;
+  const openIssues: IssueLite[] = [];
+  const inProgressEpics: EpicLite[] = [];
   if (issuesRes.ok) {
     for (const issue of issuesRes.value as IssueLite[]) {
       if (issue.projectName !== proj) continue;
-      if (issue.state === "closed") issuesClosed += 1;
-      else issuesOpen += 1;
+      if (issue.state === "closed") {
+        issuesClosed += 1;
+      } else {
+        issuesOpen += 1;
+        openIssues.push(issue);
+      }
     }
   }
   if (epicsRes.ok) {
     for (const epic of epicsRes.value as EpicLite[]) {
       if (epic.projectName !== proj) continue;
       const state = (epic.state ?? "").toUpperCase();
-      if (state === "DONE" || state === "CANCELED") epicsDone += 1;
-      else if (state === "IN_PROGRESS" || state === "AT_RISK") epicsInProgress += 1;
-      else epicsPlanned += 1;
+      if (state === "DONE" || state === "CANCELED") {
+        epicsDone += 1;
+      } else if (state === "IN_PROGRESS" || state === "AT_RISK") {
+        epicsInProgress += 1;
+        inProgressEpics.push(epic);
+      } else {
+        epicsPlanned += 1;
+      }
     }
   }
+  // Most recent first; cap to the mini-list ceiling.
+  const byUpdated = <T extends { updatedAt?: string | null }>(rows: T[]): T[] =>
+    [...rows]
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))
+      .slice(0, MINI_LIST_LIMIT);
   summary.value = {
     issuesOpen,
     issuesClosed,
@@ -267,7 +298,19 @@ async function loadSummary(): Promise<void> {
     epicsDone,
     docsCount: docsByType.value.reduce((n, t) => n + (t.count || 1), 0),
     loaded: true,
+    openIssues: byUpdated(openIssues),
+    inProgressEpics: byUpdated(inProgressEpics),
   };
+}
+
+/** Per-row hrefs for the mini-lists — issue detail and epic detail
+ *  routes inside the workbench. */
+function issueDetailHref(issue: IssueLite): string {
+  return `/x/issues/${WORKSPACE_ID}/${issue.number ?? 0}`;
+}
+
+function epicDetailHref(epic: EpicLite): string {
+  return `/x/epics/${epic.id ?? ""}`;
 }
 
 watch(
@@ -467,6 +510,64 @@ const projectQueueHrefs = computed(() => {
           />
         </span>
       </template>
+    </section>
+
+    <section
+      v-if="summary.openIssues.length > 0 || summary.inProgressEpics.length > 0"
+      class="project-work"
+      data-smoke="project-work"
+    >
+      <article
+        v-if="summary.openIssues.length > 0"
+        class="project-work-panel"
+        data-smoke="project-work-issues"
+      >
+        <header>
+          <h3>Open issues</h3>
+          <RouterLink :to="projectQueueHrefs.issuesOpen" class="see-all">see all ›</RouterLink>
+        </header>
+        <ul>
+          <li v-for="issue in summary.openIssues" :key="issue.id">
+            <RouterLink :to="issueDetailHref(issue)" class="project-work-row">
+              <span class="number">#{{ issue.number }}</span>
+              <span class="title">{{ issue.title || "(untitled)" }}</span>
+              <span v-if="issue.labels && issue.labels.length > 0" class="labels">
+                <LabelPill
+                  v-for="label in issue.labels"
+                  :key="label"
+                  :name="label"
+                  :catalog="labelCatalog"
+                />
+              </span>
+            </RouterLink>
+          </li>
+        </ul>
+      </article>
+      <article
+        v-if="summary.inProgressEpics.length > 0"
+        class="project-work-panel"
+        data-smoke="project-work-epics"
+      >
+        <header>
+          <h3>In-progress epics</h3>
+          <RouterLink :to="projectQueueHrefs.epicsInProgress" class="see-all">see all ›</RouterLink>
+        </header>
+        <ul>
+          <li v-for="epic in summary.inProgressEpics" :key="epic.id">
+            <RouterLink :to="epicDetailHref(epic)" class="project-work-row">
+              <span class="title">{{ epic.title || "(untitled)" }}</span>
+              <span v-if="epic.labels && epic.labels.length > 0" class="labels">
+                <LabelPill
+                  v-for="label in epic.labels"
+                  :key="label"
+                  :name="label"
+                  :catalog="labelCatalog"
+                />
+              </span>
+            </RouterLink>
+          </li>
+        </ul>
+      </article>
     </section>
 
     <section class="project-activity" data-smoke="project-activity">
@@ -742,6 +843,102 @@ a.stat:hover .stat-label {
 
 .policy-chip-labels .label-pill {
   background: var(--paper, #fffdf8);
+}
+
+.project-work {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  padding-top: 24px;
+}
+
+@media (max-width: 920px) {
+  .project-work {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-work-panel {
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
+}
+
+.project-work-panel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.project-work-panel > header h3 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ink);
+}
+
+.project-work-panel .see-all {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.project-work-panel .see-all:hover {
+  color: var(--ink);
+}
+
+.project-work-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.project-work-panel li {
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.project-work-panel li:last-child {
+  border-bottom: none;
+}
+
+.project-work-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--ink);
+}
+
+.project-work-row:hover {
+  background: var(--paper-tint);
+}
+
+.project-work-row .number {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.project-work-row .title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-work-row .labels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
 }
 
 .project-activity {
