@@ -4,6 +4,7 @@ import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-co
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
+import ExtensionRoute from "./ExtensionRoute.vue";
 import { renderMarkdown } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
 
@@ -13,11 +14,14 @@ const props = withDefaults(defineProps<{
   /**
    * Which body to render under the persistent repo header / tabs.
    * "overview" (default) is the README-first home; "code" mounts the
-   * `repository.main` slot (core's code browser + summary widgets).
-   * Each tab in RepoTabs maps to one of these values via a dedicated
-   * per-repo route so the URL is the source of truth, not local state.
+   * `repository.main` slot (core's code browser + summary widgets);
+   * "pulls" / "issues" / "checks" embed the matching first-party
+   * extension's root route inside the workbench so the repo header
+   * stays put across intra-repo navigation. Each tab in RepoTabs
+   * maps to one of these values via a dedicated per-repo route so
+   * the URL is the source of truth, not local state.
    */
-  view?: "overview" | "code";
+  view?: "overview" | "code" | "pulls" | "issues" | "checks";
 }>(), {
   view: "overview",
 });
@@ -478,10 +482,7 @@ async function fetchRepositoryIdentity(
       </aside>
     </div>
 
-    <!-- /r/:path/code → the code browser slot, full-width. Other
-         extensions (issues / pulls / checks / epics) take you out of
-         this layout into their own /x/<ext>?repositoryId=… routes via
-         RepoTabs. -->
+    <!-- /r/:path/code → the code browser slot, full-width. -->
     <section v-else-if="view === 'code'" class="repo-code">
       <SlotMount
         name="repository.main"
@@ -489,6 +490,22 @@ async function fetchRepositoryIdentity(
         :element-context="repoContext"
         smoke-prefix="repo-code"
       />
+    </section>
+
+    <!-- /r/:path/{pulls,issues,checks} → workbench-style embed of the
+         matching extension's root route. The extension UI reads
+         `?repositoryId=…` from the URL to scope itself, so RepoTabs
+         carries the repo id through on every nav. The persistent
+         header / tabs stay put because every per-repo view is the
+         same RepoHome component. -->
+    <section v-else-if="view === 'pulls'" class="repo-extension-embed" data-smoke="repo-pulls">
+      <ExtensionRoute prefix="pulls" :rest="[]" />
+    </section>
+    <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
+      <ExtensionRoute prefix="issues" :rest="[]" />
+    </section>
+    <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
+      <ExtensionRoute prefix="checks" :rest="[]" />
     </section>
   </template>
 </template>

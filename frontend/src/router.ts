@@ -37,12 +37,6 @@ export const shellRoutes: RouteRecordRaw[] = [
     component: InstanceHealth,
     props: { mode: "health" },
   },
-  // Permanent redirect: /r/<repo>/issues* used to live in the shell.
-  // The issues extension now owns /x/issues/... entirely.
-  {
-    path: "/r/:groups+/:repo/issues/:rest(.*)*",
-    redirect: () => ({ path: "/x/issues" }),
-  },
   {
     // The project route is more specific than repoHome and must
     // appear FIRST so vue-router matches it before the catch-all
@@ -52,17 +46,46 @@ export const shellRoutes: RouteRecordRaw[] = [
     component: ProjectHome,
     props: projectRouteProps,
   },
+  // Per-repo workbench surfaces. Each renders RepoHome with a
+  // different `view`, so the persistent repo header / tabs stay
+  // mounted across intra-repo navigation. The repo's
+  // `?repositoryId=…` carried in the query lets the extension
+  // element scope itself to this repo without changing how it
+  // reads URL params on the canonical `/x/<ext>/` route.
   {
-    // Per-repo Code surface. Same RepoHome component, body switched
-    // to the code-browser slot via the `view` prop. Mounting one
-    // component for both routes keeps the persistent header / tabs
-    // in place across navigation without re-fetching identity.
     path: shellRoutePaths.repoCode,
     name: "repo-code",
     component: RepoHome,
     props: (route: RouteLocationNormalizedLoaded) => ({
       ...repoRouteProps(route),
       view: "code",
+    }),
+  },
+  {
+    path: shellRoutePaths.repoPulls,
+    name: "repo-pulls",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "pulls",
+    }),
+  },
+  {
+    path: shellRoutePaths.repoIssues,
+    name: "repo-issues",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "issues",
+    }),
+  },
+  {
+    path: shellRoutePaths.repoChecks,
+    name: "repo-checks",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "checks",
     }),
   },
   {

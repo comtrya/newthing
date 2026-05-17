@@ -1069,7 +1069,8 @@ kbd {
   }
 }
 
-.shell-app .repo-code {
+.shell-app .repo-code,
+.shell-app .repo-extension-embed {
   margin-top: 28px;
 }
 

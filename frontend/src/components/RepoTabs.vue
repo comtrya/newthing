@@ -45,14 +45,16 @@ const repoHomePath = computed(() => `/r/${repoPath.value}`);
 const repoCodePath = computed(() => `${repoHomePath.value}/code`);
 
 /**
- * Append `?repositoryId=<id>` when known. The extension queues
- * (IssuesList iter 33+, PullsQueue iter 36+) read this from the
- * URL params and scope their listing to the repo. When the id is
- * still loading we fall back to the unscoped queue so the link
- * never breaks.
+ * Build the per-repo workbench URL for an embedded extension. The
+ * `?repositoryId=<id>` query is what the embedded extension's UI
+ * (IssuesList, PullsQueue, ChecksBoard, …) reads to scope its
+ * listing. Carrying it on the URL means the repo workbench stays
+ * mounted across deep links and reloads. When the id is still
+ * loading we fall back to the bare per-repo path; the extension
+ * shows its full queue rather than 404'ing.
  */
-function scoped(prefix: string): string {
-  const base = `/x/${prefix}/`;
+function repoExtPath(slug: string): string {
+  const base = `${repoHomePath.value}/${slug}`;
   if (!props.repositoryId) return base;
   return `${base}?repositoryId=${encodeURIComponent(props.repositoryId)}`;
 }
@@ -60,19 +62,17 @@ function scoped(prefix: string): string {
 const tabs = computed<Tab[]>(() => [
   { id: "overview", label: "Overview", to: repoHomePath.value },
   { id: "code",     label: "Code",     to: repoCodePath.value },
-  { id: "pulls",    label: "Pulls",    to: scoped("pulls") },
-  { id: "issues",   label: "Issues",   to: scoped("issues") },
-  { id: "checks",   label: "Checks",   to: scoped("checks") },
+  { id: "pulls",    label: "Pulls",    to: repoExtPath("pulls") },
+  { id: "issues",   label: "Issues",   to: repoExtPath("issues") },
+  { id: "checks",   label: "Checks",   to: repoExtPath("checks") },
 ]);
 
 function isActive(tab: Tab): boolean {
-  // Per-repo nested routes (Overview, Code) highlight by exact path
-  // match. Extension queues live outside the /r/ tree today, so they
-  // don't highlight on those /x/ pages; once they get true per-repo
-  // routes the same path-match rule will apply uniformly.
+  // Active by exact route.path match. The `?repositoryId=…` query
+  // string sits on every per-repo extension URL and does not affect
+  // route.path, so the highlight is stable as the user moves around.
   if (tab.id === "overview") return route.path === repoHomePath.value;
-  if (tab.id === "code") return route.path === repoCodePath.value;
-  return false;
+  return route.path === `${repoHomePath.value}/${tab.id}`;
 }
 </script>
 
