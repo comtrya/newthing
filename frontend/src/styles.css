@@ -800,6 +800,13 @@ kbd {
   color: var(--ink-faint);
 }
 
+.shell-app .home-repo-list .repo-meta span.repo-vcs-jj {
+  border: 1px solid var(--rule-light);
+  padding: 0 5px;
+  color: var(--ink);
+  text-transform: lowercase;
+}
+
 .shell-app .repo-state {
   margin-top: 16px;
   font-family: var(--mono);

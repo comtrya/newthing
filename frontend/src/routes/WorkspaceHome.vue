@@ -22,6 +22,7 @@ interface RepositorySummary {
   openPullRequests: number | null;
   defaultBranch?: string | null;
   visibility?: string | null;
+  vcs?: string | null;
   updated?: string | null;
 }
 
@@ -51,7 +52,7 @@ const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
     name
     repositories {
       id name path groups description openPullRequests
-      defaultBranch visibility updated
+      defaultBranch visibility vcs updated
     }
   }
   extensionInstallations { id routePrefix }
@@ -571,6 +572,11 @@ function relativeUpdated(value: string | null | undefined): string {
                   <span class="repo-meta">
                     <code v-if="repo.defaultBranch">{{ repo.defaultBranch }}</code>
                     <span v-if="repo.visibility">{{ repo.visibility.toLowerCase() }}</span>
+                    <span
+                      v-if="repo.vcs === 'jj'"
+                      class="repo-vcs-jj"
+                      title="jj-native repository"
+                    >jj</span>
                     <span>{{ openPullRequestText(repo) }}</span>
                     <span>{{ openIssuesText(repo) }}</span>
                     <span v-if="repo.updated">updated {{ relativeUpdated(repo.updated) }}</span>

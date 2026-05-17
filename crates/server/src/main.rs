@@ -2434,6 +2434,8 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         .cloned()
         .unwrap_or_else(|| json!([]));
     let checks_for_summary = demo.get("checks").cloned().unwrap_or_else(|| json!([]));
+    let schemas_for_overlay = state.runtime.collected_cue_schemas();
+    let repositories_root = state.runtime.data_dir.join("repositories");
     let enriched_repositories: Value = Value::Array(
         repositories_value
             .as_array()
@@ -2441,7 +2443,27 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .unwrap_or(&[])
             .iter()
             .map(|repo| {
-                build_repository_summary(repo, &pull_requests_for_summary, &checks_for_summary)
+                let mut summary =
+                    build_repository_summary(repo, &pull_requests_for_summary, &checks_for_summary);
+                // Apply per-repo CUE overrides on the summary so the
+                // workspace list reflects the same `visibility`,
+                // `defaultBranch`, `vcs`, `description` that the path
+                // resolver surfaces on RepoHome. Each repo is its own
+                // bare git dir under the repositories root.
+                if let Some(obj) = summary.as_object_mut()
+                    && let Some(path) = obj.get("path").and_then(Value::as_str)
+                {
+                    let git_dir = repositories_root.join(format!("{path}.git"));
+                    if git_dir.is_dir() {
+                        let comtrya_config = cue_config::evaluate_repo_config(
+                            &git_dir,
+                            "main",
+                            &schemas_for_overlay,
+                        );
+                        apply_repository_cue_overrides(obj, &comtrya_config);
+                    }
+                }
+                summary
             })
             .collect(),
     );
