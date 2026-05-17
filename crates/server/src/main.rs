@@ -3467,6 +3467,50 @@ fn apply_repository_cue_overrides(
     if let Some(bookmarks) = repo_block.get("bookmarks").and_then(Value::as_array) {
         repo_obj.insert("bookmarks".to_string(), Value::Array(bookmarks.clone()));
     }
+    if let Some(labels) = repo_block.get("labels").and_then(Value::as_array) {
+        // Surface the catalog twice: once as the structured array
+        // (consumers that want the CUE shape) and once as a flat
+        // map of wire-form names → metadata so a label string
+        // (e.g. `kind::defect`) resolves to its presentation hints
+        // with a single lookup.
+        let mut catalog = serde_json::Map::new();
+        for entry in labels {
+            let Some(obj) = entry.as_object() else {
+                continue;
+            };
+            let display = label_display_name(obj);
+            if display.is_empty() {
+                continue;
+            }
+            catalog.insert(display, Value::Object(obj.clone()));
+        }
+        repo_obj.insert("labels".to_string(), Value::Array(labels.clone()));
+        repo_obj.insert("labelCatalog".to_string(), Value::Object(catalog));
+    }
+}
+
+/// Compute the wire / display name of a label entry. Plain labels
+/// use `name`; typed labels use `type::value` or `type!!value`
+/// depending on the `exclusive` flag. The result matches the string
+/// shape extensions store on labelled things.
+fn label_display_name(obj: &serde_json::Map<String, Value>) -> String {
+    if let Some(name) = obj.get("name").and_then(Value::as_str)
+        && !name.is_empty()
+    {
+        return name.to_string();
+    }
+    let Some(type_name) = obj.get("type").and_then(Value::as_str) else {
+        return String::new();
+    };
+    let Some(value) = obj.get("value").and_then(Value::as_str) else {
+        return String::new();
+    };
+    let exclusive = obj
+        .get("exclusive")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let separator = if exclusive { "!!" } else { "::" };
+    format!("{type_name}{separator}{value}")
 }
 
 /// Walk the projected `bookmarks` array (if any) and annotate each

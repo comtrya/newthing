@@ -155,6 +155,15 @@ projects: [Name=string]: #Project & { name: Name }
     // each name resolves on the backing repo — the list is a
     // declaration of intent, not a constraint.
     bookmarks?: [...#Bookmark]
+
+    // The repo's label catalog. Plain labels (`#Label.name: "bug"`),
+    // typed non-exclusive labels (`type: "kind", value: "defect"` →
+    // displays as `kind::defect`, multiple may coexist), and typed
+    // exclusive labels (`exclusive: true` → displays as `kind!!defect`,
+    // at most one per type on a labelled thing). The kernel owns the
+    // catalog so any first-party or extension surface — issues, pulls,
+    // epics, repos, boards — speaks the same vocabulary.
+    labels?: [...#Label]
 }
 
 #Bookmark: {
@@ -167,6 +176,38 @@ projects: [Name=string]: #Project & { name: Name }
     label?: string
 
     // Optional one-line description of what the bookmark represents.
+    description?: string
+}
+
+// A single label in the repo's catalog. Three flavors:
+//   • Plain  — just a `name` (e.g. `bug`, `needs-review`).
+//   • Typed  — a `type` and `value` (e.g. type "kind", value
+//              "defect" → displays as `kind::defect`); multiple
+//              values of the same type may coexist on a thing.
+//   • Exclusive typed — same as above with `exclusive: true`;
+//              displays as `kind!!defect`; a labelled thing may
+//              carry at most one value per exclusive type.
+// Optional `color` (hex or CSS keyword) and `description` are
+// passed through to consumers so the catalog is the single
+// source of truth for label presentation.
+#Label: {
+    // Plain labels — set `name` only and leave `type` / `value`
+    // unset. `name` is what the label resolves to on the wire.
+    name?: string
+
+    // Typed labels — set `type` and `value`. The wire form
+    // becomes `type::value` for non-exclusive, `type!!value` for
+    // exclusive. Consumers parse the wire string; the catalog
+    // stores the structured form.
+    type?:  string
+    value?: string
+
+    // Mutual-exclusion flag for typed labels. Defaults to false
+    // (multiple values of the same type may coexist on a thing).
+    exclusive?: bool | *false
+
+    // Optional presentation hints.
+    color?:       string
     description?: string
 }
 

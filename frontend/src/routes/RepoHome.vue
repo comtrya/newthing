@@ -6,6 +6,7 @@ import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
+import LabelPill, { type LabelCatalogEntry } from "../components/LabelPill.vue";
 import { renderMarkdown } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
 
@@ -64,6 +65,8 @@ interface RepositoryIdentity {
   gitHttpPath?: string | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
+  labels?: LabelCatalogEntry[] | null;
+  labelCatalog?: Record<string, LabelCatalogEntry> | null;
 }
 
 interface RepoHomePayload {
@@ -100,6 +103,8 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
         resolved
         commit
       }
+      labels
+      labelCatalog
     }
   }
 }`;
@@ -308,6 +313,14 @@ const bookmarks = computed<RepositoryBookmark[]>(
   () => repository.value?.bookmarks ?? [],
 );
 
+const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
+  () => repository.value?.labelCatalog ?? {},
+);
+
+const labelEntries = computed<string[]>(
+  () => Object.keys(labelCatalog.value),
+);
+
 const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
 const renderedReadme = computed(() =>
   readmePreview.value ? renderMarkdown(readmePreview.value) : "",
@@ -486,6 +499,23 @@ async function fetchRepositoryIdentity(
                 title="No ref matches this bookmark on the backing repo"
               >unresolved</span>
               <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
+            </li>
+          </ul>
+        </section>
+
+        <section
+          v-if="labelEntries.length > 0"
+          class="repo-labels"
+          data-smoke="repo-labels"
+          aria-label="Labels catalog"
+        >
+          <header class="repo-labels-head">
+            <h2>Labels</h2>
+            <span>{{ labelEntries.length }} declared</span>
+          </header>
+          <ul class="repo-labels-list">
+            <li v-for="name in labelEntries" :key="name">
+              <LabelPill :name="name" :catalog="labelCatalog" />
             </li>
           </ul>
         </section>
