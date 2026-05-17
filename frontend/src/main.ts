@@ -142,17 +142,49 @@ function registerNavigationCommands(router: Router): void {
  */
 function bindGoChord(router: Router): void {
   if (typeof window === "undefined") return;
+  const isInInput = (t: EventTarget | null): boolean =>
+    t instanceof HTMLInputElement ||
+    t instanceof HTMLTextAreaElement ||
+    (t instanceof HTMLElement && t.isContentEditable);
   const skipIfInInput = (handler: (event: KeyboardEvent) => void) => (event: KeyboardEvent) => {
-    const t = event.target;
-    if (
-      t instanceof HTMLInputElement ||
-      t instanceof HTMLTextAreaElement ||
-      (t instanceof HTMLElement && t.isContentEditable)
-    ) {
-      return;
-    }
+    if (isInInput(event.target)) return;
     handler(event);
   };
+  /**
+   * tinykeys fires both the sequence handler (`g c`) and the
+   * standalone handler (`c`) on the second keypress of a chord.
+   * To make the single-key create shortcut composable with the
+   * `g <letter>` chord layer, we stamp the keyboard event itself
+   * in the capture phase: pressing `g` arms a 1050 ms single-use
+   * lock; the next non-`g` keydown inside that window gets a
+   * `__chordSecond` marker and disarms the lock. Standalone
+   * handlers skip when their event carries the marker. The lock
+   * matches tinykeys' default 1 s chord timeout so a standalone
+   * key pressed long after a stray `g` still fires normally.
+   */
+  let gChordLockUntil = 0;
+  const CHORD_SECOND_FLAG = "__comtryaChordSecond";
+  type StampedEvent = KeyboardEvent & { [CHORD_SECOND_FLAG]?: boolean };
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      const now = Date.now();
+      if (event.key === "g" && !isInInput(event.target)) {
+        gChordLockUntil = now + 1050;
+        return;
+      }
+      if (now < gChordLockUntil) {
+        (event as StampedEvent)[CHORD_SECOND_FLAG] = true;
+        gChordLockUntil = 0;
+      }
+    },
+    true,
+  );
+  const skipDuringGChord = (handler: (event: KeyboardEvent) => void) =>
+    skipIfInInput((event) => {
+      if ((event as StampedEvent)[CHORD_SECOND_FLAG]) return;
+      handler(event);
+    });
   /**
    * Best-effort extractor for the `/r/<groups>/<repo>` prefix of
    * the current route. Returns null when not on a workbench.
@@ -180,6 +212,34 @@ function bindGoChord(router: Router): void {
       }
       if (fallback) void router.push(fallback);
     });
+  /**
+   * Single-key `c` ("create") routes to the create form for whatever
+   * the user is currently looking at — issues if on any issues
+   * surface, epics if on any epics surface, no-op otherwise. From
+   * the Inbox, default to a new issue since the inbox is open-work
+   * focused. Falls through silently when there's no obvious
+   * "create" verb for the current surface.
+   *
+   * `c` (not `n`) so it doesn't collide with the `g n` chord —
+   * tinykeys fires both the sequence and the standalone last key,
+   * which would double-route every `g n` press.
+   */
+  const currentCreateTarget = (): string | null => {
+    const path = router.currentRoute.value.path;
+    if (path === "/x/issues/new" || path === "/x/epics/new") return null;
+    if (/^\/r\/.+?\/issues(?:\/|$)/.test(path) || /^\/x\/issues(?:\/|$)/.test(path)) {
+      return "/x/issues/new";
+    }
+    if (/^\/r\/.+?\/epics(?:\/|$)/.test(path) || /^\/x\/epics(?:\/|$)/.test(path)) {
+      return "/x/epics/new";
+    }
+    if (path === "/inbox") return "/x/issues/new";
+    return null;
+  };
+  const createOnSurface = skipDuringGChord(() => {
+    const target = currentCreateTarget();
+    if (target) void router.push(target);
+  });
   tinykeys(window, {
     "g h": go("/"),
     "g b": go("/inbox"),
@@ -191,5 +251,6 @@ function bindGoChord(router: Router): void {
     "g e": scoped("/epics", null),
     "g k": scoped("/checks", null),
     "g f": scoped("/config", null),
+    "c": createOnSurface,
   });
 }
