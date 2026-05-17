@@ -1,5 +1,11 @@
 package comtrya
 
+repository: {
+	visibility:    "private"
+	defaultBranch: "main"
+	description:   "The Comtrya kernel — server crate, WIT contracts, and first-party extensions."
+}
+
 projects: kernel: {
 	root:   "."
 	labels: ["kernel", "rust", "wasmtime", "graphql"]

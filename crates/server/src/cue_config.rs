@@ -122,6 +122,32 @@ const KERNEL_CUE_BASE: &str = r#"package comtrya
 // Projects in this repo, keyed by name. Empty map means "use the
 // implicit single Project covering the whole repo".
 projects: [Name=string]: #Project & { name: Name }
+
+// ---------------------------------------------------------------------
+// #Repository — kernel-level, per-repo settings. One repo, one block.
+// Distinct from #Project: this is the *forge*'s view of the repo (who
+// can see it, which ref is "default"), not the project structure
+// within.
+// ---------------------------------------------------------------------
+
+#Repository: {
+    // Forge-level visibility. Drives the shell's disclosure on index
+    // pages and search, and (eventually) ACL defaults. Lowercase in
+    // CUE; the server uppercases when projecting to the JSON API.
+    visibility?: "public" | "internal" | "private" | *"private"
+
+    // Canonical default branch. If unset, the forge falls back to the
+    // git symbolic ref (HEAD), then to "main". jj-backed repos use
+    // this to declare the default bookmark name.
+    defaultBranch?: string
+
+    // Short human description, surfaced on the repo home page.
+    description?: string
+}
+
+// Top-level per-repo block. Optional — repos that omit it inherit
+// shell defaults.
+repository?: #Repository
 "#;
 
 /// One CUE snippet registered by an extension. The kernel writes each
