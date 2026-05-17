@@ -138,7 +138,26 @@ const cloneUrl = computed(() => {
   if (typeof window === "undefined") return httpPath;
   return `${window.location.origin}${httpPath}`;
 });
-const cloneCommand = computed(() => (cloneUrl.value ? `git clone ${cloneUrl.value}` : ""));
+/**
+ * Clone-tool prefix derived from the repo's declared `vcs`. A
+ * `vcs: "jj"` repo on Comtrya is still served via git HTTP (the
+ * kernel's Smart HTTP path is the wire), but the local tool
+ * `jj git clone <url>` initialises a jj-on-git colocated working
+ * copy — that's the user-visible payoff of declaring jj in the
+ * repo's CUE. Git-declared (or unset) repos fall back to the
+ * conventional `git clone`.
+ */
+const cloneTool = computed(() =>
+  repository.value?.vcs === "jj" ? "jj git clone" : "git clone",
+);
+const cloneCommand = computed(() =>
+  cloneUrl.value ? `${cloneTool.value} ${cloneUrl.value}` : "",
+);
+const cloneCommandTitle = computed(() =>
+  repository.value?.vcs === "jj"
+    ? "Clones into a jj-on-git colocated repository (vcs declared as jj in this repo's comtrya.cue)."
+    : "Clones the repository over git Smart HTTP.",
+);
 const cloneCopied = ref(false);
 let cloneCopyTimer: number | undefined;
 
@@ -420,7 +439,7 @@ async function fetchRepositoryIdentity(
       class="repo-clone"
       data-smoke="repo-clone"
     >
-      <code class="repo-clone-cmd" @click="copyClone">{{ cloneCommand }}</code>
+      <code class="repo-clone-cmd" :title="cloneCommandTitle" @click="copyClone">{{ cloneCommand }}</code>
       <button
         type="button"
         class="repo-clone-copy"
