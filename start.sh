@@ -1399,7 +1399,7 @@ ISSUE_REPOSITORY_URI="comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"first issue","bodyMarkdown":"","projectName":"kernel","labels":["kind::ux","priority::p0","good-first-issue"]}' \
+  --data '{"repository":"comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3","title":"first issue","bodyMarkdown":"This issue tracks the first slice of work.\n\nFollow-ups will be filed as separate issues.","projectName":"kernel","labels":["kind::ux","priority::p0","good-first-issue"]}' \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
   'json.id.startsWith("iss_") && json.number === 1 && json.state === "open"'

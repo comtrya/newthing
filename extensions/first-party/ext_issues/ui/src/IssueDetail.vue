@@ -4,6 +4,7 @@ import {
   classifyPrincipal as authorLabel,
   fetchComtryaProjects,
   LabelPill,
+  renderMarkdown,
   type ComtryaProject,
   type LabelCatalog,
 } from "@comtrya/sdk-vue";
@@ -61,9 +62,10 @@ const workspaceId = computed(
 const issue = computed(() => loadedIssue.value ?? props.issue ?? null);
 const tone = computed(() => stateTone(issue.value?.state));
 const hasBody = computed(() => Boolean(issue.value?.bodyMarkdown?.trim()));
-const descriptionText = computed(() => (
-  issue.value?.bodyMarkdown?.trim() || "No description has been added yet."
-));
+const renderedBody = computed(() =>
+  hasBody.value ? renderMarkdown(issue.value?.bodyMarkdown ?? "") : "",
+);
+
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));
 const openedRelative = computed(() => relativeTime(issue.value?.createdAt));
 const repositoryLabel = computed(() => props.repositoryPath ?? issue.value?.repositoryId ?? null);
@@ -374,12 +376,19 @@ async function reopenCurrentIssue(): Promise<void> {
           </header>
 
           <article
-            class="issue-body"
-            :class="{ 'is-empty': !hasBody }"
+            v-if="hasBody"
+            class="issue-body prose"
+            :data-issue-id="issue.id"
+            data-smoke="issue-detail-main"
+            v-html="renderedBody"
+          />
+          <article
+            v-else
+            class="issue-body is-empty"
             :data-issue-id="issue.id"
             data-smoke="issue-detail-main"
           >
-            {{ descriptionText }}
+            No description has been added yet.
           </article>
 
           <section class="issue-thread">
