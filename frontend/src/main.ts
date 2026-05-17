@@ -51,23 +51,18 @@ function registerNavigationCommands(router: Router): void {
     },
   });
   registerCommand({
-    id: "core.first-repository",
-    title: "Go to first repository",
+    id: "core.inbox",
+    title: "Open Inbox",
     category: "Navigation",
-    shortcut: "g r",
+    shortcut: "g b",
     extensionId: "core",
-    run: async () => {
-      const first = await fetchFirstRepositoryPath();
-      if (first) {
-        void router.push(`/r/${first}`);
-      } else {
-        void router.push("/new");
-      }
+    run: () => {
+      void router.push("/inbox");
     },
   });
   registerCommand({
     id: "core.issues",
-    title: "Open issues",
+    title: "Open workspace issues queue",
     category: "Navigation",
     shortcut: "g i",
     extensionId: "core",
@@ -77,7 +72,7 @@ function registerNavigationCommands(router: Router): void {
   });
   registerCommand({
     id: "core.pulls",
-    title: "Open pull requests",
+    title: "Open workspace pull-request queue",
     category: "Navigation",
     shortcut: "g p",
     extensionId: "core",
@@ -93,6 +88,24 @@ function registerNavigationCommands(router: Router): void {
     extensionId: "core",
     run: () => {
       void router.push("/new");
+    },
+  });
+  registerCommand({
+    id: "core.new-issue",
+    title: "+ New issue",
+    category: "Create",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/issues/new");
+    },
+  });
+  registerCommand({
+    id: "core.new-epic",
+    title: "+ New epic",
+    category: "Create",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/epics/new");
     },
   });
   registerCommand({
@@ -115,28 +128,8 @@ function registerNavigationCommands(router: Router): void {
   });
 }
 
-async function fetchFirstRepositoryPath(): Promise<string | null> {
-  try {
-    const response = await fetch("/graphql", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query: "{ workspace { repositories { path } } }",
-      }),
-    });
-    const envelope = (await response.json()) as {
-      data?: { workspace?: { repositories?: Array<{ path?: string }> } };
-    };
-    const first = envelope.data?.workspace?.repositories?.[0]?.path;
-    return typeof first === "string" && first.length > 0 ? first : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Two-key navigation chords: `g` followed by `h|r|i|p|n` jumps to a
+ * Two-key navigation chords: `g` followed by `h|b|i|p|n` jumps to a
  * destination. Backed by `tinykeys` for the sequence + timeout
  * semantics. tinykeys v3 fires on every keydown regardless of focus
  * target, so we explicitly skip when the user is typing in an input —
@@ -159,13 +152,9 @@ function bindGoChord(router: Router): void {
   const go = (path: string) => skipIfInInput(() => void router.push(path));
   tinykeys(window, {
     "g h": go("/"),
+    "g b": go("/inbox"),
     "g i": go("/x/issues/"),
     "g p": go("/x/pulls/"),
     "g n": go("/new"),
-    "g r": skipIfInInput(() => {
-      void fetchFirstRepositoryPath().then((first) => {
-        void router.push(first ? `/r/${first}` : "/new");
-      });
-    }),
   });
 }
