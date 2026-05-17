@@ -13,11 +13,11 @@
  * mount per-Project epic/issue/milestone surfaces inside it.
  */
 
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
+import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
-import SlotMount from "../components/SlotMount.vue";
-import { repositoryHomeSlots } from "../repository-slots";
+import { setActiveLabelCatalog } from "../extension-runtime";
 
 interface ComtryaRef {
   /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
@@ -53,6 +53,7 @@ interface RepositoryIdentity {
   visibility?: string | null;
   updated?: string | null;
   comtryaConfig?: ComtryaConfig | null;
+  labelCatalog?: LabelCatalog | null;
 }
 
 interface RepoPayload {
@@ -74,6 +75,7 @@ const REPO_QUERY = `query ProjectHome($segments: [String!]!) {
     repositoryByPath(segments: $segments) {
       id name path groups description defaultBranch visibility updated
       comtryaConfig
+      labelCatalog
     }
   }
 }`;
@@ -93,19 +95,6 @@ const project = computed<ComtryaProject | null>(
 );
 const projectExists = computed(() => project.value !== null);
 
-const projectContext = computed<Record<string, unknown>>(() => ({
-  workspaceId: workspaceId.value ?? undefined,
-  repositoryId: repository.value?.id,
-  repositoryGroups: props.groups,
-  repositoryName: props.repo,
-  repositoryPath: repoPath.value,
-  repositorySegments: repoSegments.value,
-  projectName: project.value?.name,
-  projectRoot: project.value?.root,
-  projectLabels: project.value?.labels,
-  scope: "project",
-}));
-
 onMounted(() => void load());
 watch(() => [repoSegments.value, props.project], () => void load());
 
@@ -120,14 +109,21 @@ async function load(): Promise<void> {
     repository.value = data.workspace?.repositoryByPath ?? null;
     if (!repository.value) {
       loadState.value = "missing";
+      setActiveLabelCatalog(null);
       return;
     }
+    setActiveLabelCatalog(
+      (repository.value.labelCatalog as Record<string, unknown> | null) ?? null,
+    );
     loadState.value = "ready";
   } catch (caught) {
     loadState.value = "error";
     loadError.value = caught instanceof Error ? caught.message : String(caught);
+    setActiveLabelCatalog(null);
   }
 }
+
+onUnmounted(() => setActiveLabelCatalog(null));
 
 interface IssueLite {
   state?: string;
@@ -158,6 +154,7 @@ const summary = ref<{
   loaded: false,
 });
 
+/** Scalar (on/off, single value) policy chips rendered as plain key·value. */
 const policyChips = computed<Array<{ key: string; value: string; tone: "info" | "warn" }>>(() => {
   const out: Array<{ key: string; value: string; tone: "info" | "warn" }> = [];
   if (!project.value) return out;
@@ -168,13 +165,6 @@ const policyChips = computed<Array<{ key: string; value: string; tone: "info" | 
         key: "closeOnMerge",
         value: issuesPolicy.closeOnMerge ? "on" : "off",
         tone: issuesPolicy.closeOnMerge ? "info" : "warn",
-      });
-    }
-    if (Array.isArray(issuesPolicy.defaultLabels) && issuesPolicy.defaultLabels.length > 0) {
-      out.push({
-        key: "defaultLabels",
-        value: (issuesPolicy.defaultLabels as string[]).join(", "),
-        tone: "info",
       });
     }
   }
@@ -197,6 +187,22 @@ const policyChips = computed<Array<{ key: string; value: string; tone: "info" | 
   }
   return out;
 });
+
+/** Project's `issues.defaultLabels` rendered as pills against the
+ *  active label catalog (kind from catalog entry → exclusive vs
+ *  scoped vs plain). When the catalog is missing, LabelPill falls
+ *  back to the scoped-vs-plain shape inference. */
+const defaultLabelPills = computed<string[]>(() => {
+  const issuesPolicy = project.value?.issues as Record<string, unknown> | undefined;
+  if (!issuesPolicy || typeof issuesPolicy !== "object") return [];
+  const labels = issuesPolicy.defaultLabels;
+  return Array.isArray(labels) ? labels.filter((l): l is string => typeof l === "string") : [];
+});
+
+const labelCatalog = computed<LabelCatalog | null>(
+  () =>
+    (repository.value?.labelCatalog as Record<string, unknown> | null) as LabelCatalog | null,
+);
 
 const docsByType = computed<Array<{ key: string; label: string; count: number }>>(() => {
   const docs = (project.value?.docs ?? {}) as Record<string, { slug?: string; label?: string }>;
@@ -433,7 +439,11 @@ const projectQueueHrefs = computed(() => {
       >+ new epic</RouterLink>
     </section>
 
-    <section v-if="policyChips.length > 0" class="project-policy" data-smoke="project-policy">
+    <section
+      v-if="policyChips.length > 0 || defaultLabelPills.length > 0"
+      class="project-policy"
+      data-smoke="project-policy"
+    >
       <span class="policy-prefix">policy</span>
       <span
         v-for="chip in policyChips"
@@ -445,21 +455,22 @@ const projectQueueHrefs = computed(() => {
         <span class="policy-sep">·</span>
         <span class="policy-value">{{ chip.value }}</span>
       </span>
+      <template v-if="defaultLabelPills.length > 0">
+        <span class="policy-chip tone-info policy-chip-labels">
+          <span class="policy-key">defaultLabels</span>
+          <span class="policy-sep">·</span>
+          <LabelPill
+            v-for="label in defaultLabelPills"
+            :key="label"
+            :name="label"
+            :catalog="labelCatalog"
+          />
+        </span>
+      </template>
     </section>
 
     <section class="project-activity" data-smoke="project-activity">
       <ActivityStream :project-name="props.project" />
-    </section>
-
-    <section class="project-slots">
-      <SlotMount
-        v-for="slot in repositoryHomeSlots"
-        :key="slot.name"
-        :name="slot.name"
-        :label="`${slot.label} · ${props.project}`"
-        :element-context="projectContext"
-        smoke-prefix="project-slot"
-      />
     </section>
   </template>
 </template>
@@ -724,10 +735,13 @@ a.stat:hover .stat-label {
   color: var(--ink, #111);
 }
 
-.project-slots {
-  display: grid;
-  gap: 28px;
-  padding-top: 28px;
+.policy-chip-labels {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.policy-chip-labels .label-pill {
+  background: var(--paper, #fffdf8);
 }
 
 .project-activity {
