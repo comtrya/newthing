@@ -3259,11 +3259,15 @@ function as(e) {
 	return e.replace(/[&<>"']/g, (e) => is[e] ?? e);
 }
 var os = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, ss = "CODE", cs = "END";
-function ls(e) {
-	let t = [], n = e.replace(/`([^`]+)`/g, (e, n) => (t.push("<code>" + n + "</code>"), ss + (t.length - 1) + cs));
-	n = n.replace(os, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), n = n.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), n = n.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
-	let r = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
-	return n.replace(r, (e, n) => t[Number(n)] ?? "");
+function ls(e, t) {
+	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), ss + (n.length - 1) + cs));
+	if (r = r.replace(os, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
+		let e = encodeURIComponent(t.workspaceId);
+		r = r.replace(/(^|[^\w&])#(\d+)\b/g, (t, n, r) => n + "<a href=\"/x/issues/" + e + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>");
+	}
+	r = r.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), r = r.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
+	let i = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
+	return r.replace(i, (e, t) => n[Number(t)] ?? "");
 }
 function us(e) {
 	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
@@ -3326,32 +3330,32 @@ function us(e) {
 	}
 	return n;
 }
-function ds(e) {
+function ds(e, t = {}) {
 	if (!e) return "";
-	let t = us(e), n = [];
-	for (let e of t) switch (e.kind) {
+	let n = us(e), r = [];
+	for (let e of n) switch (e.kind) {
 		case "heading": {
-			let t = e.level ?? 1, r = ls(as(e.text));
-			n.push("<h" + t + ">" + r + "</h" + t + ">");
+			let n = e.level ?? 1, i = ls(as(e.text), t);
+			r.push("<h" + n + ">" + i + "</h" + n + ">");
 			break;
 		}
 		case "paragraph": {
-			let t = ls(as(e.text));
-			n.push("<p>" + t.replace(/\n/g, "<br />") + "</p>");
+			let n = ls(as(e.text), t);
+			r.push("<p>" + n.replace(/\n/g, "<br />") + "</p>");
 			break;
 		}
 		case "code": {
 			let t = e.lang ? " data-lang=\"" + as(e.lang) + "\"" : "";
-			n.push("<pre" + t + "><code>" + as(e.text) + "</code></pre>");
+			r.push("<pre" + t + "><code>" + as(e.text) + "</code></pre>");
 			break;
 		}
 		case "list": {
-			let t = e.ordered ? "ol" : "ul", r = (e.items ?? []).map((e) => "  <li>" + ls(as(e)) + "</li>").join("\n");
-			n.push("<" + t + ">\n" + r + "\n</" + t + ">");
+			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + ls(as(e), t) + "</li>").join("\n");
+			r.push("<" + n + ">\n" + i + "\n</" + n + ">");
 			break;
 		}
 	}
-	return n.join("\n");
+	return r.join("\n");
 }
 //#endregion
 //#region packages/sdk-vue/src/parse-query.ts
@@ -3982,7 +3986,7 @@ var ec = {
 }, ol = ["aria-selected", "onMouseenter"], sl = ["href"], cl = { class: "issue-num" }, ll = { class: "issue-title" }, ul = ["href", "title"], dl = {
 	key: 1,
 	class: "pulls-linked-foot"
-}, fl = /* @__PURE__ */ Rn({
+}, fl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", pl = /* @__PURE__ */ Rn({
 	__name: "PullsDetail",
 	props: { routeParams: { type: null } },
 	setup(e) {
@@ -4015,7 +4019,7 @@ var ec = {
 				name: e,
 				owners: (h.value.find((t) => t.name === e)?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0)
 			}));
-		}), b = $, x = Q(() => Ls(r.value?.state)), S = Q(() => r.value && (r.value.state === "READY" || r.value.state === "DRAFT")), C = Q(() => r.value && r.value.state !== "CLOSED" && r.value.state !== "MERGED"), w = Q(() => r.value?.bodyMarkdown ? ds(r.value.bodyMarkdown) : ""), ee = [];
+		}), b = $, x = Q(() => Ls(r.value?.state)), S = Q(() => r.value && (r.value.state === "READY" || r.value.state === "DRAFT")), C = Q(() => r.value && r.value.state !== "CLOSED" && r.value.state !== "MERGED"), w = Q(() => r.value?.bodyMarkdown ? ds(r.value.bodyMarkdown, { workspaceId: fl }) : ""), ee = [];
 		$n(() => {
 			T(), re(), te();
 			for (let e of [
@@ -4252,23 +4256,23 @@ var ec = {
 			])
 		], 64))]));
 	}
-}), pl = ".pulls-detail[data-v-0b319b2b]{font-family:var(--sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-0b319b2b]{border-bottom:1.5px solid var(--ink,#111);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-0b319b2b]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-0b319b2b]{font-family:var(--display,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:16px;text-decoration:none}.back[data-v-0b319b2b]:hover{color:var(--ink,#111)}.pulls-detail-number[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:14px}.pulls-chip-row[data-v-0b319b2b]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-0b319b2b]{border:1px solid var(--rule-light,#d8d1c4);font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-0b319b2b]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-0b319b2b]{text-transform:lowercase;letter-spacing:.02em;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-0b319b2b]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-0b319b2b]{color:var(--ink-faint,#68645c)}.pull-chip.tone-state.pr-state-merged[data-v-0b319b2b]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-0b319b2b]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-0b319b2b]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-0b319b2b]{gap:4px}.pull-chip.tone-branch code[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-0b319b2b]{color:var(--ink-fainter,#918b80);padding:0 2px}.pull-chip.tone-author[data-v-0b319b2b]{color:var(--ink-soft,#2c2b28)}.pull-chip.tone-author[data-author-kind=agent][data-v-0b319b2b]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-0b319b2b]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-0b319b2b]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-0b319b2b]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-0b319b2b]{color:var(--ink-faint,#68645c);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-0b319b2b]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-0b319b2b]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-0b319b2b]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-0b319b2b]{border:1.5px solid var(--ink,#111);background:var(--paper,#fffdf8);color:var(--ink,#111);font-family:var(--display,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-0b319b2b]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-action[disabled][data-v-0b319b2b]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-0b319b2b]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-detail-body h2[data-v-0b319b2b]{font-family:var(--display,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-0b319b2b]{color:var(--ink,#1a1916);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-0b319b2b],.pulls-detail-body-prose h2[data-v-0b319b2b],.pulls-detail-body-prose h3[data-v-0b319b2b],.pulls-detail-body-prose h4[data-v-0b319b2b],.pulls-detail-body-prose h5[data-v-0b319b2b],.pulls-detail-body-prose h6[data-v-0b319b2b]{font-family:var(--display,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-0b319b2b]{font-size:20px}.pulls-detail-body-prose h2[data-v-0b319b2b]{font-size:17px}.pulls-detail-body-prose h3[data-v-0b319b2b],.pulls-detail-body-prose h4[data-v-0b319b2b]{font-size:15px}.pulls-detail-body-prose p[data-v-0b319b2b]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-0b319b2b],.pulls-detail-body-prose ol[data-v-0b319b2b]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-0b319b2b]{margin:.15em 0}.pulls-detail-body-prose code[data-v-0b319b2b]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-0b319b2b]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border:1px solid var(--ink-rule,#d8d6cf);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-0b319b2b]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-0b319b2b]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-0b319b2b]{font-weight:600}.pulls-detail-body-prose em[data-v-0b319b2b]{font-style:italic}.pulls-detail-body.muted p[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-routed[data-v-0b319b2b]{border:1px solid var(--ink-rule,#d0cfc8);background:var(--paper-tint,#f2efe7);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-0b319b2b]{border-bottom:1px solid var(--ink-rule,#d0cfc8);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-0b319b2b]{font-family:var(--display,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-routed-list[data-v-0b319b2b]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-0b319b2b]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper,#fffdf8);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-0b319b2b]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-0b319b2b]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-0b319b2b]{color:var(--ink,#111);font-family:var(--mono,monospace);letter-spacing:.02em;border:1px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-0b319b2b]{font-family:var(--display,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-0b319b2b]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-0b319b2b]{color:var(--ink,#111)}.pulls-routed-owner[data-author-kind=agent][data-v-0b319b2b]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-0b319b2b]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-0b319b2b]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);margin:0;font-size:11px}.pulls-routed-source code[data-v-0b319b2b]{font-family:var(--mono,monospace);background:var(--paper-tint,#f2efe7);color:var(--ink-soft,#2c2b28);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-0b319b2b]{gap:8px;display:grid}.pulls-linked-issues header[data-v-0b319b2b]{border-bottom:1.5px solid var(--ink,#111);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-0b319b2b]{font-family:var(--display,system-ui);margin:0;font-size:18px}.pulls-linked-issues .muted[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues ul[data-v-0b319b2b]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-0b319b2b]{border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-0b319b2b]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-0b319b2b]{box-shadow:inset 3px 0 0 var(--ink,#111);background:var(--paper-tint,#f2efe7)}.pulls-linked-issues li .issue-link[data-v-0b319b2b]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border:1px solid var(--rule-light,#d8d1c4);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-0b319b2b]:hover{color:var(--ink,#111);border-color:var(--ink,#111)}.pulls-linked-foot[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-0b319b2b]{font-family:var(--mono,monospace);border:1px solid var(--rule-light,#d8d1c4);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-0b319b2b]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-0b319b2b]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-0b319b2b]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-0b319b2b]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-0b319b2b],.pulls-error[data-v-0b319b2b]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:13px}.pulls-error[data-v-0b319b2b]{color:var(--accent-err,#c9341c)}", ml = (e, t) => {
+}), ml = ".pulls-detail[data-v-4793543a]{font-family:var(--sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-4793543a]{border-bottom:1.5px solid var(--ink,#111);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-4793543a]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-4793543a]{font-family:var(--display,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:16px;text-decoration:none}.back[data-v-4793543a]:hover{color:var(--ink,#111)}.pulls-detail-number[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:14px}.pulls-chip-row[data-v-4793543a]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-4793543a]{border:1px solid var(--rule-light,#d8d1c4);font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-4793543a]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-4793543a]{text-transform:lowercase;letter-spacing:.02em;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-4793543a]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-4793543a]{color:var(--ink-faint,#68645c)}.pull-chip.tone-state.pr-state-merged[data-v-4793543a]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-4793543a]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-4793543a]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-4793543a]{gap:4px}.pull-chip.tone-branch code[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-4793543a]{color:var(--ink-fainter,#918b80);padding:0 2px}.pull-chip.tone-author[data-v-4793543a]{color:var(--ink-soft,#2c2b28)}.pull-chip.tone-author[data-author-kind=agent][data-v-4793543a]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-4793543a]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-4793543a]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-4793543a]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-4793543a]{color:var(--ink-faint,#68645c);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-4793543a]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-4793543a]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-4793543a]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-4793543a]{border:1.5px solid var(--ink,#111);background:var(--paper,#fffdf8);color:var(--ink,#111);font-family:var(--display,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-4793543a]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-action[disabled][data-v-4793543a]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-4793543a]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-detail-body h2[data-v-4793543a]{font-family:var(--display,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-4793543a]{color:var(--ink,#1a1916);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-4793543a],.pulls-detail-body-prose h2[data-v-4793543a],.pulls-detail-body-prose h3[data-v-4793543a],.pulls-detail-body-prose h4[data-v-4793543a],.pulls-detail-body-prose h5[data-v-4793543a],.pulls-detail-body-prose h6[data-v-4793543a]{font-family:var(--display,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-4793543a]{font-size:20px}.pulls-detail-body-prose h2[data-v-4793543a]{font-size:17px}.pulls-detail-body-prose h3[data-v-4793543a],.pulls-detail-body-prose h4[data-v-4793543a]{font-size:15px}.pulls-detail-body-prose p[data-v-4793543a]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-4793543a],.pulls-detail-body-prose ol[data-v-4793543a]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-4793543a]{margin:.15em 0}.pulls-detail-body-prose code[data-v-4793543a]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-4793543a]{font-family:var(--mono,monospace);background:var(--ink-tint,#f2efe6);border:1px solid var(--ink-rule,#d8d6cf);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-4793543a]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-4793543a]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-4793543a]{font-weight:600}.pulls-detail-body-prose em[data-v-4793543a]{font-style:italic}.pulls-detail-body.muted p[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-routed[data-v-4793543a]{border:1px solid var(--ink-rule,#d0cfc8);background:var(--paper-tint,#f2efe7);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-4793543a]{border-bottom:1px solid var(--ink-rule,#d0cfc8);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-4793543a]{font-family:var(--display,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-routed-list[data-v-4793543a]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-4793543a]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper,#fffdf8);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-4793543a]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-4793543a]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-4793543a]{color:var(--ink,#111);font-family:var(--mono,monospace);letter-spacing:.02em;border:1px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-4793543a]{font-family:var(--display,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-4793543a]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-4793543a]{color:var(--ink,#111)}.pulls-routed-owner[data-author-kind=agent][data-v-4793543a]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-4793543a]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-4793543a]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);margin:0;font-size:11px}.pulls-routed-source code[data-v-4793543a]{font-family:var(--mono,monospace);background:var(--paper-tint,#f2efe7);color:var(--ink-soft,#2c2b28);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-4793543a]{gap:8px;display:grid}.pulls-linked-issues header[data-v-4793543a]{border-bottom:1.5px solid var(--ink,#111);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-4793543a]{font-family:var(--display,system-ui);margin:0;font-size:18px}.pulls-linked-issues .muted[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.pulls-linked-issues ul[data-v-4793543a]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-4793543a]{border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-4793543a]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-4793543a]{box-shadow:inset 3px 0 0 var(--ink,#111);background:var(--paper-tint,#f2efe7)}.pulls-linked-issues li .issue-link[data-v-4793543a]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border:1px solid var(--rule-light,#d8d1c4);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-4793543a]:hover{color:var(--ink,#111);border-color:var(--ink,#111)}.pulls-linked-foot[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-4793543a]{font-family:var(--mono,monospace);border:1px solid var(--rule-light,#d8d1c4);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-4793543a]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-4793543a]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-4793543a]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-4793543a]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-4793543a],.pulls-error[data-v-4793543a]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:13px}.pulls-error[data-v-4793543a]{color:var(--accent-err,#c9341c)}", hl = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, hl = /* @__PURE__ */ ml(fl, [["styles", [pl]], ["__scopeId", "data-v-0b319b2b"]]), gl = {
+}, gl = /* @__PURE__ */ hl(pl, [["styles", [ml]], ["__scopeId", "data-v-4793543a"]]), _l = {
 	class: "pulls-overview",
 	"data-smoke": "pulls-overview"
-}, _l = ["href"], vl = {
+}, vl = ["href"], yl = {
 	key: 0,
 	class: "muted"
-}, yl = {
+}, bl = {
 	key: 1,
 	class: "muted"
-}, bl = {
+}, xl = {
 	key: 2,
 	class: "muted"
-}, xl = { key: 3 }, Sl = ["href"], Cl = { class: "num" }, wl = { class: "title" }, Tl = { class: "age" }, El = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Dl = /* @__PURE__ */ ml(/* @__PURE__ */ Rn({
+}, Sl = { key: 3 }, Cl = ["href"], wl = { class: "num" }, Tl = { class: "title" }, El = { class: "age" }, Dl = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", Ol = /* @__PURE__ */ hl(/* @__PURE__ */ Rn({
 	__name: "PullsOverview",
 	props: {
 		host: { type: Object },
@@ -4276,7 +4280,7 @@ var ec = {
 		repositoryId: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = Q(() => t.workspaceId ?? t.host?.workspaceId ?? El), a = Q(() => t.repositoryId ?? t.host?.repositoryId ?? null), o = Q(() => n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").sort((e, t) => {
+		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = Q(() => t.workspaceId ?? t.host?.workspaceId ?? Dl), a = Q(() => t.repositoryId ?? t.host?.repositoryId ?? null), o = Q(() => n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").sort((e, t) => {
 			let n = Date.parse(e.updatedAt ?? e.createdAt ?? "") || 0;
 			return (Date.parse(t.updatedAt ?? t.createdAt ?? "") || 0) - n;
 		}).slice(0, 5)), s = Q(() => n.value.filter((e) => e.state === "READY").length);
@@ -4293,52 +4297,52 @@ var ec = {
 				r.value = "error", n.value = [];
 			}
 		}
-		return (e, t) => (K(), q("section", gl, [J("header", null, [t[0] ||= J("h3", null, "Pull requests", -1), J("a", { href: z(Fs)() }, j(s.value) + " open", 9, _l)]), r.value === "loading" ? (K(), q("p", vl, "Loading…")) : r.value === "error" ? (K(), q("p", yl, "Could not load pulls.")) : o.value.length === 0 ? (K(), q("p", bl, "No open pull requests.")) : (K(), q("ul", xl, [(K(!0), q(W, null, lr(o.value, (e) => (K(), q("li", { key: e.id }, [J("a", { href: z(Is)(e) }, [
-			J("span", Cl, "#" + j(e.number), 1),
-			J("span", wl, j(e.title), 1),
+		return (e, t) => (K(), q("section", _l, [J("header", null, [t[0] ||= J("h3", null, "Pull requests", -1), J("a", { href: z(Fs)() }, j(s.value) + " open", 9, vl)]), r.value === "loading" ? (K(), q("p", yl, "Loading…")) : r.value === "error" ? (K(), q("p", bl, "Could not load pulls.")) : o.value.length === 0 ? (K(), q("p", xl, "No open pull requests.")) : (K(), q("ul", Sl, [(K(!0), q(W, null, lr(o.value, (e) => (K(), q("li", { key: e.id }, [J("a", { href: z(Is)(e) }, [
+			J("span", wl, "#" + j(e.number), 1),
+			J("span", Tl, j(e.title), 1),
 			J("span", { class: A(["state", z(Ls)(e.state).className]) }, j(z(Ls)(e.state).label), 3),
-			J("span", Tl, j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
-		], 8, Sl)]))), 128))]))]));
+			J("span", El, j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
+		], 8, Cl)]))), 128))]))]));
 	}
-}), [["styles", [".pulls-overview[data-v-c112b1d8]{gap:8px;display:grid}.pulls-overview header[data-v-c112b1d8]{justify-content:space-between;align-items:baseline;display:flex}.pulls-overview h3[data-v-c112b1d8]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-c112b1d8],.muted[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-overview ul[data-v-c112b1d8]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-c112b1d8]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:8px;padding:6px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-c112b1d8]{border-bottom:0}.num[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-c112b1d8]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.state[data-v-c112b1d8]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-c112b1d8]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-c112b1d8]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-c112b1d8]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-c112b1d8]{color:var(--accent-err,#c9341c)}.age[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}"]], ["__scopeId", "data-v-c112b1d8"]]), Ol = {
+}), [["styles", [".pulls-overview[data-v-c112b1d8]{gap:8px;display:grid}.pulls-overview header[data-v-c112b1d8]{justify-content:space-between;align-items:baseline;display:flex}.pulls-overview h3[data-v-c112b1d8]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-c112b1d8],.muted[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-overview ul[data-v-c112b1d8]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-c112b1d8]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:8px;padding:6px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-c112b1d8]{border-bottom:0}.num[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-c112b1d8]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.state[data-v-c112b1d8]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-c112b1d8]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-c112b1d8]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-c112b1d8]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-c112b1d8]{color:var(--accent-err,#c9341c)}.age[data-v-c112b1d8]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}"]], ["__scopeId", "data-v-c112b1d8"]]), kl = {
 	class: "pulls-queue",
 	"data-smoke": "pulls-queue"
-}, kl = { class: "pulls-queue-head" }, Al = { class: "pulls-queue-controls" }, jl = {
+}, Al = { class: "pulls-queue-head" }, jl = { class: "pulls-queue-controls" }, Ml = {
 	class: "pulls-filter-row",
 	role: "tablist",
 	"aria-label": "Filter pulls by state"
-}, Ml = ["aria-selected", "onClick"], Nl = { class: "count" }, Pl = { class: "pulls-search" }, Fl = {
+}, Nl = ["aria-selected", "onClick"], Pl = { class: "count" }, Fl = { class: "pulls-search" }, Il = {
 	key: 0,
 	class: "pulls-query-chips",
 	"data-smoke": "pulls-query-chips",
 	"aria-label": "Parsed search filters"
-}, Il = ["title"], Ll = {
+}, Ll = ["title"], Rl = {
 	key: 1,
 	class: "pulls-author-filter",
 	"data-smoke": "pulls-author-filter"
-}, Rl = ["data-author-kind", "title"], zl = { class: "author-glyph" }, Bl = {
+}, zl = ["data-author-kind", "title"], Bl = { class: "author-glyph" }, Vl = {
 	key: 0,
 	class: "pulls-empty"
-}, Vl = {
+}, Hl = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, Hl = {
+}, Ul = {
 	key: 2,
 	class: "pulls-empty"
-}, Ul = {
+}, Wl = {
 	key: 3,
 	class: "pulls-empty"
-}, Wl = {
+}, Gl = {
 	key: 4,
 	class: "pulls-list",
 	role: "listbox",
 	"aria-label": "Pull request queue"
-}, Gl = ["aria-selected", "onMouseenter"], Kl = ["href"], ql = { class: "pulls-row-number" }, Jl = { class: "pulls-row-body" }, Yl = { class: "pulls-row-title" }, Xl = { class: "pulls-row-meta" }, Zl = { class: "pulls-branch" }, Ql = [
+}, Kl = ["aria-selected", "onMouseenter"], ql = ["href"], Jl = { class: "pulls-row-number" }, Yl = { class: "pulls-row-body" }, Xl = { class: "pulls-row-title" }, Zl = { class: "pulls-row-meta" }, Ql = { class: "pulls-branch" }, $l = [
 	"data-author-kind",
 	"title",
 	"onClick"
-], $l = { class: "author-glyph" }, eu = { class: "author-label" }, tu = { class: "pulls-row-age" }, nu = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", ru = /* @__PURE__ */ ml(/* @__PURE__ */ Rn({
+], eu = { class: "author-glyph" }, tu = { class: "author-label" }, nu = { class: "pulls-row-age" }, ru = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", iu = /* @__PURE__ */ hl(/* @__PURE__ */ Rn({
 	__name: "PullsQueue",
 	props: {
 		host: { type: Object },
@@ -4372,7 +4376,7 @@ var ec = {
 				label: "All",
 				key: "a"
 			}
-		], r = /* @__PURE__ */ R("OPEN"), i = /* @__PURE__ */ R(""), a = /* @__PURE__ */ R(""), o = /* @__PURE__ */ R([]), s = /* @__PURE__ */ R("idle"), c = /* @__PURE__ */ R(null), l = /* @__PURE__ */ R(0), u = Q(() => t.workspaceId ?? t.host?.workspaceId ?? nu), d = Q(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "READY" : e.state === t, p = ["is", "author"], m = {
+		], r = /* @__PURE__ */ R("OPEN"), i = /* @__PURE__ */ R(""), a = /* @__PURE__ */ R(""), o = /* @__PURE__ */ R([]), s = /* @__PURE__ */ R("idle"), c = /* @__PURE__ */ R(null), l = /* @__PURE__ */ R(0), u = Q(() => t.workspaceId ?? t.host?.workspaceId ?? ru), d = Q(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "READY" : e.state === t, p = ["is", "author"], m = {
 			open: "OPEN",
 			draft: "DRAFT",
 			merged: "MERGED",
@@ -4524,10 +4528,10 @@ var ec = {
 				o.value = [], s.value = "error", c.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		return (e, t) => (K(), q("section", Ol, [
-			J("header", kl, [
+		return (e, t) => (K(), q("section", kl, [
+			J("header", Al, [
 				t[4] ||= J("h2", null, "Pull requests", -1),
-				J("div", Al, [J("div", jl, [(K(), q(W, null, lr(n, (e) => J("button", {
+				J("div", jl, [J("div", Ml, [(K(), q(W, null, lr(n, (e) => J("button", {
 					key: e.id,
 					type: "button",
 					role: "tab",
@@ -4536,9 +4540,9 @@ var ec = {
 					onClick: (t) => r.value = e.id
 				}, [
 					J("span", null, j(e.label), 1),
-					J("span", Nl, j(S.value[e.id]), 1),
+					J("span", Pl, j(S.value[e.id]), 1),
 					J("kbd", null, j(e.key), 1)
-				], 10, Ml)), 64))]), J("label", Pl, [wn(J("input", {
+				], 10, Nl)), 64))]), J("label", Fl, [wn(J("input", {
 					"data-pulls-search": "",
 					"onUpdate:modelValue": t[0] ||= (e) => i.value = e,
 					type: "search",
@@ -4546,11 +4550,11 @@ var ec = {
 					autocomplete: "off",
 					onKeydown: uo(E, ["esc"])
 				}, null, 544), [[ao, i.value]]), t[1] ||= J("kbd", null, "/", -1)])]),
-				y.value.length > 0 ? (K(), q("div", Fl, [(K(!0), q(W, null, lr(y.value, (e) => (K(), q("span", {
+				y.value.length > 0 ? (K(), q("div", Il, [(K(!0), q(W, null, lr(y.value, (e) => (K(), q("span", {
 					key: `${e.key}:${e.value || "unknown"}`,
 					class: A(["query-chip", `tone-${e.tone}`]),
 					title: e.tone === "unknown" ? `Unknown filter key: ${e.key}` : e.value
-				}, j(e.label), 11, Il))), 128)), t[2] ||= J("span", { class: "query-chips-hint" }, [
+				}, j(e.label), 11, Ll))), 128)), t[2] ||= J("span", { class: "query-chips-hint" }, [
 					Y(" syntax: "),
 					J("code", null, "is:open"),
 					Y(" · "),
@@ -4558,13 +4562,13 @@ var ec = {
 					Y(" · "),
 					J("code", null, "author:<urn>")
 				], -1)])) : X("", !0),
-				a.value ? (K(), q("div", Ll, [
+				a.value ? (K(), q("div", Rl, [
 					t[3] ||= J("span", { class: "prefix" }, "authored by", -1),
 					J("span", {
 						class: "active-chip",
 						"data-author-kind": z($)(a.value).kind,
 						title: a.value
-					}, [J("span", zl, j(z($)(a.value).glyph), 1), Y(" " + j(z($)(a.value).label), 1)], 8, Rl),
+					}, [J("span", Bl, j(z($)(a.value).glyph), 1), Y(" " + j(z($)(a.value).label), 1)], 8, zl),
 					J("button", {
 						type: "button",
 						class: "clear",
@@ -4573,11 +4577,11 @@ var ec = {
 					}, "clear ✕")
 				])) : X("", !0)
 			]),
-			s.value === "loading" ? (K(), q("p", Bl, "Loading pull requests…")) : s.value === "error" ? (K(), q("p", Vl, j(c.value), 1)) : o.value.length === 0 ? (K(), q("p", Hl, [...t[5] ||= [
+			s.value === "loading" ? (K(), q("p", Vl, "Loading pull requests…")) : s.value === "error" ? (K(), q("p", Hl, j(c.value), 1)) : o.value.length === 0 ? (K(), q("p", Ul, [...t[5] ||= [
 				Y(" No pull requests yet. Push a branch and open one through the ", -1),
 				J("code", null, "create-pull", -1),
 				Y(" op or the SDK. ", -1)
-			]])) : v.value.length === 0 ? (K(), q("p", Ul, " No pull requests match the current filter. ")) : (K(), q("ol", Wl, [(K(!0), q(W, null, lr(v.value, (e, n) => (K(), q("li", {
+			]])) : v.value.length === 0 ? (K(), q("p", Wl, " No pull requests match the current filter. ")) : (K(), q("ol", Gl, [(K(!0), q(W, null, lr(v.value, (e, n) => (K(), q("li", {
 				key: e.id,
 				class: A(["pulls-row", { focused: n === l.value }]),
 				role: "option",
@@ -4587,10 +4591,10 @@ var ec = {
 				href: z(Is)(e),
 				class: "pulls-row-link"
 			}, [
-				J("span", ql, "#" + j(e.number), 1),
-				J("span", Jl, [J("span", Yl, j(e.title), 1), J("span", Xl, [
+				J("span", Jl, "#" + j(e.number), 1),
+				J("span", Yl, [J("span", Xl, j(e.title), 1), J("span", Zl, [
 					J("span", { class: A(["pulls-state", z(Ls)(e.state).className]) }, j(z(Ls)(e.state).label), 3),
-					J("code", Zl, [
+					J("code", Ql, [
 						Y(j(e.headRef) + " ", 1),
 						t[6] ||= J("span", null, "→", -1),
 						Y(" " + j(e.baseRef), 1)
@@ -4601,26 +4605,26 @@ var ec = {
 						"data-author-kind": z($)(e.authorRef).kind,
 						title: `${e.authorRef}\nClick to filter by this author`,
 						onClick: co((t) => b(e.authorRef), ["prevent", "stop"])
-					}, [J("span", $l, j(z($)(e.authorRef).glyph), 1), J("span", eu, j(z($)(e.authorRef).label), 1)], 10, Ql)
+					}, [J("span", eu, j(z($)(e.authorRef).glyph), 1), J("span", tu, j(z($)(e.authorRef).label), 1)], 10, $l)
 				])]),
-				J("span", tu, j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
-			], 8, Kl)], 42, Gl))), 128))])),
+				J("span", nu, j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
+			], 8, ql)], 42, Kl))), 128))])),
 			t[7] ||= Ri("<footer class=\"pulls-queue-foot\" data-v-60fc0976><span data-v-60fc0976><kbd data-v-60fc0976>j</kbd> <kbd data-v-60fc0976>k</kbd> navigate · <kbd data-v-60fc0976>↵</kbd> open · <kbd data-v-60fc0976>/</kbd> search · <kbd data-v-60fc0976>o</kbd> open <kbd data-v-60fc0976>d</kbd> draft <kbd data-v-60fc0976>m</kbd> merged <kbd data-v-60fc0976>c</kbd> closed <kbd data-v-60fc0976>a</kbd> all </span></footer>", 1)
 		]));
 	}
-}), [["styles", [".pulls-queue[data-v-60fc0976]{font-family:var(--sans,system-ui);color:var(--ink,#111);gap:16px;display:grid}.pulls-queue-head[data-v-60fc0976]{gap:12px;display:grid}.pulls-queue-head h2[data-v-60fc0976]{font-family:var(--display,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-60fc0976]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-60fc0976]{border:1.5px solid var(--ink,#111);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-60fc0976]{color:inherit;cursor:pointer;font-family:var(--mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-60fc0976]:not(:last-child){border-right:1px solid var(--rule-light,#d8d1c4)}.pulls-filter.active[data-v-60fc0976]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-filter .count[data-v-60fc0976]{color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-60fc0976]{color:var(--paper-tint,#f2efe7)}.pulls-filter kbd[data-v-60fc0976]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-60fc0976]{border:1.5px solid var(--ink,#111);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-60fc0976]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-60fc0976]{border:1px solid var(--ink,#111);font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);padding:0 4px;font-size:10px}.pulls-list[data-v-60fc0976]{border-top:1.5px solid var(--ink,#111);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-60fc0976]{border-bottom:1px solid var(--rule-light,#d8d1c4)}.pulls-row.focused[data-v-60fc0976]{background:var(--paper-tint,#f2efe7)}.pulls-row-link[data-v-60fc0976]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-60fc0976]:hover{background:var(--paper-tint,#f2efe7);text-decoration:none}.pulls-row-number[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-60fc0976]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-60fc0976]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-60fc0976]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-60fc0976]{color:var(--ink-faint,#68645c)}.pulls-state.pr-state-merged[data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-60fc0976]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:12px}.pulls-branch span[data-v-60fc0976]{color:var(--ink-fainter,#918b80);padding:0 4px}.pulls-author[data-v-60fc0976]{color:inherit;font:inherit;font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-60fc0976]:hover{background:var(--paper-tint,#f2efe7);border-color:currentColor}.pulls-author.active[data-v-60fc0976]{background:var(--ink,#111);color:var(--paper,#fffdf8);border-color:var(--ink,#111);border-style:solid}.pulls-author.active .author-glyph[data-v-60fc0976],.pulls-author.active .author-label[data-v-60fc0976]{color:inherit}.pulls-query-chips[data-v-60fc0976]{font-family:var(--mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-60fc0976]{letter-spacing:.02em;white-space:nowrap;border:1px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-60fc0976]{color:var(--ink,#111)}.pulls-query-chips .query-chip.tone-unknown[data-v-60fc0976]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-60fc0976]{color:var(--ink-faint,#68645c);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-60fc0976]{font-family:var(--mono,monospace);background:var(--paper-tint,#f2efe7);color:var(--ink-soft,#2c2b28);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-60fc0976]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper-tint,#f2efe7);font-family:var(--mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-60fc0976]{color:var(--ink-faint,#68645c);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-60fc0976]{color:var(--ink,#111);border:1px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-60fc0976]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-60fc0976]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-60fc0976]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-60fc0976]{color:var(--ink-faint,#68645c);font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-60fc0976]:hover{color:var(--ink,#111)}.pulls-author .author-glyph[data-v-60fc0976]{width:14px;height:14px;color:var(--ink-faint,#68645c);border:1px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=agent] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=agent] .author-badge[data-v-60fc0976]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=credential] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=credential] .author-badge[data-v-60fc0976]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=bot] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=bot] .author-badge[data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-60fc0976]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);white-space:nowrap;font-size:12px}.pulls-empty[data-v-60fc0976],.pulls-error[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border-top:1.5px solid var(--rule-light,#d8d1c4);padding:18px 0;font-size:13px}.pulls-error[data-v-60fc0976]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-queue-foot kbd[data-v-60fc0976]{font-family:var(--mono,monospace);border:1px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-60fc0976"]]), iu = {
+}), [["styles", [".pulls-queue[data-v-60fc0976]{font-family:var(--sans,system-ui);color:var(--ink,#111);gap:16px;display:grid}.pulls-queue-head[data-v-60fc0976]{gap:12px;display:grid}.pulls-queue-head h2[data-v-60fc0976]{font-family:var(--display,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-60fc0976]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-60fc0976]{border:1.5px solid var(--ink,#111);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-60fc0976]{color:inherit;cursor:pointer;font-family:var(--mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-60fc0976]:not(:last-child){border-right:1px solid var(--rule-light,#d8d1c4)}.pulls-filter.active[data-v-60fc0976]{background:var(--ink,#111);color:var(--paper,#fffdf8)}.pulls-filter .count[data-v-60fc0976]{color:var(--ink-faint,#68645c);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-60fc0976]{color:var(--paper-tint,#f2efe7)}.pulls-filter kbd[data-v-60fc0976]{font-family:var(--mono,monospace);opacity:.6;border:1px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-60fc0976]{border:1.5px solid var(--ink,#111);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-60fc0976]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-60fc0976]{border:1px solid var(--ink,#111);font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);padding:0 4px;font-size:10px}.pulls-list[data-v-60fc0976]{border-top:1.5px solid var(--ink,#111);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-60fc0976]{border-bottom:1px solid var(--rule-light,#d8d1c4)}.pulls-row.focused[data-v-60fc0976]{background:var(--paper-tint,#f2efe7)}.pulls-row-link[data-v-60fc0976]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-60fc0976]:hover{background:var(--paper-tint,#f2efe7);text-decoration:none}.pulls-row-number[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-60fc0976]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-60fc0976]{font-family:var(--display,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-60fc0976]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-60fc0976]{color:var(--ink-faint,#68645c)}.pulls-state.pr-state-merged[data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-60fc0976]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:12px}.pulls-branch span[data-v-60fc0976]{color:var(--ink-fainter,#918b80);padding:0 4px}.pulls-author[data-v-60fc0976]{color:inherit;font:inherit;font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-60fc0976]:hover{background:var(--paper-tint,#f2efe7);border-color:currentColor}.pulls-author.active[data-v-60fc0976]{background:var(--ink,#111);color:var(--paper,#fffdf8);border-color:var(--ink,#111);border-style:solid}.pulls-author.active .author-glyph[data-v-60fc0976],.pulls-author.active .author-label[data-v-60fc0976]{color:inherit}.pulls-query-chips[data-v-60fc0976]{font-family:var(--mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-60fc0976]{letter-spacing:.02em;white-space:nowrap;border:1px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-60fc0976]{color:var(--ink,#111)}.pulls-query-chips .query-chip.tone-unknown[data-v-60fc0976]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-60fc0976]{color:var(--ink-faint,#68645c);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-60fc0976]{font-family:var(--mono,monospace);background:var(--paper-tint,#f2efe7);color:var(--ink-soft,#2c2b28);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-60fc0976]{border:1px solid var(--rule-light,#d8d1c4);background:var(--paper-tint,#f2efe7);font-family:var(--mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-60fc0976]{color:var(--ink-faint,#68645c);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-60fc0976]{color:var(--ink,#111);border:1px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-60fc0976]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-60fc0976]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-60fc0976]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-60fc0976]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-60fc0976]{color:var(--ink-faint,#68645c);font-family:var(--mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-60fc0976]:hover{color:var(--ink,#111)}.pulls-author .author-glyph[data-v-60fc0976]{width:14px;height:14px;color:var(--ink-faint,#68645c);border:1px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=agent] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=agent] .author-badge[data-v-60fc0976]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=credential] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=credential] .author-badge[data-v-60fc0976]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-60fc0976],.pulls-author[data-author-kind=bot] .author-label[data-v-60fc0976],.pulls-author[data-author-kind=bot] .author-badge[data-v-60fc0976]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-60fc0976]{letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);white-space:nowrap;font-size:12px}.pulls-empty[data-v-60fc0976],.pulls-error[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);border-top:1.5px solid var(--rule-light,#d8d1c4);padding:18px 0;font-size:13px}.pulls-error[data-v-60fc0976]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-60fc0976]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.pulls-queue-foot kbd[data-v-60fc0976]{font-family:var(--mono,monospace);border:1px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-60fc0976"]]), au = {
 	class: "pulls-your-work",
 	"data-smoke": "pulls-your-work"
-}, au = ["href"], ou = {
+}, ou = ["href"], su = {
 	key: 0,
 	class: "muted"
-}, su = {
+}, cu = {
 	key: 1,
 	class: "muted"
-}, cu = {
+}, lu = {
 	key: 2,
 	class: "muted"
-}, lu = { key: 3 }, uu = ["href"], du = { class: "num" }, fu = { class: "title" }, pu = { class: "meta" }, mu = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", hu = /* @__PURE__ */ ml(/* @__PURE__ */ Rn({
+}, uu = { key: 3 }, du = ["href"], fu = { class: "num" }, pu = { class: "title" }, mu = { class: "meta" }, hu = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3", gu = /* @__PURE__ */ hl(/* @__PURE__ */ Rn({
 	__name: "PullsYourWork",
 	props: {
 		host: { type: Object },
@@ -4628,7 +4632,7 @@ var ec = {
 		viewerRef: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = Q(() => t.workspaceId ?? t.host?.workspaceId ?? mu), a = Q(() => t.viewerRef ?? t.host?.viewerRef ?? null), o = Q(() => a.value ? n.value.filter((e) => e.authorRef === a.value).filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5) : n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5));
+		let t = e, n = /* @__PURE__ */ R([]), r = /* @__PURE__ */ R("idle"), i = Q(() => t.workspaceId ?? t.host?.workspaceId ?? hu), a = Q(() => t.viewerRef ?? t.host?.viewerRef ?? null), o = Q(() => a.value ? n.value.filter((e) => e.authorRef === a.value).filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5) : n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").slice(0, 5));
 		$n(() => void s()), An(() => [i.value], () => void s());
 		async function s() {
 			r.value = "loading";
@@ -4641,50 +4645,50 @@ var ec = {
 				r.value = "error", n.value = [];
 			}
 		}
-		return (e, t) => (K(), q("section", iu, [J("header", null, [t[0] ||= J("h3", null, "Your pull requests", -1), J("a", { href: z(Fs)() }, "queue", 8, au)]), r.value === "loading" ? (K(), q("p", ou, "Loading…")) : r.value === "error" ? (K(), q("p", su, "Could not load pulls.")) : o.value.length === 0 ? (K(), q("p", cu, " Nothing here yet. Open a pull request to see it in this rail. ")) : (K(), q("ul", lu, [(K(!0), q(W, null, lr(o.value, (e) => (K(), q("li", { key: e.id }, [J("a", { href: z(Is)(e) }, [
-			J("span", du, "#" + j(e.number), 1),
-			J("span", fu, j(e.title), 1),
+		return (e, t) => (K(), q("section", au, [J("header", null, [t[0] ||= J("h3", null, "Your pull requests", -1), J("a", { href: z(Fs)() }, "queue", 8, ou)]), r.value === "loading" ? (K(), q("p", su, "Loading…")) : r.value === "error" ? (K(), q("p", cu, "Could not load pulls.")) : o.value.length === 0 ? (K(), q("p", lu, " Nothing here yet. Open a pull request to see it in this rail. ")) : (K(), q("ul", uu, [(K(!0), q(W, null, lr(o.value, (e) => (K(), q("li", { key: e.id }, [J("a", { href: z(Is)(e) }, [
+			J("span", fu, "#" + j(e.number), 1),
+			J("span", pu, j(e.title), 1),
 			J("span", { class: A(["state", z(Ls)(e.state).className]) }, j(z(Ls)(e.state).label), 3),
-			J("span", pu, j(z(hs)(e.authorRef)) + " · " + j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
-		], 8, uu)]))), 128))]))]));
+			J("span", mu, j(z(hs)(e.authorRef)) + " · " + j(z(Rs)(e.updatedAt ?? e.createdAt)), 1)
+		], 8, du)]))), 128))]))]));
 	}
-}), [["styles", [".pulls-your-work[data-v-cf9251fe]{gap:8px;display:grid}.pulls-your-work header[data-v-cf9251fe]{justify-content:space-between;align-items:baseline;display:flex}.pulls-your-work h3[data-v-cf9251fe]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-your-work header a[data-v-cf9251fe],.muted[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-your-work ul[data-v-cf9251fe]{margin:0;padding:0;list-style:none;display:grid}.pulls-your-work li a[data-v-cf9251fe]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:8px 0;text-decoration:none;display:grid}.pulls-your-work li:last-child a[data-v-cf9251fe]{border-bottom:0}.num[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-cf9251fe]{text-overflow:ellipsis;white-space:nowrap;grid-row:1;overflow:hidden}.state[data-v-cf9251fe]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-cf9251fe]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-cf9251fe]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-cf9251fe]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-cf9251fe]{color:var(--accent-err,#c9341c)}.meta[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-column:1/-1;font-size:11px}"]], ["__scopeId", "data-v-cf9251fe"]]), gu = "ext_pull_requests", _u = "comtrya-pulls-queue", vu = "comtrya-pulls-detail", yu = "comtrya-pulls-your-work", bu = "comtrya-pulls-overview";
+}), [["styles", [".pulls-your-work[data-v-cf9251fe]{gap:8px;display:grid}.pulls-your-work header[data-v-cf9251fe]{justify-content:space-between;align-items:baseline;display:flex}.pulls-your-work h3[data-v-cf9251fe]{font-family:var(--display,system-ui);margin:0;font-size:14px}.pulls-your-work header a[data-v-cf9251fe],.muted[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px;text-decoration:none}.pulls-your-work ul[data-v-cf9251fe]{margin:0;padding:0;list-style:none;display:grid}.pulls-your-work li a[data-v-cf9251fe]{color:inherit;border-bottom:1px solid var(--rule-light,#d8d1c4);grid-template-columns:auto minmax(0,1fr) auto;align-items:baseline;gap:8px;padding:8px 0;text-decoration:none;display:grid}.pulls-your-work li:last-child a[data-v-cf9251fe]{border-bottom:0}.num[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.title[data-v-cf9251fe]{text-overflow:ellipsis;white-space:nowrap;grid-row:1;overflow:hidden}.state[data-v-cf9251fe]{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:1px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-cf9251fe]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-cf9251fe]{color:var(--ink-faint,#68645c)}.state.pr-state-merged[data-v-cf9251fe]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-cf9251fe]{color:var(--accent-err,#c9341c)}.meta[data-v-cf9251fe]{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-column:1/-1;font-size:11px}"]], ["__scopeId", "data-v-cf9251fe"]]), _u = "ext_pull_requests", vu = "comtrya-pulls-queue", yu = "comtrya-pulls-detail", bu = "comtrya-pulls-your-work", xu = "comtrya-pulls-overview";
 gs({
-	tagName: _u,
-	component: ru
-}), gs({
 	tagName: vu,
-	component: hl
+	component: iu
 }), gs({
 	tagName: yu,
-	component: hu
+	component: gl
 }), gs({
 	tagName: bu,
-	component: Dl
+	component: gu
+}), gs({
+	tagName: xu,
+	component: Ol
 });
-var xu = {
-	id: gu,
+var Su = {
+	id: _u,
 	setup(e) {
 		e.registerWidget({
 			id: "pulls-your-work",
-			element: yu,
+			element: bu,
 			defaultSlot: "home.your-work",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerWidget({
 			id: "pulls-overview",
-			element: bu,
+			element: xu,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/", {
-			element: _u,
+			element: vu,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/:pullId", {
-			element: vu,
+			element: yu,
 			requiredPermission: "pull-requests.read"
 		}), Ws();
 	}
 };
 //#endregion
-export { xu as default };
+export { Su as default };

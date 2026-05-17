@@ -1,7 +1,8 @@
 /**
  * Tiny safe-markdown renderer used across PR / issue / epic / doc
  * bodies. Handles headings, paragraphs, fenced code blocks, ordered
- * and unordered lists, inline code/bold/italic, and bare-URL autolinks.
+ * and unordered lists, inline code/bold/italic, bare-URL autolinks,
+ * and (with a workspace context) `#N` issue cross-references.
  * Everything else escapes to text. Output is safe to drop into
  * `v-html` — every character that isn't a recognised token is escaped.
  *
@@ -12,9 +13,19 @@
  * `ext_epics/ui/src/markdown.ts`.
  *
  * A future remark + rehype + shiki upgrade can swap the internals
- * without changing the public `renderMarkdown(body)` / `bodyExcerpt`
- * signatures.
+ * without changing the public `renderMarkdown(body, opts)` /
+ * `bodyExcerpt` signatures.
  */
+
+export interface RenderMarkdownOptions {
+  /**
+   * When set, bare `#N` references in the body are linked to
+   * `/x/issues/<workspaceId>/<N>`. Without it, `#N` renders as
+   * literal text so unrelated `#` characters in a code-free repo
+   * don't grow false-positive links.
+   */
+  workspaceId?: string;
+}
 
 interface Block {
   kind: "heading" | "paragraph" | "code" | "list";
@@ -46,7 +57,7 @@ const URL_PATTERN = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g;
 const SLOT_OPEN = "CODE";
 const SLOT_CLOSE = "END";
 
-function renderInline(escaped: string): string {
+function renderInline(escaped: string, opts: RenderMarkdownOptions): string {
   const codeSlots: string[] = [];
   let out = escaped.replace(/`([^`]+)`/g, (_match, code: string) => {
     codeSlots.push("<code>" + code + "</code>");
@@ -57,6 +68,24 @@ function renderInline(escaped: string): string {
     URL_PATTERN,
     (url) => '<a href="' + url + '" rel="noopener noreferrer">' + url + "</a>",
   );
+  // `#N` cross-references — runs while code is still slotted out so a
+  // `#5` inside backticks stays literal. The leading-character class
+  // blocks `abc#5` (hash inside a word) and `&#39;` (escaped entity).
+  if (opts.workspaceId) {
+    const ws = encodeURIComponent(opts.workspaceId);
+    out = out.replace(
+      /(^|[^\w&])#(\d+)\b/g,
+      (_match, lead: string, num: string) =>
+        lead +
+        '<a href="/x/issues/' +
+        ws +
+        "/" +
+        num +
+        '" class="issue-ref">#' +
+        num +
+        "</a>",
+    );
+  }
   out = out.replace(
     /\*\*([^*]+)\*\*/g,
     (_match, body: string) => "<strong>" + body + "</strong>",
@@ -145,7 +174,10 @@ function tokenise(body: string): Block[] {
   return blocks;
 }
 
-export function renderMarkdown(body: string): string {
+export function renderMarkdown(
+  body: string,
+  opts: RenderMarkdownOptions = {},
+): string {
   if (!body) return "";
   const blocks = tokenise(body);
   const out: string[] = [];
@@ -153,12 +185,12 @@ export function renderMarkdown(body: string): string {
     switch (block.kind) {
       case "heading": {
         const level = block.level ?? 1;
-        const inline = renderInline(escapeHtml(block.text));
+        const inline = renderInline(escapeHtml(block.text), opts);
         out.push("<h" + level + ">" + inline + "</h" + level + ">");
         break;
       }
       case "paragraph": {
-        const inline = renderInline(escapeHtml(block.text));
+        const inline = renderInline(escapeHtml(block.text), opts);
         out.push("<p>" + inline.replace(/\n/g, "<br />") + "</p>");
         break;
       }
@@ -174,7 +206,7 @@ export function renderMarkdown(body: string): string {
       case "list": {
         const tag = block.ordered ? "ol" : "ul";
         const items = (block.items ?? [])
-          .map((item) => "  <li>" + renderInline(escapeHtml(item)) + "</li>")
+          .map((item) => "  <li>" + renderInline(escapeHtml(item), opts) + "</li>")
           .join("\n");
         out.push("<" + tag + ">\n" + items + "\n</" + tag + ">");
         break;

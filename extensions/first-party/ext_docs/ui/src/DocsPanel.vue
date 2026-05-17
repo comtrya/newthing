@@ -420,7 +420,7 @@ function describeFrontMatterValue(value: unknown): string {
             <article
               v-if="doc.body && isExpanded(doc.path)"
               class="docs-file-rendered"
-              v-html="renderMarkdown(doc.body)"
+              v-html="renderMarkdown(doc.body, { workspaceId: workspaceId ?? '' })"
             />
           </li>
         </ol>

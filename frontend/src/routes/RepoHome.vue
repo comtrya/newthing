@@ -475,7 +475,9 @@ function formatConfigValue(value: unknown): string {
 
 const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
 const renderedReadme = computed(() =>
-  readmePreview.value ? renderMarkdown(readmePreview.value) : "",
+  readmePreview.value
+    ? renderMarkdown(readmePreview.value, { workspaceId: workspaceId.value ?? "" })
+    : "",
 );
 
 /** Container for the rendered README; the `useDiagrams` hook

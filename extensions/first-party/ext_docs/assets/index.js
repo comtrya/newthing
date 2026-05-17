@@ -3065,11 +3065,15 @@ function Po(e) {
 	return e.replace(/[&<>"']/g, (e) => No[e] ?? e);
 }
 var Fo = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, Io = "CODE", Lo = "END";
-function Ro(e) {
-	let t = [], n = e.replace(/`([^`]+)`/g, (e, n) => (t.push("<code>" + n + "</code>"), Io + (t.length - 1) + Lo));
-	n = n.replace(Fo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), n = n.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), n = n.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
-	let r = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
-	return n.replace(r, (e, n) => t[Number(n)] ?? "");
+function Ro(e, t) {
+	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), Io + (n.length - 1) + Lo));
+	if (r = r.replace(Fo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
+		let e = encodeURIComponent(t.workspaceId);
+		r = r.replace(/(^|[^\w&])#(\d+)\b/g, (t, n, r) => n + "<a href=\"/x/issues/" + e + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>");
+	}
+	r = r.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), r = r.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
+	let i = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
+	return r.replace(i, (e, t) => n[Number(t)] ?? "");
 }
 function zo(e) {
 	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
@@ -3132,32 +3136,32 @@ function zo(e) {
 	}
 	return n;
 }
-function Bo(e) {
+function Bo(e, t = {}) {
 	if (!e) return "";
-	let t = zo(e), n = [];
-	for (let e of t) switch (e.kind) {
+	let n = zo(e), r = [];
+	for (let e of n) switch (e.kind) {
 		case "heading": {
-			let t = e.level ?? 1, r = Ro(Po(e.text));
-			n.push("<h" + t + ">" + r + "</h" + t + ">");
+			let n = e.level ?? 1, i = Ro(Po(e.text), t);
+			r.push("<h" + n + ">" + i + "</h" + n + ">");
 			break;
 		}
 		case "paragraph": {
-			let t = Ro(Po(e.text));
-			n.push("<p>" + t.replace(/\n/g, "<br />") + "</p>");
+			let n = Ro(Po(e.text), t);
+			r.push("<p>" + n.replace(/\n/g, "<br />") + "</p>");
 			break;
 		}
 		case "code": {
 			let t = e.lang ? " data-lang=\"" + Po(e.lang) + "\"" : "";
-			n.push("<pre" + t + "><code>" + Po(e.text) + "</code></pre>");
+			r.push("<pre" + t + "><code>" + Po(e.text) + "</code></pre>");
 			break;
 		}
 		case "list": {
-			let t = e.ordered ? "ol" : "ul", r = (e.items ?? []).map((e) => "  <li>" + Ro(Po(e)) + "</li>").join("\n");
-			n.push("<" + t + ">\n" + r + "\n</" + t + ">");
+			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + Ro(Po(e), t) + "</li>").join("\n");
+			r.push("<" + n + ">\n" + i + "\n</" + n + ">");
 			break;
 		}
 	}
-	return n.join("\n");
+	return r.join("\n");
 }
 function Vo(e, t = 280) {
 	let n = e.replace(/\s+/g, " ").trim();
@@ -3370,72 +3374,72 @@ var Ko = {
 		function T(e) {
 			return e == null ? "·" : Array.isArray(e) ? e.map(T).join(" · ") : typeof e == "object" ? Object.entries(e).map(([e, t]) => `${e}=${T(t)}`).join(" · ") : String(e);
 		}
-		return (e, t) => (J(), Y("section", Ko, [
-			X("header", qo, [X("div", Jo, [t[8] ||= X("h2", null, "Docs", -1), X("span", Yo, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
-				t[0] ||= Q(" No MDX docs declared. Add a ", -1),
-				t[1] ||= X("code", null, "docs", -1),
-				t[2] ||= Q(" block to a Project in ", -1),
-				t[3] ||= X("code", null, "package comtrya", -1),
-				t[4] ||= Q(" to surface them here. ", -1)
+		return (t, a) => (J(), Y("section", Ko, [
+			X("header", qo, [X("div", Jo, [a[8] ||= X("h2", null, "Docs", -1), X("span", Yo, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
+				a[0] ||= Q(" No MDX docs declared. Add a ", -1),
+				a[1] ||= X("code", null, "docs", -1),
+				a[2] ||= Q(" block to a Project in ", -1),
+				a[3] ||= X("code", null, "package comtrya", -1),
+				a[4] ||= Q(" to surface them here. ", -1)
 			], 64)) : (J(), Y(K, { key: 3 }, [
 				Q(A(c.value) + " doc", 1),
 				c.value === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64)),
 				Q(" across " + A(s.value.length) + " project", 1),
 				s.value.length === 1 ? Fi("", !0) : (J(), Y(K, { key: 1 }, [Q("s")], 64)),
-				t[5] ||= Q(" · shape from ", -1),
-				t[6] ||= X("code", null, "ext_docs", -1),
-				t[7] ||= Q("'s registered CUE schema ", -1)
+				a[5] ||= Q(" · shape from ", -1),
+				a[6] ||= X("code", null, "ext_docs", -1),
+				a[7] ||= Q("'s registered CUE schema ", -1)
 			], 64))])])]),
 			n.value === "error" ? (J(), Y("p", Xo, A(r.value), 1)) : i.value?.error ? (J(), Y("p", Zo, A(i.value.error), 1)) : Fi("", !0),
-			(J(!0), Y(K, null, sr(s.value, (e) => Sn((J(), Y("article", {
-				key: e.name,
+			(J(!0), Y(K, null, sr(s.value, (t) => Sn((J(), Y("article", {
+				key: t.name,
 				class: "docs-project"
-			}, [X("header", Qo, [X("h3", null, A(e.name), 1), X("code", $o, A(e.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(e), (n) => (J(), Y("section", {
+			}, [X("header", Qo, [X("h3", null, A(t.name), 1), X("code", $o, A(t.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(t), (n) => (J(), Y("section", {
 				key: n.key,
 				class: "docs-type"
 			}, [
 				X("header", es, [
 					X("code", ts, A(n.key), 1),
 					X("span", ns, A(n.type.label || n.key), 1),
-					X("code", rs, A(v(e, n.type) || "<project root>") + "/", 1),
-					X("span", is, [Q(A(x(e, n.type).length) + " file", 1), x(e, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
+					X("code", rs, A(v(t, n.type) || "<project root>") + "/", 1),
+					X("span", is, [Q(A(x(t, n.type).length) + " file", 1), x(t, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
 				]),
 				n.type.description ? (J(), Y("p", as, A(n.type.description), 1)) : Fi("", !0),
 				C(n.type).length > 0 ? (J(), Y("dl", os, [
 					(J(!0), Y(K, null, sr(C(n.type), (e) => (J(), Y(K, { key: e.name }, [X("dt", null, [X("code", null, A(e.name), 1)]), X("dd", null, A(w(e.spec)), 1)], 64))), 128)),
-					t[9] ||= X("dt", { class: "implicit" }, [X("code", null, "body")], -1),
-					t[10] ||= X("dd", { class: "implicit" }, "MDX body (implicit)", -1)
+					a[9] ||= X("dt", { class: "implicit" }, [X("code", null, "body")], -1),
+					a[10] ||= X("dd", { class: "implicit" }, "MDX body (implicit)", -1)
 				])) : Fi("", !0),
-				x(e, n.type).length > 0 ? (J(), Y("ol", ss, [(J(!0), Y(K, null, sr(x(e, n.type), (e) => (J(), Y("li", {
-					key: e.path,
+				x(t, n.type).length > 0 ? (J(), Y("ol", ss, [(J(!0), Y(K, null, sr(x(t, n.type), (t) => (J(), Y("li", {
+					key: t.path,
 					class: he(["docs-file", {
-						focused: u.value === e.path,
-						expanded: d(e.path)
+						focused: u.value === t.path,
+						expanded: d(t.path)
 					}]),
 					tabindex: "0",
-					onClick: (t) => f(e.path),
-					onFocus: (t) => p(e.path),
-					onMouseenter: (t) => p(e.path),
-					onKeydown: io(no((t) => f(e.path), ["prevent"]), ["enter"])
+					onClick: (e) => f(t.path),
+					onFocus: (e) => p(t.path),
+					onMouseenter: (e) => p(t.path),
+					onKeydown: io(no((e) => f(t.path), ["prevent"]), ["enter"])
 				}, [
 					X("header", ls, [
-						X("span", us, A(d(e.path) ? "▾" : "▸"), 1),
-						X("strong", ds, A(e.title), 1),
-						X("code", fs, A(e.path), 1)
+						X("span", us, A(d(t.path) ? "▾" : "▸"), 1),
+						X("strong", ds, A(t.title), 1),
+						X("code", fs, A(t.path), 1)
 					]),
-					Object.keys(e.frontMatter).length > 0 ? (J(), Y("dl", ps, [(J(!0), Y(K, null, sr(e.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
-					e.body && !d(e.path) ? (J(), Y("p", ms, A(Wt(Vo)(e.body)), 1)) : Fi("", !0),
-					e.body && d(e.path) ? (J(), Y("article", {
+					Object.keys(t.frontMatter).length > 0 ? (J(), Y("dl", ps, [(J(!0), Y(K, null, sr(t.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
+					t.body && !d(t.path) ? (J(), Y("p", ms, A(Wt(Vo)(t.body)), 1)) : Fi("", !0),
+					t.body && d(t.path) ? (J(), Y("article", {
 						key: 2,
 						class: "docs-file-rendered",
-						innerHTML: Wt(Bo)(e.body)
+						innerHTML: Wt(Bo)(t.body, { workspaceId: e.workspaceId ?? "" })
 					}, null, 8, hs)) : Fi("", !0)
 				], 42, cs))), 128))])) : (J(), Y("p", gs, [
-					t[11] ||= Q(" No MDX files in ", -1),
-					X("code", null, A(v(e, n.type)) + "/", 1),
-					t[12] ||= Q(" yet. ", -1)
+					a[11] ||= Q(" No MDX files in ", -1),
+					X("code", null, A(v(t, n.type)) + "/", 1),
+					a[12] ||= Q(" yet. ", -1)
 				]))
-			]))), 128))])), [[xa, S(e).length > 0]])), 128))
+			]))), 128))])), [[xa, S(t).length > 0]])), 128))
 		]));
 	}
 }), [["styles", [".docs-panel{font-family:var(--sans,system-ui);gap:14px;display:grid}.docs-panel .docs-head{border-bottom:1.5px solid var(--ink,#111);justify-content:space-between;align-items:baseline;padding-bottom:6px;display:flex}.docs-panel h2{font-family:var(--display,system-ui);margin:0;font-size:22px;line-height:1}.docs-panel .title-block{flex-wrap:wrap;align-items:baseline;gap:14px;display:inline-flex}.docs-panel .muted{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:12px}.docs-panel .muted code{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);background:var(--paper-tint,#f2efe7);padding:0 4px;font-size:11px}.docs-panel .muted.error{color:var(--accent-err,#c9341c)}.docs-panel .docs-project{border:1.5px solid var(--ink,#111);background:var(--paper,#fffdf8)}.docs-panel .docs-project-head{background:var(--paper-tint,#f2efe7);border-bottom:1px solid var(--rule-light,#d8d1c4);flex-wrap:wrap;align-items:baseline;gap:12px;padding:10px 14px;display:flex}.docs-panel .docs-project-head h3{font-family:var(--display,system-ui);margin:0;font-size:16px;line-height:1}.docs-panel .docs-project-root{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);font-size:12px}.docs-panel .docs-type{border-bottom:1px solid var(--rule-light,#d8d1c4);padding:12px 14px}.docs-panel .docs-type:last-child{border-bottom:0}.docs-panel .docs-type-head{flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:6px;display:flex}.docs-panel .docs-type-key{font-family:var(--mono,monospace);letter-spacing:.04em;text-transform:uppercase;color:var(--accent-blue,#1d55a6);font-size:12px;font-weight:700}.docs-panel .docs-type-label{font-family:var(--display,system-ui);font-size:14px;font-weight:600}.docs-panel .docs-type-scope{font-family:var(--mono,monospace);color:var(--ink-soft,#2c2b28);background:var(--paper-tint,#f2efe7);padding:0 5px;font-size:11px}.docs-panel .docs-type-count{margin-left:auto}.docs-panel .docs-type-desc{font-family:var(--sans,system-ui);color:var(--ink-soft,#2c2b28);margin:0 0 8px;font-size:13px}.docs-panel .docs-type-props{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-template-columns:auto 1fr;gap:2px 14px;margin:0 0 10px;font-size:11px;display:grid}.docs-panel .docs-type-props dt{font-weight:600}.docs-panel .docs-type-props dt code{color:var(--ink,#111)}.docs-panel .docs-type-props .implicit code,.docs-panel .docs-type-props .implicit{color:var(--ink-fainter,#918b80);font-style:italic}.docs-panel .docs-files{gap:8px;margin:0;padding:0;list-style:none;display:grid}.docs-panel .docs-file{border-left:2px solid var(--rule-light,#d8d1c4);cursor:pointer;padding:6px 0 6px 12px;transition:border-color .12s}.docs-panel .docs-file:hover,.docs-panel .docs-file.focused{border-left-color:var(--ink-faint,#68645c);background:color-mix(in srgb, var(--paper-tint,#f2efe7) 50%, transparent)}.docs-panel .docs-file.expanded{border-left-color:var(--accent-blue,#1d55a6);cursor:default}.docs-panel .docs-file:focus{outline:none}.docs-panel .docs-file-caret{width:12px;color:var(--ink-faint,#68645c);font-family:var(--mono,monospace);display:inline-block}.docs-panel .docs-file-head{flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:2px;display:flex}.docs-panel .docs-file-title{font-family:var(--display,system-ui);font-size:13px}.docs-panel .docs-file-path{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);font-size:11px}.docs-panel .docs-file-front{font-family:var(--mono,monospace);color:var(--ink-faint,#68645c);grid-template-columns:auto 1fr;gap:1px 12px;margin:0 0 4px;font-size:11px;display:grid}.docs-panel .docs-file-front dt code{color:var(--ink-soft,#2c2b28)}.docs-panel .docs-file-body{font-family:var(--sans,system-ui);color:var(--ink-soft,#2c2b28);white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}.docs-panel .docs-file-rendered{border-top:1px solid var(--rule-light,#d8d1c4);font-family:var(--sans,system-ui);color:var(--ink,#111);margin-top:8px;padding:12px 0 4px;font-size:13px;line-height:1.55}.docs-panel .docs-file-rendered h1,.docs-panel .docs-file-rendered h2,.docs-panel .docs-file-rendered h3,.docs-panel .docs-file-rendered h4{font-family:var(--display,system-ui);margin:12px 0 6px;line-height:1.2}.docs-panel .docs-file-rendered h1{font-size:20px}.docs-panel .docs-file-rendered h2{font-size:16px}.docs-panel .docs-file-rendered h3{text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint,#68645c);font-size:14px}.docs-panel .docs-file-rendered p{margin:0 0 8px}.docs-panel .docs-file-rendered ul{margin:0 0 8px 18px;padding:0;list-style:outside}.docs-panel .docs-file-rendered ul li{margin:2px 0}.docs-panel .docs-file-rendered code{font-family:var(--mono,monospace);background:var(--paper-tint,#f2efe7);border-radius:2px;padding:0 4px;font-size:12px}.docs-panel .docs-file-rendered pre{background:var(--paper-tint,#f2efe7);font-family:var(--mono,monospace);white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--rule-light,#d8d1c4);margin:8px 0;padding:10px 12px;font-size:12px;line-height:1.45}.docs-panel .docs-file-rendered pre code{background:0 0;padding:0}.docs-panel .docs-file-rendered strong{font-weight:700}.docs-panel .docs-file-rendered em{font-style:italic}.docs-panel .no-files{margin:0}"]]]), vs = "ext_docs", ys = "comtrya-docs-panel";

@@ -63,7 +63,9 @@ const issue = computed(() => loadedIssue.value ?? props.issue ?? null);
 const tone = computed(() => stateTone(issue.value?.state));
 const hasBody = computed(() => Boolean(issue.value?.bodyMarkdown?.trim()));
 const renderedBody = computed(() =>
-  hasBody.value ? renderMarkdown(issue.value?.bodyMarkdown ?? "") : "",
+  hasBody.value
+    ? renderMarkdown(issue.value?.bodyMarkdown ?? "", { workspaceId: workspaceId.value })
+    : "",
 );
 
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));

@@ -3255,11 +3255,15 @@ function rs(e) {
 	return e.replace(/[&<>"']/g, (e) => ns[e] ?? e);
 }
 var is = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, as = "CODE", os = "END";
-function ss(e) {
-	let t = [], n = e.replace(/`([^`]+)`/g, (e, n) => (t.push("<code>" + n + "</code>"), as + (t.length - 1) + os));
-	n = n.replace(is, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), n = n.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), n = n.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
-	let r = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
-	return n.replace(r, (e, n) => t[Number(n)] ?? "");
+function ss(e, t) {
+	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), as + (n.length - 1) + os));
+	if (r = r.replace(is, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
+		let e = encodeURIComponent(t.workspaceId);
+		r = r.replace(/(^|[^\w&])#(\d+)\b/g, (t, n, r) => n + "<a href=\"/x/issues/" + e + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>");
+	}
+	r = r.replace(/\*\*([^*]+)\*\*/g, (e, t) => "<strong>" + t + "</strong>"), r = r.replace(/(^|[^*])\*([^*\s][^*]*?[^*\s]|[^*\s])\*(?!\*)/g, (e, t, n) => t + "<em>" + n + "</em>");
+	let i = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
+	return r.replace(i, (e, t) => n[Number(t)] ?? "");
 }
 function cs(e) {
 	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
@@ -3322,32 +3326,32 @@ function cs(e) {
 	}
 	return n;
 }
-function ls(e) {
+function ls(e, t = {}) {
 	if (!e) return "";
-	let t = cs(e), n = [];
-	for (let e of t) switch (e.kind) {
+	let n = cs(e), r = [];
+	for (let e of n) switch (e.kind) {
 		case "heading": {
-			let t = e.level ?? 1, r = ss(rs(e.text));
-			n.push("<h" + t + ">" + r + "</h" + t + ">");
+			let n = e.level ?? 1, i = ss(rs(e.text), t);
+			r.push("<h" + n + ">" + i + "</h" + n + ">");
 			break;
 		}
 		case "paragraph": {
-			let t = ss(rs(e.text));
-			n.push("<p>" + t.replace(/\n/g, "<br />") + "</p>");
+			let n = ss(rs(e.text), t);
+			r.push("<p>" + n.replace(/\n/g, "<br />") + "</p>");
 			break;
 		}
 		case "code": {
 			let t = e.lang ? " data-lang=\"" + rs(e.lang) + "\"" : "";
-			n.push("<pre" + t + "><code>" + rs(e.text) + "</code></pre>");
+			r.push("<pre" + t + "><code>" + rs(e.text) + "</code></pre>");
 			break;
 		}
 		case "list": {
-			let t = e.ordered ? "ol" : "ul", r = (e.items ?? []).map((e) => "  <li>" + ss(rs(e)) + "</li>").join("\n");
-			n.push("<" + t + ">\n" + r + "\n</" + t + ">");
+			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + ss(rs(e), t) + "</li>").join("\n");
+			r.push("<" + n + ">\n" + i + "\n</" + n + ">");
 			break;
 		}
 	}
-	return n.join("\n");
+	return r.join("\n");
 }
 //#endregion
 //#region packages/sdk-vue/src/parse-query.ts
@@ -4034,7 +4038,7 @@ var Tc = ["data-state", "data-epic-id"], Ec = {
 			"IN_PROGRESS",
 			"DONE",
 			"CANCELED"
-		], r = /* @__PURE__ */ V("idle"), i = /* @__PURE__ */ V("idle"), a = /* @__PURE__ */ V(null), o = /* @__PURE__ */ V(null), s = /* @__PURE__ */ V(t.epic ?? null), c = /* @__PURE__ */ V(null), l = /* @__PURE__ */ V([]), u = /* @__PURE__ */ V(null), d = $(() => t.client ?? t.comtryaClient), f = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), p = $(() => t.id ?? t.routeParams?.params?.id ?? ""), m = $(() => t.epic ? Bs(t.epic) : `comtrya://epic/${p.value}`), h = $(() => s.value ?? t.epic ?? null), g = $(() => Us(h.value?.state)), _ = $(() => n.filter((e) => e !== h.value?.state)), v = $(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), y = $(() => Math.max(0, Math.min(100, c.value?.percentComplete ?? 0))), ee = $(() => l.value.filter((e) => e.state !== "CLOSED").length), te = $(() => l.value.filter((e) => e.state === "CLOSED").length), ne = $(() => ls(h.value?.bodyMarkdown ?? "")), re = $(() => d.value && !!p.value), ie = $(() => {
+		], r = /* @__PURE__ */ V("idle"), i = /* @__PURE__ */ V("idle"), a = /* @__PURE__ */ V(null), o = /* @__PURE__ */ V(null), s = /* @__PURE__ */ V(t.epic ?? null), c = /* @__PURE__ */ V(null), l = /* @__PURE__ */ V([]), u = /* @__PURE__ */ V(null), d = $(() => t.client ?? t.comtryaClient), f = $(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3"), p = $(() => t.id ?? t.routeParams?.params?.id ?? ""), m = $(() => t.epic ? Bs(t.epic) : `comtrya://epic/${p.value}`), h = $(() => s.value ?? t.epic ?? null), g = $(() => Us(h.value?.state)), _ = $(() => n.filter((e) => e !== h.value?.state)), v = $(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), y = $(() => Math.max(0, Math.min(100, c.value?.percentComplete ?? 0))), ee = $(() => l.value.filter((e) => e.state !== "CLOSED").length), te = $(() => l.value.filter((e) => e.state === "CLOSED").length), ne = $(() => ls(h.value?.bodyMarkdown ?? "", { workspaceId: f.value })), re = $(() => d.value && !!p.value), ie = $(() => {
 			let e = h.value?.ownerRef;
 			return e ? e.startsWith("comtrya://user/") ? e.slice(15) : e.startsWith("comtrya://agent/") ? `${e.slice(16)} (agent)` : e : null;
 		}), ae = $(() => he(h.value?.createdAt)), b = /* @__PURE__ */ V(null), oe = $(() => b.value?.ownerRefs ?? []);

@@ -74,7 +74,9 @@ const totalIssues = computed(
 const percent = computed(() => Math.max(0, Math.min(100, progress.value?.percentComplete ?? 0)));
 const openCount = computed(() => issues.value.filter((i) => i.state !== "CLOSED").length);
 const closedCount = computed(() => issues.value.filter((i) => i.state === "CLOSED").length);
-const renderedBody = computed(() => renderMarkdown(epic.value?.bodyMarkdown ?? ""));
+const renderedBody = computed(() =>
+  renderMarkdown(epic.value?.bodyMarkdown ?? "", { workspaceId: workspaceId.value }),
+);
 const canLoad = computed(() => graphClient.value && Boolean(epicId.value));
 const ownerLabel = computed(() => {
   const ref = epic.value?.ownerRef;
