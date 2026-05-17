@@ -4,6 +4,7 @@ import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-co
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
+import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
 import { renderMarkdown } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
@@ -478,6 +479,18 @@ async function fetchRepositoryIdentity(
               <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
             </li>
           </ul>
+        </section>
+
+        <section
+          v-if="repositoryId"
+          class="repo-activity"
+          data-smoke="repo-activity"
+          aria-label="Recent activity"
+        >
+          <header class="repo-activity-head">
+            <h2>Activity</h2>
+          </header>
+          <ActivityStream :repository-id="repositoryId" />
         </section>
       </aside>
     </div>

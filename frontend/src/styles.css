@@ -948,6 +948,30 @@ kbd {
   color: var(--ink-warn, #c2410c);
 }
 
+.shell-app .repo-activity {
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
+}
+
+.shell-app .repo-activity-head {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-activity-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ink);
+}
+
 .shell-app .repo-bookmarks {
   margin-top: 28px;
   border: 1px solid var(--ink-rule, #d8d6cf);

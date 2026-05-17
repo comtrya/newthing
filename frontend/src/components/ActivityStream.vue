@@ -23,9 +23,17 @@ const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
  * `projectName` are dropped — workspace-global noise doesn't bleed
  * into a Project's "what just happened" feed. Without the prop, the
  * stream stays workspace-global (the workspace home shape).
+ *
+ * Optional repository scope. When set, the stream renders only
+ * events tagged with a matching `repositoryID` on the payload. This
+ * is what the repo home uses to surface the repo's "what just
+ * happened" feed alongside the README without dragging in
+ * workspace-wide noise. Project and repository scopes compose — if
+ * both props are set, an event must match both.
  */
 const props = defineProps<{
   projectName?: string;
+  repositoryId?: string;
 }>();
 
 interface ActivityItem {
@@ -47,13 +55,26 @@ let unsubscribe: (() => void) | undefined;
 let highlightTimers: number[] = [];
 
 const filtered = computed(() => {
-  if (!props.projectName) return events.value;
-  const wanted = props.projectName;
+  const wantedProject = props.projectName;
+  const wantedRepo = props.repositoryId;
+  if (!wantedProject && !wantedRepo) return events.value;
   return events.value.filter((item) => {
-    const payloadProject = item.payload && typeof item.payload === "object"
-      ? (item.payload as Record<string, unknown>).projectName
-      : null;
-    return typeof payloadProject === "string" && payloadProject === wanted;
+    const payload =
+      item.payload && typeof item.payload === "object"
+        ? (item.payload as Record<string, unknown>)
+        : null;
+    if (wantedProject) {
+      const project = payload?.projectName;
+      if (typeof project !== "string" || project !== wantedProject) return false;
+    }
+    if (wantedRepo) {
+      const repo =
+        payload?.repositoryID ??
+        payload?.repositoryId ??
+        payload?.repositoryUlid;
+      if (typeof repo !== "string" || repo !== wantedRepo) return false;
+    }
+    return true;
   });
 });
 
