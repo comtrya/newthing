@@ -228,3 +228,10 @@ export type { ComtryaOwnerRef, ComtryaProject } from "./comtrya-config";
 
 export { useProjectCounts, emptyProjectCounts } from "./use-project-counts";
 export type { ProjectCounts, UseProjectCountsOptions } from "./use-project-counts";
+
+export { default as LabelPill } from "./LabelPill.vue";
+export type {
+  LabelKind,
+  LabelCatalogEntry,
+  LabelCatalog,
+} from "./LabelPill.vue";

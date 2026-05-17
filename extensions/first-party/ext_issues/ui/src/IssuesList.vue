@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   classifyPrincipal as authorLabel,
   fetchComtryaProjects,
+  LabelPill,
   parseQueryFilters,
   useShortcuts,
   type ComtryaProject,
@@ -878,11 +879,11 @@ async function submitQuickAdd(): Promise<void> {
                 <span class="project-glyph">◇</span>
                 {{ issue.projectName }}
               </button>
-              <span
+              <LabelPill
                 v-for="label in (issue.labels ?? [])"
                 :key="label"
-                class="issue-label"
-              >{{ label }}</span>
+                :name="label"
+              />
               <button
                 v-for="ref in (issue.assignees ?? [])"
                 :key="`assignee-${ref}`"

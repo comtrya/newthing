@@ -3,6 +3,7 @@ import { applyOptimistic } from "@comtrya/sdk-core";
 import {
   classifyPrincipal as authorLabel,
   fetchComtryaProjects,
+  LabelPill,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
 import { computed, onMounted, ref, watch } from "vue";
@@ -324,11 +325,11 @@ async function reopenCurrentIssue(): Promise<void> {
               >
                 <span class="chip-glyph">◇</span>{{ issue.projectName }}
               </span>
-              <span
+              <LabelPill
                 v-for="label in (issue.labels ?? [])"
                 :key="`label-${label}`"
-                class="issue-chip tone-label"
-              >{{ label }}</span>
+                :name="label"
+              />
               <span
                 v-if="issue.closeOnMerge === false"
                 class="issue-chip tone-warn"

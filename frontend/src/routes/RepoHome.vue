@@ -6,8 +6,11 @@ import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
-import LabelPill, { type LabelCatalogEntry } from "../components/LabelPill.vue";
-import { renderMarkdown } from "@comtrya/sdk-vue";
+import {
+  LabelPill,
+  renderMarkdown,
+  type LabelCatalogEntry,
+} from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
 
 const props = withDefaults(defineProps<{

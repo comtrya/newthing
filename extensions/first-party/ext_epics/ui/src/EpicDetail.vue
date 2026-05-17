@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import {
   fetchComtryaProjects,
+  LabelPill,
   renderMarkdown,
   useShortcuts,
   type ComtryaProject,
@@ -314,9 +315,7 @@ function relativeTime(iso: string | null | undefined): string | null {
           <span v-if="epic.projectName" class="epic-chip tone-blue" :title="`Scoped to project ${epic.projectName}`">
             <span class="chip-glyph">◇</span>{{ epic.projectName }}
           </span>
-          <span v-for="label in epic.labels" :key="label" class="epic-chip tone-teal">
-            {{ label }}
-          </span>
+          <LabelPill v-for="label in epic.labels" :key="label" :name="label" />
           <span v-if="ownerLabel" class="epic-chip tone-grey" title="Owner">
             <span class="chip-glyph">@</span>{{ ownerLabel }}
           </span>
@@ -456,9 +455,7 @@ function relativeTime(iso: string | null | undefined): string | null {
               <span v-if="issue.projectName" class="epic-chip tone-blue compact" :title="issue.projectName">
                 <span class="chip-glyph">◇</span>{{ issue.projectName }}
               </span>
-              <span v-for="label in issue.labels" :key="label" class="epic-chip tone-teal compact">
-                {{ label }}
-              </span>
+              <LabelPill v-for="label in issue.labels" :key="label" :name="label" />
               <span
                 v-if="issue.authorRef"
                 class="row-author"
