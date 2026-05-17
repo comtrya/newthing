@@ -327,13 +327,14 @@ async function reopenCurrentIssue(): Promise<void> {
             </div>
             <h1>{{ issue.title }}</h1>
             <div class="issue-chip-row" aria-label="Issue metadata">
-              <span
+              <a
                 v-if="issue.projectName"
-                class="issue-chip tone-project"
-                :title="`Scoped to project ${issue.projectName}`"
+                class="issue-chip tone-project issue-chip-link"
+                :href="`/x/issues/?project=${encodeURIComponent(issue.projectName)}`"
+                :title="`Filter issues by project ${issue.projectName}`"
               >
                 <span class="chip-glyph">◇</span>{{ issue.projectName }}
-              </span>
+              </a>
               <LabelPill
                 v-for="label in (issue.labels ?? [])"
                 :key="`label-${label}`"
@@ -426,12 +427,6 @@ async function reopenCurrentIssue(): Promise<void> {
           <section class="issue-panel" data-smoke="issue-project-picker">
             <header>
               <h2>Project</h2>
-              <a
-                v-if="issue.projectName"
-                :href="`/x/issues/?project=${encodeURIComponent(issue.projectName)}`"
-                class="issue-panel-link"
-                :title="`Filter issues to project ${issue.projectName}`"
-              >◇ {{ issue.projectName }}</a>
             </header>
             <select
               class="issue-project-select"
@@ -590,6 +585,15 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-chip.tone-project {
   color: var(--accent-blue, #1d55a6);
   border-color: currentColor;
+}
+
+.issue-chip-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.issue-chip-link:hover {
+  background: rgba(29, 85, 166, 0.06);
 }
 
 .issue-chip.tone-label {
