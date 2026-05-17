@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watchEffect } from "vue";
 import {
   routeFor,
   subscribeRoutes,
@@ -18,14 +18,23 @@ const subPath = computed(() => (routeTail.value ? `/${routeTail.value}` : "/"));
 const matchedRoute = ref<RouteMatch | undefined>();
 let unsubscribe: (() => void) | undefined;
 
-onMounted(() => {
+// Auto-tracking refresh: re-runs whenever any reactive dep
+// `refreshRoute` reads changes (prop prefix, computed subPath, the
+// underlying `props.rest` array contents). The previous explicit
+// `watch([prefix, subPath], …)` was missing a propagation path
+// when RepoHome stayed mounted across `/r/:path/<ext>` →
+// `/r/:path/<ext>/<sub>` navigation, leaving the embedded
+// extension element stale until a reload.
+watchEffect(() => {
   refreshRoute();
+});
+
+onMounted(() => {
   unsubscribe = subscribeRoutes((prefix) => {
     if (prefix === props.prefix) refreshRoute();
   });
 });
 
-watch([() => props.prefix, subPath], refreshRoute);
 onUnmounted(() => unsubscribe?.());
 
 function refreshRoute(): void {
