@@ -53,6 +53,7 @@ const repoPath = computed(() =>
 
 const repoHomePath = computed(() => `/r/${repoPath.value}`);
 const repoCodePath = computed(() => `${repoHomePath.value}/code`);
+const repoConfigPath = computed(() => `${repoHomePath.value}/config`);
 
 /**
  * Build the per-repo workbench URL for an embedded extension. The
@@ -86,6 +87,7 @@ const tabs = computed<Tab[]>(() => [
     count: props.failingChecks ?? 0,
     countTone: "alarm",
   },
+  { id: "config", label: "Config", to: repoConfigPath.value },
 ]);
 
 function isActive(tab: Tab): boolean {
@@ -95,6 +97,9 @@ function isActive(tab: Tab): boolean {
   // every per-extension URL nests under the same base.
   if (tab.id === "overview") return route.path === repoHomePath.value;
   const prefix = `${repoHomePath.value}/${tab.id}`;
+  // Config is a leaf; use exact match so we don't accidentally
+  // collide with future `/config/<sub>` routes if they appear.
+  if (tab.id === "config") return route.path === prefix;
   return route.path === prefix || route.path.startsWith(`${prefix}/`);
 }
 </script>

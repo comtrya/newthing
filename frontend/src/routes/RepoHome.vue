@@ -21,13 +21,22 @@ const props = withDefaults(defineProps<{
    * Which body to render under the persistent repo header / tabs.
    * "overview" (default) is the README-first home; "code" mounts the
    * `repository.main` slot (core's code browser + summary widgets);
-   * "pulls" / "issues" / "checks" embed the matching first-party
-   * extension's root route inside the workbench so the repo header
-   * stays put across intra-repo navigation. Each tab in RepoTabs
-   * maps to one of these values via a dedicated per-repo route so
-   * the URL is the source of truth, not local state.
+   * "config" surfaces the repo's evaluated `comtrya.cue` for read
+   * inspection; "pulls" / "issues" / "checks" / "epics" embed the
+   * matching first-party extension's root route inside the
+   * workbench so the repo header stays put across intra-repo
+   * navigation. Each tab in RepoTabs maps to one of these values
+   * via a dedicated per-repo route so the URL is the source of
+   * truth, not local state.
    */
-  view?: "overview" | "code" | "pulls" | "issues" | "checks" | "epics";
+  view?:
+    | "overview"
+    | "code"
+    | "config"
+    | "pulls"
+    | "issues"
+    | "checks"
+    | "epics";
   /**
    * Sub-path captured after `/r/:groups+/:repo/<ext>/` on workbench
    * extension routes. Passed straight through to the embedded
@@ -71,6 +80,23 @@ interface RepositoryIdentity {
   bookmarks?: RepositoryBookmark[] | null;
   labels?: LabelCatalogEntry[] | null;
   labelCatalog?: Record<string, LabelCatalogEntry> | null;
+  comtryaConfig?: ComtryaConfig | null;
+}
+
+interface ComtryaConfigProject {
+  name?: string;
+  root?: string;
+  declaredAt?: string;
+  implicit?: boolean;
+  labels?: string[] | null;
+  [key: string]: unknown;
+}
+
+interface ComtryaConfig {
+  projects?: ComtryaConfigProject[];
+  repository?: Record<string, unknown> | null;
+  instances?: Array<{ path?: string; value?: unknown }>;
+  error?: string | null;
 }
 
 interface RepoHomePayload {
@@ -109,6 +135,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       }
       labels
       labelCatalog
+      comtryaConfig
     }
   }
 }`;
@@ -391,6 +418,54 @@ const labelEntries = computed<string[]>(
   () => Object.keys(labelCatalog.value),
 );
 
+const comtryaConfig = computed<ComtryaConfig | null>(
+  () => repository.value?.comtryaConfig ?? null,
+);
+
+const comtryaProjects = computed<ComtryaConfigProject[]>(
+  () => comtryaConfig.value?.projects ?? [],
+);
+
+const comtryaRepository = computed<Record<string, unknown> | null>(
+  () => comtryaConfig.value?.repository ?? null,
+);
+
+const comtryaError = computed<string | null>(
+  () => comtryaConfig.value?.error ?? null,
+);
+
+/** Pretty-print a project's per-extension policy object (e.g.
+ *  `issues: { defaultLabels, closeOnMerge }`) into a flat list of
+ *  `(key, value)` entries for the config view. Skips internal
+ *  fields the CUE engine adds (`name`, `root`, `declaredAt`,
+ *  `implicit`) since those render in the project's header row. */
+function policyEntries(
+  project: ComtryaConfigProject,
+): Array<{ slot: string; rows: Array<{ key: string; value: string }> }> {
+  const out: Array<{ slot: string; rows: Array<{ key: string; value: string }> }> = [];
+  const skip = new Set(["name", "root", "declaredAt", "implicit", "labels", "owners"]);
+  for (const [slot, value] of Object.entries(project)) {
+    if (skip.has(slot)) continue;
+    if (!value || typeof value !== "object") continue;
+    const rows: Array<{ key: string; value: string }> = [];
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      rows.push({ key: k, value: formatConfigValue(v) });
+    }
+    if (rows.length > 0) out.push({ slot, rows });
+  }
+  return out;
+}
+
+function formatConfigValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return value.map(formatConfigValue).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
 const renderedReadme = computed(() =>
   readmePreview.value ? renderMarkdown(readmePreview.value) : "",
@@ -622,6 +697,74 @@ async function fetchRepositoryIdentity(
         </section>
       </aside>
     </div>
+
+    <!-- /r/:path/config → read-only view of the evaluated CUE
+         `comtrya.cue` for this repo. Surfaces the kernel-level
+         #Repository block, the declared Projects with their
+         per-extension policies, and any cuengine error. The
+         source of truth for the rest of the workbench. -->
+    <section v-else-if="view === 'config'" class="repo-config" data-smoke="repo-config">
+      <p v-if="comtryaError" class="repo-config-error" role="alert">
+        cuengine error: {{ comtryaError }}
+      </p>
+
+      <article v-if="comtryaRepository" class="repo-config-panel">
+        <header>
+          <h2>Repository</h2>
+          <span class="hint"><code>package comtrya · repository</code></span>
+        </header>
+        <dl>
+          <template v-for="(value, key) in comtryaRepository" :key="key">
+            <dt>{{ key }}</dt>
+            <dd>{{ formatConfigValue(value) }}</dd>
+          </template>
+        </dl>
+      </article>
+
+      <article
+        v-for="project in comtryaProjects"
+        :key="`${project.declaredAt}::${project.name}`"
+        class="repo-config-panel"
+      >
+        <header>
+          <h2>
+            <span v-if="project.implicit" class="implicit-marker" title="No explicit declaration; the kernel synthesised a default Project covering the whole repo.">◌</span>
+            Project · {{ project.name || "(unnamed)" }}
+          </h2>
+          <span v-if="project.declaredAt" class="hint">
+            <code>{{ project.declaredAt }}/comtrya.cue</code>
+          </span>
+        </header>
+        <dl class="project-meta">
+          <dt>root</dt>
+          <dd>{{ project.root || "." }}</dd>
+          <template v-if="project.labels && project.labels.length > 0">
+            <dt>labels</dt>
+            <dd>{{ project.labels.join(", ") }}</dd>
+          </template>
+        </dl>
+        <section
+          v-for="policy in policyEntries(project)"
+          :key="policy.slot"
+          class="repo-config-slot"
+        >
+          <h3>{{ policy.slot }}</h3>
+          <dl>
+            <template v-for="row in policy.rows" :key="row.key">
+              <dt>{{ row.key }}</dt>
+              <dd>{{ row.value }}</dd>
+            </template>
+          </dl>
+        </section>
+      </article>
+
+      <p
+        v-if="!comtryaError && !comtryaRepository && comtryaProjects.length === 0"
+        class="repo-config-empty"
+      >
+        This repo declares no <code>package comtrya</code> CUE. The forge falls back to shell defaults.
+      </p>
+    </section>
 
     <!-- /r/:path/code → the code browser slot, full-width. -->
     <section v-else-if="view === 'code'" class="repo-code">
