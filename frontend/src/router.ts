@@ -68,6 +68,7 @@ export const shellRoutes: RouteRecordRaw[] = [
     props: (route: RouteLocationNormalizedLoaded) => ({
       ...repoRouteProps(route),
       view: "pulls",
+      embeddedSubPath: paramSegments(route.params.rest),
     }),
   },
   {
@@ -77,6 +78,7 @@ export const shellRoutes: RouteRecordRaw[] = [
     props: (route: RouteLocationNormalizedLoaded) => ({
       ...repoRouteProps(route),
       view: "issues",
+      embeddedSubPath: paramSegments(route.params.rest),
     }),
   },
   {
@@ -86,6 +88,17 @@ export const shellRoutes: RouteRecordRaw[] = [
     props: (route: RouteLocationNormalizedLoaded) => ({
       ...repoRouteProps(route),
       view: "checks",
+      embeddedSubPath: paramSegments(route.params.rest),
+    }),
+  },
+  {
+    path: shellRoutePaths.repoEpics,
+    name: "repo-epics",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "epics",
+      embeddedSubPath: paramSegments(route.params.rest),
     }),
   },
   {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import Breadcrumb from "./components/Breadcrumb.vue";
@@ -64,6 +65,84 @@ const repositoryWord = computed(() =>
  */
 const openIssuesTotal = ref(0);
 const issueUnsubscribers: Array<() => void> = [];
+
+const route = useRoute();
+const router = useRouter();
+
+/**
+ * Extension prefixes that have a corresponding `/r/:path/<prefix>`
+ * workbench view. Used by the link rewriter below to decide which
+ * `/x/<prefix>/<sub>` deep links to rebase back into the repo
+ * workbench instead of letting them escape.
+ */
+const WORKBENCH_EXTENSION_PREFIXES = new Set([
+  "issues",
+  "pulls",
+  "checks",
+  "epics",
+]);
+
+/**
+ * Compute the `/r/<groups>/<repo>` base when the active route is a
+ * per-repo workbench view. Used by the link rewriter to rebase
+ * extension deep-links into the workbench. Returns null on
+ * non-repo routes.
+ */
+const workbenchRepoBase = computed<string | null>(() => {
+  const groupsParam = route.params.groups;
+  const repoParam = route.params.repo;
+  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
+  const groups = Array.isArray(groupsParam)
+    ? groupsParam.map(String)
+    : typeof groupsParam === "string" && groupsParam.length > 0
+      ? [groupsParam]
+      : [];
+  if (groups.length === 0) return null;
+  return `/r/${groups.map(encodeURIComponent).join("/")}/${encodeURIComponent(repoParam)}`;
+});
+
+/**
+ * Global click interceptor for `/x/<ext>/<sub>` anchors. When the
+ * user is inside a repo workbench and clicks a deep link an
+ * embedded extension built against the workspace-wide
+ * `/x/<ext>/...` URL space (e.g. an issue row pointing at
+ * `/x/issues/<ws>/<number>`), redirect through the equivalent
+ * `/r/<path>/<ext>/<sub>` route so the repo header / tabs stay
+ * mounted. Modifier-clicks (Cmd / Ctrl / Shift / Alt) pass through
+ * untouched so the user can still open a deep link in a new tab
+ * outside the workbench.
+ */
+function onPageClick(event: MouseEvent): void {
+  if (event.defaultPrevented) return;
+  if (event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const anchor = (event.target as HTMLElement | null)?.closest("a");
+  if (!anchor) return;
+  if (anchor.target && anchor.target !== "_self") return;
+  const href = anchor.getAttribute("href");
+  if (!href || !href.startsWith("/x/")) return;
+  const repoBase = workbenchRepoBase.value;
+  if (!repoBase) return;
+
+  const url = new URL(href, window.location.origin);
+  const segments = url.pathname.split("/").filter(Boolean);
+  const prefix = segments[1];
+  if (segments[0] !== "x" || !prefix) return;
+  if (!WORKBENCH_EXTENSION_PREFIXES.has(prefix)) return;
+
+  const rest = segments.slice(2);
+  const pathParts = [repoBase, prefix, ...rest].join("/").replace(/\/\/+/g, "/");
+  event.preventDefault();
+  void router.push({ path: pathParts, query: queryFromSearch(url.search), hash: url.hash });
+}
+
+function queryFromSearch(search: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!search) return out;
+  const params = new URLSearchParams(search);
+  for (const [key, value] of params.entries()) out[key] = value;
+  return out;
+}
 
 const navItems = computed(() => {
   const items: Array<{
@@ -264,7 +343,7 @@ async function loadShellSummary(): Promise<void> {
         </div>
       </aside>
 
-      <main class="page">
+      <main class="page" @click="onPageClick">
         <Breadcrumb />
         <RouterView />
       </main>

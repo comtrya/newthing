@@ -22,9 +22,18 @@ const props = withDefaults(defineProps<{
    * maps to one of these values via a dedicated per-repo route so
    * the URL is the source of truth, not local state.
    */
-  view?: "overview" | "code" | "pulls" | "issues" | "checks";
+  view?: "overview" | "code" | "pulls" | "issues" | "checks" | "epics";
+  /**
+   * Sub-path captured after `/r/:groups+/:repo/<ext>/` on workbench
+   * extension routes. Passed straight through to the embedded
+   * `<ExtensionRoute>` so deep links (e.g. an issue detail at
+   * `…/issues/<ws>/<num>`) mount the matching extension element
+   * inside the workbench instead of escaping back to `/x/<ext>/…`.
+   */
+  embeddedSubPath?: string[];
 }>(), {
   view: "overview",
+  embeddedSubPath: () => [],
 });
 
 interface RepositoryBlob {
@@ -512,13 +521,16 @@ async function fetchRepositoryIdentity(
          header / tabs stay put because every per-repo view is the
          same RepoHome component. -->
     <section v-else-if="view === 'pulls'" class="repo-extension-embed" data-smoke="repo-pulls">
-      <ExtensionRoute prefix="pulls" :rest="[]" />
+      <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" />
     </section>
     <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
-      <ExtensionRoute prefix="issues" :rest="[]" />
+      <ExtensionRoute prefix="issues" :rest="embeddedSubPath" />
     </section>
     <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
-      <ExtensionRoute prefix="checks" :rest="[]" />
+      <ExtensionRoute prefix="checks" :rest="embeddedSubPath" />
+    </section>
+    <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
+      <ExtensionRoute prefix="epics" :rest="embeddedSubPath" />
     </section>
   </template>
 </template>

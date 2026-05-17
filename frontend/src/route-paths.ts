@@ -6,9 +6,10 @@ export const shellRoutePaths = {
   health: "/health",
   repoHome: "/r/:groups+/:repo",
   repoCode: "/r/:groups+/:repo/code",
-  repoPulls: "/r/:groups+/:repo/pulls",
-  repoIssues: "/r/:groups+/:repo/issues",
-  repoChecks: "/r/:groups+/:repo/checks",
+  repoPulls: "/r/:groups+/:repo/pulls/:rest(.*)*",
+  repoIssues: "/r/:groups+/:repo/issues/:rest(.*)*",
+  repoChecks: "/r/:groups+/:repo/checks/:rest(.*)*",
+  repoEpics: "/r/:groups+/:repo/epics/:rest(.*)*",
   projectHome: "/r/:groups+/:repo/p/:project",
   extensionRoute: "/x/:prefix/:rest*",
 } as const;

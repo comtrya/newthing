@@ -62,17 +62,20 @@ function repoExtPath(slug: string): string {
 const tabs = computed<Tab[]>(() => [
   { id: "overview", label: "Overview", to: repoHomePath.value },
   { id: "code",     label: "Code",     to: repoCodePath.value },
-  { id: "pulls",    label: "Pulls",    to: repoExtPath("pulls") },
   { id: "issues",   label: "Issues",   to: repoExtPath("issues") },
+  { id: "pulls",    label: "Pulls",    to: repoExtPath("pulls") },
+  { id: "epics",    label: "Epics",    to: repoExtPath("epics") },
   { id: "checks",   label: "Checks",   to: repoExtPath("checks") },
 ]);
 
 function isActive(tab: Tab): boolean {
-  // Active by exact route.path match. The `?repositoryId=…` query
-  // string sits on every per-repo extension URL and does not affect
-  // route.path, so the highlight is stable as the user moves around.
+  // Highlight on prefix match so that workbench deep links (e.g.
+  // `/r/:path/issues/<ws>/<num>`) keep the Issues tab active.
+  // Overview only highlights on the exact repo home path because
+  // every per-extension URL nests under the same base.
   if (tab.id === "overview") return route.path === repoHomePath.value;
-  return route.path === `${repoHomePath.value}/${tab.id}`;
+  const prefix = `${repoHomePath.value}/${tab.id}`;
+  return route.path === prefix || route.path.startsWith(`${prefix}/`);
 }
 </script>
 
