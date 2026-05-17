@@ -46,8 +46,21 @@ interface PullRow {
   base?: string;
 }
 
-const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+interface CheckRow {
+  id?: string;
+  name?: string;
+  state?: string;
+  conclusion?: string;
+  required?: boolean;
+  repositoryId?: string;
+  commitOid?: string | null;
+  updatedAt?: string | null;
+}
+
+const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+const WORKSPACE_URI = `comtrya://workspace/${WORKSPACE_ID}`;
 const OPEN_PR_STATES = new Set(["DRAFT", "READY", "REVIEW", "OPEN", "REOPENED"]);
+const FAILED_CHECK_STATES = new Set(["FAILURE", "FAILED"]);
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const loadError = ref<string | null>(null);
@@ -55,6 +68,7 @@ const loadError = ref<string | null>(null);
 const repositories = ref<RepoLookupRow[]>([]);
 const issues = ref<IssueRow[]>([]);
 const pulls = ref<PullRow[]>([]);
+const checks = ref<CheckRow[]>([]);
 
 const openIssues = computed(() =>
   [...issues.value]
@@ -65,6 +79,17 @@ const openIssues = computed(() =>
 const openPulls = computed(() =>
   [...pulls.value]
     .filter((p) => OPEN_PR_STATES.has((p.state ?? "").toUpperCase()))
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
+);
+
+/** Required checks currently in a failed terminal state. Required
+ *  is the gating signal — non-required failures aren't actionable
+ *  in the same way (they're advisory). The set composes
+ *  `repository.labelCatalog` / pulls.requiredChecks intent. */
+const failingChecks = computed(() =>
+  [...checks.value]
+    .filter((c) => c.required === true)
+    .filter((c) => FAILED_CHECK_STATES.has((c.state ?? "").toUpperCase()))
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
 );
 
@@ -115,6 +140,19 @@ onMounted(async () => {
     repositories.value = workspaceData.workspace?.repositories ?? [];
     issues.value = issueRes.ok ? (issueRes.value as IssueRow[]) : [];
     pulls.value = pullRes.ok ? (pullRes.value as PullRow[]) : [];
+    // Checks are repo-scoped — list-checks rejects the workspace
+    // URI alone — so fan out per repo and merge.
+    const checkResults = await Promise.all(
+      repositories.value.map((repo) =>
+        invokeOp<CheckRow[]>("ext_checks", "checks", "list-checks", {
+          repository: `${WORKSPACE_URI}/repository/${repo.id}`,
+          limit: 256,
+        }),
+      ),
+    );
+    checks.value = checkResults.flatMap((r) =>
+      r.ok ? (r.value as CheckRow[]) : [],
+    );
     loadState.value = "ready";
   } catch (caught) {
     loadState.value = "error";
@@ -172,6 +210,29 @@ function pullRepoLabel(pull: PullRow): string {
                 <span class="state">{{ (pull.state ?? "").toLowerCase() }}</span>
               </span>
             </RouterLink>
+          </li>
+        </ul>
+      </article>
+
+      <article class="inbox-panel" data-smoke="inbox-checks">
+        <header>
+          <h2>Failing required checks</h2>
+          <span class="count" :class="{ alarm: failingChecks.length > 0 }">{{ failingChecks.length }}</span>
+        </header>
+        <p v-if="loadState === 'loading'" class="inbox-empty">Loading…</p>
+        <p v-else-if="failingChecks.length === 0" class="inbox-empty">
+          All required checks are passing.
+        </p>
+        <ul v-else>
+          <li v-for="check in failingChecks" :key="check.id">
+            <div class="inbox-row inbox-row-static">
+              <span class="title">{{ check.name || "(unnamed)" }}</span>
+              <span class="meta">
+                <code class="repo">{{ check.repositoryId ? repoPathById[check.repositoryId] || "—" : "—" }}</code>
+                <code v-if="check.commitOid" class="oid">{{ check.commitOid.slice(0, 7) }}</code>
+                <span class="state state-bad">{{ (check.state ?? "").toLowerCase() }}</span>
+              </span>
+            </div>
           </li>
         </ul>
       </article>
@@ -251,12 +312,18 @@ function pullRepoLabel(pull: PullRow): string {
 
 .inbox-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
   align-items: start;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1400px) {
+  .inbox-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 900px) {
   .inbox-grid {
     grid-template-columns: 1fr;
   }
@@ -295,6 +362,25 @@ function pullRepoLabel(pull: PullRow): string {
   color: var(--ink);
   border: 1px solid var(--rule-light);
   padding: 0 6px;
+}
+
+.inbox-panel > header .count.alarm {
+  color: #fffdf8;
+  background: var(--accent-red, #b34040);
+  border-color: var(--accent-red, #b34040);
+}
+
+.inbox-row-static {
+  cursor: default;
+}
+
+.inbox-row .meta .oid {
+  color: var(--ink-soft);
+}
+
+.inbox-row .meta .state-bad {
+  color: var(--accent-red, #b34040);
+  font-weight: 600;
 }
 
 .inbox-empty {
