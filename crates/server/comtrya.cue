@@ -46,4 +46,10 @@ projects: kernel: {
 		defaultLabels: ["kernel"]
 		closeOnMerge:  true
 	}
+
+	epics: {
+		defaultLabels:  ["kernel"]
+		defaultStatus:  "planned"
+		requiredFields: ["title"]
+	}
 }
