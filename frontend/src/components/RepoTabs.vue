@@ -42,6 +42,7 @@ const repoPath = computed(() =>
 );
 
 const repoHomePath = computed(() => `/r/${repoPath.value}`);
+const repoCodePath = computed(() => `${repoHomePath.value}/code`);
 
 /**
  * Append `?repositoryId=<id>` when known. The extension queues
@@ -58,20 +59,19 @@ function scoped(prefix: string): string {
 
 const tabs = computed<Tab[]>(() => [
   { id: "overview", label: "Overview", to: repoHomePath.value },
-  { id: "code",     label: "Code",     to: `${repoHomePath.value}#code` },
+  { id: "code",     label: "Code",     to: repoCodePath.value },
   { id: "pulls",    label: "Pulls",    to: scoped("pulls") },
   { id: "issues",   label: "Issues",   to: scoped("issues") },
   { id: "checks",   label: "Checks",   to: scoped("checks") },
 ]);
 
 function isActive(tab: Tab): boolean {
-  // Overview is the canonical "you are on the repo home" tab,
-  // active any time `route.path` exactly matches the repo home
-  // (the trailing `#code` hash doesn't affect path). Other tabs
-  // only highlight if the route is literally on that extension
-  // AND the `?repositoryId=` matches — for now we keep it
-  // straightforward and only highlight Overview.
+  // Per-repo nested routes (Overview, Code) highlight by exact path
+  // match. Extension queues live outside the /r/ tree today, so they
+  // don't highlight on those /x/ pages; once they get true per-repo
+  // routes the same path-match rule will apply uniformly.
   if (tab.id === "overview") return route.path === repoHomePath.value;
+  if (tab.id === "code") return route.path === repoCodePath.value;
   return false;
 }
 </script>

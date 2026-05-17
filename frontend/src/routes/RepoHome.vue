@@ -5,13 +5,22 @@ import ProjectsPanel from "../components/ProjectsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import { renderMarkdown } from "@comtrya/sdk-vue";
-import { repositoryHomeSlots } from "../repository-slots";
 import { applyUserLayoutFor } from "../user-layout";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   groups: string[];
   repo: string;
-}>();
+  /**
+   * Which body to render under the persistent repo header / tabs.
+   * "overview" (default) is the README-first home; "code" mounts the
+   * `repository.main` slot (core's code browser + summary widgets).
+   * Each tab in RepoTabs maps to one of these values via a dedicated
+   * per-repo route so the URL is the source of truth, not local state.
+   */
+  view?: "overview" | "code";
+}>(), {
+  view: "overview",
+});
 
 interface RepositoryBlob {
   path: string;
@@ -400,73 +409,86 @@ async function fetchRepositoryIdentity(
   </section>
 
   <template v-if="loadState === 'ready'">
-    <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
-
-    <section
-      v-if="bookmarks.length > 0"
-      class="repo-bookmarks"
-      data-smoke="repo-bookmarks"
-      aria-label="Bookmarks"
-    >
-      <header class="repo-bookmarks-head">
-        <h2>Bookmarks</h2>
-        <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
-      </header>
-      <ul class="repo-bookmarks-list">
-        <li
-          v-for="bookmark in bookmarks"
-          :key="bookmark.name"
-          class="repo-bookmark"
-          :class="{ unresolved: bookmark.resolved === false }"
+    <!-- /r/:path → README home. Per the v3 layout direction, the home
+         is the README, not a vertical pile of every extension. Extensions
+         each own their own per-repo route — Code at /r/:path/code,
+         Issues / Pulls / Checks via RepoTabs. Projects (a kernel concept)
+         and Bookmarks (CUE-declared refs) live in a compact right rail
+         alongside the README. -->
+    <div v-if="view === 'overview'" class="repo-overview">
+      <main class="repo-overview-main">
+        <section
+          v-if="renderedReadme"
+          class="repo-readme"
+          data-smoke="repo-readme"
+          aria-label="README"
         >
-          <code>{{ bookmark.name }}</code>
-          <span
-            v-if="bookmark.label && bookmark.label !== bookmark.name"
-            class="repo-bookmark-label"
-          >{{ bookmark.label }}</span>
-          <span
-            v-if="bookmark.resolved && bookmark.commit"
-            class="repo-bookmark-commit"
-            :title="`Resolves to ${bookmark.commit}`"
-          >{{ bookmark.commit.slice(0, 7) }}</span>
-          <span
-            v-else-if="bookmark.resolved === false"
-            class="repo-bookmark-unresolved"
-            title="No ref matches this bookmark on the backing repo"
-          >unresolved</span>
-          <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
-        </li>
-      </ul>
-    </section>
+          <header class="repo-readme-head">
+            <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
+            <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
+              preview
+            </span>
+          </header>
+          <article class="repo-readme-body prose" v-html="renderedReadme" />
+        </section>
+        <section v-else class="repo-readme repo-readme-empty">
+          <p>No README at the repo root. Add one to introduce this repository.</p>
+        </section>
+      </main>
 
-    <section
-      v-if="renderedReadme"
-      class="repo-readme"
-      data-smoke="repo-readme"
-      aria-label="README"
-    >
-      <header class="repo-readme-head">
-        <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
-        <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
-          preview
-        </span>
-      </header>
-      <article class="repo-readme-body prose" v-html="renderedReadme" />
-    </section>
+      <aside class="repo-overview-rail">
+        <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
 
-    <section class="repo-slot-stack">
-      <section
-        v-for="slot in repositoryHomeSlots"
-        :id="slot.name.split('.')[1] ?? slot.name"
-        :key="slot.name"
-      >
-        <SlotMount
-          :name="slot.name"
-          :label="slot.label"
-          :element-context="repoContext"
-          smoke-prefix="repo-slot"
-        />
-      </section>
+        <section
+          v-if="bookmarks.length > 0"
+          class="repo-bookmarks"
+          data-smoke="repo-bookmarks"
+          aria-label="Bookmarks"
+        >
+          <header class="repo-bookmarks-head">
+            <h2>Bookmarks</h2>
+            <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
+          </header>
+          <ul class="repo-bookmarks-list">
+            <li
+              v-for="bookmark in bookmarks"
+              :key="bookmark.name"
+              class="repo-bookmark"
+              :class="{ unresolved: bookmark.resolved === false }"
+            >
+              <code>{{ bookmark.name }}</code>
+              <span
+                v-if="bookmark.label && bookmark.label !== bookmark.name"
+                class="repo-bookmark-label"
+              >{{ bookmark.label }}</span>
+              <span
+                v-if="bookmark.resolved && bookmark.commit"
+                class="repo-bookmark-commit"
+                :title="`Resolves to ${bookmark.commit}`"
+              >{{ bookmark.commit.slice(0, 7) }}</span>
+              <span
+                v-else-if="bookmark.resolved === false"
+                class="repo-bookmark-unresolved"
+                title="No ref matches this bookmark on the backing repo"
+              >unresolved</span>
+              <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
+            </li>
+          </ul>
+        </section>
+      </aside>
+    </div>
+
+    <!-- /r/:path/code → the code browser slot, full-width. Other
+         extensions (issues / pulls / checks / epics) take you out of
+         this layout into their own /x/<ext>?repositoryId=… routes via
+         RepoTabs. -->
+    <section v-else-if="view === 'code'" class="repo-code">
+      <SlotMount
+        name="repository.main"
+        label="Code"
+        :element-context="repoContext"
+        smoke-prefix="repo-code"
+      />
     </section>
   </template>
 </template>

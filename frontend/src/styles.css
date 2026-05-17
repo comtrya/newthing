@@ -1040,10 +1040,53 @@ kbd {
   color: var(--ink-faint);
 }
 
+.shell-app .repo-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 28px;
+  margin-top: 28px;
+  align-items: start;
+}
+
+.shell-app .repo-overview-main {
+  min-width: 0;
+}
+
+.shell-app .repo-overview-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.shell-app .repo-overview-rail .repo-bookmarks,
+.shell-app .repo-overview-rail > * {
+  margin-top: 0;
+}
+
+@media (max-width: 960px) {
+  .shell-app .repo-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.shell-app .repo-code {
+  margin-top: 28px;
+}
+
+.shell-app .repo-readme-empty {
+  padding: 20px 24px;
+  color: var(--ink-faint);
+  font-size: 13px;
+}
+
 .shell-app .repo-readme {
   margin-top: 28px;
   border: 1px solid var(--ink-rule, #d8d6cf);
   background: var(--paper, #fffdf8);
+}
+
+.shell-app .repo-overview-main .repo-readme {
+  margin-top: 0;
 }
 
 .shell-app .repo-readme-head {

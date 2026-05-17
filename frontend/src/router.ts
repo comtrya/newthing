@@ -53,6 +53,19 @@ export const shellRoutes: RouteRecordRaw[] = [
     props: projectRouteProps,
   },
   {
+    // Per-repo Code surface. Same RepoHome component, body switched
+    // to the code-browser slot via the `view` prop. Mounting one
+    // component for both routes keeps the persistent header / tabs
+    // in place across navigation without re-fetching identity.
+    path: shellRoutePaths.repoCode,
+    name: "repo-code",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "code",
+    }),
+  },
+  {
     path: shellRoutePaths.repoHome,
     name: "repo-home",
     component: RepoHome,
