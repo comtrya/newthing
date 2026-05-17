@@ -179,37 +179,48 @@ projects: [Name=string]: #Project & { name: Name }
     description?: string
 }
 
-// A single label in the repo's catalog. Three flavors:
-//   • Plain  — just a `name` (e.g. `bug`, `needs-review`).
-//   • Typed  — a `type` and `value` (e.g. type "kind", value
-//              "defect" → displays as `kind::defect`); multiple
-//              values of the same type may coexist on a thing.
-//   • Exclusive typed — same as above with `exclusive: true`;
-//              displays as `kind!!defect`; a labelled thing may
-//              carry at most one value per exclusive type.
-// Optional `color` (hex or CSS keyword) and `description` are
-// passed through to consumers so the catalog is the single
-// source of truth for label presentation.
-#Label: {
-    // Plain labels — set `name` only and leave `type` / `value`
-    // unset. `name` is what the label resolves to on the wire.
-    name?: string
+// Label catalog entries are one of three CUE types. The CUE type
+// IS the discriminator — there is no `exclusive: bool` field,
+// no `::` vs `!!` wire-syntax distinction. All scoped labels
+// (whether mutually-exclusive or not) live under `type::value` on
+// the wire; consumers read the kind from the catalog entry, not
+// from the string.
+//
+//   • #PlainLabel    — `{ name: "bug" }`. Single token.
+//   • #ScopedLabel   — `{ type: "kind", value: "ux" }`. Multiple
+//                      values of the same type may coexist on a
+//                      labelled thing.
+//   • #ExclusiveLabel — `{ type: "priority", value: "p0" }`. A
+//                      labelled thing carries AT MOST one value
+//                      per type (the catalog enforces it).
+//
+// Optional `color` and `description` apply uniformly across all
+// three.
 
-    // Typed labels — set `type` and `value`. The wire form
-    // becomes `type::value` for non-exclusive, `type!!value` for
-    // exclusive. Consumers parse the wire string; the catalog
-    // stores the structured form.
-    type?:  string
-    value?: string
-
-    // Mutual-exclusion flag for typed labels. Defaults to false
-    // (multiple values of the same type may coexist on a thing).
-    exclusive?: bool | *false
-
-    // Optional presentation hints.
+#PlainLabel: {
+    kind:         "plain"
+    name:         string
     color?:       string
     description?: string
 }
+
+#ScopedLabel: {
+    kind:         "scoped"
+    type:         string
+    value:        string
+    color?:       string
+    description?: string
+}
+
+#ExclusiveLabel: {
+    kind:         "exclusive"
+    type:         string
+    value:        string
+    color?:       string
+    description?: string
+}
+
+#Label: #PlainLabel | #ScopedLabel | #ExclusiveLabel
 
 // Top-level per-repo block. Optional — repos that omit it inherit
 // shell defaults.

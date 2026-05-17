@@ -2,24 +2,29 @@
 import { computed } from "vue";
 
 /**
- * Renders a single label as a GitLab-style pill. The label is a
- * string in one of three wire forms:
+ * Renders a single label as a GitLab-style pill.
  *
- *   • Plain:               "bug"            → one segment
- *   • Typed non-exclusive: "kind::ux"       → [type] :: [value]
- *   • Typed exclusive:     "priority!!p0"   → [type] !! [value]
+ * Wire form is always one of:
+ *   • Plain:  "bug"            → one segment, no `type::` prefix.
+ *   • Typed:  "kind::ux"       → [type] :: [value]. The same
+ *             separator is used whether the label is scoped
+ *             (multi-value) or exclusive (single-value); the
+ *             catalog entry's `kind` field is what tells
+ *             consumers which it is.
  *
- * The catalog (optional) carries per-label presentation hints
- * (color, description). When the catalog has no entry for this
- * label the pill still renders cleanly from the wire string alone
- * — the catalog only enriches.
+ * The catalog (optional) is the source of truth for label kind
+ * AND presentation hints (color, description). Without a catalog,
+ * the pill falls back to inferring `plain` vs `scoped` from the
+ * string shape and defaults the kind to scoped for typed labels.
  */
 
+export type LabelKind = "plain" | "scoped" | "exclusive";
+
 export interface LabelCatalogEntry {
+  kind?: LabelKind;
   name?: string;
   type?: string;
   value?: string;
-  exclusive?: boolean;
   color?: string;
   description?: string;
 }
@@ -34,26 +39,25 @@ const props = defineProps<{
 }>();
 
 interface Parsed {
-  kind: "plain" | "typed" | "exclusive";
+  kind: LabelKind;
   type: string;
   value: string;
 }
 
-const parsed = computed<Parsed>(() => {
-  const exclusiveSplit = props.name.split("!!");
-  if (exclusiveSplit.length === 2 && exclusiveSplit[0] && exclusiveSplit[1]) {
-    return { kind: "exclusive", type: exclusiveSplit[0], value: exclusiveSplit[1] };
-  }
-  const typedSplit = props.name.split("::");
-  if (typedSplit.length === 2 && typedSplit[0] && typedSplit[1]) {
-    return { kind: "typed", type: typedSplit[0], value: typedSplit[1] };
-  }
-  return { kind: "plain", type: "", value: props.name };
-});
-
 const entry = computed<LabelCatalogEntry | null>(() => {
   if (!props.catalog) return null;
   return props.catalog[props.name] ?? null;
+});
+
+const parsed = computed<Parsed>(() => {
+  const split = props.name.split("::");
+  const isTyped = split.length === 2 && !!split[0] && !!split[1];
+  const catalogKind = entry.value?.kind;
+  if (isTyped) {
+    const kind: LabelKind = catalogKind ?? "scoped";
+    return { kind, type: split[0]!, value: split[1]! };
+  }
+  return { kind: "plain", type: "", value: props.name };
 });
 
 const color = computed<string | null>(() => entry.value?.color ?? null);
@@ -74,9 +78,7 @@ const description = computed<string | null>(
     </template>
     <template v-else>
       <span class="label-pill-type">{{ parsed.type }}</span>
-      <span class="label-pill-sep" aria-hidden="true">{{
-        parsed.kind === "exclusive" ? "!!" : "::"
-      }}</span>
+      <span class="label-pill-sep" aria-hidden="true">::</span>
       <span class="label-pill-value">{{ parsed.value }}</span>
     </template>
   </span>

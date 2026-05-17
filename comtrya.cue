@@ -23,22 +23,26 @@ repository: {
 
 	// First-light catalog for the typed-labels primitive. The kernel
 	// owns this — any first-party or extension surface (issues, pulls,
-	// epics, repos, boards) speaks the same vocabulary.
+	// epics, repos, boards) speaks the same vocabulary. The CUE type
+	// is the discriminator: #PlainLabel / #ScopedLabel /
+	// #ExclusiveLabel. Wire form for all typed labels is `type::value`
+	// regardless of exclusivity; consumers read the kind from the
+	// catalog entry.
 	labels: [
 		// Plain labels.
-		{name: "good-first-issue", color: "#3aa676", description: "Approachable for a new contributor."},
-		{name: "needs-design", color: "#b5651d"},
+		#PlainLabel & {name: "good-first-issue", color: "#3aa676", description: "Approachable for a new contributor."},
+		#PlainLabel & {name: "needs-design", color: "#b5651d"},
 
-		// Typed non-exclusive: `kind::ux`, `kind::plumbing` (a single
-		// piece of work can be both — UX-driven plumbing).
-		{type: "kind", value: "ux", color: "#5b6ed8", description: "User-visible UX or product surface."},
-		{type: "kind", value: "plumbing", color: "#7a7a7a"},
-		{type: "kind", value: "bug", color: "#d04848"},
+		// Scoped (non-exclusive): a single piece of work can carry
+		// `kind::ux` AND `kind::plumbing` — UX-driven plumbing.
+		#ScopedLabel & {type: "kind", value: "ux", color: "#5b6ed8", description: "User-visible UX or product surface."},
+		#ScopedLabel & {type: "kind", value: "plumbing", color: "#7a7a7a"},
+		#ScopedLabel & {type: "kind", value: "bug", color: "#d04848"},
 
-		// Typed exclusive: priority is a single value per labelled
-		// thing; the catalog enforces the mutual-exclusion.
-		{type: "priority", value: "p0", exclusive: true, color: "#d04848", description: "Drop-everything."},
-		{type: "priority", value: "p1", exclusive: true, color: "#d99847"},
-		{type: "priority", value: "p2", exclusive: true, color: "#9c9c34"},
+		// Exclusive: a labelled thing carries at most one `priority`
+		// value at a time. The catalog enforces the mutual-exclusion.
+		#ExclusiveLabel & {type: "priority", value: "p0", color: "#d04848", description: "Drop-everything."},
+		#ExclusiveLabel & {type: "priority", value: "p1", color: "#d99847"},
+		#ExclusiveLabel & {type: "priority", value: "p2", color: "#9c9c34"},
 	]
 }

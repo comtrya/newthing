@@ -3489,12 +3489,15 @@ fn apply_repository_cue_overrides(
     }
 }
 
-/// Compute the wire / display name of a label entry. Plain labels
-/// use `name`; typed labels use `type::value` or `type!!value`
-/// depending on the `exclusive` flag. The result matches the string
-/// shape extensions store on labelled things.
+/// Compute the wire / display name of a label catalog entry. Plain
+/// labels use `name`; both scoped and exclusive labels use the same
+/// `type::value` wire form — exclusivity is a property of the
+/// catalog entry, not the wire string. Consumers that need to know
+/// whether a label is exclusive read the catalog by wire name.
 fn label_display_name(obj: &serde_json::Map<String, Value>) -> String {
-    if let Some(name) = obj.get("name").and_then(Value::as_str)
+    let kind = obj.get("kind").and_then(Value::as_str).unwrap_or("");
+    if kind == "plain"
+        && let Some(name) = obj.get("name").and_then(Value::as_str)
         && !name.is_empty()
     {
         return name.to_string();
@@ -3505,12 +3508,7 @@ fn label_display_name(obj: &serde_json::Map<String, Value>) -> String {
     let Some(value) = obj.get("value").and_then(Value::as_str) else {
         return String::new();
     };
-    let exclusive = obj
-        .get("exclusive")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let separator = if exclusive { "!!" } else { "::" };
-    format!("{type_name}{separator}{value}")
+    format!("{type_name}::{value}")
 }
 
 /// Walk the projected `bookmarks` array (if any) and annotate each
