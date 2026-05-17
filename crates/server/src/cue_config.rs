@@ -148,6 +148,26 @@ projects: [Name=string]: #Project & { name: Name }
 
     // Short human description, surfaced on the repo home page.
     description?: string
+
+    // A curated set of named refs the repo author wants prominent on
+    // the repo home. Maps cleanly across vcs backends: git branches,
+    // jj bookmarks, or release tags. The forge does not validate that
+    // each name resolves on the backing repo — the list is a
+    // declaration of intent, not a constraint.
+    bookmarks?: [...#Bookmark]
+}
+
+#Bookmark: {
+    // The ref name as it appears in the backing vcs (e.g. "main",
+    // "v3", "release/2026.05"). For jj-on-git this matches the
+    // bookmark name on the colocated repo.
+    name: string
+
+    // Optional short human label. Defaults to `name` at render time.
+    label?: string
+
+    // Optional one-line description of what the bookmark represents.
+    description?: string
 }
 
 // Top-level per-repo block. Optional — repos that omit it inherit

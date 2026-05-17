@@ -3462,6 +3462,9 @@ fn apply_repository_cue_overrides(
     if let Some(description) = repo_block.get("description").and_then(Value::as_str) {
         repo_obj.insert("description".to_string(), json!(description));
     }
+    if let Some(bookmarks) = repo_block.get("bookmarks").and_then(Value::as_array) {
+        repo_obj.insert("bookmarks".to_string(), Value::Array(bookmarks.clone()));
+    }
 }
 
 fn chrono_now_iso() -> String {

@@ -9,4 +9,15 @@ repository: {
 	defaultBranch: "v3"
 	vcs:           "git"
 	description:   "Comtrya — a self-hosted Git forge and product-management platform built around a Rust kernel and WIT-typed extensions."
+	bookmarks: [
+		{
+			name:        "v3"
+			label:       "v3 — live development"
+			description: "The long-lived development branch that will land as Comtrya v3."
+		},
+		{
+			name:        "main"
+			description: "Last released line. v3 is in flight against this."
+		},
+	]
 }

@@ -948,6 +948,78 @@ kbd {
   color: var(--ink-warn, #c2410c);
 }
 
+.shell-app .repo-bookmarks {
+  margin-top: 28px;
+  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--paper, #fffdf8);
+}
+
+.shell-app .repo-bookmarks-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-bookmarks-head h2 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--ink);
+}
+
+.shell-app .repo-bookmarks-count {
+  color: var(--ink-faint);
+}
+
+.shell-app .repo-bookmarks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shell-app .repo-bookmark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+}
+
+.shell-app .repo-bookmark:last-child {
+  border-bottom: none;
+}
+
+.shell-app .repo-bookmark code {
+  font-family: var(--mono);
+  font-size: 12px;
+  border: 1px solid var(--rule-light);
+  padding: 1px 6px;
+  color: var(--ink);
+}
+
+.shell-app .repo-bookmark-label {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.shell-app .repo-bookmark-description {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
 .shell-app .repo-readme {
   margin-top: 28px;
   border: 1px solid var(--ink-rule, #d8d6cf);

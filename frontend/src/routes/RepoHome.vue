@@ -19,6 +19,12 @@ interface RepositoryBlob {
   size?: number | null;
 }
 
+interface RepositoryBookmark {
+  name: string;
+  label?: string | null;
+  description?: string | null;
+}
+
 interface RepositoryIdentity {
   id: string;
   name: string;
@@ -32,6 +38,7 @@ interface RepositoryIdentity {
   openPullRequests?: number | null;
   gitHttpPath?: string | null;
   blobs?: RepositoryBlob[] | null;
+  bookmarks?: RepositoryBookmark[] | null;
 }
 
 interface RepoHomePayload {
@@ -60,6 +67,11 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
         path
         preview
         size
+      }
+      bookmarks {
+        name
+        label
+        description
       }
     }
   }
@@ -265,6 +277,10 @@ const readmeBlob = computed<RepositoryBlob | null>(() => {
   return best;
 });
 
+const bookmarks = computed<RepositoryBookmark[]>(
+  () => repository.value?.bookmarks ?? [],
+);
+
 const readmePreview = computed(() => readmeBlob.value?.preview ?? "");
 const renderedReadme = computed(() =>
   readmePreview.value ? renderMarkdown(readmePreview.value) : "",
@@ -381,6 +397,32 @@ async function fetchRepositoryIdentity(
 
   <template v-if="loadState === 'ready'">
     <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
+
+    <section
+      v-if="bookmarks.length > 0"
+      class="repo-bookmarks"
+      data-smoke="repo-bookmarks"
+      aria-label="Bookmarks"
+    >
+      <header class="repo-bookmarks-head">
+        <h2>Bookmarks</h2>
+        <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
+      </header>
+      <ul class="repo-bookmarks-list">
+        <li
+          v-for="bookmark in bookmarks"
+          :key="bookmark.name"
+          class="repo-bookmark"
+        >
+          <code>{{ bookmark.name }}</code>
+          <span
+            v-if="bookmark.label && bookmark.label !== bookmark.name"
+            class="repo-bookmark-label"
+          >{{ bookmark.label }}</span>
+          <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
+        </li>
+      </ul>
+    </section>
 
     <section
       v-if="renderedReadme"
