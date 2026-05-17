@@ -129,10 +129,14 @@ function registerNavigationCommands(router: Router): void {
 }
 
 /**
- * Two-key navigation chords: `g` followed by `h|b|i|p|n` jumps to a
- * destination. Backed by `tinykeys` for the sequence + timeout
- * semantics. tinykeys v3 fires on every keydown regardless of focus
- * target, so we explicitly skip when the user is typing in an input —
+ * Two-key navigation chords backed by `tinykeys`. Some chords are
+ * context-aware: when the user is inside a repo workbench
+ * (`/r/<groups>/<repo>/...`) the destination scopes to that repo's
+ * tab; outside a workbench they fall through to the workspace-wide
+ * equivalent (or no-op when no workspace equivalent exists).
+ *
+ * tinykeys v3 fires on every keydown regardless of focus target,
+ * so we explicitly skip when the user is typing in an input —
  * otherwise typing "go fishing" in a search box would trigger
  * `g`-then-other-letter chords.
  */
@@ -149,12 +153,43 @@ function bindGoChord(router: Router): void {
     }
     handler(event);
   };
+  /**
+   * Best-effort extractor for the `/r/<groups>/<repo>` prefix of
+   * the current route. Returns null when not on a workbench.
+   * Stops at `/p/<project>` so project routes still bubble up to
+   * the owning repo for `g i`/`g p` etc.
+   */
+  const repoBase = (): string | null => {
+    const path = router.currentRoute.value.path;
+    const match = /^(\/r\/[^/]+(?:\/[^/]+)+?)(\/(?:code|config|pulls|issues|checks|epics|p)(?:\/.*)?)?$/.exec(path);
+    return match?.[1] ?? null;
+  };
   const go = (path: string) => skipIfInInput(() => void router.push(path));
+  /**
+   * Build a chord that picks between a repo-scoped path (when on
+   * a workbench) and a fallback. The fallback may be `null` for
+   * chords that only make sense on a workbench — in that case the
+   * chord no-ops off-workbench.
+   */
+  const scoped = (suffix: string, fallback: string | null) =>
+    skipIfInInput(() => {
+      const base = repoBase();
+      if (base) {
+        void router.push(`${base}${suffix}`);
+        return;
+      }
+      if (fallback) void router.push(fallback);
+    });
   tinykeys(window, {
     "g h": go("/"),
     "g b": go("/inbox"),
-    "g i": go("/x/issues/"),
-    "g p": go("/x/pulls/"),
     "g n": go("/new"),
+    "g o": scoped("", null),
+    "g c": scoped("/code", null),
+    "g i": scoped("/issues", "/x/issues/"),
+    "g p": scoped("/pulls", "/x/pulls/"),
+    "g e": scoped("/epics", null),
+    "g k": scoped("/checks", null),
+    "g f": scoped("/config", null),
   });
 }
