@@ -15,8 +15,12 @@
  */
 
 import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { getGraphQLClient, invokeOp } from "@comtrya/sdk-core";
 import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
+
+const route = useRoute();
+const router = useRouter();
 
 interface RepoLookupRow {
   id: string;
@@ -76,22 +80,74 @@ const openIssues = computed(() =>
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
 );
 
-const openPulls = computed(() =>
-  [...pulls.value]
+/** Repo filter — read from `?repo=<repositoryId>` and apply to
+ *  the per-repo panels (pulls, checks). Issues are workspace-scoped
+ *  in this codebase so they stay unfiltered; the panel header
+ *  notes that scope when a repo is selected. */
+const selectedRepoId = computed<string | null>(() => {
+  const raw = route.query.repo;
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  return raw;
+});
+
+function setRepoFilter(repoId: string | null): void {
+  const next = { ...route.query };
+  if (repoId) {
+    next.repo = repoId;
+  } else {
+    delete next.repo;
+  }
+  void router.push({ path: "/inbox", query: next });
+}
+
+const openPulls = computed(() => {
+  const sel = selectedRepoId.value;
+  return [...pulls.value]
     .filter((p) => OPEN_PR_STATES.has((p.state ?? "").toUpperCase()))
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
-);
+    .filter((p) => !sel || p.repositoryId === sel)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+});
 
 /** Required checks currently in a failed terminal state. Required
  *  is the gating signal — non-required failures aren't actionable
  *  in the same way (they're advisory). The set composes
  *  `repository.labelCatalog` / pulls.requiredChecks intent. */
-const failingChecks = computed(() =>
-  [...checks.value]
+const failingChecks = computed(() => {
+  const sel = selectedRepoId.value;
+  return [...checks.value]
     .filter((c) => c.required === true)
     .filter((c) => FAILED_CHECK_STATES.has((c.state ?? "").toUpperCase()))
-    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
-);
+    .filter((c) => !sel || c.repositoryId === sel)
+    .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+});
+
+/**
+ * Repos that have anything to surface in the inbox right now —
+ * any open PR or any failing required check. The "All" chip is
+ * always rendered first; then one chip per repo that has at
+ * least one of those signals. A clean repo doesn't earn a chip.
+ */
+const filterRepoOptions = computed<RepoLookupRow[]>(() => {
+  const reposWithSignal = new Set<string>();
+  for (const p of pulls.value) {
+    if (
+      OPEN_PR_STATES.has((p.state ?? "").toUpperCase()) &&
+      typeof p.repositoryId === "string"
+    ) {
+      reposWithSignal.add(p.repositoryId);
+    }
+  }
+  for (const c of checks.value) {
+    if (
+      c.required === true &&
+      FAILED_CHECK_STATES.has((c.state ?? "").toUpperCase()) &&
+      typeof c.repositoryId === "string"
+    ) {
+      reposWithSignal.add(c.repositoryId);
+    }
+  }
+  return repositories.value.filter((r) => reposWithSignal.has(r.id));
+});
 
 const repoPathById = computed<Record<string, string>>(() => {
   const out: Record<string, string> = {};
@@ -190,6 +246,29 @@ function pullRepoLabel(pull: PullRow): string {
       {{ loadError }}
     </p>
 
+    <nav
+      v-if="loadState === 'ready' && filterRepoOptions.length > 0"
+      class="inbox-filter"
+      data-smoke="inbox-filter"
+      aria-label="Scope inbox by repository"
+    >
+      <span class="inbox-filter-label">scope ·</span>
+      <button
+        type="button"
+        class="inbox-filter-chip"
+        :class="{ active: !selectedRepoId }"
+        @click="setRepoFilter(null)"
+      >all</button>
+      <button
+        v-for="repo in filterRepoOptions"
+        :key="repo.id"
+        type="button"
+        class="inbox-filter-chip"
+        :class="{ active: selectedRepoId === repo.id }"
+        @click="setRepoFilter(repo.id)"
+      >{{ repo.path }}</button>
+    </nav>
+
     <section v-if="loadState !== 'error'" class="inbox-grid">
       <article class="inbox-panel" data-smoke="inbox-pulls">
         <header>
@@ -239,7 +318,10 @@ function pullRepoLabel(pull: PullRow): string {
 
       <article class="inbox-panel" data-smoke="inbox-issues">
         <header>
-          <h2>Open issues</h2>
+          <h2>
+            Open issues
+            <span v-if="selectedRepoId" class="scope-note">(workspace-scoped — not narrowed by repo filter)</span>
+          </h2>
           <span class="count">{{ openIssues.length }}</span>
         </header>
         <p v-if="loadState === 'loading'" class="inbox-empty">Loading…</p>
@@ -308,6 +390,51 @@ function pullRepoLabel(pull: PullRow): string {
 .inbox-error {
   color: var(--accent-red, #b34040);
   font-size: 13px;
+}
+
+.inbox-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.inbox-filter-label {
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.inbox-filter-chip {
+  background: transparent;
+  border: 1px solid var(--rule-light);
+  color: var(--ink-soft);
+  padding: 2px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.inbox-filter-chip:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.inbox-filter-chip.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.scope-note {
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-faint);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .inbox-grid {
