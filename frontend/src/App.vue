@@ -1,18 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
+import { openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import Breadcrumb from "./components/Breadcrumb.vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
-
-const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-
-interface IssueLite {
-  id?: string;
-  state?: string;
-}
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
@@ -43,28 +36,6 @@ const isMac =
     ? /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || "")
     : false;
 const cmdLabel = computed(() => (isMac ? "⌘" : "Ctrl"));
-
-const firstRepoPath = computed(() => workspace.value.repositories[0]?.path ?? "");
-const openPullRequestsTotal = computed(() =>
-  workspace.value.repositories.reduce(
-    (total, repo) => total + (repo.openPullRequests ?? 0),
-    0,
-  ),
-);
-const repositoryCount = computed(() => workspace.value.repositories.length);
-const repositoryWord = computed(() =>
-  repositoryCount.value === 1 ? "repository" : "repositories",
-);
-
-/**
- * Workspace-wide open-issue count. Hydrated once at boot via the
- * ext_issues list-issues op, then kept live by subscribing to the
- * SSE topics that mutate it. Surfaces as a badge on the Issues nav
- * item (mirroring the PR badge driven by `openPullRequests` on the
- * workspace repository summary).
- */
-const openIssuesTotal = ref(0);
-const issueUnsubscribers: Array<() => void> = [];
 
 const route = useRoute();
 const router = useRouter();
@@ -144,80 +115,42 @@ function queryFromSearch(search: string): Record<string, string> {
   return out;
 }
 
-const navItems = computed(() => {
-  const items: Array<{
-    to: string;
-    number: string;
-    label: string;
-    badge?: string;
-    disabled?: boolean;
-  }> = [
-    { to: "/", number: "01", label: "Home" },
-  ];
-  if (firstRepoPath.value) {
-    items.push({
-      to: `/r/${firstRepoPath.value}`,
-      number: "02",
-      label: "Repository",
-    });
-  } else {
-    items.push({
-      to: "/new",
-      number: "02",
-      label: "Repository",
-      disabled: true,
-    });
-  }
-  items.push({
-    to: "/x/issues/",
-    number: "03",
-    label: "Issues",
-    badge: openIssuesTotal.value > 0 ? String(openIssuesTotal.value) : undefined,
-  });
-  items.push({
-    to: "/x/pulls/",
-    number: "04",
-    label: "Pull requests",
-    badge: openPullRequestsTotal.value > 0 ? String(openPullRequestsTotal.value) : undefined,
-  });
-  items.push({ to: "/new", number: "+", label: "New repository" });
-  items.push({ to: "/instance", number: "05", label: "Instance" });
-  return items;
+/**
+ * Repos sorted by path for stable ordering. The list is the main
+ * content of the rebuilt sidebar — every repo gets a one-click entry
+ * point with a PR-count badge when there is open work. The first-
+ * party `firstRepoPath` shortcut, the workspace-wide `/x/issues`
+ * link, and the numbered nav lines are gone: the value-test rule
+ * said the old chrome wasn't earning its place.
+ */
+const sortedRepositories = computed(() =>
+  [...workspace.value.repositories].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  ),
+);
+
+/**
+ * Currently-viewed repo path, computed from the route params so we
+ * highlight the matching entry in the sidebar list. Falls back to
+ * null on non-repo routes.
+ */
+const activeRepoPath = computed<string | null>(() => {
+  const groupsParam = route.params.groups;
+  const repoParam = route.params.repo;
+  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
+  const groups = Array.isArray(groupsParam)
+    ? groupsParam.map(String)
+    : typeof groupsParam === "string" && groupsParam.length > 0
+      ? [groupsParam]
+      : [];
+  if (groups.length === 0) return null;
+  return `${groups.join("/")}/${repoParam}`;
 });
 
 const shortcutsVisible = ref(false);
 
-async function refreshOpenIssuesTotal(): Promise<void> {
-  const result = await invokeOp<IssueLite[]>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: WORKSPACE_URI, limit: 1024 },
-  );
-  if (!result.ok) return;
-  const issues = Array.isArray(result.value) ? result.value : [];
-  openIssuesTotal.value = issues.filter((i) => {
-    const state = (i.state ?? "").toUpperCase();
-    return state === "OPEN" || state === "REOPENED";
-  }).length;
-}
-
 onMounted(() => {
   void loadShellSummary();
-  void refreshOpenIssuesTotal();
-  for (const type of [
-    "dev.comtrya.issues.opened",
-    "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened",
-  ]) {
-    issueUnsubscribers.push(
-      subscribeLiveEvents({
-        type,
-        onEvent: () => void refreshOpenIssuesTotal(),
-        onError: () => {},
-      }),
-    );
-  }
   const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
   if (!token) {
     liveState.value = "idle";
@@ -240,8 +173,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   unsubscribeLiveEvents?.();
-  for (const off of issueUnsubscribers) off();
-  issueUnsubscribers.length = 0;
 });
 
 useShortcuts({
@@ -319,28 +250,55 @@ async function loadShellSummary(): Promise<void> {
     </header>
 
     <div class="layout">
-      <aside class="sidebar">
-        <div class="workspace">
-          <h4>Workspace</h4>
+      <aside class="sidebar" data-smoke="sidebar">
+        <header class="sb-workspace">
+          <span class="sb-overline">Workspace</span>
           <strong>{{ workspace.name }}</strong>
-          <div class="meta">{{ repositoryCount }} {{ repositoryWord }} / single-tenant</div>
-        </div>
+        </header>
 
-        <div>
-          <h4>Shell routes</h4>
-          <nav class="nav" aria-label="Shell routes">
+        <nav class="sb-nav-primary" aria-label="Workspace">
+          <RouterLink
+            to="/"
+            class="sb-link"
+            :class="{ 'sb-link-active': route.path === '/' }"
+          >Home</RouterLink>
+        </nav>
+
+        <section class="sb-section sb-repos" aria-label="Repositories">
+          <header class="sb-section-head">
+            <span class="sb-overline">Repositories</span>
             <RouterLink
-              v-for="item in navItems"
-              :key="item.to + item.label"
-              :to="item.to"
-              :class="{ disabled: item.disabled }"
+              to="/new"
+              class="sb-icon-link"
+              title="New repository"
+              aria-label="New repository"
+            >+</RouterLink>
+          </header>
+          <nav v-if="sortedRepositories.length > 0" class="sb-repo-list">
+            <RouterLink
+              v-for="repo in sortedRepositories"
+              :key="repo.id"
+              :to="`/r/${repo.path}`"
+              class="sb-repo"
+              :class="{ 'sb-repo-active': activeRepoPath === repo.path }"
+              :title="repo.path"
             >
-              <span class="num">{{ item.number }}</span>
-              <span class="label-text">{{ item.label }}</span>
-              <span v-if="item.badge" class="badge">{{ item.badge }}</span>
+              <span class="sb-repo-path">{{ repo.path }}</span>
+              <span
+                v-if="(repo.openPullRequests ?? 0) > 0"
+                class="sb-repo-badge"
+                title="open pull requests"
+              >{{ repo.openPullRequests }}</span>
             </RouterLink>
           </nav>
-        </div>
+          <p v-else class="sb-empty">No repositories yet.</p>
+        </section>
+
+        <nav class="sb-nav-footer" aria-label="Admin">
+          <RouterLink to="/instance" class="sb-faint">Instance</RouterLink>
+          <RouterLink to="/health" class="sb-faint">Health</RouterLink>
+          <RouterLink to="/settings" class="sb-faint">Settings</RouterLink>
+        </nav>
       </aside>
 
       <main class="page" @click="onPageClick">
