@@ -185,6 +185,38 @@ async function copyClone(): Promise<void> {
 const openIssues = ref(0);
 const issueUnsubscribers: Array<() => void> = [];
 
+/**
+ * Per-repo count of required checks currently failing. Surfaces
+ * in the chip row with the alarm tone when > 0 — the chip stays
+ * hidden otherwise so a healthy repo doesn't drag the strip
+ * around. Symmetric with the failing-checks panel on the Inbox.
+ */
+const failingChecks = ref(0);
+
+async function refreshFailingChecks(): Promise<void> {
+  const repoId = repository.value?.id;
+  const ws = workspaceId.value;
+  if (!repoId || !ws) {
+    failingChecks.value = 0;
+    return;
+  }
+  const result = await invokeOp<
+    Array<{ state?: string; required?: boolean }>
+  >("ext_checks", "checks", "list-checks", {
+    repository: `comtrya://workspace/${ws}/repository/${repoId}`,
+    limit: 256,
+  });
+  if (!result.ok || !Array.isArray(result.value)) {
+    failingChecks.value = 0;
+    return;
+  }
+  failingChecks.value = result.value.filter((c) => {
+    if (c.required !== true) return false;
+    const s = (c.state ?? "").toUpperCase();
+    return s === "FAILURE" || s === "FAILED";
+  }).length;
+}
+
 async function refreshOpenIssues(): Promise<void> {
   const repoId = repository.value?.id;
   const ws = workspaceId.value;
@@ -238,8 +270,11 @@ onUnmounted(teardownIssueListeners);
 interface Chip {
   label: string;
   value: string;
-  tone?: "ink" | "muted" | "warn" | "good";
+  tone?: "ink" | "muted" | "warn" | "good" | "alarm";
   title?: string;
+  /** Optional workbench destination — when set, the chip renders
+   *  as a `<RouterLink>` so the count is also a one-click drill-in. */
+  to?: string;
 }
 
 function relativeUpdated(value: string | null | undefined): string | null {
@@ -287,17 +322,29 @@ const repoChips = computed<Chip[]>(() => {
     tone: vcs === "jj" ? "ink" : "muted",
     title: `version control · ${vcs}`,
   });
+  const repoBase = `/r/${repoPath.value}`;
+  if (failingChecks.value > 0) {
+    chips.push({
+      label: failingChecks.value === 1 ? "failing check" : "failing checks",
+      value: String(failingChecks.value),
+      tone: "alarm",
+      to: `${repoBase}/checks`,
+      title: "Required checks currently failing on this repo.",
+    });
+  }
   const prs = repository.value?.openPullRequests ?? 0;
   chips.push({
     label: prs === 1 ? "open PR" : "open PRs",
     value: String(prs),
     tone: prs > 0 ? "ink" : "muted",
+    to: `${repoBase}/pulls`,
   });
   const open = openIssues.value;
   chips.push({
     label: open === 1 ? "open issue" : "open issues",
     value: String(open),
     tone: open > 0 ? "ink" : "muted",
+    to: `${repoBase}/issues`,
   });
   const updated = relativeUpdated(repository.value?.updated ?? null);
   if (updated) {
@@ -384,10 +431,12 @@ watch(
       await applyUserLayoutFor(identity.repository?.id ?? null);
       if (identity.repository && identity.workspaceId) {
         void refreshOpenIssues();
+        void refreshFailingChecks();
         setupIssueListeners();
       } else {
         teardownIssueListeners();
         openIssues.value = 0;
+        failingChecks.value = 0;
       }
     } catch (error) {
       if (controller.signal.aborted) return;
@@ -424,15 +473,25 @@ async function fetchRepositoryIdentity(
       {{ repository.description }}
     </p>
     <div class="repo-chip-row" aria-label="Repository at a glance">
-      <span
-        v-for="chip in repoChips"
-        :key="chip.label"
-        :class="['repo-chip', `tone-${chip.tone ?? 'ink'}`]"
-        :title="chip.title ?? `${chip.label} · ${chip.value}`"
-      >
-        <strong>{{ chip.value }}</strong>
-        <span>{{ chip.label }}</span>
-      </span>
+      <template v-for="chip in repoChips" :key="chip.label">
+        <RouterLink
+          v-if="chip.to"
+          :to="chip.to"
+          :class="['repo-chip', 'repo-chip-link', `tone-${chip.tone ?? 'ink'}`]"
+          :title="chip.title ?? `${chip.label} · ${chip.value}`"
+        >
+          <strong>{{ chip.value }}</strong>
+          <span>{{ chip.label }}</span>
+        </RouterLink>
+        <span
+          v-else
+          :class="['repo-chip', `tone-${chip.tone ?? 'ink'}`]"
+          :title="chip.title ?? `${chip.label} · ${chip.value}`"
+        >
+          <strong>{{ chip.value }}</strong>
+          <span>{{ chip.label }}</span>
+        </span>
+      </template>
     </div>
     <div
       v-if="cloneCommand"

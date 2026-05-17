@@ -1080,6 +1080,30 @@ kbd {
   color: var(--ink-warn, #c2410c);
 }
 
+.shell-app .repo-chip.tone-alarm {
+  background: var(--accent-red, #b34040);
+  border-color: var(--accent-red, #b34040);
+  color: #fffdf8;
+}
+
+.shell-app .repo-chip.tone-alarm strong,
+.shell-app .repo-chip.tone-alarm span {
+  color: #fffdf8;
+}
+
+.shell-app .repo-chip-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.shell-app .repo-chip-link:hover {
+  border-color: var(--ink);
+}
+
+.shell-app .repo-chip-link.tone-alarm:hover {
+  filter: brightness(0.92);
+}
+
 .label-pill {
   --label-color: var(--ink-faint);
   display: inline-flex;
