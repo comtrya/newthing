@@ -518,23 +518,22 @@ async function onClose(): Promise<void> {
             role="option"
             @mouseenter="focusedLinkedIdx = idx"
           >
-            <a :href="issueHref(issue)">
+            <a :href="issueHref(issue)" class="issue-link">
               <span class="issue-num">
                 <template v-if="issue.number !== null">#{{ issue.number }}</template>
                 <template v-else>issue</template>
               </span>
               <span class="issue-title">{{ issue.title }}</span>
-              <a
-                v-if="issue.projectName"
-                class="issue-project"
-                :href="projectHref(issue.projectName)"
-                :title="`Filter to project ${issue.projectName}`"
-                @click.stop
-              >◇ {{ issue.projectName }}</a>
-              <span :class="['issue-state', issueStateClass(issue.state)]">
-                {{ issue.state.toLowerCase() }}
-              </span>
             </a>
+            <a
+              v-if="issue.projectName"
+              class="issue-project"
+              :href="projectHref(issue.projectName)"
+              :title="`Filter to project ${issue.projectName}`"
+            >◇ {{ issue.projectName }}</a>
+            <span :class="['issue-state', issueStateClass(issue.state)]">
+              {{ issue.state.toLowerCase() }}
+            </span>
           </li>
         </ul>
         <footer v-if="linkedIssues.length > 0" class="pulls-linked-foot">
@@ -978,29 +977,27 @@ async function onClose(): Promise<void> {
 
 .pulls-linked-issues li {
   position: relative;
-}
-
-.pulls-linked-issues li.focused {
-  box-shadow: inset 3px 0 0 var(--ink, #111);
-}
-
-.pulls-linked-issues li.focused a {
-  background: var(--paper-tint, #f2efe7);
-}
-
-.pulls-linked-issues li a {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   gap: 12px;
   align-items: baseline;
   padding: 8px 10px;
-  color: inherit;
-  text-decoration: none;
   border-bottom: 1px solid var(--rule-light, #d8d1c4);
 }
 
-.pulls-linked-issues li:last-child a {
+.pulls-linked-issues li:last-child {
   border-bottom: 0;
+}
+
+.pulls-linked-issues li.focused {
+  box-shadow: inset 3px 0 0 var(--ink, #111);
+  background: var(--paper-tint, #f2efe7);
+}
+
+.pulls-linked-issues li .issue-link {
+  display: contents;
+  color: inherit;
+  text-decoration: none;
 }
 
 .pulls-linked-issues .issue-project {
