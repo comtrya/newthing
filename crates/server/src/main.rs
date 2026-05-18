@@ -26,6 +26,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 
 mod cue_config;
+mod oidc;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -156,6 +157,11 @@ fn router(state: AppState) -> Router {
         .route("/events", get(events))
         .route("/events/session", post(events_session))
         .route("/auth/token-exchange", post(token_exchange))
+        .route("/auth/oidc/:provider/login", get(oidc_login))
+        .route(
+            "/auth/oidc/:provider/callback",
+            get(oidc_callback_not_implemented),
+        )
         .route("/auth/oidc/*path", any(unsupported_route))
         .route("/_extensions/session", post(extension_session))
         .route(
@@ -261,6 +267,8 @@ struct Runtime {
     credentials: Mutex<HashMap<String, CredentialRecord>>,
     rate_limits: Mutex<HashMap<(String, u64), u32>>,
     token_counter: AtomicU64,
+    oidc_sessions: oidc::OidcSessionStore,
+    oidc_discovery: oidc::OidcDiscoveryCache,
 }
 
 #[derive(Debug, Clone)]
@@ -385,6 +393,8 @@ impl Runtime {
             credentials: Mutex::new(HashMap::new()),
             rate_limits: Mutex::new(HashMap::new()),
             token_counter: AtomicU64::new(0),
+            oidc_sessions: oidc::OidcSessionStore::new(),
+            oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
         };
         runtime
             .wasm_registry
@@ -1513,11 +1523,12 @@ struct UnsupportedSurface {
 }
 
 const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
-    UnsupportedSurface {
-        id: "oidc_browser_callback",
-        path_prefix: "/auth/oidc/",
-        message: "full OIDC browser callback validation is not implemented in the production-testbed runtime",
-    },
+    // OIDC login redirect now ships as a real handler at
+    // `/auth/oidc/:provider/login`. The callback at
+    // `/auth/oidc/:provider/callback` returns 501 directly from its
+    // own handler, so no `UNSUPPORTED_SURFACES` entry is needed for
+    // OIDC. The catch-all `/auth/oidc/*path` fallback handler still
+    // exists but no longer serves the login/callback paths.
     UnsupportedSurface {
         id: "git_receive_pack",
         path_prefix: "/git/",
@@ -2771,6 +2782,171 @@ async fn token_exchange(
             "expiresIn": 300,
             "scope": request.requested_actions,
             "resource": request.requested_resource
+        }),
+        cors,
+    )
+}
+
+async fn oidc_login(
+    State(state): State<AppState>,
+    AxumPath(provider): AxumPath<String>,
+    headers: HeaderMap,
+) -> Response {
+    let route = format!("/auth/oidc/{provider}/login");
+    let cors = match state.runtime.check_boundary(&headers, &route) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+
+    // Every error return AFTER `cors` is obtained must pass `cors` through,
+    // else cross-origin browsers see an opaque CORS failure instead of the
+    // 4xx/5xx body.
+    let err = |status: StatusCode, code: &str, msg: &str| -> Response {
+        json_response(
+            status,
+            json!({"errors": [{"message": msg, "extensions": {"code": code}}]}),
+            cors.clone(),
+        )
+    };
+
+    let issuer = match state
+        .runtime
+        .config
+        .oidc_issuers
+        .iter()
+        .find(|i| i.id == provider)
+    {
+        Some(i) => i.clone(),
+        None => {
+            return err(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                &format!("unknown OIDC provider: {provider}"),
+            );
+        }
+    };
+
+    // Parse redirect URL eagerly — config validation doesn't call
+    // RedirectUrl::new, so a malformed URL would blow up inside the
+    // builder chain.
+    let redirect_uri = match openidconnect::RedirectUrl::new(issuer.redirect_url.clone()) {
+        Ok(u) => u,
+        Err(e) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::ConfigInvalid.as_str(),
+                &format!("invalid OIDC redirect_url in config: {e}"),
+            );
+        }
+    };
+
+    let metadata = match state
+        .runtime
+        .oidc_discovery
+        .get_or_fetch(&issuer.id, &issuer.issuer_url)
+        .await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            // Discovery endpoint unreachable / returned non-JSON / etc.
+            // `StorageUnavailable` is the closest existing `ErrorCode` —
+            // semantically "an upstream we depend on isn't responding."
+            return err(
+                StatusCode::BAD_GATEWAY,
+                ErrorCode::StorageUnavailable.as_str(),
+                &format!("OIDC discovery failed: {e}"),
+            );
+        }
+    };
+
+    let client = openidconnect::core::CoreClient::from_provider_metadata(
+        metadata,
+        openidconnect::ClientId::new(issuer.client_id.clone()),
+        issuer
+            .client_secret
+            .clone()
+            .map(openidconnect::ClientSecret::new),
+    )
+    .set_redirect_uri(redirect_uri);
+
+    let (challenge, verifier) = openidconnect::PkceCodeChallenge::new_random_sha256();
+    let (auth_url, csrf_token, nonce) = client
+        .authorize_url(
+            openidconnect::AuthenticationFlow::<openidconnect::core::CoreResponseType>::AuthorizationCode,
+            openidconnect::CsrfToken::new_random,
+            openidconnect::Nonce::new_random,
+        )
+        .add_scope(openidconnect::Scope::new("email".to_string()))
+        .add_scope(openidconnect::Scope::new("profile".to_string()))
+        .set_pkce_challenge(challenge)
+        .url();
+
+    // Capture `now` once so the session's created_at matches the
+    // eviction cutoff exactly — guards against the (very unlikely)
+    // case of the system clock advancing between two adjacent
+    // `now_seconds()` calls.
+    let now = now_seconds();
+    if state
+        .runtime
+        .oidc_sessions
+        .insert(
+            csrf_token.secret().clone(),
+            oidc::OidcLoginSession {
+                provider_id: issuer.id.clone(),
+                pkce_verifier: verifier,
+                nonce,
+                created_at_secs: now,
+            },
+            now,
+        )
+        .is_err()
+    {
+        return err(
+            StatusCode::TOO_MANY_REQUESTS,
+            ErrorCode::RateLimited.as_str(),
+            "too many in-flight OIDC logins; try again",
+        );
+    }
+
+    // `auth_url` is built from the IdP's discovered authorization
+    // endpoint — operator-trust-boundary input, not entirely under our
+    // control. Avoid panicking on a non-ASCII char in the URL: an
+    // operator who misconfigures `issuer_url` to a path with extended
+    // characters would otherwise crash the async task.
+    let location = match HeaderValue::from_str(auth_url.as_str()) {
+        Ok(v) => v,
+        Err(_) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::ConfigInvalid.as_str(),
+                "OIDC authorization endpoint URL is not a valid HTTP header value",
+            );
+        }
+    };
+    let mut response = Response::new(axum::body::Body::empty());
+    *response.status_mut() = StatusCode::FOUND;
+    response
+        .headers_mut()
+        .insert(axum::http::header::LOCATION, location);
+    response.headers_mut().extend(cors);
+    response
+}
+
+async fn oidc_callback_not_implemented(
+    State(state): State<AppState>,
+    AxumPath(provider): AxumPath<String>,
+    headers: HeaderMap,
+) -> Response {
+    let route = format!("/auth/oidc/{provider}/callback");
+    let cors = match state.runtime.check_boundary(&headers, &route) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    json_response(
+        StatusCode::NOT_IMPLEMENTED,
+        json!({
+            "code": "UNSUPPORTED",
+            "message": "OIDC callback verification not yet implemented; tracked as a follow-up on #16",
         }),
         cors,
     )
@@ -6579,33 +6755,205 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn unsupported_routes_return_registry_errors() {
-        let state = AppState {
-            runtime: dev_runtime_no_extensions(),
-            git_state: PureRustGitState::test_default(),
+    // Deleted: `unsupported_routes_return_registry_errors`. Its only loop
+    // arm targeted `/auth/oidc/prod/callback` against the
+    // `oidc_browser_callback` surface, which was removed from
+    // `UNSUPPORTED_SURFACES` in this PR. The callback now returns 501
+    // directly from `oidc_callback_not_implemented`; that contract is
+    // covered by `oidc_callback_handler_returns_501_not_implemented`
+    // below. No coverage lost.
+
+    // ---- OIDC scaffolding handler tests (#16) ----
+
+    /// Mock that returns a pre-built `CoreProviderMetadata` instead of
+    /// fetching one over HTTP. Lets handler tests run without network.
+    struct MockOidcMetadataProvider {
+        metadata: openidconnect::core::CoreProviderMetadata,
+    }
+
+    #[async_trait::async_trait]
+    impl oidc::OidcMetadataProvider for MockOidcMetadataProvider {
+        async fn fetch(
+            &self,
+            _issuer_url: &str,
+        ) -> Result<openidconnect::core::CoreProviderMetadata, String> {
+            Ok(self.metadata.clone())
+        }
+    }
+
+    fn mock_provider_metadata() -> openidconnect::core::CoreProviderMetadata {
+        use openidconnect::core::{
+            CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreResponseType,
+            CoreSubjectIdentifierType,
         };
+        use openidconnect::{
+            AuthUrl, EmptyAdditionalProviderMetadata, IssuerUrl, JsonWebKeySetUrl, ResponseTypes,
+        };
+        CoreProviderMetadata::new(
+            IssuerUrl::new("https://issuer.example.test".to_string()).unwrap(),
+            AuthUrl::new("https://issuer.example.test/authorize".to_string()).unwrap(),
+            JsonWebKeySetUrl::new("https://issuer.example.test/jwks".to_string()).unwrap(),
+            vec![ResponseTypes::new(vec![CoreResponseType::Code])],
+            vec![CoreSubjectIdentifierType::Public],
+            vec![CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256],
+            EmptyAdditionalProviderMetadata {},
+        )
+    }
 
-        for (path, expected_surface) in [("/auth/oidc/prod/callback", "oidc_browser_callback")] {
-            let response = unsupported_route(
-                State(state.clone()),
-                HeaderMap::new(),
-                Uri::from_static(path),
-            )
-            .await;
+    fn dev_runtime_with_oidc_mock() -> Arc<Runtime> {
+        let mut runtime = dev_runtime_no_extensions();
+        let inner = Arc::get_mut(&mut runtime).expect("unique Arc on fresh runtime");
+        inner.oidc_discovery = oidc::OidcDiscoveryCache::new(Box::new(MockOidcMetadataProvider {
+            metadata: mock_provider_metadata(),
+        }));
+        runtime
+    }
 
-            assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
-            let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-            let payload = serde_json::from_slice::<Value>(&body).unwrap();
-            assert_eq!(
-                payload["errors"][0]["extensions"]["code"],
-                ErrorCode::Unsupported.as_str()
-            );
-            assert_eq!(
-                payload["errors"][0]["extensions"]["surface"],
-                expected_surface
+    fn origin_header_map() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("origin", HeaderValue::from_static("http://localhost:4321"));
+        h
+    }
+
+    #[tokio::test]
+    async fn oidc_login_unknown_provider_returns_404() {
+        let runtime = dev_runtime_with_oidc_mock();
+        let response = oidc_login(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath("nonexistent".to_string()),
+            origin_header_map(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            response
+                .headers()
+                .contains_key("access-control-allow-origin"),
+            "404 must preserve CORS so browser can read error body, not see opaque CORS failure",
+        );
+    }
+
+    #[tokio::test]
+    async fn oidc_login_known_provider_redirects_to_idp() {
+        let runtime = dev_runtime_with_oidc_mock();
+        // `minimal_dev()` config has one issuer with id "dev".
+        let provider = runtime.config.oidc_issuers[0].id.clone();
+        let response = oidc_login(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath(provider),
+            origin_header_map(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::FOUND);
+        let location = response
+            .headers()
+            .get(axum::http::header::LOCATION)
+            .expect("Location header set")
+            .to_str()
+            .unwrap()
+            .to_string();
+        // Mock metadata sets the auth endpoint to issuer.example.test/authorize.
+        assert!(
+            location.starts_with("https://issuer.example.test/authorize?"),
+            "Location must redirect to IdP authorization endpoint: {location}",
+        );
+        // The redirect URL must carry the required OIDC query params.
+        for expected in [
+            "client_id=",
+            "redirect_uri=",
+            "response_type=code",
+            "scope=openid",
+            "state=",
+            "nonce=",
+            "code_challenge=",
+            "code_challenge_method=S256",
+        ] {
+            assert!(
+                location.contains(expected),
+                "missing {expected} in {location}",
             );
         }
+        assert!(
+            response
+                .headers()
+                .contains_key("access-control-allow-origin"),
+            "302 must preserve CORS",
+        );
+
+        // Verify state was inserted into the session store.
+        let state_value = location
+            .split('?')
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .find(|kv| kv.starts_with("state="))
+            .unwrap()
+            .trim_start_matches("state=");
+        // The state in the URL is URL-encoded; decode minimally for the lookup.
+        let decoded_state = percent_decode_in_test(state_value);
+        assert_eq!(
+            runtime.oidc_sessions.len(),
+            1,
+            "exactly one in-flight session after login",
+        );
+        assert!(
+            runtime.oidc_sessions.take(&decoded_state).is_some(),
+            "session keyed on the state token from the redirect",
+        );
+    }
+
+    /// Minimal URL-decoder for the test's purposes (state token is base64
+    /// URL-safe so often unchanged, but `%2B` etc may appear). Tests
+    /// shouldn't pull a whole urlencoding crate in just for this.
+    fn percent_decode_in_test(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let bytes = s.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                if let (Some(h), Some(l)) = (hi, lo) {
+                    out.push(((h * 16 + l) as u8) as char);
+                    i += 3;
+                    continue;
+                }
+            }
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn oidc_callback_handler_returns_501_not_implemented() {
+        let runtime = dev_runtime_with_oidc_mock();
+        let response = oidc_callback_not_implemented(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath("dev".to_string()),
+            origin_header_map(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(payload["code"], "UNSUPPORTED");
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap()
+                .contains("not yet implemented"),
+        );
     }
 
     #[tokio::test]
