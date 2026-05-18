@@ -46,6 +46,14 @@ const COMMENTS_CREATE_MUTATION = `mutation($input: CommentsCreateInput!) {
   comments.create(input: $input) { id target authorRef bodyMarkdown createdAt }
 }`;
 
+const COMMENTS_UPDATE_MUTATION = `mutation($input: CommentsUpdateInput!) {
+  comments.update(input: $input) { id target authorRef bodyMarkdown createdAt editedAt }
+}`;
+
+const COMMENTS_DELETE_MUTATION = `mutation($input: CommentsDeleteInput!) {
+  comments.delete(input: $input)
+}`;
+
 function parseInstant(value: string): number {
   // Kernel emits comment timestamps in the `@<seconds>` form (Rust
   // `chrono::DateTime::display` epoch shortcut). Accept that AND
@@ -123,10 +131,11 @@ class ComtryaCommentThread extends HTMLElement {
     status.textContent = "Loading comments…";
     this.append(status);
 
+    const host = this;
     this.append(buildComposer(target, async (body) => {
-      const created = await this.postComment(target, body);
+      const created = await host.postComment(target, body);
       if (created) {
-        appendCommentRow(list, created);
+        appendCommentRow(list, created, host);
         // Status reverts to empty if the list now has entries
         status.remove();
       }
@@ -153,7 +162,7 @@ class ComtryaCommentThread extends HTMLElement {
         return;
       }
       status.remove();
-      for (const comment of comments) appendCommentRow(list, comment);
+      for (const comment of comments) appendCommentRow(list, comment, this);
     } catch (err) {
       status.textContent = `Failed to load comments: ${err instanceof Error ? err.message : String(err)}`;
       status.classList.add("warn");
@@ -174,6 +183,40 @@ class ComtryaCommentThread extends HTMLElement {
       return null;
     }
   }
+
+  /**
+   * Server-side edit. Returns the updated comment for in-place
+   * row replacement on success, `null` on failure.
+   */
+  async updateComment(id: string, bodyMarkdown: string): Promise<Comment | null> {
+    const client = extensionClient();
+    if (!client) return null;
+    try {
+      const data = await client.mutate<{
+        comments?: { update?: Comment | null } | null;
+      }>(COMMENTS_UPDATE_MUTATION, {
+        input: { id, bodyMarkdown },
+      });
+      return data.comments?.update ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Idempotent delete — kernel returns `was-absent` on a missing id.
+   * We trust the mutation result and remove the row optimistically.
+   */
+  async deleteComment(id: string): Promise<boolean> {
+    const client = extensionClient();
+    if (!client) return false;
+    try {
+      await client.mutate(COMMENTS_DELETE_MUTATION, { input: { id } });
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function emptyState(message: string): HTMLElement {
@@ -183,7 +226,11 @@ function emptyState(message: string): HTMLElement {
   return p;
 }
 
-function appendCommentRow(list: HTMLElement, comment: Comment): void {
+function appendCommentRow(
+  list: HTMLElement,
+  comment: Comment,
+  host: ComtryaCommentThread,
+): void {
   const li = document.createElement("li");
   li.className = "comment-row";
   li.dataset.commentId = comment.id;
@@ -221,14 +268,132 @@ function appendCommentRow(list: HTMLElement, comment: Comment): void {
     time.title = comment.createdAt;
     meta.append(time);
   }
+  if (comment.editedAt) {
+    const edited = document.createElement("span");
+    edited.className = "comment-edited-marker";
+    edited.textContent = "edited";
+    edited.title = `Edited at ${comment.editedAt}`;
+    meta.append(edited);
+  }
+
+  const actions = document.createElement("span");
+  actions.className = "comment-actions";
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "comment-action";
+  editBtn.dataset.smoke = "comment-action-edit";
+  editBtn.textContent = "edit";
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "comment-action";
+  deleteBtn.dataset.smoke = "comment-action-delete";
+  deleteBtn.textContent = "delete";
+  actions.append(editBtn, deleteBtn);
+  meta.append(actions);
   li.append(meta);
 
+  let currentBody = comment.bodyMarkdown ?? "";
   const body = document.createElement("div");
   body.className = "comment-body prose";
-  body.innerHTML = renderMarkdown(comment.bodyMarkdown ?? "");
+  body.innerHTML = renderMarkdown(currentBody);
   li.append(body);
 
+  editBtn.addEventListener("click", () => {
+    enterEditMode(li, body, currentBody, async (next) => {
+      const updated = await host.updateComment(comment.id, next);
+      if (!updated) return false;
+      currentBody = updated.bodyMarkdown ?? next;
+      body.innerHTML = renderMarkdown(currentBody);
+      if (updated.editedAt && !meta.querySelector(".comment-edited-marker")) {
+        const edited = document.createElement("span");
+        edited.className = "comment-edited-marker";
+        edited.textContent = "edited";
+        edited.title = `Edited at ${updated.editedAt}`;
+        actions.before(edited);
+      }
+      return true;
+    });
+  });
+
+  deleteBtn.addEventListener("click", async () => {
+    if (!window.confirm("Delete this comment?")) return;
+    const ok = await host.deleteComment(comment.id);
+    if (ok) li.remove();
+  });
+
   list.append(li);
+}
+
+function enterEditMode(
+  li: HTMLElement,
+  body: HTMLElement,
+  originalMarkdown: string,
+  save: (next: string) => Promise<boolean>,
+): void {
+  if (li.dataset.editing === "true") return;
+  li.dataset.editing = "true";
+  const textarea = document.createElement("textarea");
+  textarea.className = "comment-edit-textarea";
+  textarea.rows = Math.max(3, originalMarkdown.split("\n").length);
+  textarea.value = originalMarkdown;
+
+  const controls = document.createElement("div");
+  controls.className = "comment-edit-controls";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.textContent = "Save";
+  saveBtn.className = "comment-edit-save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.className = "comment-edit-cancel";
+  controls.append(saveBtn, cancelBtn);
+
+  body.replaceWith(textarea, controls);
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  const restoreBody = (markdown: string): void => {
+    body.innerHTML = renderMarkdown(markdown);
+    controls.replaceWith(body);
+    textarea.remove();
+    delete li.dataset.editing;
+  };
+
+  cancelBtn.addEventListener("click", () => restoreBody(originalMarkdown));
+
+  saveBtn.addEventListener("click", async () => {
+    const next = textarea.value.trim();
+    if (next.length === 0 || next === originalMarkdown) {
+      restoreBody(originalMarkdown);
+      return;
+    }
+    saveBtn.disabled = true;
+    const ok = await save(next);
+    saveBtn.disabled = false;
+    if (!ok) {
+      saveBtn.textContent = "Save (retry)";
+      return;
+    }
+    // body's innerHTML was updated by `save`; remove the editor
+    controls.replaceWith(body);
+    textarea.remove();
+    delete li.dataset.editing;
+  });
+
+  // Cmd/Ctrl-Enter to save while editing — same chord as the
+  // composer. Plain Enter keeps newline behaviour.
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      restoreBody(originalMarkdown);
+      return;
+    }
+    if (event.key !== "Enter") return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    event.preventDefault();
+    saveBtn.click();
+  });
 }
 
 function buildComposer(

@@ -2282,6 +2282,90 @@ kbd {
   font-size: 11px;
 }
 
+.shell-app .comment-edited-marker {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: var(--ink-fainter, #918b80);
+  font-style: italic;
+}
+
+.shell-app .comment-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 80ms ease;
+}
+
+.shell-app .comment-row:hover .comment-actions,
+.shell-app .comment-row:focus-within .comment-actions {
+  opacity: 1;
+}
+
+.shell-app .comment-action {
+  background: transparent;
+  border: 1px solid var(--rule-light, #d8d1c4);
+  color: var(--ink-faint, #68645c);
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  padding: 0 6px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.shell-app .comment-action:hover {
+  color: var(--ink, #111);
+  border-color: var(--ink, #111);
+}
+
+.shell-app .comment-edit-textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 1.5px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+  padding: 10px 12px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.shell-app .comment-edit-textarea:focus {
+  outline: none;
+  border-color: var(--ink, #111);
+}
+
+.shell-app .comment-edit-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.shell-app .comment-edit-save,
+.shell-app .comment-edit-cancel {
+  font-family: var(--display, system-ui);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 12px;
+  border: 1.5px solid var(--ink, #111);
+  cursor: pointer;
+}
+
+.shell-app .comment-edit-save {
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+}
+
+.shell-app .comment-edit-cancel {
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+}
+
+.shell-app .comment-edit-save[disabled] {
+  background: var(--ink-faint, #68645c);
+  cursor: wait;
+}
+
 .shell-app .comment-body {
   color: var(--ink, #1a1916);
   font-size: 14px;
