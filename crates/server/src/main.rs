@@ -892,11 +892,7 @@ impl Runtime {
         format!("comtrya://user-layout/{principal_uri}/{repository_id}")
     }
 
-    fn get_user_layout(
-        &self,
-        principal_uri: &str,
-        repository_id: &str,
-    ) -> Result<Value, String> {
+    fn get_user_layout(&self, principal_uri: &str, repository_id: &str) -> Result<Value, String> {
         let doc_id = Self::user_layout_document_id(principal_uri, repository_id);
         let collection = self.extension_storage.collection_data("user_layouts")?;
         let entries = collection
@@ -1182,9 +1178,6 @@ impl Runtime {
     }
 
     fn extension_runtime_record(&self, extension: &str) -> Option<&ExtensionRuntimeRecord> {
-        if extension == "ext_01hv" {
-            return self.extension_runtime_record("ext_pull_requests");
-        }
         self.extension_runtime.get(extension)
     }
 
@@ -2727,10 +2720,8 @@ async fn extension_manifest(
     AxumPath(extension): AxumPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let cors = match state
-        .runtime
-        .check_boundary(&headers, "/_extensions/ext_01hv/manifest.json")
-    {
+    let cors_route = format!("/_extensions/{extension}/manifest.json");
+    let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -2754,10 +2745,8 @@ async fn extension_asset(
     AxumPath((extension, asset_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let cors = match state
-        .runtime
-        .check_boundary(&headers, "/_extensions/ext_01hv/assets/index.js")
-    {
+    let cors_route = format!("/_extensions/{extension}/assets/{asset_path}");
+    let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -3460,7 +3449,10 @@ fn apply_repository_cue_overrides(
         return;
     };
     if let Some(visibility) = repo_block.get("visibility").and_then(Value::as_str) {
-        repo_obj.insert("visibility".to_string(), json!(visibility.to_ascii_uppercase()));
+        repo_obj.insert(
+            "visibility".to_string(),
+            json!(visibility.to_ascii_uppercase()),
+        );
     }
     if let Some(branch) = repo_block.get("defaultBranch").and_then(Value::as_str) {
         repo_obj.insert("defaultBranch".to_string(), json!(branch));
@@ -3528,10 +3520,7 @@ fn annotate_bookmarks_with_resolution(
     repo_obj: &mut serde_json::Map<String, Value>,
     git_dir: &Path,
 ) {
-    let Some(bookmarks) = repo_obj
-        .get_mut("bookmarks")
-        .and_then(Value::as_array_mut)
-    else {
+    let Some(bookmarks) = repo_obj.get_mut("bookmarks").and_then(Value::as_array_mut) else {
         return;
     };
     for bookmark in bookmarks.iter_mut() {
@@ -3849,8 +3838,7 @@ fn git_demo_snapshot(
         &["diff", "--patch", "--find-renames", "main~1", "main"],
     )
     .unwrap_or_default();
-    let comtrya_config =
-        cue_config::evaluate_repo_config(&repo.git_dir, "main", extension_schemas);
+    let comtrya_config = cue_config::evaluate_repo_config(&repo.git_dir, "main", extension_schemas);
     let mut repository = json!({
         "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
         "owner": "comtrya",
@@ -4150,8 +4138,21 @@ fn is_text_preview_path(path: &str) -> bool {
         Path::new(path)
             .extension()
             .and_then(|extension| extension.to_str()),
-        Some("md" | "mdx" | "rs" | "ts" | "tsx" | "js" | "jsx" | "vue"
-            | "json" | "toml" | "cue" | "yaml" | "yml" | "txt")
+        Some(
+            "md" | "mdx"
+                | "rs"
+                | "ts"
+                | "tsx"
+                | "js"
+                | "jsx"
+                | "vue"
+                | "json"
+                | "toml"
+                | "cue"
+                | "yaml"
+                | "yml"
+                | "txt"
+        )
     )
 }
 
@@ -8237,7 +8238,10 @@ extensions: {
             "contributes": { "slots": ["bogus"], "routes": false }
         });
         let result = validate_ui_manifest_from_value(&v2);
-        assert!(result.is_ok(), "legacy contributes block must not fail validation: {result:?}");
+        assert!(
+            result.is_ok(),
+            "legacy contributes block must not fail validation: {result:?}"
+        );
     }
 
     #[test]
@@ -8643,6 +8647,7 @@ extensions: {
                 root: PathBuf::new(),
                 ui_manifest: PathBuf::new(),
                 route_prefix: Some("pulls".to_string()),
+                cue_schemas: Vec::new(),
             },
         );
         let result = inject_route_prefix(extensions, &configs, &runtime);
