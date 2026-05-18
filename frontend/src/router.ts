@@ -10,6 +10,7 @@ import NewRepository from "./routes/NewRepository.vue";
 import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
 import Releases from "./routes/Releases.vue";
+import RepoCode from "./routes/RepoCode.vue";
 import RepoHome from "./routes/RepoHome.vue";
 import Repos from "./routes/Repos.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
@@ -97,11 +98,8 @@ export const shellRoutes: RouteRecordRaw[] = [
   {
     path: shellRoutePaths.repoCode,
     name: "repo-code",
-    component: RepoHome,
-    props: (route: RouteLocationNormalizedLoaded) => ({
-      ...repoRouteProps(route),
-      view: "code",
-    }),
+    component: RepoCode,
+    props: repoRouteProps,
   },
   {
     path: shellRoutePaths.repoConfig,
