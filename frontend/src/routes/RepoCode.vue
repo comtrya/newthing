@@ -12,17 +12,19 @@ const repoSubpath = computed(() => props.groups.slice(1));
 
 interface TabSpec {
   label: string;
+  to?: string;
   active?: boolean;
   count?: string;
 }
-const tabs: TabSpec[] = [
-  { label: "Overview" },
-  { label: "Code", active: true },
-  { label: "PRs", count: "12" },
-  { label: "Issues", count: "31" },
-  { label: "CI" },
-  { label: "Releases" },
-];
+const repoBase = computed(() => `/r/${[...props.groups, props.repo].join("/")}`);
+const tabs = computed<TabSpec[]>(() => [
+  { label: "Overview", to: repoBase.value },
+  { label: "Code", to: `${repoBase.value}/code`, active: true },
+  { label: "PRs", to: `${repoBase.value}/pulls`, count: "12" },
+  { label: "Issues", to: `${repoBase.value}/issues/board`, count: "31" },
+  { label: "CI", to: `${repoBase.value}/pipelines` },
+  { label: "Releases", to: `${repoBase.value}/releases` },
+]);
 
 interface TreeRowData {
   depth: number;
@@ -128,15 +130,16 @@ function tokClass(k?: TokKind): string {
       <Chip :mono="true" tone="info" class="repo-private">private</Chip>
       <span class="spacer" />
       <nav class="repo-tabs">
-        <button
+        <RouterLink
           v-for="tab in tabs"
           :key="tab.label"
+          :to="tab.to ?? '#'"
           class="tab"
           :class="{ 'is-on': tab.active }"
         >
           <span>{{ tab.label }}</span>
           <span v-if="tab.count" class="count">{{ tab.count }}</span>
-        </button>
+        </RouterLink>
       </nav>
     </header>
 
