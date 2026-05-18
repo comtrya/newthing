@@ -40,7 +40,15 @@
           "wasmRoute": {
             "extensionId": "ext_pull_requests",
             "interfaceName": "pulls",
-            "opName": "create-pull"
+            "opName": "create-pull",
+            "payloadTemplate": {
+              "repository":   { "kernel": "repository" },
+              "title":        { "from": "title", "default": "Seeded pull request" },
+              "bodyMarkdown": { "from": ["bodyMarkdown", "body"], "default": "" },
+              "headRef":      { "from": ["headRef", "head"], "default": "seed/head" },
+              "baseRef":      { "from": ["baseRef", "base"], "default": "main" },
+              "authorRef":    { "kernel": "authorRef" }
+            }
           }
         }
       }

@@ -42,7 +42,15 @@
           "wasmRoute": {
             "extensionId": "ext_checks",
             "interfaceName": "checks",
-            "opName": "record-check"
+            "opName": "record-check",
+            "payloadTemplate": {
+              "repository": { "kernel": "repository" },
+              "commitOID":  { "from": ["commitOID", "commitOid"], "default": "seed" },
+              "name":       { "from": "name", "default": "seeded check" },
+              "state":      { "from": ["state", "conclusion"], "default": "SUCCESS" },
+              "conclusion": { "from": "conclusion" },
+              "required":   { "from": "required", "default": true }
+            }
           }
         }
       }
