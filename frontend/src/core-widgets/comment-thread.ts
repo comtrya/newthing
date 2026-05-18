@@ -115,6 +115,28 @@ class ComtryaCommentThread extends HTMLElement {
     void this.render();
   }
 
+  /**
+   * Bound on render. Reflects the current row count to the
+   * persistent status line at the top of the thread, and emits
+   * a `comment-thread-update` event so surrounding chrome can
+   * react (e.g. an "Activity (3)" header in the host page).
+   */
+  private updateCount(status: HTMLElement, list: HTMLElement): void {
+    const count = list.querySelectorAll(":scope > li.comment-row").length;
+    if (count === 0) {
+      status.textContent = "No comments yet. Start the thread below.";
+      status.classList.add("muted");
+      status.classList.remove("warn");
+    } else {
+      status.textContent = `${count} comment${count === 1 ? "" : "s"}`;
+      status.classList.add("muted");
+      status.classList.remove("warn");
+    }
+    this.dispatchEvent(
+      new CustomEvent("comment-thread-update", { detail: { count }, bubbles: true }),
+    );
+  }
+
   private async render(): Promise<void> {
     const target = this._target || this.getAttribute("target") || "";
     this.replaceChildren();
@@ -122,22 +144,23 @@ class ComtryaCommentThread extends HTMLElement {
       this.appendChild(emptyState("comment-thread: missing target attribute"));
       return;
     }
-    const list = document.createElement("ul");
-    list.className = "comment-thread-list";
-    this.append(list);
-
+    // Status line sits ABOVE the list so the count reads as a
+    // header (`3 comments`) instead of dangling below the rows.
     const status = document.createElement("p");
     status.className = "comment-thread-status muted";
     status.textContent = "Loading comments…";
     this.append(status);
 
+    const list = document.createElement("ul");
+    list.className = "comment-thread-list";
+    this.append(list);
+
     const host = this;
     this.append(buildComposer(target, async (body) => {
       const created = await host.postComment(target, body);
       if (created) {
-        appendCommentRow(list, created, host);
-        // Status reverts to empty if the list now has entries
-        status.remove();
+        appendCommentRow(list, created, host, () => host.updateCount(status, list));
+        host.updateCount(status, list);
       }
       return created !== null;
     }));
@@ -152,17 +175,11 @@ class ComtryaCommentThread extends HTMLElement {
       const data = await client.query<{
         comments?: { thread?: Comment[] | null } | null;
       }>(COMMENTS_THREAD_QUERY, { target });
-      // Server response shape: { data: { comments: { thread: [...] } } }.
-      // The client unwraps `data` for us; we still need both nesting
-      // levels because the dispatcher emits the same object shape the
-      // dotted GraphQL field would have produced.
       const comments = data.comments?.thread ?? [];
-      if (comments.length === 0) {
-        status.textContent = "No comments yet. Start the thread below.";
-        return;
+      for (const comment of comments) {
+        appendCommentRow(list, comment, this, () => this.updateCount(status, list));
       }
-      status.remove();
-      for (const comment of comments) appendCommentRow(list, comment, this);
+      this.updateCount(status, list);
     } catch (err) {
       status.textContent = `Failed to load comments: ${err instanceof Error ? err.message : String(err)}`;
       status.classList.add("warn");
@@ -230,6 +247,7 @@ function appendCommentRow(
   list: HTMLElement,
   comment: Comment,
   host: ComtryaCommentThread,
+  onRowsChanged: () => void = () => {},
 ): void {
   const li = document.createElement("li");
   li.className = "comment-row";
@@ -318,7 +336,10 @@ function appendCommentRow(
   deleteBtn.addEventListener("click", async () => {
     if (!window.confirm("Delete this comment?")) return;
     const ok = await host.deleteComment(comment.id);
-    if (ok) li.remove();
+    if (ok) {
+      li.remove();
+      onRowsChanged();
+    }
   });
 
   list.append(li);
