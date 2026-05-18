@@ -17,6 +17,7 @@
  */
 
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import {
   Combobox,
   ComboboxInput,
@@ -30,17 +31,56 @@ import {
 import {
   configurePaletteOpener,
   filterCommands,
+  invokeOp,
   listCommands,
   subscribeCommands,
   type CommandContribution,
 } from "@comtrya/sdk-core";
 
+/**
+ * Workspace URI used for the cross-workspace `list-issues` fetch.
+ * This is the single workspace the running shell knows about today;
+ * when multi-workspace support lands the palette will need to read
+ * the active workspace from the router or a session store.
+ */
+const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+
+interface IssueResult {
+  id: string;
+  number: number;
+  title: string;
+  state?: string | null;
+  workspaceId: string;
+}
+
+const router = useRouter();
 const open = ref(false);
 const query = ref("");
 const commands = ref<CommandContribution[]>([]);
+const issues = ref<IssueResult[]>([]);
 let unsubscribe: (() => void) | undefined;
 
 const filteredCommands = computed(() => filterCommands(query.value, commands.value));
+
+/**
+ * Issues whose title contains the query (case-insensitive). Empty
+ * query returns nothing — the palette's primary surface is still
+ * commands; entity search kicks in only when the user starts
+ * typing. Cap at 8 results so a noisy query doesn't push commands
+ * off-screen.
+ */
+const filteredIssues = computed<IssueResult[]>(() => {
+  const q = query.value.trim().toLowerCase();
+  if (q.length === 0) return [];
+  const out: IssueResult[] = [];
+  for (const issue of issues.value) {
+    if (issue.title.toLowerCase().includes(q) || `#${issue.number}`.includes(q)) {
+      out.push(issue);
+      if (out.length >= 8) break;
+    }
+  }
+  return out;
+});
 
 interface CommandGroup {
   category: string;
@@ -67,6 +107,10 @@ onMounted(() => {
   configurePaletteOpener(() => {
     query.value = "";
     open.value = true;
+    // Refresh issues each time the palette opens so titles stay fresh
+    // without burning a fetch on every keystroke. Workspace-scoped
+    // issue counts are small enough that an on-open fetch is cheap.
+    void refreshIssues();
   });
 });
 
@@ -82,14 +126,55 @@ function refreshCommands(): void {
   commands.value = listCommands();
 }
 
+async function refreshIssues(): Promise<void> {
+  const result = await invokeOp<Array<{
+    id: string;
+    number: number;
+    title: string;
+    state?: string;
+    repository?: string;
+  }>>(
+    "ext_issues",
+    "issues",
+    "list-issues",
+    { repository: WORKSPACE_URI, limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) return;
+  // Extract workspaceId from each issue's `repository` URI (or fall
+  // back to the shell-default constant). The detail route shape is
+  // /x/issues/<workspaceId>/<number>, so we need a workspace id
+  // per-issue rather than per-result-set.
+  issues.value = result.value
+    .map((issue) => {
+      const match = /^comtrya:\/\/workspace\/([^/]+)/.exec(issue.repository ?? "");
+      return {
+        id: issue.id,
+        number: issue.number,
+        title: issue.title ?? "",
+        state: issue.state ?? null,
+        workspaceId: match?.[1] ?? WORKSPACE_URI.replace("comtrya://workspace/", ""),
+      };
+    });
+}
+
+type PaletteEntry = CommandContribution | IssueResult;
+
+function isIssueResult(entry: PaletteEntry): entry is IssueResult {
+  return typeof (entry as IssueResult).number === "number";
+}
+
 function closePalette(): void {
   open.value = false;
 }
 
-async function onSelect(command: CommandContribution | null): Promise<void> {
-  if (!command) return;
+async function onSelect(entry: PaletteEntry | null): Promise<void> {
+  if (!entry) return;
   closePalette();
-  await command.run();
+  if (isIssueResult(entry)) {
+    await router.push(`/x/issues/${entry.workspaceId}/${entry.number}`);
+    return;
+  }
+  await entry.run();
 }
 </script>
 
@@ -154,8 +239,34 @@ async function onSelect(command: CommandContribution | null): Promise<void> {
                     </li>
                   </ComboboxOption>
                 </template>
-                <p v-if="filteredCommands.length === 0" class="palette-empty">
-                  No commands match "{{ query }}"
+                <template v-if="filteredIssues.length > 0">
+                  <header class="palette-group">Issues</header>
+                  <ComboboxOption
+                    v-for="issue in filteredIssues"
+                    :key="`issue-${issue.id}`"
+                    v-slot="{ active }"
+                    :value="issue"
+                    as="template"
+                  >
+                    <li
+                      :class="['palette-command', 'palette-issue', { active }]"
+                      :data-smoke="`palette-issue-${issue.number}`"
+                    >
+                      <span class="palette-title">
+                        <span class="palette-issue-number">#{{ issue.number }}</span>
+                        {{ issue.title || "(untitled)" }}
+                      </span>
+                      <span class="palette-meta">
+                        <code>{{ (issue.state ?? "open").toLowerCase() }}</code>
+                      </span>
+                    </li>
+                  </ComboboxOption>
+                </template>
+                <p
+                  v-if="filteredCommands.length === 0 && filteredIssues.length === 0"
+                  class="palette-empty"
+                >
+                  No matches for "{{ query }}"
                 </p>
               </ComboboxOptions>
 
@@ -303,6 +414,13 @@ async function onSelect(command: CommandContribution | null): Promise<void> {
   font-family: var(--mono, monospace);
   font-size: 12px;
   color: var(--ink-faint, #68645c);
+}
+
+.palette-issue-number {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-faint, #68645c);
+  padding-right: 6px;
 }
 
 .palette-foot {
