@@ -2256,12 +2256,64 @@ kbd {
     grid-template-columns: 1fr;
   }
 
-  .shell-app .summary-grid { grid-template-columns: 1fr; }
+  .shell-app .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
-  .shell-app .page { padding: 18px; }
-  .shell-app h1 { font-size: 36px; }
+  .shell-app .page { padding: 18px 14px; }
+  .shell-app h1 { font-size: 32px; }
+
+  /* Topbar tightens up — drop search-text label, keep the kbd hint */
+  .topbar {
+    grid-template-columns: auto 1fr auto;
+    gap: 8px;
+    padding: 0 10px;
+  }
+  .cmdk-text { display: none; }
+  .cmdk { min-width: 36px; padding: 0 8px; }
+
+  /* Sidebar collapses to a horizontal strip; the repo list scrolls inline */
+  .sidebar {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px 14px;
+  }
+  .sb-workspace { padding: 0 2px; }
+  .sb-nav-primary { gap: 4px; }
+  .sb-section-head { padding-right: 2px; }
+  .sb-repo-list {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    padding-bottom: 6px;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .sb-repo-list::-webkit-scrollbar { display: none; }
+  .sb-repo {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    max-width: 70vw;
+  }
+  .sb-recent-list {
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 6px;
+    scrollbar-width: none;
+  }
+  .sb-recent-list::-webkit-scrollbar { display: none; }
+  .sb-recent {
+    flex: 0 0 auto;
+  }
+  .sb-nav-footer {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
 
   .shell-app .route-list a,
   .shell-app .route-row,
@@ -2271,6 +2323,18 @@ kbd {
     grid-template-columns: 1fr;
     gap: 4px;
     padding: 10px 0;
+  }
+
+  /* Touch-friendly buttons */
+  .btn { height: 32px; padding: 0 12px; font-size: 12.5px; }
+  .btn-sm { height: 28px; padding: 0 10px; font-size: 12px; }
+  .topbar-shortcuts { width: 30px; height: 30px; }
+}
+
+/* Tablet-and-down: 4-up summary becomes 2-up */
+@media (max-width: 720px) {
+  .shell-app .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
