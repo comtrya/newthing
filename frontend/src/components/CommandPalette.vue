@@ -495,7 +495,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                   </ComboboxOption>
                 </template>
                 <template v-if="filteredRepos.length > 0">
-                  <header class="palette-group">Repos</header>
+                  <header class="palette-group">Repositories</header>
                   <ComboboxOption
                     v-for="repo in filteredRepos"
                     :key="`repo-${repo.id}`"
