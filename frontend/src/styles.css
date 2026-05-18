@@ -2235,3 +2235,21 @@ kbd {
   font-size: 11px;
   color: var(--ink-faint, #68645c);
 }
+
+.shell-app .comment-composer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-fainter, #918b80);
+}
+
+.shell-app .comment-composer-hint kbd {
+  border: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  color: var(--ink-faint, #68645c);
+  padding: 0 5px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}

@@ -218,7 +218,7 @@ function buildComposer(
   form.className = "comment-composer";
   form.setAttribute("data-smoke", "comment-thread-composer");
   const textarea = document.createElement("textarea");
-  textarea.placeholder = "Write a comment…";
+  textarea.placeholder = "Write a comment… (⌘↵ to post)";
   textarea.rows = 3;
   textarea.required = true;
   form.append(textarea);
@@ -229,17 +229,24 @@ function buildComposer(
   button.type = "submit";
   button.textContent = "Comment";
   actions.append(button);
+  const hint = document.createElement("span");
+  hint.className = "comment-composer-hint muted";
+  hint.append(kbdNode("⌘"), document.createTextNode("·"), kbdNode("↵"));
+  const hintLabel = document.createElement("span");
+  hintLabel.textContent = " to post";
+  hint.append(hintLabel);
+  actions.append(hint);
   const status = document.createElement("span");
   status.className = "comment-composer-status muted";
   actions.append(status);
   form.append(actions);
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const handleSubmit = async (): Promise<void> => {
     const body = textarea.value.trim();
     if (!body) return;
     button.disabled = true;
     status.textContent = "Posting…";
+    status.classList.remove("warn");
     const ok = await submit(body);
     button.disabled = false;
     if (ok) {
@@ -249,9 +256,31 @@ function buildComposer(
       status.textContent = "Failed to post.";
       status.classList.add("warn");
     }
+  };
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void handleSubmit();
+  });
+
+  // Cmd/Ctrl+Enter submits without reaching for the button — the
+  // Linear/GitHub-conventional shortcut for comment composers.
+  // Plain Enter keeps newline behaviour so multi-paragraph comments
+  // are still ergonomic.
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    event.preventDefault();
+    void handleSubmit();
   });
 
   return form;
+}
+
+function kbdNode(label: string): HTMLElement {
+  const kbd = document.createElement("kbd");
+  kbd.textContent = label;
+  return kbd;
 }
 
 export function defineCoreCommentThread(): void {
