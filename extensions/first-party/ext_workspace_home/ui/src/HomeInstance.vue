@@ -57,14 +57,14 @@ async function load(): Promise<void> {
 .clone,
 .link,
 .extension-placeholder {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
 .id,
 .clone,
 .link {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .stats {
@@ -73,10 +73,10 @@ async function load(): Promise<void> {
 }
 
 .ok {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .err {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

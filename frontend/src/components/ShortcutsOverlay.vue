@@ -188,16 +188,18 @@ const commandGroups = computed<CommandGroup[]>(() => {
   display: grid;
   place-items: center;
   padding: 32px;
-  background: rgba(10, 10, 10, 0.22);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .shortcuts-panel {
   width: min(720px, calc(100vw - 32px));
   max-height: 80vh;
   overflow: auto;
-  background: var(--paper, #fffdf8);
-  border: 2px solid var(--ink, #111);
-  color: var(--ink, #111);
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(140%);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-lg);
+  color: var(--fg);
 }
 
 .shortcuts-panel header {
@@ -205,13 +207,13 @@ const commandGroups = computed<CommandGroup[]>(() => {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   padding: 14px 18px;
 }
 
 .shortcuts-panel h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 18px;
 }
 
@@ -233,23 +235,24 @@ const commandGroups = computed<CommandGroup[]>(() => {
 
 .groups h3 {
   margin: 0 0 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
 .live-badge {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: lowercase;
-  color: var(--accent-teal, #087f6f);
-  border: 1px solid currentColor;
+  color: var(--ok);
+  border: 0.5px solid currentColor;
+  border-radius: var(--r-xs);
   padding: 0 4px;
   cursor: help;
 }
@@ -268,25 +271,26 @@ dt {
 }
 
 dt kbd {
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
   padding: 1px 6px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
+  background: var(--surface);
+  color: var(--fg);
   min-width: 18px;
   text-align: center;
 }
 
 .sep {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 dd {
   margin: 0;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans);
   font-size: 13px;
 }
 </style>

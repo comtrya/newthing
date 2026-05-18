@@ -92,7 +92,7 @@ function checkText(repo: RepositoryItem): string {
 
 .rail-strap h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
 }
 
@@ -101,7 +101,7 @@ function checkText(repo: RepositoryItem): string {
 .stats,
 .prefix,
 .extension-placeholder {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -109,12 +109,12 @@ function checkText(repo: RepositoryItem): string {
 .count,
 .stats,
 .prefix {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .name {
   min-width: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
 }
 
@@ -125,10 +125,10 @@ function checkText(repo: RepositoryItem): string {
 }
 
 .ok {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

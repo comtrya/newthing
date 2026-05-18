@@ -446,9 +446,9 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
-  background: color-mix(in srgb, var(--paper, #f7f4ec) 94%, white);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -456,13 +456,13 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
   min-height: 36px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--ink-rule, #d0cfc8);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .relationship-header h2,
 .relationship-group h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
 }
 
 .relationship-header h2 {
@@ -472,7 +472,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 
 .relationship-header p {
   margin: 4px 0 0;
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-size: 11px;
 }
 
@@ -501,7 +501,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 }
 
 .relationship-group-heading span {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-size: 11px;
 }
 
@@ -526,7 +526,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
   display: grid;
   gap: 8px;
   padding-top: 12px;
-  border-top: 1px solid var(--ink-rule, #d0cfc8);
+  border-top: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .relationship-form label {
@@ -537,7 +537,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 }
 
 .relationship-form label > span {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -547,7 +547,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 .relationship-form button,
 .relationship-group button {
   min-height: 32px;
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   background: transparent;
   color: inherit;
   font: inherit;
@@ -567,7 +567,7 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 
 .relationship-remove {
   align-self: start;
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .relationship-form button:disabled,
@@ -582,10 +582,10 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
 }
 
 .muted {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

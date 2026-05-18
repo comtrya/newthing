@@ -338,14 +338,14 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 .projects-panel {
   display: grid;
   gap: 14px;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans);
 }
 
 .projects-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   padding-bottom: 6px;
 }
 
@@ -358,27 +358,27 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .projects-panel h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 22px;
   line-height: 1;
 }
 
 .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .muted code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-soft, #2c2b28);
-  background: var(--paper-tint, #f2efe7);
+  color: var(--fg-2);
+  background: var(--bg-2);
   padding: 0 4px;
 }
 
 .muted.error {
-  color: var(--accent-err, #c9341c);
+  color: var(--err);
 }
 
 .projects-list {
@@ -390,17 +390,19 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .project-card {
-  border: 1.5px solid var(--ink, #111);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
   display: grid;
+  overflow: hidden;
 }
 
 .project-card-head {
   display: grid;
   gap: 8px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
 }
 
 .project-identity {
@@ -412,23 +414,24 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .project-identity h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 18px;
   line-height: 1;
 }
 
 .project-root {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2);
 }
 
 .implicit-badge {
-  border: 1px solid var(--ink-faint, #68645c);
+  border: 0.5px solid var(--fg-3);
+  border-radius: var(--r-xs);
   padding: 0 6px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -438,9 +441,9 @@ function authorKindOfOwner(owner: ComtryaRef): string {
   flex-wrap: wrap;
   gap: 16px;
   align-items: baseline;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .labels {
@@ -469,7 +472,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .owner {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2);
 }
 
 /* iter 75 — per-project work counts on RepoHome's
@@ -490,7 +493,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
   gap: 5px;
   color: inherit;
   text-decoration: none;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
   border-bottom: 1px solid transparent;
@@ -498,25 +501,25 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .project-count:hover {
-  border-bottom-color: var(--ink, #111);
+  border-bottom-color: var(--fg);
 }
 
 .project-count .count-num {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-weight: 650;
   font-size: 14px;
-  color: var(--ink, #111);
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .project-count[data-zero="true"] .count-num,
 .project-count.muted .count-num {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
   font-weight: 500;
 }
 
 .project-count .count-label {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   text-transform: lowercase;
 }
 
@@ -526,7 +529,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .claim {
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
   padding: 10px 14px;
 }
 
@@ -543,12 +546,12 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .claim-key {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink, #111);
+  color: var(--fg);
 }
 
 .claim-source {
@@ -568,24 +571,24 @@ function authorKindOfOwner(owner: ComtryaRef): string {
   grid-template-columns: minmax(120px, 0.3fr) minmax(0, 1fr);
   gap: 12px;
   align-items: baseline;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .field-key {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .field-value {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2);
   overflow-wrap: anywhere;
 }
 
 .claim-scalar {
   margin: 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2);
 }
 
 .no-claims {
@@ -594,7 +597,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .project-docs {
   display: grid;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
 }
 
 .project-docs:last-child {
@@ -602,7 +605,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .docs-surface {
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
   padding: 10px 14px;
 }
 
@@ -619,25 +622,25 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .docs-surface-key {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent-blue, #1d55a6);
+  color: var(--info);
 }
 
 .docs-surface-label {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
 }
 
 .docs-surface-scope {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-soft, #2c2b28);
-  background: var(--paper-tint, #f2efe7);
+  color: var(--fg-2);
+  background: var(--bg-2);
   padding: 0 5px;
 }
 
@@ -654,11 +657,11 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .docs-files li {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .docs-file-path {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2);
 }
 </style>

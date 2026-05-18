@@ -1,22 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Comtrya — Glass Design System
+   Dark-first, OKLCH palette, glass morphism, Geist type stack.
+   ═══════════════════════════════════════════════════════════════ */
+
 .shell-app,
 :root {
-  color-scheme: light;
-  --paper: #fffdf8;
-  --paper-tint: #f2efe7;
-  --ink: #111111;
-  --ink-soft: #2c2b28;
-  --ink-faint: #68645c;
-  --ink-fainter: #918b80;
-  --rule-light: #d8d1c4;
-  --accent-orange: #e34a20;
-  --accent-teal: #087f6f;
-  --accent-yellow: #c89300;
-  --accent-blue: #1d55a6;
-  --accent-err: #c9341c;
-  --display: "Bricolage Grotesque", "Inter Tight", "Avenir Next", system-ui, sans-serif;
-  --sans: "IBM Plex Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, ui-monospace, monospace;
+  color-scheme: dark;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Instrument Serif", "Cormorant Garamond", Georgia, serif;
+
+  --accent: oklch(78% 0.14 215);
+  --accent-soft: oklch(78% 0.14 215 / 0.14);
+  --accent-line: oklch(78% 0.14 215 / 0.40);
+
+  --bg: #0a0b0e;
+  --bg-2: #0e1014;
+  --grad-a: oklch(28% 0.04 250 / 0.55);
+  --grad-b: oklch(32% 0.06 280 / 0.35);
+  --grad-c: oklch(30% 0.05 215 / 0.30);
+
+  --surface: rgba(255,255,255,0.035);
+  --surface-2: rgba(255,255,255,0.06);
+  --surface-3: rgba(255,255,255,0.09);
+  --glass: rgba(18,20,26,0.55);
+  --glass-strong: rgba(18,20,26,0.75);
+
+  --line: rgba(255,255,255,0.07);
+  --line-2: rgba(255,255,255,0.12);
+  --line-3: rgba(255,255,255,0.18);
+
+  --fg: rgba(255,255,255,0.94);
+  --fg-2: rgba(255,255,255,0.74);
+  --fg-3: rgba(255,255,255,0.52);
+  --fg-4: rgba(255,255,255,0.34);
+
+  --ok: oklch(75% 0.15 150);
+  --ok-soft: oklch(75% 0.15 150 / 0.16);
+  --warn: oklch(80% 0.14 80);
+  --warn-soft: oklch(80% 0.14 80 / 0.16);
+  --err: oklch(70% 0.19 25);
+  --err-soft: oklch(70% 0.19 25 / 0.16);
+  --info: oklch(72% 0.13 230);
+  --info-soft: oklch(72% 0.13 230 / 0.16);
+
+  --r-xs: 5px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
 }
+
+.shell-app.light,
+.shell-app.light :root {
+  color-scheme: light;
+
+  --bg: #efece6;
+  --bg-2: #e8e4dc;
+  --grad-a: oklch(80% 0.04 220 / 0.40);
+  --grad-b: oklch(85% 0.05 60 / 0.35);
+  --grad-c: oklch(80% 0.04 280 / 0.30);
+
+  --surface: rgba(255,255,255,0.55);
+  --surface-2: rgba(255,255,255,0.78);
+  --surface-3: rgba(255,255,255,0.92);
+  --glass: rgba(255,255,255,0.55);
+  --glass-strong: rgba(255,255,255,0.78);
+
+  --line: rgba(0,0,0,0.07);
+  --line-2: rgba(0,0,0,0.12);
+  --line-3: rgba(0,0,0,0.20);
+
+  --fg: rgba(15,17,22,0.92);
+  --fg-2: rgba(15,17,22,0.66);
+  --fg-3: rgba(15,17,22,0.48);
+  --fg-4: rgba(15,17,22,0.30);
+}
+
+/* ── Reset ─────────────────────────────────────────────────── */
 
 * {
   box-sizing: border-box;
@@ -30,27 +92,21 @@ body,
 
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--sans);
-  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
   line-height: 1.45;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-h1,
-h2,
-h3,
-h4,
-p,
-ul,
-ol {
+h1, h2, h3, h4, p, ul, ol {
   margin: 0;
 }
 
-ul,
-ol {
+ul, ol {
   padding: 0;
   list-style: none;
 }
@@ -63,97 +119,159 @@ a {
 a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
-  text-decoration-thickness: 1.5px;
+  text-decoration-thickness: 1px;
 }
 
-button,
-input {
+button, input {
   font: inherit;
 }
 
-code,
-kbd,
-.mono {
-  font-family: var(--mono);
+code, kbd, .mono {
+  font-family: var(--font-mono);
   font-size: 12px;
+  letter-spacing: -0.01em;
 }
 
 kbd {
-  border: 1.5px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 0.5px solid var(--line-2);
+  background: var(--surface);
+  color: var(--fg-3);
 }
+
+/* ── Shell — ambient background + grain ───────────────────── */
 
 .shell {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
-  background: var(--paper);
+  background: var(--bg);
+  position: relative;
+  isolation: isolate;
 }
 
+.shell::before {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  background:
+    radial-gradient(40% 35% at 18% 12%, var(--grad-a), transparent 70%),
+    radial-gradient(35% 30% at 88% 8%, var(--grad-b), transparent 70%),
+    radial-gradient(45% 40% at 80% 90%, var(--grad-c), transparent 70%),
+    radial-gradient(35% 35% at 12% 92%, var(--grad-a), transparent 70%);
+  filter: saturate(120%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.shell-app.light .shell::before {
+  opacity: 0.7;
+}
+
+.shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .25 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  mix-blend-mode: overlay;
+  opacity: 0.10;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.shell-app.light .shell::after {
+  mix-blend-mode: multiply;
+  opacity: 0.05;
+}
+
+.shell > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* ── Topbar ────────────────────────────────────────────────── */
+
 .topbar {
-  min-height: 66px;
+  min-height: 44px;
   display: grid;
-  grid-template-columns: 240px minmax(260px, 1fr) auto;
+  grid-template-columns: auto minmax(260px, 1fr) auto;
   align-items: center;
-  gap: 20px;
-  border-bottom: 2px solid var(--ink);
-  background: var(--paper);
-  padding: 14px 22px;
+  gap: 12px;
+  border-bottom: 0.5px solid var(--line-2);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  padding: 0 14px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .brand:hover .mark {
-  background: var(--accent-orange);
+  background: linear-gradient(135deg, var(--accent), oklch(78% 0.14 280));
 }
 
 .brand .mark {
-  width: 36px;
-  height: 36px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--display);
-  font-size: 22px;
-  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent), oklch(78% 0.14 280));
+  color: #0a0b0e;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
   line-height: 1;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--accent-line), inset 0 0 0 0.5px rgba(255,255,255,0.2);
 }
 
 .brand .word {
-  font-family: var(--display);
-  font-size: 22px;
-  font-weight: 750;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
-  color: var(--ink);
+  color: var(--fg);
+  letter-spacing: -0.02em;
 }
 
 .cmdk {
   min-width: 0;
-  min-height: 38px;
+  min-height: 26px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  border: 2px solid var(--ink);
-  background: var(--paper);
-  padding: 6px 12px;
+  gap: 8px;
+  border: 0.5px solid var(--line);
+  background: var(--surface);
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  color: var(--fg-3);
+  text-align: left;
+}
+
+.cmdk-text {
+  flex: 1;
+  color: var(--fg-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
 }
 
 .topbar-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -161,103 +279,115 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   background: transparent;
-  border: 1px solid var(--rule-light);
-  color: var(--ink-faint);
+  border: 0.5px solid var(--line);
+  border-radius: 7px;
+  color: var(--fg-3);
   cursor: pointer;
 }
 
 .topbar-shortcuts:hover {
-  color: var(--ink);
-  border-color: var(--ink);
+  color: var(--fg);
+  background: var(--surface);
+  border-color: var(--line-2);
 }
 
 .topbar-shortcuts kbd {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   background: transparent;
   border: 0;
   padding: 0;
+  color: inherit;
 }
+
+/* ── Chips ─────────────────────────────────────────────────── */
 
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border: 1.5px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  padding: 3px 8px;
-  font-family: var(--mono);
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 0.5px solid var(--line-2);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
   font-size: 11px;
+  letter-spacing: -0.005em;
   white-space: nowrap;
 }
 
 .chip::before {
   content: "";
-  width: 8px;
-  height: 8px;
-  background: var(--ink);
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
-.chip.ok::before {
-  background: var(--accent-teal);
-}
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-soft); }
+.chip.ok::before { background: var(--ok); }
 
-.chip.info::before {
-  background: var(--accent-blue);
-}
+.chip.info { color: var(--info); background: var(--info-soft); border-color: var(--info-soft); }
+.chip.info::before { background: var(--info); }
 
-.chip.warn::before {
-  background: var(--accent-yellow);
-}
+.chip.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-soft); }
+.chip.warn::before { background: var(--warn); }
 
-.chip.err::before {
-  background: var(--accent-err);
-}
+.chip.err { color: var(--err); background: var(--err-soft); border-color: var(--err-soft); }
+.chip.err::before { background: var(--err); }
 
 .chip.bare::before {
   display: none;
 }
 
+/* ── Layout ────────────────────────────────────────────────── */
+
 .layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  min-height: calc(100vh - 66px);
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: calc(100vh - 44px);
 }
+
+/* ── Sidebar ───────────────────────────────────────────────── */
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  border-right: 2px solid var(--ink);
-  background: var(--paper-tint);
-  padding: 18px 14px;
+  border-right: 0.5px solid var(--line);
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  padding: 14px 10px;
   min-height: 100%;
 }
 
 .sb-overline {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .sb-workspace {
   display: grid;
   gap: 4px;
+  padding: 0 4px;
 }
 
 .sb-workspace strong {
-  font-family: var(--display);
-  font-size: 17px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.1;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .sb-nav-primary {
@@ -271,10 +401,11 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  font-family: var(--display);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-2);
+  border-radius: var(--r-sm);
   border-left: 2px solid transparent;
 }
 
@@ -288,19 +419,19 @@ kbd {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent-red, #b34040);
+  background: var(--err);
 }
 
 .sb-link:hover {
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--fg);
+  background: var(--surface-2);
 }
 
 .sb-link.sb-link-active,
 .sb-link.router-link-active {
-  color: var(--ink);
-  border-left-color: var(--accent-orange);
-  background: var(--paper);
+  color: var(--fg);
+  background: var(--surface-3);
+  border-left-color: var(--accent);
 }
 
 .sb-section {
@@ -314,7 +445,7 @@ kbd {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 0 8px;
+  padding: 0 4px;
 }
 
 .sb-icon-link {
@@ -323,16 +454,18 @@ kbd {
   justify-content: center;
   width: 20px;
   height: 20px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 14px;
   line-height: 1;
-  color: var(--ink-faint);
-  border: 1px solid var(--rule-light);
+  color: var(--fg-3);
+  border: 0.5px solid var(--line);
+  border-radius: 5px;
 }
 
 .sb-icon-link:hover {
-  color: var(--ink);
-  border-color: var(--ink);
+  color: var(--fg);
+  background: var(--surface-2);
+  border-color: var(--line-2);
 }
 
 .sb-repos {
@@ -354,21 +487,22 @@ kbd {
   gap: 8px;
   padding: 5px 8px;
   border-left: 2px solid transparent;
-  color: var(--ink-soft);
-  font-family: var(--mono);
-  font-size: 12px;
+  border-radius: 6px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   line-height: 1.3;
 }
 
 .sb-repo:hover {
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--fg);
+  background: var(--surface-2);
 }
 
 .sb-repo-active {
-  color: var(--ink);
-  border-left-color: var(--accent-orange);
-  background: var(--paper);
+  color: var(--fg);
+  border-left-color: var(--accent);
+  background: var(--surface-3);
   font-weight: 600;
 }
 
@@ -388,27 +522,28 @@ kbd {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent-red, #b34040);
+  background: var(--err);
 }
 
 .sb-repo-badge {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-faint);
-  border: 1px solid var(--rule-light);
-  padding: 0 5px;
-  background: var(--paper);
+  color: var(--fg-3);
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: var(--surface);
 }
 
 .sb-repo-active .sb-repo-badge {
-  color: var(--ink);
-  border-color: var(--ink);
+  color: var(--fg);
+  border-color: var(--line-3);
 }
 
 .sb-empty {
   margin: 0;
   padding: 0 8px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   font-size: 12px;
   font-style: italic;
 }
@@ -421,46 +556,49 @@ kbd {
 
 .shell-app .sb-recent {
   padding: 4px 8px;
-  color: var(--ink-soft);
-  font-family: var(--mono);
-  font-size: 12px;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   line-height: 1.3;
   border-left: 2px solid transparent;
+  border-radius: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .shell-app .sb-recent:hover {
-  color: var(--ink);
-  background: var(--paper);
+  color: var(--fg);
+  background: var(--surface-2);
 }
 
 .shell-app .sb-recent.router-link-active {
-  color: var(--ink);
-  border-left-color: var(--accent-orange);
-  background: var(--paper);
+  color: var(--fg);
+  border-left-color: var(--accent);
+  background: var(--surface-3);
 }
 
 .sb-nav-footer {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  padding: 8px;
-  border-top: 1px solid var(--rule-light);
+  padding: 8px 4px;
+  border-top: 0.5px solid var(--line);
   margin-top: auto;
 }
 
 .sb-faint {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .sb-faint:hover,
 .sb-faint.router-link-active {
-  color: var(--ink);
+  color: var(--fg);
 }
+
+/* ── Sub-nav (repo workbench) ──────────────────────────────── */
 
 .nav {
   display: grid;
@@ -471,8 +609,8 @@ kbd {
   grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid var(--rule-light);
-  color: var(--ink-soft);
+  border-bottom: 0.5px solid var(--line);
+  color: var(--fg-2);
   padding: 7px 0;
 }
 
@@ -481,23 +619,23 @@ kbd {
 }
 
 .nav a.router-link-active {
-  color: var(--ink);
-  font-weight: 650;
+  color: var(--fg);
+  font-weight: 600;
 }
 
 .nav a.disabled {
-  color: var(--ink-fainter);
+  color: var(--fg-4);
   pointer-events: none;
 }
 
 .nav .num {
-  color: var(--ink-faint);
-  font-family: var(--mono);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
   font-size: 10.5px;
 }
 
 .nav a.router-link-active .num {
-  color: var(--accent-orange);
+  color: var(--accent);
 }
 
 .nav .label-text {
@@ -505,22 +643,26 @@ kbd {
 }
 
 .nav .badge {
-  border: 1px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--mono);
+  border: 0.5px solid var(--line-2);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
   font-size: 10px;
-  padding: 0 5px;
+  padding: 1px 5px;
+  border-radius: 4px;
   letter-spacing: 0.04em;
 }
 
 .nav a.router-link-active .badge {
-  background: var(--ink);
-  color: var(--paper);
+  background: var(--accent);
+  color: #0a0b0e;
+  border-color: var(--accent);
 }
 
+/* ── Page content ──────────────────────────────────────────── */
+
 .shell-app .page {
-  padding: 28px 32px;
+  padding: 24px 28px;
   min-width: 0;
 }
 
@@ -529,7 +671,7 @@ kbd {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
   gap: 32px;
   align-items: stretch;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 0.5px solid var(--line-2);
   padding-bottom: 24px;
 }
 
@@ -540,27 +682,28 @@ kbd {
 }
 
 .shell-app .overline {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-3);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   margin-bottom: 8px;
 }
 
 .shell-app h1 {
-  font-family: var(--display);
-  font-size: 72px;
-  line-height: 0.92;
-  letter-spacing: 0;
-  font-variation-settings: "opsz" 96;
+  font-family: var(--font-serif);
+  font-size: 56px;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  font-weight: 400;
+  font-style: italic;
   max-width: 720px;
 }
 
 .shell-app .summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  border: 2px solid var(--ink);
+  gap: 10px;
 }
 
 .shell-app .summary-grid > div,
@@ -570,12 +713,23 @@ kbd {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  border-right: 1.5px solid var(--ink);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 0 0 0.5px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.35);
 }
 
-.shell-app .summary-grid > div:last-child,
-.shell-app .summary-grid > .summary-tile-link:last-child {
-  border-right: 0;
+.shell-app.light .summary-grid > div,
+.shell-app.light .summary-grid > .summary-tile-link {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.7) inset,
+    0 0 0 0.5px rgba(255,255,255,0.5) inset,
+    0 12px 40px rgba(20,18,14,0.10);
 }
 
 .shell-app .summary-grid > .summary-tile-link {
@@ -585,23 +739,29 @@ kbd {
 }
 
 .shell-app .summary-grid > .summary-tile-link:hover {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--surface-2);
 }
 
 .shell-app .summary-grid span,
 .shell-app .state,
 .shell-app .ref {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
 }
 
 .shell-app .summary-grid strong {
-  font-family: var(--display);
+  font-family: var(--font-mono);
   font-size: 28px;
+  font-weight: 500;
   line-height: 0.95;
   overflow-wrap: anywhere;
+  letter-spacing: -0.02em;
 }
+
+/* ── Home grids ────────────────────────────────────────────── */
 
 .shell-app .work-grid {
   display: grid;
@@ -611,12 +771,12 @@ kbd {
 }
 
 .shell-app .home-actions {
-  min-height: 64px;
+  min-height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 0.5px solid var(--line-2);
   padding: 14px 0;
 }
 
@@ -626,7 +786,7 @@ kbd {
 .shell-app .home-repo-list span,
 .shell-app .home-actions a,
 .shell-app .home-repositories .panel-heading a {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -634,17 +794,20 @@ kbd {
 .shell-app .home-empty,
 .shell-app .home-repo-list p,
 .shell-app .home-repo-list span {
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .shell-app .home-actions a {
   flex: 0 0 auto;
-  border: 1.5px solid var(--ink);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
   padding: 8px 14px;
   color: inherit;
-  font-family: var(--display);
+  font-family: var(--font-sans);
   font-weight: 600;
+  font-size: 12px;
   text-decoration: none;
+  background: var(--surface-2);
 }
 
 .shell-app .home-grid {
@@ -663,7 +826,7 @@ kbd {
 }
 
 .shell-app .home-repositories .panel-heading a {
-  color: var(--ink-faint);
+  color: var(--fg-3);
   text-decoration: none;
 }
 
@@ -671,30 +834,25 @@ kbd {
   min-height: 72px;
   display: block;
   padding: 14px 0;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
 }
 
 .shell-app .home-repo-groups {
   display: grid;
 }
 
-/* iter 74 — Project filter chip strip for the activity stream.
- * Sits above the ActivityStream on workspace home; click a chip
- * to scope the SSE feed to events carrying that `projectName`,
- * click "all" (or the active chip again) to clear. Editorial
- * underline-on-active, no pill background. */
 .shell-app .activity-project-filter {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   margin-bottom: 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 .shell-app .activity-project-filter .filter-label {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -702,8 +860,8 @@ kbd {
 .shell-app .activity-project-filter .filter-chip {
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
@@ -713,19 +871,17 @@ kbd {
 }
 
 .shell-app .activity-project-filter .filter-chip:hover {
-  color: var(--ink, #111);
+  color: var(--fg);
 }
 
 .shell-app .activity-project-filter .filter-chip.active {
-  color: var(--ink, #111);
-  border-bottom-color: var(--ink, #111);
+  color: var(--fg);
+  border-bottom-color: var(--accent);
   font-weight: 600;
 }
 
-/* "Projects" panel on WorkspaceHome (iter 64) - aggregates CUE
- * Projects declared across every repo in the workspace. Sits in
- * the right rail under the per-repo widgets. Editorial chip-row
- * aesthetic: ◇ name · repo path · classifier-toned owners. */
+/* ── Projects panel ────────────────────────────────────────── */
+
 .shell-app .home-projects-list {
   list-style: none;
   padding: 0;
@@ -737,12 +893,10 @@ kbd {
   display: grid;
   gap: 4px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line);
 }
 
-.shell-app .home-project-row:last-child {
-  border-bottom: 0;
-}
+.shell-app .home-project-row:last-child { border-bottom: 0; }
 
 .shell-app .home-project-link {
   display: grid;
@@ -754,37 +908,32 @@ kbd {
 }
 
 .shell-app .home-project-link:hover .home-project-name {
-  border-bottom-color: var(--ink, #111);
+  border-bottom-color: var(--fg);
 }
 
 .shell-app .home-project-glyph {
-  font-family: var(--display, system-ui);
-  color: var(--accent-blue, #1d55a6);
+  font-family: var(--font-sans);
+  color: var(--info);
   font-size: 14px;
   line-height: 1;
 }
 
 .shell-app .home-project-name {
-  font-family: var(--display, system-ui);
-  font-size: 15px;
+  font-family: var(--font-sans);
+  font-size: 14px;
   font-weight: 600;
   border-bottom: 1px solid transparent;
   transition: border-color 80ms ease;
 }
 
 .shell-app .home-project-repo {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   letter-spacing: 0.02em;
   text-align: right;
 }
 
-/* Project work counts — open issues / in-progress epics /
- * closed. Each chip links to the corresponding filtered queue
- * using the iter 60 URL recipe (`?project=<name>&state=...`).
- * Zero-count chips dim to faint ink so the eye lands on the
- * actionable counts first. */
 .shell-app .home-project-counts {
   display: flex;
   flex-wrap: wrap;
@@ -799,33 +948,31 @@ kbd {
   gap: 5px;
   color: inherit;
   text-decoration: none;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
   border-bottom: 1px solid transparent;
   transition: border-color 80ms ease;
 }
 
-.shell-app .home-project-count:hover {
-  border-bottom-color: var(--ink, #111);
-}
+.shell-app .home-project-count:hover { border-bottom-color: var(--fg); }
 
 .shell-app .home-project-count .count-num {
-  font-family: var(--display, system-ui);
-  font-weight: 650;
+  font-family: var(--font-mono);
+  font-weight: 600;
   font-size: 14px;
-  color: var(--ink, #111);
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .shell-app .home-project-count[data-zero="true"] .count-num,
 .shell-app .home-project-count.muted .count-num {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
   font-weight: 500;
 }
 
 .shell-app .home-project-count .count-label {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   text-transform: lowercase;
 }
 
@@ -843,55 +990,55 @@ kbd {
   align-items: center;
   gap: 4px;
   padding: 1px 6px;
-  border: 1px solid currentColor;
-  color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid currentColor;
+  border-radius: 999px;
+  color: var(--fg);
+  font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: 0.02em;
 }
 
 .shell-app .home-project-owner .chip-glyph {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 11px;
   line-height: 1;
 }
 
-.shell-app .home-project-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
-.shell-app .home-project-owner[data-author-kind="human"]      { color: var(--ink, #111); }
-.shell-app .home-project-owner[data-author-kind="agent"]      { color: #6b3fa0; }
-.shell-app .home-project-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
-.shell-app .home-project-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.shell-app .home-project-owner[data-author-kind="team"]       { color: var(--ok); }
+.shell-app .home-project-owner[data-author-kind="human"]      { color: var(--fg); }
+.shell-app .home-project-owner[data-author-kind="agent"]      { color: oklch(75% 0.14 280); }
+.shell-app .home-project-owner[data-author-kind="bot"]        { color: var(--info); }
+.shell-app .home-project-owner[data-author-kind="credential"] { color: var(--warn); }
 
 .shell-app .home-projects-source {
   margin: 8px 0 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .shell-app .home-projects-source code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--surface);
+  border-radius: 3px;
+  color: var(--fg-2);
 }
 
 .shell-app .home-projects .panel-heading .meta {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
 .shell-app .home-repo-group {
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 0.5px solid var(--line-2);
 }
 
-.shell-app .home-repo-group:last-child {
-  border-bottom: 0;
-}
+.shell-app .home-repo-group:last-child { border-bottom: 0; }
 
 .shell-app .home-repo-group-head {
   list-style: none;
@@ -901,7 +1048,7 @@ kbd {
   justify-content: space-between;
   gap: 14px;
   padding: 10px 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
@@ -911,7 +1058,7 @@ kbd {
   content: "▸";
   display: inline-block;
   width: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   transition: transform 80ms ease-out;
 }
 
@@ -921,21 +1068,21 @@ kbd {
 
 .shell-app .home-repo-group-head .owner {
   flex: 1;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-weight: 600;
   font-size: 14px;
-  color: var(--ink, #111);
+  color: var(--fg);
 }
 
 .shell-app .home-repo-group-head .counts {
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 .shell-app .home-repo-group-head .counts .sep {
   padding: 0 4px;
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
 }
 
 .shell-app .home-repo-list {
@@ -947,34 +1094,38 @@ kbd {
   display: grid;
   gap: 4px;
   align-content: center;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
   padding: 10px 12px;
   margin: 0 -12px;
   cursor: pointer;
+  border-radius: var(--r-sm);
 }
 
 .shell-app .home-repo-list li.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--surface-2);
 }
 
 .shell-app .home-repo-foot {
   margin-top: 8px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--ink-fainter, var(--ink-faint, #918b80));
+  color: var(--fg-4);
 }
 
 .shell-app .home-repo-foot kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid var(--line-2);
   padding: 0 4px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--fg-3);
 }
 
 .shell-app .home-repo-list a {
   color: inherit;
-  font-family: var(--display);
-  font-size: 18px;
+  font-family: var(--font-sans);
+  font-size: 16px;
   font-weight: 600;
   overflow-wrap: anywhere;
   text-decoration: none;
@@ -988,45 +1139,49 @@ kbd {
 }
 
 .shell-app .home-repo-list .repo-meta code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  border: 1px solid var(--rule-light);
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
   padding: 0 5px;
-  color: var(--ink-soft);
+  color: var(--fg-2);
 }
 
 .shell-app .home-repo-list .repo-meta span {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .shell-app .home-repo-list .repo-meta span.repo-vcs-jj {
-  border: 1px solid var(--rule-light);
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
   padding: 0 5px;
-  color: var(--ink);
+  color: var(--fg);
   text-transform: lowercase;
 }
 
 .shell-app .repo-state {
   margin-top: 16px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
+
+/* ── Repo header ───────────────────────────────────────────── */
 
 .shell-app .repo-header {
   display: grid;
   gap: 8px;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 0.5px solid var(--line-2);
   padding-bottom: 18px;
 }
 
 .shell-app .repo-header h1 {
-  font-family: var(--display);
-  font-size: 56px;
-  line-height: 0.95;
-  letter-spacing: 0;
+  font-family: var(--font-serif);
+  font-size: 44px;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
   max-width: 980px;
   margin: 0;
 }
@@ -1037,17 +1192,17 @@ kbd {
 
 .shell-app .repo-description {
   margin: 0;
-  font-family: var(--serif, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
-  color: var(--ink-faint);
+  line-height: 1.55;
+  color: var(--fg-2);
   max-width: 720px;
 }
 
 .shell-app .repo-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: 6px;
 }
 
@@ -1056,10 +1211,11 @@ kbd {
   align-items: stretch;
   gap: 0;
   margin-top: 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  border: 1px solid var(--ink, #111);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
   max-width: 100%;
   overflow: hidden;
 }
@@ -1068,8 +1224,8 @@ kbd {
   display: inline-flex;
   align-items: center;
   padding: 6px 12px;
-  color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
   -webkit-user-select: all;
@@ -1081,26 +1237,27 @@ kbd {
 
 .shell-app .repo-clone-copy {
   border: 0;
-  border-left: 1px solid var(--ink, #111);
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  border-left: 0.5px solid var(--line-2);
+  background: var(--accent);
+  color: #0a0b0e;
+  font-family: var(--font-mono);
   font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   padding: 0 14px;
   min-width: 72px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  border-radius: 0 calc(var(--r-sm) - 1px) calc(var(--r-sm) - 1px) 0;
+  transition: background 120ms ease;
 }
 
 .shell-app .repo-clone-copy[aria-pressed="true"] {
-  background: var(--accent-teal, #087f6f);
-  color: var(--paper, #fffdf8);
+  background: var(--ok);
 }
 
 .shell-app .repo-clone-copy:hover {
-  background: var(--ink-soft, #2c2b28);
+  filter: brightness(1.1);
 }
 
 .shell-app .repo-chip {
@@ -1108,57 +1265,32 @@ kbd {
   align-items: baseline;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
-  font-family: var(--mono);
+  border: 0.5px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 14px;
   letter-spacing: 0.02em;
 }
 
 .shell-app .repo-chip strong {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 13px;
-  color: var(--ink);
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
-.shell-app .repo-chip span {
-  color: var(--ink-faint);
-  text-transform: lowercase;
-}
-
-.shell-app .repo-chip.tone-muted strong {
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-chip.tone-good {
-  border-color: var(--ink-go, #087f6f);
-}
-
-.shell-app .repo-chip.tone-good strong {
-  color: var(--ink-go, #087f6f);
-}
-
-.shell-app .repo-chip.tone-warn {
-  border-color: var(--ink-warn, #c2410c);
-}
-
-.shell-app .repo-chip.tone-warn strong {
-  color: var(--ink-warn, #c2410c);
-}
-
-.shell-app .repo-chip.tone-alarm {
-  background: var(--accent-red, #b34040);
-  border-color: var(--accent-red, #b34040);
-  color: #fffdf8;
-}
-
+.shell-app .repo-chip span { color: var(--fg-3); text-transform: lowercase; }
+.shell-app .repo-chip.tone-muted strong { color: var(--fg-3); }
+.shell-app .repo-chip.tone-good { border-color: var(--ok); }
+.shell-app .repo-chip.tone-good strong { color: var(--ok); }
+.shell-app .repo-chip.tone-warn { border-color: var(--warn); }
+.shell-app .repo-chip.tone-warn strong { color: var(--warn); }
+.shell-app .repo-chip.tone-alarm { background: var(--err-soft); border-color: var(--err); }
 .shell-app .repo-chip.tone-alarm strong,
-.shell-app .repo-chip.tone-alarm span {
-  color: #fffdf8;
-}
+.shell-app .repo-chip.tone-alarm span { color: var(--err); }
 
 .shell-app .repo-chip-link {
   text-decoration: none;
@@ -1166,84 +1298,109 @@ kbd {
 }
 
 .shell-app .repo-chip-link:hover {
-  border-color: var(--ink);
+  border-color: var(--fg-3);
 }
 
-.shell-app .repo-chip-link.tone-alarm:hover {
-  filter: brightness(0.92);
-}
+/* ── Label pills ───────────────────────────────────────────── */
 
 .label-pill {
-  --label-color: var(--ink-faint);
+  --label-color: var(--fg-3);
   display: inline-flex;
   align-items: stretch;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.6;
-  border: 1px solid var(--label-color);
+  border: 0.5px solid var(--label-color);
+  border-radius: 999px;
   background: transparent;
-  color: var(--ink);
+  color: var(--fg);
   overflow: hidden;
   white-space: nowrap;
 }
 
 .label-pill .label-pill-type {
   background: var(--label-color);
-  color: #fffdf8;
+  color: #0a0b0e;
   padding: 0 6px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 10px;
+  border-radius: 999px 0 0 999px;
 }
 
-.label-pill .label-pill-sep {
-  display: none;
-}
+.label-pill .label-pill-sep { display: none; }
 
 .label-pill .label-pill-value {
   padding: 0 6px;
-  color: var(--ink);
+  color: var(--fg);
 }
 
-.label-pill--plain {
-  padding: 0;
-}
-
-.label-pill--plain .label-pill-value {
-  padding: 0 8px;
-}
+.label-pill--plain { padding: 0; }
+.label-pill--plain .label-pill-value { padding: 0 8px; }
 
 .label-pill--exclusive .label-pill-type {
   letter-spacing: 0.08em;
   font-weight: 600;
 }
 
-.shell-app .repo-labels {
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
+/* ── Repo panels (labels, activity, bookmarks, config, readme) ─ */
+
+.shell-app .repo-labels,
+.shell-app .repo-activity,
+.shell-app .repo-bookmarks,
+.shell-app .repo-readme,
+.shell-app .repo-config-panel {
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.06) inset,
+    0 0 0 0.5px rgba(255,255,255,0.04) inset,
+    0 20px 60px rgba(0,0,0,0.35);
 }
 
-.shell-app .repo-labels-head {
+.shell-app.light .repo-labels,
+.shell-app.light .repo-activity,
+.shell-app.light .repo-bookmarks,
+.shell-app.light .repo-readme,
+.shell-app.light .repo-config-panel {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.7) inset,
+    0 0 0 0.5px rgba(255,255,255,0.5) inset,
+    0 12px 40px rgba(20,18,14,0.10);
+}
+
+.shell-app .repo-labels-head,
+.shell-app .repo-activity-head,
+.shell-app .repo-bookmarks-head,
+.shell-app .repo-readme-head,
+.shell-app .repo-config-panel > header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  border-bottom: 0.5px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
-.shell-app .repo-labels-head h2 {
+.shell-app .repo-labels-head h2,
+.shell-app .repo-activity-head h2,
+.shell-app .repo-bookmarks-head h2,
+.shell-app .repo-readme-head h2,
+.shell-app .repo-config-panel > header h2 {
   margin: 0;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--fg);
 }
 
 .shell-app .repo-labels-list {
@@ -1255,155 +1412,16 @@ kbd {
   gap: 6px;
 }
 
-.shell-app .repo-activity {
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
-}
+.shell-app .repo-bookmarks { margin-top: 28px; }
 
-.shell-app .repo-activity-head {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-activity-head h2 {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--ink);
-}
-
-.shell-app .repo-bookmarks {
-  margin-top: 28px;
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
-}
-
-.shell-app .repo-bookmarks-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-bookmarks-head h2 {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--ink);
-}
-
-.shell-app .repo-bookmarks-count {
-  color: var(--ink-faint);
-}
+.shell-app .repo-bookmarks-count { color: var(--fg-3); }
 
 .shell-app .repo-bookmarks-hint {
   margin: 4px 0 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   font-style: italic;
-}
-
-.shell-app .repo-commits {
-  display: grid;
-  gap: 8px;
-}
-
-.shell-app .repo-commits-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--ink, #111);
-  padding-bottom: 4px;
-}
-
-.shell-app .repo-commits-head h2 {
-  margin: 0;
-  font-family: var(--display, system-ui);
-  font-size: 16px;
-}
-
-.shell-app .repo-commits-count {
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-commits-list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.shell-app .repo-commit {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
-  gap: 8px;
-  align-items: baseline;
-  padding: 4px 0;
-  border-bottom: 1px dashed var(--rule-light, #d8d1c4);
-}
-
-.shell-app .repo-commit-change-id {
-  font-family: var(--mono, monospace);
-  font-size: 10.5px;
-  color: var(--accent-teal, #087f6f);
-  border: 1px solid currentColor;
-  padding: 0 4px;
-  letter-spacing: 0.04em;
-}
-
-.shell-app .repo-commit:last-child {
-  border-bottom: 0;
-}
-
-.shell-app .repo-commit-oid {
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  color: var(--ink-faint, #68645c);
-  letter-spacing: 0.04em;
-}
-
-.shell-app .repo-commit-subject {
-  font-family: var(--sans, system-ui);
-  font-size: 13px;
-  color: var(--ink, #111);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.shell-app .repo-commit-meta {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  font-family: var(--mono, monospace);
-  font-size: 10.5px;
-  color: var(--ink-faint, #68645c);
-  white-space: nowrap;
-}
-
-.shell-app .repo-commit-author {
-  color: var(--ink-soft, #2c2b28);
 }
 
 .shell-app .repo-bookmarks-list {
@@ -1418,52 +1436,91 @@ kbd {
   align-items: baseline;
   gap: 4px 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
+  border-bottom: 0.5px solid var(--line);
 }
 
-.shell-app .repo-bookmark:last-child {
-  border-bottom: none;
-}
+.shell-app .repo-bookmark:last-child { border-bottom: none; }
 
 .shell-app .repo-bookmark code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  border: 1px solid var(--rule-light);
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
   padding: 1px 6px;
-  color: var(--ink);
+  color: var(--fg);
 }
 
-.shell-app .repo-bookmark-label {
-  font-size: 13px;
-  color: var(--ink);
-}
-
-.shell-app .repo-bookmark-description {
-  flex-basis: 100%;
-  font-size: 12px;
-  color: var(--ink-faint);
-  margin-top: 2px;
-}
-
-.shell-app .repo-bookmark-commit {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-}
+.shell-app .repo-bookmark-label { font-size: 13px; color: var(--fg); }
+.shell-app .repo-bookmark-description { flex-basis: 100%; font-size: 12px; color: var(--fg-3); margin-top: 2px; }
+.shell-app .repo-bookmark-commit { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
 
 .shell-app .repo-bookmark-unresolved {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
-  border: 1px dashed var(--rule-light);
+  color: var(--fg-3);
+  border: 0.5px dashed var(--line);
+  border-radius: 4px;
   padding: 0 5px;
 }
 
-.shell-app .repo-bookmark.unresolved code {
-  color: var(--ink-faint);
+.shell-app .repo-bookmark.unresolved code { color: var(--fg-3); }
+
+/* ── Commits ───────────────────────────────────────────────── */
+
+.shell-app .repo-commits { display: grid; gap: 8px; }
+
+.shell-app .repo-commits-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 0.5px solid var(--line-2);
+  padding-bottom: 4px;
 }
+
+.shell-app .repo-commits-head h2 { margin: 0; font-family: var(--font-sans); font-size: 16px; }
+.shell-app .repo-commits-count { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+
+.shell-app .repo-commits-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+
+.shell-app .repo-commit {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 0.5px dashed var(--line);
+}
+
+.shell-app .repo-commit-change-id {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ok);
+  border: 0.5px solid currentColor;
+  border-radius: 4px;
+  padding: 0 4px;
+  letter-spacing: 0.04em;
+}
+
+.shell-app .repo-commit:last-child { border-bottom: 0; }
+.shell-app .repo-commit-oid { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); letter-spacing: 0.04em; }
+.shell-app .repo-commit-subject { font-family: var(--font-sans); font-size: 13px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.shell-app .repo-commit-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.shell-app .repo-commit-author { color: var(--fg-2); }
+
+/* ── Repo overview / code / config ─────────────────────────── */
 
 .shell-app .repo-overview {
   display: grid;
@@ -1473,94 +1530,40 @@ kbd {
   align-items: start;
 }
 
-.shell-app .repo-overview-main {
-  min-width: 0;
-}
-
-.shell-app .repo-overview-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
+.shell-app .repo-overview-main { min-width: 0; }
+.shell-app .repo-overview-rail { display: flex; flex-direction: column; gap: 20px; }
 .shell-app .repo-overview-rail .repo-bookmarks,
-.shell-app .repo-overview-rail > * {
-  margin-top: 0;
-}
+.shell-app .repo-overview-rail > * { margin-top: 0; }
 
 @media (max-width: 960px) {
-  .shell-app .repo-overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  .shell-app .repo-overview { grid-template-columns: minmax(0, 1fr); }
 }
 
 .shell-app .repo-code,
-.shell-app .repo-extension-embed {
-  margin-top: 28px;
-}
+.shell-app .repo-extension-embed { margin-top: 28px; }
 
-.shell-app .repo-config {
-  margin-top: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
+.shell-app .repo-config { margin-top: 28px; display: flex; flex-direction: column; gap: 24px; }
 
 .shell-app .repo-config-error {
   margin: 0;
-  border: 1px solid var(--accent-red, #b34040);
-  background: rgba(179, 64, 64, 0.06);
-  color: var(--accent-red, #b34040);
+  border: 0.5px solid var(--err);
+  border-radius: var(--r-sm);
+  background: var(--err-soft);
+  color: var(--err);
   padding: 10px 16px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.shell-app .repo-config-empty {
-  margin: 0;
-  color: var(--ink-faint);
-  font-style: italic;
-  font-size: 13px;
-}
-
-.shell-app .repo-config-panel {
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
-}
-
-.shell-app .repo-config-panel > header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-config-panel > header h2 {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--ink);
-}
+.shell-app .repo-config-empty { margin: 0; color: var(--fg-3); font-style: italic; font-size: 13px; }
 
 .shell-app .repo-config-panel > header .hint code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
-.shell-app .repo-config-panel .implicit-marker {
-  color: var(--ink-faint);
-  margin-right: 4px;
-}
+.shell-app .repo-config-panel .implicit-marker { color: var(--fg-3); margin-right: 4px; }
 
 .shell-app .repo-config-panel dl {
   margin: 0;
@@ -1568,83 +1571,43 @@ kbd {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);
   gap: 4px 14px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.shell-app .repo-config-panel dt {
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-config-panel dd {
-  margin: 0;
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
+.shell-app .repo-config-panel dt { color: var(--fg-3); }
+.shell-app .repo-config-panel dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
 
 .shell-app .repo-config-slot {
-  border-top: 1px solid var(--rule-light);
+  border-top: 0.5px solid var(--line);
   padding: 8px 16px;
 }
 
 .shell-app .repo-config-slot h3 {
   margin: 0 0 6px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-soft);
+  color: var(--fg-2);
   font-weight: 500;
 }
 
-.shell-app .repo-config-slot dl {
-  padding: 0;
-}
+.shell-app .repo-config-slot dl { padding: 0; }
 
-.shell-app .repo-readme-empty {
-  padding: 20px 24px;
-  color: var(--ink-faint);
-  font-size: 13px;
-}
+/* ── Readme ────────────────────────────────────────────────── */
 
-.shell-app .repo-readme {
-  margin-top: 28px;
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
-}
-
-.shell-app .repo-overview-main .repo-readme {
-  margin-top: 0;
-}
-
-.shell-app .repo-readme-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-readme-path {
-  color: var(--ink);
-}
-
-.shell-app .repo-readme-truncated {
-  color: var(--ink-faint);
-  font-size: 10px;
-}
+.shell-app .repo-readme-empty { padding: 20px 24px; color: var(--fg-3); font-size: 13px; }
+.shell-app .repo-readme { margin-top: 28px; }
+.shell-app .repo-overview-main .repo-readme { margin-top: 0; }
+.shell-app .repo-readme-path { color: var(--fg); }
+.shell-app .repo-readme-truncated { color: var(--fg-3); font-size: 10px; }
 
 .shell-app .repo-readme-body {
-  padding: 20px 24px;
+  padding: 22px 26px;
   line-height: 1.65;
-  color: var(--ink);
-  font-size: 15px;
+  color: var(--fg-2);
+  font-size: 14px;
 }
 
 .shell-app .repo-readme-body h1,
@@ -1656,138 +1619,100 @@ kbd {
   margin: 1.3em 0 0.5em;
   line-height: 1.25;
   font-weight: 600;
+  color: var(--fg);
 }
 
-.shell-app .repo-readme-body h1 {
-  font-size: 26px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  padding-bottom: 6px;
-}
-
-.shell-app .repo-readme-body h2 {
-  font-size: 21px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  padding-bottom: 4px;
-}
-
-.shell-app .repo-readme-body h3 {
-  font-size: 17px;
-}
-
+.shell-app .repo-readme-body h1 { font-size: 24px; border-bottom: 0.5px solid var(--line); padding-bottom: 6px; }
+.shell-app .repo-readme-body h2 { font-size: 20px; border-bottom: 0.5px solid var(--line); padding-bottom: 4px; }
+.shell-app .repo-readme-body h3 { font-size: 16px; }
 .shell-app .repo-readme-body h4,
 .shell-app .repo-readme-body h5,
-.shell-app .repo-readme-body h6 {
-  font-size: 15px;
-}
+.shell-app .repo-readme-body h6 { font-size: 14px; }
 
-.shell-app .repo-readme-body p {
-  margin: 0.7em 0;
-}
-
-.shell-app .repo-readme-body ul {
-  margin: 0.5em 0 0.7em;
-  padding-left: 22px;
-}
-
-.shell-app .repo-readme-body li {
-  margin: 0.2em 0;
-}
+.shell-app .repo-readme-body p { margin: 0.7em 0; }
+.shell-app .repo-readme-body ul { margin: 0.5em 0 0.7em; padding-left: 22px; }
+.shell-app .repo-readme-body li { margin: 0.2em 0; }
 
 .shell-app .repo-readme-body code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 0.88em;
   padding: 1px 5px;
-  background: var(--ink-tint, #f2efe6);
-  border-radius: 2px;
+  background: var(--surface-2);
+  border-radius: 4px;
 }
 
 .shell-app .repo-readme-body pre {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
   margin: 0.9em 0;
   padding: 12px 14px;
-  background: var(--ink-tint, #f2efe6);
-  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--bg-2);
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
   overflow-x: auto;
 }
 
-.shell-app .repo-readme-body pre code {
-  padding: 0;
-  background: transparent;
-  font-size: inherit;
-}
+.shell-app .repo-readme-body pre code { padding: 0; background: transparent; font-size: inherit; }
+.shell-app .repo-readme-body strong { font-weight: 600; }
+.shell-app .repo-readme-body em { font-style: italic; }
 
-.shell-app .repo-readme-body strong {
-  font-weight: 600;
-}
+/* ── Repo tabs ─────────────────────────────────────────────── */
 
-.shell-app .repo-readme-body em {
-  font-style: italic;
-}
-
-/* iter 73 — RepoTabs strip. Editorial bottom-border underline
- * on the active tab, no background pill - matches the LOOP_TODO
- * "editorial density" direction. Seeds the future Workbench
- * layout's persistent top-of-pane strip. */
 .shell-app .repo-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 0;
+  gap: 2px;
   margin-top: 10px;
-  border-bottom: 1px solid var(--rule-light, #d8d6cf);
+  border-bottom: 0.5px solid var(--line);
 }
 
 .shell-app .repo-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px 7px;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  height: 32px;
+  padding: 0 10px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
   font-size: 12px;
   letter-spacing: 0.02em;
   text-decoration: none;
   border-bottom: 1.5px solid transparent;
-  margin-bottom: -1px;
+  border-radius: 0;
+  margin-bottom: -0.5px;
   transition: color 80ms ease, border-color 80ms ease;
 }
 
 .shell-app .repo-tab-count {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1;
-  padding: 2px 5px;
-  border: 1px solid var(--rule-light);
-  color: var(--ink-soft);
+  padding: 1px 5px;
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
+  color: var(--fg-3);
 }
 
-.shell-app .repo-tab.active .repo-tab-count {
-  border-color: var(--ink);
-  color: var(--ink);
-}
+.shell-app .repo-tab.active .repo-tab-count { border-color: var(--line-3); color: var(--fg); }
 
 .shell-app .repo-tab-count.tone-alarm {
-  background: var(--accent-red, #b34040);
-  border-color: var(--accent-red, #b34040);
-  color: #fffdf8;
+  background: var(--err-soft);
+  border-color: var(--err);
+  color: var(--err);
 }
 
-.shell-app .repo-tab:hover {
-  color: var(--ink, #111);
-}
+.shell-app .repo-tab:hover { color: var(--fg); }
 
 .shell-app .repo-tab.active {
-  color: var(--ink, #111);
-  border-bottom-color: var(--ink, #111);
+  color: var(--fg);
+  border-bottom-color: var(--accent);
   font-weight: 600;
 }
 
-.shell-app .repo-slot-stack {
-  display: grid;
-  gap: 28px;
-  padding-top: 28px;
-}
+.shell-app .repo-slot-stack { display: grid; gap: 28px; padding-top: 28px; }
+
+/* ── Code viewer ───────────────────────────────────────────── */
 
 .shell-app .repo-code-header {
   display: flex;
@@ -1797,28 +1722,21 @@ kbd {
   padding: 12px 0;
 }
 
-.shell-app .repo-code-header h2 {
-  font-size: 18px;
-}
+.shell-app .repo-code-header h2 { font-size: 18px; }
 
 .shell-app .repo-code-header div,
 .shell-app .repo-code-message,
 .shell-app .repo-code-preview-meta,
 .shell-app .repo-code-tree button,
 .shell-app .repo-code-preview {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .shell-app .repo-code-header div,
 .shell-app .repo-code-message.muted,
-.shell-app .repo-code-preview-meta {
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-code-message.error {
-  color: var(--accent-err);
-}
+.shell-app .repo-code-preview-meta { color: var(--fg-3); }
+.shell-app .repo-code-message.error { color: var(--err); }
 
 .shell-app .repo-code-layout {
   display: grid;
@@ -1832,55 +1750,37 @@ kbd {
 .shell-app .repo-code-preview {
   height: 420px;
   overflow: auto;
-  border: 1px solid var(--rule-light);
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
 }
 
-.shell-app .repo-code-tree {
-  display: grid;
-  align-content: start;
-}
+.shell-app .repo-code-tree { display: grid; align-content: start; }
 
 .shell-app .repo-code-tree button {
   width: 100%;
   min-height: 34px;
   border: 0;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
   background: transparent;
   color: inherit;
   text-align: left;
   cursor: pointer;
   overflow-wrap: anywhere;
+  padding: 4px 10px;
 }
 
 .shell-app .repo-code-tree button:hover,
-.shell-app .repo-code-tree button:focus-visible {
-  background: var(--paper-tint);
-}
+.shell-app .repo-code-tree button:focus-visible { background: var(--surface-2); }
 
-.shell-app .repo-code-preview {
-  padding: 12px;
-}
+.shell-app .repo-code-preview { padding: 12px; }
+.shell-app .repo-code-preview pre { margin: 8px 0 0; white-space: pre-wrap; word-break: break-word; }
 
-.shell-app .repo-code-preview pre {
-  margin: 8px 0 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
+/* ── Forms ─────────────────────────────────────────────────── */
 
-.shell-app .form-panel {
-  padding-top: 32px;
-  max-width: 720px;
-}
-
-.shell-app .form-panel form {
-  display: grid;
-  gap: 18px;
-}
-
-.shell-app .form-panel label {
-  display: grid;
-  gap: 6px;
-}
+.shell-app .form-panel { padding-top: 32px; max-width: 720px; }
+.shell-app .form-panel form { display: grid; gap: 18px; }
+.shell-app .form-panel label { display: grid; gap: 6px; }
 
 .shell-app .form-panel label > span,
 .shell-app .form-panel small,
@@ -1888,56 +1788,49 @@ kbd {
 .shell-app .form-actions a,
 .shell-app .admin-list span,
 .shell-app .admin-list code {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.shell-app .form-panel label > span {
-  color: var(--ink-faint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
+.shell-app .form-panel label > span { color: var(--fg-3); letter-spacing: 0.06em; text-transform: uppercase; }
 .shell-app .form-panel small,
 .shell-app .form-actions a,
-.shell-app .admin-list span {
-  color: var(--ink-faint);
-}
+.shell-app .admin-list span { color: var(--fg-3); }
 
 .shell-app .form-panel input {
   width: 100%;
-  border: 1.5px solid var(--rule-light);
-  background: var(--paper);
-  color: var(--ink);
-  padding: 12px 14px;
-  font-family: var(--mono);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg);
+  padding: 10px 14px;
+  font-family: var(--font-mono);
   font-size: 14px;
 }
 
-.shell-app .form-error {
-  color: var(--accent-err);
+.shell-app .form-panel input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.shell-app .form-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
+.shell-app .form-error { color: var(--err); }
+
+.shell-app .form-actions { display: flex; align-items: center; gap: 12px; }
 
 .shell-app .form-actions button {
-  border: 1.5px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
-  padding: 10px 18px;
-  font-family: var(--display);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+  padding: 8px 16px;
+  font-family: var(--font-sans);
   font-weight: 600;
+  font-size: 12px;
   cursor: pointer;
 }
 
-.shell-app .form-actions button:disabled {
-  color: var(--ink-faint);
-  cursor: wait;
-}
+.shell-app .form-actions button:disabled { color: var(--fg-3); cursor: wait; }
 
 .shell-app .admin-grid {
   display: grid;
@@ -1946,9 +1839,7 @@ kbd {
   padding-top: 28px;
 }
 
-.shell-app .admin-list {
-  display: grid;
-}
+.shell-app .admin-list { display: grid; }
 
 .shell-app .admin-list > div {
   min-height: 42px;
@@ -1956,25 +1847,12 @@ kbd {
   grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1fr);
   gap: 14px;
   align-items: center;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
 }
 
-.shell-app .admin-list code {
-  overflow-wrap: anywhere;
-}
+.shell-app .admin-list code { overflow-wrap: anywhere; }
 
-.cmdk {
-  color: var(--ink);
-  cursor: pointer;
-  text-align: left;
-}
-
-.cmdk-text {
-  flex: 1;
-  color: var(--ink-fainter);
-  font-family: var(--sans);
-  font-size: 14px;
-}
+/* ── Command palette ───────────────────────────────────────── */
 
 .palette-backdrop {
   position: fixed;
@@ -1983,24 +1861,31 @@ kbd {
   display: grid;
   place-items: start center;
   padding-top: 12vh;
-  background: rgba(10, 10, 10, 0.18);
+  background: rgba(0, 0, 0, 0.40);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .command-palette {
   width: min(620px, calc(100vw - 32px));
-  border: 2px solid var(--ink);
-  background: var(--paper);
-  color: var(--ink);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-lg);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  color: var(--fg);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
 }
 
 .palette-input {
   width: 100%;
   border: 0;
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 0.5px solid var(--line);
   padding: 14px 16px;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--sans);
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--font-sans);
   font-size: 16px;
   outline: none;
 }
@@ -2012,24 +1897,23 @@ kbd {
 
 .palette-command {
   width: 100%;
-  min-height: 48px;
+  min-height: 42px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   border: 0;
-  border-bottom: 1px solid var(--rule-light);
-  padding: 10px 16px;
-  background: var(--paper);
-  color: var(--ink);
+  border-bottom: 0.5px solid var(--line);
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--fg);
   text-align: left;
   cursor: pointer;
+  font-size: 13px;
 }
 
 .palette-command:hover,
-.palette-command:focus-visible {
-  background: var(--paper-tint);
-}
+.palette-command:focus-visible { background: var(--surface-2); }
 
 .palette-command span {
   overflow: hidden;
@@ -2039,44 +1923,40 @@ kbd {
 
 .palette-command code,
 .palette-empty {
-  color: var(--ink-faint);
-  font-family: var(--mono);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
-.palette-empty {
-  padding: 16px;
-}
+.palette-empty { padding: 16px; }
+
+/* ── Panels and slot frames ────────────────────────────────── */
 
 .shell-app .panel,
 .shell-app .slot-frame {
-  border-top: 2px solid var(--ink);
+  border-top: 0.5px solid var(--line-2);
 }
 
-.shell-app .slot-frame--bare {
-  border-top: 0;
-}
+.shell-app .slot-frame--bare { border-top: 0; }
 
 .shell-app .panel-heading,
 .shell-app .slot-heading {
-  min-height: 48px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border-bottom: 1.5px solid var(--ink);
+  border-bottom: 0.5px solid var(--line-2);
 }
 
-.shell-app .slot-heading code {
-  color: var(--ink-faint);
-  overflow-wrap: anywhere;
-}
+.shell-app .slot-heading code { color: var(--fg-3); overflow-wrap: anywhere; }
 
 .shell-app h2 {
-  font-family: var(--display);
-  font-size: 24px;
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
   line-height: 1;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
 }
 
 .shell-app .route-list,
@@ -2086,48 +1966,32 @@ kbd {
   flex-direction: column;
 }
 
-.shell-app .slot-mount {
-  min-height: 110px;
-}
+.shell-app .slot-mount { min-height: 110px; }
 
 .shell-app .extension-route-page,
-.shell-app .extension-route-mount {
-  min-width: 0;
-}
-
-.shell-app .extension-route-page {
-  display: grid;
-  gap: 24px;
-}
+.shell-app .extension-route-mount { min-width: 0; }
+.shell-app .extension-route-page { display: grid; gap: 24px; }
 
 .shell-app .route-list a,
 .shell-app .route-row,
 .shell-app .activity-list article,
 .shell-app .slot-placeholder {
-  min-height: 54px;
+  min-height: 48px;
   display: grid;
   align-items: center;
   gap: 14px;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
 }
 
 .shell-app .route-list a,
-.shell-app .route-row {
-  grid-template-columns: minmax(90px, 0.7fr) minmax(140px, 1fr) minmax(60px, auto);
-}
-
-.shell-app .activity-list article {
-  grid-template-columns: 62px minmax(0, 1fr) minmax(70px, auto);
-}
-
-.shell-app .slot-placeholder {
-  min-height: 110px;
-}
+.shell-app .route-row { grid-template-columns: minmax(90px, 0.7fr) minmax(140px, 1fr) minmax(60px, auto); }
+.shell-app .activity-list article { grid-template-columns: 62px minmax(0, 1fr) minmax(70px, auto); }
+.shell-app .slot-placeholder { min-height: 110px; }
 
 .shell-app comtrya-repository-summary {
   display: grid;
   min-height: 110px;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
 }
 
 .shell-app .repo-summary-row {
@@ -2136,33 +2000,221 @@ kbd {
   grid-template-columns: minmax(90px, 0.35fr) minmax(0, 1fr);
   gap: 14px;
   align-items: center;
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 0.5px solid var(--line);
 }
 
-.shell-app .repo-summary-row:last-child {
-  border-bottom: 0;
-}
+.shell-app .repo-summary-row:last-child { border-bottom: 0; }
+.shell-app .repo-summary-row span { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.shell-app .repo-summary-row strong { overflow-wrap: anywhere; }
 
-.shell-app .repo-summary-row span {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-.shell-app .repo-summary-row strong {
-  overflow-wrap: anywhere;
-}
-
-.shell-app .route-list code {
-  color: var(--ink-faint);
-  overflow-wrap: anywhere;
-}
+.shell-app .route-list code { color: var(--fg-3); overflow-wrap: anywhere; }
 
 .shell-app .activity-list strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Comment thread ────────────────────────────────────────── */
+
+.shell-app comtrya-comment-thread { display: block; margin-top: 8px; }
+
+.shell-app .comment-thread-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+
+.shell-app .comment-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--line);
+}
+
+.shell-app .comment-row:last-child { border-bottom: 0; }
+
+.shell-app .comment-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.shell-app .comment-author {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--fg);
+}
+
+.shell-app .comment-author strong { font-weight: 600; }
+
+.shell-app .comment-author-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0.5px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg);
+}
+
+.shell-app .comment-author[data-author-kind="agent"] { color: oklch(75% 0.14 280); }
+.shell-app .comment-author[data-author-kind="bot"]   { color: var(--info); }
+.shell-app .comment-author[data-author-kind="credential"] { color: var(--warn); }
+.shell-app .comment-author[data-author-kind="team"]  { color: var(--ok); }
+
+.shell-app .comment-author-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 0.5px solid currentColor;
+  border-radius: 999px;
+  padding: 0 5px;
+  color: var(--fg-3);
+}
+
+.shell-app .comment-row[data-author-kind="agent"] .comment-author-badge { color: oklch(75% 0.14 280); }
+.shell-app .comment-row[data-author-kind="bot"] .comment-author-badge   { color: var(--info); }
+.shell-app .comment-row[data-author-kind="credential"] .comment-author-badge { color: var(--warn); }
+.shell-app .comment-row[data-author-kind="team"] .comment-author-badge  { color: var(--ok); }
+
+.shell-app .comment-meta time { color: var(--fg-3); font-size: 11px; }
+
+.shell-app .comment-edited-marker {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--fg-4);
+  font-style: italic;
+}
+
+.shell-app .comment-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 80ms ease;
+}
+
+.shell-app .comment-row:hover .comment-actions,
+.shell-app .comment-row:focus-within .comment-actions { opacity: 1; }
+
+.shell-app .comment-action {
+  background: transparent;
+  border: 0.5px solid var(--line);
+  border-radius: 5px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 0 6px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.shell-app .comment-action:hover { color: var(--fg); border-color: var(--line-3); background: var(--surface); }
+
+.shell-app .comment-edit-textarea {
+  width: 100%;
+  min-height: 80px;
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.shell-app .comment-edit-textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.shell-app .comment-edit-controls { display: flex; gap: 8px; margin-top: 6px; }
+
+.shell-app .comment-edit-save,
+.shell-app .comment-edit-cancel {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 12px;
+  padding: 6px 12px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.shell-app .comment-edit-save { background: var(--accent); color: #0a0b0e; border-color: var(--accent); }
+.shell-app .comment-edit-cancel { background: var(--surface-2); color: var(--fg); }
+.shell-app .comment-edit-save[disabled] { background: var(--fg-3); cursor: wait; }
+
+.shell-app .comment-body { color: var(--fg-2); font-size: 13px; line-height: 1.55; }
+
+.shell-app .comment-thread-status { margin: 8px 0 0; font-family: var(--font-mono); font-size: 12px; color: var(--fg-3); }
+.shell-app .comment-thread-status.warn { color: var(--err); }
+
+.shell-app .comment-composer {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--line-2);
+}
+
+.shell-app .comment-composer textarea {
+  width: 100%;
+  min-height: 64px;
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg);
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.shell-app .comment-composer textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.shell-app .comment-composer-actions { display: flex; align-items: center; gap: 12px; }
+
+.shell-app .comment-composer button {
+  border: 0.5px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: #0a0b0e;
+  padding: 8px 16px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 0 0 0.5px var(--accent-line), 0 4px 14px var(--accent-soft);
+}
+
+.shell-app .comment-composer button[disabled] { background: var(--fg-3); border-color: var(--fg-3); cursor: wait; box-shadow: none; }
+
+.shell-app .comment-composer-status { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+
+.shell-app .comment-composer-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-4);
+}
+
+.shell-app .comment-composer-hint kbd {
+  border: 0.5px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg-3);
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
 
 @media (max-width: 860px) {
   .topbar {
@@ -2181,7 +2233,7 @@ kbd {
 
   .sidebar {
     border-right: 0;
-    border-bottom: 2px solid var(--ink);
+    border-bottom: 0.5px solid var(--line);
   }
 
   .nav {
@@ -2189,9 +2241,7 @@ kbd {
     gap: 0 18px;
   }
 
-  .shell-app h1 {
-    font-size: 56px;
-  }
+  .shell-app h1 { font-size: 44px; }
 
   .shell-app .page-header,
   .shell-app .work-grid,
@@ -2201,28 +2251,12 @@ kbd {
     grid-template-columns: 1fr;
   }
 
-  .shell-app .summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .shell-app .summary-grid > div {
-    border-right: 0;
-    border-bottom: 1.5px solid var(--ink);
-  }
-
-  .shell-app .summary-grid > div:last-child {
-    border-bottom: 0;
-  }
+  .shell-app .summary-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
-  .shell-app .page {
-    padding: 22px;
-  }
-
-  .shell-app h1 {
-    font-size: 40px;
-  }
+  .shell-app .page { padding: 18px; }
+  .shell-app h1 { font-size: 36px; }
 
   .shell-app .route-list a,
   .shell-app .route-row,
@@ -2235,259 +2269,19 @@ kbd {
   }
 }
 
-/* comment-thread custom element (iter 50) — shell-owned, mounted on
- * IssueDetail / EpicDetail Activity panels. Editorial list: thin
- * dividers between rows, mono author label, body inherits the same
- * prose styling as issue / pull bodies. */
-.shell-app comtrya-comment-thread {
-  display: block;
-  margin-top: 8px;
+/* ── Pulsing live dot ──────────────────────────────────────── */
+
+@keyframes cy-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ok);
+  animation: cy-pulse 2s ease-in-out infinite;
 }
 
-.shell-app .comment-thread-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 16px;
-}
+/* ── Scrollbar hiding ──────────────────────────────────────── */
 
-.shell-app .comment-row {
-  display: grid;
-  gap: 6px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
-}
-
-.shell-app .comment-row:last-child {
-  border-bottom: 0;
-}
-
-.shell-app .comment-meta {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
-  font-family: var(--mono, monospace);
-  font-size: 12px;
-}
-
-.shell-app .comment-author {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  color: var(--ink, #111);
-}
-
-.shell-app .comment-author strong {
-  font-weight: 600;
-}
-
-.shell-app .comment-author-glyph {
-  display: inline-grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid currentColor;
-  font-family: var(--display, system-ui);
-  font-weight: 600;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--ink, #111);
-}
-
-.shell-app .comment-author[data-author-kind="agent"] { color: #6b3fa0; }
-.shell-app .comment-author[data-author-kind="bot"] { color: var(--accent-blue, #1d55a6); }
-.shell-app .comment-author[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
-.shell-app .comment-author[data-author-kind="team"] { color: var(--accent-teal, #087f6f); }
-
-.shell-app .comment-author-badge {
-  font-family: var(--mono, monospace);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border: 1px solid currentColor;
-  padding: 0 5px;
-  color: var(--ink-faint, #68645c);
-}
-
-.shell-app .comment-row[data-author-kind="agent"] .comment-author-badge { color: #6b3fa0; }
-.shell-app .comment-row[data-author-kind="bot"] .comment-author-badge { color: var(--accent-blue, #1d55a6); }
-.shell-app .comment-row[data-author-kind="credential"] .comment-author-badge { color: var(--accent-yellow, #c89300); }
-.shell-app .comment-row[data-author-kind="team"] .comment-author-badge { color: var(--accent-teal, #087f6f); }
-
-.shell-app .comment-meta time {
-  color: var(--ink-faint, #68645c);
-  font-size: 11px;
-}
-
-.shell-app .comment-edited-marker {
-  font-family: var(--mono, monospace);
-  font-size: 10.5px;
-  color: var(--ink-fainter, #918b80);
-  font-style: italic;
-}
-
-.shell-app .comment-actions {
-  margin-left: auto;
-  display: inline-flex;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 80ms ease;
-}
-
-.shell-app .comment-row:hover .comment-actions,
-.shell-app .comment-row:focus-within .comment-actions {
-  opacity: 1;
-}
-
-.shell-app .comment-action {
-  background: transparent;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
-  font-size: 10.5px;
-  padding: 0 6px;
-  line-height: 16px;
-  cursor: pointer;
-}
-
-.shell-app .comment-action:hover {
-  color: var(--ink, #111);
-  border-color: var(--ink, #111);
-}
-
-.shell-app .comment-edit-textarea {
-  width: 100%;
-  min-height: 80px;
-  border: 1.5px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
-  padding: 10px 12px;
-  font-family: var(--mono, monospace);
-  font-size: 13px;
-  resize: vertical;
-}
-
-.shell-app .comment-edit-textarea:focus {
-  outline: none;
-  border-color: var(--ink, #111);
-}
-
-.shell-app .comment-edit-controls {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.shell-app .comment-edit-save,
-.shell-app .comment-edit-cancel {
-  font-family: var(--display, system-ui);
-  font-weight: 600;
-  font-size: 12px;
-  padding: 6px 12px;
-  border: 1.5px solid var(--ink, #111);
-  cursor: pointer;
-}
-
-.shell-app .comment-edit-save {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-}
-
-.shell-app .comment-edit-cancel {
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
-}
-
-.shell-app .comment-edit-save[disabled] {
-  background: var(--ink-faint, #68645c);
-  cursor: wait;
-}
-
-.shell-app .comment-body {
-  color: var(--ink, #1a1916);
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.shell-app .comment-thread-status {
-  margin: 8px 0 0;
-  font-family: var(--mono, monospace);
-  font-size: 12px;
-  color: var(--ink-faint, #68645c);
-}
-
-.shell-app .comment-thread-status.warn {
-  color: var(--accent-err, #c9341c);
-}
-
-.shell-app .comment-composer {
-  display: grid;
-  gap: 8px;
-  margin-top: 18px;
-  padding-top: 14px;
-  border-top: 1.5px solid var(--ink, #111);
-}
-
-.shell-app .comment-composer textarea {
-  width: 100%;
-  min-height: 64px;
-  border: 1.5px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
-  padding: 10px 12px;
-  font-family: var(--mono, monospace);
-  font-size: 13px;
-  resize: vertical;
-}
-
-.shell-app .comment-composer textarea:focus {
-  outline: none;
-  border-color: var(--ink, #111);
-}
-
-.shell-app .comment-composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.shell-app .comment-composer button {
-  border: 1.5px solid var(--ink, #111);
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  padding: 8px 16px;
-  font-family: var(--display, system-ui);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.shell-app .comment-composer button[disabled] {
-  background: var(--ink-faint, #68645c);
-  cursor: wait;
-}
-
-.shell-app .comment-composer-status {
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  color: var(--ink-faint, #68645c);
-}
-
-.shell-app .comment-composer-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-  color: var(--ink-fainter, #918b80);
-}
-
-.shell-app .comment-composer-hint kbd {
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
-  color: var(--ink-faint, #68645c);
-  padding: 0 5px;
-  font-family: var(--mono, monospace);
-  font-size: 11px;
-}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }

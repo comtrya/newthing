@@ -593,7 +593,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 .palette-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(20, 18, 14, 0.32);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .palette-positioner {
@@ -608,28 +608,30 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 .palette-panel {
   pointer-events: auto;
   width: min(680px, calc(100vw - 48px));
-  background: var(--paper, #fffdf8);
-  border: 1.5px solid var(--ink, #111);
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(140%);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-lg);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   max-height: min(70vh, 720px);
-  box-shadow: 0 30px 60px -20px rgba(20, 18, 14, 0.45);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.6);
 }
 
 .palette-input {
   width: 100%;
   border: 0;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   background: transparent;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 18px;
   padding: 14px 18px;
-  color: var(--ink, #111);
+  color: var(--fg);
   outline: none;
 }
 
 .palette-input::placeholder {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
   font-style: italic;
 }
 
@@ -647,14 +649,14 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 }
 
 .palette-group {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   padding: 10px 18px 4px;
-  background: var(--paper-tint, #f2efe7);
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--line);
 }
 
 .palette-command {
@@ -664,14 +666,14 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   gap: 12px;
   align-items: center;
   padding: 8px 18px;
-  color: var(--ink, #111);
+  color: var(--fg);
   cursor: pointer;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
   user-select: none;
 }
 
 .palette-command.active {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--surface);
 }
 
 .palette-command.active .palette-title {
@@ -682,7 +684,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 14px;
 }
 
@@ -693,33 +695,34 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 }
 
 .palette-meta kbd {
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
   padding: 1px 6px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink, #111);
-  background: var(--paper, #fffdf8);
+  color: var(--fg);
+  background: var(--surface);
 }
 
 .palette-meta code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   letter-spacing: 0.02em;
 }
 
 .palette-empty {
   margin: 0;
   padding: 20px 18px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .palette-issue-number {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   padding-right: 6px;
 }
 
@@ -727,7 +730,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   background: transparent;
   color: inherit;
   font-weight: 700;
-  border-bottom: 1.5px solid var(--accent-orange, #e34a20);
+  border-bottom: 1px solid var(--accent);
   padding: 0;
 }
 
@@ -736,20 +739,21 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   flex-wrap: wrap;
   gap: 14px;
   justify-content: flex-end;
-  border-top: 1.5px solid var(--ink, #111);
+  border-top: 0.5px solid var(--line);
   padding: 8px 16px;
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  background: var(--surface);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .palette-foot kbd {
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink, #111);
+  color: var(--fg);
   margin-right: 4px;
 }
 
