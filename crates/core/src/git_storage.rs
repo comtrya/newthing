@@ -453,7 +453,10 @@ mod tests {
                 Vec::new(),
                 vec![CueFile {
                     path: "comtrya.cue".to_string(),
-                    source: "package comtrya\ninvalid: true".to_string(),
+                    // Real CUE type-conflict (under the cuengine-backed
+                    // validator). Was `"invalid: true"` under the legacy
+                    // string-match stub.
+                    source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
                 }],
             )
             .unwrap();

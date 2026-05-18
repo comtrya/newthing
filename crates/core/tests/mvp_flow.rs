@@ -72,7 +72,9 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
             Vec::new(),
             vec![CueFile {
                 path: "comtrya.cue".to_string(),
-                source: "package comtrya\ninvalid: true".to_string(),
+                // Real CUE error under the cuengine-backed validator
+                // (replaces the legacy magic-string trigger).
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
         )
         .unwrap();

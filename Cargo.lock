@@ -310,6 +310,10 @@ dependencies = [
 [[package]]
 name = "comtrya-core"
 version = "0.1.0"
+dependencies = [
+ "cuengine",
+ "tempfile",
+]
 
 [[package]]
 name = "comtrya-extension-oci"
