@@ -46,6 +46,7 @@ import {
 const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 interface IssueResult {
+  kind: "issue";
   id: string;
   number: number;
   title: string;
@@ -53,11 +54,30 @@ interface IssueResult {
   workspaceId: string;
 }
 
+interface PullResult {
+  kind: "pull";
+  id: string;
+  number: number | null;
+  title: string;
+  state?: string | null;
+}
+
+interface EpicResult {
+  kind: "epic";
+  id: string;
+  title: string;
+  state?: string | null;
+}
+
+type EntityResult = IssueResult | PullResult | EpicResult;
+
 const router = useRouter();
 const open = ref(false);
 const query = ref("");
 const commands = ref<CommandContribution[]>([]);
 const issues = ref<IssueResult[]>([]);
+const pulls = ref<PullResult[]>([]);
+const epics = ref<EpicResult[]>([]);
 let unsubscribe: (() => void) | undefined;
 
 const filteredCommands = computed(() => filterCommands(query.value, commands.value));
@@ -69,18 +89,35 @@ const filteredCommands = computed(() => filterCommands(query.value, commands.val
  * typing. Cap at 8 results so a noisy query doesn't push commands
  * off-screen.
  */
-const filteredIssues = computed<IssueResult[]>(() => {
-  const q = query.value.trim().toLowerCase();
+function filterEntities<T extends { title: string; number?: number | null }>(
+  list: T[],
+  q: string,
+  cap = 8,
+): T[] {
   if (q.length === 0) return [];
-  const out: IssueResult[] = [];
-  for (const issue of issues.value) {
-    if (issue.title.toLowerCase().includes(q) || `#${issue.number}`.includes(q)) {
-      out.push(issue);
-      if (out.length >= 8) break;
+  const out: T[] = [];
+  for (const item of list) {
+    const matchesTitle = item.title.toLowerCase().includes(q);
+    const matchesNumber =
+      typeof item.number === "number" && `#${item.number}`.includes(q);
+    if (matchesTitle || matchesNumber) {
+      out.push(item);
+      if (out.length >= cap) break;
     }
   }
   return out;
-});
+}
+
+const normalisedQuery = computed(() => query.value.trim().toLowerCase());
+const filteredIssues = computed<IssueResult[]>(() =>
+  filterEntities(issues.value, normalisedQuery.value),
+);
+const filteredPulls = computed<PullResult[]>(() =>
+  filterEntities(pulls.value, normalisedQuery.value),
+);
+const filteredEpics = computed<EpicResult[]>(() =>
+  filterEntities(epics.value, normalisedQuery.value),
+);
 
 interface CommandGroup {
   category: string;
@@ -111,6 +148,8 @@ onMounted(() => {
     // without burning a fetch on every keystroke. Workspace-scoped
     // issue counts are small enough that an on-open fetch is cheap.
     void refreshIssues();
+    void refreshPulls();
+    void refreshEpics();
   });
 });
 
@@ -148,6 +187,7 @@ async function refreshIssues(): Promise<void> {
     .map((issue) => {
       const match = /^comtrya:\/\/workspace\/([^/]+)/.exec(issue.repository ?? "");
       return {
+        kind: "issue" as const,
         id: issue.id,
         number: issue.number,
         title: issue.title ?? "",
@@ -157,21 +197,74 @@ async function refreshIssues(): Promise<void> {
     });
 }
 
-type PaletteEntry = CommandContribution | IssueResult;
+async function refreshPulls(): Promise<void> {
+  const result = await invokeOp<Array<{
+    id: string;
+    number?: number | null;
+    title: string;
+    state?: string;
+  }>>(
+    "ext_pull_requests",
+    "pulls",
+    "list-pulls",
+    { repository: WORKSPACE_URI, limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) return;
+  pulls.value = result.value.map((pull) => ({
+    kind: "pull" as const,
+    id: pull.id,
+    number: pull.number ?? null,
+    title: pull.title ?? "",
+    state: pull.state ?? null,
+  }));
+}
 
-function isIssueResult(entry: PaletteEntry): entry is IssueResult {
-  return typeof (entry as IssueResult).number === "number";
+async function refreshEpics(): Promise<void> {
+  const result = await invokeOp<Array<{
+    id: string;
+    title: string;
+    state?: string;
+  }>>(
+    "ext_epics",
+    "epics",
+    "list-epics",
+    { workspace: WORKSPACE_URI, limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) return;
+  epics.value = result.value.map((epic) => ({
+    kind: "epic" as const,
+    id: epic.id,
+    title: epic.title ?? "",
+    state: epic.state ?? null,
+  }));
+}
+
+type PaletteEntry = CommandContribution | EntityResult;
+
+function isEntityResult(entry: PaletteEntry): entry is EntityResult {
+  return typeof (entry as EntityResult).kind === "string";
 }
 
 function closePalette(): void {
   open.value = false;
 }
 
+function navigateForEntity(entry: EntityResult): string {
+  switch (entry.kind) {
+    case "issue":
+      return `/x/issues/${entry.workspaceId}/${entry.number}`;
+    case "pull":
+      return `/x/pulls/${entry.id}`;
+    case "epic":
+      return `/x/epics/${entry.id}`;
+  }
+}
+
 async function onSelect(entry: PaletteEntry | null): Promise<void> {
   if (!entry) return;
   closePalette();
-  if (isIssueResult(entry)) {
-    await router.push(`/x/issues/${entry.workspaceId}/${entry.number}`);
+  if (isEntityResult(entry)) {
+    await router.push(navigateForEntity(entry));
     return;
   }
   await entry.run();
@@ -262,8 +355,51 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                     </li>
                   </ComboboxOption>
                 </template>
+                <template v-if="filteredPulls.length > 0">
+                  <header class="palette-group">Pull requests</header>
+                  <ComboboxOption
+                    v-for="pull in filteredPulls"
+                    :key="`pull-${pull.id}`"
+                    v-slot="{ active }"
+                    :value="pull"
+                    as="template"
+                  >
+                    <li
+                      :class="['palette-command', 'palette-issue', { active }]"
+                      :data-smoke="`palette-pull-${pull.id}`"
+                    >
+                      <span class="palette-title">
+                        <span v-if="pull.number !== null" class="palette-issue-number">#{{ pull.number }}</span>
+                        {{ pull.title || "(untitled)" }}
+                      </span>
+                      <span class="palette-meta">
+                        <code>{{ (pull.state ?? "").toLowerCase() }}</code>
+                      </span>
+                    </li>
+                  </ComboboxOption>
+                </template>
+                <template v-if="filteredEpics.length > 0">
+                  <header class="palette-group">Epics</header>
+                  <ComboboxOption
+                    v-for="epic in filteredEpics"
+                    :key="`epic-${epic.id}`"
+                    v-slot="{ active }"
+                    :value="epic"
+                    as="template"
+                  >
+                    <li
+                      :class="['palette-command', 'palette-issue', { active }]"
+                      :data-smoke="`palette-epic-${epic.id}`"
+                    >
+                      <span class="palette-title">{{ epic.title || "(untitled)" }}</span>
+                      <span class="palette-meta">
+                        <code>{{ (epic.state ?? "").toLowerCase() }}</code>
+                      </span>
+                    </li>
+                  </ComboboxOption>
+                </template>
                 <p
-                  v-if="filteredCommands.length === 0 && filteredIssues.length === 0"
+                  v-if="filteredCommands.length === 0 && filteredIssues.length === 0 && filteredPulls.length === 0 && filteredEpics.length === 0"
                   class="palette-empty"
                 >
                   No matches for "{{ query }}"
