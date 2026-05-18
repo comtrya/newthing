@@ -68,6 +68,20 @@ const renderedBody = computed(() =>
     : "",
 );
 
+/**
+ * Comment-thread count, fed by `comment-thread-update` events the
+ * shell-owned `comtrya-comment-thread` element dispatches on every
+ * row change (iter 58). Lets the Activity header read "Activity (3)"
+ * without scraping the custom element's DOM.
+ */
+const commentCount = ref<number | null>(null);
+function onCommentThreadUpdate(event: Event): void {
+  const detail = (event as CustomEvent<{ count?: number } | null>).detail;
+  if (detail && typeof detail.count === "number") {
+    commentCount.value = detail.count;
+  }
+}
+
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));
 const openedRelative = computed(() => relativeTime(issue.value?.createdAt));
 /**
@@ -411,9 +425,17 @@ async function reopenCurrentIssue(): Promise<void> {
             No description has been added yet.
           </article>
 
-          <section class="issue-thread">
+          <section
+            class="issue-thread"
+            @comment-thread-update="onCommentThreadUpdate"
+          >
             <header>
-              <h2>Activity</h2>
+              <h2>
+                Activity<span
+                  v-if="commentCount !== null"
+                  class="issue-thread-count"
+                > ({{ commentCount }})</span>
+              </h2>
             </header>
             <CustomElementHost
               tag="comtrya-comment-thread"
@@ -733,6 +755,13 @@ async function reopenCurrentIssue(): Promise<void> {
   font-family: var(--display, system-ui);
   font-size: 18px;
   line-height: 1;
+}
+
+.issue-thread-count {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  color: var(--ink-faint, #68645c);
+  font-weight: normal;
 }
 
 .issue-panel {

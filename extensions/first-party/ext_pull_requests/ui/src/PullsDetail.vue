@@ -185,6 +185,19 @@ const pullCommentTarget = computed(() =>
   pull.value ? `comtrya://pull_request/${pull.value.id}` : "",
 );
 
+/**
+ * Comment count fed by the shell-owned `comtrya-comment-thread`
+ * element's `comment-thread-update` events (iter 58). Surfaces in
+ * the Discussion section header as "Discussion (3)".
+ */
+const commentCount = ref<number | null>(null);
+function onCommentThreadUpdate(event: Event): void {
+  const detail = (event as CustomEvent<{ count?: number } | null>).detail;
+  if (detail && typeof detail.count === "number") {
+    commentCount.value = detail.count;
+  }
+}
+
 const linkedUnsubscribers: Array<() => void> = [];
 
 onMounted(() => {
@@ -559,9 +572,18 @@ async function onClose(): Promise<void> {
         </footer>
       </section>
 
-      <section class="pulls-detail-discussion" data-smoke="pulls-detail-discussion">
+      <section
+        class="pulls-detail-discussion"
+        data-smoke="pulls-detail-discussion"
+        @comment-thread-update="onCommentThreadUpdate"
+      >
         <header>
-          <h2>Discussion</h2>
+          <h2>
+            Discussion<span
+              v-if="commentCount !== null"
+              class="pulls-detail-discussion-count"
+            > ({{ commentCount }})</span>
+          </h2>
         </header>
         <CustomElementHost
           tag="comtrya-comment-thread"
@@ -1009,6 +1031,13 @@ async function onClose(): Promise<void> {
   margin: 0;
   font-family: var(--display, system-ui);
   font-size: 18px;
+}
+
+.pulls-detail-discussion-count {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  color: var(--ink-faint, #68645c);
+  font-weight: normal;
 }
 
 .pulls-linked-issues .muted {

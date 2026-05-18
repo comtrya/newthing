@@ -88,6 +88,19 @@ const ownerLabel = computed(() => {
 const createdLabel = computed(() => relativeTime(epic.value?.createdAt));
 
 /**
+ * Comment count fed by the shell-owned `comtrya-comment-thread`
+ * element's `comment-thread-update` events (iter 58). Surfaces in
+ * the Discussion section header as "Discussion (3)".
+ */
+const commentCount = ref<number | null>(null);
+function onCommentThreadUpdate(event: Event): void {
+  const detail = (event as CustomEvent<{ count?: number } | null>).detail;
+  if (detail && typeof detail.count === "number") {
+    commentCount.value = detail.count;
+  }
+}
+
+/**
  * CUE Project ownership routing — when the epic is scoped to a
  * Project, surface the Project's declared `owners[].ref` so the
  * detail page reads as "this work is routed to <team> +
@@ -493,7 +506,18 @@ function relativeTime(iso: string | null | undefined): string | null {
         <p v-if="actionError" class="epic-line warn" role="alert">{{ actionError }}</p>
       </section>
 
-      <section class="epic-comments">
+      <section
+        class="epic-comments"
+        @comment-thread-update="onCommentThreadUpdate"
+      >
+        <header class="epic-comments-head">
+          <h2>
+            Discussion<span
+              v-if="commentCount !== null"
+              class="epic-comments-count"
+            > ({{ commentCount }})</span>
+          </h2>
+        </header>
         <CustomElementHost
           tag="comtrya-comment-thread"
           :attributes="{ target: epicRef(epic) }"

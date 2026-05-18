@@ -507,6 +507,33 @@ const CSS = `
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.epic-comments {
+  display: grid;
+  gap: 8px;
+}
+
+.epic-comments-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1.5px solid var(--ink, #111);
+  padding-bottom: 4px;
+}
+
+.epic-comments-head h2 {
+  margin: 0;
+  font-family: var(--display, system-ui);
+  font-size: 18px;
+}
+
+.epic-comments-count {
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  color: var(--ink-faint, #68645c);
+  font-weight: normal;
+}
 `;
 
 export function ensureEpicDetailStyles(): void {
