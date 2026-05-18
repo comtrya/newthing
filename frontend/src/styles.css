@@ -2260,7 +2260,10 @@ kbd {
 }
 
 @media (max-width: 640px) {
-  .shell-app .page { padding: 18px 14px; }
+  .shell-app .page {
+    padding: 18px 14px;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
   .shell-app h1 { font-size: 32px; }
 
   /* Topbar tightens up — drop search-text label, keep the kbd hint */
@@ -2268,12 +2271,23 @@ kbd {
     grid-template-columns: auto 1fr auto;
     gap: 8px;
     padding: 0 10px;
+    padding-top: env(safe-area-inset-top, 0px);
   }
   .cmdk-text { display: none; }
   .cmdk { min-width: 36px; padding: 0 8px; }
 
-  /* Sidebar collapses to a horizontal strip; the repo list scrolls inline */
-  .sidebar {
+  /* Hide the wide workspace sidebar on mobile — MobileTabBar takes over */
+  .sidebar { display: none; }
+  .layout { grid-template-columns: 1fr; }
+  .shell-app .page { width: 100%; }
+  .shell-app .pipelines-page,
+  .shell-app .releases-page,
+  .shell-app .admin-screen {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Legacy sidebar styles kept for tablet/intermediate widths */
+  .sidebar.legacy-mobile {
     flex-direction: column;
     gap: 12px;
     padding: 12px 12px 14px;

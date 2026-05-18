@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
+import MobileTabBar from "./components/MobileTabBar.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
 import {
   clearRecents,
@@ -444,6 +445,7 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
       </main>
     </div>
     <CommandPalette />
+    <MobileTabBar />
     <ShortcutsOverlay
       v-if="shortcutsVisible"
       :cmd-label="cmdLabel"
