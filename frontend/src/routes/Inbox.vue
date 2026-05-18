@@ -190,6 +190,29 @@ const filterProjectOptions = computed<string[]>(() => {
   return Array.from(names).sort();
 });
 
+/**
+ * Compact relative-time formatter. Matches the IssuesList / PullsQueue
+ * convention so the same "X ago" string reads the same in every
+ * queue surface. Returns empty string for missing / unparseable
+ * inputs so the meta row collapses cleanly when an item lacks a
+ * timestamp.
+ */
+function relativeTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const then = Date.parse(value);
+  if (Number.isNaN(then)) return "";
+  const diff = Math.max(0, Date.now() - then);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  if (diff < minute) return "just now";
+  if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+  if (diff < week) return `${Math.floor(diff / day)}d ago`;
+  return `${Math.floor(diff / week)}w ago`;
+}
+
 const repoPathById = computed<Record<string, string>>(() => {
   const out: Record<string, string> = {};
   for (const r of repositories.value) out[r.id] = r.path;
@@ -351,6 +374,11 @@ function pullRepoLabel(pull: PullRow): string {
               <span class="meta">
                 <code class="repo">{{ pullRepoLabel(pull) }}</code>
                 <span class="state">{{ (pull.state ?? "").toLowerCase() }}</span>
+                <span
+                  v-if="relativeTime(pull.updatedAt)"
+                  class="age"
+                  :title="pull.updatedAt ?? ''"
+                >{{ relativeTime(pull.updatedAt) }}</span>
               </span>
             </RouterLink>
           </li>
@@ -406,6 +434,11 @@ function pullRepoLabel(pull: PullRow): string {
                 />
               </span>
               <span v-if="issue.projectName" class="project">◇ {{ issue.projectName }}</span>
+              <span
+                v-if="relativeTime(issue.updatedAt)"
+                class="age"
+                :title="issue.updatedAt ?? ''"
+              >{{ relativeTime(issue.updatedAt) }}</span>
             </RouterLink>
           </li>
         </ul>
@@ -664,5 +697,17 @@ function pullRepoLabel(pull: PullRow): string {
   font-family: var(--mono);
   font-size: 11px;
   color: var(--ink-faint);
+}
+
+.inbox-row .age {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.inbox-row .meta .age {
+  margin-left: 0;
 }
 </style>
