@@ -21,3 +21,6 @@ tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread", "s
 wasmtime = { version = "43.0.2", default-features = false, features = ["anyhow", "component-model", "cranelift", "runtime", "std", "wat"] }
 jsonschema = { version = "0.18", default-features = false }
 cuengine = "0.40"
+openidconnect = "4.0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+async-trait = "0.1"
