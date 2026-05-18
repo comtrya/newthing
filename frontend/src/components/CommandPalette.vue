@@ -31,6 +31,7 @@ import {
 import {
   configurePaletteOpener,
   filterCommands,
+  getGraphQLClient,
   invokeOp,
   listCommands,
   subscribeCommands,
@@ -69,7 +70,16 @@ interface EpicResult {
   state?: string | null;
 }
 
-type EntityResult = IssueResult | PullResult | EpicResult;
+interface RepoResult {
+  kind: "repo";
+  id: string;
+  /** Path used for both display and routing — e.g. `comtrya/dogfood`. */
+  path: string;
+  title: string;
+  description?: string | null;
+}
+
+type EntityResult = IssueResult | PullResult | EpicResult | RepoResult;
 
 const router = useRouter();
 const open = ref(false);
@@ -78,6 +88,7 @@ const commands = ref<CommandContribution[]>([]);
 const issues = ref<IssueResult[]>([]);
 const pulls = ref<PullResult[]>([]);
 const epics = ref<EpicResult[]>([]);
+const repos = ref<RepoResult[]>([]);
 let unsubscribe: (() => void) | undefined;
 
 const filteredCommands = computed(() => filterCommands(query.value, commands.value));
@@ -118,6 +129,25 @@ const filteredPulls = computed<PullResult[]>(() =>
 const filteredEpics = computed<EpicResult[]>(() =>
   filterEntities(epics.value, normalisedQuery.value),
 );
+/**
+ * Repos by `path` (or `title`) substring. The repo list is small so
+ * we surface them on every keystroke including the empty one — gives
+ * the palette an "Open recents" feel when the user pops it without
+ * typing first.
+ */
+const filteredRepos = computed<RepoResult[]>(() => {
+  const q = normalisedQuery.value;
+  const list = repos.value;
+  if (q.length === 0) return list.slice(0, 8);
+  const out: RepoResult[] = [];
+  for (const repo of list) {
+    if (repo.path.toLowerCase().includes(q) || repo.title.toLowerCase().includes(q)) {
+      out.push(repo);
+      if (out.length >= 8) break;
+    }
+  }
+  return out;
+});
 
 interface CommandGroup {
   category: string;
@@ -150,6 +180,7 @@ onMounted(() => {
     void refreshIssues();
     void refreshPulls();
     void refreshEpics();
+    void refreshRepos();
   });
 });
 
@@ -219,6 +250,35 @@ async function refreshPulls(): Promise<void> {
   }));
 }
 
+async function refreshRepos(): Promise<void> {
+  try {
+    const data = await getGraphQLClient().query<{
+      workspace?: {
+        repositories?: Array<{
+          id: string;
+          name?: string | null;
+          path?: string | null;
+          description?: string | null;
+        }> | null;
+      } | null;
+    }>(
+      "{ workspace { repositories { id name path description } } }",
+    );
+    const rows = data.workspace?.repositories ?? [];
+    repos.value = rows
+      .filter((row): row is { id: string; name?: string | null; path?: string | null; description?: string | null } => Boolean(row?.id))
+      .map((row) => ({
+        kind: "repo" as const,
+        id: row.id,
+        path: row.path ?? row.name ?? row.id,
+        title: row.name ?? row.path ?? row.id,
+        description: row.description ?? null,
+      }));
+  } catch {
+    // Swallow — palette stays usable without repo results.
+  }
+}
+
 async function refreshEpics(): Promise<void> {
   const result = await invokeOp<Array<{
     id: string;
@@ -257,6 +317,8 @@ function navigateForEntity(entry: EntityResult): string {
       return `/x/pulls/${entry.id}`;
     case "epic":
       return `/x/epics/${entry.id}`;
+    case "repo":
+      return `/r/${entry.path}`;
   }
 }
 
@@ -300,7 +362,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
             <Combobox @update:model-value="onSelect" nullable>
               <ComboboxInput
                 class="palette-input"
-                placeholder="Search commands"
+                placeholder="Search repos, issues, pulls, epics, commands…"
                 autocomplete="off"
                 spellcheck="false"
                 :display-value="() => ''"
@@ -398,8 +460,29 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                     </li>
                   </ComboboxOption>
                 </template>
+                <template v-if="filteredRepos.length > 0">
+                  <header class="palette-group">Repos</header>
+                  <ComboboxOption
+                    v-for="repo in filteredRepos"
+                    :key="`repo-${repo.id}`"
+                    v-slot="{ active }"
+                    :value="repo"
+                    as="template"
+                  >
+                    <li
+                      :class="['palette-command', 'palette-issue', { active }]"
+                      :data-smoke="`palette-repo-${repo.id}`"
+                    >
+                      <span class="palette-title">{{ repo.path }}</span>
+                      <span class="palette-meta">
+                        <code v-if="repo.description">{{ repo.description }}</code>
+                        <code v-else>repository</code>
+                      </span>
+                    </li>
+                  </ComboboxOption>
+                </template>
                 <p
-                  v-if="filteredCommands.length === 0 && filteredIssues.length === 0 && filteredPulls.length === 0 && filteredEpics.length === 0"
+                  v-if="filteredCommands.length === 0 && filteredIssues.length === 0 && filteredPulls.length === 0 && filteredEpics.length === 0 && filteredRepos.length === 0"
                   class="palette-empty"
                 >
                   No matches for "{{ query }}"

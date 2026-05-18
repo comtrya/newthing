@@ -295,7 +295,7 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
         <span class="word">Comtrya</span>
       </RouterLink>
       <button class="cmdk" type="button" @click="openPalette">
-        <span class="cmdk-text">repository, pull, file, ref…</span>
+        <span class="cmdk-text">repo, issue, pull, epic, command…</span>
         <kbd>{{ cmdLabel }} K</kbd>
       </button>
       <div class="topbar-actions">
