@@ -2119,3 +2119,119 @@ kbd {
     padding: 10px 0;
   }
 }
+
+/* comment-thread custom element (iter 50) — shell-owned, mounted on
+ * IssueDetail / EpicDetail Activity panels. Editorial list: thin
+ * dividers between rows, mono author label, body inherits the same
+ * prose styling as issue / pull bodies. */
+.shell-app comtrya-comment-thread {
+  display: block;
+  margin-top: 8px;
+}
+
+.shell-app .comment-thread-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.shell-app .comment-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+}
+
+.shell-app .comment-row:last-child {
+  border-bottom: 0;
+}
+
+.shell-app .comment-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.shell-app .comment-meta strong {
+  color: var(--ink, #111);
+  font-weight: 600;
+}
+
+.shell-app .comment-meta time {
+  color: var(--ink-faint, #68645c);
+  font-size: 11px;
+}
+
+.shell-app .comment-body {
+  color: var(--ink, #1a1916);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.shell-app .comment-thread-status {
+  margin: 8px 0 0;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--ink-faint, #68645c);
+}
+
+.shell-app .comment-thread-status.warn {
+  color: var(--accent-err, #c9341c);
+}
+
+.shell-app .comment-composer {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1.5px solid var(--ink, #111);
+}
+
+.shell-app .comment-composer textarea {
+  width: 100%;
+  min-height: 64px;
+  border: 1.5px solid var(--rule-light, #d8d1c4);
+  background: var(--paper, #fffdf8);
+  color: var(--ink, #111);
+  padding: 10px 12px;
+  font-family: var(--mono, monospace);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.shell-app .comment-composer textarea:focus {
+  outline: none;
+  border-color: var(--ink, #111);
+}
+
+.shell-app .comment-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shell-app .comment-composer button {
+  border: 1.5px solid var(--ink, #111);
+  background: var(--ink, #111);
+  color: var(--paper, #fffdf8);
+  padding: 8px 16px;
+  font-family: var(--display, system-ui);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.shell-app .comment-composer button[disabled] {
+  background: var(--ink-faint, #68645c);
+  cursor: wait;
+}
+
+.shell-app .comment-composer-status {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint, #68645c);
+}

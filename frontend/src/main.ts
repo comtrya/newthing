@@ -10,6 +10,7 @@ import {
 } from "@comtrya/sdk-core";
 import "./styles.css";
 import App from "./App.vue";
+import { defineCoreCommentThread } from "./core-widgets/comment-thread";
 import { loadShellExtensions } from "./extension-loader";
 import { installIssueRefHover } from "./issue-ref-hover";
 import { bindProjectCommands } from "./project-commands";
@@ -22,6 +23,7 @@ assertWorkspaceSdkDepsLinked();
 defineResourceCardElement();
 defineInlineEditElement();
 defineSkeletonElement();
+defineCoreCommentThread();
 registerRepositoryShellSlots();
 bindGlobalShortcut();
 installIssueRefHover();
