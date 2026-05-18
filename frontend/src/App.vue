@@ -5,6 +5,11 @@ import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
+import {
+  labelForRoute,
+  recentRoutes,
+  recordRouteVisit,
+} from "./recents";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
@@ -52,6 +57,11 @@ const cmdLabel = computed(() => (isMac ? "⌘" : "Ctrl"));
 
 const route = useRoute();
 const router = useRouter();
+const recents = recentRoutes();
+
+router.afterEach((to) => {
+  recordRouteVisit(to.path, labelForRoute(to.path));
+});
 
 /**
  * Extension prefixes that have a corresponding `/r/:path/<prefix>`
@@ -343,6 +353,26 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
             />
           </RouterLink>
         </nav>
+
+        <section
+          v-if="recents.length > 0"
+          class="sb-section sb-recents"
+          aria-label="Recently visited"
+          data-smoke="sidebar-recents"
+        >
+          <header class="sb-section-head">
+            <span class="sb-overline">Recent</span>
+          </header>
+          <nav class="sb-recent-list">
+            <RouterLink
+              v-for="entry in recents"
+              :key="entry.path"
+              :to="entry.path"
+              class="sb-recent"
+              :title="entry.path"
+            >{{ entry.label }}</RouterLink>
+          </nav>
+        </section>
 
         <section class="sb-section sb-repos" aria-label="Repositories">
           <header class="sb-section-head">

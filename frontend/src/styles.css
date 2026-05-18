@@ -413,6 +413,35 @@ kbd {
   font-style: italic;
 }
 
+.shell-app .sb-recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.shell-app .sb-recent {
+  padding: 4px 8px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.3;
+  border-left: 2px solid transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .sb-recent:hover {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.shell-app .sb-recent.router-link-active {
+  color: var(--ink);
+  border-left-color: var(--accent-orange);
+  background: var(--paper);
+}
+
 .sb-nav-footer {
   display: flex;
   flex-wrap: wrap;
