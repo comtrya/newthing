@@ -44,6 +44,8 @@
   --err-soft: oklch(70% 0.19 25 / 0.16);
   --info: oklch(72% 0.13 230);
   --info-soft: oklch(72% 0.13 230 / 0.16);
+  --add: oklch(75% 0.16 150 / 0.12);
+  --del: oklch(70% 0.19 25 / 0.12);
 
   --r-xs: 5px;
   --r-sm: 8px;
@@ -76,6 +78,9 @@
   --fg-2: rgba(15,17,22,0.66);
   --fg-3: rgba(15,17,22,0.48);
   --fg-4: rgba(15,17,22,0.30);
+
+  --add: oklch(75% 0.16 150 / 0.18);
+  --del: oklch(70% 0.19 25 / 0.18);
 }
 
 /* ── Reset ─────────────────────────────────────────────────── */
@@ -2285,3 +2290,292 @@ kbd {
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Design system primitives — additive to the existing shell.
+   These match the Claude Design handoff bundle's styles.css.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Hairlines ─────────────────────────────────────────────── */
+
+.hairline { border: 0.5px solid var(--line); }
+.hairline-b { border-bottom: 0.5px solid var(--line); }
+.hairline-t { border-top: 0.5px solid var(--line); }
+.hairline-l { border-left: 0.5px solid var(--line); }
+.hairline-r { border-right: 0.5px solid var(--line); }
+
+/* ── Glass primitives ──────────────────────────────────────── */
+
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+  border: 0.5px solid var(--line-2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.04) inset,
+    0 20px 60px rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-lg);
+}
+
+.shell-app.light .glass {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 0 0 0.5px rgba(255, 255, 255, 0.5) inset,
+    0 12px 40px rgba(20, 18, 14, 0.10);
+}
+
+.glass-thin {
+  background: var(--surface);
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+/* ── Typography helpers ────────────────────────────────────── */
+
+.mono { font-family: var(--font-mono); letter-spacing: -0.01em; }
+.serif { font-family: var(--font-serif); letter-spacing: -0.005em; }
+.tnum { font-variant-numeric: tabular-nums; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
+/* ── Keyboard shortcut chip ────────────────────────────────── */
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 0.5px solid var(--line-2);
+  background: var(--surface);
+  color: var(--fg-3);
+}
+
+/* ── Chips (design-bundle API: .chip + .chip-* modifiers) ──── */
+/* Coexists with the older .chip.ok / .chip.bare API above.    */
+
+.chip-mono { font-family: var(--font-mono); font-size: 10.5px; }
+
+.chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.chip-ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-soft); }
+.chip-warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-soft); }
+.chip-err { color: var(--err); background: var(--err-soft); border-color: var(--err-soft); }
+.chip-info { color: var(--info); background: var(--info-soft); border-color: var(--info-soft); }
+.chip-accent { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-line); }
+
+/* ── Buttons ───────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--r-sm);
+  border: 0.5px solid var(--line-2);
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover { background: var(--surface-3); }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fg-2);
+}
+
+.btn-ghost:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #0a0b0e;
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: 0 0 0 0.5px var(--accent-line), 0 4px 14px var(--accent-soft);
+}
+
+.btn-primary:hover { filter: brightness(1.05); }
+
+.shell-app.light .btn-primary { color: #fff; }
+
+.btn-sm { height: 24px; padding: 0 9px; font-size: 11.5px; border-radius: 6px; }
+.btn-lg { height: 34px; padding: 0 14px; font-size: 13px; border-radius: 10px; }
+
+/* ── Avatar ────────────────────────────────────────────────── */
+
+.avi {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 0.5px solid var(--line-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+
+/* ── Tabs ──────────────────────────────────────────────────── */
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--fg-3);
+  border-radius: 7px;
+  position: relative;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.tab.is-on,
+.tab[aria-selected="true"] {
+  color: var(--fg);
+  background: var(--surface-2);
+}
+
+.tab .count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-4);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+/* ── Progress bar ──────────────────────────────────────────── */
+
+.bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* ── Sparkline strokes ─────────────────────────────────────── */
+
+.spark { stroke: var(--fg-3); fill: none; stroke-width: 1.25; }
+.spark-accent { stroke: var(--accent); }
+
+/* ── Window chrome dots (macOS-style) ──────────────────────── */
+
+.win-dots { display: inline-flex; gap: 7px; }
+
+.win-dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.10);
+  display: inline-block;
+}
+
+.shell-app.light .win-dots i { background: rgba(0, 0, 0, 0.10); }
+
+.win-dots i:nth-child(1) { background: oklch(72% 0.18 25); }
+.win-dots i:nth-child(2) { background: oklch(82% 0.14 80); }
+.win-dots i:nth-child(3) { background: oklch(75% 0.14 145); }
+
+/* ── Forge logo glyph ──────────────────────────────────────── */
+
+.cmt-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.cmt-glyph {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--accent), oklch(78% 0.14 280));
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 0 0 0.5px var(--accent-line),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.cmt-glyph::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 3px;
+  background: var(--bg);
+  clip-path: polygon(0 0, 100% 0, 100% 35%, 60% 35%, 60% 100%, 35% 100%, 35% 35%, 0 35%);
+}
+
+/* ── Inline code, diff, syntax highlighting ────────────────── */
+
+.code-row {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.gutter { color: var(--fg-4); user-select: none; }
+.code-add { background: var(--add, oklch(75% 0.16 150 / 0.12)); }
+.code-del { background: var(--del, oklch(70% 0.19 25 / 0.12)); }
+.code-add-marker { color: var(--ok); }
+.code-del-marker { color: var(--err); }
+
+.tok-key { color: oklch(78% 0.12 320); }
+.tok-str { color: oklch(80% 0.13 130); }
+.tok-num { color: oklch(82% 0.14 60); }
+.tok-cm { color: var(--fg-4); font-style: italic; }
+.tok-fn { color: oklch(80% 0.13 215); }
+.tok-ty { color: oklch(80% 0.10 280); }
+.tok-pn { color: var(--fg-3); }
+
+/* ── Mark highlight (used in palette + search) ─────────────── */
+
+.cy mark,
+.shell-app mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
