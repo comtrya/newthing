@@ -110,9 +110,37 @@ class ComtryaCommentThread extends HTMLElement {
     }
   }
 
+  private timeTickInterval: number | null = null;
+
   connectedCallback(): void {
     this.dataset.smoke = "comment-thread";
     void this.render();
+    // Re-tick relative times once a minute so "just now" rolls
+    // forward to "1m ago" without a page reload. The window-time
+    // hook keeps the thread feeling alive between explicit fetches.
+    if (typeof window !== "undefined" && this.timeTickInterval === null) {
+      this.timeTickInterval = window.setInterval(() => this.tickTimes(), 60_000);
+    }
+  }
+
+  disconnectedCallback(): void {
+    if (this.timeTickInterval !== null && typeof window !== "undefined") {
+      window.clearInterval(this.timeTickInterval);
+      this.timeTickInterval = null;
+    }
+  }
+
+  /**
+   * Walk every `<time datetime=...>` in the thread and refresh its
+   * text. Cheap — there are at most a few dozen rows.
+   */
+  private tickTimes(): void {
+    for (const node of this.querySelectorAll("time[datetime]")) {
+      const raw = node.getAttribute("datetime");
+      if (!raw) continue;
+      const next = relativeTime(raw);
+      if (next && node.textContent !== next) node.textContent = next;
+    }
   }
 
   /**
