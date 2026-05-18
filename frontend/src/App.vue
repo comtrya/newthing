@@ -6,6 +6,7 @@ import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
 import {
+  clearRecents,
   labelForRoute,
   recentRoutes,
   recordRouteVisit,
@@ -362,6 +363,14 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
         >
           <header class="sb-section-head">
             <span class="sb-overline">Recent</span>
+            <button
+              type="button"
+              class="sb-icon-link"
+              title="Clear recent routes"
+              aria-label="Clear recent routes"
+              data-smoke="sidebar-recents-clear"
+              @click="clearRecents"
+            >×</button>
           </header>
           <nav class="sb-recent-list">
             <RouterLink

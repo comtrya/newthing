@@ -69,6 +69,17 @@ function shouldRecord(path: string): boolean {
 }
 
 /**
+ * Wipe the recents list — browser-local. Used by the sidebar's
+ * "clear" affordance for users who want to drop personal history
+ * (e.g. before screen-sharing). Returns nothing; the reactive ref
+ * empties immediately.
+ */
+export function clearRecents(): void {
+  recents.value = [];
+  safeWrite([]);
+}
+
+/**
  * Record a visit. Idempotent on repeat visits (same path moves to
  * the top instead of inserting a duplicate).
  */
