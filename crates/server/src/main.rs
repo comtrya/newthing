@@ -8654,6 +8654,7 @@ extensions: {
                 root: PathBuf::new(),
                 ui_manifest: PathBuf::new(),
                 route_prefix: Some("pulls".to_string()),
+                cue_schemas: Vec::new(),
             },
         );
         let result = inject_route_prefix(extensions, &configs, &runtime);

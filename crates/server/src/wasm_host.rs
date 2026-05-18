@@ -1989,6 +1989,10 @@ mod m1_ext_issues_smoke {
             repository: "comtrya://workspace/ws_test/repository/repo_test".into(),
             title: "M1 smoke".into(),
             body_markdown: "test body".into(),
+            project_name: None,
+            labels: vec![],
+            close_on_merge: None,
+            assignees: vec![],
         };
         let opened = issues
             .comtrya_ext_issues_issues()
