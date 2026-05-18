@@ -18,7 +18,7 @@
  * edit / delete come in follow-up slices.
  */
 
-import { renderMarkdown } from "@comtrya/sdk-vue";
+import { classifyPrincipal, renderMarkdown } from "@comtrya/sdk-vue";
 import { extensionClient } from "../extension-runtime";
 
 export const CORE_COMMENT_THREAD_ELEMENT = "comtrya-comment-thread";
@@ -72,12 +72,12 @@ function relativeTime(value: string | null | undefined): string {
   return `${Math.floor(diff / day)}d ago`;
 }
 
-function principalLabel(ref: string | null | undefined): string {
-  if (!ref) return "anonymous";
-  const m = /^comtrya:\/\/(?:user|agent|bot|credential|team)\/(.+)$/.exec(ref);
-  if (m) return m[1] ?? ref;
-  return ref;
-}
+// Author rendering reuses the canonical `classifyPrincipal` helper
+// the rest of the forge already uses for chip rows (IssueDetail,
+// PullsDetail, EpicDetail). That gives every kind — human, agent,
+// bot, credential, team — a consistent glyph and tone, so a
+// comment from `comtrya://agent/claude-code` reads the same way
+// here as it does on issues / pulls.
 
 class ComtryaCommentThread extends HTMLElement {
   /** Set as either an attribute or a JS property — the iter 50 host
@@ -188,11 +188,32 @@ function appendCommentRow(list: HTMLElement, comment: Comment): void {
   li.className = "comment-row";
   li.dataset.commentId = comment.id;
 
+  const classification = classifyPrincipal(comment.authorRef);
+  li.dataset.authorKind = classification.kind;
+
   const meta = document.createElement("header");
   meta.className = "comment-meta";
-  const author = document.createElement("strong");
-  author.textContent = principalLabel(comment.authorRef);
+
+  const author = document.createElement("span");
+  author.className = "comment-author";
+  author.dataset.authorKind = classification.kind;
+  author.title = comment.authorRef ?? classification.label;
+  const glyph = document.createElement("span");
+  glyph.className = "comment-author-glyph";
+  glyph.setAttribute("aria-hidden", "true");
+  glyph.textContent = classification.glyph;
+  const name = document.createElement("strong");
+  name.textContent = classification.label;
+  author.append(glyph, name);
   meta.append(author);
+
+  if (classification.kind !== "human" && classification.kind !== "unknown") {
+    const badge = document.createElement("span");
+    badge.className = "comment-author-badge";
+    badge.textContent = classification.kind;
+    meta.append(badge);
+  }
+
   if (comment.createdAt) {
     const time = document.createElement("time");
     time.dateTime = comment.createdAt;

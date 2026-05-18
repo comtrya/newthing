@@ -2156,10 +2156,49 @@ kbd {
   font-size: 12px;
 }
 
-.shell-app .comment-meta strong {
+.shell-app .comment-author {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   color: var(--ink, #111);
+}
+
+.shell-app .comment-author strong {
   font-weight: 600;
 }
+
+.shell-app .comment-author-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  font-family: var(--display, system-ui);
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--ink, #111);
+}
+
+.shell-app .comment-author[data-author-kind="agent"] { color: #6b3fa0; }
+.shell-app .comment-author[data-author-kind="bot"] { color: var(--accent-blue, #1d55a6); }
+.shell-app .comment-author[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
+.shell-app .comment-author[data-author-kind="team"] { color: var(--accent-teal, #087f6f); }
+
+.shell-app .comment-author-badge {
+  font-family: var(--mono, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid currentColor;
+  padding: 0 5px;
+  color: var(--ink-faint, #68645c);
+}
+
+.shell-app .comment-row[data-author-kind="agent"] .comment-author-badge { color: #6b3fa0; }
+.shell-app .comment-row[data-author-kind="bot"] .comment-author-badge { color: var(--accent-blue, #1d55a6); }
+.shell-app .comment-row[data-author-kind="credential"] .comment-author-badge { color: var(--accent-yellow, #c89300); }
+.shell-app .comment-row[data-author-kind="team"] .comment-author-badge { color: var(--accent-teal, #087f6f); }
 
 .shell-app .comment-meta time {
   color: var(--ink-faint, #68645c);
