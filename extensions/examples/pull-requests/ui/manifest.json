@@ -2,9 +2,9 @@
   "schemaVersion": "comtrya.ui-extension/v1",
   "extension": "pull-requests",
   "assets": {
-    "entry": "/_extensions/ext_01hv/assets/index.js",
+    "entry": "/_extensions/pull-requests/assets/index.js",
     "entryIntegrity": "sha256-development",
-    "styles": ["/_extensions/ext_01hv/assets/styles.css"]
+    "styles": ["/_extensions/pull-requests/assets/styles.css"]
   },
   "routes": [
     {

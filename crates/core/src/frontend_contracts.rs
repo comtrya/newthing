@@ -142,9 +142,9 @@ mod tests {
             schema_version: "comtrya.ui-extension/v1".to_string(),
             extension: "pull-requests".to_string(),
             assets: UiAssets {
-                entry: "/_extensions/ext_01hv/assets/index.js".to_string(),
+                entry: "/_extensions/ext_pull_requests/assets/index.js".to_string(),
                 entry_integrity: Some(stable_integrity(b"console.log(1)")),
-                styles: vec!["/_extensions/ext_01hv/assets/styles.css".to_string()],
+                styles: vec!["/_extensions/ext_pull_requests/assets/styles.css".to_string()],
             },
             routes: vec![UiRoute {
                 path: "/:workspace/:repo/pulls".to_string(),
@@ -167,7 +167,7 @@ mod tests {
         let response = extension_asset_response(
             "http://localhost:4321",
             &["http://localhost:4321".to_string()],
-            "/_extensions/ext_01hv/assets/index.abc123.js",
+            "/_extensions/ext_pull_requests/assets/index.abc123.js",
             b"console.log(1)",
             "text/javascript",
             true,
@@ -195,7 +195,7 @@ mod tests {
             extension_asset_response(
                 "https://evil.example",
                 &["http://localhost:4321".to_string()],
-                "/_extensions/ext_01hv/assets/index.js",
+                "/_extensions/ext_pull_requests/assets/index.js",
                 b"",
                 "text/javascript",
                 false,

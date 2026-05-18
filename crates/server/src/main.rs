@@ -1178,9 +1178,6 @@ impl Runtime {
     }
 
     fn extension_runtime_record(&self, extension: &str) -> Option<&ExtensionRuntimeRecord> {
-        if extension == "ext_01hv" {
-            return self.extension_runtime_record("ext_pull_requests");
-        }
         self.extension_runtime.get(extension)
     }
 
@@ -2784,10 +2781,8 @@ async fn extension_manifest(
     AxumPath(extension): AxumPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let cors = match state
-        .runtime
-        .check_boundary(&headers, "/_extensions/ext_01hv/manifest.json")
-    {
+    let cors_route = format!("/_extensions/{extension}/manifest.json");
+    let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -2811,10 +2806,8 @@ async fn extension_asset(
     AxumPath((extension, asset_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let cors = match state
-        .runtime
-        .check_boundary(&headers, "/_extensions/ext_01hv/assets/index.js")
-    {
+    let cors_route = format!("/_extensions/{extension}/assets/{asset_path}");
+    let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };

@@ -151,7 +151,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
     let asset = extension_asset_response(
         "http://localhost:4321",
         &["http://localhost:4321".to_string()],
-        "/_extensions/ext_01hv/assets/index.abc123.js",
+        "/_extensions/ext_pull_requests/assets/index.abc123.js",
         b"customElements.define('x-test', class extends HTMLElement {})",
         "text/javascript",
         true,
