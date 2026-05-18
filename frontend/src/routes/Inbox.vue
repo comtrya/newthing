@@ -77,6 +77,10 @@ const checks = ref<CheckRow[]>([]);
 const openIssues = computed(() =>
   [...issues.value]
     .filter((i) => (i.state ?? "").toLowerCase() !== "closed")
+    .filter((i) => {
+      const sel = selectedProject.value;
+      return !sel || (i.projectName ?? null) === sel;
+    })
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
 );
 
@@ -96,6 +100,27 @@ function setRepoFilter(repoId: string | null): void {
     next.repo = repoId;
   } else {
     delete next.repo;
+  }
+  void router.push({ path: "/inbox", query: next });
+}
+
+/** Project filter — read from `?project=<projectName>`. Applies to
+ *  the issues panel (which carries `projectName` per-issue). Pulls
+ *  and checks don't yet carry a project field at the inbox-level
+ *  projection so they remain unfiltered when only a project is set;
+ *  combining with a repo filter narrows both surfaces predictably. */
+const selectedProject = computed<string | null>(() => {
+  const raw = route.query.project;
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  return raw;
+});
+
+function setProjectFilter(name: string | null): void {
+  const next = { ...route.query };
+  if (name) {
+    next.project = name;
+  } else {
+    delete next.project;
   }
   void router.push({ path: "/inbox", query: next });
 }
@@ -147,6 +172,22 @@ const filterRepoOptions = computed<RepoLookupRow[]>(() => {
     }
   }
   return repositories.value.filter((r) => reposWithSignal.has(r.id));
+});
+
+/**
+ * Projects that have an open issue surfaced by the inbox. Like the
+ * repo chip set, only projects with a live signal earn a chip — a
+ * project whose issues are all closed doesn't clutter the strip.
+ * Sorted alphabetically; the "all" chip is rendered separately.
+ */
+const filterProjectOptions = computed<string[]>(() => {
+  const names = new Set<string>();
+  for (const issue of issues.value) {
+    if ((issue.state ?? "").toLowerCase() === "closed") continue;
+    const name = issue.projectName;
+    if (typeof name === "string" && name.length > 0) names.add(name);
+  }
+  return Array.from(names).sort();
 });
 
 const repoPathById = computed<Record<string, string>>(() => {
@@ -252,7 +293,7 @@ function pullRepoLabel(pull: PullRow): string {
       data-smoke="inbox-filter"
       aria-label="Scope inbox by repository"
     >
-      <span class="inbox-filter-label">scope ·</span>
+      <span class="inbox-filter-label">repo ·</span>
       <button
         type="button"
         class="inbox-filter-chip"
@@ -267,6 +308,29 @@ function pullRepoLabel(pull: PullRow): string {
         :class="{ active: selectedRepoId === repo.id }"
         @click="setRepoFilter(repo.id)"
       >{{ repo.path }}</button>
+    </nav>
+
+    <nav
+      v-if="loadState === 'ready' && filterProjectOptions.length > 0"
+      class="inbox-filter"
+      data-smoke="inbox-filter-project"
+      aria-label="Scope inbox by project"
+    >
+      <span class="inbox-filter-label">project ·</span>
+      <button
+        type="button"
+        class="inbox-filter-chip"
+        :class="{ active: !selectedProject }"
+        @click="setProjectFilter(null)"
+      >all</button>
+      <button
+        v-for="name in filterProjectOptions"
+        :key="name"
+        type="button"
+        class="inbox-filter-chip tone-project"
+        :class="{ active: selectedProject === name }"
+        @click="setProjectFilter(name)"
+      ><span class="project-glyph" aria-hidden="true">◇</span>{{ name }}</button>
     </nav>
 
     <section v-if="loadState !== 'error'" class="inbox-grid">
@@ -415,6 +479,18 @@ function pullRepoLabel(pull: PullRow): string {
   font-family: var(--mono);
   font-size: 11px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.inbox-filter-chip.tone-project {
+  color: var(--accent-blue, #1d55a6);
+}
+
+.inbox-filter-chip .project-glyph {
+  font-size: 10px;
+  line-height: 1;
 }
 
 .inbox-filter-chip:hover {
