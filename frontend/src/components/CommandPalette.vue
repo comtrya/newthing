@@ -608,26 +608,41 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 .palette-panel {
   pointer-events: auto;
   width: min(680px, calc(100vw - 48px));
-  background: var(--glass);
-  backdrop-filter: blur(22px) saturate(140%);
-  border: 0.5px solid var(--line-2);
+  background: rgba(14, 16, 20, 0.86);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(180%);
+  border: 0.5px solid rgba(255, 255, 255, 0.18);
   border-radius: var(--r-lg);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   max-height: min(70vh, 720px);
-  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.10) inset,
+    0 30px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  color: var(--fg);
+}
+
+.shell-app.light .palette-panel {
+  background: rgba(255, 253, 248, 0.88);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 30px 80px rgba(20, 18, 14, 0.20);
 }
 
 .palette-input {
   width: 100%;
   border: 0;
-  border-bottom: 0.5px solid var(--line);
+  border-bottom: 0.5px solid var(--line-2);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: 18px;
-  padding: 14px 18px;
+  font-size: 17px;
+  padding: 16px 18px;
   color: var(--fg);
   outline: none;
+  letter-spacing: -0.005em;
 }
 
 .palette-input::placeholder {
@@ -648,32 +663,48 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   outline: none;
 }
 
+.palette-list {
+  padding: 8px 8px 14px;
+}
+
 .palette-group {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--fg-3);
-  padding: 10px 18px 4px;
-  background: var(--surface);
-  border-bottom: 0.5px solid var(--line);
+  padding: 6px 12px;
+  margin-top: 8px;
+  background: transparent;
+  border-bottom: 0;
+}
+
+.palette-list > .palette-group:first-child {
+  margin-top: 0;
 }
 
 .palette-command {
-  min-height: 44px;
+  min-height: 40px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  padding: 8px 18px;
+  padding: 8px 12px;
+  margin: 0 4px;
   color: var(--fg);
   cursor: pointer;
-  border-bottom: 1px solid var(--line);
+  border-radius: 8px;
+  border: 0.5px solid transparent;
   user-select: none;
 }
 
-.palette-command.active {
+.palette-command:hover {
   background: var(--surface);
+}
+
+.palette-command.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
 }
 
 .palette-command.active .palette-title {
@@ -727,24 +758,29 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
 }
 
 .palette-title mark {
-  background: transparent;
-  color: inherit;
-  font-weight: 700;
-  border-bottom: 1px solid var(--accent);
-  padding: 0;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0 2px;
 }
 
 .palette-foot {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 14px;
   justify-content: flex-end;
-  border-top: 0.5px solid var(--line);
-  padding: 8px 16px;
-  background: var(--surface);
+  border-top: 0.5px solid var(--line-2);
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.25);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--fg-3);
+}
+
+.shell-app.light .palette-foot {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .palette-foot kbd {
