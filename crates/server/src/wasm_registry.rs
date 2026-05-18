@@ -78,7 +78,7 @@ impl WasmRegistry {
     /// Construct a fresh registry with sensible default backings. The
     /// caller registers extensions via `register_from_manifest`.
     pub fn new() -> Result<Self, String> {
-        let engine = Arc::new(Engine::default());
+        let engine = Arc::new(crate::wasm_host::build_sandboxed_engine()?);
         let linker =
             make_platform_linker(&engine).map_err(|e| format!("build platform linker: {e}"))?;
         // Pre-seed kernel-internal kinds. Per-extension kinds get added

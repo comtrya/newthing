@@ -23,10 +23,51 @@ use std::sync::{Arc, RwLock};
 
 use comtrya_core::{IdPrefix, OpaqueId};
 use serde_json::Value;
-use wasmtime::Engine;
 use wasmtime::component::Linker;
+use wasmtime::{Config, Engine};
 
 use crate::ExtensionRuntimeStore;
+
+/// Per-invocation fuel budget. ~1 fuel ≈ 1 wasm instruction.
+/// 5M ≈ tens of milliseconds on cold cache; ample for legitimate
+/// extension calls, terminates infinite loops in well under a second.
+/// Validated empirically against `m1_ext_issues_smoke::close_issue_round_trip`
+/// (see PR for #5).
+pub const WASM_PER_INVOCATION_FUEL: u64 = 5_000_000;
+
+/// Hard cap on a single wasm linear memory reservation. Bounds the
+/// *virtual address space* reserved for each linear memory — caps how
+/// far a hostile `memory.grow` can climb, not host process RSS.
+/// Wasmtime 43's default is 4 GiB on 64-bit; 64 MiB is a meaningful
+/// tightening over that default.
+pub const WASM_MEMORY_RESERVATION_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Build the kernel's shared wasm `Engine` with sandboxing turned on.
+/// Single source of truth — every caller, production and test, uses
+/// this.
+pub fn build_sandboxed_engine() -> Result<Engine, String> {
+    let mut config = Config::new();
+    config.consume_fuel(true);
+    config.wasm_component_model(true);
+    // memory_reservation reserves a fixed virtual address span for each
+    // linear memory. By itself it permits `memory.grow` past the
+    // reservation via reallocation (dynamic memory mode). Pairing with
+    // `memory_may_move(false)` forbids reallocation, so a grow past
+    // the reservation returns -1 (wasm-spec failure) instead. Together
+    // they cap how far a hostile `memory.grow` can climb — virtual
+    // address space, not host process RSS.
+    config.memory_reservation(WASM_MEMORY_RESERVATION_BYTES);
+    config.memory_may_move(false);
+    // SIMD is unused by every first-party extension; disabling it
+    // removes an untested JIT code path. Conservative posture, not a
+    // claim against a specific CVE class.
+    config.wasm_simd(false);
+    // Disabling base SIMD with relaxed SIMD still enabled is rejected
+    // by wasmtime's Config validation ("cannot disable the simd
+    // proposal but enable the relaxed simd proposal"). Disable both.
+    config.wasm_relaxed_simd(false);
+    Engine::new(&config).map_err(|e| format!("build sandboxed wasm engine: {e}"))
+}
 
 wasmtime::component::bindgen!({
     path: "../../extensions/wit/comtrya/platform",
@@ -1865,6 +1906,109 @@ mod tests {
 }
 
 #[cfg(test)]
+mod sandbox_limits {
+    //! Regression tests for #5 — the kernel's sandboxed `Engine`
+    //! must (1) enforce per-invocation fuel so a hostile extension
+    //! that never returns cannot hang the host process, and (2) cap
+    //! linear-memory reservation so a hostile extension calling
+    //! `memory.grow` unbounded cannot exhaust host virtual address
+    //! space.
+
+    use super::{WASM_MEMORY_RESERVATION_BYTES, WASM_PER_INVOCATION_FUEL, build_sandboxed_engine};
+    use wasmtime::Store;
+    use wasmtime::component::{Component, Linker};
+
+    #[test]
+    fn infinite_loop_extension_is_aborted_by_fuel_budget() {
+        // A Component-Model module whose core function loops forever.
+        // The `(type $ft (func))` annotation pins the component-level
+        // export type so the wasmtime 43.x text parser accepts the
+        // bare `(canon lift ...)` form.
+        let wat = r#"
+            (component
+              (core module $m
+                (func $loop (export "loop") (loop $forever (br $forever)))
+              )
+              (core instance $i (instantiate $m))
+              (type $ft (func))
+              (func (export "spin") (type $ft) (canon lift (core func $i "loop")))
+            )
+        "#;
+
+        let engine = build_sandboxed_engine().expect("build engine");
+        let component = Component::new(&engine, wat).expect("compile wat");
+        let linker: Linker<()> = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        store
+            .set_fuel(WASM_PER_INVOCATION_FUEL)
+            .expect("set fuel budget");
+
+        let instance = linker
+            .instantiate(&mut store, &component)
+            .expect("instantiate hostile component");
+        let spin = instance
+            .get_typed_func::<(), ()>(&mut store, "spin")
+            .expect("lookup spin export");
+        let err = spin.call(&mut store, ()).expect_err("must trap");
+        let msg = format!("{err:?}").to_lowercase();
+        assert!(
+            msg.contains("fuel"),
+            "expected fuel-exhaustion trap, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn large_allocation_extension_is_capped_by_memory_reservation() {
+        // The cap is 64 MiB = 1024 wasm pages (page = 64 KiB).
+        // The extension starts with 1 page of memory and asks for
+        // 2000 more pages — well past the cap. Wasmtime must refuse
+        // the grow request by returning -1 (the wasm-spec failure
+        // indicator) rather than allowing unbounded VA growth.
+        const GROW_DELTA_PAGES: i32 = 2000;
+        // Sanity: confirm we're actually trying to exceed the cap.
+        assert!(
+            (GROW_DELTA_PAGES as u64 + 1) * 64 * 1024 > WASM_MEMORY_RESERVATION_BYTES,
+            "test bug: GROW_DELTA_PAGES doesn't exceed memory reservation cap"
+        );
+
+        let wat = r#"
+            (component
+              (core module $m
+                (memory (export "mem") 1)
+                (func $alloc (export "alloc") (result i32)
+                  (memory.grow (i32.const 2000)))
+              )
+              (core instance $i (instantiate $m))
+              (type $ft (func (result s32)))
+              (func (export "alloc") (type $ft) (canon lift (core func $i "alloc")))
+            )
+        "#;
+
+        let engine = build_sandboxed_engine().expect("build engine");
+        let component = Component::new(&engine, wat).expect("compile wat");
+        let linker: Linker<()> = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        store
+            .set_fuel(WASM_PER_INVOCATION_FUEL)
+            .expect("set fuel budget");
+
+        let instance = linker
+            .instantiate(&mut store, &component)
+            .expect("instantiate large-alloc component");
+        let alloc = instance
+            .get_typed_func::<(), (i32,)>(&mut store, "alloc")
+            .expect("lookup alloc export");
+        let (result,) = alloc
+            .call(&mut store, ())
+            .expect("alloc call returns cleanly");
+        assert_eq!(
+            result, -1,
+            "memory.grow past the reservation cap must return -1; got {result}"
+        );
+    }
+}
+
+#[cfg(test)]
 mod m1_ext_issues_smoke {
     //! M1 acceptance: load ext_issues.wasm under Linker<HostState>,
     //! call close-issue, assert storage state changes accordingly.
@@ -1880,8 +2024,8 @@ mod m1_ext_issues_smoke {
 
     use std::sync::{Arc, RwLock};
 
+    use wasmtime::Store;
     use wasmtime::component::{Component, Linker};
-    use wasmtime::{Engine, Store};
 
     use super::*;
 
@@ -1965,7 +2109,10 @@ mod m1_ext_issues_smoke {
         let store_arc =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
 
-        let engine = Engine::default();
+        // Use the sandboxed engine in this smoke test — it keeps the
+        // fuel budget validated against a real first-party extension
+        // (anchors the WASM_PER_INVOCATION_FUEL constant; see #5).
+        let engine = build_sandboxed_engine().expect("build sandboxed engine");
         let linker: Linker<HostState> = make_platform_linker(&engine).expect("build linker");
         // The ext-issues bindgen generates host-trait stubs for
         // platform types it sees via `include`. Those duplicate the
@@ -1978,6 +2125,12 @@ mod m1_ext_issues_smoke {
         let component = Component::from_file(&engine, &wasm).expect("read wasm");
         let state = fresh_host_state(store_arc.clone());
         let mut store = Store::new(&engine, state);
+        // Load the per-invocation fuel budget so this test also
+        // empirically anchors WASM_PER_INVOCATION_FUEL against the
+        // heaviest real-extension call (open + close ext_issues).
+        store
+            .set_fuel(WASM_PER_INVOCATION_FUEL)
+            .expect("set wasm fuel");
 
         let instance = linker
             .instantiate(&mut store, &component)
