@@ -66,6 +66,20 @@ const extensionCount = computed(() => payload.value?.extensionInstallations?.len
 const extensionRuntime = computed(
   () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
 );
+
+/**
+ * Workspace-wide aggregates surfaced on the summary strip. Both
+ * tally counts already loaded per-repo: pull-request counts come
+ * from the workspace GraphQL projection (`openPullRequests`),
+ * issue counts from the per-repo `list-issues` op pass that the
+ * sidebar uses too. The Inbox is the authoritative open-work
+ * surface; these tiles link there so they read as actionable
+ * jump-offs, not vanity numbers.
+ */
+const totalOpenIssues = computed(() => totalOpenIssuesFetched.value);
+const totalOpenPulls = computed(() =>
+  repositories.value.reduce((sum, r) => sum + (r.openPullRequests ?? 0), 0),
+);
 /**
  * Per-repo open-issue counts. Hydrated in parallel via
  * `invokeOp("ext_issues", "issues", "list-issues")` filtered to the
@@ -96,12 +110,39 @@ async function refreshOpenIssueCount(repoId: string, ws: string): Promise<void> 
   openIssuesByRepoId.value = { ...openIssuesByRepoId.value, [repoId]: count };
 }
 
+/**
+ * Workspace-wide open-issue count. Per-repo `list-issues` calls
+ * miss issues that were opened against the bare workspace URI
+ * (workspace-scoped issues — what start.sh's smoke seeds), so the
+ * summary tile fans out one extra `list-issues` against the
+ * workspace URN itself and uses that as the authoritative total.
+ * Re-fired on the same SSE topics the per-repo counts watch.
+ */
+const totalOpenIssuesFetched = ref(0);
+
+async function refreshWorkspaceOpenIssues(): Promise<void> {
+  const ws = workspaceId.value;
+  if (!ws) return;
+  const result = await invokeOp<Array<{ state?: string }>>(
+    "ext_issues",
+    "issues",
+    "list-issues",
+    { repository: `comtrya://workspace/${ws}`, limit: 1024 },
+  );
+  if (!result.ok || !Array.isArray(result.value)) return;
+  totalOpenIssuesFetched.value = result.value.filter((issue) => {
+    const s = (issue.state ?? "").toUpperCase();
+    return s === "OPEN" || s === "REOPENED";
+  }).length;
+}
+
 async function refreshAllOpenIssues(): Promise<void> {
   const ws = workspaceId.value;
-  if (!ws || repositories.value.length === 0) return;
-  await Promise.all(
-    repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
-  );
+  if (!ws) return;
+  await Promise.all([
+    refreshWorkspaceOpenIssues(),
+    ...repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
+  ]);
 }
 
 /**
@@ -326,6 +367,14 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           <span>Repositories</span>
           <strong>{{ repositories.length }}</strong>
         </div>
+        <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenIssues} open issues — see the Inbox`">
+          <span>Open issues</span>
+          <strong>{{ totalOpenIssues }}</strong>
+        </RouterLink>
+        <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenPulls} open pull requests — see the Inbox`">
+          <span>Open pulls</span>
+          <strong>{{ totalOpenPulls }}</strong>
+        </RouterLink>
         <div>
           <span>Extensions</span>
           <strong>{{ extensionCount }}</strong>
