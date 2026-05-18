@@ -297,6 +297,21 @@ const effectiveProjectFilter = computed<string>(() => {
   return projectFilter.value;
 });
 
+/**
+ * Default ordering: most recently touched first. Falls back through
+ * `updatedAt → createdAt → number` so a freshly-opened batch (where
+ * every issue shares the same second-resolution timestamp) still
+ * ranks the highest number first instead of looking randomly
+ * ordered. Mirrors PullsQueue's sort so the two queues read the
+ * same way.
+ */
+function recencyKey(issue: Issue): number {
+  const updated = Date.parse(issue.updatedAt ?? "") || 0;
+  if (updated) return updated;
+  const created = Date.parse(issue.createdAt ?? "") || 0;
+  return created;
+}
+
 const filtered = computed(() => {
   const q = parsedQuery.value.text.trim().toLowerCase();
   const assignee = effectiveAssigneeFilter.value;
@@ -317,6 +332,12 @@ const filtered = computed(() => {
       const author = (issue.authorRef ?? "").split("/").pop() ?? "";
       const haystack = `${issue.number} ${issue.title} ${author}`.toLowerCase();
       return haystack.includes(q);
+    })
+    .slice()
+    .sort((a, b) => {
+      const diff = recencyKey(b) - recencyKey(a);
+      if (diff !== 0) return diff;
+      return (b.number ?? 0) - (a.number ?? 0);
     });
 });
 
