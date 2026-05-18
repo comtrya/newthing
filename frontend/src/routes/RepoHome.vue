@@ -417,6 +417,30 @@ const bookmarks = computed<RepositoryBookmark[]>(
   () => repository.value?.bookmarks ?? [],
 );
 
+/**
+ * Vcs-aware copy for the bookmarks panel.
+ *
+ * In jj, "bookmarks" are first-class — movable refs that travel with
+ * the work, not the commits. In git there's no native bookmark
+ * concept; what `comtrya.cue` declares as `bookmarks` are pinned refs
+ * for the team's eyes (release lines, long-lived branches the
+ * reviewer cares about). The repo header surfaces the same word
+ * ("bookmark") on a jj repo via the iter 35 default-ref chip, so the
+ * panel matches: header reads "Bookmarks" for jj, "Pinned refs" for
+ * git, with a short description below that names the source of
+ * truth.
+ */
+const bookmarksLabel = computed(() =>
+  (repository.value?.vcs ?? "git").toLowerCase() === "jj"
+    ? "Bookmarks"
+    : "Pinned refs",
+);
+const bookmarksHint = computed(() =>
+  (repository.value?.vcs ?? "git").toLowerCase() === "jj"
+    ? "jj-native; movable tips that travel with the work"
+    : "Refs the comtrya.cue config calls out for the team",
+);
+
 const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
   () => repository.value?.labelCatalog ?? {},
 );
@@ -649,12 +673,13 @@ async function fetchRepositoryIdentity(
           v-if="bookmarks.length > 0"
           class="repo-bookmarks"
           data-smoke="repo-bookmarks"
-          aria-label="Bookmarks"
+          :aria-label="bookmarksLabel"
         >
           <header class="repo-bookmarks-head">
-            <h2>Bookmarks</h2>
+            <h2>{{ bookmarksLabel }}</h2>
             <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
           </header>
+          <p class="repo-bookmarks-hint">{{ bookmarksHint }}</p>
           <ul class="repo-bookmarks-list">
             <li
               v-for="bookmark in bookmarks"

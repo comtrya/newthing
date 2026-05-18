@@ -1271,6 +1271,14 @@ kbd {
   color: var(--ink-faint);
 }
 
+.shell-app .repo-bookmarks-hint {
+  margin: 4px 0 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
 .shell-app .repo-bookmarks-list {
   list-style: none;
   margin: 0;
