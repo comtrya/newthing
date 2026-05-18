@@ -16,6 +16,7 @@ export const shellRoutePaths = {
   repoConfig: "/r/:groups+/:repo/config",
   repoPullReview: "/r/:groups+/:repo/pulls/:id/review",
   repoPulls: "/r/:groups+/:repo/pulls/:rest(.*)*",
+  repoIssueBoard: "/r/:groups+/:repo/issues/board",
   repoIssues: "/r/:groups+/:repo/issues/:rest(.*)*",
   repoChecks: "/r/:groups+/:repo/checks/:rest(.*)*",
   repoEpics: "/r/:groups+/:repo/epics/:rest(.*)*",

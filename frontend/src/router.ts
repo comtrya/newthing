@@ -6,6 +6,7 @@ import AdminStorage from "./routes/AdminStorage.vue";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
+import IssueTracker from "./routes/IssueTracker.vue";
 import NewRepository from "./routes/NewRepository.vue";
 import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
@@ -113,6 +114,14 @@ export const shellRoutes: RouteRecordRaw[] = [
       ...repoRouteProps(route),
       id: paramValue(route.params.id),
     }),
+  },
+  {
+    // Must appear BEFORE the catch-all repoIssues route so that
+    // `/issues/board` doesn't fall through to the extension proxy.
+    path: shellRoutePaths.repoIssueBoard,
+    name: "repo-issue-board",
+    component: IssueTracker,
+    props: repoRouteProps,
   },
   {
     path: shellRoutePaths.repoConfig,
