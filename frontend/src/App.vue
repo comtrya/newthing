@@ -6,6 +6,7 @@ import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import MobileTabBar from "./components/MobileTabBar.vue";
 import ShortcutsOverlay from "./components/ShortcutsOverlay.vue";
+import SideRail from "./components/SideRail.vue";
 import {
   clearRecents,
   labelForRoute,
@@ -329,6 +330,8 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
     </header>
 
     <div class="layout">
+      <SideRail />
+
       <aside class="sidebar" data-smoke="sidebar">
         <header class="sb-workspace">
           <span class="sb-overline">Workspace</span>

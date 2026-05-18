@@ -11,6 +11,7 @@ import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
 import Releases from "./routes/Releases.vue";
 import RepoHome from "./routes/RepoHome.vue";
+import Repos from "./routes/Repos.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
 import { shellRoutePaths } from "./route-paths";
 
@@ -29,6 +30,11 @@ export const shellRoutes: RouteRecordRaw[] = [
     path: shellRoutePaths.newRepository,
     name: "new-repository",
     component: NewRepository,
+  },
+  {
+    path: shellRoutePaths.repos,
+    name: "repos",
+    component: Repos,
   },
   {
     path: shellRoutePaths.instanceAdmin,

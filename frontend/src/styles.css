@@ -355,7 +355,7 @@ kbd {
 
 .layout {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 56px 220px minmax(0, 1fr);
   min-height: calc(100vh - 44px);
 }
 
@@ -2233,12 +2233,11 @@ kbd {
   }
 
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: 56px 1fr;
   }
 
   .sidebar {
-    border-right: 0;
-    border-bottom: 0.5px solid var(--line);
+    display: none;
   }
 
   .nav {
@@ -2276,8 +2275,10 @@ kbd {
   .cmdk-text { display: none; }
   .cmdk { min-width: 36px; padding: 0 8px; }
 
-  /* Hide the wide workspace sidebar on mobile — MobileTabBar takes over */
+  /* Hide both the wide workspace sidebar and the SideRail on mobile —
+     MobileTabBar takes over for primary navigation. */
   .sidebar { display: none; }
+  .side-rail { display: none; }
   .layout { grid-template-columns: 1fr; }
   .shell-app .page { width: 100%; }
   .shell-app .pipelines-page,
