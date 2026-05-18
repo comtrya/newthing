@@ -9,6 +9,7 @@ import {
   mergePull,
   type LinkedIssue,
 } from "./api";
+import CustomElementHost from "./CustomElementHost.vue";
 import DiffView from "./DiffView.vue";
 import { parseUnifiedDiff } from "./diff";
 import {
@@ -171,6 +172,17 @@ const renderedBody = computed(() =>
   pull.value?.bodyMarkdown
     ? renderMarkdown(pull.value.bodyMarkdown, { workspaceId: DEFAULT_WORKSPACE_ID })
     : "",
+);
+
+/**
+ * URI for the pull's comment thread. Comments are scoped per
+ * resource URI (kernel-owned, see comments.wit); pull-requests are
+ * addressed as `comtrya://pull_request/<id>` server-side, so the
+ * shell-level `comtrya-comment-thread` mount targets that exact
+ * shape.
+ */
+const pullCommentTarget = computed(() =>
+  pull.value ? `comtrya://pull_request/${pull.value.id}` : "",
 );
 
 const linkedUnsubscribers: Array<() => void> = [];
@@ -545,6 +557,17 @@ async function onClose(): Promise<void> {
         <footer v-if="linkedIssues.length > 0" class="pulls-linked-foot">
           <kbd>j</kbd> <kbd>k</kbd> walk · <kbd>↵</kbd> open
         </footer>
+      </section>
+
+      <section class="pulls-detail-discussion" data-smoke="pulls-detail-discussion">
+        <header>
+          <h2>Discussion</h2>
+        </header>
+        <CustomElementHost
+          tag="comtrya-comment-thread"
+          :attributes="{ target: pullCommentTarget }"
+          :properties="{ target: pullCommentTarget }"
+        />
       </section>
 
       <DiffView
@@ -963,6 +986,26 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-linked-issues h2 {
+  margin: 0;
+  font-family: var(--display, system-ui);
+  font-size: 18px;
+}
+
+.pulls-detail-discussion {
+  display: grid;
+  gap: 8px;
+}
+
+.pulls-detail-discussion > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1.5px solid var(--ink, #111);
+  padding-bottom: 4px;
+}
+
+.pulls-detail-discussion > header h2 {
   margin: 0;
   font-family: var(--display, system-ui);
   font-size: 18px;
