@@ -425,6 +425,24 @@ function relativeTime(value: string | null | undefined): string {
 }
 
 /**
+ * Tooltip for the row's age column. When the issue was touched after
+ * it was opened (kernel restamps `updatedAt` on every state change),
+ * surface both timestamps in plain text so a triager can tell stale
+ * work from active work without leaving the list.
+ */
+function ageTooltip(issue: Issue): string {
+  const created = issue.createdAt ?? null;
+  const updated = issue.updatedAt ?? null;
+  if (!updated || updated === created) {
+    return created ? `opened ${created}` : "";
+  }
+  const lines: string[] = [];
+  if (created) lines.push(`opened ${created}`);
+  lines.push(`updated ${updated}`);
+  return lines.join("\n");
+}
+
+/**
  * URL-persisted filter + search state.
  *
  * Lets `/x/issues/?state=closed&q=auth` and
@@ -924,7 +942,10 @@ async function submitQuickAdd(): Promise<void> {
               </span>
             </span>
           </span>
-          <span class="issues-row-age">{{ relativeTime(issue.createdAt) }}</span>
+          <span
+            class="issues-row-age"
+            :title="ageTooltip(issue)"
+          >{{ relativeTime(issue.updatedAt ?? issue.createdAt) }}</span>
         </a>
       </li>
     </ol>

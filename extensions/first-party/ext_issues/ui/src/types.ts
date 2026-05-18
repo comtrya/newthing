@@ -14,6 +14,12 @@ export interface Issue {
   authorRef?: string | null;
   labels?: string[] | null;
   createdAt?: string | null;
+  /**
+   * Kernel-stamped on open and on every state transition (close /
+   * reopen / project-change). Used on list rows so the age column
+   * reflects "last touched", not just "opened".
+   */
+  updatedAt?: string | null;
   closedAt?: string | null;
   /** Project this issue belongs to, stamped from the open-issue input. */
   projectName?: string | null;

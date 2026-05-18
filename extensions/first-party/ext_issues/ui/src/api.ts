@@ -98,6 +98,7 @@ function normalizeIssue(value: WitIssue): Issue {
     authorRef: value.authorRef ?? null,
     labels: value.labels ?? [],
     createdAt: value.createdAt ?? null,
+    updatedAt: value.updatedAt ?? null,
     closedAt: value.closedAt ?? null,
     projectName: value.projectName ?? null,
     closeOnMerge: value.closeOnMerge ?? null,

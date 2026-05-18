@@ -70,6 +70,19 @@ const renderedBody = computed(() =>
 
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));
 const openedRelative = computed(() => relativeTime(issue.value?.createdAt));
+/**
+ * "Updated" chip only fires when the kernel restamped `updatedAt` after
+ * the issue was opened — i.e. close, reopen, or project change happened.
+ * Hiding it when it equals `createdAt` keeps the chip row from
+ * stuttering on freshly-opened issues.
+ */
+const updatedRelative = computed(() => {
+  const u = issue.value?.updatedAt;
+  const c = issue.value?.createdAt;
+  if (!u || u === c) return null;
+  return relativeTime(u);
+});
+const updatedAtLabel = computed(() => formatTimestamp(issue.value?.updatedAt));
 const repositoryLabel = computed(() => props.repositoryPath ?? issue.value?.repositoryId ?? null);
 const issueNumber = computed(() => Number(
   props.number ?? props.routeParams?.params?.number,
@@ -374,6 +387,11 @@ async function reopenCurrentIssue(): Promise<void> {
                 class="issue-chip tone-time"
                 :title="createdAtLabel ?? ''"
               >opened {{ openedRelative }}</span>
+              <span
+                v-if="updatedRelative"
+                class="issue-chip tone-time tone-updated"
+                :title="updatedAtLabel ?? ''"
+              >updated {{ updatedRelative }}</span>
             </div>
           </header>
 
