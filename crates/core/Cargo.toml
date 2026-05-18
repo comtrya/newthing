@@ -6,3 +6,4 @@ edition.workspace = true
 [dependencies]
 cuengine = "0.40"
 tempfile = "3"
+getrandom = "0.3"
