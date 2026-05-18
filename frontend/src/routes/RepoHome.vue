@@ -65,6 +65,15 @@ interface RepositoryBookmark {
   commit?: string | null;
 }
 
+interface RepositoryCommit {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  /** Git's `--date=relative` string — e.g. "2 hours ago". */
+  time: string;
+}
+
 interface RepositoryIdentity {
   id: string;
   name: string;
@@ -79,6 +88,7 @@ interface RepositoryIdentity {
   gitHttpPath?: string | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
+  commits?: RepositoryCommit[] | null;
   labels?: LabelCatalogEntry[] | null;
   labelCatalog?: Record<string, LabelCatalogEntry> | null;
   comtryaConfig?: ComtryaConfig | null;
@@ -133,6 +143,13 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
         description
         resolved
         commit
+      }
+      commits {
+        oid
+        shortOid
+        subject
+        author
+        time
       }
       labels
       labelCatalog
@@ -415,6 +432,19 @@ const readmeBlob = computed<RepositoryBlob | null>(() => {
 
 const bookmarks = computed<RepositoryBookmark[]>(
   () => repository.value?.bookmarks ?? [],
+);
+
+/**
+ * Recent commits panel (iter 54). The kernel pre-computes `commits`
+ * via `git_commits` — up to 8 latest entries on the default branch
+ * with `{oid, shortOid, subject, author, time}`. Surfacing them on
+ * RepoHome turns the overview into a real "what just happened"
+ * surface, the way GitHub's repo-home does. When `vcs: jj` lands
+ * change-ids on commits (backlog), this is the panel that renders
+ * them next to the short-oid.
+ */
+const commits = computed<RepositoryCommit[]>(
+  () => repository.value?.commits ?? [],
 );
 
 /**
@@ -703,6 +733,28 @@ async function fetchRepositoryIdentity(
                 title="No ref matches this bookmark on the backing repo"
               >unresolved</span>
               <span v-if="bookmark.description" class="repo-bookmark-description">{{ bookmark.description }}</span>
+            </li>
+          </ul>
+        </section>
+
+        <section
+          v-if="commits.length > 0"
+          class="repo-commits"
+          data-smoke="repo-commits"
+          aria-label="Recent commits"
+        >
+          <header class="repo-commits-head">
+            <h2>Recent commits</h2>
+            <span class="repo-commits-count">{{ commits.length }}</span>
+          </header>
+          <ul class="repo-commits-list">
+            <li v-for="commit in commits" :key="commit.oid" class="repo-commit">
+              <code class="repo-commit-oid" :title="commit.oid">{{ commit.shortOid }}</code>
+              <span class="repo-commit-subject">{{ commit.subject }}</span>
+              <span class="repo-commit-meta">
+                <span class="repo-commit-author">{{ commit.author }}</span>
+                <span class="repo-commit-time">{{ commit.time }}</span>
+              </span>
             </li>
           </ul>
         </section>
