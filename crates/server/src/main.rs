@@ -770,6 +770,12 @@ impl Runtime {
             &now_iso,
         );
         self.extension_storage.create_document(record)?;
+        // Include a short body preview so ActivityStream can show
+        // "commented · <preview>" without having to round-trip back
+        // to the comment store. Cap at 200 chars so the event
+        // payload doesn't bloat for novella-sized comments — the
+        // stream UI truncates to ~80 anyway.
+        let body_preview: String = body_markdown.chars().take(200).collect();
         let _ = self.append_event(
             "dev.comtrya.comment.posted",
             json!({
@@ -777,6 +783,7 @@ impl Runtime {
                 "target": target,
                 "parent": parent,
                 "authorRef": author_ref,
+                "body": body_preview,
             }),
         );
         Ok(data)
