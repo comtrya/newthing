@@ -120,6 +120,37 @@ function filterEntities<T extends { title: string; number?: number | null }>(
 }
 
 const normalisedQuery = computed(() => query.value.trim().toLowerCase());
+
+/**
+ * Highlight a single match of `q` inside `text` by wrapping it in
+ * `<mark>`. The input is HTML-escaped first so user-provided titles
+ * (issue / pull / epic / repo) can't smuggle markup into the
+ * palette via this v-html sink. Empty query → just-escaped text;
+ * no match → just-escaped text. Linear / Spotlight / VSCode all
+ * highlight matched substrings; cmd-K scanning is half the speed
+ * without it.
+ */
+const HTML_ESCAPE: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "\"": "&quot;",
+  "'": "&#39;",
+};
+function escapeHtml(input: string): string {
+  return input.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c] ?? c);
+}
+function highlight(text: string | null | undefined, q: string): string {
+  const s = text ?? "";
+  if (!q) return escapeHtml(s);
+  const i = s.toLowerCase().indexOf(q);
+  if (i === -1) return escapeHtml(s);
+  return (
+    escapeHtml(s.slice(0, i)) +
+    "<mark>" + escapeHtml(s.slice(i, i + q.length)) + "</mark>" +
+    escapeHtml(s.slice(i + q.length))
+  );
+}
 const filteredIssues = computed<IssueResult[]>(() =>
   filterEntities(issues.value, normalisedQuery.value),
 );
@@ -409,7 +440,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                     >
                       <span class="palette-title">
                         <span class="palette-issue-number">#{{ issue.number }}</span>
-                        {{ issue.title || "(untitled)" }}
+                        <span v-html="highlight(issue.title || '(untitled)', normalisedQuery)" />
                       </span>
                       <span class="palette-meta">
                         <code>{{ (issue.state ?? "open").toLowerCase() }}</code>
@@ -432,7 +463,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                     >
                       <span class="palette-title">
                         <span v-if="pull.number !== null" class="palette-issue-number">#{{ pull.number }}</span>
-                        {{ pull.title || "(untitled)" }}
+                        <span v-html="highlight(pull.title || '(untitled)', normalisedQuery)" />
                       </span>
                       <span class="palette-meta">
                         <code>{{ (pull.state ?? "").toLowerCase() }}</code>
@@ -453,7 +484,10 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                       :class="['palette-command', 'palette-issue', { active }]"
                       :data-smoke="`palette-epic-${epic.id}`"
                     >
-                      <span class="palette-title">{{ epic.title || "(untitled)" }}</span>
+                      <span
+                        class="palette-title"
+                        v-html="highlight(epic.title || '(untitled)', normalisedQuery)"
+                      />
                       <span class="palette-meta">
                         <code>{{ (epic.state ?? "").toLowerCase() }}</code>
                       </span>
@@ -473,7 +507,10 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                       :class="['palette-command', 'palette-issue', { active }]"
                       :data-smoke="`palette-repo-${repo.id}`"
                     >
-                      <span class="palette-title">{{ repo.path }}</span>
+                      <span
+                        class="palette-title"
+                        v-html="highlight(repo.path, normalisedQuery)"
+                      />
                       <span class="palette-meta">
                         <code v-if="repo.description">{{ repo.description }}</code>
                         <code v-else>repository</code>
@@ -640,6 +677,14 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
   font-size: 12px;
   color: var(--ink-faint, #68645c);
   padding-right: 6px;
+}
+
+.palette-title mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  border-bottom: 1.5px solid var(--accent-orange, #e34a20);
+  padding: 0;
 }
 
 .palette-foot {
