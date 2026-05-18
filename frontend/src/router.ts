@@ -1,10 +1,15 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from "vue-router";
 import { createRouter, createWebHistory } from "vue-router";
+import AdminAccess from "./routes/AdminAccess.vue";
+import AdminOverview from "./routes/AdminOverview.vue";
+import AdminStorage from "./routes/AdminStorage.vue";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
 import NewRepository from "./routes/NewRepository.vue";
+import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
+import Releases from "./routes/Releases.vue";
 import RepoHome from "./routes/RepoHome.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
 import { shellRoutePaths } from "./route-paths";
@@ -42,6 +47,31 @@ export const shellRoutes: RouteRecordRaw[] = [
     name: "health",
     component: InstanceHealth,
     props: { mode: "health" },
+  },
+  {
+    path: shellRoutePaths.pipelines,
+    name: "pipelines",
+    component: Pipelines,
+  },
+  {
+    path: shellRoutePaths.releases,
+    name: "releases",
+    component: Releases,
+  },
+  {
+    path: shellRoutePaths.adminOverview,
+    name: "admin-overview",
+    component: AdminOverview,
+  },
+  {
+    path: shellRoutePaths.adminAccess,
+    name: "admin-access",
+    component: AdminAccess,
+  },
+  {
+    path: shellRoutePaths.adminStorage,
+    name: "admin-storage",
+    component: AdminStorage,
   },
   {
     // The project route is more specific than repoHome and must

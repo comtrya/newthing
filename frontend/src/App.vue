@@ -353,6 +353,16 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
               :title="`${totalFailingChecks} failing required check${totalFailingChecks === 1 ? '' : 's'} across the workspace`"
             />
           </RouterLink>
+          <RouterLink
+            to="/pipelines"
+            class="sb-link"
+            :class="{ 'sb-link-active': route.path.startsWith('/pipelines') }"
+          >Pipelines</RouterLink>
+          <RouterLink
+            to="/releases"
+            class="sb-link"
+            :class="{ 'sb-link-active': route.path.startsWith('/releases') }"
+          >Releases</RouterLink>
         </nav>
 
         <section
@@ -422,6 +432,7 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
         </section>
 
         <nav class="sb-nav-footer" aria-label="Admin">
+          <RouterLink to="/admin" class="sb-faint">Forge admin</RouterLink>
           <RouterLink to="/instance" class="sb-faint">Instance</RouterLink>
           <RouterLink to="/health" class="sb-faint">Health</RouterLink>
           <RouterLink to="/settings" class="sb-faint">Settings</RouterLink>
