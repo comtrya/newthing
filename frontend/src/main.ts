@@ -11,6 +11,7 @@ import {
 import "./styles.css";
 import App from "./App.vue";
 import { loadShellExtensions } from "./extension-loader";
+import { installIssueRefHover } from "./issue-ref-hover";
 import { bindProjectCommands } from "./project-commands";
 import { bindRepositoryCommands } from "./repository-commands";
 import { registerRepositoryShellSlots } from "./repository-slots";
@@ -23,6 +24,7 @@ defineInlineEditElement();
 defineSkeletonElement();
 registerRepositoryShellSlots();
 bindGlobalShortcut();
+installIssueRefHover();
 const router = createShellRouter();
 registerNavigationCommands(router);
 bindGoChord(router);
