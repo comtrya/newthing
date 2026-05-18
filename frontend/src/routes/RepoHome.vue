@@ -72,6 +72,15 @@ interface RepositoryCommit {
   author: string;
   /** Git's `--date=relative` string — e.g. "2 hours ago". */
   time: string;
+  /**
+   * jj's `Change-Id:` trailer (iter 63). Stable across rewrites — a
+   * git oid changes when you amend or rebase, the change-id doesn't.
+   * `null` for git-only repos where the trailer isn't authored, and
+   * for any commit that simply doesn't carry one. The Recent commits
+   * panel renders it next to the short oid so reviewers can spot
+   * "this is the same change" across history.
+   */
+  changeId?: string | null;
 }
 
 interface RepositoryIdentity {
@@ -150,6 +159,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
         subject
         author
         time
+        changeId
       }
       labels
       labelCatalog
@@ -750,6 +760,11 @@ async function fetchRepositoryIdentity(
           <ul class="repo-commits-list">
             <li v-for="commit in commits" :key="commit.oid" class="repo-commit">
               <code class="repo-commit-oid" :title="commit.oid">{{ commit.shortOid }}</code>
+              <code
+                v-if="commit.changeId"
+                class="repo-commit-change-id"
+                :title="`jj change-id ${commit.changeId} — stable across amend/rebase`"
+              >{{ commit.changeId.slice(0, 8) }}</code>
               <span class="repo-commit-subject">{{ commit.subject }}</span>
               <span class="repo-commit-meta">
                 <span class="repo-commit-author">{{ commit.author }}</span>

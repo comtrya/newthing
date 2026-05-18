@@ -1327,11 +1327,20 @@ kbd {
 
 .shell-app .repo-commit {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto;
   gap: 8px;
   align-items: baseline;
   padding: 4px 0;
   border-bottom: 1px dashed var(--rule-light, #d8d1c4);
+}
+
+.shell-app .repo-commit-change-id {
+  font-family: var(--mono, monospace);
+  font-size: 10.5px;
+  color: var(--accent-teal, #087f6f);
+  border: 1px solid currentColor;
+  padding: 0 4px;
+  letter-spacing: 0.04em;
 }
 
 .shell-app .repo-commit:last-child {

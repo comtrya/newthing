@@ -3721,7 +3721,10 @@ fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, Stri
             .arg("commit")
             .arg("--no-gpg-sign")
             .arg("-m")
-            .arg("Wire live Git and extension demo data"),
+            .arg(
+                "Wire live Git and extension demo data\n\n\
+                 Change-Id: I9d2c3f7a4b6e8c1d2f3a4b6e8c1d2f3a4b6e8c\n",
+            ),
         "git commit live demo changes",
     )?;
     run_command(
@@ -3998,30 +4001,46 @@ fn branch_distance(git_dir: &Path, branch: &str) -> Result<(u32, u32), String> {
 }
 
 fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let branch = read_default_branch(git_dir).unwrap_or_else(|| "main".to_string());
+    // The 6th field uses git's built-in trailer extraction so the
+    // change-id (jj-on-git's identity invariant) lands in the JSON
+    // payload without any in-process parsing. Commits without a
+    // `Change-Id:` trailer leave the field empty — the UI emits the
+    // change-id chip only when it's non-empty.
+    //
+    // `-z` is required because the trailer format prints a literal
+    // newline whether or not the trailer exists, so without it the
+    // per-commit record bleeds into the next line. With `-z`, git
+    // separates commits with a NUL byte and our split-then-split
+    // pipeline reads cleanly.
     let output = git_text(
         git_dir,
         &[
             "log",
             "--date=relative",
-            "--format=%H%x00%h%x00%s%x00%an%x00%cr",
+            "-z",
+            "--format=%H%x01%h%x01%s%x01%an%x01%cr%x01%(trailers:key=Change-Id,valueonly)",
             "-n",
             "8",
-            "main",
+            &branch,
         ],
     )?;
     Ok(output
-        .lines()
-        .filter_map(|line| {
-            let fields = line.split('\0').collect::<Vec<_>>();
-            if fields.len() != 5 {
+        .split('\0')
+        .filter(|chunk| !chunk.trim().is_empty())
+        .filter_map(|chunk| {
+            let fields = chunk.split('\u{1}').collect::<Vec<_>>();
+            if fields.len() < 5 {
                 return None;
             }
+            let change_id = fields.get(5).copied().unwrap_or("").trim();
             Some(json!({
                 "oid": fields[0],
                 "shortOid": fields[1],
                 "subject": fields[2],
                 "author": fields[3],
-                "time": fields[4]
+                "time": fields[4],
+                "changeId": if change_id.is_empty() { Value::Null } else { Value::String(change_id.to_string()) }
             }))
         })
         .collect())
@@ -4038,33 +4057,11 @@ fn repo_git_data(git_dir: &Path) -> Value {
         .map(|s| s.trim().to_string());
     let refs = git_refs(git_dir).unwrap_or_default();
     let branches = git_branches(git_dir).unwrap_or_default();
-    let commits = git_text(
-        git_dir,
-        &[
-            "log",
-            "--date=relative",
-            "--format=%H%x00%h%x00%s%x00%an%x00%cr",
-            "-n",
-            "8",
-            &default_branch,
-        ],
-    )
-    .unwrap_or_default()
-    .lines()
-    .filter_map(|line| {
-        let fields = line.split('\0').collect::<Vec<_>>();
-        if fields.len() != 5 {
-            return None;
-        }
-        Some(json!({
-            "oid": fields[0],
-            "shortOid": fields[1],
-            "subject": fields[2],
-            "author": fields[3],
-            "time": fields[4],
-        }))
-    })
-    .collect::<Vec<_>>();
+    // Reuse `git_commits` so the change-id trailer extraction (iter 63)
+    // and any future commit-shape additions stay in one place. The
+    // inline duplicate previously here was the reason iter 63's first
+    // attempt silently dropped `changeId`.
+    let commits = git_commits(git_dir).unwrap_or_default();
     let (tree_entries, files, blobs) = git_tree_at_ref(git_dir, &default_branch)
         .unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
     json!({
