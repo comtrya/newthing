@@ -37,6 +37,7 @@ import {
   subscribeCommands,
   type CommandContribution,
 } from "@comtrya/sdk-core";
+import { recentRoutes, type RecentEntry } from "../recents";
 
 /**
  * Workspace URI used for the cross-workspace `list-issues` fetch.
@@ -79,7 +80,13 @@ interface RepoResult {
   description?: string | null;
 }
 
-type EntityResult = IssueResult | PullResult | EpicResult | RepoResult;
+interface RecentResult {
+  kind: "recent";
+  path: string;
+  label: string;
+}
+
+type EntityResult = IssueResult | PullResult | EpicResult | RepoResult | RecentResult;
 
 const router = useRouter();
 const open = ref(false);
@@ -89,7 +96,22 @@ const issues = ref<IssueResult[]>([]);
 const pulls = ref<PullResult[]>([]);
 const epics = ref<EpicResult[]>([]);
 const repos = ref<RepoResult[]>([]);
+const recents = recentRoutes();
 let unsubscribe: (() => void) | undefined;
+
+/**
+ * Recent routes are only useful when the user opens the palette to
+ * jump somewhere fast (empty query). Once they start typing, the
+ * intent is search — recents become noise, so the group hides.
+ */
+const recentResults = computed<RecentResult[]>(() => {
+  if (normalisedQuery.value.length > 0) return [];
+  return recents.value.map((entry: RecentEntry) => ({
+    kind: "recent" as const,
+    path: entry.path,
+    label: entry.label,
+  }));
+});
 
 const filteredCommands = computed(() => filterCommands(query.value, commands.value));
 
@@ -350,6 +372,8 @@ function navigateForEntity(entry: EntityResult): string {
       return `/x/epics/${entry.id}`;
     case "repo":
       return `/r/${entry.path}`;
+    case "recent":
+      return entry.path;
   }
 }
 
@@ -404,6 +428,26 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                 class="palette-list"
                 static
               >
+                <template v-if="recentResults.length > 0">
+                  <header class="palette-group">Recent</header>
+                  <ComboboxOption
+                    v-for="entry in recentResults"
+                    :key="`recent-${entry.path}`"
+                    v-slot="{ active }"
+                    :value="entry"
+                    as="template"
+                  >
+                    <li
+                      :class="['palette-command', 'palette-issue', { active }]"
+                      :data-smoke="`palette-recent-${entry.path}`"
+                    >
+                      <span class="palette-title">{{ entry.label }}</span>
+                      <span class="palette-meta">
+                        <code>{{ entry.path }}</code>
+                      </span>
+                    </li>
+                  </ComboboxOption>
+                </template>
                 <template v-for="group in grouped" :key="group.category">
                   <header class="palette-group">{{ group.category }}</header>
                   <ComboboxOption
