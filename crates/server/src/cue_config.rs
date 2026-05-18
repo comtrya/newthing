@@ -12,7 +12,10 @@
 //!
 //! 1. Materialise the repo's working tree from the bare Git directory.
 //! 2. Drop the kernel base schema and every extension-registered snippet
-//!    into `_comtrya/` inside the workdir.
+//!    at the workdir root as name-prefixed files (`00-comtrya-kernel.cue`,
+//!    `01-comtrya-ext-<id>-<schema>.cue`) — NOT into `_comtrya/`, because
+//!    CUE's loader silently skips `_`-prefixed directories during recursive
+//!    `./...` evaluation (see ADR 0002 for the full reasoning).
 //! 3. Run `cuengine::evaluate_module(recursive: true,
 //!    package_name: "comtrya")` — the repo's `package comtrya` files
 //!    unify with the injected schemas.
@@ -277,12 +280,8 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<PathBuf, Strin
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(0);
-    let base = std::env::temp_dir().join(format!(
-        "comtrya-cue-{}-{nanos}",
-        std::process::id()
-    ));
-    std::fs::create_dir_all(&base)
-        .map_err(|e| format!("mkdir {} failed: {e}", base.display()))?;
+    let base = std::env::temp_dir().join(format!("comtrya-cue-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&base).map_err(|e| format!("mkdir {} failed: {e}", base.display()))?;
 
     let archive = Command::new("git")
         .arg("--git-dir")
@@ -294,7 +293,9 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<PathBuf, Strin
         .spawn()
         .map_err(|e| format!("git archive spawn failed: {e}"))?;
 
-    let archive_out = archive.stdout.ok_or_else(|| "git archive stdout missing".to_string())?;
+    let archive_out = archive
+        .stdout
+        .ok_or_else(|| "git archive stdout missing".to_string())?;
     let status = Command::new("tar")
         .arg("-x")
         .arg("-C")
@@ -314,8 +315,7 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
     let module_path = workdir.join("cue.mod").join("module.cue");
     if !module_path.is_file() {
         if let Some(parent) = module_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("mkdir cue.mod failed: {e}"))?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir cue.mod failed: {e}"))?;
         }
         std::fs::write(
             &module_path,
@@ -339,11 +339,8 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
     // `01-comtrya-ext-<id>-<schema>.cue`) so they don't collide with
     // any user-authored CUE at the workdir root and to keep ordering
     // stable in `cue export` output.
-    std::fs::write(
-        workdir.join("00-comtrya-kernel.cue"),
-        KERNEL_CUE_BASE,
-    )
-    .map_err(|e| format!("write kernel base schema failed: {e}"))?;
+    std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_CUE_BASE)
+        .map_err(|e| format!("write kernel base schema failed: {e}"))?;
 
     for schema in extension_schemas {
         let safe_id = schema.schema_id.replace(['/', ' '], "-");
@@ -406,8 +403,8 @@ fn run_cuengine(workdir: &Path) -> Value {
             // match). In both cases the user sees the same outcome we
             // produce on a successful empty evaluation: one implicit
             // Project. Don't surface the noisy library text.
-            let benign = message.contains("matched no packages")
-                || message.contains("no CUE files");
+            let benign =
+                message.contains("matched no packages") || message.contains("no CUE files");
             json!({
                 "projects": [implicit_default_project()],
                 "repository": Value::Null,
@@ -436,7 +433,10 @@ fn discover_projects(instances: &[Value]) -> Vec<Value> {
             .unwrap_or("")
             .to_string();
         let value = instance.get("value");
-        let Some(map) = value.and_then(|v| v.get("projects")).and_then(Value::as_object) else {
+        let Some(map) = value
+            .and_then(|v| v.get("projects"))
+            .and_then(Value::as_object)
+        else {
             continue;
         };
         for (name, def) in map.iter() {

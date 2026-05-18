@@ -283,10 +283,16 @@ impl Default for PublisherCeilings {
     }
 }
 
+/// Caps applied to user-supplied CUE files before invoking the
+/// cuengine evaluator. `wall_time_ms` and `memory_bytes` used to live
+/// on this struct but were never enforced; deleted to satisfy the
+/// no-dead-code rule. Wiring a real time/memory cap around the
+/// cuengine FFI call is tracked as a separate follow-up — until that
+/// lands, the only protections against pathological CUE inputs are
+/// `max_files` / `max_depth` / `max_bytes` and whatever process-level
+/// quotas the OS imposes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CueEvalBudget {
-    pub wall_time_ms: u64,
-    pub memory_bytes: u64,
     pub max_files: usize,
     pub max_depth: usize,
     pub max_bytes: usize,
@@ -295,8 +301,6 @@ pub struct CueEvalBudget {
 impl Default for CueEvalBudget {
     fn default() -> Self {
         Self {
-            wall_time_ms: 5_000,
-            memory_bytes: 256_000_000,
             max_files: 1_024,
             max_depth: 16,
             max_bytes: 8_000_000,
@@ -386,7 +390,7 @@ pub fn validate_repository_cue_sources(
 
     let mut diagnostics = Vec::new();
     let mut paths = BTreeSet::from(["/".to_string()]);
-    for file in comtrya_files {
+    for file in &comtrya_files {
         if !balanced_braces(&file.source) {
             diagnostics.push(ConfigDiagnostic {
                 severity: "error".to_string(),
@@ -394,16 +398,20 @@ pub fn validate_repository_cue_sources(
                 message: "CUE braces are not balanced".to_string(),
             });
         }
-        if file.source.contains("invalid: true") || file.source.contains("!!") {
-            diagnostics.push(ConfigDiagnostic {
-                severity: "error".to_string(),
-                path: Some(file.path.clone()),
-                message: "repository CUE is invalid".to_string(),
-            });
-        }
         if let Some(parent) = parent_path_for_cue(&file.path) {
             paths.insert(parent);
         }
+    }
+
+    // `balanced_braces` tracks only `{`/`}` (NOT `[`, `(`, quotes), so it
+    // only catches a narrow class of obvious curly-brace mismatches with a
+    // friendlier message. Everything else falls through to cuengine — the
+    // real CUE evaluator — which catches type conflicts, constraint
+    // violations, and full parse errors.
+    if diagnostics.is_empty()
+        && let Err(diagnostic) = evaluate_cue_files_with_cuengine(&comtrya_files)
+    {
+        diagnostics.push(diagnostic);
     }
 
     if !diagnostics.is_empty() {
@@ -436,6 +444,164 @@ pub fn validate_repository_cue_sources(
         diagnostics: Vec::new(),
         snapshots,
     })
+}
+
+/// Run cuengine over the user's `package comtrya` files in an ephemeral
+/// workdir and return `Ok(())` on success, `Err(diagnostic)` on a real
+/// CUE evaluation failure.
+///
+/// Path sanitization happens FIRST, before any filesystem touch — any
+/// `CueFile::path` that is absolute or contains a `..` component is
+/// rejected with no tempdir created. Without this, a crafted push could
+/// write to arbitrary host paths via `tempdir.join("../../etc/...")`.
+///
+/// On cuengine error, the diagnostic message has the tempdir path
+/// stripped (cuengine emits the absolute workdir; leaking it to a
+/// GraphQL client is information disclosure).
+///
+/// Known limitation tracked as a follow-up: this validator does not load
+/// `KERNEL_CUE_BASE` or extension schemas into the workdir, so violations
+/// of kernel-declared required fields are NOT caught here. Only in-file
+/// type unification and constraint failures are.
+fn evaluate_cue_files_with_cuengine(files: &[&CueFile]) -> Result<(), ConfigDiagnostic> {
+    use std::path::{Component, Path};
+
+    // 1. Sanitize EVERY path before touching the filesystem.
+    //    Rejects:
+    //    a. absolute paths and `..` components — would write outside the
+    //       tempdir entirely;
+    //    b. anything under `cue.mod/` — would overwrite the synthetic
+    //       `cue.mod/module.cue` the helper writes in step 3, letting a
+    //       crafted push replace the module declaration cuengine
+    //       evaluates against and silently corrupt the validation result.
+    for file in files {
+        let p = Path::new(&file.path);
+        if p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path escapes the repository workdir".to_string(),
+            });
+        }
+        if file.path == "cue.mod/module.cue" || file.path.starts_with("cue.mod/") {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path must not write into cue.mod/ — that directory is reserved for the synthetic module declaration".to_string(),
+            });
+        }
+    }
+
+    // 2. Tempdir scoped to this validation call. Use a non-dot prefix —
+    //    CUE's package loader walks `./...` and skips directories whose
+    //    *name* starts with `.` (the Go convention). `tempfile::TempDir`
+    //    defaults to a `.tmpXXXX` name, which would make cuengine
+    //    silently match zero packages even though the workdir contents
+    //    are correct. Explicit `comtrya-cue-` prefix avoids that.
+    let dir = match tempfile::Builder::new().prefix("comtrya-cue-").tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message: format!("create cuengine workdir: {e}"),
+            });
+        }
+    };
+    let workdir = dir.path();
+
+    // 3. Synthetic cue.mod/module.cue — matches the server's
+    //    install_schemas synthetic exactly so the two paths stay aligned.
+    let module_dir = workdir.join("cue.mod");
+    if let Err(e) = std::fs::create_dir_all(&module_dir) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write cuengine cue.mod: {e}"),
+        });
+    }
+    if let Err(e) = std::fs::write(
+        module_dir.join("module.cue"),
+        // Match the server's `install_schemas` synthetic exactly — same
+        // module name, same language version, same CUE shorthand syntax
+        // — so the receive-pack validator and the per-repo browser stay
+        // semantically aligned.
+        "module: \"comtrya.synthesised/repo\"\nlanguage: version: \"v0.10.0\"\n",
+    ) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write cuengine module.cue: {e}"),
+        });
+    }
+
+    // 4. Write each user file to its sanitized relative path.
+    for file in files {
+        let dest = workdir.join(&file.path);
+        if let Some(parent) = dest.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: format!("write cuengine workdir dir: {e}"),
+            });
+        }
+        if let Err(e) = std::fs::write(&dest, &file.source) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: format!("write cuengine workdir file: {e}"),
+            });
+        }
+    }
+
+    // 5. Evaluate recursively across the whole workdir tree (matches the
+    //    server's `run_cuengine` shape). Third arg is
+    //    `Option<&ModuleEvalOptions>` so wrap in `Some`.
+    let options = cuengine::ModuleEvalOptions {
+        with_meta: false,
+        with_references: false,
+        recursive: true,
+        package_name: Some("comtrya".to_string()),
+        target_dir: None,
+    };
+    match cuengine::evaluate_module(workdir, "comtrya", Some(&options)) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let raw = format!("{error}");
+            // Match the server's `run_cuengine` benign-error policy: when
+            // cuengine reports "matched no packages" or "no CUE files",
+            // it means there was nothing for it to evaluate as a coherent
+            // package (e.g., subdirectories that contain no CUE files
+            // matching the package filter). The server treats this as
+            // success and the validator must too, or legitimate
+            // nested-CUE pushes are wrongly rejected.
+            if raw.contains("matched no packages") || raw.contains("no CUE files") {
+                return Ok(());
+            }
+            // Strip the absolute workdir path AND its canonicalized form
+            // — on macOS `/var/folders/...` is a symlink to
+            // `/private/var/folders/...` and cuengine may emit either
+            // form depending on its internal resolution. Scrubbing only
+            // one would leak the other.
+            let workdir_str = workdir.to_str().unwrap_or("");
+            let canonical = std::fs::canonicalize(workdir).ok();
+            let canonical_str = canonical.as_deref().and_then(|p| p.to_str()).unwrap_or("");
+            let mut message = raw;
+            if !workdir_str.is_empty() {
+                message = message.replace(workdir_str, "<workdir>");
+            }
+            if !canonical_str.is_empty() && canonical_str != workdir_str {
+                message = message.replace(canonical_str, "<workdir>");
+            }
+            Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message,
+            })
+        }
+    }
 }
 
 fn snapshot(
@@ -779,13 +945,16 @@ mod tests {
     }
 
     #[test]
-    fn repository_cue_invalid_package_is_rejected_with_diagnostics() {
+    fn repository_cue_conflicting_values_rejected() {
+        // `foo: "a"` then `foo: 42` unifies to a type conflict — a real CUE
+        // failure mode the legacy `"invalid: true"` string-match stub never
+        // caught.
         let result = validate_repository_cue_sources(
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
             &[CueFile {
                 path: "comtrya.cue".to_string(),
-                source: "package comtrya\ninvalid: true".to_string(),
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
             &CueEvalBudget::default(),
         )
@@ -793,6 +962,163 @@ mod tests {
 
         assert!(!result.accepted);
         assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_constraint_violation_rejected() {
+        // `count: int & <3` then `count: 5` — CUE constraint solver rejects.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\ncount: int & <3\ncount: 5".to_string(),
+            }],
+            &CueEvalBudget::default(),
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_invalid_syntax_rejected() {
+        // Unclosed `[` — `balanced_braces` only tracks `{`/`}`, so this
+        // falls through to cuengine, which catches it as a parse error.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: [".to_string(),
+            }],
+            &CueEvalBudget::default(),
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_unbalanced_braces_caught_by_smoke_check() {
+        // Unbalanced `{` — caught by the fast-fail `balanced_braces` walker
+        // before cuengine is invoked, yielding the friendlier message.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: {".to_string(),
+            }],
+            &CueEvalBudget::default(),
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("braces are not balanced")),
+            "expected the friendlier brace-check message; got: {:?}",
+            result.diagnostics,
+        );
+    }
+
+    #[test]
+    fn repository_cue_path_traversal_rejected() {
+        // A push that names a file path escaping the repository workdir
+        // (absolute path or `..` components) must be refused before any
+        // filesystem write happens — defense against arbitrary-file-write.
+        for path in ["../../etc/passwd", "/etc/passwd", "a/../../etc/passwd"] {
+            let result = validate_repository_cue_sources(
+                "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                "0123456789abcdef0123456789abcdef01234567",
+                &[CueFile {
+                    path: path.to_string(),
+                    source: "package comtrya".to_string(),
+                }],
+                &CueEvalBudget::default(),
+            )
+            .unwrap();
+            assert!(
+                !result.accepted,
+                "path `{path}` must be rejected as escaping the workdir",
+            );
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("escapes")),
+                "expected an escape diagnostic for `{path}`; got: {:?}",
+                result.diagnostics,
+            );
+        }
+    }
+
+    #[test]
+    fn repository_cue_rejects_writes_into_cue_mod() {
+        // A push that tries to write into `cue.mod/` would overwrite the
+        // synthetic module declaration the validator installs, letting a
+        // crafted source steer cuengine's evaluation environment. Must be
+        // refused before any filesystem write.
+        for path in ["cue.mod/module.cue", "cue.mod/pkg/foo.cue"] {
+            let result = validate_repository_cue_sources(
+                "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                "0123456789abcdef0123456789abcdef01234567",
+                &[CueFile {
+                    path: path.to_string(),
+                    source: "package comtrya".to_string(),
+                }],
+                &CueEvalBudget::default(),
+            )
+            .unwrap();
+            assert!(
+                !result.accepted,
+                "path `{path}` must be rejected as writing into cue.mod/",
+            );
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("cue.mod/")),
+                "expected a cue.mod diagnostic for `{path}`; got: {:?}",
+                result.diagnostics,
+            );
+        }
+    }
+
+    #[test]
+    fn repository_cue_diagnostic_scrubs_workdir_path() {
+        // cuengine emits absolute tempdir paths in its error messages. The
+        // helper must scrub them — leaking host paths to GraphQL clients
+        // is an information disclosure.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
+            }],
+            &CueEvalBudget::default(),
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        let tempdir_root = std::env::temp_dir();
+        let tempdir_str = tempdir_root.to_str().unwrap_or("");
+        let joined = result
+            .diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !joined.contains(tempdir_str),
+            "diagnostic leaked tempdir path `{tempdir_str}`: {joined}",
+        );
     }
 
     #[test]
