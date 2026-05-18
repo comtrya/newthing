@@ -73,7 +73,7 @@ async function load(): Promise<void> {
 
 .rail-strap h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
 }
 
@@ -82,7 +82,7 @@ async function load(): Promise<void> {
 .src,
 .t,
 .extension-placeholder {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -90,12 +90,12 @@ async function load(): Promise<void> {
 .count,
 .src,
 .t {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .summary {
   min-width: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
 }
 </style>

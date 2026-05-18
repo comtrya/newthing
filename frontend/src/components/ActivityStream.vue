@@ -406,8 +406,8 @@ function relativeTime(ms: number): string {
 .activity-stream {
   display: grid;
   gap: 12px;
-  font-family: var(--sans, system-ui);
-  color: var(--ink, #111);
+  font-family: var(--font-sans);
+  color: var(--fg);
 }
 
 .activity-stream header {
@@ -415,7 +415,7 @@ function relativeTime(ms: number): string {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   padding-bottom: 6px;
 }
 
@@ -427,7 +427,7 @@ function relativeTime(ms: number): string {
 
 .activity-stream h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 22px;
   line-height: 1;
 }
@@ -436,9 +436,9 @@ function relativeTime(ms: number): string {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -446,43 +446,43 @@ function relativeTime(ms: number): string {
 .stream-status .dot {
   width: 6px;
   height: 6px;
-  background: var(--ink-faint, #68645c);
+  background: var(--fg-3);
   border-radius: 50%;
 }
 
 .stream-status-live .dot {
-  background: var(--accent-teal, #087f6f);
-  box-shadow: 0 0 0 0 var(--accent-teal, #087f6f);
+  background: var(--ok);
+  box-shadow: 0 0 0 0 var(--ok);
   animation: stream-pulse 2.4s ease-out infinite;
 }
 
 .stream-status-error .dot {
-  background: var(--accent-err, #c9341c);
+  background: var(--err);
 }
 
 @keyframes stream-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(8, 127, 111, 0.5);
+    box-shadow: 0 0 0 0 oklch(75% 0.15 150 / 0.5);
   }
   100% {
-    box-shadow: 0 0 0 7px rgba(8, 127, 111, 0);
+    box-shadow: 0 0 0 7px oklch(75% 0.15 150 / 0);
   }
 }
 
 .activity-stream .count {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .muted.error {
-  color: var(--accent-err, #c9341c);
+  color: var(--err);
 }
 
 .stream-list {
@@ -493,25 +493,25 @@ function relativeTime(ms: number): string {
 }
 
 .stream-row {
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
   transition: background 200ms ease;
 }
 
 .stream-row.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2);
 }
 
 .stream-row.fresh {
-  background: color-mix(in srgb, var(--accent-teal, #087f6f) 12%, var(--paper, #fffdf8));
+  background: color-mix(in srgb, var(--ok) 12%, var(--bg));
   animation: stream-flash 4s ease-out;
 }
 
 @keyframes stream-flash {
   0% {
-    background: color-mix(in srgb, var(--accent-teal, #087f6f) 24%, var(--paper, #fffdf8));
+    background: color-mix(in srgb, var(--ok) 24%, var(--bg));
   }
   100% {
-    background: var(--paper, #fffdf8);
+    background: var(--bg);
   }
 }
 
@@ -531,24 +531,24 @@ a.stream-link:hover {
 }
 
 .icon {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   text-align: center;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
 .tone-open .icon {
-  color: var(--accent-teal, #087f6f);
+  color: var(--ok);
 }
 
 .tone-merged .icon {
-  color: var(--accent-blue, #1d55a6);
+  color: var(--info);
 }
 
 .tone-closed .icon {
-  color: var(--accent-err, #c9341c);
+  color: var(--err);
 }
 
 .row-body {
@@ -560,14 +560,14 @@ a.stream-link:hover {
 }
 
 .verb {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   text-transform: lowercase;
 }
 
 .subject {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-weight: 500;
   font-size: 14px;
   overflow: hidden;
@@ -578,15 +578,15 @@ a.stream-link:hover {
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   white-space: nowrap;
 }
 
 .row-meta code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
 }
 </style>

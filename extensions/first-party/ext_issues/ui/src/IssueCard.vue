@@ -107,7 +107,7 @@ async function loadIssue(): Promise<void> {
 
 .issue-card-body {
   padding: 8px 12px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .issue-card-title {
@@ -121,26 +121,26 @@ async function loadIssue(): Promise<void> {
 .issue-number,
 .issue-meta,
 .issue-line {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .issue-pill {
   padding: 1px 8px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   font-size: 10px;
 }
 
 .issue-state-open {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .issue-state-closed {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issue-number,
 .issue-meta {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issue-number {
@@ -150,7 +150,7 @@ async function loadIssue(): Promise<void> {
 .issue-title-link {
   min-width: 0;
   color: inherit;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -169,10 +169,10 @@ async function loadIssue(): Promise<void> {
 }
 
 .muted {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

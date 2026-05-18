@@ -554,7 +554,7 @@ async function reopenCurrentIssue(): Promise<void> {
   display: grid;
   gap: 24px;
   padding: 8px 0 48px;
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issue-detail-shell {
@@ -584,7 +584,7 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-detail h1 {
   max-width: 820px;
   margin: 10px 0 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 42px;
   line-height: 1;
   letter-spacing: 0;
@@ -595,7 +595,7 @@ async function reopenCurrentIssue(): Promise<void> {
   display: grid;
   gap: 14px;
   padding-bottom: 22px;
-  border-bottom: 2px solid var(--ink, #111);
+  border-bottom: 2px solid var(--fg, rgba(255,255,255,0.94));
 }
 
 .issue-kicker {
@@ -617,11 +617,11 @@ async function reopenCurrentIssue(): Promise<void> {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 16px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .issue-chip .chip-glyph {
@@ -666,7 +666,7 @@ async function reopenCurrentIssue(): Promise<void> {
 
 .issue-chip.tone-author,
 .issue-chip.tone-assignee {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .issue-chip.tone-author[data-author-kind="agent"],
@@ -679,7 +679,7 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-chip.tone-assignee[data-author-kind="team"] { color: var(--accent-teal, #087f6f); }
 
 .issue-chip.tone-time {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   border-style: none;
   padding-left: 2px;
 }
@@ -688,7 +688,7 @@ async function reopenCurrentIssue(): Promise<void> {
 .issue-kicker,
 .issue-panel,
 .issue-actions button {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .issue-pill {
@@ -696,8 +696,8 @@ async function reopenCurrentIssue(): Promise<void> {
   align-items: center;
   min-height: 22px;
   padding: 2px 8px;
-  border: 1px solid currentColor;
-  font-family: var(--mono, monospace);
+  border: 0.5px solid currentColor;
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 1;
   text-transform: lowercase;
@@ -705,23 +705,23 @@ async function reopenCurrentIssue(): Promise<void> {
 
 .issue-number,
 .issue-repository {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-size: 12px;
 }
 
 .issue-state-open {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .issue-state-closed {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issue-body {
   min-height: 156px;
   padding: 20px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
-  background: color-mix(in srgb, var(--paper, #f7f4ec) 86%, white);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface);
   font-family: ui-sans-serif, system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.55;
@@ -730,8 +730,8 @@ async function reopenCurrentIssue(): Promise<void> {
 }
 
 .issue-body.is-empty {
-  color: var(--ink-faint, #888);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -746,21 +746,21 @@ async function reopenCurrentIssue(): Promise<void> {
   min-height: 36px;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--ink-rule, #d0cfc8);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .issue-thread h2,
 .issue-panel h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 18px;
   line-height: 1;
 }
 
 .issue-thread-count {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-weight: normal;
 }
 
@@ -768,8 +768,8 @@ async function reopenCurrentIssue(): Promise<void> {
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
-  background: color-mix(in srgb, var(--paper, #f7f4ec) 94%, white);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface);
 }
 
 .issue-state-summary {
@@ -777,7 +777,7 @@ async function reopenCurrentIssue(): Promise<void> {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-size: 12px;
 }
 
@@ -791,18 +791,18 @@ async function reopenCurrentIssue(): Promise<void> {
  * affordance (arrows + Enter) without a custom dropdown. */
 .issue-project-select {
   width: 100%;
-  border: 1.5px solid var(--ink-rule, #d0cfc8);
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
   padding: 8px 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
   outline: none;
   transition: border-color 120ms ease;
 }
 
 .issue-project-select:focus {
-  border-color: var(--ink, #111);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issue-project-select:disabled {
@@ -815,7 +815,7 @@ async function reopenCurrentIssue(): Promise<void> {
  * the panel doubles as a Project shortcut. */
 .issue-panel header .issue-panel-link {
   margin-left: auto;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--accent-blue, #1d55a6);
   text-decoration: none;
@@ -841,15 +841,15 @@ async function reopenCurrentIssue(): Promise<void> {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border: 1px solid currentColor;
-  color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid currentColor;
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
 
 .issue-owner .chip-glyph {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 12px;
   line-height: 1;
 }
@@ -857,22 +857,22 @@ async function reopenCurrentIssue(): Promise<void> {
 /* Tone the chip border by classifier kind — same palette the
  * hero chip row uses so the visual vocabulary is consistent. */
 .issue-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
-.issue-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.issue-owner[data-author-kind="human"]      { color: var(--fg, rgba(255,255,255,0.94)); }
 .issue-owner[data-author-kind="agent"]      { color: #6b3fa0; }
 .issue-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
 .issue-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
 
 .issue-line.muted code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .issue-actions button {
   min-height: 34px;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   background: transparent;
   color: inherit;
   padding: 8px 12px;
@@ -891,11 +891,11 @@ async function reopenCurrentIssue(): Promise<void> {
 }
 
 .muted {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 
 @media (max-width: 920px) {

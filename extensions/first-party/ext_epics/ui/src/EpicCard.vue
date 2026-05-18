@@ -192,7 +192,7 @@ function ownerLabel(ownerRef: string | null | undefined): {
   display: grid;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .epic-card-title {
@@ -205,12 +205,12 @@ function ownerLabel(ownerRef: string | null | undefined): {
 .epic-pill,
 .epic-meta,
 .epic-line {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .epic-pill {
   padding: 1px 8px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   font-size: 10px;
 }
 
@@ -219,25 +219,25 @@ function ownerLabel(ownerRef: string | null | undefined): {
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--accent-blue, #1d55a6);
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 6px;
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .epic-project:hover {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .epic-project.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  border-color: var(--ink, #111);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 /* When owner + project are both present, owner pushes right and
@@ -255,26 +255,26 @@ function ownerLabel(ownerRef: string | null | undefined): {
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 6px;
   border: 1px dashed currentColor;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .epic-owner:hover {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .epic-owner.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
   border-style: solid;
-  border-color: var(--ink, #111);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .epic-owner.active .owner-glyph {
@@ -296,23 +296,23 @@ function ownerLabel(ownerRef: string | null | undefined): {
 .epic-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
 
 .epic-state-good {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .epic-state-warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 
 .epic-state-muted,
 .epic-meta,
 .muted {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .epic-title-link {
   min-width: 0;
   color: inherit;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
   overflow-wrap: anywhere;
 }
@@ -330,6 +330,6 @@ function ownerLabel(ownerRef: string | null | undefined): {
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

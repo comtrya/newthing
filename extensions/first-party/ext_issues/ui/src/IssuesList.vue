@@ -985,8 +985,8 @@ async function submitQuickAdd(): Promise<void> {
 .issues-queue {
   display: grid;
   gap: 14px;
-  font-family: var(--sans, system-ui);
-  color: var(--ink, #111);
+  font-family: var(--font-sans, system-ui);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-queue-head {
@@ -1003,17 +1003,17 @@ async function submitQuickAdd(): Promise<void> {
 
 .issues-queue-head h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 22px;
   line-height: 1;
 }
 
 .issues-new {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-decoration: none;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 6px 12px;
 }
 
@@ -1037,7 +1037,7 @@ async function submitQuickAdd(): Promise<void> {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
@@ -1045,7 +1045,7 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -1055,7 +1055,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-query-chips .query-chip.tone-assignee {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-query-chips .query-chip.tone-project {
@@ -1069,16 +1069,16 @@ async function submitQuickAdd(): Promise<void> {
 
 .issues-query-chips .query-chips-hint {
   margin-left: 4px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0;
 }
 
 .issues-query-chips .query-chips-hint code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .issues-assignee-filter {
@@ -1087,14 +1087,14 @@ async function submitQuickAdd(): Promise<void> {
   gap: 8px;
   margin-top: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
 .issues-assignee-filter .prefix {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -1104,8 +1104,8 @@ async function submitQuickAdd(): Promise<void> {
   align-items: center;
   gap: 4px;
   padding: 0 5px;
-  border: 1px solid currentColor;
-  color: var(--ink, #111);
+  border: 0.5px solid currentColor;
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-assignee-filter .active-chip[data-author-kind="agent"]      { color: #6b3fa0; }
@@ -1121,14 +1121,14 @@ async function submitQuickAdd(): Promise<void> {
   gap: 8px;
   margin-top: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
 .issues-project-filter .prefix {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -1138,7 +1138,7 @@ async function submitQuickAdd(): Promise<void> {
   align-items: center;
   gap: 4px;
   padding: 0 5px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   color: var(--accent-blue, #1d55a6);
 }
 
@@ -1150,15 +1150,15 @@ async function submitQuickAdd(): Promise<void> {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   cursor: pointer;
   padding: 0 2px;
 }
 
 .issues-project-filter .clear:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-assignee-filter .author-glyph {
@@ -1174,15 +1174,15 @@ async function submitQuickAdd(): Promise<void> {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   cursor: pointer;
   padding: 0 2px;
 }
 
 .issues-assignee-filter .clear:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-quick-add {
@@ -1190,13 +1190,13 @@ async function submitQuickAdd(): Promise<void> {
   align-items: center;
   gap: 8px;
   padding: 6px 10px 6px 6px;
-  border: 1.5px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
   transition: border-color 120ms ease;
 }
 
 .issues-quick-add:focus-within {
-  border-color: var(--ink, #111);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-quick-add[data-busy="true"] {
@@ -1209,10 +1209,10 @@ async function submitQuickAdd(): Promise<void> {
   place-items: center;
   width: 22px;
   height: 22px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
-  border: 1px solid currentColor;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  border: 0.5px solid currentColor;
   border-radius: 2px;
 }
 
@@ -1222,31 +1222,31 @@ async function submitQuickAdd(): Promise<void> {
   border: 0;
   background: transparent;
   color: inherit;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 15px;
   outline: none;
   padding: 4px 0;
 }
 
 .issues-quick-add input::placeholder {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   font-style: italic;
 }
 
 .quick-add-status {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .quick-add-chip {
   display: inline-flex;
   align-items: center;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   letter-spacing: 0.02em;
   padding: 1px 6px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   white-space: nowrap;
 }
 
@@ -1259,22 +1259,22 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .quick-add-hint {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   white-space: nowrap;
 }
 
 .quick-add-hint kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
 }
 
 .quick-add-error {
   margin: -6px 0 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--accent-err, #c9341c);
 }
@@ -1283,7 +1283,7 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-filter {
@@ -1295,32 +1295,32 @@ async function submitQuickAdd(): Promise<void> {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
 .issues-filter:not(:last-child) {
-  border-right: 1px solid var(--rule-light, #d8d1c4);
+  border-right: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .issues-filter.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .issues-filter .count {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-variant-numeric: tabular-nums;
 }
 
 .issues-filter.active .count {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
 }
 
 .issues-filter kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
   opacity: 0.6;
 }
@@ -1329,7 +1329,7 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 4px 10px;
   min-width: 240px;
   flex: 1 1 240px;
@@ -1347,19 +1347,19 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-search kbd {
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   padding: 18px 0;
-  border-top: 1.5px solid var(--rule-light, #d8d1c4);
+  border-top: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .muted.error {
@@ -1371,25 +1371,25 @@ async function submitQuickAdd(): Promise<void> {
   margin: 0;
   padding: 0;
   display: grid;
-  border-top: 1.5px solid var(--ink, #111);
+  border-top: 0.5px solid var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-row {
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
   position: relative;
 }
 
 .issues-row.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .issues-row.selected {
-  background: var(--paper-tint, #f2efe7);
-  box-shadow: inset 3px 0 0 var(--ink, #111);
+  background: var(--bg-2, #0e1014);
+  box-shadow: inset 3px 0 0 var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-row.selected.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
   box-shadow: inset 3px 0 0 var(--accent-teal, #087f6f);
 }
 
@@ -1407,10 +1407,10 @@ async function submitQuickAdd(): Promise<void> {
   gap: 12px;
   padding: 8px 12px;
   margin: 8px 0;
-  border: 1.5px solid var(--ink, #111);
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -1420,11 +1420,11 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-bulk-bar .bulk-action {
-  border: 1px solid var(--paper, #fffdf8);
+  border: 0.5px solid var(--bg, #0a0b0e);
   background: transparent;
-  color: var(--paper, #fffdf8);
+  color: var(--bg, #0a0b0e);
   padding: 4px 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   cursor: pointer;
   letter-spacing: 0.02em;
@@ -1432,8 +1432,8 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-bulk-bar .bulk-action:hover:not(:disabled) {
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issues-bulk-bar .bulk-action:disabled {
@@ -1451,17 +1451,17 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-bulk-bar .bulk-reproject-label {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
   letter-spacing: 0.04em;
 }
 
 .issues-bulk-bar .bulk-reproject-select {
-  border: 1px solid var(--paper-tint, #f2efe7);
+  border: 0.5px solid var(--bg-2, #0e1014);
   background: transparent;
-  color: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  color: var(--bg, #0a0b0e);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
@@ -1474,16 +1474,16 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-bulk-bar .bulk-reproject-select option {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .issues-bulk-bar .bulk-clear {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  color: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   cursor: pointer;
   padding: 0 4px;
@@ -1491,19 +1491,19 @@ async function submitQuickAdd(): Promise<void> {
 
 .issues-bulk-bar .bulk-clear kbd {
   margin-left: 4px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
 }
 
 .issues-bulk-bar .hint {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
   font-size: 10.5px;
   letter-spacing: 0.04em;
 }
 
 .issues-bulk-bar .hint kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
 }
@@ -1520,13 +1520,13 @@ async function submitQuickAdd(): Promise<void> {
 
 .issues-row-link:hover {
   text-decoration: none;
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .issues-row-number {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1538,7 +1538,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-row-title {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 16px;
   font-weight: 600;
   overflow: hidden;
@@ -1551,13 +1551,13 @@ async function submitQuickAdd(): Promise<void> {
   flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issue-state {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 6px;
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -1576,25 +1576,25 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--accent-blue, #1d55a6);
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 6px;
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .issue-project:hover {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .issue-project.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  border-color: var(--ink, #111);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issue-project .project-glyph {
@@ -1602,10 +1602,10 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issue-label {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
   color: var(--accent-teal, #087f6f);
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 5px;
   letter-spacing: 0.02em;
 }
@@ -1614,7 +1614,7 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -1625,8 +1625,8 @@ async function submitQuickAdd(): Promise<void> {
   place-items: center;
   font-size: 10px;
   font-weight: 700;
-  border: 1px solid currentColor;
-  color: var(--ink-faint, #68645c);
+  border: 0.5px solid currentColor;
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issue-author[data-author-kind="agent"] {
@@ -1642,7 +1642,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issue-author .author-badge {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -1661,25 +1661,25 @@ async function submitQuickAdd(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 5px;
   border: 1px dashed currentColor;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
   background: transparent;
   cursor: pointer;
   font: inherit;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
 }
 
 .issue-assignee:hover {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .issue-assignee.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  border-color: var(--ink, #111);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .issue-assignee.active .author-glyph {
@@ -1703,22 +1703,22 @@ async function submitQuickAdd(): Promise<void> {
 .issue-assignee[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
 
 .issues-row-age {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   white-space: nowrap;
 }
 
 .issues-foot {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .issues-foot kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
 }
 </style>

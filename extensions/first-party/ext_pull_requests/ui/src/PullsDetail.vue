@@ -605,13 +605,13 @@ async function onClose(): Promise<void> {
 .pulls-detail {
   display: grid;
   gap: 22px;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans, system-ui);
 }
 
 .pulls-detail-head {
   display: grid;
   gap: 12px;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding-bottom: 16px;
 }
 
@@ -624,27 +624,27 @@ async function onClose(): Promise<void> {
 
 .pulls-detail-title h1 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 28px;
   line-height: 1.1;
   flex: 1 1 320px;
 }
 
 .back {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 16px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-decoration: none;
 }
 
 .back:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-detail-number {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 14px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 /**
@@ -666,11 +666,11 @@ async function onClose(): Promise<void> {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   line-height: 16px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .pull-chip .chip-glyph {
@@ -689,7 +689,7 @@ async function onClose(): Promise<void> {
 }
 
 .pull-chip.tone-state.pr-state-ready   { color: var(--accent-teal, #087f6f); }
-.pull-chip.tone-state.pr-state-draft   { color: var(--ink-faint, #68645c); }
+.pull-chip.tone-state.pr-state-draft   { color: var(--fg-3, rgba(255,255,255,0.52)); }
 .pull-chip.tone-state.pr-state-merged  { color: var(--accent-blue, #1d55a6); }
 .pull-chip.tone-state.pr-state-closed  { color: var(--accent-err, #c9341c); }
 
@@ -704,18 +704,18 @@ async function onClose(): Promise<void> {
 }
 
 .pull-chip.tone-branch code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .pull-chip.tone-branch .branch-arrow {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   padding: 0 2px;
 }
 
 .pull-chip.tone-author {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .pull-chip.tone-author[data-author-kind="agent"]      { color: #6b3fa0; }
@@ -724,7 +724,7 @@ async function onClose(): Promise<void> {
 .pull-chip.tone-author[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
 
 .pull-chip.tone-time {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   border-style: none;
   padding-left: 2px;
 }
@@ -743,18 +743,18 @@ async function onClose(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1.5px solid var(--ink, #111);
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
   padding: 8px 14px;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
   cursor: pointer;
 }
 
 .pulls-action.primary {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .pulls-action[disabled] {
@@ -763,27 +763,27 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-action kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
   opacity: 0.6;
 }
 
 .pulls-action-message {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-detail-body h2 {
   margin: 0 0 8px;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 16px;
 }
 
 .pulls-detail-body-prose {
-  color: var(--ink, #1a1916);
+  color: var(--fg, rgba(255,255,255,0.94));
   font-size: 14px;
   line-height: 1.6;
 }
@@ -795,7 +795,7 @@ async function onClose(): Promise<void> {
 .pulls-detail-body-prose h5,
 .pulls-detail-body-prose h6 {
   margin: 1.1em 0 0.4em;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
   line-height: 1.25;
 }
@@ -828,21 +828,21 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-detail-body-prose code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 0.88em;
   padding: 1px 5px;
-  background: var(--ink-tint, #f2efe6);
+  background: var(--bg-2, #0e1014);
   border-radius: 2px;
 }
 
 .pulls-detail-body-prose pre {
   margin: 0.7em 0;
   padding: 12px 14px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12.5px;
   line-height: 1.55;
-  background: var(--ink-tint, #f2efe6);
-  border: 1px solid var(--ink-rule, #d8d6cf);
+  background: var(--bg-2, #0e1014);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   overflow-x: auto;
   white-space: pre;
   word-break: normal;
@@ -869,9 +869,9 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-detail-body.muted p {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 /* "Routed to" panel — union of (a) projects whose root the
@@ -884,8 +884,8 @@ async function onClose(): Promise<void> {
   display: grid;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid var(--ink-rule, #d0cfc8);
-  background: var(--paper-tint, #f2efe7);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
 }
 
 .pulls-routed > header {
@@ -893,20 +893,20 @@ async function onClose(): Promise<void> {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--ink-rule, #d0cfc8);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding-bottom: 6px;
 }
 
 .pulls-routed > header h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 16px;
 }
 
 .pulls-routed > header .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-routed-list {
@@ -921,12 +921,12 @@ async function onClose(): Promise<void> {
   display: grid;
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
 }
 
 .pulls-routed-name {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   color: var(--accent-blue, #1d55a6);
   text-decoration: none;
@@ -948,9 +948,9 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-routed-owners.muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-style: italic;
 }
 
@@ -959,38 +959,38 @@ async function onClose(): Promise<void> {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  border: 1px solid currentColor;
-  color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid currentColor;
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
 
 .pulls-routed-owner .chip-glyph {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 12px;
   line-height: 1;
 }
 
 .pulls-routed-owner[data-author-kind="team"]       { color: var(--accent-teal, #087f6f); }
-.pulls-routed-owner[data-author-kind="human"]      { color: var(--ink, #111); }
+.pulls-routed-owner[data-author-kind="human"]      { color: var(--fg, rgba(255,255,255,0.94)); }
 .pulls-routed-owner[data-author-kind="agent"]      { color: #6b3fa0; }
 .pulls-routed-owner[data-author-kind="bot"]        { color: var(--accent-blue, #1d55a6); }
 .pulls-routed-owner[data-author-kind="credential"] { color: var(--accent-yellow, #c89300); }
 
 .pulls-routed-source {
   margin: 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-routed-source code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .pulls-linked-issues {
@@ -1003,13 +1003,13 @@ async function onClose(): Promise<void> {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding-bottom: 4px;
 }
 
 .pulls-linked-issues h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 18px;
 }
 
@@ -1023,27 +1023,27 @@ async function onClose(): Promise<void> {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding-bottom: 4px;
 }
 
 .pulls-detail-discussion > header h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 18px;
 }
 
 .pulls-detail-discussion-count {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-weight: normal;
 }
 
 .pulls-linked-issues .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-linked-issues ul {
@@ -1060,7 +1060,7 @@ async function onClose(): Promise<void> {
   gap: 12px;
   align-items: baseline;
   padding: 8px 10px;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .pulls-linked-issues li:last-child {
@@ -1068,8 +1068,8 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-linked-issues li.focused {
-  box-shadow: inset 3px 0 0 var(--ink, #111);
-  background: var(--paper-tint, #f2efe7);
+  box-shadow: inset 3px 0 0 var(--fg, rgba(255,255,255,0.94));
+  background: var(--bg-2, #0e1014);
 }
 
 .pulls-linked-issues li .issue-link {
@@ -1079,46 +1079,46 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-linked-issues .issue-project {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-decoration: none;
-  border: 1px solid var(--rule-light, #d8d1c4);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding: 1px 7px;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 .pulls-linked-issues .issue-project:hover {
-  color: var(--ink, #111);
-  border-color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-linked-foot {
   margin-top: 6px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
 }
 
 .pulls-linked-foot kbd {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding: 0 4px;
   margin: 0 1px;
 }
 
 .pulls-linked-issues .issue-num {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-variant-numeric: tabular-nums;
 }
 
 .pulls-linked-issues .issue-title {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1126,9 +1126,9 @@ async function onClose(): Promise<void> {
 }
 
 .pulls-linked-issues .issue-state {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 5px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1144,9 +1144,9 @@ async function onClose(): Promise<void> {
 
 .pulls-empty,
 .pulls-error {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-error {

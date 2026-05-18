@@ -456,36 +456,37 @@ function pullRepoLabel(pull: PullRow): string {
 .inbox-header {
   display: grid;
   gap: 6px;
-  border-bottom: 2px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   padding-bottom: 18px;
 }
 
 .inbox-header .overline {
   margin: 0;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .inbox-header h1 {
   margin: 0;
-  font-family: var(--display);
+  font-family: var(--font-serif);
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 400;
+  font-style: italic;
   line-height: 1;
 }
 
 .inbox-tagline {
   margin: 4px 0 0;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   font-size: 13px;
   max-width: 56ch;
 }
 
 .inbox-error {
-  color: var(--accent-red, #b34040);
+  color: var(--err);
   font-size: 13px;
 }
 
@@ -494,22 +495,23 @@ function pullRepoLabel(pull: PullRow): string {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 .inbox-filter-label {
-  color: var(--ink-faint);
+  color: var(--fg-3);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .inbox-filter-chip {
   background: transparent;
-  border: 1px solid var(--rule-light);
-  color: var(--ink-soft);
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--fg-2);
   padding: 2px 8px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
   cursor: pointer;
   display: inline-flex;
@@ -518,7 +520,7 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-filter-chip.tone-project {
-  color: var(--accent-blue, #1d55a6);
+  color: var(--info);
 }
 
 .inbox-filter-chip .project-glyph {
@@ -527,21 +529,21 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-filter-chip:hover {
-  color: var(--ink);
-  border-color: var(--ink);
+  color: var(--fg);
+  border-color: var(--fg);
 }
 
 .inbox-filter-chip.active {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--paper);
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
 }
 
 .scope-note {
   margin-left: 6px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   text-transform: none;
   letter-spacing: 0;
 }
@@ -566,8 +568,10 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-panel {
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
 }
 
 .inbox-panel > header {
@@ -575,12 +579,12 @@ function pullRepoLabel(pull: PullRow): string {
   align-items: baseline;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
+  border-bottom: 1px solid var(--line-2);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .inbox-panel > header h2 {
@@ -589,21 +593,22 @@ function pullRepoLabel(pull: PullRow): string {
   font-weight: 500;
   letter-spacing: inherit;
   text-transform: inherit;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .inbox-panel > header .count {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink);
-  border: 1px solid var(--rule-light);
+  color: var(--fg);
+  border: 1px solid var(--line);
   padding: 0 6px;
 }
 
 .inbox-panel > header .count.alarm {
-  color: #fffdf8;
-  background: var(--accent-red, #b34040);
-  border-color: var(--accent-red, #b34040);
+  color: var(--bg);
+  background: var(--err);
+  border-color: var(--err);
+  border-radius: var(--r-xs);
 }
 
 .inbox-row-static {
@@ -611,18 +616,18 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-row .meta .oid {
-  color: var(--ink-soft);
+  color: var(--fg-2);
 }
 
 .inbox-row .meta .state-bad {
-  color: var(--accent-red, #b34040);
+  color: var(--err);
   font-weight: 600;
 }
 
 .inbox-empty {
   margin: 0;
   padding: 12px 16px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   font-style: italic;
   font-size: 13px;
 }
@@ -634,7 +639,7 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-panel li {
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 1px solid var(--line);
 }
 
 .inbox-panel li:last-child {
@@ -647,17 +652,17 @@ function pullRepoLabel(pull: PullRow): string {
   align-items: baseline;
   gap: 8px;
   padding: 8px 16px;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .inbox-row:hover {
-  background: var(--paper-tint);
+  background: var(--bg-2);
 }
 
 .inbox-row .number {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .inbox-row .title {
@@ -671,13 +676,13 @@ function pullRepoLabel(pull: PullRow): string {
   display: inline-flex;
   align-items: baseline;
   gap: 10px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .inbox-row .meta .repo {
-  color: var(--ink-soft);
+  color: var(--fg-2);
 }
 
 .inbox-row .meta .state {
@@ -694,15 +699,15 @@ function pullRepoLabel(pull: PullRow): string {
 }
 
 .inbox-row .project {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .inbox-row .age {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
   margin-left: auto;
   white-space: nowrap;
 }

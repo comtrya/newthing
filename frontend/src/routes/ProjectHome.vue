@@ -580,17 +580,17 @@ const projectQueueHrefs = computed(() => {
 .project-header {
   display: grid;
   gap: 10px;
-  border-bottom: 2px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--line);
   padding-bottom: 18px;
 }
 
 .project-header .overline {
   margin: 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .project-header .overline a {
@@ -600,8 +600,10 @@ const projectQueueHrefs = computed(() => {
 }
 
 .project-header h1 {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif);
   font-size: 56px;
+  font-weight: 400;
+  font-style: italic;
   line-height: 0.95;
   letter-spacing: 0;
   margin: 0;
@@ -612,7 +614,7 @@ const projectQueueHrefs = computed(() => {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
 }
 
@@ -621,10 +623,11 @@ const projectQueueHrefs = computed(() => {
   align-items: baseline;
   gap: 4px;
   padding: 4px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
-  color: var(--ink-soft, #2c2b28);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-xs);
+  background: var(--bg);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
   font-size: 12px;
   text-decoration: none;
   cursor: pointer;
@@ -632,14 +635,14 @@ const projectQueueHrefs = computed(() => {
 }
 
 .project-tab:hover {
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink, #111);
+  background: var(--bg-2);
+  color: var(--fg);
 }
 
 .project-tab.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  border-color: var(--ink, #111);
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
 }
 
 .project-tab.active .tab-glyph {
@@ -647,7 +650,7 @@ const projectQueueHrefs = computed(() => {
 }
 
 .tab-glyph {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   font-size: 10px;
 }
 
@@ -663,29 +666,30 @@ const projectQueueHrefs = computed(() => {
   align-items: baseline;
   gap: 6px;
   padding: 4px 10px;
-  border: 1px solid var(--ink-rule, var(--rule-light, #d8d1c4));
-  background: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 14px;
   letter-spacing: 0.02em;
 }
 
 .project-chip strong {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-weight: 600;
   font-size: 13px;
-  color: var(--ink, #111);
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .project-chip span {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   text-transform: lowercase;
 }
 
 .project-chip.tone-label strong {
-  color: var(--accent-teal, #087f6f);
+  color: var(--ok);
 }
 
 .project-chip.tone-owner {
@@ -693,7 +697,7 @@ const projectQueueHrefs = computed(() => {
 }
 
 .project-chip.tone-owner strong {
-  color: var(--accent-blue, #1d55a6);
+  color: var(--info);
 }
 
 .project-summary {
@@ -702,7 +706,7 @@ const projectQueueHrefs = computed(() => {
   align-items: baseline;
   gap: 28px;
   padding: 20px 0 16px;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 1px solid var(--line);
 }
 
 .stat {
@@ -718,11 +722,11 @@ const projectQueueHrefs = computed(() => {
 /* Hover affordance on navigable stats. The doc-count stat is
  * static (no filter URL yet); `.stat-static` opts it out. */
 a.stat:hover {
-  border-bottom-color: var(--ink, #111);
+  border-bottom-color: var(--fg);
 }
 
 a.stat:hover .stat-label {
-  color: var(--ink, #111);
+  color: var(--fg);
 }
 
 .stat-static {
@@ -730,32 +734,32 @@ a.stat:hover .stat-label {
 }
 
 .stat-num {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-sans);
   font-size: 26px;
   line-height: 1;
   font-weight: 650;
-  color: var(--ink, #111);
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .stat-num[data-zero="true"],
 .stat-num.muted {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
   font-weight: 500;
 }
 
 .stat-label {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: lowercase;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
 }
 
 .stat-sep {
   width: 1px;
   height: 22px;
-  background: var(--rule-light, #d8d1c4);
+  background: var(--line);
 }
 
 /* Quick-create entrypoints — small editorial chips that
@@ -773,10 +777,11 @@ a.stat:hover .stat-label {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
-  border: 1px solid var(--ink, #111);
-  background: var(--paper, #fffdf8);
-  color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.02em;
   text-decoration: none;
@@ -784,8 +789,8 @@ a.stat:hover .stat-label {
 }
 
 .quick-action:hover {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--surface-2);
+  border-color: var(--fg-3);
 }
 
 .project-policy {
@@ -797,11 +802,11 @@ a.stat:hover .stat-label {
 }
 
 .policy-prefix {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3);
   padding-right: 4px;
 }
 
@@ -809,19 +814,20 @@ a.stat:hover .stat-label {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
+  border-radius: var(--r-xs);
   padding: 2px 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono);
   font-size: 11px;
   cursor: help;
 }
 
 .policy-chip.tone-info {
-  color: var(--accent-teal, #087f6f);
+  color: var(--ok);
 }
 
 .policy-chip.tone-warn {
-  color: var(--accent-yellow, #c89300);
+  color: var(--warn);
 }
 
 .policy-key {
@@ -829,11 +835,11 @@ a.stat:hover .stat-label {
 }
 
 .policy-sep {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4);
 }
 
 .policy-value {
-  color: var(--ink, #111);
+  color: var(--fg);
 }
 
 .policy-chip-labels {
@@ -842,7 +848,7 @@ a.stat:hover .stat-label {
 }
 
 .policy-chip-labels .label-pill {
-  background: var(--paper, #fffdf8);
+  background: var(--bg);
 }
 
 .project-work {
@@ -859,8 +865,10 @@ a.stat:hover .stat-label {
 }
 
 .project-work-panel {
-  border: 1px solid var(--ink-rule, #d8d6cf);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
 }
 
 .project-work-panel > header {
@@ -868,12 +876,12 @@ a.stat:hover .stat-label {
   align-items: baseline;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid var(--ink-rule, #d8d6cf);
-  font-family: var(--mono);
+  border-bottom: 1px solid var(--line-2);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .project-work-panel > header h3 {
@@ -882,16 +890,16 @@ a.stat:hover .stat-label {
   font-weight: 500;
   letter-spacing: inherit;
   text-transform: inherit;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .project-work-panel .see-all {
-  color: var(--ink-faint);
+  color: var(--fg-3);
   font-size: 10px;
 }
 
 .project-work-panel .see-all:hover {
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .project-work-panel ul {
@@ -901,7 +909,7 @@ a.stat:hover .stat-label {
 }
 
 .project-work-panel li {
-  border-bottom: 1px solid var(--rule-light);
+  border-bottom: 1px solid var(--line);
 }
 
 .project-work-panel li:last-child {
@@ -914,17 +922,17 @@ a.stat:hover .stat-label {
   align-items: baseline;
   gap: 8px;
   padding: 8px 16px;
-  color: var(--ink);
+  color: var(--fg);
 }
 
 .project-work-row:hover {
-  background: var(--paper-tint);
+  background: var(--bg-2);
 }
 
 .project-work-row .number {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-faint);
+  color: var(--fg-3);
 }
 
 .project-work-row .title {

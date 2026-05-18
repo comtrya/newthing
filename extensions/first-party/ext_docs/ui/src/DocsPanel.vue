@@ -436,20 +436,20 @@ function describeFrontMatterValue(value: unknown): string {
 .docs-panel {
   display: grid;
   gap: 14px;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans, system-ui);
 }
 
 .docs-panel .docs-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  border-bottom: 1.5px solid var(--ink, #111);
+  border-bottom: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding-bottom: 6px;
 }
 
 .docs-panel h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 22px;
   line-height: 1;
 }
@@ -462,16 +462,16 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .docs-panel .muted code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-soft, #2c2b28);
-  background: var(--paper-tint, #f2efe7);
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  background: var(--bg-2, #0e1014);
   padding: 0 4px;
 }
 
@@ -480,8 +480,8 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-project {
-  border: 1.5px solid var(--ink, #111);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
+  background: var(--bg, #0a0b0e);
 }
 
 .docs-panel .docs-project-head {
@@ -490,26 +490,26 @@ function describeFrontMatterValue(value: unknown): string {
   gap: 12px;
   flex-wrap: wrap;
   padding: 10px 14px;
-  background: var(--paper-tint, #f2efe7);
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  background: var(--bg-2, #0e1014);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .docs-panel .docs-project-head h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 16px;
   line-height: 1;
 }
 
 .docs-panel .docs-project-root {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .docs-panel .docs-type {
   padding: 12px 14px;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .docs-panel .docs-type:last-child {
@@ -525,7 +525,7 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-type-key {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -534,16 +534,16 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-type-label {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
   font-weight: 600;
 }
 
 .docs-panel .docs-type-scope {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-soft, #2c2b28);
-  background: var(--paper-tint, #f2efe7);
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  background: var(--bg-2, #0e1014);
   padding: 0 5px;
 }
 
@@ -553,9 +553,9 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .docs-type-desc {
   margin: 0 0 8px;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 13px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .docs-panel .docs-type-props {
@@ -563,9 +563,9 @@ function describeFrontMatterValue(value: unknown): string {
   grid-template-columns: auto 1fr;
   gap: 2px 14px;
   margin: 0 0 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .docs-panel .docs-type-props dt {
@@ -573,12 +573,12 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-type-props dt code {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .docs-panel .docs-type-props .implicit code,
 .docs-panel .docs-type-props .implicit {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   font-style: italic;
 }
 
@@ -591,7 +591,7 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-file {
-  border-left: 2px solid var(--rule-light, #d8d1c4);
+  border-left: 2px solid var(--line, rgba(255,255,255,0.07));
   padding: 6px 0 6px 12px;
   cursor: pointer;
   transition: border-color 120ms ease;
@@ -599,8 +599,8 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .docs-file:hover,
 .docs-panel .docs-file.focused {
-  border-left-color: var(--ink-faint, #68645c);
-  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 50%, transparent);
+  border-left-color: var(--fg-3, rgba(255,255,255,0.52));
+  background: var(--surface);
 }
 
 .docs-panel .docs-file.expanded {
@@ -615,8 +615,8 @@ function describeFrontMatterValue(value: unknown): string {
 .docs-panel .docs-file-caret {
   display: inline-block;
   width: 12px;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
 }
 
 .docs-panel .docs-file-head {
@@ -628,14 +628,14 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-file-title {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 13px;
 }
 
 .docs-panel .docs-file-path {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .docs-panel .docs-file-front {
@@ -643,32 +643,32 @@ function describeFrontMatterValue(value: unknown): string {
   grid-template-columns: auto 1fr;
   gap: 1px 12px;
   margin: 0 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .docs-panel .docs-file-front dt code {
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .docs-panel .docs-file-body {
   margin: 0;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 12px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .docs-panel .docs-file-rendered {
   margin-top: 8px;
-  border-top: 1px solid var(--rule-light, #d8d1c4);
+  border-top: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding: 12px 0 4px;
-  font-family: var(--sans, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 13px;
   line-height: 1.55;
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .docs-panel .docs-file-rendered h1,
@@ -676,13 +676,13 @@ function describeFrontMatterValue(value: unknown): string {
 .docs-panel .docs-file-rendered h3,
 .docs-panel .docs-file-rendered h4 {
   margin: 12px 0 6px;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   line-height: 1.2;
 }
 
 .docs-panel .docs-file-rendered h1 { font-size: 20px; }
 .docs-panel .docs-file-rendered h2 { font-size: 16px; }
-.docs-panel .docs-file-rendered h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint, #68645c); }
+.docs-panel .docs-file-rendered h3 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3, rgba(255,255,255,0.52)); }
 
 .docs-panel .docs-file-rendered p {
   margin: 0 0 8px;
@@ -699,9 +699,9 @@ function describeFrontMatterValue(value: unknown): string {
 }
 
 .docs-panel .docs-file-rendered code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
   padding: 0 4px;
   border-radius: 2px;
 }
@@ -709,13 +709,13 @@ function describeFrontMatterValue(value: unknown): string {
 .docs-panel .docs-file-rendered pre {
   margin: 8px 0;
   padding: 10px 12px;
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
-  border-left: 2px solid var(--rule-light, #d8d1c4);
+  border-left: 2px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .docs-panel .docs-file-rendered pre code {

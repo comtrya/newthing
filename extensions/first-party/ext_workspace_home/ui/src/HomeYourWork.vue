@@ -249,7 +249,7 @@ function repoLine(item: WorkItem): string {
 
 .section-strap h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
 }
 
@@ -260,7 +260,7 @@ function repoLine(item: WorkItem): string {
 .check,
 .t,
 .extension-placeholder {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
@@ -269,23 +269,23 @@ function repoLine(item: WorkItem): string {
 .sub,
 .meta,
 .t {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .title {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-weight: 600;
 }
 
 .ok {
-  color: var(--ink-go, #008873);
+  color: var(--ok, oklch(75% 0.15 150));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 
 .err {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

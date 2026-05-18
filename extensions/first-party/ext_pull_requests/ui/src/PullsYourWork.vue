@@ -100,15 +100,15 @@ async function load(): Promise<void> {
 
 .pulls-your-work h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
 }
 
 .pulls-your-work header a,
 .muted {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-decoration: none;
 }
 
@@ -127,7 +127,7 @@ async function load(): Promise<void> {
   padding: 8px 0;
   color: inherit;
   text-decoration: none;
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .pulls-your-work li:last-child a {
@@ -135,9 +135,9 @@ async function load(): Promise<void> {
 }
 
 .num {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .title {
@@ -148,9 +148,9 @@ async function load(): Promise<void> {
 }
 
 .state {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -161,7 +161,7 @@ async function load(): Promise<void> {
 }
 
 .state.pr-state-draft {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .state.pr-state-merged {
@@ -174,8 +174,8 @@ async function load(): Promise<void> {
 
 .meta {
   grid-column: 1 / -1;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 </style>

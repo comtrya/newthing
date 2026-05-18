@@ -734,18 +734,18 @@ async function loadEpics(): Promise<void> {
 
 .epics-list-header h3 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 14px;
 }
 
 .epics-list-header a,
 .epic-line {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
 .epics-list-header a {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-decoration: none;
 }
 
@@ -762,8 +762,8 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 6px;
   flex: 1 1 280px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
   padding: 0 8px;
 }
 
@@ -771,7 +771,7 @@ async function loadEpics(): Promise<void> {
   flex: 1;
   border: 0;
   background: transparent;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   padding: 6px 0;
   outline: none;
@@ -780,7 +780,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-search input::placeholder {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 /* Parsed-filter chip strip — mirrors the IssuesList iter-56
@@ -796,7 +796,7 @@ async function loadEpics(): Promise<void> {
   flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
@@ -804,7 +804,7 @@ async function loadEpics(): Promise<void> {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -814,7 +814,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-query-chips .query-chip.tone-owner {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .epics-query-chips .query-chip.tone-project {
@@ -828,23 +828,23 @@ async function loadEpics(): Promise<void> {
 
 .epics-query-chips .query-chips-hint {
   margin-left: 4px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0;
 }
 
 .epics-query-chips .query-chips-hint code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .epics-filter-row {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0;
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   align-self: flex-start;
 }
 
@@ -857,26 +857,26 @@ async function loadEpics(): Promise<void> {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
 .epics-filter:not(:last-child) {
-  border-right: 1px solid var(--rule-light, #d8d1c4);
+  border-right: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .epics-filter.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .epics-filter .count {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-variant-numeric: tabular-nums;
 }
 
 .epics-filter.active .count {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
 }
 
 /* Owner filter indicator — mirrors IssuesList's assignee filter
@@ -886,38 +886,38 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   align-self: flex-start;
 }
 
 .epics-owner-filter .prefix {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
 .epics-owner-filter .active-chip {
   padding: 0 5px;
-  border: 1px solid var(--ink, #111);
-  color: var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .epics-owner-filter .clear {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   cursor: pointer;
   padding: 0 2px;
 }
 
 .epics-owner-filter .clear:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 /* Project filter indicator — same shape as owner but blue chip
@@ -927,15 +927,15 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   align-self: flex-start;
 }
 
 .epics-project-filter .prefix {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -945,7 +945,7 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 4px;
   padding: 0 5px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   color: var(--accent-blue, #1d55a6);
 }
 
@@ -957,15 +957,15 @@ async function loadEpics(): Promise<void> {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   cursor: pointer;
   padding: 0 2px;
 }
 
 .epics-project-filter .clear:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 /* iter 70 — inline quick-add. Mirror of the IssuesList iter 17
@@ -976,13 +976,13 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 8px;
   padding: 6px 10px 6px 6px;
-  border: 1.5px solid var(--rule-light, #d8d1c4);
-  background: var(--paper, #fffdf8);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
   transition: border-color 120ms ease;
 }
 
 .epics-quick-add:focus-within {
-  border-color: var(--ink, #111);
+  border-color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .epics-quick-add[data-busy="true"] {
@@ -995,10 +995,10 @@ async function loadEpics(): Promise<void> {
   place-items: center;
   width: 22px;
   height: 22px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
-  border: 1px solid currentColor;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  border: 0.5px solid currentColor;
   border-radius: 2px;
 }
 
@@ -1008,31 +1008,31 @@ async function loadEpics(): Promise<void> {
   border: 0;
   background: transparent;
   color: inherit;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 15px;
   outline: none;
   padding: 4px 0;
 }
 
 .epics-quick-add input::placeholder {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   font-style: italic;
 }
 
 .epics-quick-add .quick-add-status {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .epics-quick-add .quick-add-chip {
   display: inline-flex;
   align-items: center;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   letter-spacing: 0.02em;
   padding: 1px 6px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   white-space: nowrap;
 }
 
@@ -1041,16 +1041,16 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add .quick-add-hint {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   white-space: nowrap;
 }
 
 .epics-quick-add .quick-add-hint kbd {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding: 0 4px;
   margin: 0 1px;
 }
@@ -1073,11 +1073,11 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-list-items > li.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .epics-list-items > li.selected {
-  box-shadow: inset 3px 0 0 var(--ink, #111);
+  box-shadow: inset 3px 0 0 var(--fg, rgba(255,255,255,0.94));
 }
 
 .epics-list-items > li.focused.selected {
@@ -1086,16 +1086,16 @@ async function loadEpics(): Promise<void> {
 
 .epics-list-foot {
   margin-top: 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
 }
 
 .epics-list-foot kbd {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   padding: 0 4px;
   margin: 0 1px;
 }
@@ -1109,9 +1109,9 @@ async function loadEpics(): Promise<void> {
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   position: sticky;
   top: 0;
@@ -1129,15 +1129,15 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-bulk-bar .bulk-reproject-label {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
   letter-spacing: 0.04em;
 }
 
 .epics-bulk-bar .bulk-reproject-select {
-  border: 1px solid var(--paper-tint, #f2efe7);
+  border: 0.5px solid var(--bg-2, #0e1014);
   background: transparent;
-  color: var(--paper, #fffdf8);
-  font-family: var(--mono, monospace);
+  color: var(--bg, #0a0b0e);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 2px 6px;
   cursor: pointer;
@@ -1150,16 +1150,16 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-bulk-bar .bulk-reproject-select option {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .epics-bulk-bar .bulk-clear {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  color: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   cursor: pointer;
   padding: 0 4px;
@@ -1167,19 +1167,19 @@ async function loadEpics(): Promise<void> {
 
 .epics-bulk-bar .bulk-clear kbd {
   margin-left: 4px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
 }
 
 .epics-bulk-bar .hint {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
   font-size: 10.5px;
   letter-spacing: 0.04em;
 }
 
 .epics-bulk-bar .hint kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
 }
@@ -1189,10 +1189,10 @@ async function loadEpics(): Promise<void> {
 }
 
 .muted {
-  color: var(--ink-faint, #888);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .warn {
-  color: var(--ink-warn, #c2410c);
+  color: var(--err, oklch(70% 0.19 25));
 }
 </style>

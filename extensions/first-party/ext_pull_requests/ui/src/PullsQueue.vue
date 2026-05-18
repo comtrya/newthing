@@ -476,8 +476,8 @@ async function load(): Promise<void> {
 .pulls-queue {
   display: grid;
   gap: 16px;
-  font-family: var(--sans, system-ui);
-  color: var(--ink, #111);
+  font-family: var(--font-sans, system-ui);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-queue-head {
@@ -487,7 +487,7 @@ async function load(): Promise<void> {
 
 .pulls-queue-head h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 22px;
   line-height: 1;
 }
@@ -504,7 +504,7 @@ async function load(): Promise<void> {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-filter {
@@ -516,32 +516,32 @@ async function load(): Promise<void> {
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
 }
 
 .pulls-filter:not(:last-child) {
-  border-right: 1px solid var(--rule-light, #d8d1c4);
+  border-right: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .pulls-filter.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
 }
 
 .pulls-filter .count {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   font-variant-numeric: tabular-nums;
 }
 
 .pulls-filter.active .count {
-  color: var(--paper-tint, #f2efe7);
+  color: var(--bg-2, #0e1014);
 }
 
 .pulls-filter kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
   opacity: 0.6;
 }
@@ -550,7 +550,7 @@ async function load(): Promise<void> {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border: 1.5px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 4px 10px;
   min-width: 240px;
   flex: 1 1 240px;
@@ -568,11 +568,11 @@ async function load(): Promise<void> {
 }
 
 .pulls-search kbd {
-  border: 1px solid var(--ink, #111);
+  border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-list {
@@ -580,15 +580,15 @@ async function load(): Promise<void> {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1.5px solid var(--ink, #111);
+  border-top: 0.5px solid var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-row {
-  border-bottom: 1px solid var(--rule-light, #d8d1c4);
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .pulls-row.focused {
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .pulls-row-link {
@@ -603,13 +603,13 @@ async function load(): Promise<void> {
 
 .pulls-row-link:hover {
   text-decoration: none;
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .pulls-row-number {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -621,7 +621,7 @@ async function load(): Promise<void> {
 }
 
 .pulls-row-title {
-  font-family: var(--display, system-ui);
+  font-family: var(--font-serif, system-ui);
   font-size: 16px;
   font-weight: 600;
   overflow: hidden;
@@ -634,13 +634,13 @@ async function load(): Promise<void> {
   flex-wrap: wrap;
   gap: 10px;
   align-items: baseline;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-state {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 6px;
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -652,7 +652,7 @@ async function load(): Promise<void> {
 }
 
 .pulls-state.pr-state-draft {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-state.pr-state-merged {
@@ -664,13 +664,13 @@ async function load(): Promise<void> {
 }
 
 .pulls-branch {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-soft, #2c2b28);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 .pulls-branch span {
-  color: var(--ink-fainter, #918b80);
+  color: var(--fg-4, rgba(255,255,255,0.34));
   padding: 0 4px;
 }
 
@@ -683,20 +683,20 @@ async function load(): Promise<void> {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
   cursor: pointer;
 }
 
 .pulls-author:hover {
   border-color: currentColor;
-  background: var(--paper-tint, #f2efe7);
+  background: var(--bg-2, #0e1014);
 }
 
 .pulls-author.active {
-  background: var(--ink, #111);
-  color: var(--paper, #fffdf8);
-  border-color: var(--ink, #111);
+  background: var(--fg, rgba(255,255,255,0.94));
+  color: var(--bg, #0a0b0e);
+  border-color: var(--fg, rgba(255,255,255,0.94));
   border-style: solid;
 }
 
@@ -715,7 +715,7 @@ async function load(): Promise<void> {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
@@ -723,7 +723,7 @@ async function load(): Promise<void> {
   display: inline-flex;
   align-items: center;
   padding: 1px 7px;
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -733,7 +733,7 @@ async function load(): Promise<void> {
 }
 
 .pulls-query-chips .query-chip.tone-author {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-query-chips .query-chip.tone-unknown {
@@ -743,16 +743,16 @@ async function load(): Promise<void> {
 
 .pulls-query-chips .query-chips-hint {
   margin-left: 4px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0;
 }
 
 .pulls-query-chips .query-chips-hint code {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
   padding: 0 4px;
-  background: var(--paper-tint, #f2efe7);
-  color: var(--ink-soft, #2c2b28);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg-2, rgba(255,255,255,0.74));
 }
 
 /* Author filter indicator — mirrors iter 35's IssuesList shape. */
@@ -762,14 +762,14 @@ async function load(): Promise<void> {
   gap: 8px;
   margin-top: 8px;
   padding: 6px 10px;
-  border: 1px solid var(--rule-light, #d8d1c4);
-  background: var(--paper-tint, #f2efe7);
-  font-family: var(--mono, monospace);
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
 }
 
 .pulls-author-filter .prefix {
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -779,8 +779,8 @@ async function load(): Promise<void> {
   align-items: center;
   gap: 4px;
   padding: 0 5px;
-  border: 1px solid currentColor;
-  color: var(--ink, #111);
+  border: 0.5px solid currentColor;
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-author-filter .active-chip[data-author-kind="agent"]      { color: #6b3fa0; }
@@ -801,15 +801,15 @@ async function load(): Promise<void> {
   margin-left: auto;
   border: 0;
   background: transparent;
-  color: var(--ink-faint, #68645c);
-  font-family: var(--mono, monospace);
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   cursor: pointer;
   padding: 0 2px;
 }
 
 .pulls-author-filter .clear:hover {
-  color: var(--ink, #111);
+  color: var(--fg, rgba(255,255,255,0.94));
 }
 
 .pulls-author .author-glyph {
@@ -819,8 +819,8 @@ async function load(): Promise<void> {
   place-items: center;
   font-size: 10px;
   font-weight: 700;
-  border: 1px solid currentColor;
-  color: var(--ink-faint, #68645c);
+  border: 0.5px solid currentColor;
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-author[data-author-kind="agent"] .author-glyph,
@@ -842,7 +842,7 @@ async function load(): Promise<void> {
 }
 
 .pulls-author .author-badge {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -850,19 +850,19 @@ async function load(): Promise<void> {
 }
 
 .pulls-row-age {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 12px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   white-space: nowrap;
 }
 
 .pulls-empty,
 .pulls-error {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 13px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
   padding: 18px 0;
-  border-top: 1.5px solid var(--rule-light, #d8d1c4);
+  border-top: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
 
 .pulls-error {
@@ -870,15 +870,15 @@ async function load(): Promise<void> {
 }
 
 .pulls-queue-foot {
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 11px;
-  color: var(--ink-faint, #68645c);
+  color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
 .pulls-queue-foot kbd {
-  border: 1px solid currentColor;
+  border: 0.5px solid currentColor;
   padding: 0 4px;
-  font-family: var(--mono, monospace);
+  font-family: var(--font-mono, monospace);
   font-size: 10px;
 }
 </style>
