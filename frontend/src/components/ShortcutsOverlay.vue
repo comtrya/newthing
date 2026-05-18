@@ -29,7 +29,7 @@ const staticGroups: ShortcutGroup[] = [
     shortcuts: [
       { keys: ["%cmd%", "K"], description: "Open command palette" },
       { keys: ["?"], description: "Show / hide this cheat sheet" },
-      { keys: ["c"], description: "Create on the current surface (issue / epic / from Inbox)" },
+      { keys: ["c"], description: "Comment on this surface — or create new (Inbox, detail pages)" },
     ],
   },
   {

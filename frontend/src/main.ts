@@ -242,7 +242,30 @@ function bindGoChord(router: Router): void {
     if (path === "/inbox") return "/x/issues/new";
     return null;
   };
+  /**
+   * Where a comment-thread composer is mounted (IssueDetail,
+   * PullsDetail, EpicDetail) the create chord should focus its
+   * textarea instead of navigating away — composing a reply is the
+   * natural "create" verb on a detail page, and the iter 41 default
+   * of routing to `/x/issues/new` left the reviewer stranded mid-
+   * thought. Use the smoke hook the comment-thread composer
+   * already stamps on its form.
+   */
+  const focusVisibleComposer = (): boolean => {
+    if (typeof document === "undefined") return false;
+    const composer = document.querySelector<HTMLElement>(
+      '[data-smoke="comment-thread-composer"]',
+    );
+    const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) return false;
+    textarea.focus();
+    // Scroll so the composer is visible when the page is taller than
+    // the viewport (detail pages usually are).
+    textarea.scrollIntoView({ block: "center", behavior: "smooth" });
+    return true;
+  };
   const createOnSurface = skipDuringGChord(() => {
+    if (focusVisibleComposer()) return;
     const target = currentCreateTarget();
     if (target) void router.push(target);
   });
