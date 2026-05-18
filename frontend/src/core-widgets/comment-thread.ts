@@ -176,8 +176,45 @@ class ComtryaCommentThread extends HTMLElement {
         comments?: { thread?: Comment[] | null } | null;
       }>(COMMENTS_THREAD_QUERY, { target });
       const comments = data.comments?.thread ?? [];
+      // Walk parents first, then their replies — preserves the
+      // server's createdAt-ascending order while letting the
+      // reply rows render nested under their parent.
+      //
+      // `comment.parent` is a comtrya:// URI on the wire even
+      // though it's typed as `id`; normalise to the bare id so the
+      // grouping key matches each comment's `id`.
+      const parentIdOf = (parent: string | null | undefined): string | null => {
+        if (!parent) return null;
+        const m = /^comtrya:\/\/comment\/(.+)$/.exec(parent);
+        return m ? (m[1] ?? null) : parent;
+      };
+      const byParent = new Map<string, Comment[]>();
+      const topLevel: Comment[] = [];
       for (const comment of comments) {
-        appendCommentRow(list, comment, this, () => this.updateCount(status, list));
+        const pid = parentIdOf(comment.parent);
+        if (pid) {
+          const bucket = byParent.get(pid) ?? [];
+          bucket.push(comment);
+          byParent.set(pid, bucket);
+        } else {
+          topLevel.push(comment);
+        }
+      }
+      const onRowsChanged = () => this.updateCount(status, list);
+      const renderTree = (parent: Comment, container: HTMLElement): void => {
+        const row = appendCommentRow(container, parent, this, onRowsChanged);
+        for (const reply of byParent.get(parent.id) ?? []) {
+          renderTree(reply, row.replies);
+        }
+      };
+      for (const root of topLevel) renderTree(root, list);
+      // Any reply whose parent id isn't in the page (kernel allows
+      // orphans on delete) renders at the top level so the comment
+      // doesn't vanish from the thread.
+      const seen = new Set(comments.map((c) => c.id));
+      for (const [parentId, bucket] of byParent) {
+        if (seen.has(parentId)) continue;
+        for (const orphan of bucket) renderTree(orphan, list);
       }
       this.updateCount(status, list);
     } catch (err) {
@@ -186,19 +223,40 @@ class ComtryaCommentThread extends HTMLElement {
     }
   }
 
-  private async postComment(target: string, bodyMarkdown: string): Promise<Comment | null> {
+  private async postComment(
+    target: string,
+    bodyMarkdown: string,
+    parent: string | null = null,
+  ): Promise<Comment | null> {
     const client = extensionClient();
     if (!client) return null;
     try {
+      const input: { target: string; bodyMarkdown: string; parent?: string } = {
+        target,
+        bodyMarkdown,
+      };
+      if (parent) input.parent = parent;
       const data = await client.mutate<{
         comments?: { create?: Comment | null } | null;
-      }>(COMMENTS_CREATE_MUTATION, {
-        input: { target, bodyMarkdown },
-      });
+      }>(COMMENTS_CREATE_MUTATION, { input });
       return data.comments?.create ?? null;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Used by the row-level "reply" action — exposed on the host
+   * instance so `appendCommentRow` can dispatch through it. Returns
+   * the created comment so the caller can render the new row
+   * synchronously.
+   */
+  async replyToComment(
+    target: string,
+    parent: string,
+    bodyMarkdown: string,
+  ): Promise<Comment | null> {
+    return this.postComment(target, bodyMarkdown, parent);
   }
 
   /**
@@ -243,12 +301,17 @@ function emptyState(message: string): HTMLElement {
   return p;
 }
 
+interface AppendedRow {
+  /** Container for child reply rows nested under this comment. */
+  replies: HTMLElement;
+}
+
 function appendCommentRow(
   list: HTMLElement,
   comment: Comment,
   host: ComtryaCommentThread,
   onRowsChanged: () => void = () => {},
-): void {
+): AppendedRow {
   const li = document.createElement("li");
   li.className = "comment-row";
   li.dataset.commentId = comment.id;
@@ -296,6 +359,11 @@ function appendCommentRow(
 
   const actions = document.createElement("span");
   actions.className = "comment-actions";
+  const replyBtn = document.createElement("button");
+  replyBtn.type = "button";
+  replyBtn.className = "comment-action";
+  replyBtn.dataset.smoke = "comment-action-reply";
+  replyBtn.textContent = "reply";
   const editBtn = document.createElement("button");
   editBtn.type = "button";
   editBtn.className = "comment-action";
@@ -306,7 +374,7 @@ function appendCommentRow(
   deleteBtn.className = "comment-action";
   deleteBtn.dataset.smoke = "comment-action-delete";
   deleteBtn.textContent = "delete";
-  actions.append(editBtn, deleteBtn);
+  actions.append(replyBtn, editBtn, deleteBtn);
   meta.append(actions);
   li.append(meta);
 
@@ -342,7 +410,103 @@ function appendCommentRow(
     }
   });
 
+  // Replies render in their own UL so they indent under the parent
+  // and don't get caught by the top-level `:scope > li` count query.
+  const repliesList = document.createElement("ul");
+  repliesList.className = "comment-thread-replies";
+  li.append(repliesList);
+
+  const target =
+    comment.target ?? host.getAttribute("target") ?? host.target ?? "";
+  replyBtn.addEventListener("click", () => {
+    openReplyComposer(li, repliesList, async (body) => {
+      // Kernel expects `parent` as a comtrya:// URI even though the
+      // WIT calls it an `id`; the GraphQL handler validates the
+      // shape. Wrap before posting.
+      const parentRef = `comtrya://comment/${comment.id}`;
+      const created = await host.replyToComment(target, parentRef, body);
+      if (!created) return false;
+      appendCommentRow(repliesList, created, host, onRowsChanged);
+      onRowsChanged();
+      return true;
+    });
+  });
+
   list.append(li);
+  return { replies: repliesList };
+}
+
+/**
+ * Inline reply composer for a single comment. Mounts a textarea +
+ * Reply / Cancel pair below the parent comment's body (above any
+ * nested replies). Same Cmd-Enter chord as the composer / edit
+ * mode.
+ */
+function openReplyComposer(
+  li: HTMLElement,
+  replies: HTMLElement,
+  submit: (body: string) => Promise<boolean>,
+): void {
+  if (li.dataset.replying === "true") return;
+  li.dataset.replying = "true";
+  const form = document.createElement("form");
+  form.className = "comment-reply-composer";
+  form.setAttribute("data-smoke", "comment-reply-composer");
+  const textarea = document.createElement("textarea");
+  textarea.className = "comment-edit-textarea";
+  textarea.placeholder = "Reply… (⌘↵ to post)";
+  textarea.rows = 3;
+  textarea.required = true;
+
+  const controls = document.createElement("div");
+  controls.className = "comment-edit-controls";
+  const sendBtn = document.createElement("button");
+  sendBtn.type = "submit";
+  sendBtn.textContent = "Reply";
+  sendBtn.className = "comment-edit-save";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.className = "comment-edit-cancel";
+  controls.append(sendBtn, cancelBtn);
+  form.append(textarea, controls);
+  // Insert ABOVE the replies list so a freshly posted reply lands
+  // beneath the composer in document order.
+  li.insertBefore(form, replies);
+  textarea.focus();
+
+  const close = (): void => {
+    form.remove();
+    delete li.dataset.replying;
+  };
+
+  cancelBtn.addEventListener("click", close);
+
+  const trySubmit = async (): Promise<void> => {
+    const body = textarea.value.trim();
+    if (!body) return;
+    sendBtn.disabled = true;
+    const ok = await submit(body);
+    sendBtn.disabled = false;
+    if (ok) close();
+  };
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void trySubmit();
+  });
+
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+    if (event.key !== "Enter") return;
+    if (!event.metaKey && !event.ctrlKey) return;
+    event.preventDefault();
+    void trySubmit();
+  });
 }
 
 function enterEditMode(
