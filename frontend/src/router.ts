@@ -9,6 +9,7 @@ import InstanceHealth from "./routes/InstanceHealth.vue";
 import NewRepository from "./routes/NewRepository.vue";
 import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
+import PullRequestStackedReview from "./routes/PullRequestStackedReview.vue";
 import Releases from "./routes/Releases.vue";
 import RepoCode from "./routes/RepoCode.vue";
 import RepoHome from "./routes/RepoHome.vue";
@@ -100,6 +101,18 @@ export const shellRoutes: RouteRecordRaw[] = [
     name: "repo-code",
     component: RepoCode,
     props: repoRouteProps,
+  },
+  {
+    // Must appear BEFORE the catch-all repoPulls route so that
+    // `/pulls/:id/review` is matched here instead of falling through
+    // to the extension-owned `/pulls/...` proxy.
+    path: shellRoutePaths.repoPullReview,
+    name: "repo-pull-review",
+    component: PullRequestStackedReview,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      id: paramValue(route.params.id),
+    }),
   },
   {
     path: shellRoutePaths.repoConfig,
