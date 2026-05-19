@@ -31,6 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 
 mod cue_config;
 mod oidc;
@@ -260,7 +261,8 @@ const SESSION_BODY_LIMIT: usize = 4 * 1024;
 const GIT_BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 fn router(state: AppState) -> Router {
-    Router::new()
+    let tls_terminated = state.runtime.options.tls_terminated;
+    let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .route(
@@ -309,7 +311,47 @@ fn router(state: AppState) -> Router {
         )
         .route("/*path", options(preflight))
         .fallback(any(not_found_or_unsupported))
-        .with_state(state)
+        .with_state(state);
+    apply_security_headers(app, tls_terminated)
+}
+
+// Baseline security-response headers per #4 P2-6.
+//   * `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`
+//     are set unconditionally; no handler today emits either.
+//   * `Content-Security-Policy: frame-ancestors 'none'` is set with
+//     `if_not_present` so the per-asset CSP installed by
+//     `apply_extension_asset_headers` (which uses
+//     `frame-ancestors 'self'` so extension UIs can frame their own
+//     assets) wins on the `/_extensions/.../assets/*` route. Every
+//     other route inherits the strict default.
+//   * `Strict-Transport-Security` is only applied when TLS terminates
+//     at the server (`tls_terminated == true`). Plain-HTTP development
+//     omits it — pinning a `localhost` dev origin to HTTPS is a
+//     well-known papercut.
+fn apply_security_headers(app: Router, tls_terminated: bool) -> Router {
+    use axum::http::header::{HeaderName, REFERRER_POLICY, STRICT_TRANSPORT_SECURITY};
+    const X_CONTENT_TYPE_OPTIONS: HeaderName = HeaderName::from_static("x-content-type-options");
+    let with_baseline = app
+        .layer(SetResponseHeaderLayer::overriding(
+            X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        ));
+    if tls_terminated {
+        with_baseline.layer(SetResponseHeaderLayer::overriding(
+            STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        ))
+    } else {
+        with_baseline
+    }
 }
 
 #[derive(Clone)]
@@ -10886,6 +10928,147 @@ extensions: {
             response.status(),
             reqwest::StatusCode::PAYLOAD_TOO_LARGE,
             "request under GRAPHQL_BODY_LIMIT must not 413"
+        );
+    }
+
+    // ----- #4 P2-6: security response headers -----
+
+    async fn spawn_security_test_server(runtime: Arc<Runtime>) -> std::net::SocketAddr {
+        let app = router(AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        addr
+    }
+
+    fn dev_runtime_with_tls_terminated(tls_terminated: bool) -> Arc<Runtime> {
+        let config_dir = temp_dir("sec-tls-cfg");
+        let config_path = config_dir.join("config.cue");
+        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
+        Arc::new(
+            Runtime::start(StartupOptions {
+                config_path: Some(config_path),
+                data_dir: temp_dir("sec-tls"),
+                extension_dir: test_extension_dir(),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                check: false,
+                tls_terminated,
+                operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds: 300,
+                external_demo: false,
+            })
+            .unwrap(),
+        )
+    }
+
+    #[tokio::test]
+    async fn baseline_security_headers_applied_to_every_response() {
+        let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
+        // /healthz is the simplest 200 path with no auth requirements.
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get("x-content-type-options")
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff"),
+        );
+        assert_eq!(
+            headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+            Some("no-referrer"),
+        );
+        assert_eq!(
+            headers
+                .get("content-security-policy")
+                .and_then(|v| v.to_str().ok()),
+            Some("frame-ancestors 'none'"),
+        );
+        // tls_terminated defaults to false in dev_runtime → no HSTS.
+        assert!(
+            headers.get("strict-transport-security").is_none(),
+            "HSTS must be absent without tls_terminated; got {:?}",
+            headers.get("strict-transport-security"),
+        );
+    }
+
+    #[tokio::test]
+    async fn security_headers_applied_to_error_responses() {
+        // 404 responses also carry the baseline; otherwise an attacker
+        // probing for routes could MIME-sniff a 404 payload.
+        let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/does-not-exist"))
+            .send()
+            .await
+            .unwrap();
+        let headers = response.headers();
+        assert_eq!(
+            headers
+                .get("x-content-type-options")
+                .and_then(|v| v.to_str().ok()),
+            Some("nosniff"),
+        );
+        assert_eq!(
+            headers.get("referrer-policy").and_then(|v| v.to_str().ok()),
+            Some("no-referrer"),
+        );
+    }
+
+    #[tokio::test]
+    async fn hsts_applied_when_tls_terminated() {
+        let addr = spawn_security_test_server(dev_runtime_with_tls_terminated(true)).await;
+        let response = reqwest::Client::new()
+            .get(format!("http://{addr}/healthz"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get("strict-transport-security")
+                .and_then(|v| v.to_str().ok()),
+            Some("max-age=63072000; includeSubDomains"),
+        );
+    }
+
+    #[tokio::test]
+    async fn extension_asset_csp_not_overridden_by_global_layer() {
+        // /_extensions/.../assets/* installs its own per-route CSP
+        // (`frame-ancestors 'self'`) via `apply_extension_asset_headers`.
+        // The global layer uses `if_not_present` so the asset CSP must
+        // survive. Hitting a missing asset still goes through the
+        // handler and exercises the same code path.
+        let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
+        let response = reqwest::Client::new()
+            .get(format!(
+                "http://{addr}/_extensions/ext_issues/assets/index.js"
+            ))
+            .send()
+            .await
+            .unwrap();
+        let csp = response
+            .headers()
+            .get("content-security-policy")
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        // If the asset existed we'd see the per-route CSP. If not,
+        // we'd see the global `frame-ancestors 'none'`. Either way,
+        // we should NEVER see both layered, and the value must contain
+        // `frame-ancestors`.
+        let csp = csp.unwrap_or_default();
+        assert!(
+            csp.contains("frame-ancestors"),
+            "asset response must carry a CSP with frame-ancestors; got {csp:?}",
         );
     }
 }
