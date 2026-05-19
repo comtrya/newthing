@@ -162,7 +162,13 @@ fn router(state: AppState) -> Router {
             "/auth/oidc/:provider/callback",
             get(oidc_callback_not_implemented),
         )
-        .route("/auth/oidc/*path", any(unsupported_route))
+        // No `/auth/oidc/*path` catchall — axum 0.7's matchit
+        // rejects a wildcard that overlaps the specific
+        // `/:provider/{login,callback}` routes above (router
+        // construction panics at server startup). Unknown OIDC
+        // sub-paths fall through to `.fallback(...)` below, which
+        // is `not_found_or_unsupported`. Discovered while smoke-
+        // testing the new Dockerfile (#12).
         .route("/_extensions/session", post(extension_session))
         .route(
             "/_extensions/:extension/manifest.json",
@@ -1521,8 +1527,8 @@ const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
     // `/auth/oidc/:provider/login`. The callback at
     // `/auth/oidc/:provider/callback` returns 501 directly from its
     // own handler, so no `UNSUPPORTED_SURFACES` entry is needed for
-    // OIDC. The catch-all `/auth/oidc/*path` fallback handler still
-    // exists but no longer serves the login/callback paths.
+    // OIDC. Unknown OIDC sub-paths fall through to the global
+    // `.fallback(not_found_or_unsupported)`.
     UnsupportedSurface {
         id: "git_receive_pack",
         path_prefix: "/git/",
@@ -1542,25 +1548,6 @@ async fn readyz(State(state): State<AppState>, headers: HeaderMap) -> Response {
         Ok(cors) => json_response(StatusCode::OK, json!(state.runtime.readiness()), cors),
         Err(response) => *response,
     }
-}
-
-async fn unsupported_route(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    uri: Uri,
-) -> Response {
-    let cors = match state.runtime.check_boundary(&headers, uri.path()) {
-        Ok(cors) => cors,
-        Err(response) => return *response,
-    };
-    let Some(surface) = unsupported_surface_for_path(uri.path()) else {
-        return error_response(
-            StatusCode::NOT_FOUND,
-            ErrorCode::NotFound.as_str(),
-            "route was not found",
-        );
-    };
-    unsupported_response(surface, cors)
 }
 
 async fn not_found_or_unsupported(

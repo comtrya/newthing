@@ -1,0 +1,22 @@
+target/
+.git/
+.github/
+.claude/
+.worktrees/
+node_modules/
+# Extension UI node_modules would otherwise enter the builder
+# context and (because the runtime stage COPYs all of
+# extensions/first-party) silently inflate the runtime image with
+# dev-only artifacts.
+extensions/**/node_modules/
+# `crates/server/build.rs`'s `ensure_deps_platform` creates these
+# as ABSOLUTE-path symlinks pointing into the host worktree. They
+# are broken inside the build container; the build script
+# recreates them fresh (pointing at the container's correct
+# `/build/extensions/wit/comtrya/platform`) if they're absent at
+# COPY time. Excluding them here forces that fresh creation.
+extensions/first-party/*/wit/deps/
+frontend/
+.envrc
+.envrc.example
+*.log
