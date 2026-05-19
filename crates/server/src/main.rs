@@ -30,6 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
+use tower_http::limit::RequestBodyLimitLayer;
 
 mod cue_config;
 mod oidc;
@@ -247,15 +248,37 @@ async fn shutdown_signal(mut sigterm: tokio::signal::unix::Signal) {
     }
 }
 
+// Per-route request body size caps. Applied via tower-http's
+// `RequestBodyLimitLayer`, which rejects with HTTP 413 at the network
+// layer — before any handler runs and regardless of whether the
+// handler extracts a body. The limits below match each route's
+// realistic ceiling, narrowing axum's implicit 2 MiB default to the
+// smallest cap that still admits legitimate traffic (#4 P1-6).
+const GRAPHQL_BODY_LIMIT: usize = 256 * 1024;
+const OPS_BODY_LIMIT: usize = 1024 * 1024;
+const SESSION_BODY_LIMIT: usize = 4 * 1024;
+const GIT_BODY_LIMIT: usize = 16 * 1024 * 1024;
+
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .route("/graphql", get(graphql_get).post(graphql_post))
+        .route(
+            "/graphql",
+            get(graphql_get)
+                .post(graphql_post)
+                .layer(RequestBodyLimitLayer::new(GRAPHQL_BODY_LIMIT)),
+        )
         .route("/graphql/stream", get(graphql_stream))
         .route("/events", get(events))
-        .route("/events/session", post(events_session))
-        .route("/auth/token-exchange", post(token_exchange))
+        .route(
+            "/events/session",
+            post(events_session).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route(
+            "/auth/token-exchange",
+            post(token_exchange).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
         .route("/auth/oidc/:provider/login", get(oidc_login))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
@@ -265,14 +288,25 @@ fn router(state: AppState) -> Router {
         // sub-paths fall through to `.fallback(...)` below, which
         // is `not_found_or_unsupported`. Discovered while smoke-
         // testing the new Dockerfile (#12).
-        .route("/_extensions/session", post(extension_session))
+        .route(
+            "/_extensions/session",
+            post(extension_session).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
         .route(
             "/_extensions/:extension/manifest.json",
             get(extension_manifest),
         )
         .route("/_extensions/:extension/assets/*path", get(extension_asset))
-        .route("/git/*path", get(git_endpoint).post(git_endpoint))
-        .route("/api/ops/:extension/:interface/:op", post(api_op))
+        .route(
+            "/git/*path",
+            get(git_endpoint)
+                .post(git_endpoint)
+                .layer(RequestBodyLimitLayer::new(GIT_BODY_LIMIT)),
+        )
+        .route(
+            "/api/ops/:extension/:interface/:op",
+            post(api_op).layer(RequestBodyLimitLayer::new(OPS_BODY_LIMIT)),
+        )
         .route("/*path", options(preflight))
         .fallback(any(not_found_or_unsupported))
         .with_state(state)
@@ -10726,5 +10760,132 @@ extensions: {
             .consume_session(&token)
             .expect("freshly issued session must consume cleanly");
         assert!(matches!(principal, PrincipalStatus::OperatorCredential));
+    }
+
+    // ----- #4 P1-6: per-route body size limits -----
+
+    async fn spawn_test_server(runtime: Arc<Runtime>) -> std::net::SocketAddr {
+        let app = router(AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn graphql_post_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = "a".repeat(GRAPHQL_BODY_LIMIT + 1);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/graphql"))
+            .header("content-type", "application/json")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn api_op_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = "a".repeat(OPS_BODY_LIMIT + 1);
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://{addr}/api/ops/ext_issues/issues/list-issues"
+            ))
+            .header("content-type", "application/json")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn token_exchange_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/auth/token-exchange"))
+            .header("content-type", "application/json")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn extension_session_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/_extensions/session"))
+            .header("content-type", "application/json")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn events_session_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/events/session"))
+            .header("content-type", "application/json")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn git_endpoint_rejects_payload_exceeding_limit() {
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let oversized = vec![0u8; GIT_BODY_LIMIT + 1];
+        let response = reqwest::Client::new()
+            .post(format!(
+                "http://{addr}/git/comtrya/comtrya.git/git-upload-pack"
+            ))
+            .header("content-type", "application/x-git-upload-pack-request")
+            .body(oversized)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn graphql_post_accepts_payload_under_limit() {
+        // Regression guard: the limit must reject only when exceeded.
+        // A request just under the cap should pass extraction (and reach
+        // the GraphQL parser, which will produce a 4xx/5xx — not 413).
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let body = format!(
+            "{{\"query\": \"query Q {{ {} }}\"}}",
+            "a".repeat(GRAPHQL_BODY_LIMIT - 64)
+        );
+        let response = reqwest::Client::new()
+            .post(format!("http://{addr}/graphql"))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_ne!(
+            response.status(),
+            reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+            "request under GRAPHQL_BODY_LIMIT must not 413"
+        );
     }
 }
