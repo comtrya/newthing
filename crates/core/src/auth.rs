@@ -5,6 +5,17 @@ use crate::events::{CoreEventType, EventActor, EventEnvelope, EventOutbox};
 use crate::ids::{IdPrefix, OpaqueId};
 use std::collections::BTreeMap;
 
+/// Bearer token for a `ScopedCredential` with 128 bits of entropy from
+/// the OS RNG. Format: `fp_{32-hex-chars}`. The `fp` prefix matches
+/// the server's `issue_credential` so on-the-wire shapes line up
+/// across the two issuance paths.
+fn secure_access_token() -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("os rng unavailable");
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("fp_{hex}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenAction {
     GitRead,
@@ -198,7 +209,7 @@ impl AuthService {
             .map(|action| action.as_scope().to_string())
             .collect::<Vec<_>>();
         let credential = ScopedCredential {
-            access_token: format!("fp_{}_{}", now_ms, scope.join("_")),
+            access_token: secure_access_token(),
             token_type: "Bearer".to_string(),
             expires_at_ms: now_ms + 300_000,
             scope,

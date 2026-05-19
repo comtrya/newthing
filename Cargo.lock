@@ -339,6 +339,7 @@ name = "comtrya-core"
 version = "0.1.0"
 dependencies = [
  "cuengine",
+ "getrandom 0.3.4",
  "tempfile",
 ]
 
@@ -389,6 +390,7 @@ dependencies = [
  "comtrya-git-http",
  "comtrya-wit-codegen",
  "cuengine",
+ "getrandom 0.3.4",
  "jsonschema",
  "openidconnect",
  "reqwest",

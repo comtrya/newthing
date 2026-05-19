@@ -1400,7 +1400,7 @@ impl Runtime {
     }
 
     fn issue_session(&self, principal: PrincipalStatus) -> String {
-        let token = self.next_token("sess");
+        let token = self.next_secure_token("sess");
         self.sessions
             .lock()
             .expect("session lock not poisoned")
@@ -1412,7 +1412,10 @@ impl Runtime {
                     used: false,
                 },
             );
-        let _ = self.append_audit("dev.comtrya.session.issued", json!({"token": token}));
+        let _ = self.append_audit(
+            "dev.comtrya.session.issued",
+            json!({"token_sha256_prefix": token_audit_id(&token)}),
+        );
         token
     }
 
@@ -1442,8 +1445,8 @@ impl Runtime {
         actions: Vec<String>,
         principal: PrincipalStatus,
     ) -> String {
-        let token = self.next_token("fp");
-        let principal_uri = format!("comtrya://credential/{}", self.next_token("prn"));
+        let token = self.next_secure_token("fp");
+        let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
         self.credentials
             .lock()
             .expect("credential lock not poisoned")
@@ -1463,9 +1466,23 @@ impl Runtime {
         token
     }
 
-    fn next_token(&self, prefix: &str) -> String {
+    /// Monotonic, sortable identifier for non-secret use (event IDs,
+    /// principal URI fragments). Format: `{prefix}_{unix_seconds}_{counter}`.
+    /// **Never** use for anything that must be unguessable — see
+    /// [`next_secure_token`].
+    fn next_id(&self, prefix: &str) -> String {
         let counter = self.token_counter.fetch_add(1, Ordering::Relaxed);
         format!("{prefix}_{}_{}", now_seconds(), counter)
+    }
+
+    /// Bearer token with 128 bits of entropy sampled from the OS RNG.
+    /// Format: `{prefix}_{32-hex-chars}`. The prefix is for human
+    /// readability; the unguessable randomness is the 16-byte tail.
+    fn next_secure_token(&self, prefix: &str) -> String {
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes).expect("os rng unavailable");
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        format!("{prefix}_{hex}")
     }
 
     fn append_event(&self, event_type: &str, data: Value) -> std::io::Result<()> {
@@ -1477,7 +1494,7 @@ impl Runtime {
             &self.events_path,
             json!({
                 "specversion": "1.0",
-                "id": self.next_token("evt"),
+                "id": self.next_id("evt"),
                 "type": event_type,
                 "source": "comtrya://instance/local",
                 "time": now_seconds(),
@@ -1546,6 +1563,26 @@ impl Runtime {
         entries.extend(self.read_events());
         entries
     }
+
+    #[cfg(test)]
+    fn read_audit(&self) -> Vec<Value> {
+        let mut text = String::new();
+        if let Ok(mut file) = OpenOptions::new().read(true).open(&self.audit_path) {
+            let _ = file.read_to_string(&mut text);
+        }
+        text.lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect()
+    }
+}
+
+/// Stable, non-reversible audit ID for a bearer token. 16 hex chars =
+/// 64 bits of preimage resistance (32-bit birthday bound). Acceptable
+/// for a non-secret audit-log cross-reference handle; full 256-bit
+/// SHA would just bloat lines.
+fn token_audit_id(token: &str) -> String {
+    let digest = sha2::Sha256::digest(token.as_bytes());
+    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
 fn filter_extension_installations(
@@ -10636,5 +10673,58 @@ extensions: {
             result.is_err(),
             "rotate of empty path must err, got {result:?}"
         );
+    }
+
+    // -------- #4 P0-3: secure bearer tokens + audit-log redaction ----------
+
+    #[test]
+    fn next_secure_token_returns_unique_tokens() {
+        use std::collections::HashSet;
+
+        let runtime = dev_runtime_no_extensions();
+        let mut tokens = HashSet::new();
+        for _ in 0..1000 {
+            tokens.insert(runtime.next_secure_token("sess"));
+        }
+        assert_eq!(
+            tokens.len(),
+            1000,
+            "1000 OS-RNG tokens must all be unique; collision means the RNG is stuck"
+        );
+        // Format sanity: prefix + underscore + 32 hex chars.
+        let sample: &String = tokens.iter().next().unwrap();
+        assert!(sample.starts_with("sess_"));
+        assert_eq!(sample.len(), "sess_".len() + 32);
+        assert!(sample[5..].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn issue_session_does_not_log_raw_token_to_audit() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let audit_lines = runtime.read_audit();
+        assert!(
+            !audit_lines.is_empty(),
+            "session issuance must record an audit line"
+        );
+        let raw = serde_json::to_string(&audit_lines).unwrap();
+        assert!(
+            !raw.contains(&token),
+            "raw bearer token must not appear in audit log; got: {raw}"
+        );
+        assert!(
+            raw.contains("token_sha256_prefix"),
+            "audit log must include the redacted token reference; got: {raw}"
+        );
+    }
+
+    #[test]
+    fn consume_session_works_with_secure_tokens() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let principal = runtime
+            .consume_session(&token)
+            .expect("freshly issued session must consume cleanly");
+        assert!(matches!(principal, PrincipalStatus::OperatorCredential));
     }
 }
