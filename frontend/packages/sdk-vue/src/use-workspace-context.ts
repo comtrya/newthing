@@ -1,7 +1,7 @@
 /**
  * Vue composable wrapping `@comtrya/sdk-core`'s workspace store.
  *
- * Replaces the per-component hardcoded `ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3`
+ * Replaces the per-component hardcoded dogfood workspace ULID
  * constant. The shell pushes the discovered workspace ID into the store
  * at boot (`App.vue::loadShellSummary`); this composable exposes that
  * value as Vue refs and tears down the subscription on unmount.

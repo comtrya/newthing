@@ -9,7 +9,7 @@ import {
 import { assignEpicProject, createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   epicRef,
   newEpicHref as buildNewEpicHref,
   type ComtryaGraphQLClient,
@@ -29,7 +29,7 @@ const props = withDefaults(defineProps<{
   /** Scope listing to this Project; new-epic link stamps it on create. */
   projectName?: string;
 }>(), {
-  workspaceId: DEFAULT_WORKSPACE_ID,
+  workspaceId: defaultWorkspaceId(),
   state: null,
   title: "Epics",
   showNewLink: true,

@@ -22,13 +22,12 @@ const props = defineProps<{
   viewerRef?: string | null;
 }>();
 
-const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 const pulls = ref<PullRequest[]>([]);
 const loadState = ref<LoadState>("idle");
 
 const workspaceId = computed(
-  () => props.workspaceId ?? props.host?.workspaceId ?? DEFAULT_WORKSPACE_ID,
+  () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
 );
 const viewerRef = computed(() => props.viewerRef ?? props.host?.viewerRef ?? null);
 

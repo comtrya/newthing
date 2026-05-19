@@ -18,7 +18,7 @@ import {
 import CustomElementHost from "./CustomElementHost.vue";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   issueRef,
   stateTone,
   type ComtryaGraphQLClient,
@@ -57,7 +57,7 @@ const graphClient = computed(() => props.client ?? props.comtryaClient);
 const workspaceId = computed(
   () => props.workspaceId
     ?? props.routeParams?.params?.workspaceId
-    ?? DEFAULT_WORKSPACE_ID,
+    ?? defaultWorkspaceId(),
 );
 const issue = computed(() => loadedIssue.value ?? props.issue ?? null);
 const tone = computed(() => stateTone(issue.value?.state));

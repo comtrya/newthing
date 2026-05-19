@@ -17,10 +17,13 @@
  * event is fine.
  */
 
-import { registerCommand, subscribeLiveEvents } from "@comtrya/sdk-core";
+import {
+  registerCommand,
+  subscribeLiveEvents,
+  whenWorkspaceReady,
+} from "@comtrya/sdk-core";
 import { closeIssue, listIssues, reopenIssue } from "./api";
 import {
-  DEFAULT_WORKSPACE_ID,
   issueHref,
   type ComtryaGraphQLClient,
   type Issue,
@@ -127,26 +130,38 @@ async function syncIssueCommands(
  * them.
  */
 export function bindIssueCommands(client: ComtryaGraphQLClient): () => void {
-  const workspaceId = DEFAULT_WORKSPACE_ID;
-  void syncIssueCommands(client, workspaceId);
+  // Defer binding until the shell publishes a workspace id
+  // (`App.vue::loadShellSummary`). Replaces the previous hardcoded
+  // ULID; production workspaces don't change mid-session so a single
+  // resolution at bind time is enough.
+  const unsubscribers: Array<() => void> = [];
+  let cancelled = false;
 
-  const unsubscribers = [
-    "dev.comtrya.issues.opened",
-    "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened",
-  ].map((type) =>
-    subscribeLiveEvents({
-      type,
-      onEvent: () => {
-        void syncIssueCommands(client, workspaceId);
-      },
-      onError: () => {
-        // Stream-level errors are best-effort; we'll re-sync on next event.
-      },
-    }),
-  );
+  void whenWorkspaceReady().then((workspaceId) => {
+    if (cancelled) return;
+    void syncIssueCommands(client, workspaceId);
+
+    for (const type of [
+      "dev.comtrya.issues.opened",
+      "dev.comtrya.issues.closed",
+      "dev.comtrya.issues.reopened",
+    ]) {
+      unsubscribers.push(
+        subscribeLiveEvents({
+          type,
+          onEvent: () => {
+            void syncIssueCommands(client, workspaceId);
+          },
+          onError: () => {
+            // Stream-level errors are best-effort; we'll re-sync on next event.
+          },
+        }),
+      );
+    }
+  });
 
   return () => {
+    cancelled = true;
     for (const off of unsubscribers) off();
     for (const entry of active.values()) entry.unregister();
     active.clear();

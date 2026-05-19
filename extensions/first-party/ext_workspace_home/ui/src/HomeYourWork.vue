@@ -4,7 +4,6 @@ import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import { loadYourWork } from "./api";
 import type { ComtryaGraphQLClient, LoadState, WorkItem } from "./types";
 
-const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
