@@ -1,3 +1,9 @@
+// comtrya-server uses `tokio::signal::unix` for SIGTERM handling and
+// transitively depends on cuengine's cgo bridge — neither is supported
+// on Windows. Fail fast rather than silently assume a Unix dev host.
+#[cfg(not(unix))]
+compile_error!("comtrya-server requires a Unix target (uses tokio::signal::unix and cuengine cgo)");
+
 use axum::body::{Body, Bytes};
 use axum::extract::{Path as AxumPath, Query, RawQuery, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, ETAG};
@@ -22,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
 
 mod cue_config;
@@ -131,11 +137,28 @@ fn init_tracing() {
     result.expect("install tracing subscriber");
 }
 
+/// Upper bound on how long the server waits for in-flight requests to
+/// drain after SIGTERM/SIGINT before tearing down the listener. Matches
+/// Kubernetes' default `terminationGracePeriodSeconds=30` so the
+/// orchestrator's SIGKILL doesn't pre-empt our own drain.
+const SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[tokio::main]
 async fn main() {
     init_tracing();
 
     let options = StartupOptions::from_env_and_args(std::env::args().skip(1));
+
+    // Install the SIGTERM listener BEFORE the long synchronous
+    // Runtime::start (Wasmtime compile + extension load). The kernel-
+    // level sigaction is registered here; signals arriving while
+    // Runtime::start is still running buffer in the signal self-pipe
+    // and are dequeued on the first poll of shutdown_signal().
+    //
+    // Requires the tokio runtime to exist (provided by #[tokio::main]).
+    let sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .expect("install SIGTERM handler");
+
     let runtime = match Runtime::start(options) {
         Ok(runtime) => Arc::new(runtime),
         Err(error) => {
@@ -158,6 +181,11 @@ async fn main() {
         return;
     }
 
+    // Clone the JSONL paths off Runtime before the Arc moves into AppState
+    // so the post-shutdown fsync can reach them.
+    let events_path = runtime.events_path.clone();
+    let audit_path = runtime.audit_path.clone();
+
     let listen = runtime.options.listen;
     let git_state = PureRustGitState::from_runtime(&runtime);
     let app = router(AppState { runtime, git_state });
@@ -171,7 +199,52 @@ async fn main() {
         address = %listener.local_addr().expect("listener has local addr"),
         "server listening"
     );
-    axum::serve(listener, app).await.expect("server failed");
+
+    // Bounded drain: once shutdown_signal resolves, axum stops accepting
+    // and lets in-flight handlers finish. We wrap the whole serve future
+    // in tokio::time::timeout so a stuck/slow client cannot block exit
+    // indefinitely. 30s matches the k8s default
+    // `terminationGracePeriodSeconds` — long enough for normal HTTP
+    // handlers, short enough that SIGKILL won't usually arrive first.
+    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(sigterm));
+    match tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, serve).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            eprintln!("graceful shutdown: serve error: {error}");
+        }
+        Err(_elapsed) => {
+            eprintln!(
+                "graceful shutdown: drain exceeded {}s; aborting in-flight",
+                SHUTDOWN_DRAIN_TIMEOUT.as_secs()
+            );
+        }
+    }
+
+    eprintln!("graceful shutdown: draining complete; flushing logs");
+    if let Err(error) = fsync_jsonl_path(&events_path) {
+        eprintln!("graceful shutdown: events.jsonl fsync failed: {error}");
+    }
+    if let Err(error) = fsync_jsonl_path(&audit_path) {
+        eprintln!("graceful shutdown: audit.jsonl fsync failed: {error}");
+    }
+}
+
+/// Resolves on the first of SIGINT or SIGTERM. axum's
+/// `with_graceful_shutdown` requires `Future<Output = ()>`, so both
+/// `select!` arms discard their values and the function falls through
+/// to the unit return.
+async fn shutdown_signal(mut sigterm: tokio::signal::unix::Signal) {
+    tokio::select! {
+        ctrlc = tokio::signal::ctrl_c() => {
+            if let Err(error) = ctrlc {
+                eprintln!("graceful shutdown: ctrl_c handler failed: {error}");
+            }
+            eprintln!("graceful shutdown: SIGINT received");
+        }
+        _ = sigterm.recv() => {
+            eprintln!("graceful shutdown: SIGTERM received");
+        }
+    }
 }
 
 fn router(state: AppState) -> Router {
@@ -6471,6 +6544,19 @@ fn append_jsonl(path: &Path, value: Value) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Flush dirty pages for `path` to durable storage.
+///
+/// `fsync(2)` takes a file descriptor, but the Linux page cache is
+/// keyed by inode — fsyncing any open fd flushes dirty pages left by
+/// previously-closed fds to the same path. That's why this helper can
+/// safely re-open in read-only mode and still durably persist the
+/// writes that `append_jsonl` left in the page cache from its own,
+/// already-closed fds.
+fn fsync_jsonl_path(path: &Path) -> std::io::Result<()> {
+    let file = std::fs::File::open(path)?;
+    file.sync_all()
+}
+
 fn now_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -9795,5 +9881,43 @@ extensions: {
             status.is_success() || status.is_client_error(),
             "expected 2xx or 4xx for malformed JSON, got {status}; panic-free is the real assertion",
         );
+    }
+
+    // P1-3 of #9 — graceful shutdown.
+
+    #[test]
+    fn fsync_round_trips_a_well_formed_log() {
+        let dir = temp_dir("fsync-roundtrip");
+        let path = dir.join("events.jsonl");
+        append_jsonl(&path, serde_json::json!({"event": "one"})).unwrap();
+        append_jsonl(&path, serde_json::json!({"event": "two"})).unwrap();
+
+        fsync_jsonl_path(&path).expect("fsync on well-formed log");
+
+        let body = fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = body.lines().collect();
+        assert_eq!(lines.len(), 2);
+        for line in lines {
+            let parsed: Value = serde_json::from_str(line).expect("each line is JSON");
+            assert!(parsed.get("event").is_some());
+        }
+    }
+
+    #[test]
+    fn fsync_safe_on_empty_log() {
+        let dir = temp_dir("fsync-empty");
+        let path = dir.join("audit.jsonl");
+        // touch is the post-startup state — file exists, zero bytes.
+        touch(&path).unwrap();
+        fsync_jsonl_path(&path).expect("fsync on empty file");
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn fsync_errors_on_missing_file() {
+        let dir = temp_dir("fsync-missing");
+        let path = dir.join("does-not-exist.jsonl");
+        let err = fsync_jsonl_path(&path).expect_err("missing path must Err, not panic");
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 }
