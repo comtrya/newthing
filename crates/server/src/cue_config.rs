@@ -37,8 +37,10 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::sync::{Condvar, Mutex};
@@ -420,6 +422,89 @@ fn implicit_default_project() -> Value {
     })
 }
 
+/// Repo-wide per-commit CUE evaluation cache.
+///
+/// `evaluate_repo_config` is expensive (materialise tree → write schemas
+/// → run cuengine → tear down) and was being invoked on every read of a
+/// repository through `/graphql` and `/api/ops/*`. The result is a pure
+/// function of `(git_dir, commit_oid, extension_schemas)`: the commit is
+/// immutable and the kernel + extension schemas only change at
+/// process-restart boundaries, so a `(git_dir, commit_oid) -> Arc<Value>`
+/// cache eliminates every duplicate evaluation.
+///
+/// The cache is unbounded by design. Each entry is the evaluated JSON
+/// envelope (a few KB) and lives only as long as the commit is reachable
+/// by some ref the workload reads — typical repos churn through tens to
+/// hundreds of commits across their lifetime, so memory is bounded by the
+/// commit graph, not by request rate. If a workload demands stricter
+/// bounds, swap the inner map for an LRU; the public surface doesn't
+/// change.
+#[derive(Debug, Default)]
+pub struct CueConfigCache {
+    inner: Mutex<HashMap<(PathBuf, String), Arc<Value>>>,
+}
+
+impl CueConfigCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Resolve `ref_name` to a commit OID, then either return the cached
+    /// evaluation for `(git_dir, oid)` or run a fresh evaluation, cache
+    /// it, and return it. If OID resolution fails (missing ref, corrupt
+    /// repo, etc.) the call falls back to `evaluate_repo_config` directly
+    /// — error envelopes never reach the cache.
+    pub fn evaluate(
+        &self,
+        git_dir: &Path,
+        ref_name: &str,
+        extension_schemas: &[ExtensionSchema],
+    ) -> Arc<Value> {
+        let Some(oid) = resolve_ref_oid(git_dir, ref_name) else {
+            // Unresolvable ref: don't cache the error envelope.
+            return Arc::new(evaluate_repo_config(git_dir, ref_name, extension_schemas));
+        };
+        let key = (git_dir.to_path_buf(), oid);
+        if let Some(cached) = self.inner.lock().expect("poisoned").get(&key) {
+            return cached.clone();
+        }
+        // Evaluate OUTSIDE the lock — cuengine spawns subprocesses and
+        // can take hundreds of milliseconds. Two concurrent misses on
+        // the same key will both evaluate, but the second insert is a
+        // no-op for correctness (results are equal). Acceptable trade
+        // against holding a global mutex across CUE evaluation.
+        let value = Arc::new(evaluate_repo_config(git_dir, ref_name, extension_schemas));
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .insert(key, value.clone());
+        value
+    }
+}
+
+/// `git --git-dir=... rev-parse <ref>^{commit}` → 40-char hex, or
+/// `None` if git fails. Cheap (single fork; reads packed-refs or
+/// loose ref). Kept private — callers should go through
+/// `CueConfigCache::evaluate`.
+fn resolve_ref_oid(git_dir: &Path, ref_name: &str) -> Option<String> {
+    let output = Command::new("git")
+        .arg("--git-dir")
+        .arg(git_dir)
+        .arg("rev-parse")
+        .arg(format!("{ref_name}^{{commit}}"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let oid = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if oid.len() == 40 && oid.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(oid)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::MATERIALISE_SEMAPHORE;
@@ -498,5 +583,137 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         acquire.join().unwrap();
+    }
+
+    use super::{CueConfigCache, resolve_ref_oid};
+    use std::path::PathBuf;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    /// Build a bare-ish git repo with a single commit on `main` carrying
+    /// a minimal `package comtrya` file. Returns `(tempdir, git_dir,
+    /// initial_oid)`. The tempdir must outlive the test.
+    fn seeded_repo(initial_body: &str) -> (TempDir, PathBuf, String) {
+        let tmp = tempfile::Builder::new()
+            .prefix("comtrya-cue-cache-")
+            .tempdir()
+            .unwrap();
+        let work = tmp.path().to_path_buf();
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            ["config", "user.email", "cache-test@comtrya"].as_slice(),
+            ["config", "user.name", "cache-test"].as_slice(),
+            ["config", "commit.gpgsign", "false"].as_slice(),
+        ] {
+            let status = Command::new("git")
+                .current_dir(&work)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+        std::fs::write(work.join("comtrya.cue"), initial_body).unwrap();
+        for args in [
+            ["add", "comtrya.cue"].as_slice(),
+            ["commit", "-q", "-m", "seed"].as_slice(),
+        ] {
+            let status = Command::new("git")
+                .current_dir(&work)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+        let git_dir = work.join(".git");
+        let oid = resolve_ref_oid(&git_dir, "main").unwrap();
+        (tmp, git_dir, oid)
+    }
+
+    /// Commit a new state on `main`, returning the new oid. Same repo as
+    /// `seeded_repo`.
+    fn commit_change(repo_workdir: &std::path::Path, new_body: &str) -> String {
+        std::fs::write(repo_workdir.join("comtrya.cue"), new_body).unwrap();
+        for args in [
+            ["add", "comtrya.cue"].as_slice(),
+            ["commit", "-q", "-m", "update"].as_slice(),
+        ] {
+            let status = Command::new("git")
+                .current_dir(repo_workdir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+        resolve_ref_oid(&repo_workdir.join(".git"), "main").unwrap()
+    }
+
+    #[test]
+    fn cue_cache_returns_same_arc_on_repeat_call() {
+        let (_tmp, git_dir, _oid) = seeded_repo("package comtrya\n");
+        let cache = CueConfigCache::new();
+        let first = cache.evaluate(&git_dir, "main", &[]);
+        let second = cache.evaluate(&git_dir, "main", &[]);
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second call must return the cached Arc, not a fresh evaluation",
+        );
+    }
+
+    #[test]
+    fn cue_cache_misses_after_new_commit() {
+        let (tmp, git_dir, _oid1) = seeded_repo("package comtrya\n");
+        let cache = CueConfigCache::new();
+        let first = cache.evaluate(&git_dir, "main", &[]);
+        // Move `main` forward — new commit, new oid, new cache key.
+        commit_change(tmp.path(), "package comtrya\n// updated\n");
+        let second = cache.evaluate(&git_dir, "main", &[]);
+        assert!(
+            !Arc::ptr_eq(&first, &second),
+            "new commit must invalidate the cache key and trigger re-evaluation",
+        );
+    }
+
+    #[test]
+    fn cue_cache_keys_independently_per_repo() {
+        let (_tmp1, git_dir1, _oid1) = seeded_repo("package comtrya\n");
+        let (_tmp2, git_dir2, _oid2) = seeded_repo("package comtrya\n");
+        let cache = CueConfigCache::new();
+        let a = cache.evaluate(&git_dir1, "main", &[]);
+        let b = cache.evaluate(&git_dir2, "main", &[]);
+        // Two different repos: even if the evaluated content is byte-equal,
+        // the cache must keep them separate so an invalidation in one
+        // doesn't affect the other.
+        assert!(
+            !Arc::ptr_eq(&a, &b),
+            "cache keys must scope by git_dir, not collapse on equal evaluations",
+        );
+        let a_again = cache.evaluate(&git_dir1, "main", &[]);
+        assert!(
+            Arc::ptr_eq(&a, &a_again),
+            "repo1 must still hit cache after a different repo's evaluation",
+        );
+    }
+
+    #[test]
+    fn cue_cache_does_not_cache_unresolvable_refs() {
+        let (_tmp, git_dir, _oid) = seeded_repo("package comtrya\n");
+        let cache = CueConfigCache::new();
+        // `nope` does not exist — evaluate falls through to direct
+        // evaluation, no cache entry written. Two calls must NOT
+        // Arc-equal because each constructs a fresh error envelope.
+        let first = cache.evaluate(&git_dir, "nope", &[]);
+        let second = cache.evaluate(&git_dir, "nope", &[]);
+        assert!(
+            !Arc::ptr_eq(&first, &second),
+            "unresolvable refs must not be cached (each call returns a fresh error envelope)",
+        );
+        // And a valid ref on the same repo must still cache normally
+        // — the failed evaluation didn't pollute the cache.
+        let good_a = cache.evaluate(&git_dir, "main", &[]);
+        let good_b = cache.evaluate(&git_dir, "main", &[]);
+        assert!(
+            Arc::ptr_eq(&good_a, &good_b),
+            "good ref must still cache after a failed sibling call",
+        );
     }
 }
