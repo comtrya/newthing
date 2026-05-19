@@ -27,6 +27,10 @@ const kernelProxyTable = (): Record<string, ProxyOptions> => ({
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   appType: "spa",
+  // PUBLIC_* env vars are exposed to client code (e.g.
+  // `PUBLIC_COMTRYA_OPERATOR_CODE` is read by `@comtrya/sdk-core`'s
+  // session bootstrap). Vite's default is `VITE_*`; we keep both.
+  envPrefix: ["VITE_", "PUBLIC_"],
   plugins: [vue()],
   resolve: {
     alias: {

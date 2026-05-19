@@ -5,7 +5,13 @@
  * configures the endpoint at boot; extensions and shell components
  * both consume `getGraphQLClient()` rather than hand-rolling
  * `fetch("/graphql", ...)` calls.
+ *
+ * Auth: every call attaches the bootstrapped session token (see
+ * `./session.ts`) as `Authorization: Bearer …`. On a 401 the cached
+ * token is cleared so the next call re-bootstraps fresh.
  */
+
+import { clearSessionToken, getSessionToken } from "./session";
 
 export interface GraphQLClient {
   query<T = unknown>(
@@ -69,12 +75,20 @@ function createClient(options: Required<GraphQLClientOptions>): GraphQLClient {
     query: string,
     variables?: Record<string, unknown>,
   ): Promise<T> => {
+    const token = await getSessionToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const response = await options.fetchImpl(options.endpoint, {
       method: "POST",
       credentials: options.credentials,
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ query, variables }),
     });
+    if (response.status === 401) {
+      clearSessionToken();
+    }
     let envelope: GraphQLResponseEnvelope<T>;
     try {
       envelope = (await response.json()) as GraphQLResponseEnvelope<T>;

@@ -1885,20 +1885,6 @@ fn user_layout_query(state: AppState, headers: HeaderMap, payload: Value) -> Res
         Err(r) => return *r,
     };
     let principal = state.runtime.principal_context_from_headers(&headers);
-    // KNOWN-GAP(oidc-#16): `Anonymous` deliberately falls through here while
-    // the read path stays open until the frontend can authenticate. All
-    // anonymous callers share the `comtrya://principal/anonymous` URI, so
-    // they read the (empty) layout for that key — never another user's data.
-    // The sibling `user_layout_mutation` correctly rejects Anonymous because
-    // writes would clobber that shared key.
-    if principal.status == PrincipalStatus::Invalid {
-        return graphql_error_response(
-            StatusCode::UNAUTHORIZED,
-            ErrorCode::Unauthenticated.as_str(),
-            "userLayout requires an authenticated principal",
-            cors,
-        );
-    }
     let repository_id = payload
         .pointer("/variables/repositoryId")
         .and_then(Value::as_str)
@@ -1932,11 +1918,6 @@ fn user_layout_mutation(state: AppState, headers: HeaderMap, payload: Value) -> 
         Err(r) => return *r,
     };
     let principal = state.runtime.principal_context_from_headers(&headers);
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors = match require_authenticated_principal(principal.status, cors) {
-        Ok(c) => c,
-        Err(r) => return *r,
-    };
     let repository_id = payload
         .pointer("/variables/repositoryId")
         .and_then(Value::as_str)
@@ -1999,11 +1980,14 @@ async fn api_op(
         );
     }
     let principal = state.runtime.principal_context_from_headers(&headers);
-    if principal.status == PrincipalStatus::Invalid {
+    if matches!(
+        principal.status,
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid
+    ) {
         return api_op_json_error(
             StatusCode::UNAUTHORIZED,
             "unauthenticated",
-            "invalid bearer token",
+            "authentication required",
             None,
             cors,
         );
@@ -2208,13 +2192,6 @@ fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value)
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let target = payload
         .pointer("/variables/input/target")
         .and_then(Value::as_str)
@@ -2261,13 +2238,6 @@ fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value)
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let id = payload
         .pointer("/variables/input/id")
         .and_then(Value::as_str)
@@ -2311,13 +2281,6 @@ fn comments_delete_mutation(state: AppState, headers: HeaderMap, payload: Value)
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let id = payload
         .pointer("/variables/input/id")
         .and_then(Value::as_str)
@@ -2349,22 +2312,25 @@ fn cors_or_response(state: &AppState, headers: &HeaderMap) -> ResponseResult<Hea
     state.runtime.check_boundary(headers, "/graphql")
 }
 
+/// CORS + rate-limit + authentication. Every GraphQL request that reaches
+/// a handler has flowed through this guard, so handlers do not need to
+/// re-check the principal. Returns the CORS HeaderMap to attach to the
+/// downstream response, or an `Err` response (401/429/etc.) with CORS
+/// headers already on it.
 pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
     state.runtime.rate_limit(
         "graphql",
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
-    Ok(cors)
+    let principal = state.runtime.principal_from_headers(headers);
+    require_authenticated_principal(principal, cors)
 }
 
-/// Reject `Anonymous` and `Invalid` principals on GraphQL mutation handlers.
-/// Preserves `cors` headers on the error response so cross-origin browsers
-/// receive a real 401 instead of an opaque CORS failure.
-///
-/// Read-path handlers and `/api/ops/*` are intentionally NOT gated here yet —
-/// the frontend SDK cannot authenticate until #16 (OIDC) ships. Each call site
-/// carries a `// TODO(oidc-#16):` marker so future centralization is grep-able.
+/// Reject `Anonymous` and `Invalid` principals. Preserves `cors` headers on
+/// the error response so cross-origin browsers receive a real 401 instead
+/// of an opaque CORS failure. Centralised so the GraphQL guard and the
+/// `/api/ops/*` handler share the exact same predicate.
 pub(crate) fn require_authenticated_principal(
     principal: PrincipalStatus,
     cors: HeaderMap,
@@ -2388,13 +2354,6 @@ fn relations_create_mutation(state: AppState, headers: HeaderMap, payload: Value
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let from = payload
         .pointer("/variables/input/from")
         .and_then(Value::as_str)
@@ -2438,13 +2397,6 @@ fn relations_delete_mutation(state: AppState, headers: HeaderMap, payload: Value
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let id = payload
         .pointer("/variables/input/id")
         .and_then(Value::as_str)
@@ -2580,13 +2532,6 @@ fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Valu
         Ok(c) => c,
         Err(r) => return *r,
     };
-    // TODO(oidc-#16): remove when auth check moves into graphql_guard
-    let cors =
-        match require_authenticated_principal(state.runtime.principal_from_headers(&headers), cors)
-        {
-            Ok(c) => c,
-            Err(r) => return *r,
-        };
     let path = payload
         .pointer("/variables/input/path")
         .and_then(Value::as_str)
@@ -2658,24 +2603,11 @@ pub(crate) fn graphql_error_response(
 }
 
 fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match state.runtime.check_boundary(&headers, "/graphql") {
+    let cors = match graphql_guard(&state, &headers) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
-    if let Err(response) = state.runtime.rate_limit(
-        "graphql",
-        state.runtime.config.rate_limits.graphql_per_principal,
-    ) {
-        return *response;
-    }
     let principal = state.runtime.principal_from_headers(&headers);
-    if principal == PrincipalStatus::Invalid {
-        return error_response(
-            StatusCode::UNAUTHORIZED,
-            ErrorCode::Unauthenticated.as_str(),
-            "invalid bearer token",
-        );
-    }
     let demo = match state.runtime.demo_payload() {
         Ok(demo) => demo,
         Err(error) => {
@@ -9775,12 +9707,13 @@ extensions: {
         );
     }
 
-    /// DEFERRED-BY-DESIGN: anonymous reads remain open until OIDC ships (#16).
-    /// This test pins that behavior so a future "centralize auth in graphql_guard"
-    /// refactor cannot silently lock the read path without a coordinated frontend
-    /// change. DELETE THIS TEST as part of the #16 PR.
+    /// #16 lockdown: anonymous reads are now rejected. The GraphQL read path
+    /// (every query, every mutation) flows through `graphql_guard`, which calls
+    /// `require_authenticated_principal`. The frontend SDK auto-exchanges
+    /// `PUBLIC_COMTRYA_OPERATOR_CODE` on bootstrap so real browser loads still
+    /// succeed; this test pins the server contract.
     #[tokio::test]
-    async fn graphql_comments_thread_still_allows_anonymous() {
+    async fn graphql_comments_thread_rejects_anonymous() {
         let runtime = dev_runtime_no_extensions();
         let response = graphql_post(
             State(AppState {
@@ -9797,17 +9730,16 @@ extensions: {
         .await;
         assert_eq!(
             response.status(),
-            StatusCode::OK,
-            "anonymous reads must stay open until OIDC ships (#16)",
+            StatusCode::UNAUTHORIZED,
+            "anonymous GraphQL reads must be rejected under #16 lockdown",
         );
     }
 
-    /// DEFERRED-BY-DESIGN: anonymous reads remain open until OIDC ships (#16).
-    /// Mirrors the exact `workspace { ... }` shape `App.vue:loadShellSummary` sends
-    /// so a future read-path lockdown would break this test (and the shell) together.
-    /// DELETE THIS TEST as part of the #16 PR.
+    /// #16 lockdown: the `workspace { ... }` query the shell sends on boot
+    /// requires a session. Mirrors the exact shape `App.vue:loadShellSummary`
+    /// uses so a regression here breaks the shell test in lockstep.
     #[tokio::test]
-    async fn graphql_query_workspace_still_allows_anonymous() {
+    async fn graphql_query_workspace_rejects_anonymous() {
         let runtime = dev_runtime_no_extensions();
         let response = graphql_post(
             State(AppState {
@@ -9823,8 +9755,36 @@ extensions: {
         .await;
         assert_eq!(
             response.status(),
-            StatusCode::OK,
-            "anonymous workspace query must stay open until OIDC ships (#16)",
+            StatusCode::UNAUTHORIZED,
+            "anonymous workspace query must be rejected under #16 lockdown",
+        );
+    }
+
+    /// #16 lockdown: `/api/ops/:extension/:interface/:op` requires a session.
+    /// Previously rejected only `Invalid` (malformed token); now rejects
+    /// `Anonymous` as well so unauthenticated cross-origin probes can't reach
+    /// extension dispatch.
+    #[tokio::test]
+    async fn api_op_rejects_anonymous() {
+        let runtime = dev_runtime_no_extensions();
+        let response = api_op(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            origin_headers(),
+            AxumPath((
+                "ext_issues".to_string(),
+                "issues".to_string(),
+                "list-issues".to_string(),
+            )),
+            Bytes::from_static(b"null"),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "anonymous /api/ops/* must be rejected under #16 lockdown",
         );
     }
 

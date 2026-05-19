@@ -5,7 +5,14 @@
  * (or its re-export `@comtrya/sdk-core`). The shape is intentionally
  * minimal: a single fetch to the kernel's canonical ops endpoint keyed by
  * extension id, interface name, and operation name.
+ *
+ * Auth: each invocation attaches the bootstrapped session token (see
+ * `./session.ts`) as `Authorization: Bearer …`. Callers may override via
+ * `options.token`. On a 401 the cached session is cleared so the next call
+ * re-bootstraps fresh.
  */
+
+import { clearSessionToken, getSessionToken } from "./session";
 
 export type OpResult<T> =
   | { ok: true; value: T }
@@ -56,7 +63,8 @@ export async function invokeOp<T = unknown>(
   const headers: Record<string, string> = {
     "content-type": "application/json",
   };
-  if (options.token) headers["authorization"] = `Bearer ${options.token}`;
+  const token = options.token ?? (await getSessionToken());
+  if (token) headers["authorization"] = `Bearer ${token}`;
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -65,6 +73,9 @@ export async function invokeOp<T = unknown>(
       signal: options.signal,
       credentials: "include",
     });
+    if (response.status === 401) {
+      clearSessionToken();
+    }
     const text = await response.text();
     if (!response.ok) {
       let parsed: Record<string, unknown> | undefined;
