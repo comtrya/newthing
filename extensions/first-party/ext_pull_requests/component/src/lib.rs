@@ -116,6 +116,7 @@ fn state_to_str(state: PrState) -> &'static str {
     match state {
         PrState::Draft => "DRAFT",
         PrState::Ready => "READY",
+        PrState::Review => "REVIEW",
         PrState::Merged => "MERGED",
         PrState::Closed => "CLOSED",
     }
@@ -124,6 +125,7 @@ fn state_to_str(state: PrState) -> &'static str {
 fn state_from_str(state: &str) -> PrState {
     match state {
         "READY" => PrState::Ready,
+        "REVIEW" => PrState::Review,
         "MERGED" => PrState::Merged,
         "CLOSED" => PrState::Closed,
         _ => PrState::Draft,
@@ -585,3 +587,37 @@ fn issue_close_on_merge(issue_ref: &str) -> Option<bool> {
 }
 
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::{PrState, state_from_str, state_to_str};
+
+    /// #6 P0-6 regression: REVIEW round-trips losslessly through the
+    /// component's state_to_str/state_from_str pair. Guards against
+    /// a future typo (e.g. "review" lowercase) that the unrecognised-
+    /// default would silently degrade to PrState::Draft.
+    #[test]
+    fn state_round_trip_review() {
+        let s = state_to_str(PrState::Review);
+        assert_eq!(s, "REVIEW");
+        assert!(matches!(state_from_str(s), PrState::Review));
+    }
+
+    /// Sanity-check existing 4 cases still round-trip — guards against
+    /// a rename that breaks the wire format compatibility with the host.
+    #[test]
+    fn state_round_trip_pre_existing_cases() {
+        for state in [
+            PrState::Draft,
+            PrState::Ready,
+            PrState::Merged,
+            PrState::Closed,
+        ] {
+            let s = state_to_str(state);
+            // Round-trip through string and back must yield the same
+            // variant (compare via to_str again for variant equality
+            // since PrState doesn't impl PartialEq).
+            assert_eq!(state_to_str(state_from_str(s)), s);
+        }
+    }
+}

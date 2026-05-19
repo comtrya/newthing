@@ -63,7 +63,10 @@ interface CheckRow {
 
 const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const WORKSPACE_URI = `comtrya://workspace/${WORKSPACE_ID}`;
-const OPEN_PR_STATES = new Set(["DRAFT", "READY", "REVIEW", "OPEN", "REOPENED"]);
+// PR states per ext_pull_requests WIT `pr-state` variant: draft, ready,
+// review, merged, closed. `OPEN`/`REOPENED` are issue states and were
+// wrongly leaking into this PR-state filter — removed per #6 P0-6.
+const OPEN_PR_STATES = new Set(["DRAFT", "READY", "REVIEW"]);
 const FAILED_CHECK_STATES = new Set(["FAILURE", "FAILED"]);
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
