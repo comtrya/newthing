@@ -41,8 +41,59 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::sync::{Condvar, Mutex};
+
 use cuengine::{ModuleEvalOptions, evaluate_module};
 use serde_json::{Value, json};
+
+/// Sync counting semaphore. Blocks the OS thread on acquire; works in
+/// any runtime context (sync code, tokio multi-thread, tokio
+/// current-thread tests) — unlike `tokio::sync::Semaphore +
+/// block_in_place`, which panics under current-thread runtimes.
+///
+/// Within a tokio multi-thread runtime this blocks the worker thread
+/// without signalling the scheduler — acceptable here because the
+/// alternative (unbounded `git archive | tar` spawns) is FD
+/// exhaustion. Full async refactor is the long-term fix; tracked as
+/// a follow-up sub-PR.
+struct SyncSemaphore {
+    available: Mutex<usize>,
+    notify: Condvar,
+}
+
+struct SyncPermit<'a>(&'a SyncSemaphore);
+
+impl SyncSemaphore {
+    const fn new(permits: usize) -> Self {
+        Self {
+            available: Mutex::new(permits),
+            notify: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self) -> SyncPermit<'_> {
+        let mut available = self.available.lock().expect("poisoned");
+        while *available == 0 {
+            available = self.notify.wait(available).expect("poisoned");
+        }
+        *available -= 1;
+        SyncPermit(self)
+    }
+}
+
+impl Drop for SyncPermit<'_> {
+    fn drop(&mut self) {
+        let mut available = self.0.available.lock().expect("poisoned");
+        *available += 1;
+        self.0.notify.notify_one();
+    }
+}
+
+/// Bound concurrent `git archive | tar -x` materialisations to prevent
+/// FD exhaustion under burst load. Process-global because FDs are a
+/// process-global resource; per-repo semaphores would still need a
+/// global floor. 8 × 2 pipes × 2 processes = 64 FDs reserved at peak.
+static MATERIALISE_SEMAPHORE: SyncSemaphore = SyncSemaphore::new(8);
 
 /// Kernel-defined CUE base schema. Single source of truth lives in
 /// `comtrya_core::config::KERNEL_CUE_BASE` so both the receive-pack
@@ -122,6 +173,10 @@ pub fn evaluate_repo_config(
 }
 
 fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<PathBuf, String> {
+    // Bound concurrent materialisations. Permit drops at end of scope
+    // (including `?` early-return paths), releasing capacity.
+    let _permit = MATERIALISE_SEMAPHORE.acquire();
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
@@ -363,4 +418,85 @@ fn implicit_default_project() -> Value {
         "implicit": true,
         "declaredAt": "",
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MATERIALISE_SEMAPHORE;
+    use std::sync::Arc;
+    use std::sync::Barrier;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::thread;
+    use std::time::{Duration, Instant};
+
+    /// Concurrent acquires can't exceed the semaphore's 8-permit cap.
+    /// Deterministic via a Barrier(8) inside the critical section.
+    /// Plain sync threads — works in any runtime context (no tokio
+    /// required because the semaphore is std-primitive).
+    #[test]
+    fn semaphore_caps_concurrency() {
+        const CAP: usize = 8;
+        const N: usize = 24;
+        let observed_peak = Arc::new(AtomicUsize::new(0));
+        let live = Arc::new(AtomicUsize::new(0));
+        // Barrier(CAP) — exactly CAP threads must be in the critical
+        // section simultaneously to advance. If the semaphore let
+        // more through, the test deadlocks (caught by deadline).
+        let barrier = Arc::new(Barrier::new(CAP));
+        let deadline = Instant::now() + Duration::from_secs(5);
+
+        let mut handles = Vec::with_capacity(N);
+        for _ in 0..N {
+            let observed_peak = Arc::clone(&observed_peak);
+            let live = Arc::clone(&live);
+            let barrier = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                let _permit = MATERIALISE_SEMAPHORE.acquire();
+                let now_live = live.fetch_add(1, Ordering::SeqCst) + 1;
+                observed_peak.fetch_max(now_live, Ordering::SeqCst);
+                barrier.wait();
+                live.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+
+        for h in handles {
+            assert!(
+                Instant::now() < deadline,
+                "threads did not finish within 5s — concurrency cap likely violated (deadlock on Barrier({CAP}))"
+            );
+            h.join().unwrap();
+        }
+        assert!(
+            observed_peak.load(Ordering::SeqCst) <= CAP,
+            "observed peak {} exceeded cap {CAP}",
+            observed_peak.load(Ordering::SeqCst)
+        );
+    }
+
+    /// A thread that acquires a permit and panics must release the
+    /// permit on unwind, leaving the semaphore usable.
+    #[test]
+    fn semaphore_releases_on_panic() {
+        let panicking = thread::spawn(|| {
+            let _permit = MATERIALISE_SEMAPHORE.acquire();
+            panic!("intentional panic with permit held");
+        });
+        panicking.join().expect_err("thread should have panicked");
+
+        // After the panic, the semaphore should still have capacity.
+        // Acquire + drop in a fresh thread; bound by deadline so a
+        // missing release shows up as test failure not hang.
+        let acquire = thread::spawn(|| {
+            let _permit = MATERIALISE_SEMAPHORE.acquire();
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !acquire.is_finished() {
+            assert!(
+                Instant::now() < deadline,
+                "semaphore deadlocked after panic — permit not released on unwind"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        acquire.join().unwrap();
+    }
 }
