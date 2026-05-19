@@ -35,6 +35,11 @@ export {
   type GraphQLClientOptions,
 } from "./graphql-client";
 export {
+  getSessionToken,
+  clearSessionToken,
+  type SessionBootstrapOptions,
+} from "./session";
+export {
   registerCard,
   cardFor,
   type CardContribution,
