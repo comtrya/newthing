@@ -65,7 +65,9 @@ production testbed.
 ## Useful docs
 
 - `ARCHITECTURE.md`: current runtime map.
-- `DEMO_RUNBOOK.md`: operator commands and inspection paths.
+- `DEMO_RUNBOOK.md`: local-demo operator commands and inspection paths.
+- `docs/RUNBOOK.md`: production-class operator runbook (deploy, rollback, common failures, restore, key rotation, capacity signals).
 - `PRODUCTION_TESTBED.md`: startup gates and production-testbed boundary.
+- `docs/CONTAINER.md`: container image build/run mechanics.
 - `docs/extensions.md`: extension authoring contract.
 - `GOAL.md`: v3 completion status and invariants.
