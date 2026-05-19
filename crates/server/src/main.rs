@@ -212,22 +212,22 @@ async fn main() {
     match tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, serve).await {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-            eprintln!("graceful shutdown: serve error: {error}");
+            tracing::error!(%error, "graceful shutdown: serve error");
         }
         Err(_elapsed) => {
-            eprintln!(
-                "graceful shutdown: drain exceeded {}s; aborting in-flight",
-                SHUTDOWN_DRAIN_TIMEOUT.as_secs()
+            tracing::warn!(
+                timeout_seconds = SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
+                "graceful shutdown: drain timeout exceeded; aborting in-flight"
             );
         }
     }
 
-    eprintln!("graceful shutdown: draining complete; flushing logs");
+    tracing::info!("graceful shutdown: draining complete; flushing logs");
     if let Err(error) = fsync_jsonl_path(&events_path) {
-        eprintln!("graceful shutdown: events.jsonl fsync failed: {error}");
+        tracing::error!(%error, path = ?events_path, "graceful shutdown: events.jsonl fsync failed");
     }
     if let Err(error) = fsync_jsonl_path(&audit_path) {
-        eprintln!("graceful shutdown: audit.jsonl fsync failed: {error}");
+        tracing::error!(%error, path = ?audit_path, "graceful shutdown: audit.jsonl fsync failed");
     }
 }
 
@@ -239,12 +239,12 @@ async fn shutdown_signal(mut sigterm: tokio::signal::unix::Signal) {
     tokio::select! {
         ctrlc = tokio::signal::ctrl_c() => {
             if let Err(error) = ctrlc {
-                eprintln!("graceful shutdown: ctrl_c handler failed: {error}");
+                tracing::error!(%error, "graceful shutdown: ctrl_c handler failed");
             }
-            eprintln!("graceful shutdown: SIGINT received");
+            tracing::info!("graceful shutdown: SIGINT received");
         }
         _ = sigterm.recv() => {
-            eprintln!("graceful shutdown: SIGTERM received");
+            tracing::info!("graceful shutdown: SIGTERM received");
         }
     }
 }
