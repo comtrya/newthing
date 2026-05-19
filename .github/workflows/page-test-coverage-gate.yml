@@ -1,0 +1,91 @@
+name: page-test-coverage-gate
+
+# Fail PRs that touch shell `.vue` pages without a corresponding
+# test change in the same PR. Closes the "CI fails when a touched
+# page lacks a corresponding test update" checkbox of #13.
+#
+# Engagement signal, not coverage measurement — the gate fires when
+# the PR author touches a page but adds zero test files. Real
+# coverage thresholds are a separate sub-PR.
+#
+# All `${{ … }}` expansions in this workflow reference integers
+# (pull_request.number) or constrained slugs (github.repository,
+# github.ref, github.token) — no user-controlled strings reach the
+# shell, so no GHA-injection surface exists.
+
+on:
+  pull_request:
+
+# Least-privilege:
+#   contents: read       — checkout (unused here but conventional)
+#   pull-requests: read  — required for `gh api .../pulls/.../files`.
+#                          Defaults to `none` if not declared, which
+#                          would 403 every PR.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: page-test-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: page touched => test touched
+    runs-on: ubuntu-latest
+    steps:
+      - name: enforce
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Fetch every changed file in the PR. `--paginate` walks
+          # all pages; the list-files endpoint caps at 3000 files.
+          files=$(gh api \
+              "repos/$REPO/pulls/$PR_NUMBER/files" \
+              --paginate \
+              --jq '.[].filename')
+
+          # Page-bearing files: anything under frontend/src/routes/
+          # or frontend/src/components/, .vue extension, any depth
+          # (`.+` not `[^/]+` so nested paths like routes/repo/Code.vue
+          # are matched too — all current routes are flat but the
+          # gate must keep working as the tree grows).
+          pages=$(printf '%s\n' "$files" | grep -E \
+              '^frontend/src/(routes|components)/.+\.vue$' || true)
+
+          # Test files: any .test.ts under frontend/ (covers both
+          # frontend/src/*.test.ts and frontend/packages/**/*.test.ts).
+          tests=$(printf '%s\n' "$files" | grep -E \
+              '^frontend/.+\.test\.ts$' || true)
+
+          # Quote and pipe through sed to indent — unquoted printf
+          # would word-split on spaces in filenames (unlikely for
+          # source paths but cheap to guard against).
+          if [ -n "$pages" ] && [ -z "$tests" ]; then
+            echo "::error::Pages touched without a corresponding test update."
+            echo ""
+            echo "Page files in this PR:"
+            printf '%s\n' "$pages" | sed 's/^/  - /'
+            echo ""
+            echo "No frontend/**/*.test.ts file was modified."
+            echo "Add or update a test file alongside the page change."
+            echo "See frontend/src/route-paths.test.ts for the routing-"
+            echo "patterns testing convention (bun:test, vue-router"
+            echo "memory-history, defineComponent({ render: () => null })"
+            echo "stubs)."
+            exit 1
+          fi
+
+          if [ -n "$pages" ]; then
+            echo "Pages touched, tests touched - gate passes."
+            echo "Page files:"
+            printf '%s\n' "$pages" | sed 's/^/  - /'
+            echo "Test files:"
+            printf '%s\n' "$tests" | sed 's/^/  - /'
+          else
+            echo "No shell-page .vue changes in this PR - gate is silent."
+          fi
