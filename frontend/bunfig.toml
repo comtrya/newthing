@@ -1,2 +1,12 @@
 [test]
 preload = ["./test-setup/dom.ts"]
+# Enforce a coverage floor on the tested surface so regressions can't
+# silently drop coverage below #13's 60% acceptance bar. Bun reports
+# `% Lines` / `% Funcs` for every file imported by a test; the
+# threshold applies to the aggregate. Raise as the test corpus grows.
+coverage = true
+coverageThreshold = 0.6
+coverageReporter = ["text"]
+# Exclude generated bundles and test-setup helpers from the floor —
+# they're not the surface #13 is asking us to defend.
+coverageSkipTestFiles = true
