@@ -978,10 +978,10 @@ expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
   'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.demoRepositoryRefs === true && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
 
-expect_status "unsupported OIDC callback fails explicitly through Vue shell" 501 "$TMP_DIR/oidc-callback.json" \
+expect_status "OIDC callback rejects missing state/code through Vue shell" 400 "$TMP_DIR/oidc-callback.json" \
   "$FRONTEND_URL/auth/oidc/prod/callback"
-json_assert "unsupported OIDC callback fails explicitly through Vue shell" "$TMP_DIR/oidc-callback.json" \
-  'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "oidc_browser_callback"'
+json_assert "OIDC callback rejects missing state/code through Vue shell" "$TMP_DIR/oidc-callback.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
 
 expect_status "operator code exchange through Vue shell" 200 "$TMP_DIR/token.json" \
   -H "content-type: application/json" \
@@ -1249,6 +1249,7 @@ expect_contains "/new serves Vue shell" "$TMP_DIR/new-repo.html" \
 
 NEW_REPO_PATH="rawkode/hello/rawkode"
 expect_status "createRepository mutation through Vue shell" 200 "$TMP_DIR/create-repo.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path } } }\",\"variables\":{\"input\":{\"path\":\"$NEW_REPO_PATH\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1261,6 +1262,7 @@ expect_contains "newly-created nested repo path serves Vue shell" "$TMP_DIR/new-
   "Comtrya Shell v3"
 
 expect_status "createRepository conflict on duplicate path" 409 "$TMP_DIR/create-repo-dup.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id } } }\",\"variables\":{\"input\":{\"path\":\"$NEW_REPO_PATH\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1268,6 +1270,7 @@ json_assert "createRepository conflict carries CONFLICT code" "$TMP_DIR/create-r
   'json.errors[0].extensions.code === "CONFLICT"'
 
 expect_status "createRepository rejects invalid path segment" 400 "$TMP_DIR/create-repo-bad.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data '{"query":"mutation($input: CreateRepositoryInput!) { createRepository(input: $input) { repository { id } } }","variables":{"input":{"path":"Bad/Segment"}}}' \
   "$FRONTEND_URL/graphql"
@@ -1278,6 +1281,7 @@ json_assert "createRepository invalid-path carries BAD_USER_INPUT code" "$TMP_DI
 RELATION_FROM="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B1"
 RELATION_TO="comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1B2"
 expect_status "relations.create writes a relation" 200 "$TMP_DIR/rel-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind from to } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1286,6 +1290,7 @@ json_assert "relations.create returns the relation with rel_ id" "$TMP_DIR/rel-c
 RELATION_ID="$(json_value "$TMP_DIR/rel-create.json" 'json.data.relations.create.id')"
 
 expect_status "relations.create is idempotent on (from,to,kind)" 200 "$TMP_DIR/rel-create-again.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1293,6 +1298,7 @@ json_assert "relations.create is idempotent" "$TMP_DIR/rel-create-again.json" \
   "json.data.relations.create.id === \"$RELATION_ID\""
 
 expect_status "relations.outgoing returns the relation" 200 "$TMP_DIR/rel-outgoing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id to } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1300,6 +1306,7 @@ json_assert "relations.outgoing is non-empty" "$TMP_DIR/rel-outgoing.json" \
   "json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === \"$RELATION_TO\""
 
 expect_status "relations.incoming returns the relation" 200 "$TMP_DIR/rel-incoming.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$to: ResourceURN!) { relations.incoming(to: \$to) { id from } }\",\"variables\":{\"to\":\"$RELATION_TO\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1307,6 +1314,7 @@ json_assert "relations.incoming is non-empty" "$TMP_DIR/rel-incoming.json" \
   "json.data.relations.incoming.length === 1 && json.data.relations.incoming[0].from === \"$RELATION_FROM\""
 
 expect_status "relations.create rejects malformed verb URI" 400 "$TMP_DIR/rel-bad-verb.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"not-a-verb-uri\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1314,6 +1322,7 @@ json_assert "malformed verb is BAD_USER_INPUT" "$TMP_DIR/rel-bad-verb.json" \
   'json.errors[0].extensions.code === "BAD_USER_INPUT"'
 
 expect_status "relations.create rejects self-link" 400 "$TMP_DIR/rel-self.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_FROM\",\"kind\":\"comtrya://rel/part-of\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1321,6 +1330,7 @@ expect_status "relations.create rejects self-link" 400 "$TMP_DIR/rel-self.json" 
 SYM_LOW="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1A1"
 SYM_HIGH="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B9"
 expect_status "relations.create symmetric verb stores canonical direction" 200 "$TMP_DIR/rel-sym.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id from to } }\",\"variables\":{\"input\":{\"from\":\"$SYM_HIGH\",\"to\":\"$SYM_LOW\",\"kind\":\"comtrya://rel/relates-to\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1328,6 +1338,7 @@ json_assert "symmetric verb canonicalised (lex-smaller as from)" "$TMP_DIR/rel-s
   "json.data.relations.create.from === \"$SYM_LOW\" && json.data.relations.create.to === \"$SYM_HIGH\""
 
 expect_status "outgoing for symmetric verb finds the relation from either side" 200 "$TMP_DIR/rel-sym-outgoing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/relates-to\\\") { id } }\",\"variables\":{\"from\":\"$SYM_HIGH\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1335,6 +1346,7 @@ json_assert "symmetric outgoing from non-canonical side still returns one" "$TMP
   'json.data.relations.outgoing.length === 1'
 
 expect_status "relations.delete removes the relation" 200 "$TMP_DIR/rel-delete.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: DeleteRelationInput!) { relations.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$RELATION_ID\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1342,6 +1354,7 @@ json_assert "relations.delete reports true" "$TMP_DIR/rel-delete.json" \
   'json.data.relations.delete === true'
 
 expect_status "relations.outgoing after delete is empty" 200 "$TMP_DIR/rel-outgoing-after.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1351,6 +1364,7 @@ json_assert "relations.outgoing now empty for the deleted side" "$TMP_DIR/rel-ou
 # ── Comments API ────────────────────────────────────────────────────────────
 COMMENT_TARGET="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1C9"
 expect_status "comments.create on a target" 200 "$TMP_DIR/cmt-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id target parent bodyMarkdown } }\",\"variables\":{\"input\":{\"target\":\"$COMMENT_TARGET\",\"bodyMarkdown\":\"top-level comment\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1360,6 +1374,7 @@ COMMENT_TOP_ID="$(json_value "$TMP_DIR/cmt-create.json" 'json.data.comments.crea
 COMMENT_TOP_REF="comtrya://comment/$COMMENT_TOP_ID"
 
 expect_status "comments.create reply (nested)" 200 "$TMP_DIR/cmt-reply.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id parent } }\",\"variables\":{\"input\":{\"target\":\"$COMMENT_TARGET\",\"parent\":\"$COMMENT_TOP_REF\",\"bodyMarkdown\":\"reply body\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1367,6 +1382,7 @@ json_assert "reply carries the parent ref" "$TMP_DIR/cmt-reply.json" \
   "json.data.comments.create.parent === \"$COMMENT_TOP_REF\""
 
 expect_status "comments.create rejects parent on a different target" 400 "$TMP_DIR/cmt-bad-parent.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateCommentInput!) { comments.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"target\":\"comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1DD\",\"parent\":\"$COMMENT_TOP_REF\",\"bodyMarkdown\":\"wrong\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1374,6 +1390,7 @@ json_assert "wrong-target parent rejected" "$TMP_DIR/cmt-bad-parent.json" \
   'json.errors[0].extensions.code === "BAD_USER_INPUT"'
 
 expect_status "comments.thread returns both comments in order" 200 "$TMP_DIR/cmt-thread.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$target: ResourceURN!) { comments.thread(target: \$target) { id parent bodyMarkdown } }\",\"variables\":{\"target\":\"$COMMENT_TARGET\"}}" \
   "$FRONTEND_URL/graphql"
@@ -1381,6 +1398,7 @@ json_assert "thread has two comments, parent is the top one" "$TMP_DIR/cmt-threa
   "json.data.comments.thread.length === 2 && json.data.comments.thread[0].id === \"$COMMENT_TOP_ID\" && json.data.comments.thread[1].parent === \"$COMMENT_TOP_REF\""
 
 expect_status "comments.update edits body" 200 "$TMP_DIR/cmt-update.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: UpdateCommentInput!) { comments.update(input: \$input) { id bodyMarkdown editedAt } }\",\"variables\":{\"input\":{\"id\":\"$COMMENT_TOP_ID\",\"bodyMarkdown\":\"edited body\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1388,6 +1406,7 @@ json_assert "comment body updated and editedAt set" "$TMP_DIR/cmt-update.json" \
   'json.data.comments.update.bodyMarkdown === "edited body" && typeof json.data.comments.update.editedAt === "string"'
 
 expect_status "comments.delete removes the comment" 200 "$TMP_DIR/cmt-delete.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: DeleteCommentInput!) { comments.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$COMMENT_TOP_ID\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1661,6 +1680,7 @@ expect_status "close-pull rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json"
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="file://$DATA_DIR/repositories/comtrya/comtrya.git"
 expect_status "importRepository (clone) mutation through Vue shell" 200 "$TMP_DIR/import-repo.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"mutation(\$input: CreateRepositoryInput!) { createRepository(input: \$input) { repository { id path defaultBranch importedFrom } } }\",\"variables\":{\"input\":{\"path\":\"$IMPORT_REPO_PATH\",\"cloneFromUrl\":\"$IMPORT_SOURCE_URL\"}}}" \
   "$FRONTEND_URL/graphql"
@@ -1687,6 +1707,7 @@ fi
 log "ok - imported repo serves refs via /git/$IMPORT_REPO_PATH.git"
 
 expect_status "repositoryByPath returns code-browser data for imported repo" 200 "$TMP_DIR/imported-repo-files.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"query\":\"query(\$segments: [String!]!) { workspace { repositoryByPath(segments: \$segments) { id path defaultBranch files { path size kind } } } }\",\"variables\":{\"segments\":[\"imported\",\"comtrya-mirror\"]}}" \
   "$FRONTEND_URL/graphql"
