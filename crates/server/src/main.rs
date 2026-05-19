@@ -451,6 +451,12 @@ struct Runtime {
     /// `Mutex`. **Never** hold this guard across an `.await` — see
     /// `oidc_callback` for the discipline.
     auth_service: Mutex<comtrya_core::auth::AuthService>,
+    /// Per-commit CUE evaluation cache. Read paths (`/graphql`,
+    /// `/api/ops/*`) go through this so a repository's CUE config is
+    /// evaluated at most once per `(repo, commit_oid)` per process
+    /// lifetime. Replaces the previous "evaluate on every request"
+    /// behaviour at `evaluate_repo_config` call sites.
+    cue_config_cache: cue_config::CueConfigCache,
 }
 
 #[derive(Debug, Clone)]
@@ -575,6 +581,7 @@ impl Runtime {
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
             auth_service: Mutex::new(auth_service),
+            cue_config_cache: cue_config::CueConfigCache::new(),
         };
         runtime
             .wasm_registry
@@ -1304,7 +1311,11 @@ impl Runtime {
     }
 
     fn git_snapshot(&self) -> Result<GitDemoSnapshot, String> {
-        git_demo_snapshot(&self.demo_repository, &self.collected_cue_schemas())
+        git_demo_snapshot(
+            &self.demo_repository,
+            &self.collected_cue_schemas(),
+            &self.cue_config_cache,
+        )
     }
 
     /// Walk every loaded extension and emit one `ExtensionSchema` per
@@ -2666,10 +2677,13 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             // Projects panel and ext_docs work for any path-resolved
             // repository, including the dogfood import.
             let schemas = state.runtime.collected_cue_schemas();
-            let comtrya_config = cue_config::evaluate_repo_config(&git_dir, "main", &schemas);
+            let comtrya_config = state
+                .runtime
+                .cue_config_cache
+                .evaluate(&git_dir, "main", &schemas);
             apply_repository_cue_overrides(repo_obj, &comtrya_config);
             annotate_bookmarks_with_resolution(repo_obj, &git_dir);
-            repo_obj.insert("comtryaConfig".to_string(), comtrya_config);
+            repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
         }
     }
 
@@ -2700,7 +2714,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 {
                     let git_dir = repositories_root.join(format!("{path}.git"));
                     if git_dir.is_dir() {
-                        let comtrya_config = cue_config::evaluate_repo_config(
+                        let comtrya_config = state.runtime.cue_config_cache.evaluate(
                             &git_dir,
                             "main",
                             &schemas_for_overlay,
@@ -4442,6 +4456,7 @@ fn validate_demo_repository_refs(repo: &DemoRepositoryRuntime) -> Result<(), Str
 fn git_demo_snapshot(
     repo: &DemoRepositoryRuntime,
     extension_schemas: &[cue_config::ExtensionSchema],
+    cue_cache: &cue_config::CueConfigCache,
 ) -> Result<GitDemoSnapshot, String> {
     let head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"])?;
     let head = head.trim().to_string();
@@ -4457,7 +4472,7 @@ fn git_demo_snapshot(
         &["diff", "--patch", "--find-renames", "main~1", "main"],
     )
     .unwrap_or_default();
-    let comtrya_config = cue_config::evaluate_repo_config(&repo.git_dir, "main", extension_schemas);
+    let comtrya_config = cue_cache.evaluate(&repo.git_dir, "main", extension_schemas);
     let mut repository = json!({
         "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
         "owner": "comtrya",
@@ -4493,7 +4508,7 @@ fn git_demo_snapshot(
             "language": "diff",
             "patch": diff_patch
         }),
-        comtrya_config,
+        comtrya_config: (*comtrya_config).clone(),
     })
 }
 
@@ -7189,7 +7204,7 @@ mod tests {
         let data_dir = temp_dir("demo-repository-snapshot");
         let repo = ensure_demo_repository(&data_dir).unwrap();
 
-        let snapshot = git_demo_snapshot(&repo, &[]).unwrap();
+        let snapshot = git_demo_snapshot(&repo, &[], &cue_config::CueConfigCache::new()).unwrap();
 
         assert_eq!(snapshot.repository["path"], "comtrya/comtrya");
         assert_eq!(snapshot.repository["defaultBranch"], "main");
