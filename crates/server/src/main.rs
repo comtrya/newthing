@@ -207,7 +207,12 @@ async fn main() {
             // about the current and previous minute slot.
             match eviction_runtime.store.evict_expired(now_seconds(), 120) {
                 Ok((s, c, r)) if s + c + r > 0 => {
-                    tracing::debug!(sessions = s, credentials = c, rate_limits = r, "evicted expired rows");
+                    tracing::debug!(
+                        sessions = s,
+                        credentials = c,
+                        rate_limits = r,
+                        "evicted expired rows"
+                    );
                 }
                 Ok(_) => {}
                 Err(error) => tracing::warn!(%error, "auth-store eviction failed"),
@@ -597,11 +602,9 @@ impl Runtime {
         // a fresh data_dir gets a brand-new comtrya.db with both
         // 0001_core.sql and 0002_auth.sql in `schema_migrations`.
         let migrations_dir = locate_sqlite_migrations()?;
-        let store = persistence::PersistentStore::open(
-            &options.data_dir.join("metadata"),
-            &migrations_dir,
-        )
-        .map_err(|error| format!("failed to open persistent store: {error}"))?;
+        let store =
+            persistence::PersistentStore::open(&options.data_dir.join("metadata"), &migrations_dir)
+                .map_err(|error| format!("failed to open persistent store: {error}"))?;
 
         let runtime = Self {
             data_dir: options.data_dir.clone(),
@@ -1823,7 +1826,9 @@ fn locate_sqlite_migrations() -> Result<PathBuf, String> {
         }
         return Err(format!(
             "COMTRYA_MIGRATIONS_DIR is set but {}/sqlite/ is not a directory",
-            path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+            path.parent()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default()
         ));
     }
     let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
