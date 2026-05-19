@@ -92,3 +92,10 @@ export {
   type CommandContribution,
 } from "./command-palette";
 export { applyOptimistic, type OptimisticOptions } from "./optimistic";
+export {
+  activeWorkspaceId,
+  activeWorkspaceUri,
+  setActiveWorkspaceId,
+  subscribeWorkspaceId,
+  whenWorkspaceReady,
+} from "./workspace-store";

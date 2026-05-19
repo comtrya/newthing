@@ -16,6 +16,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
 import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
+import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
 import { setActiveLabelCatalog } from "../extension-runtime";
 
@@ -144,7 +145,6 @@ interface EpicLite {
   updatedAt?: string | null;
 }
 
-const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const MINI_LIST_LIMIT = 6;
 
 const summary = ref<{
@@ -239,7 +239,12 @@ async function loadSummary(): Promise<void> {
   if (!project.value) return;
   const proj = project.value.name;
   if (!proj) return;
-  const workspaceUri = `comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3`;
+  // Sourced from the shell-wide store published by
+  // `App.vue::loadShellSummary`; the local `workspaceId` ref filled
+  // by `load()` is a per-repo signal, not always populated by the
+  // time `loadSummary` fires (`immediate: true` watch).
+  const id = await whenWorkspaceReady();
+  const workspaceUri = `comtrya://workspace/${id}`;
   // Issues
   const issuesRes = await invokeOp<IssueLite[]>(
     "ext_issues",
@@ -306,7 +311,10 @@ async function loadSummary(): Promise<void> {
 /** Per-row hrefs for the mini-lists — issue detail and epic detail
  *  routes inside the workbench. */
 function issueDetailHref(issue: IssueLite): string {
-  return `/x/issues/${WORKSPACE_ID}/${issue.number ?? 0}`;
+  // `workspaceId` is the local ref populated by `load()`'s repo
+  // query; under the page's render guard (loadState === "ready") it's
+  // always set by the time this href is computed.
+  return `/x/issues/${workspaceId.value ?? "unknown"}/${issue.number ?? 0}`;
 }
 
 function epicDetailHref(epic: EpicLite): string {

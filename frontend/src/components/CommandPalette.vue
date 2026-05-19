@@ -29,23 +29,32 @@ import {
   TransitionChild,
 } from "@headlessui/vue";
 import {
+  activeWorkspaceUri,
   configurePaletteOpener,
   filterCommands,
   getGraphQLClient,
   invokeOp,
   listCommands,
   subscribeCommands,
+  whenWorkspaceReady,
   type CommandContribution,
 } from "@comtrya/sdk-core";
 import { recentRoutes, type RecentEntry } from "../recents";
 
 /**
- * Workspace URI used for the cross-workspace `list-issues` fetch.
- * This is the single workspace the running shell knows about today;
- * when multi-workspace support lands the palette will need to read
- * the active workspace from the router or a session store.
+ * Resolve the active workspace URI fresh on every palette fetch. The
+ * shell publishes the workspace ID at boot
+ * (`App.vue::loadShellSummary` → `setActiveWorkspaceId`); if the
+ * palette opens before that lands we await the first non-null
+ * publish so the fetch hits the right scope rather than the legacy
+ * hardcoded one.
  */
-const WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+async function activeWorkspaceUriOrWait(): Promise<string> {
+  const live = activeWorkspaceUri();
+  if (live) return live;
+  const id = await whenWorkspaceReady();
+  return `comtrya://workspace/${id}`;
+}
 
 interface IssueResult {
   kind: "issue";
@@ -250,6 +259,7 @@ function refreshCommands(): void {
 }
 
 async function refreshIssues(): Promise<void> {
+  const workspaceUri = await activeWorkspaceUriOrWait();
   const result = await invokeOp<Array<{
     id: string;
     number: number;
@@ -260,13 +270,14 @@ async function refreshIssues(): Promise<void> {
     "ext_issues",
     "issues",
     "list-issues",
-    { repository: WORKSPACE_URI, limit: 1024 },
+    { repository: workspaceUri, limit: 1024 },
   );
   if (!result.ok || !Array.isArray(result.value)) return;
-  // Extract workspaceId from each issue's `repository` URI (or fall
-  // back to the shell-default constant). The detail route shape is
+  // Extract workspaceId from each issue's `repository` URI; fall
+  // back to the active workspace id. The detail route shape is
   // /x/issues/<workspaceId>/<number>, so we need a workspace id
   // per-issue rather than per-result-set.
+  const fallbackId = workspaceUri.replace("comtrya://workspace/", "");
   issues.value = result.value
     .map((issue) => {
       const match = /^comtrya:\/\/workspace\/([^/]+)/.exec(issue.repository ?? "");
@@ -276,12 +287,13 @@ async function refreshIssues(): Promise<void> {
         number: issue.number,
         title: issue.title ?? "",
         state: issue.state ?? null,
-        workspaceId: match?.[1] ?? WORKSPACE_URI.replace("comtrya://workspace/", ""),
+        workspaceId: match?.[1] ?? fallbackId,
       };
     });
 }
 
 async function refreshPulls(): Promise<void> {
+  const workspaceUri = await activeWorkspaceUriOrWait();
   const result = await invokeOp<Array<{
     id: string;
     number?: number | null;
@@ -291,7 +303,7 @@ async function refreshPulls(): Promise<void> {
     "ext_pull_requests",
     "pulls",
     "list-pulls",
-    { repository: WORKSPACE_URI, limit: 1024 },
+    { repository: workspaceUri, limit: 1024 },
   );
   if (!result.ok || !Array.isArray(result.value)) return;
   pulls.value = result.value.map((pull) => ({
@@ -333,6 +345,7 @@ async function refreshRepos(): Promise<void> {
 }
 
 async function refreshEpics(): Promise<void> {
+  const workspaceUri = await activeWorkspaceUriOrWait();
   const result = await invokeOp<Array<{
     id: string;
     title: string;
@@ -341,7 +354,7 @@ async function refreshEpics(): Promise<void> {
     "ext_epics",
     "epics",
     "list-epics",
-    { workspace: WORKSPACE_URI, limit: 1024 },
+    { workspace: workspaceUri, limit: 1024 },
   );
   if (!result.ok || !Array.isArray(result.value)) return;
   epics.value = result.value.map((epic) => ({

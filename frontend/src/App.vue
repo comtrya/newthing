@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { invokeOp, openPalette, subscribeLiveEvents } from "@comtrya/sdk-core";
+import {
+  invokeOp,
+  openPalette,
+  setActiveWorkspaceId,
+  subscribeLiveEvents,
+} from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
 import MobileTabBar from "./components/MobileTabBar.vue";
@@ -239,6 +244,11 @@ async function loadShellSummary(): Promise<void> {
     };
     const workspaceId = envelope.data?.workspace?.id;
     if (workspaceId) {
+      // Publish to the SDK store BEFORE the failing-checks fan-out so
+      // composables that subscribe (`useWorkspaceContext`, the
+      // injected `workspaceId` on extension custom elements) see the
+      // resolved ID before any downstream render.
+      setActiveWorkspaceId(workspaceId);
       void refreshFailingChecksMap(workspaceId);
     }
   } catch {
