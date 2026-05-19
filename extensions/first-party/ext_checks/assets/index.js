@@ -2809,9 +2809,13 @@ function Ya() {
 	}, e[Ja];
 }
 //#endregion
+//#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
+var Xa = typeof navigator == "object" ? navigator.platform : "";
+/Mac|iPod|iPhone|iPad/.test(Xa);
+//#endregion
 //#region packages/sdk-vue/src/index.ts
-function Xa(e) {
-	Za(e.tagName, e.component);
+function Za(e) {
+	Qa(e.tagName, e.component);
 	let t = /* @__PURE__ */ Ra(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -2819,78 +2823,64 @@ function Xa(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute($a(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(eo(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Za(e, t) {
+function Qa(e, t) {
 	if (typeof document > "u") return;
-	let n = Qa(t);
+	let n = $a(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function Qa(e) {
+function $a(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function $a(e) {
+function eo(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_checks/ui/src/ChecksBoard.vue?vue&type=style&index=0&inline&scoped=e2bcc403&lang.css
-var eo = ".extension-payload[data-v-e2bcc403]{gap:4px;display:grid}", to = (e, t) => {
+var to = ".extension-payload[data-v-e2bcc403]{gap:4px;display:grid}", no = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, no = {}, ro = {
+}, ro = {}, io = {
 	class: "extension-payload",
 	"data-smoke": "checks-board"
 };
-function io(e, t) {
-	return di(), gi("div", ro, [...t[0] ||= [xi("strong", null, "Checks board", -1)]]);
+function ao(e, t) {
+	return di(), gi("div", io, [...t[0] ||= [xi("strong", null, "Checks board", -1)]]);
 }
-var ao = /* @__PURE__ */ to(no, [
-	["render", io],
-	["styles", [eo]],
+var oo = /* @__PURE__ */ no(ro, [
+	["render", ao],
+	["styles", [to]],
 	["__scopeId", "data-v-e2bcc403"]
-]), oo = ".extension-payload[data-v-65822476]{gap:4px;display:grid}", so = {}, co = {
-	class: "extension-payload",
-	"data-smoke": "checks-detail"
-};
-function lo(e, t) {
-	return di(), gi("div", co, [...t[0] ||= [xi("strong", null, "Check detail", -1)]]);
-}
-var uo = /* @__PURE__ */ to(so, [
-	["render", lo],
-	["styles", [oo]],
-	["__scopeId", "data-v-65822476"]
-]), fo = "ext_checks", po = "comtrya-checks-board";
-Xa({
-	tagName: po,
-	component: ao
-}), Xa({
-	tagName: "comtrya-checks-detail",
-	component: uo
+]), so = "ext_checks", co = "comtrya-checks-board";
+Za({
+	tagName: co,
+	component: oo
 });
-var mo = {
-	id: fo,
+var lo = {
+	id: so,
 	setup(e) {
 		e.registerWidget({
 			id: "checks-board",
-			element: po,
+			element: co,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 200,
 			requiredPermission: "checks.read"
 		}), e.registerRoute("/", {
-			element: po,
+			element: co,
 			requiredPermission: "checks.read"
 		});
 	}
 };
 //#endregion
-export { mo as default };
+export { lo as default };

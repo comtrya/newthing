@@ -1,10 +1,8 @@
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
 import ChecksBoard from "./ChecksBoard.vue";
-import ChecksDetail from "./ChecksDetail.vue";
 
 const EXTENSION_ID = "ext_checks";
 const CHECKS_BOARD_TAG = "comtrya-checks-board";
-const CHECKS_DETAIL_TAG = "comtrya-checks-detail";
 
 interface ExtensionHost {
   registerWidget(contribution: {
@@ -29,7 +27,6 @@ interface ExtensionDefinition {
 }
 
 defineExtensionWidget({ tagName: CHECKS_BOARD_TAG, component: ChecksBoard });
-defineExtensionWidget({ tagName: CHECKS_DETAIL_TAG, component: ChecksDetail });
 
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
