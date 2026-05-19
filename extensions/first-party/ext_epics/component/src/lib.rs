@@ -1,6 +1,5 @@
 // ext_epics — WASM Component-Model implementation of `epics.wit`.
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::events;

@@ -1,6 +1,5 @@
 // ext_checks — WASM Component-Model implementation of `checks.wit`.
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::ids;
