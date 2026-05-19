@@ -334,13 +334,7 @@ impl Runtime {
 
         fs::create_dir_all(&options.data_dir)
             .map_err(|error| format!("failed to create data dir: {error}"))?;
-        for dirname in [
-            "metadata",
-            "repositories",
-            "extensions",
-            "secrets",
-            "backups",
-        ] {
+        for dirname in ["metadata", "repositories", "extensions", "secrets"] {
             fs::create_dir_all(options.data_dir.join(dirname))
                 .map_err(|error| format!("failed to create data/{dirname}: {error}"))?;
         }
