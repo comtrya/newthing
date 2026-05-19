@@ -257,10 +257,7 @@ fn router(state: AppState) -> Router {
         .route("/events/session", post(events_session))
         .route("/auth/token-exchange", post(token_exchange))
         .route("/auth/oidc/:provider/login", get(oidc_login))
-        .route(
-            "/auth/oidc/:provider/callback",
-            get(oidc_callback_not_implemented),
-        )
+        .route("/auth/oidc/:provider/callback", get(oidc_callback))
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -374,6 +371,10 @@ struct Runtime {
     token_counter: AtomicU64,
     oidc_sessions: oidc::OidcSessionStore,
     oidc_discovery: oidc::OidcDiscoveryCache,
+    /// OIDC user upsert + audit. `&mut self` on `login`, so we wrap in
+    /// `Mutex`. **Never** hold this guard across an `.await` — see
+    /// `oidc_callback` for the discipline.
+    auth_service: Mutex<comtrya_core::auth::AuthService>,
 }
 
 #[derive(Debug, Clone)]
@@ -478,6 +479,9 @@ impl Runtime {
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
+        // Capture config before move so AuthService can be built from it.
+        let auth_service = comtrya_core::auth::AuthService::new(&config);
+
         let runtime = Self {
             data_dir: options.data_dir.clone(),
             options,
@@ -494,6 +498,7 @@ impl Runtime {
             token_counter: AtomicU64::new(0),
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
+            auth_service: Mutex::new(auth_service),
         };
         runtime
             .wasm_registry
@@ -3015,9 +3020,46 @@ async fn oidc_login(
     response
 }
 
-async fn oidc_callback_not_implemented(
+/// Build the `Set-Cookie` header value for a freshly issued session.
+/// `Secure` is set only when `tls_terminated == true` — operators
+/// behind a TLS-terminating proxy must opt-in via that flag.
+/// `X-Forwarded-Proto` is intentionally NOT consulted here
+/// (header-trust questions are out of scope for #16's callback PR).
+fn session_cookie_value(token: &str, ttl_secs: u64, secure: bool) -> String {
+    let secure_attr = if secure { "; Secure" } else { "" };
+    format!(
+        "comtrya_session={token}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age={ttl_secs}"
+    )
+}
+
+#[derive(Debug, Deserialize)]
+struct OidcCallbackQuery {
+    state: Option<String>,
+    code: Option<String>,
+}
+
+/// OIDC callback handler. Completes the authorization-code flow
+/// started by [`oidc_login`]:
+/// 1. Pull `state` + `code` from the query string.
+/// 2. Single-use `take` the matching session from the in-flight store.
+/// 3. Look up the provider's config + cached metadata.
+/// 4. Hand off to `OidcCodeExchanger::exchange` for the token round-trip
+///    + ID-token signature/audience/issuer/nonce verification.
+/// 5. Upsert the user via `AuthService::login` (Mutex acquired AFTER
+///    the async exchange; guard dropped at the statement end — never
+///    held across an `.await`).
+/// 6. Issue a session and set a `comtrya_session` cookie.
+/// 7. 302 redirect to `/`.
+///
+/// Logging discipline: NO tracing event or audit log entry emitted by
+/// this handler contains `code`, `state`, `pkce_verifier`, `nonce`,
+/// `client_secret`, or the issued session token. Future
+/// `#[instrument]` additions must `skip(...)` every credential
+/// parameter.
+async fn oidc_callback(
     State(state): State<AppState>,
     AxumPath(provider): AxumPath<String>,
+    Query(query): Query<OidcCallbackQuery>,
     headers: HeaderMap,
 ) -> Response {
     let route = format!("/auth/oidc/{provider}/callback");
@@ -3025,14 +3067,177 @@ async fn oidc_callback_not_implemented(
         Ok(c) => c,
         Err(r) => return *r,
     };
-    json_response(
-        StatusCode::NOT_IMPLEMENTED,
+
+    let err = |status: StatusCode, code: &str, msg: &str| -> Response {
+        json_response(
+            status,
+            json!({"errors": [{"message": msg, "extensions": {"code": code}}]}),
+            cors.clone(),
+        )
+    };
+
+    // 1. Required query params.
+    let (Some(callback_state), Some(code)) = (query.state, query.code) else {
+        return err(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "OIDC callback requires both `state` and `code` query parameters",
+        );
+    };
+
+    // 2. Single-use session lookup. `take` removes the entry; replays
+    //    or unknown state values yield 401.
+    let login_session = match state.runtime.oidc_sessions.take(&callback_state) {
+        Some(s) => s,
+        None => {
+            return err(
+                StatusCode::UNAUTHORIZED,
+                ErrorCode::Unauthenticated.as_str(),
+                "OIDC callback state is unknown, expired, or already consumed",
+            );
+        }
+    };
+
+    // 2b. Path provider must match the provider this session was issued
+    //     for, otherwise a state from provider A could be replayed at
+    //     provider B's callback.
+    if login_session.provider_id != provider {
+        return err(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "OIDC callback provider does not match the in-flight session",
+        );
+    }
+
+    // 3. Provider config from instance config.
+    let issuer = match state
+        .runtime
+        .config
+        .oidc_issuers
+        .iter()
+        .find(|i| i.id == provider)
+    {
+        Some(i) => i.clone(),
+        None => {
+            return err(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                &format!("unknown OIDC provider: {provider}"),
+            );
+        }
+    };
+
+    // 3b. Cached metadata. Login already fetched this; cache hit
+    //     expected.
+    let metadata = match state
+        .runtime
+        .oidc_discovery
+        .get_or_fetch(&issuer.id, &issuer.issuer_url)
+        .await
+    {
+        Ok(m) => m,
+        Err(_e) => {
+            return err(
+                StatusCode::BAD_GATEWAY,
+                ErrorCode::StorageUnavailable.as_str(),
+                "OIDC discovery unavailable",
+            );
+        }
+    };
+
+    // 4. Exchange + verify. Error message is scrubbed — don't leak
+    //    upstream verification internals.
+    let claims = match state
+        .runtime
+        .oidc_discovery
+        .exchanger
+        .exchange(oidc::OidcCodeExchangeRequest {
+            metadata,
+            client_id: issuer.client_id.clone(),
+            client_secret: issuer.client_secret.clone(),
+            redirect_url: issuer.redirect_url.clone(),
+            pkce_verifier: login_session.pkce_verifier,
+            nonce: login_session.nonce,
+            code,
+        })
+        .await
+    {
+        Ok(c) => c,
+        Err(_e) => {
+            return err(
+                StatusCode::UNAUTHORIZED,
+                ErrorCode::Unauthenticated.as_str(),
+                "OIDC code exchange or ID-token verification failed",
+            );
+        }
+    };
+
+    // 5. Upsert user. Mutex lock comes AFTER the async exchange and
+    //    drops at this statement's semicolon — never held across an
+    //    `.await`.
+    let login_result = state
+        .runtime
+        .auth_service
+        .lock()
+        .expect("auth_service lock not poisoned")
+        .login(&issuer.id, claims);
+    let login = match login_result {
+        Ok(l) => l,
+        Err(core_err) => {
+            use comtrya_core::error::ErrorCode as CoreErr;
+            let (status, code) = match core_err.code {
+                CoreErr::Forbidden => (StatusCode::FORBIDDEN, ErrorCode::Forbidden.as_str()),
+                _ => (
+                    StatusCode::UNAUTHORIZED,
+                    ErrorCode::Unauthenticated.as_str(),
+                ),
+            };
+            return err(status, code, &core_err.message);
+        }
+    };
+
+    // 6. Issue session. `PrincipalStatus::Credential` marks the
+    //    bearer as OIDC-authenticated; the user id itself is captured
+    //    in the audit event below for trace correlation, not in the
+    //    SessionRecord (which only stores PrincipalStatus today).
+    let token = state.runtime.issue_session(PrincipalStatus::Credential);
+    let cookie = session_cookie_value(
+        &token,
+        state.runtime.options.session_ttl_seconds,
+        state.runtime.options.tls_terminated,
+    );
+    let cookie_value = match HeaderValue::from_str(&cookie) {
+        Ok(v) => v,
+        Err(_) => {
+            return err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "session cookie value not valid as HTTP header",
+            );
+        }
+    };
+
+    // 7. 302 to root. Frontend wiring (return_to support, post-login
+    //    UX) lands separately.
+    let mut response = Response::new(axum::body::Body::empty());
+    *response.status_mut() = StatusCode::FOUND;
+    response
+        .headers_mut()
+        .insert(axum::http::header::LOCATION, HeaderValue::from_static("/"));
+    response
+        .headers_mut()
+        .insert(axum::http::header::SET_COOKIE, cookie_value);
+    response.headers_mut().extend(cors);
+    // login.user.id is not a secret; safe to log.
+    let _ = state.runtime.append_audit(
+        "dev.comtrya.oidc.login.completed",
         json!({
-            "code": "UNSUPPORTED",
-            "message": "OIDC callback verification not yet implemented; tracked as a follow-up on #16",
+            "user_id": login.user.id.as_str(),
+            "created": login.created,
+            "provider": provider,
         }),
-        cors,
-    )
+    );
+    response
 }
 
 async fn extension_manifest(
@@ -6861,13 +7066,11 @@ mod tests {
         );
     }
 
-    // Deleted: `unsupported_routes_return_registry_errors`. Its only loop
-    // arm targeted `/auth/oidc/prod/callback` against the
-    // `oidc_browser_callback` surface, which was removed from
-    // `UNSUPPORTED_SURFACES` in this PR. The callback now returns 501
-    // directly from `oidc_callback_not_implemented`; that contract is
-    // covered by `oidc_callback_handler_returns_501_not_implemented`
-    // below. No coverage lost.
+    // Deleted: `unsupported_routes_return_registry_errors` (in #23) and
+    // its successor `oidc_callback_handler_returns_501_not_implemented`
+    // (also in #23). The callback is now a real handler — full coverage
+    // lives in the four `oidc_callback_*` tests further down this
+    // module.
 
     // ---- OIDC scaffolding handler tests (#16) ----
 
@@ -6909,9 +7112,12 @@ mod tests {
     fn dev_runtime_with_oidc_mock() -> Arc<Runtime> {
         let mut runtime = dev_runtime_no_extensions();
         let inner = Arc::get_mut(&mut runtime).expect("unique Arc on fresh runtime");
-        inner.oidc_discovery = oidc::OidcDiscoveryCache::new(Box::new(MockOidcMetadataProvider {
-            metadata: mock_provider_metadata(),
-        }));
+        inner.oidc_discovery = oidc::OidcDiscoveryCache::with_components(
+            Box::new(MockOidcMetadataProvider {
+                metadata: mock_provider_metadata(),
+            }),
+            Box::new(oidc::ReqwestCodeExchanger::new()),
+        );
         runtime
     }
 
@@ -7038,28 +7244,221 @@ mod tests {
         out
     }
 
+    // ---- OIDC callback handler tests (#16 callback sub-item) ----
+
+    /// Mock that returns a pre-built `OidcClaims` without any HTTP
+    /// round-trip or signature verification. Tests inject this via
+    /// `dev_runtime_with_oidc_mocks` so they can drive the callback
+    /// flow without a real IdP.
+    struct MockOidcCodeExchanger {
+        claims: comtrya_core::auth::OidcClaims,
+    }
+
+    #[async_trait::async_trait]
+    impl oidc::OidcCodeExchanger for MockOidcCodeExchanger {
+        async fn exchange(
+            &self,
+            _request: oidc::OidcCodeExchangeRequest,
+        ) -> Result<comtrya_core::auth::OidcClaims, String> {
+            Ok(self.claims.clone())
+        }
+    }
+
+    fn dev_runtime_with_oidc_mocks(claims: comtrya_core::auth::OidcClaims) -> Arc<Runtime> {
+        let mut runtime = dev_runtime_no_extensions();
+        let inner = Arc::get_mut(&mut runtime).expect("unique Arc on fresh runtime");
+        inner.oidc_discovery = oidc::OidcDiscoveryCache::with_components(
+            Box::new(MockOidcMetadataProvider {
+                metadata: mock_provider_metadata(),
+            }),
+            Box::new(MockOidcCodeExchanger { claims }),
+        );
+        runtime
+    }
+
+    fn insert_login_session(runtime: &Runtime, provider_id: &str) -> String {
+        use openidconnect::{Nonce, PkceCodeChallenge};
+        let state_token = format!("state-{provider_id}-test");
+        let (_chal, verifier) = PkceCodeChallenge::new_random_sha256();
+        let now = now_seconds();
+        runtime
+            .oidc_sessions
+            .insert(
+                state_token.clone(),
+                oidc::OidcLoginSession {
+                    provider_id: provider_id.to_string(),
+                    pkce_verifier: verifier,
+                    nonce: Nonce::new_random(),
+                    created_at_secs: now,
+                },
+                now,
+            )
+            .expect("insert ok");
+        state_token
+    }
+
     #[tokio::test]
-    async fn oidc_callback_handler_returns_501_not_implemented() {
+    async fn oidc_callback_with_unknown_state_returns_401() {
         let runtime = dev_runtime_with_oidc_mock();
-        let response = oidc_callback_not_implemented(
+        let response = oidc_callback(
             State(AppState {
                 runtime,
                 git_state: PureRustGitState::test_default(),
             }),
             AxumPath("dev".to_string()),
+            Query(OidcCallbackQuery {
+                state: Some("bogus".to_string()),
+                code: Some("any".to_string()),
+            }),
             origin_header_map(),
         )
         .await;
-        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload = serde_json::from_slice::<Value>(&body).unwrap();
-        assert_eq!(payload["code"], "UNSUPPORTED");
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(
-            payload["message"]
-                .as_str()
-                .unwrap()
-                .contains("not yet implemented"),
+            response
+                .headers()
+                .contains_key("access-control-allow-origin"),
+            "401 must preserve CORS",
         );
+    }
+
+    #[tokio::test]
+    async fn oidc_callback_with_mismatched_provider_returns_401() {
+        let runtime = dev_runtime_with_oidc_mock();
+        let state_token = insert_login_session(&runtime, "dev");
+        let response = oidc_callback(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            // session was issued for "dev"; call comes in on "other"
+            AxumPath("other".to_string()),
+            Query(OidcCallbackQuery {
+                state: Some(state_token),
+                code: Some("any".to_string()),
+            }),
+            origin_header_map(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn oidc_callback_happy_path_issues_session_cookie() {
+        let claims = comtrya_core::auth::OidcClaims {
+            issuer: "https://issuer.example.test".to_string(),
+            subject: "user-rawkode".to_string(),
+            email: Some("rawkode@example.test".to_string()),
+            display_name: Some("Rawkode".to_string()),
+            groups: Vec::new(),
+        };
+        let runtime = dev_runtime_with_oidc_mocks(claims);
+        let provider = runtime.config.oidc_issuers[0].id.clone();
+        let users_before = runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock")
+            .users_len();
+        let state_token = insert_login_session(&runtime, &provider);
+
+        let response = oidc_callback(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath(provider),
+            Query(OidcCallbackQuery {
+                state: Some(state_token),
+                code: Some("auth-code-from-idp".to_string()),
+            }),
+            origin_header_map(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::LOCATION)
+                .map(|v| v.to_str().unwrap()),
+            Some("/"),
+        );
+        let cookie = response
+            .headers()
+            .get(axum::http::header::SET_COOKIE)
+            .expect("Set-Cookie set")
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(cookie.starts_with("comtrya_session="), "got: {cookie}");
+        assert!(cookie.contains("HttpOnly"), "got: {cookie}");
+        assert!(cookie.contains("SameSite=Lax"), "got: {cookie}");
+        assert!(cookie.contains("Path=/"), "got: {cookie}");
+        assert!(cookie.contains("Max-Age="), "got: {cookie}");
+        // dev_runtime defaults tls_terminated=false → no Secure
+        assert!(!cookie.contains("Secure"), "got: {cookie}");
+
+        // User upserted in the AuthService.
+        let users_after = runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock")
+            .users_len();
+        assert_eq!(users_after, users_before + 1, "user must be upserted");
+
+        // The cookie's token consumes back to a Credential principal.
+        let token = cookie
+            .strip_prefix("comtrya_session=")
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap();
+        let principal = runtime
+            .consume_session(token)
+            .expect("freshly issued session must consume");
+        assert!(matches!(principal, PrincipalStatus::Credential));
+    }
+
+    #[tokio::test]
+    async fn oidc_callback_jit_denied_returns_403() {
+        // Issuer's allowed_domains is ["example.test"]; the mock claims
+        // an email outside that domain → AuthService::login returns Forbidden.
+        let claims = comtrya_core::auth::OidcClaims {
+            issuer: "https://issuer.example.test".to_string(),
+            subject: "outsider".to_string(),
+            email: Some("outsider@other.com".to_string()),
+            display_name: None,
+            groups: Vec::new(),
+        };
+        let runtime = dev_runtime_with_oidc_mocks(claims);
+        let provider = runtime.config.oidc_issuers[0].id.clone();
+        let users_before = runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock")
+            .users_len();
+        let state_token = insert_login_session(&runtime, &provider);
+
+        let response = oidc_callback(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath(provider),
+            Query(OidcCallbackQuery {
+                state: Some(state_token),
+                code: Some("auth-code".to_string()),
+            }),
+            origin_header_map(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let users_after = runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock")
+            .users_len();
+        assert_eq!(users_after, users_before, "denied login must not upsert");
     }
 
     #[tokio::test]

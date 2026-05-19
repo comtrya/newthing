@@ -1,39 +1,37 @@
 //! OIDC scaffolding for the comtrya kernel.
 //!
-//! This module owns the in-memory state and discovery cache for the OIDC
-//! login redirect flow at `/auth/oidc/:provider/login`. It deliberately
-//! does NOT implement the callback verification path (`/auth/oidc/:provider/callback`
-//! returns 501 from a sibling handler in `main.rs`) — that work lands in a
-//! follow-up iteration of issue #16.
+//! Owns in-memory state, discovery cache, and code-exchange plumbing
+//! for the OIDC flow at `/auth/oidc/:provider/{login,callback}`.
 //!
-//! Three types matter outside this module:
+//! Five types matter outside this module:
 //!
-//! * [`OidcLoginSession`] — a single in-flight PKCE+nonce pair, indexed by
-//!   the CSRF state token sent to the IdP.
-//! * [`OidcSessionStore`] — bounded in-memory map of sessions with TTL
-//!   eviction-on-insert and a 10,000-entry hard cap (insert returns Err
-//!   when the cap is hit so the caller can respond 429 cleanly).
-//! * [`OidcDiscoveryCache`] — memoizes `CoreProviderMetadata` per issuer
-//!   for the process lifetime. Operator note: if an IdP's discovery
-//!   document changes, recovery requires a process restart. Refresh-on-
-//!   rotation is a follow-up.
-//!
-//! The cache is generic over [`OidcMetadataProvider`] so tests can inject
-//! a mock that returns a pre-built metadata value without making any
-//! network requests.
+//! * [`OidcLoginSession`] — single in-flight PKCE+nonce pair, indexed
+//!   in the session store by the CSRF state token sent to the IdP.
+//! * [`OidcSessionStore`] — bounded in-memory map of sessions with
+//!   TTL eviction-on-insert and a 10,000-entry hard cap.
+//! * [`OidcMetadataProvider`] — trait abstracting the discovery
+//!   document fetch. Production: `ReqwestMetadataProvider` with
+//!   `Policy::none()` (discovery must not redirect).
+//! * [`OidcCodeExchanger`] — trait abstracting the authorization-code
+//!   exchange + ID-token verification. Production:
+//!   `ReqwestCodeExchanger` with the DEFAULT redirect policy (some
+//!   IdPs 3xx their canonical token endpoint).
+//! * [`OidcDiscoveryCache`] — holds both providers + memoizes
+//!   `CoreProviderMetadata` per issuer for the process lifetime.
 
-use openidconnect::core::CoreProviderMetadata;
-use openidconnect::{IssuerUrl, Nonce, PkceCodeVerifier};
+use comtrya_core::auth::OidcClaims;
+use openidconnect::core::{CoreClient, CoreProviderMetadata};
+use openidconnect::{
+    AuthorizationCode, ClientId, ClientSecret, IssuerUrl, Nonce, PkceCodeVerifier, RedirectUrl,
+};
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 
 /// Per-invocation PKCE + nonce material, indexed in the session store
-/// by the CSRF state token sent to the IdP. Single-use: [`OidcSessionStore::take`]
-/// removes the entry on retrieval so a replay returns `None`. Fields are
-/// read by the callback handler in the follow-up iteration of #16;
-/// allowed-dead here because the scaffolding ships before the consumer.
+/// by the CSRF state token sent to the IdP. Single-use:
+/// [`OidcSessionStore::take`] removes the entry on retrieval so a
+/// replay returns `None`.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub(crate) struct OidcLoginSession {
     pub provider_id: String,
     pub pkce_verifier: PkceCodeVerifier,
@@ -42,9 +40,7 @@ pub(crate) struct OidcLoginSession {
 }
 
 /// 30 minutes — matches typical OIDC implementations and is generous
-/// enough for users who pause at MFA prompts. Earlier draft used 10 min;
-/// adversarial review flagged that as too aggressive for real-world
-/// authorization-code flows.
+/// enough for users who pause at MFA prompts.
 pub(crate) const OIDC_SESSION_TTL_SECS: u64 = 30 * 60;
 
 /// Hard cap on the number of in-flight OIDC login sessions. When hit,
@@ -83,24 +79,11 @@ impl OidcSessionStore {
         Ok(())
     }
 
-    /// Single-use retrieval — removes the entry on return. The callback
-    /// handler in the follow-up iteration of issue #16 will use this in
-    /// production; for now, gated on `cfg(test)` so it ships with the
-    /// scaffolding without triggering the dead-code lint. The next PR
-    /// removes the `cfg` gate.
-    #[cfg(test)]
+    /// Single-use retrieval — removes the entry on return. Called from
+    /// the production callback handler.
     pub fn take(&self, state: &str) -> Option<OidcLoginSession> {
         let mut guard = self.inner.lock().expect("oidc session lock not poisoned");
         guard.remove(state)
-    }
-
-    /// Drop all entries older than the cutoff. Useful only for tests
-    /// today; production code calls eviction implicitly via [`insert`].
-    /// `cfg(test)` for the same reason as [`take`].
-    #[cfg(test)]
-    pub fn evict_older_than(&self, cutoff_secs: u64) {
-        let mut guard = self.inner.lock().expect("oidc session lock not poisoned");
-        guard.retain(|_, s| s.created_at_secs >= cutoff_secs);
     }
 
     #[cfg(test)]
@@ -118,6 +101,33 @@ impl OidcSessionStore {
 #[async_trait::async_trait]
 pub(crate) trait OidcMetadataProvider: Send + Sync {
     async fn fetch(&self, issuer_url: &str) -> Result<CoreProviderMetadata, String>;
+}
+
+/// Inputs to a single OIDC code-exchange call. Bundled into a record
+/// so the trait method stays at one argument plus `&self`, and so
+/// adding a new field (e.g. `groups_claim_path` later) doesn't churn
+/// the signature.
+#[derive(Debug)]
+pub(crate) struct OidcCodeExchangeRequest {
+    pub metadata: CoreProviderMetadata,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+    pub redirect_url: String,
+    pub pkce_verifier: PkceCodeVerifier,
+    pub nonce: Nonce,
+    pub code: String,
+}
+
+/// Authorization-code → ID-token + verified claims. Production uses
+/// `openidconnect` + reqwest; tests inject a closure that returns
+/// pre-built [`OidcClaims`] without any HTTP traffic.
+///
+/// The trait owns both the network round-trip AND the cryptographic
+/// verification so the kernel doesn't expose half a verifier to its
+/// callers.
+#[async_trait::async_trait]
+pub(crate) trait OidcCodeExchanger: Send + Sync {
+    async fn exchange(&self, request: OidcCodeExchangeRequest) -> Result<OidcClaims, String>;
 }
 
 /// Production [`OidcMetadataProvider`] backed by `reqwest`. Configured
@@ -154,18 +164,101 @@ impl OidcMetadataProvider for ReqwestMetadataProvider {
     }
 }
 
+/// Production [`OidcCodeExchanger`] backed by `reqwest`. Uses the
+/// DEFAULT redirect policy (NOT `Policy::none()` like the discovery
+/// client) because some IdPs (Google, Azure AD) return 3xx from their
+/// canonical token endpoint and require following the redirect to the
+/// actual server. Constructed as a separate `reqwest::Client` from
+/// the discovery client.
+pub(crate) struct ReqwestCodeExchanger {
+    http: reqwest::Client,
+}
+
+impl ReqwestCodeExchanger {
+    pub fn new() -> Self {
+        let http = reqwest::Client::builder()
+            .build()
+            .expect("build OIDC token-exchange http client");
+        Self { http }
+    }
+}
+
+impl Default for ReqwestCodeExchanger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
+impl OidcCodeExchanger for ReqwestCodeExchanger {
+    async fn exchange(&self, request: OidcCodeExchangeRequest) -> Result<OidcClaims, String> {
+        let redirect = RedirectUrl::new(request.redirect_url)
+            .map_err(|e| format!("invalid OIDC redirect_url: {e}"))?;
+        let client = CoreClient::from_provider_metadata(
+            request.metadata,
+            ClientId::new(request.client_id),
+            request.client_secret.map(ClientSecret::new),
+        )
+        .set_redirect_uri(redirect);
+
+        let token_response = client
+            .exchange_code(AuthorizationCode::new(request.code))
+            .map_err(|e| format!("build token-exchange request: {e}"))?
+            .set_pkce_verifier(request.pkce_verifier)
+            .request_async(&self.http)
+            .await
+            .map_err(|e| format!("OIDC token exchange failed: {e}"))?;
+
+        // `id_token()` returns `Option<&CoreIdToken>` borrowing from
+        // `token_response`. Clone it so the lifetime tangle between
+        // `token_response`, `client`, and the verifier in the next line
+        // doesn't require us to hold every binding in one scope.
+        let id_token = token_response
+            .extra_fields()
+            .id_token()
+            .ok_or_else(|| "OIDC token response missing id_token".to_string())?
+            .clone();
+        // Library performs full standard verification: signature against
+        // JWKS, audience, issuer match against metadata, nonce match,
+        // expiry, etc.
+        let claims = id_token
+            .claims(&client.id_token_verifier(), &request.nonce)
+            .map_err(|e| format!("OIDC id_token verification failed: {e}"))?;
+
+        let issuer = claims.issuer().as_str().to_string();
+        let subject = claims.subject().as_str().to_string();
+        let email = claims.email().map(|e| e.as_str().to_string());
+        let display_name = claims
+            .name()
+            .and_then(|n| n.get(None))
+            .map(|n| n.as_str().to_string());
+        // openidconnect's default Core claims don't expose `groups`.
+        // OIDC `groups` is not a standard claim; the library ships only
+        // the spec-defined claims unless we widen `CoreIdTokenClaims`
+        // with a custom additional-claims type. Leaving empty for now;
+        // group-based JIT provisioning is a follow-up.
+        Ok(OidcClaims {
+            issuer,
+            subject,
+            email,
+            display_name,
+            groups: Vec::new(),
+        })
+    }
+}
+
 /// Process-lifetime cache of [`CoreProviderMetadata`] keyed by provider
-/// id. No TTL in v1 — refresh requires a process restart, which is fine
-/// for the production-testbed posture. Refresh-on-rotation is a
-/// follow-up.
+/// id, plus the code exchanger used by the callback handler. No TTL on
+/// the metadata cache in v1 — refresh requires a process restart.
 pub(crate) struct OidcDiscoveryCache {
     inner: RwLock<HashMap<String, CoreProviderMetadata>>,
     provider: Box<dyn OidcMetadataProvider>,
+    pub exchanger: Box<dyn OidcCodeExchanger>,
 }
 
 impl std::fmt::Debug for OidcDiscoveryCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // `dyn OidcMetadataProvider` is not Debug; surface only what is.
+        // dyn traits aren't Debug; surface only what is.
         f.debug_struct("OidcDiscoveryCache")
             .field("cached_issuers", &self.inner.read().ok().map(|g| g.len()))
             .finish_non_exhaustive()
@@ -173,16 +266,26 @@ impl std::fmt::Debug for OidcDiscoveryCache {
 }
 
 impl OidcDiscoveryCache {
-    pub fn new(provider: Box<dyn OidcMetadataProvider>) -> Self {
+    /// Construct from explicit metadata + exchanger implementations.
+    /// Tests inject mocks via this entry point; production calls
+    /// [`with_reqwest`] (which calls through here).
+    pub fn with_components(
+        provider: Box<dyn OidcMetadataProvider>,
+        exchanger: Box<dyn OidcCodeExchanger>,
+    ) -> Self {
         Self {
             inner: RwLock::new(HashMap::new()),
             provider,
+            exchanger,
         }
     }
 
-    /// Production constructor — uses `reqwest` under the hood.
+    /// Production constructor — uses `reqwest` for both halves.
     pub fn with_reqwest() -> Self {
-        Self::new(Box::new(ReqwestMetadataProvider::new()))
+        Self::with_components(
+            Box::new(ReqwestMetadataProvider::new()),
+            Box::new(ReqwestCodeExchanger::new()),
+        )
     }
 
     pub async fn get_or_fetch(
@@ -262,7 +365,6 @@ mod tests {
         let store = OidcSessionStore::new();
         let now = 1_000_000;
 
-        // Fill to cap with fresh entries (eviction won't help).
         for i in 0..OIDC_SESSION_MAX_ENTRIES {
             let (_chal, verifier) = PkceCodeChallenge::new_random_sha256();
             store.inner.lock().unwrap().insert(
