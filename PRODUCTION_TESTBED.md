@@ -1,63 +1,78 @@
-# Production Testbed
+# Production testbed
 
-The production testbed runtime is a safe, runnable single-node target for exercising Forgepoint's production posture while the full v1 implementation is still being built.
+> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>`.
+> Extension-owned pages live at `/x/<prefix>/<...>`. The workspace homepage is
+> `/`.
 
-It is intentionally fail-closed: unsupported SPEC surfaces do not return fake success. Readiness reports those unsupported surfaces explicitly.
+The production-testbed runtime is a safe, runnable single-node target for
+exercising Comtrya's production posture while the full v1 implementation is
+still being built.
 
-See `ARCHITECTURE.md` for the current runtime map and `DEMO_RUNBOOK.md` for
-operator commands and inspection steps.
+It fails closed: unsupported SPEC surfaces do not return fake success.
+Readiness reports those unsupported surfaces explicitly.
+
+See `ARCHITECTURE.md` for the runtime map and `DEMO_RUNBOOK.md` for operator
+commands and inspection steps.
 
 ## Run
 
-For the normal end-to-end smoke path:
+Normal interactive path:
 
 ```sh
 cp .envrc.example .envrc
 ./start.sh
 ```
 
-`.envrc` supplies the seeded production-testbed operator code. The script builds
-the Rust server and Astro frontend, validates production-testbed startup gates,
-starts both processes, probes the frontend health/readiness/Auth/GraphQL/events/
-extensions/Git boundaries, and then keeps the stack running for manual browser
-testing. Use
-`FORGEPOINT_ONESHOT=1 ./start.sh` when you want the same smoke test to stop the
-server and exit after the probes pass. Oneshot runs default to
-`FORGEPOINT_SESSION_TTL_SECONDS=2` so the smoke path can prove expired browser
-session tokens fail closed without waiting five minutes; normal interactive runs
-keep the five-minute session TTL unless you set the variable yourself.
-Set `FORGEPOINT_EXTERNAL_DEMO=1` for shared demos; production startup then
-rejects the local `.envrc.example` operator code and requires a non-default
-`FORGEPOINT_OPERATOR_CODE`.
+One-shot smoke path:
+
+```sh
+./start.sh --reset --oneshot
+```
+
+The script builds the Rust server and Vite/Vue frontend, validates
+production-testbed startup gates, starts both processes, probes the frontend
+health/readiness/Auth/GraphQL/events/extensions/Git boundaries, runs browser
+smoke against the Vue shell, and keeps the stack running for manual testing
+unless `--oneshot` is used.
+
+Oneshot runs default to `COMTRYA_SESSION_TTL_SECONDS=2` so the smoke path can
+prove expired browser session tokens fail closed without waiting five minutes.
+Interactive runs keep the five-minute session TTL unless you set the variable
+yourself.
+
+Set `COMTRYA_EXTERNAL_DEMO=1` for shared demos; production startup then rejects
+the local `.envrc.example` operator code and requires a non-default
+`COMTRYA_OPERATOR_CODE`.
 
 `./start.sh` seeds demo input into
-`$FORGEPOINT_DATA_DIR/metadata/demo-state.json` from
-`fixtures/demo/conference.json`; server startup imports that input into the
-versioned extension storage tables under `$FORGEPOINT_DATA_DIR/extensions/storage`.
-Use `./start.sh --reset` or `FORGEPOINT_RESET_DEMO_DATA=1` to intentionally
-delete and reseed generated demo repository and extension storage paths under
-`$FORGEPOINT_DATA_DIR`; set `FORGEPOINT_RESET_DEMO_DATA=0` if you want to keep
-edits in that data directory between runs. Explicit environment values passed to
-`./start.sh` win over values loaded from `.envrc`. The smoke output prints the
-seeded repository path, live branch list, and installed extension list after
-GraphQL is available.
+`$COMTRYA_DATA_DIR/metadata/demo-state.json` from
+`fixtures/demo/conference.json`. Server startup imports that seed input into
+versioned extension storage under `$COMTRYA_DATA_DIR/extensions/storage`, using
+WASM-backed creation paths for extension-owned records where the v3 runtime owns
+that behavior.
+
+Use `./start.sh --reset` or `COMTRYA_RESET_DEMO_DATA=1` to intentionally delete
+and reseed generated demo repository and extension storage paths under
+`$COMTRYA_DATA_DIR`; set `COMTRYA_RESET_DEMO_DATA=0` if you want to keep edits
+in that data directory between runs. Explicit environment values passed to
+`./start.sh` win over values loaded from `.envrc`.
+
+Server check without the frontend:
 
 ```sh
-mkdir -p /private/tmp/forgepoint-production-testbed
-FORGEPOINT_CONFIG=config/production-testbed.cue \
-FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed \
-FORGEPOINT_TLS_TERMINATED=true \
-FORGEPOINT_OPERATOR_CODE="forgepoint-local-operator-code" \
-cargo run -p forgepoint-server -- --check
+mkdir -p /private/tmp/comtrya-production-testbed
+COMTRYA_CONFIG=config/production-testbed.cue \
+COMTRYA_DATA_DIR=/private/tmp/comtrya-production-testbed \
+COMTRYA_TLS_TERMINATED=true \
+COMTRYA_OPERATOR_CODE="comtrya-local-operator-code" \
+cargo run -p comtrya-server -- --check
 ```
 
-Start the full stack:
-
-```sh
-./start.sh
-```
-
-The server is designed to sit behind a TLS-terminating reverse proxy. In `environment: "production"`, startup fails unless `FORGEPOINT_TLS_TERMINATED=true`, `FORGEPOINT_OPERATOR_CODE` is set to at least 12 characters, `FORGEPOINT_DATA_DIR` is absolute, allowed origins are HTTPS, and local repository storage paths are absolute.
+The server is designed to sit behind a TLS-terminating reverse proxy. In
+`environment: "production"`, startup fails unless `COMTRYA_TLS_TERMINATED=true`,
+`COMTRYA_OPERATOR_CODE` is set to at least 12 characters,
+`COMTRYA_DATA_DIR` is absolute, allowed origins are HTTPS, and local repository
+storage paths are absolute.
 
 ## Endpoints
 
@@ -73,31 +88,39 @@ The server is designed to sit behind a TLS-terminating reverse proxy. In `enviro
 - `GET /_extensions/<id>/assets/<path>`
 - `/git/...` authentication and scope checks
 
-## Current Production-Testbed Boundary
+## Current production-testbed boundary
 
-Ready means the runtime is safe to run as a production-style test bed:
+Ready means the runtime is safe to run as a production-style testbed:
 
-- configuration loaded from `config.cue`
+- configuration loaded from CUE
 - production startup gates enforced
 - data directories initialized
 - event and audit logs are durable JSONL files
-- a real local bare Git repository is seeded or opened under `$FORGEPOINT_DATA_DIR/repositories`
-- the seeded bare Git repository HEAD and expected demo branch refs validate at startup
+- local bare Git repositories are seeded or opened under
+  `$COMTRYA_DATA_DIR/repositories`
+- seeded Git refs and `HEAD` validate at startup
 - browser CORS checks are enforced
-- operator-code based testbed token exchange issues five-minute scoped credentials
+- operator-code token exchange issues scoped credentials
 - SSE and extension asset session tokens are single-use and expire fail-closed
-- the Astro frontend fronts the Rust API without injecting credentials
-- the repository UI renders live Git refs, branches, commits, tree entries, blob previews, diffs, and Git/storage-derived metric counts; the SSR shell exposes the same head OID that GraphQL and Git clone/fetch return; it uses `@pierre/trees` for the file tree and `@pierre/diffs` for the review diff surface
-- first-party pull request, code browser, and checks extensions are loaded from disk, compiled/instantiated as Component Model components through Wasmtime, and exposed through `/_extensions/...` with typed resolver output summaries
-- the frontend mounts extension host elements from runtime extension installations and UI manifest slot declarations
-- extension-owned pull request/check/activity state is persisted in the versioned `$FORGEPOINT_DATA_DIR/extensions/storage` schema and document tables
-- Git upload-pack clone/fetch works through the Astro origin with a scoped Forgepoint credential
-- smoke validation compares the GraphQL diff patch with real cloned-repository Git diff output
-- unsupported runtime surfaces are listed from one registry in `/readyz` and return `UNSUPPORTED` JSON errors
+- the Vue frontend fronts the Rust API without injecting credentials
+- the repository UI renders live Git/storage/extension data through shell and
+  extension slots
+- first-party extensions load real Component Model artifacts from
+  `dist/<id>.wasm`
+- product operations route through `/api/ops` into generated WASM dispatch
+- pull-request merge reactions close linked issues through cross-extension WASM
+- extension-owned state is persisted in versioned storage
+- Git upload-pack clone/fetch works through the Vue origin with a scoped
+  Comtrya credential
+- smoke validation compares GraphQL diff patches with cloned-repository Git
+  diff output
+- smoke validation drives the live Vue page in headless Chrome/Chromium
+- unsupported runtime surfaces are listed from one registry in `/readyz` and
+  return `UNSUPPORTED` JSON errors
 - Git receive-pack write surfaces fail closed after authentication
 
-It does **not** mean full Forgepoint v1 production completeness. `/readyz` reports these unsupported areas until they are replaced with real implementations:
+It does **not** mean full Comtrya v1 production completeness. `/readyz` reports
+these unsupported areas until they are replaced with real implementations:
 
 - full OIDC browser callback validation
 - git receive-pack writes in the production-testbed demo
-- legacy Forgepoint v1 API routes in the v2 production-testbed runtime

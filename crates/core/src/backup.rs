@@ -70,15 +70,15 @@ impl BackupCoordinator {
             ));
         }
         let source =
-            ResourceRef::parse("forgepoint://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         outbox.append(EventEnvelope::core(
             CoreEventType::InstanceRestoreCompleted,
             source.clone(),
             None,
             EventActor {
                 kind: "workload".to_string(),
-                uri: "forgepoint://workload/forgepointctl".to_string(),
-                display_name: Some("forgepointctl".to_string()),
+                uri: "comtrya://workload/comtryactl".to_string(),
+                display_name: Some("comtryactl".to_string()),
             },
             Visibility::Private,
             vec![source],
@@ -113,7 +113,7 @@ mod tests {
             &store,
             vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
             1,
-            "package forgepoint",
+            "package comtrya",
             true,
         );
 

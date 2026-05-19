@@ -115,7 +115,7 @@ impl GraphqlGateway {
         {
             return Err(CoreError::forbidden(
                 "repository storage backend is outside allowedStorageBackends",
-                format!("forgepoint://group/{}", input.group_id),
+                format!("comtrya://group/{}", input.group_id),
                 CorePermission::RepositoryWrite.as_str(),
             ));
         }
@@ -199,10 +199,7 @@ mod tests {
     fn viewer_permissions_for_unknown_resource_returns_empty_list() {
         assert!(
             gateway()
-                .viewer_permissions(
-                    &Principal::Anonymous,
-                    "forgepoint://repository/repo_missing"
-                )
+                .viewer_permissions(&Principal::Anonymous, "comtrya://repository/repo_missing")
                 .is_empty()
         );
     }
@@ -236,7 +233,7 @@ mod tests {
             ))
             .unwrap();
         let instance =
-            ResourceRef::parse("forgepoint://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
 
         assert!(
             gateway()

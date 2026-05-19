@@ -98,6 +98,7 @@ pub struct InstanceConfig {
     pub workspaces: BTreeMap<String, WorkspaceConfig>,
     pub ceilings: Ceilings,
     pub rate_limits: RateLimits,
+    pub extensions: Vec<crate::extensions::ExtensionInstallConfig>,
 }
 
 impl InstanceConfig {
@@ -126,6 +127,16 @@ impl InstanceConfig {
             })?;
             validate_visibility_ceiling(workspace.visibility, &self.ceilings.workspace)?;
         }
+        let mut seen = BTreeMap::new();
+        for ext in &self.extensions {
+            ext.validate()?;
+            if seen.insert(ext.id.clone(), ()).is_some() {
+                return Err(CoreError::config_invalid(format!(
+                    "duplicate extension id {:?} in config",
+                    ext.id
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -148,18 +159,18 @@ impl InstanceConfig {
             },
         );
         Self {
-            id: "forgepoint-dev".to_string(),
-            name: "Forgepoint Dev".to_string(),
+            id: "comtrya-dev".to_string(),
+            name: "Comtrya Dev".to_string(),
             public_url: "http://localhost:8080".to_string(),
             environment: Environment::Development,
             allowed_origins: vec!["http://localhost:4321".to_string()],
             database: DatabaseConfig::Sqlite {
-                url: "sqlite://forgepoint.db".to_string(),
+                url: "sqlite://comtrya.db".to_string(),
             },
             oidc_issuers: vec![OidcIssuerConfig {
                 id: "dev".to_string(),
                 issuer_url: "https://issuer.example.test".to_string(),
-                client_id: "forgepoint".to_string(),
+                client_id: "comtrya".to_string(),
                 client_kind: ClientKind::Confidential,
                 client_secret: Some("dev-secret".to_string()),
                 redirect_url: "http://localhost:8080/auth/oidc/dev/callback".to_string(),
@@ -173,27 +184,17 @@ impl InstanceConfig {
             workspaces,
             ceilings: Ceilings::default(),
             rate_limits: RateLimits::default(),
+            extensions: Vec::new(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ceilings {
     pub repository: RepositoryCeilings,
     pub workspace: WorkspaceCeilings,
     pub group: GroupCeilings,
     pub publishers: PublisherCeilings,
-}
-
-impl Default for Ceilings {
-    fn default() -> Self {
-        Self {
-            repository: RepositoryCeilings::default(),
-            workspace: WorkspaceCeilings::default(),
-            group: GroupCeilings::default(),
-            publishers: PublisherCeilings::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,10 +283,16 @@ impl Default for PublisherCeilings {
     }
 }
 
+/// Caps applied to user-supplied CUE files before invoking the
+/// cuengine evaluator. `wall_time_ms` and `memory_bytes` used to live
+/// on this struct but were never enforced; deleted to satisfy the
+/// no-dead-code rule. Wiring a real time/memory cap around the
+/// cuengine FFI call is tracked as a separate follow-up — until that
+/// lands, the only protections against pathological CUE inputs are
+/// `max_files` / `max_depth` / `max_bytes` and whatever process-level
+/// quotas the OS imposes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CueEvalBudget {
-    pub wall_time_ms: u64,
-    pub memory_bytes: u64,
     pub max_files: usize,
     pub max_depth: usize,
     pub max_bytes: usize,
@@ -294,8 +301,6 @@ pub struct CueEvalBudget {
 impl Default for CueEvalBudget {
     fn default() -> Self {
         Self {
-            wall_time_ms: 5_000,
-            memory_bytes: 256_000_000,
             max_files: 1_024,
             max_depth: 16,
             max_bytes: 8_000_000,
@@ -336,6 +341,55 @@ pub struct CueFile {
     pub source: String,
 }
 
+/// A schema snippet injected into the receive-pack CUE validator's
+/// workdir alongside the kernel base schema. One per extension that
+/// registers a `cueSchemas` entry. Constructed via `new()` which
+/// enforces a strict id allowlist — sanitisation happens once at
+/// the type boundary, write paths trust the value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CueSchemaFile {
+    id: String,
+    contents: String,
+}
+
+impl CueSchemaFile {
+    /// `id` must match `^[a-z][a-z0-9-]*$`. Excludes path separators,
+    /// `..`, NUL, control chars, uppercase, and leading digits. The
+    /// final on-disk path will be `01-comtrya-ext-{id}.cue`; the
+    /// allowlist rules out every shape that could escape the workdir
+    /// or collide with the kernel slot.
+    pub fn new(id: impl Into<String>, contents: impl Into<String>) -> CoreResult<Self> {
+        let id = id.into();
+        let mut chars = id.chars();
+        let valid = matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !valid {
+            return Err(CoreError::bad_user_input(
+                "CueSchemaFile.id must match ^[a-z][a-z0-9-]*$",
+            ));
+        }
+        Ok(Self {
+            id,
+            contents: contents.into(),
+        })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn contents(&self) -> &str {
+        &self.contents
+    }
+}
+
+/// Kernel CUE base schema. Every repo evaluated by the receive-pack
+/// validator (and by the server's per-repo browser) sees this in
+/// scope. Defines `#Ref`, `#PrincipalRef`, `#OwnerRef`, `#Project`
+/// and the `projects` map. Kept minimal — extension-specific concepts
+/// live in extension-registered schemas.
+pub const KERNEL_CUE_BASE: &str = include_str!("kernel_base.cue");
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiagnostic {
     pub severity: String,
@@ -367,13 +421,14 @@ pub fn validate_repository_cue_sources(
     commit_oid: &str,
     files: &[CueFile],
     budget: &CueEvalBudget,
+    extension_schemas: &[CueSchemaFile],
 ) -> CoreResult<ConfigValidation> {
-    let forgepoint_files: Vec<&CueFile> = files
+    let comtrya_files: Vec<&CueFile> = files
         .iter()
-        .filter(|file| file.source.contains("package forgepoint"))
+        .filter(|file| file.source.contains("package comtrya"))
         .collect();
 
-    if forgepoint_files.is_empty() {
+    if comtrya_files.is_empty() {
         return Ok(ConfigValidation {
             accepted: true,
             diagnostics: Vec::new(),
@@ -381,11 +436,11 @@ pub fn validate_repository_cue_sources(
         });
     }
 
-    enforce_cue_budget(&forgepoint_files, budget)?;
+    enforce_cue_budget(&comtrya_files, budget)?;
 
     let mut diagnostics = Vec::new();
     let mut paths = BTreeSet::from(["/".to_string()]);
-    for file in forgepoint_files {
+    for file in &comtrya_files {
         if !balanced_braces(&file.source) {
             diagnostics.push(ConfigDiagnostic {
                 severity: "error".to_string(),
@@ -393,16 +448,20 @@ pub fn validate_repository_cue_sources(
                 message: "CUE braces are not balanced".to_string(),
             });
         }
-        if file.source.contains("invalid: true") || file.source.contains("!!") {
-            diagnostics.push(ConfigDiagnostic {
-                severity: "error".to_string(),
-                path: Some(file.path.clone()),
-                message: "repository CUE is invalid".to_string(),
-            });
-        }
         if let Some(parent) = parent_path_for_cue(&file.path) {
             paths.insert(parent);
         }
+    }
+
+    // `balanced_braces` tracks only `{`/`}` (NOT `[`, `(`, quotes), so it
+    // only catches a narrow class of obvious curly-brace mismatches with a
+    // friendlier message. Everything else falls through to cuengine — the
+    // real CUE evaluator — which catches type conflicts, constraint
+    // violations, and full parse errors.
+    if diagnostics.is_empty()
+        && let Err(diagnostic) = evaluate_cue_files_with_cuengine(&comtrya_files, extension_schemas)
+    {
+        diagnostics.push(diagnostic);
     }
 
     if !diagnostics.is_empty() {
@@ -435,6 +494,206 @@ pub fn validate_repository_cue_sources(
         diagnostics: Vec::new(),
         snapshots,
     })
+}
+
+/// Run cuengine over the user's `package comtrya` files in an ephemeral
+/// workdir and return `Ok(())` on success, `Err(diagnostic)` on a real
+/// CUE evaluation failure.
+///
+/// Path sanitization happens FIRST, before any filesystem touch — any
+/// `CueFile::path` that is absolute or contains a `..` component is
+/// rejected with no tempdir created. Without this, a crafted push could
+/// write to arbitrary host paths via `tempdir.join("../../etc/...")`.
+///
+/// On cuengine error, the diagnostic message has the tempdir path
+/// stripped (cuengine emits the absolute workdir; leaking it to a
+/// GraphQL client is information disclosure).
+///
+/// Writes `00-comtrya-kernel.cue` (verbatim [`KERNEL_CUE_BASE`]) plus
+/// each `extension_schemas[i]` as `01-comtrya-ext-<id>.cue` into the
+/// workdir before running cuengine. This matches the server's
+/// `cue_config::install_schemas` layout so the receive-pack validator
+/// and the per-repo browser stay aligned.
+fn evaluate_cue_files_with_cuengine(
+    files: &[&CueFile],
+    extension_schemas: &[CueSchemaFile],
+) -> Result<(), ConfigDiagnostic> {
+    use std::path::{Component, Path};
+
+    // 1. Sanitize EVERY path before touching the filesystem.
+    //    Rejects:
+    //    a. absolute paths and `..` components — would write outside the
+    //       tempdir entirely;
+    //    b. anything under `cue.mod/` — would overwrite the synthetic
+    //       `cue.mod/module.cue` the helper writes in step 3, letting a
+    //       crafted push replace the module declaration cuengine
+    //       evaluates against and silently corrupt the validation result.
+    for file in files {
+        let p = Path::new(&file.path);
+        if p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path escapes the repository workdir".to_string(),
+            });
+        }
+        if file.path == "cue.mod/module.cue" || file.path.starts_with("cue.mod/") {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path must not write into cue.mod/ — that directory is reserved for the synthetic module declaration".to_string(),
+            });
+        }
+        // Reject paths that would silently overwrite an injected
+        // kernel or extension schema in step 3 below (and let an
+        // attacker bypass kernel-required-field validation).
+        // Compare case-insensitively because the workdir tempdir
+        // lives on macOS HFS+ / APFS by default, both case-insensitive
+        // — `01-COMTRYA-ext-foo.cue` would otherwise pass this guard
+        // and silently collide at write time.
+        let lower = file.path.to_ascii_lowercase();
+        if lower == "00-comtrya-kernel.cue" || lower.starts_with("01-comtrya-ext-") {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path collides with kernel-injected schema slot".to_string(),
+            });
+        }
+    }
+
+    // 2. Tempdir scoped to this validation call. Use a non-dot prefix —
+    //    CUE's package loader walks `./...` and skips directories whose
+    //    *name* starts with `.` (the Go convention). `tempfile::TempDir`
+    //    defaults to a `.tmpXXXX` name, which would make cuengine
+    //    silently match zero packages even though the workdir contents
+    //    are correct. Explicit `comtrya-cue-` prefix avoids that.
+    let dir = match tempfile::Builder::new().prefix("comtrya-cue-").tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message: format!("create cuengine workdir: {e}"),
+            });
+        }
+    };
+    let workdir = dir.path();
+
+    // 3. Synthetic cue.mod/module.cue — matches the server's
+    //    install_schemas synthetic exactly so the two paths stay aligned.
+    let module_dir = workdir.join("cue.mod");
+    if let Err(e) = std::fs::create_dir_all(&module_dir) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write cuengine cue.mod: {e}"),
+        });
+    }
+    if let Err(e) = std::fs::write(
+        module_dir.join("module.cue"),
+        // Match the server's `install_schemas` synthetic exactly — same
+        // module name, same language version, same CUE shorthand syntax
+        // — so the receive-pack validator and the per-repo browser stay
+        // semantically aligned.
+        "module: \"comtrya.synthesised/repo\"\nlanguage: version: \"v0.10.0\"\n",
+    ) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write cuengine module.cue: {e}"),
+        });
+    }
+
+    // 3a. Inject the kernel base schema + each extension schema at the
+    //     workdir root. File names use the same `01-comtrya-ext-{id}.cue`
+    //     pattern as the server's install_schemas so both validators
+    //     stay aligned. CueSchemaFile.id is allowlist-validated at
+    //     construction; the write site trusts the type.
+    if let Err(e) = std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_CUE_BASE) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write kernel base schema: {e}"),
+        });
+    }
+    for schema in extension_schemas {
+        let path = workdir.join(format!("01-comtrya-ext-{}.cue", schema.id()));
+        if let Err(e) = std::fs::write(&path, schema.contents()) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message: format!("write extension schema {}: {e}", schema.id()),
+            });
+        }
+    }
+
+    // 4. Write each user file to its sanitized relative path.
+    for file in files {
+        let dest = workdir.join(&file.path);
+        if let Some(parent) = dest.parent()
+            && let Err(e) = std::fs::create_dir_all(parent)
+        {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: format!("write cuengine workdir dir: {e}"),
+            });
+        }
+        if let Err(e) = std::fs::write(&dest, &file.source) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: format!("write cuengine workdir file: {e}"),
+            });
+        }
+    }
+
+    // 5. Evaluate recursively across the whole workdir tree (matches the
+    //    server's `run_cuengine` shape). Third arg is
+    //    `Option<&ModuleEvalOptions>` so wrap in `Some`.
+    let options = cuengine::ModuleEvalOptions {
+        with_meta: false,
+        with_references: false,
+        recursive: true,
+        package_name: Some("comtrya".to_string()),
+        target_dir: None,
+    };
+    match cuengine::evaluate_module(workdir, "comtrya", Some(&options)) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let raw = format!("{error}");
+            // Match the server's `run_cuengine` benign-error policy: when
+            // cuengine reports "matched no packages" or "no CUE files",
+            // it means there was nothing for it to evaluate as a coherent
+            // package (e.g., subdirectories that contain no CUE files
+            // matching the package filter). The server treats this as
+            // success and the validator must too, or legitimate
+            // nested-CUE pushes are wrongly rejected.
+            if raw.contains("matched no packages") || raw.contains("no CUE files") {
+                return Ok(());
+            }
+            // Strip the absolute workdir path AND its canonicalized form
+            // — on macOS `/var/folders/...` is a symlink to
+            // `/private/var/folders/...` and cuengine may emit either
+            // form depending on its internal resolution. Scrubbing only
+            // one would leak the other.
+            let workdir_str = workdir.to_str().unwrap_or("");
+            let canonical = std::fs::canonicalize(workdir).ok();
+            let canonical_str = canonical.as_deref().and_then(|p| p.to_str()).unwrap_or("");
+            let mut message = raw;
+            if !workdir_str.is_empty() {
+                message = message.replace(workdir_str, "<workdir>");
+            }
+            if !canonical_str.is_empty() && canonical_str != workdir_str {
+                message = message.replace(canonical_str, "<workdir>");
+            }
+            Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message,
+            })
+        }
+    }
 }
 
 fn snapshot(
@@ -668,6 +927,7 @@ fn validate_visibility_ceiling(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::extensions::{ExtensionInstallConfig, ExtensionSource, OciReference};
 
     #[test]
     fn minimal_dev_config_validates() {
@@ -675,10 +935,60 @@ mod tests {
     }
 
     #[test]
+    fn extension_install_oci_validates() {
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions.push(ExtensionInstallConfig {
+            id: "pull-requests".to_string(),
+            source: ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "comtrya/extensions/pull-requests".to_string(),
+                reference: OciReference::Tag("v1.0.0".to_string()),
+            },
+            enabled: true,
+            route_prefix: None,
+        });
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn duplicate_extension_ids_are_rejected() {
+        let mut config = InstanceConfig::minimal_dev();
+        for _ in 0..2 {
+            config.extensions.push(ExtensionInstallConfig {
+                id: "checks".to_string(),
+                source: ExtensionSource::Local {
+                    path: "extensions/first-party/ext_checks".to_string(),
+                },
+                enabled: true,
+                route_prefix: None,
+            });
+        }
+        let err = config.validate().unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConfigInvalid);
+        assert!(err.message.contains("duplicate extension"));
+    }
+
+    #[test]
+    fn empty_oci_reference_is_rejected() {
+        let cfg = ExtensionInstallConfig {
+            id: "x".to_string(),
+            source: ExtensionSource::Oci {
+                registry: "ghcr.io".to_string(),
+                image: "x/y".to_string(),
+                reference: OciReference::Tag("".to_string()),
+            },
+            enabled: true,
+            route_prefix: None,
+        };
+        let err = cfg.validate().unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConfigInvalid);
+    }
+
+    #[test]
     fn production_confidential_oidc_requires_secret() {
         let mut config = InstanceConfig::minimal_dev();
         config.environment = Environment::Production;
-        config.public_url = "https://forgepoint.example.test".to_string();
+        config.public_url = "https://comtrya.example.test".to_string();
         config.oidc_issuers[0].client_secret = Some(String::new());
 
         let err = config.validate().unwrap_err();
@@ -710,7 +1020,7 @@ mod tests {
     }
 
     #[test]
-    fn repository_cue_bootstrap_without_forgepoint_package_is_trivially_accepted() {
+    fn repository_cue_bootstrap_without_comtrya_package_is_trivially_accepted() {
         let result = validate_repository_cue_sources(
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
@@ -719,6 +1029,7 @@ mod tests {
                 source: "# hello".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -727,20 +1038,187 @@ mod tests {
     }
 
     #[test]
-    fn repository_cue_invalid_package_is_rejected_with_diagnostics() {
+    fn repository_cue_conflicting_values_rejected() {
+        // `foo: "a"` then `foo: 42` unifies to a type conflict — a real CUE
+        // failure mode the legacy `"invalid: true"` string-match stub never
+        // caught.
         let result = validate_repository_cue_sources(
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
             &[CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\ninvalid: true".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
         assert!(!result.accepted);
         assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_constraint_violation_rejected() {
+        // `count: int & <3` then `count: 5` — CUE constraint solver rejects.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\ncount: int & <3\ncount: 5".to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_invalid_syntax_rejected() {
+        // Unclosed `[` — `balanced_braces` only tracks `{`/`}`, so this
+        // falls through to cuengine, which catches it as a parse error.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: [".to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert_eq!(result.diagnostics[0].severity, "error");
+    }
+
+    #[test]
+    fn repository_cue_unbalanced_braces_caught_by_smoke_check() {
+        // Unbalanced `{` — caught by the fast-fail `balanced_braces` walker
+        // before cuengine is invoked, yielding the friendlier message.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: {".to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("braces are not balanced")),
+            "expected the friendlier brace-check message; got: {:?}",
+            result.diagnostics,
+        );
+    }
+
+    #[test]
+    fn repository_cue_path_traversal_rejected() {
+        // A push that names a file path escaping the repository workdir
+        // (absolute path or `..` components) must be refused before any
+        // filesystem write happens — defense against arbitrary-file-write.
+        for path in ["../../etc/passwd", "/etc/passwd", "a/../../etc/passwd"] {
+            let result = validate_repository_cue_sources(
+                "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                "0123456789abcdef0123456789abcdef01234567",
+                &[CueFile {
+                    path: path.to_string(),
+                    source: "package comtrya".to_string(),
+                }],
+                &CueEvalBudget::default(),
+                &[],
+            )
+            .unwrap();
+            assert!(
+                !result.accepted,
+                "path `{path}` must be rejected as escaping the workdir",
+            );
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("escapes")),
+                "expected an escape diagnostic for `{path}`; got: {:?}",
+                result.diagnostics,
+            );
+        }
+    }
+
+    #[test]
+    fn repository_cue_rejects_writes_into_cue_mod() {
+        // A push that tries to write into `cue.mod/` would overwrite the
+        // synthetic module declaration the validator installs, letting a
+        // crafted source steer cuengine's evaluation environment. Must be
+        // refused before any filesystem write.
+        for path in ["cue.mod/module.cue", "cue.mod/pkg/foo.cue"] {
+            let result = validate_repository_cue_sources(
+                "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+                "0123456789abcdef0123456789abcdef01234567",
+                &[CueFile {
+                    path: path.to_string(),
+                    source: "package comtrya".to_string(),
+                }],
+                &CueEvalBudget::default(),
+                &[],
+            )
+            .unwrap();
+            assert!(
+                !result.accepted,
+                "path `{path}` must be rejected as writing into cue.mod/",
+            );
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.message.contains("cue.mod/")),
+                "expected a cue.mod diagnostic for `{path}`; got: {:?}",
+                result.diagnostics,
+            );
+        }
+    }
+
+    #[test]
+    fn repository_cue_diagnostic_scrubs_workdir_path() {
+        // cuengine emits absolute tempdir paths in its error messages. The
+        // helper must scrub them — leaking host paths to GraphQL clients
+        // is an information disclosure.
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+        )
+        .unwrap();
+
+        assert!(!result.accepted);
+        let tempdir_root = std::env::temp_dir();
+        let tempdir_str = tempdir_root.to_str().unwrap_or("");
+        let joined = result
+            .diagnostics
+            .iter()
+            .map(|d| d.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !joined.contains(tempdir_str),
+            "diagnostic leaked tempdir path `{tempdir_str}`: {joined}",
+        );
     }
 
     #[test]
@@ -753,15 +1231,154 @@ mod tests {
             "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
             "0123456789abcdef0123456789abcdef01234567",
             &[CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\nrepo: {}".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nrepo: {}".to_string(),
             }],
             &budget,
+            &[],
         )
         .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::ConfigInvalid);
         assert!(err.message.contains("evaluation_budget"));
+    }
+
+    // -------- #18: kernel + extension CUE schemas in validator --------
+
+    fn validate_with(files: Vec<CueFile>, extension_schemas: &[CueSchemaFile]) -> ConfigValidation {
+        validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &files,
+            &CueEvalBudget::default(),
+            extension_schemas,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_kernel_enum_violation() {
+        // KERNEL_CUE_BASE defines #PrincipalRef as #Ref with kind restricted
+        // to "user" | "agent" | "bot" | "credential". A value of "team"
+        // is allowed by #Ref but rejected by #PrincipalRef.
+        //
+        // Note: cuengine's evaluate_module accepts incomplete-but-not-
+        // conflicting structs silently, so we test the "wrong value"
+        // shape of the issue's acceptance ("mistypes a kernel-declared
+        // field") rather than "omits a kernel-required field." The
+        // proof that kernel schemas are loaded is identical: cuengine
+        // could only catch this if KERNEL_CUE_BASE is in scope.
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "owner: #PrincipalRef & { slug: \"rawkode\", kind: \"team\" }\n",
+                )
+                .to_string(),
+            }],
+            &[],
+        );
+        assert!(!result.accepted, "kernel enum violation must reject");
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_kernel_type_violation() {
+        // Kernel #Project requires `root: string | *""`. An integer
+        // value forces a unification failure on the projects map.
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nprojects: bad: { root: 42 }".to_string(),
+            }],
+            &[],
+        );
+        assert!(
+            !result.accepted,
+            "type violation on kernel field must reject"
+        );
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_extension_type_violation() {
+        // Extension schema constrains a new field on #Project to string.
+        // User config that types it as an integer must fail.
+        // (Same "wrong-type" shape as the kernel test — proves the
+        // extension schema is loaded and applied.)
+        let extension = CueSchemaFile::new(
+            "test-required",
+            "package comtrya\n#Project: { reviewer: string }",
+        )
+        .expect("valid CueSchemaFile id");
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "projects: must_review: { root: \"p\", reviewer: 42 }\n",
+                )
+                .to_string(),
+            }],
+            &[extension],
+        );
+        assert!(!result.accepted, "extension type violation must reject");
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_path_collision_with_kernel_schema() {
+        // A crafted push containing a file whose path matches the
+        // kernel-injected slot would otherwise overwrite the kernel
+        // schema and bypass kernel-required-field validation.
+        let result = validate_with(
+            vec![CueFile {
+                path: "00-comtrya-kernel.cue".to_string(),
+                source: "package comtrya\n#Project: { name: string | *\"hacked\" }".to_string(),
+            }],
+            &[],
+        );
+        assert!(!result.accepted, "must refuse to write over kernel slot");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("collides")),
+            "expected collision diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cue_schema_file_rejects_path_traversal_ids() {
+        for bad in [
+            "../etc/passwd",
+            "foo/bar",
+            "foo bar",
+            "Foo",
+            "1leading-digit",
+            "",
+            "with\0nul",
+        ] {
+            assert!(
+                CueSchemaFile::new(bad, "package comtrya").is_err(),
+                "{bad:?} should be rejected by CueSchemaFile::new"
+            );
+        }
+        assert!(CueSchemaFile::new("ok-id", "package comtrya").is_ok());
     }
 
     #[test]
@@ -771,15 +1388,16 @@ mod tests {
             "0123456789abcdef0123456789abcdef01234567",
             &[
                 CueFile {
-                    path: "forgepoint.cue".to_string(),
-                    source: "package forgepoint\nrepo: {}".to_string(),
+                    path: "comtrya.cue".to_string(),
+                    source: "package comtrya\nrepo: {}".to_string(),
                 },
                 CueFile {
-                    path: "services/api/forgepoint.cue".to_string(),
-                    source: "package forgepoint\nprojects: api: path: \"services/api\"".to_string(),
+                    path: "services/api/comtrya.cue".to_string(),
+                    source: "package comtrya\nprojects: api: path: \"services/api\"".to_string(),
                 },
             ],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 

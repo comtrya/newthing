@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en" data-theme="print">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comtrya · Mechanical Specimen · workspace homepage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    />
+    <style>
+      :root, [data-theme="print"] {
+        color-scheme: light;
+        --paper: #ffffff;
+        --paper-tint: #f6f4ef;
+        --ink: #0a0a0a;
+        --ink-soft: #2c2c2c;
+        --ink-faint: #6a6a6a;
+        --ink-fainter: #9a9a9a;
+        --rule: #0a0a0a;
+        --rule-light: var(--rule-light);
+        --accent-orange: #f04a1e;
+        --accent-teal: #008873;
+        --accent-yellow: #f2c100;
+        --accent-blue: #0e3aa3;
+        --accent-err: #f04a1e;
+        --instance-bg: #0a0a0a;
+        --instance-fg: #ffffff;
+        --instance-fg-soft: #e0e0e0;
+        --instance-rule: #555;
+        --accent-instance: #f2c100;
+
+        --display: "Bricolage Grotesque", "Inter Tight", system-ui, sans-serif;
+        --sans: "IBM Plex Sans", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+      }
+
+      [data-theme="catppuccin"] {
+        color-scheme: dark;
+        /* Catppuccin Mocha */
+        --paper: #1e1e2e;
+        --paper-tint: #181825;
+        --ink: #cdd6f4;
+        --ink-soft: #bac2de;
+        --ink-faint: #7f849c;
+        --ink-fainter: #585b70;
+        --rule: #45475a;
+        --rule-light: #313244;
+        --accent-orange: #cba6f7;   /* mauve as primary */
+        --accent-teal: #a6e3a1;     /* green */
+        --accent-yellow: #f9e2af;
+        --accent-blue: #89b4fa;
+        --accent-err: #f38ba8;      /* red */
+        --instance-bg: #11111b;
+        --instance-fg: #cdd6f4;
+        --instance-fg-soft: #bac2de;
+        --instance-rule: #313244;
+        --accent-instance: #f9e2af;
+      }
+
+      [data-theme="ayu"] {
+        color-scheme: dark;
+        /* Ayu Mirage */
+        --paper: #1f2430;
+        --paper-tint: #171c28;
+        --ink: #cccac2;
+        --ink-soft: #b8b5ac;
+        --ink-faint: #707a8c;
+        --ink-fainter: #5c6773;
+        --rule: #33415e;
+        --rule-light: #242936;
+        --accent-orange: #ffcc66;   /* signature ayu yellow */
+        --accent-teal: #bae67e;
+        --accent-yellow: #ffd580;
+        --accent-blue: #5ccfe6;
+        --accent-err: #f28779;
+        --instance-bg: #161a23;
+        --instance-fg: #cccac2;
+        --instance-fg-soft: #b8b5ac;
+        --instance-rule: #2d3340;
+        --accent-instance: #ffcc66;
+      }
+
+      [data-theme="rose-pine"] {
+        color-scheme: dark;
+        /* Rose Pine */
+        --paper: #191724;
+        --paper-tint: #1f1d2e;
+        --ink: #e0def4;
+        --ink-soft: #c4a7e7;
+        --ink-faint: #908caa;
+        --ink-fainter: #6e6a86;
+        --rule: #26233a;
+        --rule-light: #21202e;
+        --accent-orange: #ebbcba;   /* rose */
+        --accent-teal: #9ccfd8;     /* foam */
+        --accent-yellow: #f6c177;   /* gold */
+        --accent-blue: #c4a7e7;     /* iris */
+        --accent-err: #eb6f92;      /* love */
+        --instance-bg: #15131e;
+        --instance-fg: #e0def4;
+        --instance-fg-soft: #c4a7e7;
+        --instance-rule: #2a273f;
+        --accent-instance: #f6c177;
+      }
+
+      [data-theme="tokyo-night"] {
+        color-scheme: dark;
+        /* Tokyo Night */
+        --paper: #1a1b26;
+        --paper-tint: #16161e;
+        --ink: #c0caf5;
+        --ink-soft: #a9b1d6;
+        --ink-faint: #565f89;
+        --ink-fainter: #414868;
+        --rule: #2f334d;
+        --rule-light: #232434;
+        --accent-orange: #7aa2f7;   /* iconic blue */
+        --accent-teal: #9ece6a;
+        --accent-yellow: #e0af68;
+        --accent-blue: #7dcfff;     /* cyan */
+        --accent-err: #f7768e;
+        --instance-bg: #13141c;
+        --instance-fg: #c0caf5;
+        --instance-fg-soft: #a9b1d6;
+        --instance-rule: #292e42;
+        --accent-instance: #e0af68;
+      }
+
+      [data-theme="gruvbox"] {
+        color-scheme: dark;
+        /* Gruvbox Dark */
+        --paper: #282828;
+        --paper-tint: #1d2021;
+        --ink: #ebdbb2;
+        --ink-soft: #d5c4a1;
+        --ink-faint: #928374;
+        --ink-fainter: #665c54;
+        --rule: #3c3836;
+        --rule-light: #32302f;
+        --accent-orange: #fe8019;   /* signature */
+        --accent-teal: #b8bb26;
+        --accent-yellow: #fabd2f;
+        --accent-blue: #83a598;
+        --accent-err: #fb4934;
+        --instance-bg: #1d2021;
+        --instance-fg: #ebdbb2;
+        --instance-fg-soft: #d5c4a1;
+        --instance-rule: #3c3836;
+        --accent-instance: #fabd2f;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+      a { color: var(--ink); text-decoration: none; }
+      a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+      code, .mono { font-family: var(--mono); font-size: 12px; }
+      kbd { font-family: var(--mono); font-size: 11px; border: 1.5px solid var(--ink); padding: 0 5px; background: var(--paper); color: var(--ink); }
+
+      .display { font-family: var(--display); font-variation-settings: "opsz" 96; letter-spacing: -0.025em; }
+
+      .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+
+      /* Topbar */
+      .topbar { display: grid; grid-template-columns: 320px 1fr auto; align-items: center; padding: 14px 24px; border-bottom: 2px solid var(--ink); gap: 24px; background: var(--paper); }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .brand .mark { width: 36px; height: 36px; background: var(--ink); color: var(--paper); display: grid; place-items: center; font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -0.02em; }
+      .brand .name { display: flex; flex-direction: column; gap: 0; }
+      .brand .name .word { font-family: var(--display); font-weight: 700; font-size: 22px; line-height: 1; letter-spacing: -0.025em; font-variation-settings: "opsz" 32; }
+      .brand .name .sub { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+      .cmdk { display: flex; align-items: center; gap: 10px; border: 2px solid var(--ink); padding: 6px 12px; background: var(--paper); }
+      .cmdk .label { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+      .cmdk input { background: transparent; border: 0; outline: none; flex: 1; font-family: var(--sans); font-size: 14px; color: var(--ink); }
+      .cmdk input::placeholder { color: var(--ink-fainter); }
+      .topbar-actions { display: flex; gap: 12px; align-items: center; }
+      .chip { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding: 3px 8px; border: 1.5px solid var(--ink); background: var(--paper); }
+      .chip::before { content: ""; width: 8px; height: 8px; background: var(--ink); }
+      .chip.ok::before { background: var(--accent-teal); }
+      .chip.warn::before { background: var(--accent-yellow); }
+      .chip.err::before { background: var(--accent-err); }
+      .chip.info::before { background: var(--accent-blue); }
+      .chip.bare { padding-left: 6px; }
+      .chip.bare::before { display: none; }
+
+      /* Layout */
+      .layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 67px); }
+      .sidebar { padding: 20px 18px; border-right: 2px solid var(--ink); display: flex; flex-direction: column; gap: 24px; background: var(--paper-tint); }
+      .sidebar h4 { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin: 0; }
+      .workspace { display: flex; flex-direction: column; gap: 2px; }
+      .workspace strong { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1.05; letter-spacing: -0.025em; font-variation-settings: "opsz" 36; }
+      .workspace .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); margin-top: 4px; }
+      .nav { display: flex; flex-direction: column; }
+      .nav-section + .nav-section { margin-top: 14px; }
+      .nav a { display: grid; grid-template-columns: 22px 1fr auto; padding: 6px 0; color: var(--ink-soft); align-items: center; gap: 6px; border-bottom: 1px solid var(--rule-light); }
+      .nav a:last-child { border-bottom: 0; }
+      .nav a.active { color: var(--ink); font-weight: 600; }
+      .nav a .num { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+      .nav a.active .num { color: var(--accent-orange); font-weight: 700; }
+      .nav a .k { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); }
+
+      /* Main */
+      .main { padding: 0; min-width: 0; }
+
+      .ds-strap { display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: end; padding: 20px 32px 14px; border-bottom: 2px solid var(--ink); }
+      .ds-strap .num { font-family: var(--display); font-weight: 800; font-size: 80px; line-height: 0.85; color: var(--accent-orange); letter-spacing: -0.04em; }
+      .ds-strap .title { font-family: var(--display); font-weight: 700; font-size: 48px; line-height: 0.95; letter-spacing: -0.03em; font-variation-settings: "opsz" 96; }
+      .ds-strap .kind { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; text-align: right; }
+
+      .pagehead { display: grid; grid-template-columns: auto 1fr auto; gap: 24px; padding: 30px 32px 24px; border-bottom: 1.5px solid var(--ink); align-items: end; }
+      .pagehead .meta-left { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+      .pagehead h1 { margin: 4px 0 0; font-family: var(--display); font-weight: 700; font-size: 64px; line-height: 0.95; letter-spacing: -0.03em; font-variation-settings: "opsz" 96; }
+      .pagehead .meta-right { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); text-align: right; display: flex; flex-direction: column; gap: 2px; }
+
+      .grid { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: 0; align-items: stretch; }
+      .grid > .col-spine { padding: 28px 32px 32px; border-right: 1.5px solid var(--ink); }
+      .grid > .col-rail { padding: 28px 30px 32px; background: var(--paper-tint); }
+
+      .section { display: flex; flex-direction: column; }
+      .section + .section { margin-top: 36px; }
+      .section-strap { display: grid; grid-template-columns: auto 1fr auto; gap: 18px; align-items: baseline; padding-bottom: 12px; border-bottom: 1.5px solid var(--ink); margin-bottom: 12px; }
+      .section-strap .id { font-family: var(--display); font-weight: 800; font-size: 36px; line-height: 1; letter-spacing: -0.03em; color: var(--accent-orange); }
+      .section-strap h2 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; letter-spacing: -0.02em; font-variation-settings: "opsz" 64; }
+      .section-strap .meta { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); letter-spacing: 0.06em; text-transform: uppercase; }
+
+      .row { display: grid; grid-template-columns: 46px minmax(0,1fr) auto auto; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--rule-light); align-items: baseline; }
+      .row .idn { font-family: var(--mono); font-weight: 500; color: var(--ink); font-size: 13px; }
+      .row .title { font-size: 14.5px; font-weight: 500; }
+      .row .sub { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; }
+      .row .sub .author { color: var(--ink-soft); }
+      .row .t { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+
+      .check { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); border: 1.5px solid var(--ink); padding: 3px 7px; }
+      .check.ok { border-color: var(--accent-teal); color: var(--accent-teal); }
+      .check.warn { border-color: var(--accent-yellow); color: var(--accent-yellow); }
+      .check.err { border-color: var(--accent-err); color: var(--accent-err); }
+      .check.info { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+      /* Rail */
+      .rail-section + .rail-section { margin-top: 30px; }
+      .rail-strap { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: baseline; padding-bottom: 8px; border-bottom: 1.5px solid var(--ink); }
+      .rail-strap .id { font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -0.02em; color: var(--accent-orange); }
+      .rail-strap h3 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 1; letter-spacing: -0.015em; }
+      .rail-strap .count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: 0.08em; text-transform: uppercase; }
+
+      .filter { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--rule-light); }
+      .filter input { background: transparent; border: 0; outline: none; flex: 1; font-family: var(--mono); font-size: 12px; color: var(--ink); }
+      .filter span { font-family: var(--mono); color: var(--ink-faint); }
+
+      .repo { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--rule-light); align-items: baseline; }
+      .repo .name { font-family: var(--mono); font-size: 12.5px; }
+      .repo .name .prefix { color: var(--ink-faint); }
+      .repo .name .leaf { color: var(--ink); font-weight: 700; }
+      .repo .stats { display: flex; gap: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+      .repo .stats .ok { color: var(--accent-teal); }
+      .repo .stats .warn { color: var(--accent-yellow); }
+
+      .activity .day { font-family: var(--display); font-weight: 700; font-size: 14px; padding: 14px 0 6px; border-bottom: 1px solid var(--rule-light); letter-spacing: -0.01em; text-transform: uppercase; }
+      .activity .ev { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--rule-light); align-items: baseline; }
+      .activity .ev .summary { font-size: 13.5px; }
+      .activity .ev .src { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-left: 6px; }
+      .activity .ev .t { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
+
+      /* Instance strip */
+      .instance { margin-top: 0; padding: 22px 32px; background: var(--instance-bg); color: var(--instance-fg); display: grid; grid-template-columns: auto 1fr auto auto; gap: 24px; align-items: center; }
+      .instance .id { font-family: var(--display); font-weight: 800; font-size: 28px; letter-spacing: -0.03em; color: var(--accent-instance); }
+      .instance .stats { display: flex; gap: 22px; align-items: center; font-family: var(--mono); font-size: 12px; color: var(--instance-fg-soft); }
+      .instance .stats strong { color: var(--instance-fg); font-weight: 700; }
+      .instance .stats .ok { color: var(--accent-instance); }
+      .instance .clone { font-family: var(--mono); font-size: 11.5px; color: var(--instance-fg); border: 1.5px solid var(--instance-rule); padding: 5px 10px; }
+      .instance .link { font-family: var(--mono); font-size: 12px; color: var(--accent-instance); }
+
+      .ds-footer { padding: 28px 32px 40px; border-top: 2px solid var(--ink); display: grid; grid-template-columns: repeat(4, 1fr); gap: 30px; }
+      .ds-footer h4 { font-family: var(--display); font-weight: 700; font-size: 16px; letter-spacing: -0.01em; margin: 0 0 6px; }
+      .ds-footer h4::before { content: "● "; color: var(--accent-orange); }
+      .ds-footer p { margin: 0; color: var(--ink-soft); font-size: 12.5px; }
+      .ds-footer .palette { display: flex; gap: 6px; margin-top: 10px; }
+      .ds-footer .swatch { width: 28px; height: 28px; border: 1.5px solid var(--ink); }
+
+      /* Theme switcher — meta-UI for review, not part of the design */
+      .theme-switch {
+        position: fixed;
+        bottom: 18px;
+        right: 18px;
+        z-index: 100;
+        background: var(--paper);
+        border: 2px solid var(--ink);
+        padding: 10px 12px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        box-shadow: 4px 4px 0 var(--ink);
+        max-width: 240px;
+      }
+      .theme-switch .ts-label {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        color: var(--ink-faint);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        padding: 0 2px 6px;
+        border-bottom: 1px solid var(--rule-light);
+        margin-bottom: 4px;
+      }
+      .theme-switch button {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: center;
+        border: 1.5px solid transparent;
+        background: transparent;
+        padding: 4px 6px;
+        cursor: pointer;
+        color: var(--ink-soft);
+        font: inherit;
+        text-align: left;
+      }
+      .theme-switch button:hover { color: var(--ink); background: var(--paper-tint); }
+      .theme-switch button.active {
+        color: var(--ink);
+        font-weight: 600;
+        background: var(--paper-tint);
+        border-color: var(--ink);
+      }
+      .theme-switch .ts-swatches { display: flex; flex-shrink: 0; }
+      .theme-switch .ts-swatches span {
+        width: 12px;
+        height: 18px;
+        border: 1px solid var(--ink);
+        margin-right: -1px;
+        display: block;
+      }
+      .theme-switch .ts-name {
+        font-family: var(--sans);
+        font-size: 12.5px;
+        white-space: nowrap;
+      }
+      .theme-switch .ts-name .kind {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--ink-faint);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-left: 4px;
+      }
+      .theme-switch button.active .ts-name .kind { color: var(--ink-soft); }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">C</div>
+          <div class="name">
+            <span class="word">Comtrya</span>
+            <span class="sub">forge · single-tenant · v3</span>
+          </div>
+        </div>
+        <label class="cmdk">
+          <span class="label">Cmd</span>
+          <input type="search" placeholder="repository, pull request, file, ref…" />
+          <kbd>⌘K</kbd>
+        </label>
+        <div class="topbar-actions">
+          <span class="chip ok">READY</span>
+          <span class="chip bare">extensions 3/3</span>
+          <code style="color: var(--ink-faint);">localhost:8443</code>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="workspace">
+            <h4>Workspace</h4>
+            <strong>Comtrya Labs</strong>
+            <div class="meta">8 repositories · single-tenant</div>
+          </div>
+
+          <div>
+            <h4>Workspace nav</h4>
+            <nav class="nav nav-section">
+              <a class="active" href="#"><span class="num">01</span><span>Home</span><span class="k">g h</span></a>
+              <a href="#"><span class="num">02</span><span>Activity</span><span class="k">g a</span></a>
+              <a href="#"><span class="num">03</span><span>Extensions</span><span class="k">g e</span></a>
+              <a href="#"><span class="num">04</span><span>Instance</span><span class="k">g i</span></a>
+            </nav>
+          </div>
+
+          <div>
+            <h4>Extension routes</h4>
+            <nav class="nav nav-section">
+              <a href="#"><span class="num">/x</span><span>Pulls</span><span class="k">g p</span></a>
+              <a href="#"><span class="num">/x</span><span>Code</span><span class="k">g c</span></a>
+              <a href="#"><span class="num">/x</span><span>Checks</span><span class="k">g k</span></a>
+            </nav>
+          </div>
+
+          <div style="margin-top: auto;">
+            <h4>Viewer</h4>
+            <div style="font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -0.015em;">David Flanagan</div>
+            <div style="font-family: var(--mono); font-size: 11px; color: var(--ink-faint);">instance.admin · workspace.read</div>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="ds-strap">
+            <span class="num">04</span>
+            <span class="title">Mechanical&nbsp;Specimen</span>
+            <span class="kind">light · brutalist edge · Bricolage Grotesque / Plex Sans / JetBrains Mono</span>
+          </div>
+
+          <section class="pagehead">
+            <div>
+              <div class="meta-left">/ · workspace</div>
+              <h1>Home.</h1>
+            </div>
+            <div></div>
+            <div class="meta-right">
+              <span>3 reviews waiting</span>
+              <span>2 failing checks</span>
+              <span>refreshed 14s ago</span>
+            </div>
+          </section>
+
+          <section class="grid">
+            <!-- Spine -->
+            <div class="col-spine">
+              <div class="section">
+                <div class="section-strap">
+                  <span class="id">01</span>
+                  <h2>Review queue</h2>
+                  <span class="meta">3 pulls · ext_pull_requests</span>
+                </div>
+                <div class="row">
+                  <span class="idn">#482</span>
+                  <div>
+                    <div class="title">Compose extension GraphQL SDL across resolvers</div>
+                    <div class="sub"><span class="author">@sandra</span> · comtrya</div>
+                  </div>
+                  <span class="check ok">✓ 14/14</span>
+                  <span class="t">1h</span>
+                </div>
+                <div class="row">
+                  <span class="idn">#479</span>
+                  <div>
+                    <div class="title">Reject GraphQL SDL ellipsis tokens</div>
+                    <div class="sub"><span class="author">@alex</span> · comtrya</div>
+                  </div>
+                  <span class="check warn">⚠ 7/8</span>
+                  <span class="t">3h</span>
+                </div>
+                <div class="row">
+                  <span class="idn">#41</span>
+                  <div>
+                    <div class="title">OCI cache: handle 503 from registry</div>
+                    <div class="sub"><span class="author">@maria</span> · comtrya/ext-pull-requests</div>
+                  </div>
+                  <span class="check ok">✓ 9/9</span>
+                  <span class="t">7h</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-strap">
+                  <span class="id">02</span>
+                  <h2>Your pulls</h2>
+                  <span class="meta">2 authored</span>
+                </div>
+                <div class="row">
+                  <span class="idn">#468</span>
+                  <div>
+                    <div class="title">Wire pure-Rust Smart HTTP v2 into server</div>
+                    <div class="sub">comtrya · draft</div>
+                  </div>
+                  <span class="check ok">✓ 14/14</span>
+                  <span class="t">4h</span>
+                </div>
+                <div class="row">
+                  <span class="idn">#491</span>
+                  <div>
+                    <div class="title">Workspace homepage extension scaffold</div>
+                    <div class="sub">comtrya · ready</div>
+                  </div>
+                  <span class="check warn">⚠ 1 conflict</span>
+                  <span class="t">2d</span>
+                </div>
+              </div>
+
+              <div class="section">
+                <div class="section-strap">
+                  <span class="id">03</span>
+                  <h2>Failing on your branches</h2>
+                  <span class="meta">2 checks · ext_checks</span>
+                </div>
+                <div class="row">
+                  <span class="idn">!CK</span>
+                  <div>
+                    <div class="title">smoke / extension-host</div>
+                    <div class="sub">comtrya · v3/homepage-spike</div>
+                  </div>
+                  <span class="check err">✗ failing</span>
+                  <span class="t">12m</span>
+                </div>
+                <div class="row">
+                  <span class="idn">!CK</span>
+                  <div>
+                    <div class="title">lint / biome</div>
+                    <div class="sub">comtrya/ext-checks · v3/oci-503-handling</div>
+                  </div>
+                  <span class="check err">✗ failing</span>
+                  <span class="t">34m</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rail -->
+            <aside class="col-rail">
+              <div class="rail-section">
+                <div class="rail-strap"><span class="id">04</span><h3>Repositories</h3><span class="count">8 total</span></div>
+                <div class="filter"><span>/</span><input placeholder="filter group or name" /></div>
+                <div class="repo"><span class="name"><span class="leaf">comtrya</span></span><span class="stats"><span>12 pr</span><span class="ok">142 ✓</span><span>4m</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-checks</span></span><span class="stats"><span>0 pr</span><span class="warn">11/12</span><span>3d</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-code-browser</span></span><span class="stats"><span>1 pr</span><span class="ok">14 ✓</span><span>1d</span></span></div>
+                <div class="repo"><span class="name"><span class="leaf">ext-pull-requests</span></span><span class="stats"><span>3 pr</span><span class="ok">28 ✓</span><span>2h</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">infra/</span><span class="leaf">cluster-state</span></span><span class="stats"><span>0 pr</span><span class="ok">33 ✓</span><span>9d</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">infra/</span><span class="leaf">secrets</span></span><span class="stats"><span>2 pr</span><span class="ok">19 ✓</span><span>22h</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">public/internal/</span><span class="leaf">observability</span></span><span class="stats"><span>7 pr</span><span class="ok">56 ✓</span><span>18m</span></span></div>
+                <div class="repo"><span class="name"><span class="prefix">public/playground/</span><span class="leaf">wit-experiments</span></span><span class="stats"><span>1 pr</span><span class="warn">4/8</span><span>6h</span></span></div>
+              </div>
+
+              <div class="rail-section activity">
+                <div class="rail-strap"><span class="id">05</span><h3>Activity</h3><span class="count">live</span></div>
+                <div class="day">Today</div>
+                <div class="ev"><span class="summary">@sandra pushed 3 commits<span class="src">comtrya/main</span></span><span class="t">4m</span></div>
+                <div class="ev"><span class="summary">PR opened: Compose extension GraphQL SDL<span class="src">#482</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="summary">Checks passed on comtrya/v3<span class="src">14/14</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="summary">PR merged: ExtensionInstallConfig<span class="src">#475</span></span><span class="t">3h</span></div>
+                <div class="ev"><span class="summary">Extension resolver 200 OK<span class="src">ext_checks</span></span><span class="t">5h</span></div>
+                <div class="day">Yesterday</div>
+                <div class="ev"><span class="summary">@maria pushed 1 commit<span class="src">public/internal/observability</span></span><span class="t">18h</span></div>
+                <div class="ev"><span class="summary">PR opened: OCI cache handle 503<span class="src">#41</span></span><span class="t">19h</span></div>
+                <div class="ev"><span class="summary">CloudEvent ref.updated<span class="src">infra/cluster-state</span></span><span class="t">22h</span></div>
+              </div>
+            </aside>
+          </section>
+
+          <section class="instance">
+            <span class="id">06</span>
+            <div class="stats">
+              <span class="ok">● READY</span>
+              <span><strong>0</strong> boundaries</span>
+              <span><strong>3/3</strong> extensions executed</span>
+              <span>pure-rust git: active</span>
+              <span>federated graphql: pending</span>
+            </div>
+            <code class="clone">git clone https://localhost:8443/git/comtrya.git</code>
+            <a class="link" href="#">→ /instance</a>
+          </section>
+
+          <section class="ds-footer">
+            <div>
+              <h4>Aesthetic</h4>
+              <p>Print-graphic specimen sheet. Hairline-black rules, oversized section IDs, datasheet rhythm. High-contrast typography is the structure.</p>
+            </div>
+            <div>
+              <h4>Palette</h4>
+              <p>White paper, ink black, structural rules. Saturated accents reserved for state — never decoration.</p>
+              <div class="palette">
+                <div class="swatch" style="background: #ffffff;"></div>
+                <div class="swatch" style="background: #f6f4ef;"></div>
+                <div class="swatch" style="background: #0a0a0a;"></div>
+                <div class="swatch" style="background: var(--accent-orange);"></div>
+                <div class="swatch" style="background: var(--accent-teal);"></div>
+                <div class="swatch" style="background: var(--accent-yellow);"></div>
+              </div>
+            </div>
+            <div>
+              <h4>Typography</h4>
+              <p><strong class="display" style="font-weight: 700;">Bricolage Grotesque</strong> display + section IDs · <strong>IBM Plex Sans</strong> body · <code>JetBrains Mono</code> data &amp; meta.</p>
+            </div>
+            <div>
+              <h4>Density</h4>
+              <p>13px body. 12px row padding. 1.5–2px structural rules. Section IDs sit at 36–80px. Status chips are bordered, never fillled.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <aside class="theme-switch" role="group" aria-label="Color scheme">
+      <div class="ts-label">Color scheme</div>
+      <button type="button" data-theme="print" class="active">
+        <span class="ts-swatches">
+          <span style="background: #ffffff;"></span>
+          <span style="background: #f6f4ef;"></span>
+          <span style="background: #0a0a0a;"></span>
+          <span style="background: #f04a1e;"></span>
+          <span style="background: #008873;"></span>
+          <span style="background: #f2c100;"></span>
+        </span>
+        <span class="ts-name">Print<span class="kind">light</span></span>
+      </button>
+      <button type="button" data-theme="catppuccin">
+        <span class="ts-swatches">
+          <span style="background: #1e1e2e;"></span>
+          <span style="background: #181825;"></span>
+          <span style="background: #cdd6f4;"></span>
+          <span style="background: #cba6f7;"></span>
+          <span style="background: #a6e3a1;"></span>
+          <span style="background: #f9e2af;"></span>
+        </span>
+        <span class="ts-name">Catppuccin<span class="kind">mocha</span></span>
+      </button>
+      <button type="button" data-theme="ayu">
+        <span class="ts-swatches">
+          <span style="background: #1f2430;"></span>
+          <span style="background: #171c28;"></span>
+          <span style="background: #cccac2;"></span>
+          <span style="background: #ffcc66;"></span>
+          <span style="background: #bae67e;"></span>
+          <span style="background: #5ccfe6;"></span>
+        </span>
+        <span class="ts-name">Ayu<span class="kind">mirage</span></span>
+      </button>
+      <button type="button" data-theme="rose-pine">
+        <span class="ts-swatches">
+          <span style="background: #191724;"></span>
+          <span style="background: #1f1d2e;"></span>
+          <span style="background: #e0def4;"></span>
+          <span style="background: #ebbcba;"></span>
+          <span style="background: #f6c177;"></span>
+          <span style="background: #eb6f92;"></span>
+        </span>
+        <span class="ts-name">Rosé Pine<span class="kind">main</span></span>
+      </button>
+      <button type="button" data-theme="tokyo-night">
+        <span class="ts-swatches">
+          <span style="background: #1a1b26;"></span>
+          <span style="background: #16161e;"></span>
+          <span style="background: #c0caf5;"></span>
+          <span style="background: #7aa2f7;"></span>
+          <span style="background: #9ece6a;"></span>
+          <span style="background: #bb9af7;"></span>
+        </span>
+        <span class="ts-name">Tokyo Night<span class="kind">night</span></span>
+      </button>
+      <button type="button" data-theme="gruvbox">
+        <span class="ts-swatches">
+          <span style="background: #282828;"></span>
+          <span style="background: #1d2021;"></span>
+          <span style="background: #ebdbb2;"></span>
+          <span style="background: #fe8019;"></span>
+          <span style="background: #b8bb26;"></span>
+          <span style="background: #fabd2f;"></span>
+        </span>
+        <span class="ts-name">Gruvbox<span class="kind">dark</span></span>
+      </button>
+    </aside>
+
+    <script>
+      (function () {
+        const root = document.documentElement;
+        const sw = document.querySelector('.theme-switch');
+        const stored = localStorage.getItem('comtrya-mockup-theme');
+        if (stored) {
+          root.dataset.theme = stored;
+          sw.querySelectorAll('button[data-theme]').forEach(function (b) {
+            b.classList.toggle('active', b.dataset.theme === stored);
+          });
+        }
+        sw.addEventListener('click', function (e) {
+          const btn = e.target.closest('button[data-theme]');
+          if (!btn) return;
+          const theme = btn.dataset.theme;
+          root.dataset.theme = theme;
+          localStorage.setItem('comtrya-mockup-theme', theme);
+          sw.querySelectorAll('button[data-theme]').forEach(function (b) {
+            b.classList.toggle('active', b === btn);
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

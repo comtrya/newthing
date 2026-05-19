@@ -1,8 +1,12 @@
-# Forgepoint Demo Operator Runbook
+# Comtrya demo operator runbook
+
+> **URL scheme (v3):** repositories at `/r/<group>/<...>/<repo>`.
+> Extension-owned pages live at `/x/<prefix>/<...>`. The workspace homepage is
+> `/`.
 
 This runbook is for the local production-testbed demo.
 
-## Clean Reset
+## Clean reset
 
 Use a reset when you want to reseed the demo repository and extension storage:
 
@@ -15,12 +19,12 @@ For shared demos, set a non-default operator code and enable the external-demo
 gate before starting:
 
 ```sh
-export FORGEPOINT_OPERATOR_CODE="<non-default-demo-code>"
-export FORGEPOINT_EXTERNAL_DEMO=1
+export COMTRYA_OPERATOR_CODE="<non-default-demo-code>"
+export COMTRYA_EXTERNAL_DEMO=1
 ./start.sh --reset
 ```
 
-`--reset` only deletes guarded generated paths under `FORGEPOINT_DATA_DIR`.
+`--reset` only deletes guarded generated paths under `COMTRYA_DATA_DIR`.
 
 ## Start
 
@@ -39,55 +43,61 @@ One-shot smoke run:
 Useful local overrides:
 
 ```sh
-FORGEPOINT_DATA_DIR=/private/tmp/forgepoint-production-testbed \
-FORGEPOINT_LISTEN=127.0.0.1:8080 \
-FORGEPOINT_FRONTEND_LISTEN=127.0.0.1:4321 \
+COMTRYA_DATA_DIR=/private/tmp/comtrya-production-testbed \
+COMTRYA_LISTEN=127.0.0.1:8080 \
+COMTRYA_FRONTEND_LISTEN=127.0.0.1:4321 \
 ./start.sh --reset
 ```
 
 ## URLs
 
-- Frontend: `http://127.0.0.1:4321/`
+- Workspace homepage: `http://127.0.0.1:4321/`
+- Seeded repository: `http://127.0.0.1:4321/r/comtrya/comtrya`
+- Extension-owned pages: `http://127.0.0.1:4321/x/<prefix>/<...>`
 - Rust server: `http://127.0.0.1:8080/`
-- Server readiness through the frontend: `http://127.0.0.1:4321/readyz`
+- Readiness through the frontend: `http://127.0.0.1:4321/readyz`
 - Direct server readiness: `http://127.0.0.1:8080/readyz`
 
 When using custom listen addresses, read the URLs from `start.sh` output.
 
-## Expected Credentials
+## Credentials
 
 `.envrc.example` seeds:
 
 ```sh
-FORGEPOINT_OPERATOR_CODE=forgepoint-local-operator-code
+COMTRYA_OPERATOR_CODE=comtrya-local-operator-code
 ```
 
 That code is acceptable for local smoke only. With
-`FORGEPOINT_EXTERNAL_DEMO=1`, startup rejects it and requires a non-default
-`FORGEPOINT_OPERATOR_CODE`.
+`COMTRYA_EXTERNAL_DEMO=1`, startup rejects it and requires a non-default
+`COMTRYA_OPERATOR_CODE`.
 
-## Smoke Output
+## Smoke output
 
-A passing `./start.sh --reset --oneshot` should print:
+A passing `./start.sh --reset --oneshot` should print evidence for:
 
-- frontend shell and readyz checks returning `200`
-- unsupported legacy v1 and OIDC callback checks returning explicit
-  `UNSUPPORTED` errors
+- static v3 cutover checks: no first-party `.wat` stubs, no obsolete string
+  matcher, valid platform WIT versions, and real `dist/<id>.wasm` artifacts
+- Vue shell, health, and readiness checks returning `200`
+- unsupported OIDC callback and receive-pack checks returning
+  explicit `UNSUPPORTED` errors
 - operator-code token exchange success
-- GraphQL Git/storage/resolver assertions
+- GraphQL Git/storage/extension assertions
 - seeded repository path, branch list, and installed extension list
 - event stream, session reuse, and expired-session fail-closed checks
 - extension manifest and asset checks for all first-party extensions
 - Git no-token, wrong-token, and wrong-scope failures
 - `git ls-remote`, `git clone`, and branch-specific fetch success
-- receive-pack returning the explicit `UNSUPPORTED` error
+- browser smoke against the live Vue shell
+- `/api/ops` issue close emitting `ext_issues` WASM events
+- pull-request merge reactor closing linked issues through cross-extension WASM
 
-## Data Locations
+## Data locations
 
 Default data root:
 
 ```sh
-/private/tmp/forgepoint-production-testbed
+/private/tmp/comtrya-production-testbed
 ```
 
 Important generated paths:
@@ -95,32 +105,32 @@ Important generated paths:
 - `metadata/demo-state.json`: copied seed input.
 - `metadata/events.jsonl`: runtime event log.
 - `metadata/audit.jsonl`: runtime audit log.
-- `repositories/forgepoint/forgepoint.git`: seeded bare Git repository.
+- `repositories/<owner>/<repo>.git`: seeded bare Git repositories.
 - `metadata/demo-repository-workdir`: temporary seed worktree.
 - `extensions/storage/schema.json`: extension storage schema.
 - `extensions/storage/documents.jsonl`: extension storage documents.
 - `extensions/storage/events.jsonl`: extension storage events.
 - `server.log` and `frontend.log`: logs captured by `start.sh`.
 
-## Inspect Seeded Git
+## Inspect seeded Git
 
 Set `DATA_DIR` to the value printed by `start.sh` if you override it.
 
 ```sh
-DATA_DIR=/private/tmp/forgepoint-production-testbed
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" show-ref
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" rev-parse HEAD
-git --git-dir "$DATA_DIR/repositories/forgepoint/forgepoint.git" log --oneline --decorate --all
+DATA_DIR=/private/tmp/comtrya-production-testbed
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" show-ref
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" rev-parse HEAD
+git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" log --oneline --decorate --all
 ```
 
-Clone through the Astro origin with a scoped credential by using the token
+Clone through the Vue origin with a scoped credential by using the token
 exchange flow from `start.sh`, or rerun `./start.sh --reset --oneshot` and rely
 on its clone/fetch smoke assertions.
 
-## Inspect Extension Storage
+## Inspect extension storage
 
 ```sh
-DATA_DIR=/private/tmp/forgepoint-production-testbed
+DATA_DIR=/private/tmp/comtrya-production-testbed
 sed -n '1,220p' "$DATA_DIR/extensions/storage/schema.json"
 sed -n '1,20p' "$DATA_DIR/extensions/storage/documents.jsonl"
 sed -n '1,20p' "$DATA_DIR/extensions/storage/events.jsonl"
@@ -129,11 +139,7 @@ sed -n '1,20p' "$DATA_DIR/extensions/storage/events.jsonl"
 Each document line includes the owner extension, collection, id, resource,
 indexed fields, version, update timestamp, and data payload.
 
-## Known Not Real Yet
+## Known unsupported surfaces
 
-- The Wasmtime resolver ABI is still a minimal proof ABI.
-- The host still renders major code browser, pull request, and checks panels.
-- PR/check business behavior is not yet resolver-owned against real Git refs.
 - Receive-pack/push is disabled.
-- Browser-rendered extension smoke still needs a Playwright or Browser-plugin
-  automation path in this repo/session.
+- Full OIDC browser callback validation is disabled in the testbed.

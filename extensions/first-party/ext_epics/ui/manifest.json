@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_epics",
+  "extension": "epics",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_epics/assets/index.js",
+    "entryIntegrity": "sha256-00b1cf07a39ec20ef43ef20cb8a61b362ca00ec5f37dc95035c5ae741f54ec31",
+    "styles": []
+  },
+  "permissions": [
+    "epics.read",
+    "epics.write"
+  ]
+}

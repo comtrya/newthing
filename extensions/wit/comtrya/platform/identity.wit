@@ -1,0 +1,36 @@
+// Identity for the current op invocation.
+//
+// Every WASM op runs under two principals:
+//   * `current-principal()` — the user (or credential) who triggered the
+//     original request. The extension uses this for authorisation
+//     decisions on user-supplied data.
+//   * `extension-credential()` — the synthetic credential the extension
+//     itself acts under. The extension uses this when recording who
+//     created/edited a resource (closedByRef, authorRef when no user is
+//     identified, etc.).
+//
+// Both are URIs: `comtrya://user/usr_…` or `comtrya://extension/ext_…`.
+
+interface identity {
+  use types.{principal-uri, error};
+
+  /// The principal that originated this request. May be the anonymous
+  /// principal (`comtrya://user/usr_0…`) for unauthenticated calls.
+  current-principal: func() -> result<principal-uri, error>;
+
+  /// The calling extension's own principal URI. Stable across invocations.
+  extension-credential: func() -> result<principal-uri, error>;
+
+  /// Whether the current principal holds the named permission.
+  /// Permissions are extension-namespaced strings of the form
+  /// `<extension-id>.<verb>` (e.g. `issues.write`). The kernel rejects
+  /// strings outside this grammar with `bad-input`.
+  ///
+  /// Returns:
+  ///   * `ok(true)`  — permission is held;
+  ///   * `ok(false)` — permission is definitively denied;
+  ///   * `err(unavailable)` — authz layer could not be reached. Callers
+  ///     MUST fail closed (treat as denied) but should surface the
+  ///     error rather than silently presenting "denied" UX.
+  has-permission: func(permission: string) -> result<bool, error>;
+}

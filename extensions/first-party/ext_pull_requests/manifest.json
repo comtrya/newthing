@@ -1,17 +1,78 @@
 {
-  "schemaVersion": "forgepoint.extension/v1",
+  "schemaVersion": "comtrya.extension/v1",
   "id": "ext_pull_requests",
   "name": "pull-requests",
   "displayName": "Pull Requests",
   "version": "0.1.0",
-  "publisher": "forgepoint-dev",
-  "wasmComponent": "component.wat",
-  "witWorld": "forgepoint:extension/extension",
-  "ui": {
-    "manifest": "ui/manifest.json"
-  },
+  "publisher": "comtrya-dev",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_pull_requests.wasm",
+  "witWorld": "ext-pull-requests",
+  "routePrefix": "pulls",
+  "ui": { "manifest": "ui/manifest.json" },
   "runtime": {
-    "resolver": "resolve",
-    "outputType": "forgepoint.pull-requests/summary.v1"
+    "resolver": "platform-wit-extension",
+    "outputType": "comtrya.pull-requests/summary.v1"
+  },
+  "contributes": {
+    "cueSchemas": [
+      {
+        "id": "pulls",
+        "snippet": "package comtrya\n\n// Per-Project pull-request policy. Read by ext_pull_requests; the\n// kernel and other extensions do not interpret these fields.\n#Pulls: {\n  autoMerge?:      bool | *false\n  requiredChecks?: [...string]\n  reviewers?:      [...string]\n}\n\n#Project: { pulls?: #Pulls }\n"
+      }
+    ],
+    "resourceKinds": [{ "name": "pull-request", "prefix": "pul" }],
+    "collections": [
+      {
+        "name": "pull_requests",
+        "ownerExtension": "ext_pull_requests",
+        "indexes": [
+          { "name": "by_repository_state_updated", "fields": ["repositoryID", "state", "updatedAt"], "unique": false },
+          { "name": "by_repository_number", "fields": ["repositoryID", "number"], "unique": true }
+        ],
+        "demoSeed": {
+          "source": "pullRequests",
+          "idPrefix": "pull_request",
+          "resource": "repository",
+          "resourceRefs": ["repository"],
+          "addRepositoryId": true,
+          "wasmRoute": {
+            "extensionId": "ext_pull_requests",
+            "interfaceName": "pulls",
+            "opName": "create-pull",
+            "payloadTemplate": {
+              "repository":   { "kernel": "repository" },
+              "title":        { "from": "title", "default": "Seeded pull request" },
+              "bodyMarkdown": { "from": ["bodyMarkdown", "body"], "default": "" },
+              "headRef":      { "from": ["headRef", "head"], "default": "seed/head" },
+              "baseRef":      { "from": ["baseRef", "base"], "default": "main" },
+              "authorRef":    { "kernel": "authorRef" }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "relations.read", "relations.write",
+    "events.read", "events.write",
+    "identity", "time", "ids", "ops", "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.pull-request.created",
+    "dev.comtrya.pull-request.merged",
+    "dev.comtrya.pull-request.closed"
+  ],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [
+    "ext_issues/issues.close-issue",
+    "ext_issues/issues.by-ref-issue"
+  ],
+  "reactor": {
+    "subscribes": ["dev.comtrya.pull-request.merged"],
+    "allowedMutations": ["ext_issues/issues.close-issue"],
+    "allowedEmits": []
   }
 }

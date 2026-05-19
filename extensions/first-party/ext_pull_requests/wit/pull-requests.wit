@@ -1,0 +1,69 @@
+// ext_pull_requests — per-extension WIT.
+//
+// PR state machine: DRAFT → READY → REVIEW → MERGED | CLOSED. The reactor
+// listens for `dev.comtrya.pull-request.merged` events emitted by this
+// extension and calls `ext_issues/issues.close-issue` for every linked
+// issue via `ops.invoke` (the auto-close-on-merge story).
+
+package comtrya:ext-pull-requests@0.1.0;
+
+interface pulls {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  variant pr-state {
+    draft,
+    ready,
+    review,
+    merged,
+    closed,
+  }
+
+  record pull-request {
+    %id: id,
+    repository: uri,
+    workspace: option<uri>,
+    number: u64,
+    title: string,
+    body-markdown: string,
+    state: pr-state,
+    author-ref: uri,
+    head-ref: string,
+    base-ref: string,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+    merged-at: option<iso-timestamp>,
+    merged-by-ref: option<uri>,
+    closed-at: option<iso-timestamp>,
+    closed-by-ref: option<uri>,
+  }
+
+  record create-pull-input {
+    repository: uri,
+    title: string,
+    body-markdown: string,
+    head-ref: string,
+    base-ref: string,
+    author-ref: option<uri>,
+  }
+
+  record merge-pull-input {
+    %id: id,
+    merged-by-ref: option<uri>,
+  }
+
+  record close-pull-input {
+    %id: id,
+    closed-by-ref: option<uri>,
+  }
+
+  create-pull: func(input: create-pull-input) -> result<pull-request, error>;
+  merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
+  close-pull: func(input: close-pull-input) -> result<pull-request, error>;
+  get-pull: func(%id: id) -> result<option<pull-request>, error>;
+  list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
+}
+
+world ext-pull-requests {
+  include comtrya:platform/extension@0.1.0;
+  export pulls;
+}

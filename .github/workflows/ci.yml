@@ -1,0 +1,149 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel stale runs when a new commit lands on the same ref. Force-pushes
+# to main get the same treatment — they shouldn't happen anyway.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: every job only reads the repo. No write or secrets
+# access needed for build/test/lint. None of the run: steps consume
+# untrusted external inputs (issue titles, PR bodies, commit messages,
+# etc.) — the only template expansion inside run: is `matrix.extension`,
+# which is derived from `ls extensions/first-party` (a filesystem glob).
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: cargo fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust 2024 edition requires Rust 1.85+ (released 2025-02-20).
+      # Pinning to `stable` follows the channel and avoids stale-pin breakage.
+      # Host workspace excludes extensions/first-party/*/component, so no
+      # wasm32 target is installed here — the extension-build job below
+      # installs it where it's actually used.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # cuengine 0.40.6 (transitive dep of crates/server and crates/core)
+      # has a build.rs that shells out to `go build` to compile its FFI
+      # bridge. cuengine's go.mod declares `go 1.25.0` as the MINIMUM;
+      # tracking `stable` (currently 1.26.x) satisfies that and matches
+      # the rust-toolchain philosophy of following the channel.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # Caches ~/.cargo/{registry,git} and target/ keyed on Cargo.lock.
+      # cuengine's Go FFI artifacts live under target/debug/build/cuengine-*/
+      # and ride along automatically.
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy -D warnings
+        run: cargo clippy --workspace -- -D warnings
+
+      # NOTE: 18 tests on v3 HEAD are known-broken until PR #17 lands its
+      # precondition fix. See PR description for the full inventory; do
+      # NOT enable required-checks on this job until #17 is merged.
+      - name: cargo test --workspace
+        run: cargo test --workspace
+
+  frontend:
+    name: bun typecheck + test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Bun Hard Rule (AGENTS.md): never npm/yarn/pnpm.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: bun install
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      - name: bun run typecheck
+        working-directory: frontend
+        run: bun run typecheck
+
+      - name: bun test
+        working-directory: frontend
+        run: bun test
+
+      - name: bun run build
+        working-directory: frontend
+        run: bun run build
+
+  # Glob-derived matrix so a 7th first-party extension is picked up
+  # automatically. Avoids hardcoded first-party names per AGENTS.md's
+  # "no first-party special cases" rule (spirit of the rule applied
+  # to CI configuration).
+  extensions-matrix:
+    name: discover first-party extensions
+    runs-on: ubuntu-latest
+    outputs:
+      extensions: ${{ steps.list.outputs.extensions }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        # Filter to directories only — a stray file in extensions/first-party/
+        # (e.g. a future .gitkeep or README.md) would otherwise become a
+        # matrix cell and fail the bundler's `[[ ! -d "$root" ]]` guard.
+        run: |
+          names=$(find extensions/first-party -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | jq -R . | jq -sc .)
+          echo "extensions=$names" >> "$GITHUB_OUTPUT"
+
+  extension-build:
+    name: bundle ${{ matrix.extension }}
+    needs: [extensions-matrix]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extension: ${{ fromJSON(needs.extensions-matrix.outputs.extensions) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: Swatinem/rust-cache@v2
+
+      # cargo-component drives `cargo component build` for each WASM
+      # Component-Model extension. Pin to the exact released patch.
+      - name: install cargo-component
+        run: cargo install --locked cargo-component --version 0.21.1
+
+      # Every extension's ui/vite.config.ts imports via relative paths
+      # into `../../../../frontend/node_modules/...`. Without populating
+      # frontend/ first, the bundler's `bun run build` step inside each
+      # ui/ directory fails with module-not-found.
+      - name: bun install (frontend workspace, shared by extension UIs)
+        working-directory: frontend
+        run: bun install --frozen-lockfile
+
+      # `matrix.extension` is glob-derived from `ls extensions/first-party`
+      # (see extensions-matrix job). Not untrusted external input.
+      - name: build extension
+        env:
+          EXTENSION: ${{ matrix.extension }}
+        run: extensions/bundler/build-extension.sh "extensions/first-party/$EXTENSION"

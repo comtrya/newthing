@@ -1,905 +1,285 @@
-import { FileDiff, parsePatchFiles } from "@pierre/diffs";
-import { FileTree } from "@pierre/trees";
-import type { GitStatusEntry } from "@pierre/trees";
-import { HttpForgepointClient } from "./client";
-import type { ExtensionUiManifest, ForgepointEvent } from "./contracts";
-import { validateUiManifest } from "./contracts";
-import "./extension-host";
+import { createApp } from "vue";
+import type { Router } from "vue-router";
+import { tinykeys } from "tinykeys";
+import {
+  bindGlobalShortcut,
+  defineInlineEditElement,
+  defineResourceCardElement,
+  defineSkeletonElement,
+  registerCommand,
+} from "@comtrya/sdk-core";
+import "./styles.css";
+import App from "./App.vue";
+import { defineCoreCommentThread } from "./core-widgets/comment-thread";
+import { loadShellExtensions } from "./extension-loader";
+import { installIssueRefHover } from "./issue-ref-hover";
+import { bindProjectCommands } from "./project-commands";
+import { registerRepositoryShellSlots } from "./repository-slots";
+import { createShellRouter } from "./router";
+import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
 
-const DEFAULT_RESOURCE = "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-const TOKEN_ACTIONS = ["graphql:read", "graphql:write", "events:read", "git:read", "checks:read"];
-
-const app = document.querySelector<HTMLElement>("#app");
-const serverURL = import.meta.env.PUBLIC_FORGEPOINT_SERVER_URL || window.location.origin;
-const seededOperatorCode = import.meta.env.PUBLIC_FORGEPOINT_OPERATOR_CODE || "";
-const client = new HttpForgepointClient(serverURL);
-let repositoryTree: FileTree | undefined;
-let reviewDiff: FileDiff | undefined;
-
-type ReadyPayload = {
-  ready: boolean;
-  mode: string;
-  checks: Record<string, boolean>;
-  unsupported: Array<{
-    id: string;
-    pathPrefix: string;
-    message: string;
-  }>;
-};
-
-type ExtensionInstallation = {
-  id: string;
-  name: string;
-  status: string;
-  description: string;
-};
-
-type TokenExchangePayload = {
-  accessToken: string;
-  tokenType: "Bearer";
-  expiresIn: number;
-  scope: string[];
-  resource: string;
-};
-
-type DemoState = {
-  workspace: {
-    name: string;
-    slug: string;
-    visibility: string;
-    members: number;
-  };
-  repository: {
-    owner: string;
-    name: string;
-    path: string;
-    visibility: string;
-    description: string;
-    defaultBranch: string;
-    currentCommit: string;
-    language: string;
-    license: string;
-    updated: string;
-  };
-  refs: Array<{ name: string; target: string; shortTarget: string }>;
-  branches: Array<{ name: string; commit: string; ahead: number; behind: number }>;
-  commits: Array<{ oid: string; shortOid: string; subject: string; author: string; time: string }>;
-  treeEntries: Array<{ path: string; mode: string; kind: string; oid: string; size: number }>;
-  files: Array<{
-    path: string;
-    kind: string;
-    status: string;
-    mode: string;
-    oid: string;
-    size: number;
-    preview: string;
-  }>;
-  blobs: Array<{ path: string; oid: string; size: number; preview: string }>;
-  diff: { path: string; language: string; patch: string };
-  pullRequests: Array<{
-    number: number;
-    title: string;
-    author: string;
-    avatar: string;
-    state: string;
-    base: string;
-    head: string;
-    comments: number;
-    changes: string;
-    checks: string;
-    review: string;
-  }>;
-  checks: Array<{ name: string; provider: string; conclusion: string; duration: string }>;
-  extensions: ExtensionInstallation[];
-  extensionResolvers: Array<{
-    id: string;
-    component: string;
-    resolver: string;
-    outputType: string;
-    output: Record<string, unknown>;
-    status: string;
-  }>;
-  activity: Array<{ type: string; summary: string; actor: string; time: string }>;
-};
-
-type RepositoryPayload = DemoState["repository"] & {
-  refs: DemoState["refs"];
-  branches: DemoState["branches"];
-  commits: DemoState["commits"];
-  treeEntries: DemoState["treeEntries"];
-  files: DemoState["files"];
-  blobs: DemoState["blobs"];
-  diff: DemoState["diff"];
-  pullRequests: DemoState["pullRequests"];
-  checks: DemoState["checks"];
-};
-
-type GraphqlPayload = {
-  viewer: { authenticated: boolean; permissions: string[] };
-  instance: {
-    id: string;
-    name: string;
-    publicURL: string;
-    capabilities: Record<string, boolean>;
-  };
-  workspace: DemoState["workspace"];
-  repository: RepositoryPayload;
-  extensionInstallations: DemoState["extensions"];
-  extensionResolvers: DemoState["extensionResolvers"];
-  activityEvents: DemoState["activity"];
-};
-
-type ExtensionMountIssueKind = "load" | "resolver" | "permission";
-
-type ExtensionMountIssue = {
-  extensionId: string;
-  extensionName: string;
-  kind: ExtensionMountIssueKind;
-  title: string;
-  detail: string;
-};
-
-type ExtensionMountResult = {
-  slots: number;
-  issues: ExtensionMountIssue[];
-};
-
-type AppState = {
-  ready?: ReadyPayload;
-  graphql?: GraphqlPayload;
-};
-
-const state: AppState = {};
-
-function escapeHtml(value: unknown): string {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function formatCount(value: number): string {
-  return new Intl.NumberFormat("en", { notation: value > 9999 ? "compact" : "standard" }).format(
-    value,
-  );
-}
-
-function setText(selector: string, value: unknown): void {
-  const element = app?.querySelector<HTMLElement>(selector);
-  if (element) {
-    element.textContent = String(value);
+assertWorkspaceSdkDepsLinked();
+defineResourceCardElement();
+defineInlineEditElement();
+defineSkeletonElement();
+defineCoreCommentThread();
+registerRepositoryShellSlots();
+bindGlobalShortcut();
+installIssueRefHover();
+const router = createShellRouter();
+registerNavigationCommands(router);
+bindGoChord(router);
+bindProjectCommands(router);
+void loadShellExtensions().then((failures) => {
+  for (const failure of failures) {
+    console.warn(
+      `[shell-app] extension ${failure.extensionId} ${failure.stage} failed: ${failure.message}`,
+    );
   }
-}
+});
+const app = createApp(App);
+app.use(router);
+app.mount("#app");
 
-function setStatus(selector: string, ok: boolean, label: string): void {
-  const element = app?.querySelector<HTMLElement>(selector);
-  if (!element) {
-    return;
-  }
-  element.className = ok ? "status-pill status-ok" : "status-pill status-warn";
-  element.textContent = label;
-}
-
-function renderShell(): void {
-  if (!app) {
-    return;
-  }
-
-  app.innerHTML = `
-    <header class="topbar">
-      <div class="brand-lockup">
-        <span class="brand-mark">F</span>
-        <div>
-          <strong>Forgepoint</strong>
-          <span>Conference demo environment</span>
-        </div>
-      </div>
-      <label class="global-search">
-        <span>Search</span>
-        <input type="search" value="forgepoint/forgepoint" aria-label="Search Forgepoint" />
-      </label>
-      <div class="topbar-actions">
-        <span id="ready-pill" class="status-pill status-warn">offline</span>
-        <code class="server-url">${escapeHtml(serverURL)}</code>
-      </div>
-    </header>
-
-    <section class="forge-layout">
-      <aside class="sidebar">
-        <form id="operator-form" class="operator-form">
-          <label for="operator-code">Operator code</label>
-          <div class="operator-row">
-            <input id="operator-code" name="operatorCode" type="password" autocomplete="off" value="${escapeHtml(seededOperatorCode)}" />
-            <button type="submit">Connect</button>
-          </div>
-        </form>
-        <nav class="repo-nav" aria-label="Repository navigation">
-          <a class="active" href="#overview">Overview</a>
-          <a href="#code">Code</a>
-          <a href="#pulls">Pull requests</a>
-          <a href="#checks">Checks</a>
-          <a href="#extensions">Extensions</a>
-          <a href="#activity">Activity</a>
-        </nav>
-      </aside>
-
-      <main class="content">
-        <section id="overview" class="repo-hero">
-          <div>
-            <span class="eyebrow">Private workspace</span>
-            <h1 id="repo-title">forgepoint / forgepoint</h1>
-            <p id="repo-description">Connect to load repository state.</p>
-          </div>
-          <div class="repo-actions">
-            <button type="button">Watch</button>
-            <button type="button">Star</button>
-            <button type="button">Fork</button>
-          </div>
-        </section>
-
-        <section class="metric-grid" aria-label="Repository metrics">
-          <article><span>Refs</span><strong id="metric-refs">0</strong></article>
-          <article><span>Branches</span><strong id="metric-branches">0</strong></article>
-          <article><span>Files</span><strong id="metric-files">0</strong></article>
-          <article><span>Checks</span><strong id="metric-checks">0/0</strong></article>
-        </section>
-
-        <section id="code" class="workbench">
-          <div class="workbench-main panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Repository</h2>
-                <p id="branch-summary">main</p>
-              </div>
-              <code id="commit-hash">------</code>
-            </div>
-            <div class="repo-workspace">
-              <div id="file-tree" class="tree-host" aria-label="Repository file tree"></div>
-              <div>
-                <pre id="file-preview" class="file-preview"></pre>
-                <div class="diff-panel">
-                  <div class="diff-header">
-                    <strong id="diff-path">Review diff</strong>
-                    <span>Rendered by @pierre/diffs</span>
-                  </div>
-                  <div id="review-diff" class="review-diff"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <aside class="panel intelligence-panel">
-            <h2>Repository Intelligence</h2>
-            <dl>
-              <div><dt>Language</dt><dd id="repo-language">unknown</dd></div>
-              <div><dt>License</dt><dd id="repo-license">unknown</dd></div>
-              <div><dt>Last update</dt><dd id="repo-updated">unknown</dd></div>
-              <div><dt>Viewer</dt><dd id="viewer-state">anonymous</dd></div>
-              <div><dt>Tree entries</dt><dd id="tree-count">0</dd></div>
-              <div><dt>Blobs</dt><dd id="blob-count">0</dd></div>
-            </dl>
-            <h3>Refs</h3>
-            <ol id="ref-list" class="compact-list"></ol>
-          </aside>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Commits</h2>
-              <p>Live commit history read from the local bare Git repository.</p>
-            </div>
-          </div>
-          <ol id="commit-list" class="commit-list"></ol>
-        </section>
-
-        <section class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Blob Previews</h2>
-              <p>Blob object metadata and previews from Git object storage.</p>
-            </div>
-          </div>
-          <div id="blob-list" class="blob-list"></div>
-        </section>
-
-        <section id="pulls" class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Pull Requests</h2>
-              <p>First-party PR extension data rendered in the host UI.</p>
-            </div>
-            <span id="graphql-pill" class="status-pill status-warn">waiting</span>
-          </div>
-          <div id="pull-list" class="pull-list"></div>
-        </section>
-
-        <section id="checks" class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Checks</h2>
-              <p>Protected-branch status, CI evidence, and extension-owned signals.</p>
-            </div>
-            <span id="checks-pill" class="status-pill status-warn">waiting</span>
-          </div>
-          <div id="check-list" class="check-list"></div>
-        </section>
-
-        <section id="extensions" class="panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Extensions</h2>
-              <p>Runtime-discovered manifests and ESM web components served by Rust.</p>
-            </div>
-            <span id="extension-pill" class="status-pill status-warn">not loaded</span>
-          </div>
-          <div id="extension-registry" class="extension-registry"></div>
-          <div id="extension-errors" class="extension-errors" aria-live="polite"></div>
-          <div id="extension-slots" class="extension-grid" data-smoke="manifest-driven-extension-slots"></div>
-        </section>
-
-        <section id="activity" class="activity-grid">
-          <div class="panel">
-            <div class="panel-heading">
-              <h2>Live Events</h2>
-              <span id="events-pill" class="status-pill status-warn">waiting</span>
-            </div>
-            <ol id="event-list" class="event-list"></ol>
-          </div>
-          <div class="panel">
-            <div class="panel-heading">
-              <h2>Clone</h2>
-              <span class="status-pill status-ok">Git upload-pack live</span>
-            </div>
-            <code class="command">git clone ${escapeHtml(serverURL)}/git/forgepoint/forgepoint.git</code>
-            <p class="muted">Smoke validation clones and fetches this seeded bare repository through the Astro origin with a scoped Forgepoint credential.</p>
-          </div>
-        </section>
-      </main>
-    </section>
-  `;
-}
-
-async function exchangeOperatorCode(operatorCode: string): Promise<TokenExchangePayload> {
-  const response = await fetch(new URL("/auth/token-exchange", serverURL), {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grantType: "urn:forgepoint:grant:operator-code",
-      subjectToken: operatorCode,
-      subjectTokenType: "urn:forgepoint:token-type:operator-code",
-      requestedResource: DEFAULT_RESOURCE,
-      requestedActions: TOKEN_ACTIONS,
-    }),
-  });
-  const body = await response.json();
-  if (!response.ok) {
-    throw new Error(body.errors?.[0]?.message ?? "operator code exchange failed");
-  }
-  return body as TokenExchangePayload;
-}
-
-async function fetchReady(): Promise<ReadyPayload> {
-  const response = await fetch(new URL("/readyz", serverURL), { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`readyz returned ${response.status}`);
-  }
-  return (await response.json()) as ReadyPayload;
-}
-
-async function refreshState(): Promise<void> {
-  const [ready, graphql] = await Promise.all([
-    fetchReady(),
-    client.query<GraphqlPayload>(
-      "{ viewer { authenticated permissions } instance { id name publicURL capabilities } workspace repository extensionInstallations extensionResolvers activityEvents }",
-    ),
-  ]);
-  state.ready = ready;
-  state.graphql = graphql;
-  renderData();
-}
-
-function renderData(): void {
-  const ready = state.ready;
-  const graphql = state.graphql;
-  if (!ready || !graphql) {
-    return;
-  }
-  const demo: DemoState = {
-    workspace: graphql.workspace,
-    repository: graphql.repository,
-    refs: graphql.repository.refs,
-    branches: graphql.repository.branches,
-    commits: graphql.repository.commits,
-    treeEntries: graphql.repository.treeEntries,
-    files: graphql.repository.files,
-    blobs: graphql.repository.blobs,
-    diff: graphql.repository.diff,
-    pullRequests: graphql.repository.pullRequests,
-    checks: graphql.repository.checks,
-    extensions: graphql.extensionInstallations,
-    extensionResolvers: graphql.extensionResolvers,
-    activity: graphql.activityEvents,
-  };
-  const repo = demo.repository;
-  const passing = demo.checks.filter((check) => check.conclusion === "SUCCESS").length;
-
-  setStatus("#ready-pill", ready.ready, ready.ready ? "ready" : "not ready");
-  setStatus("#graphql-pill", graphql.viewer.authenticated, "authenticated");
-  setStatus("#checks-pill", passing === demo.checks.length, `${passing}/${demo.checks.length} passing`);
-  setText("#repo-title", `${repo.owner} / ${repo.name}`);
-  setText("#repo-description", repo.description);
-  setText("#metric-refs", formatCount(demo.refs.length));
-  setText("#metric-branches", formatCount(demo.branches.length));
-  setText("#metric-files", formatCount(demo.files.length));
-  setText("#metric-checks", `${passing}/${demo.checks.length}`);
-  setText("#branch-summary", `${repo.defaultBranch} · ${demo.branches.length} branches`);
-  setText("#commit-hash", repo.currentCommit);
-  setText("#repo-language", repo.language);
-  setText("#repo-license", repo.license);
-  setText("#repo-updated", repo.updated);
-  setText("#viewer-state", graphql.viewer.authenticated ? "operator credential" : "anonymous");
-  setText("#tree-count", demo.treeEntries.length);
-  setText("#blob-count", demo.blobs.length);
-
-  void renderFiles(demo);
-  renderRefs(demo);
-  renderCommits(demo);
-  renderBlobs(demo);
-  renderPulls(demo);
-  renderChecks(demo);
-  renderExtensionRegistry(demo);
-  renderActivity(demo);
-}
-
-async function renderFiles(demo: DemoState): Promise<void> {
-  const treeMount = app?.querySelector<HTMLElement>("#file-tree");
-  const preview = app?.querySelector<HTMLPreElement>("#file-preview");
-  const diffPath = app?.querySelector<HTMLElement>("#diff-path");
-  const reviewDiffMount = app?.querySelector<HTMLElement>("#review-diff");
-  if (!treeMount || !preview || !reviewDiffMount) {
-    return;
-  }
-
-  const fileByPath = new Map(demo.files.map((file) => [file.path, file]));
-  const paths = demo.files.map((file) => file.path);
-  const gitStatus: GitStatusEntry[] = demo.files.map((file) => ({
-    path: file.path,
-    status: statusForFile(file.status),
-  }));
-
-  repositoryTree?.cleanUp();
-  treeMount.replaceChildren();
-  repositoryTree = new FileTree({
-    density: "compact",
-    fileTreeSearchMode: "hide-non-matches",
-    flattenEmptyDirectories: true,
-    gitStatus,
-    icons: "standard",
-    initialExpansion: "open",
-    initialSelectedPaths: [paths[0] ?? ""].filter(Boolean),
-    onSelectionChange: (selectedPaths) => {
-      const selected = fileByPath.get(selectedPaths[0] ?? "") ?? demo.files[0];
-      preview.textContent = selected
-        ? `${selected.path}\n${selected.oid} | ${selected.size} bytes\n\n${selected.preview}`
-        : "";
+function registerNavigationCommands(router: Router): void {
+  registerCommand({
+    id: "core.workspace-home",
+    title: "Go to workspace home",
+    category: "Navigation",
+    shortcut: "g h",
+    extensionId: "core",
+    run: () => {
+      void router.push("/");
     },
-    paths,
-    search: true,
-    stickyFolders: true,
   });
-  repositoryTree.render({ containerWrapper: treeMount });
-  const first = demo.files[0];
-  preview.textContent = first
-    ? `${first.path}\n${first.oid} | ${first.size} bytes\n\n${first.preview}`
-    : "";
-
-  if (diffPath) {
-    diffPath.textContent = demo.diff.path;
-  }
-  const patch = parsePatchFiles(demo.diff.patch, "forgepoint-demo", true)[0];
-  const fileDiff = patch?.files[0];
-  reviewDiff?.cleanUp();
-  reviewDiffMount.replaceChildren();
-  reviewDiff = new FileDiff({
-    diffIndicators: "bars",
-    diffStyle: "unified",
-    hunkSeparators: "line-info-basic",
-    lineDiffType: "word",
-    overflow: "scroll",
-    theme: "github-light",
+  registerCommand({
+    id: "core.inbox",
+    title: "Open Inbox",
+    category: "Navigation",
+    shortcut: "g b",
+    extensionId: "core",
+    run: () => {
+      void router.push("/inbox");
+    },
   });
-  if (fileDiff) {
-    reviewDiff.render({ containerWrapper: reviewDiffMount, fileDiff });
-  } else {
-    reviewDiffMount.replaceChildren("No review diff available.");
-  }
+  registerCommand({
+    id: "core.issues",
+    title: "Open workspace issues queue",
+    category: "Navigation",
+    shortcut: "g i",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/issues/");
+    },
+  });
+  registerCommand({
+    id: "core.pulls",
+    title: "Open workspace pull-request queue",
+    category: "Navigation",
+    shortcut: "g p",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/pulls/");
+    },
+  });
+  registerCommand({
+    id: "core.new-repository",
+    title: "Create a new repository",
+    category: "Navigation",
+    shortcut: "g n",
+    extensionId: "core",
+    run: () => {
+      void router.push("/new");
+    },
+  });
+  registerCommand({
+    id: "core.new-issue",
+    title: "+ New issue",
+    category: "Create",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/issues/new");
+    },
+  });
+  registerCommand({
+    id: "core.new-epic",
+    title: "+ New epic",
+    category: "Create",
+    extensionId: "core",
+    run: () => {
+      void router.push("/x/epics/new");
+    },
+  });
+  registerCommand({
+    id: "core.instance-health",
+    title: "Open instance health",
+    category: "Navigation",
+    extensionId: "core",
+    run: () => {
+      void router.push("/instance");
+    },
+  });
+  registerCommand({
+    id: "core.settings",
+    title: "Open settings",
+    category: "Navigation",
+    extensionId: "core",
+    run: () => {
+      void router.push("/settings");
+    },
+  });
 }
 
-function renderRefs(demo: DemoState): void {
-  const list = app?.querySelector<HTMLOListElement>("#ref-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.refs
-    .map(
-      (ref) => `
-        <li>
-          <strong>${escapeHtml(ref.name.replace("refs/heads/", ""))}</strong>
-          <code>${escapeHtml(ref.shortTarget)}</code>
-        </li>
-      `,
-    )
-    .join("");
-}
-
-function renderCommits(demo: DemoState): void {
-  const list = app?.querySelector<HTMLOListElement>("#commit-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.commits
-    .map(
-      (commit) => `
-        <li>
-          <code>${escapeHtml(commit.shortOid)}</code>
-          <div>
-            <strong>${escapeHtml(commit.subject)}</strong>
-            <span>${escapeHtml(commit.author)} | ${escapeHtml(commit.time)}</span>
-          </div>
-        </li>
-      `,
-    )
-    .join("");
-}
-
-function renderBlobs(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#blob-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.blobs
-    .slice(0, 6)
-    .map(
-      (blob) => `
-        <article>
-          <div>
-            <strong>${escapeHtml(blob.path)}</strong>
-            <span>${escapeHtml(blob.oid.slice(0, 12))} | ${blob.size} bytes</span>
-          </div>
-          <pre>${escapeHtml(blob.preview.slice(0, 360))}</pre>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-function statusForFile(status: string): GitStatusEntry["status"] {
-  if (status.includes("new") || status.includes("added")) {
-    return "added";
-  }
-  if (status.includes("deleted")) {
-    return "deleted";
-  }
-  if (status.includes("renamed")) {
-    return "renamed";
-  }
-  if (status.includes("untracked")) {
-    return "untracked";
-  }
-  return "modified";
-}
-
-function renderPulls(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#pull-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.pullRequests
-    .map(
-      (pull) => `
-        <article>
-          <div class="avatar">${escapeHtml(pull.avatar)}</div>
-          <div>
-            <strong>#${pull.number} ${escapeHtml(pull.title)}</strong>
-            <span>${escapeHtml(pull.author)} wants to merge ${escapeHtml(pull.head)} into ${escapeHtml(pull.base)}</span>
-            <small>${escapeHtml(pull.review)} · ${pull.comments} comments · ${escapeHtml(pull.changes)}</small>
-          </div>
-          <mark class="${pull.state.toLowerCase()}">${escapeHtml(pull.state)}</mark>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-function renderChecks(demo: DemoState): void {
-  const list = app?.querySelector<HTMLElement>("#check-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.checks
-    .map(
-      (check) => `
-        <article>
-          <span class="check-icon ${check.conclusion.toLowerCase()}"></span>
-          <div>
-            <strong>${escapeHtml(check.name)}</strong>
-            <span>${escapeHtml(check.provider)} · ${escapeHtml(check.duration)}</span>
-          </div>
-          <mark class="${check.conclusion.toLowerCase()}">${escapeHtml(check.conclusion)}</mark>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-function renderExtensionRegistry(demo: DemoState): void {
-  const registry = app?.querySelector<HTMLElement>("#extension-registry");
-  if (!registry) {
-    return;
-  }
-  registry.innerHTML = demo.extensions
-    .map((extension) => {
-      const resolver = demo.extensionResolvers.find((item) => item.id === extension.id);
-      return `
-        <article>
-          <strong>${escapeHtml(extension.name)}</strong>
-          <span>${escapeHtml(extension.description)}</span>
-          <mark>${escapeHtml(extension.status)} | ${escapeHtml(resolver?.outputType ?? "not executed")}</mark>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function renderActivity(demo: DemoState): void {
-  const list = app?.querySelector<HTMLOListElement>("#event-list");
-  if (!list) {
-    return;
-  }
-  list.innerHTML = demo.activity
-    .map(
-      (event) => `
-        <li>
-          <strong>${escapeHtml(event.summary)}</strong>
-          <span>${escapeHtml(event.actor)} · ${escapeHtml(event.type)} · ${escapeHtml(event.time)}</span>
-        </li>
-      `,
-    )
-    .join("");
-}
-
-async function renderEvents(): Promise<void> {
-  const list = app?.querySelector<HTMLOListElement>("#event-list");
-  if (!list) {
-    return;
-  }
-  let count = 0;
-  for await (const event of client.events()) {
-    const typedEvent = event as ForgepointEvent;
-    const item = document.createElement("li");
-    item.innerHTML = `<strong>${escapeHtml(typedEvent.type)}</strong><span>${escapeHtml(typedEvent.source)}</span>`;
-    list.prepend(item);
-    count += 1;
-  }
-  setStatus("#events-pill", count > 0, `${count} live events`);
-}
-
-async function fetchExtensionManifest(extensionId: string): Promise<ExtensionUiManifest> {
-  const session = await client.issueExtensionSession();
-  const url = new URL(`/_extensions/${extensionId}/manifest.json`, serverURL);
-  url.searchParams.set("session", session);
-  const response = await fetch(url, { credentials: "include" });
-  if (!response.ok) {
-    throw new Error(`${extensionId} manifest returned ${response.status}`);
-  }
-  const manifest = (await response.json()) as ExtensionUiManifest;
-  validateUiManifest(manifest);
-  return manifest;
-}
-
-function extensionHostContext() {
-  const graphql = state.graphql;
-  return {
-    forgepointClient: client,
-    viewer: graphql?.viewer ?? { authenticated: false },
-    resource: DEFAULT_RESOURCE,
-    routeParams: { workspace: "forgepoint", repo: "forgepoint" },
-    capabilities: { extensionRuntime: graphql?.instance.capabilities.extensionRuntime === true },
+/**
+ * Two-key navigation chords backed by `tinykeys`. Some chords are
+ * context-aware: when the user is inside a repo workbench
+ * (`/r/<groups>/<repo>/...`) the destination scopes to that repo's
+ * tab; outside a workbench they fall through to the workspace-wide
+ * equivalent (or no-op when no workspace equivalent exists).
+ *
+ * tinykeys v3 fires on every keydown regardless of focus target,
+ * so we explicitly skip when the user is typing in an input —
+ * otherwise typing "go fishing" in a search box would trigger
+ * `g`-then-other-letter chords.
+ */
+function bindGoChord(router: Router): void {
+  if (typeof window === "undefined") return;
+  const isInInput = (t: EventTarget | null): boolean =>
+    t instanceof HTMLInputElement ||
+    t instanceof HTMLTextAreaElement ||
+    (t instanceof HTMLElement && t.isContentEditable);
+  const skipIfInInput = (handler: (event: KeyboardEvent) => void) => (event: KeyboardEvent) => {
+    if (isInInput(event.target)) return;
+    handler(event);
   };
-}
-
-function hasRequiredPermission(permission: string): boolean {
-  const permissions = state.graphql?.viewer.permissions ?? [];
-  return permissions.includes("instance.admin") || permissions.includes(permission);
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function resolverIssuesFor(installation: ExtensionInstallation): ExtensionMountIssue[] {
-  const resolver = state.graphql?.extensionResolvers.find((candidate) => candidate.id === installation.id);
-  if (!resolver) {
-    return [
-      {
-        extensionId: installation.id,
-        extensionName: installation.name,
-        kind: "resolver",
-        title: "Resolver unavailable",
-        detail: "No runtime resolver record was returned for this installed extension.",
-      },
-    ];
-  }
-  if (resolver.status !== "executed") {
-    return [
-      {
-        extensionId: installation.id,
-        extensionName: installation.name,
-        kind: "resolver",
-        title: "Resolver failed",
-        detail: `${resolver.resolver} returned status ${resolver.status}.`,
-      },
-    ];
-  }
-  return [];
-}
-
-function renderExtensionIssues(issues: ExtensionMountIssue[]): void {
-  const container = app?.querySelector<HTMLElement>("#extension-errors");
-  if (!container) {
-    return;
-  }
-  container.innerHTML = issues
-    .map(
-      (issue) => `
-        <article class="extension-error extension-error-${issue.kind}" data-extension-id="${escapeHtml(issue.extensionId)}">
-          <div>
-            <strong>${escapeHtml(issue.extensionName)}: ${escapeHtml(issue.title)}</strong>
-            <span>${escapeHtml(issue.detail)}</span>
-          </div>
-          <mark>${escapeHtml(issue.kind)}</mark>
-        </article>
-      `,
-    )
-    .join("");
-}
-
-async function importExtensionAsset(pathname: string, version?: string): Promise<void> {
-  const session = await client.issueExtensionSession();
-  const url = new URL(pathname, serverURL);
-  url.searchParams.set("session", session);
-  if (version) {
-    url.searchParams.set("v", version);
-  }
-  await import(/* @vite-ignore */ url.href);
-}
-
-async function mountExtension(installation: ExtensionInstallation): Promise<ExtensionMountResult> {
-  const issues = resolverIssuesFor(installation);
-  const manifest = await fetchExtensionManifest(installation.id);
-  if (manifest.id !== installation.id) {
-    throw new Error(`${installation.id} manifest id mismatch: ${manifest.id}`);
-  }
-  await importExtensionAsset(manifest.assets.entry, manifest.assets.entryIntegrity);
-
-  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
-  if (!slotGrid) {
-    return { slots: 0, issues };
-  }
-
-  let mountedSlots = 0;
-  for (const slot of manifest.slots) {
-    if (!hasRequiredPermission(slot.requiredPermission)) {
-      issues.push({
-        extensionId: manifest.id,
-        extensionName: installation.name,
-        kind: "permission",
-        title: "Permission denied",
-        detail: `${slot.slot} requires ${slot.requiredPermission}.`,
-      });
-      continue;
-    }
-    if (!customElements.get(slot.element)) {
-      issues.push({
-        extensionId: manifest.id,
-        extensionName: installation.name,
-        kind: "load",
-        title: "Element not registered",
-        detail: `${slot.element} was not defined by ${manifest.assets.entry}.`,
-      });
-      continue;
-    }
-    const host = document.createElement("forgepoint-extension-host") as HTMLElement & {
-      configure?: (
-        manifest: ExtensionUiManifest,
-        context: ReturnType<typeof extensionHostContext>,
-        slotName?: string,
-      ) => void;
-    };
-    host.id = `host-${manifest.id}-${slot.slot.replaceAll(".", "-")}`;
-    host.className = "extension-frame";
-    host.dataset.extensionId = manifest.id;
-    host.dataset.extensionSlot = slot.slot;
-    host.setAttribute("aria-label", `${installation.name} extension slot ${slot.slot}`);
-    host.configure?.(manifest, extensionHostContext(), slot.slot);
-    slotGrid.append(host);
-    mountedSlots += 1;
-  }
-
-  return { slots: mountedSlots, issues };
-}
-
-async function mountExtensions(): Promise<void> {
-  const installations = state.graphql?.extensionInstallations ?? [];
-  const slotGrid = app?.querySelector<HTMLElement>("#extension-slots");
-  slotGrid?.replaceChildren();
-  if (installations.length === 0) {
-    renderExtensionIssues([]);
-    setStatus("#extension-pill", false, "no manifests");
-    return;
-  }
-  const results = await Promise.all(
-    installations.map(async (installation): Promise<ExtensionMountResult> => {
-      try {
-        return await mountExtension(installation);
-      } catch (error) {
-        return {
-          slots: 0,
-          issues: [
-            {
-              extensionId: installation.id,
-              extensionName: installation.name,
-              kind: "load",
-              title: "Load failed",
-              detail: describeError(error),
-            },
-          ],
-        };
+  /**
+   * tinykeys fires both the sequence handler (`g c`) and the
+   * standalone handler (`c`) on the second keypress of a chord.
+   * To make the single-key create shortcut composable with the
+   * `g <letter>` chord layer, we stamp the keyboard event itself
+   * in the capture phase: pressing `g` arms a 1050 ms single-use
+   * lock; the next non-`g` keydown inside that window gets a
+   * `__chordSecond` marker and disarms the lock. Standalone
+   * handlers skip when their event carries the marker. The lock
+   * matches tinykeys' default 1 s chord timeout so a standalone
+   * key pressed long after a stray `g` still fires normally.
+   */
+  let gChordLockUntil = 0;
+  const CHORD_SECOND_FLAG = "__comtryaChordSecond";
+  type StampedEvent = KeyboardEvent & { [CHORD_SECOND_FLAG]?: boolean };
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      const now = Date.now();
+      if (event.key === "g" && !isInInput(event.target)) {
+        gChordLockUntil = now + 1050;
+        return;
       }
-    }),
+      if (now < gChordLockUntil) {
+        (event as StampedEvent)[CHORD_SECOND_FLAG] = true;
+        gChordLockUntil = 0;
+      }
+    },
+    true,
   );
-  const mountedSlots = results.reduce((total, result) => total + result.slots, 0);
-  const issues = results.flatMap((result) => result.issues);
-  renderExtensionIssues(issues);
-  const statusLabel =
-    issues.length > 0
-      ? `${mountedSlots} slots, ${issues.length} issues`
-      : `${mountedSlots} slots from ${installations.length} extensions`;
-  setStatus("#extension-pill", mountedSlots > 0 && issues.length === 0, statusLabel);
-}
-
-async function connect(operatorCode: string): Promise<void> {
-  if (!operatorCode.trim()) {
-    throw new Error("operator code is required");
-  }
-  const credential = await exchangeOperatorCode(operatorCode.trim());
-  client.setAccessToken(credential.accessToken);
-  await refreshState();
-  await Promise.all([renderEvents(), mountExtensions()]);
-}
-
-function bind(): void {
-  const form = app?.querySelector<HTMLFormElement>("#operator-form");
-  form?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    try {
-      await connect(String(data.get("operatorCode") ?? ""));
-    } catch (error) {
-      setStatus("#ready-pill", false, "error");
-      setText("#viewer-state", error instanceof Error ? error.message : "connection failed");
-    }
-  });
-
-  if (seededOperatorCode) {
-    connect(seededOperatorCode).catch((error) => {
-      setStatus("#ready-pill", false, "error");
-      setText("#viewer-state", error instanceof Error ? error.message : "connection failed");
+  const skipDuringGChord = (handler: (event: KeyboardEvent) => void) =>
+    skipIfInInput((event) => {
+      if ((event as StampedEvent)[CHORD_SECOND_FLAG]) return;
+      handler(event);
     });
-  }
+  /**
+   * Best-effort extractor for the `/r/<groups>/<repo>` prefix of
+   * the current route. Returns null when not on a workbench.
+   * Stops at `/p/<project>` so project routes still bubble up to
+   * the owning repo for `g i`/`g p` etc.
+   */
+  const repoBase = (): string | null => {
+    const path = router.currentRoute.value.path;
+    const match = /^(\/r\/[^/]+(?:\/[^/]+)+?)(\/(?:code|config|pulls|issues|checks|epics|p)(?:\/.*)?)?$/.exec(path);
+    return match?.[1] ?? null;
+  };
+  const go = (path: string) => skipIfInInput(() => void router.push(path));
+  /**
+   * Build a chord that picks between a repo-scoped path (when on
+   * a workbench) and a fallback. The fallback may be `null` for
+   * chords that only make sense on a workbench — in that case the
+   * chord no-ops off-workbench.
+   */
+  const scoped = (suffix: string, fallback: string | null) =>
+    skipIfInInput(() => {
+      const base = repoBase();
+      if (base) {
+        void router.push(`${base}${suffix}`);
+        return;
+      }
+      if (fallback) void router.push(fallback);
+    });
+  /**
+   * Single-key `c` ("create") routes to the create form for whatever
+   * the user is currently looking at — but only on surfaces that
+   * don't already own a `c` handler. The issues / epics LIST routes
+   * mount IssuesList / EpicsList, both of which bind `c` to focus
+   * an inline quick-add (Linear-style); the inline path is faster
+   * than navigating to a separate form, so we defer to the component
+   * by returning null. The DETAIL routes (e.g. `/x/issues/<ws>/<n>`)
+   * and the Inbox don't have a quick-add — `c` there means "create
+   * a new one of the same kind". Everywhere else, no-op.
+   *
+   * `c` (not `n`) so it doesn't collide with the `g n` chord —
+   * tinykeys fires both the sequence and the standalone last key,
+   * which would double-route every `g n` press.
+   */
+  const ISSUE_LIST = /^\/(?:r\/.+?\/issues|x\/issues)\/?$/;
+  const EPIC_LIST = /^\/(?:r\/.+?\/epics|x\/epics)\/?$/;
+  const ISSUE_DETAIL_OR_SUB = /^\/(?:r\/.+?\/issues|x\/issues)\//;
+  const EPIC_DETAIL_OR_SUB = /^\/(?:r\/.+?\/epics|x\/epics)\//;
+  const currentCreateTarget = (): string | null => {
+    const path = router.currentRoute.value.path;
+    if (path === "/x/issues/new" || path === "/x/epics/new") return null;
+    if (ISSUE_LIST.test(path) || EPIC_LIST.test(path)) return null;
+    if (ISSUE_DETAIL_OR_SUB.test(path)) return "/x/issues/new";
+    if (EPIC_DETAIL_OR_SUB.test(path)) return "/x/epics/new";
+    if (path === "/inbox") return "/x/issues/new";
+    return null;
+  };
+  /**
+   * Where a comment-thread composer is mounted (IssueDetail,
+   * PullsDetail, EpicDetail) the create chord should focus its
+   * textarea instead of navigating away — composing a reply is the
+   * natural "create" verb on a detail page, and the iter 41 default
+   * of routing to `/x/issues/new` left the reviewer stranded mid-
+   * thought. Use the smoke hook the comment-thread composer
+   * already stamps on its form.
+   */
+  const focusVisibleComposer = (): boolean => {
+    if (typeof document === "undefined") return false;
+    const composer = document.querySelector<HTMLElement>(
+      '[data-smoke="comment-thread-composer"]',
+    );
+    const textarea = composer?.querySelector<HTMLTextAreaElement>("textarea");
+    if (!textarea) return false;
+    textarea.focus();
+    // Scroll so the composer is visible when the page is taller than
+    // the viewport (detail pages usually are).
+    textarea.scrollIntoView({ block: "center", behavior: "smooth" });
+    return true;
+  };
+  const createOnSurface = skipDuringGChord(() => {
+    if (focusVisibleComposer()) return;
+    const target = currentCreateTarget();
+    if (target) void router.push(target);
+  });
+  tinykeys(window, {
+    "g h": go("/"),
+    "g b": go("/inbox"),
+    "g n": go("/new"),
+    "g o": scoped("", null),
+    "g c": scoped("/code", null),
+    "g i": scoped("/issues", "/x/issues/"),
+    "g p": scoped("/pulls", "/x/pulls/"),
+    "g e": scoped("/epics", null),
+    "g k": scoped("/checks", null),
+    "g f": scoped("/config", null),
+    "c": createOnSurface,
+  });
 }
-
-renderShell();
-bind();

@@ -5,8 +5,9 @@
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
+    "jsx": "preserve",
     "allowJs": true,
+    "types": ["vite/client"],
 
     // Bundler mode
     "moduleResolution": "bundler",
@@ -24,7 +25,17 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+
+    // Path aliases
+    "baseUrl": ".",
+    "paths": {
+      "@comtrya/sdk-core": ["./packages/sdk-core/src/index.ts"],
+      "@comtrya/sdk-core/*": ["./packages/sdk-core/src/*.ts"],
+      "@comtrya/sdk-preact": ["./packages/sdk-preact/src/index.ts"],
+      "@comtrya/sdk-vue": ["./packages/sdk-vue/src/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts", "vite.config.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

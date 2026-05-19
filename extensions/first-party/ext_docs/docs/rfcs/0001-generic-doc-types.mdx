@@ -1,0 +1,14 @@
+---
+title: Generic, user-defined doc types
+status: accepted
+---
+
+`ext_docs` does not hardcode "ADR", "RFC", "PRD". Repos declare their own doc types — any name they choose — under `projects: [name]: docs: [typeName]: #DocType`. Each type carries:
+
+- `slug` — directory under the Project root holding the MDX files of this type.
+- `label` — human-readable display name.
+- `description` — optional one-liner.
+- `properties` — typed front-matter fields (string, int, bool, list, or `#Person`).
+- An implicit `body` — the MDX body of every file, validated as `string`.
+
+The CUE schema for `#DocType` and `#Person` is registered in `manifest.json` under `contributes.cueSchemas`. The kernel writes that snippet into the materialised workdir before evaluating the repo's `package comtrya` config, so unification gives us free validation: a malformed `docs` block fails at CUE eval time, not at render time.

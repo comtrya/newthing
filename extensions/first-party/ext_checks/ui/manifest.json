@@ -1,24 +1,15 @@
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v2",
   "id": "ext_checks",
   "extension": "checks",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_checks/assets/index.js",
-    "entryIntegrity": "sha256-6e2c1e9b85871af9c39c748616c3a3db4f3a9832dab99ad6c49d5bb0307d63fe",
+    "entryIntegrity": "sha256-fd6efc257ea752a98b4d34db470d7007260270066136cc163aedb45a692a9da9",
     "styles": []
   },
-  "routes": [
-    {
-      "path": "/forgepoint/forgepoint",
-      "element": "forgepoint-checks-board",
-      "requiredPermission": "checks:read"
-    }
-  ],
-  "slots": [
-    {
-      "slot": "repository.checks",
-      "element": "forgepoint-checks-board",
-      "requiredPermission": "checks:read"
-    }
+  "permissions": [
+    "checks.read"
   ]
 }

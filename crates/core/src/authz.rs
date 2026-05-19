@@ -119,7 +119,7 @@ mod tests {
     use crate::{IdPrefix, OpaqueId, ResourceRef};
 
     fn repo() -> ResourceRef {
-        ResourceRef::parse("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
+        ResourceRef::parse("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap()
     }
 
     #[test]

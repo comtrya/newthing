@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://comtrya.dev/schema/extension-manifest/v1",
+  "title": "Comtrya extension manifest",
+  "description": "Schema for extensions/first-party/*/manifest.json and any third-party extension manifest. The kernel validates every manifest against this schema at load time; load fails on validation error.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "id", "name", "version", "publisher"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "comtrya.extension/v1",
+      "description": "Manifest schema version. Locked at v1 for the duration of the v3 cutover."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable extension identifier — `ext_<name>` convention. Used as the dispatch key and the principal URI."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "displayName": { "type": "string" },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+].+)?$"
+    },
+    "publisher": { "type": "string", "minLength": 1 },
+    "platformWitVersion": {
+      "type": "string",
+      "description": "If present, the extension targets `comtrya:platform@<this>`. Pinned at 0.1.0 for the M0-M13 cutover."
+    },
+    "witWorld": { "type": "string" },
+    "perExtensionWit": { "type": "string", "description": "Path (relative to manifest) to the per-extension WIT directory. Defaults to `wit`." },
+    "wasmComponent": { "type": "string", "description": "Path to the Component Model WASM artifact. First-party platformWitVersion extensions use `dist/<id>.wasm`." },
+    "routePrefix": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "ui": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "manifest": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "resolver": { "type": "string" },
+        "outputType": { "type": "string" }
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "description": "Identity-only declarations. Slot bindings, routes, and resource-card registrations happen at runtime through the SDK (registerWidget, registerRoute, registerCard) and are not declared here.",
+      "additionalProperties": false,
+      "properties": {
+        "cueSchemas": {
+          "type": "array",
+          "description": "CUE schema snippets this extension registers with the repo CUE config. The kernel writes each snippet into the materialised repo workdir before evaluating `package comtrya`, so the snippet can constrain or extend per-Project shape (e.g. add `pulls?: #Pulls` to `#Project`).",
+          "items": {
+            "type": "object",
+            "required": ["id", "snippet"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "snippet": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "resourceKinds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "prefix"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+              "prefix": { "type": "string", "pattern": "^[a-z]{2,8}$" }
+            }
+          }
+        },
+        "relationshipTypes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "kind",
+              "sourceKinds",
+              "targetKinds",
+              "outgoingLabel",
+              "incomingLabel"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9-]*$"
+              },
+              "kind": {
+                "type": "string",
+                "pattern": "^comtrya://rel/[a-z0-9._/-]+$"
+              },
+              "sourceKinds": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+              },
+              "targetKinds": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+              },
+              "outgoingLabel": { "type": "string", "minLength": 1 },
+              "incomingLabel": { "type": "string", "minLength": 1 },
+              "symmetric": { "type": "boolean" },
+              "order": { "type": "integer" }
+            }
+          }
+        },
+        "collections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "ownerExtension"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string", "pattern": "^[_a-z][a-z0-9_]*$" },
+              "ownerExtension": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+              "indexes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "fields", "unique"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+                    "fields": {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]*$" }
+                    },
+                    "unique": { "type": "boolean" }
+                  }
+                }
+              },
+              "demoSeed": {
+                "type": "object",
+                "required": ["source", "idPrefix"],
+                "additionalProperties": false,
+                "properties": {
+                  "source": { "type": "string", "minLength": 1 },
+                  "primarySource": { "type": "string", "minLength": 1 },
+                  "idPrefix": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+                  "resource": { "type": "string", "enum": ["self", "repository", "workspace"] },
+                  "resourceKind": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                  "resourceRefs": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "addRepositoryId": { "type": "boolean" },
+                  "dedupeByPath": { "type": "boolean" },
+                  "wasmRoute": {
+                    "type": "object",
+                    "required": ["extensionId", "interfaceName", "opName"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "extensionId": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+                      "interfaceName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                      "opName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                      "payloadTemplate": {
+                        "type": "object",
+                        "description": "Per-field rules for building the WIT op payload from a seed record. Keys are WIT input field names. Each value is a rule: either kernel-supplied (kernel: 'repository'|'authorRef') or a value read from the seed data (from: a path or list of paths, with optional default).",
+                        "additionalProperties": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "kernel": { "type": "string", "enum": ["repository", "authorRef"] },
+                            "from": {
+                              "oneOf": [
+                                { "type": "string" },
+                                { "type": "array", "items": { "type": "string" } }
+                              ]
+                            },
+                            "default": {}
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "hostImports": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9._-]*$" },
+      "description": "Host import groups this extension is permitted to call (storage.read, storage.write, relations.read, etc.)."
+    },
+    "allowedEmits": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*[a-z0-9]$" },
+      "description": "Event types this extension may emit via events.append."
+    },
+    "allowedEventReads": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
+      "description": "Extension ids whose events this extension may read via events.read-recent."
+    },
+    "allowedCrossCalls": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" },
+      "description": "<target-extension>/<op-name> strings this extension may invoke via ops.invoke."
+    },
+    "reactor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "subscribes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowedMutations": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" }
+        },
+        "allowedEmits": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*[a-z0-9]$" }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*\\.[a-z][a-z0-9_-]*$" },
+      "description": "Permission strings the extension claims (<extension-id>.<verb>)."
+    }
+  }
+}

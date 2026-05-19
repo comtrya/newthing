@@ -1,6 +1,7 @@
 use crate::auth::TokenAction;
 use crate::config::{
-    ConfigSnapshot, ConfigValidation, CueEvalBudget, CueFile, validate_repository_cue_sources,
+    ConfigSnapshot, ConfigValidation, CueEvalBudget, CueFile, CueSchemaFile,
+    validate_repository_cue_sources,
 };
 use crate::error::{CoreError, CoreResult, ErrorCode};
 use crate::ids::OpaqueId;
@@ -292,12 +293,14 @@ impl InMemoryReceivePackTxn {
         &mut self,
         commit_oid: &GitOid,
         budget: &CueEvalBudget,
+        extension_schemas: &[CueSchemaFile],
     ) -> CoreResult<ConfigValidation> {
         let validation = validate_repository_cue_sources(
             self.repo.repository_id.as_str(),
             commit_oid.as_str(),
             &self.cue_files,
             budget,
+            extension_schemas,
         )?;
         self.validation = Some(validation.clone());
         Ok(validation)
@@ -452,14 +455,17 @@ mod tests {
                 StagingBudget::for_pack_size(10),
                 Vec::new(),
                 vec![CueFile {
-                    path: "forgepoint.cue".to_string(),
-                    source: "package forgepoint\ninvalid: true".to_string(),
+                    path: "comtrya.cue".to_string(),
+                    // Real CUE type-conflict (under the cuengine-backed
+                    // validator). Was `"invalid: true"` under the legacy
+                    // string-match stub.
+                    source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
                 }],
             )
             .unwrap();
 
         let validation = txn
-            .validate_config_tree(&oid('a'), &CueEvalBudget::default())
+            .validate_config_tree(&oid('a'), &CueEvalBudget::default(), &[])
             .unwrap();
 
         assert!(!validation.accepted);

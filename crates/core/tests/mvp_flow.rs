@@ -1,4 +1,4 @@
-use forgepoint_core::*;
+use comtrya_core::*;
 
 #[test]
 fn kernel_mvp_flow_is_exercised_through_contract_layer() {
@@ -47,10 +47,10 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         .issue_git_credential(
             &mut auth,
             TokenExchangeRequest {
-                grant_type: "urn:forgepoint:grant:oidc-token-exchange".to_string(),
+                grant_type: "urn:comtrya:grant:oidc-token-exchange".to_string(),
                 subject_token: "jwt".to_string(),
                 subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
-                requested_resource: format!("forgepoint://repository/{}", repository.id),
+                requested_resource: format!("comtrya://repository/{}", repository.id),
                 requested_actions: vec!["git:read".to_string(), "git:write".to_string()],
             },
             Principal::User(login.user.id),
@@ -71,8 +71,10 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
             StagingBudget::for_pack_size(64),
             Vec::new(),
             vec![CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\ninvalid: true".to_string(),
+                path: "comtrya.cue".to_string(),
+                // Real CUE error under the cuengine-backed validator
+                // (replaces the legacy magic-string trigger).
+                source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
         )
         .unwrap();
@@ -80,6 +82,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         .validate_config_tree(
             &GitOid::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
     assert!(!invalid.accepted);
@@ -96,14 +99,14 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
             StagingBudget::for_pack_size(64),
             vec![update.clone()],
             vec![CueFile {
-                path: "forgepoint.cue".to_string(),
-                source: "package forgepoint\nrepo: {}".to_string(),
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nrepo: {}".to_string(),
             }],
         )
         .unwrap();
     valid_txn.stage_pack(&[0; 32], 1).unwrap();
     let valid = valid_txn
-        .validate_config_tree(&new_oid, &CueEvalBudget::default())
+        .validate_config_tree(&new_oid, &CueEvalBudget::default(), &[])
         .unwrap();
     assert!(valid.accepted);
     let result = storage
@@ -126,7 +129,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         Some("refs/heads/main".to_string()),
         EventActor {
             kind: "user".to_string(),
-            uri: "forgepoint://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            uri: "comtrya://user/usr_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             display_name: Some("Rawkode".to_string()),
         },
         Visibility::Private,
@@ -149,7 +152,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
     let asset = extension_asset_response(
         "http://localhost:4321",
         &["http://localhost:4321".to_string()],
-        "/_extensions/ext_01hv/assets/index.abc123.js",
+        "/_extensions/ext_pull_requests/assets/index.abc123.js",
         b"customElements.define('x-test', class extends HTMLElement {})",
         "text/javascript",
         true,

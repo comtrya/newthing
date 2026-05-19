@@ -1,0 +1,44 @@
+// ext_checks — per-extension WIT.
+
+package comtrya:ext-checks@0.1.0;
+
+interface checks {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  variant check-state {
+    pending,
+    running,
+    succeeded,
+    failed,
+    skipped,
+  }
+
+  record check-run {
+    %id: id,
+    repository: uri,
+    commit-oid: string,
+    name: string,
+    state: check-state,
+    conclusion: string,
+    required: bool,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+  }
+
+  record record-check-input {
+    repository: uri,
+    commit-oid: string,
+    name: string,
+    state: check-state,
+    conclusion: option<string>,
+    required: bool,
+  }
+
+  record-check: func(input: record-check-input) -> result<check-run, error>;
+  list-checks: func(repository: uri, %limit: u32) -> result<list<check-run>, error>;
+}
+
+world ext-checks {
+  include comtrya:platform/extension@0.1.0;
+  export checks;
+}

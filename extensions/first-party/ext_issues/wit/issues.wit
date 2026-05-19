@@ -1,0 +1,124 @@
+// ext_issues — per-extension WIT package.
+//
+// Depends on `comtrya:platform@0.1.0` for host imports. Exports an
+// `issues` interface declaring the ops this extension supports.
+// The kernel codegen reads this file at install time and produces the
+// GraphQL dispatch table + a typed TS client.
+
+package comtrya:ext-issues@0.1.7;
+
+interface issues {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  record issue {
+    %id: id,
+    repository: uri,
+    title: string,
+    body-markdown: string,
+    state: issue-state,
+    number: u64,
+    author-ref: uri,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+    closed-at: option<iso-timestamp>,
+    closed-by-ref: option<uri>,
+    // 0.1.1 — free-form close reason supplied by `close-issue` input.
+    // Cleared by `reopen-issue`. The GraphQL surface exposes it as
+    // `stateReason`.
+    state-reason: option<string>,
+    // 0.1.3 — Project name this issue belongs to, derived from the
+    // repo's `package comtrya` CUE config at open time. `None` means
+    // the issue is unscoped (legacy, or repos without a comtrya
+    // config). Project pages filter by this.
+    project-name: option<string>,
+    // 0.1.4 — free-form label set. Opening from a Project page
+    // pre-fills these from the Project's `issues.defaultLabels` CUE
+    // config; mutation/relabel happens via update-labels in 0.2.0.
+    labels: list<string>,
+    // 0.1.5 — opt-out for the PR merge reactor. Mirrors the
+    // `issues.closeOnMerge` field on the Project's `package comtrya`
+    // CUE config: `Some(false)` tells the reactor to skip auto-close
+    // when a merged PR claims to close this issue. `None` keeps the
+    // historical default (close).
+    close-on-merge: option<bool>,
+    // 0.1.6 — typed assignee URNs. Each entry is a canonical
+    // `comtrya://{user,agent,bot,credential,team}/<slug>` ref
+    // matching the kernel's `#Ref` family (introduced in iteration
+    // 26). The new-issue form pre-fills assignees from the
+    // Project's `owners` declared in `package comtrya` CUE, so
+    // opening an issue against a Project routes it to the
+    // Project's owners by default; the contributor can override.
+    // The Projects spine + typed refs converge here.
+    assignees: list<uri>,
+  }
+
+  variant issue-state {
+    open,
+    closed,
+    reopened,
+  }
+
+  record issue-state-counts {
+    open: u64,
+    closed: u64,
+  }
+
+  record open-issue-input {
+    repository: uri,
+    title: string,
+    body-markdown: string,
+    // 0.1.3 — optional Project scope. The Project page passes its
+    // own name when a contributor opens an issue from it. The kernel
+    // does not validate this against the repo's CUE config — the
+    // issue is stored as-is — but the UI uses it to scope listing.
+    project-name: option<string>,
+    // 0.1.4 — initial labels. The new-issue form passes the Project's
+    // `issues.defaultLabels` from CUE plus any user-added labels.
+    labels: list<string>,
+    // 0.1.5 — initial closeOnMerge policy. Pre-filled by the new-issue
+    // form from the Project's `issues.closeOnMerge` CUE config.
+    close-on-merge: option<bool>,
+    // 0.1.6 — initial assignees. The new-issue form pre-fills from
+    // the Project's CUE `owners[]` (the typed `#Ref` URNs). The
+    // user can edit before submitting.
+    assignees: list<uri>,
+  }
+
+  record close-issue-input {
+    %id: id,
+    reason: option<string>,
+    // 0.1.1 — actor URI to record on the closed issue. Defaults to
+    // the calling principal when omitted.
+    closed-by-ref: option<uri>,
+  }
+
+  // 0.1.7 — retroactive Project assignment. The new-issue form
+  // stamps `project-name` at open time (iter 66), but issues
+  // opened before that change or via API calls without a project
+  // page can be untagged. This op lets the UI re-route an
+  // existing issue to a Project (or clear it) by passing
+  // `None`. The kernel emits `dev.comtrya.issues.project-changed`
+  // so the workspace-wide per-Project counts (iter 65) refresh
+  // live.
+  record assign-project-input {
+    %id: id,
+    project-name: option<string>,
+  }
+
+  open-issue: func(input: open-issue-input) -> result<issue, error>;
+  close-issue: func(input: close-issue-input) -> result<issue, error>;
+  reopen-issue: func(%id: id) -> result<issue, error>;
+  assign-project: func(input: assign-project-input) -> result<issue, error>;
+  get-issue: func(%id: id) -> result<option<issue>, error>;
+  list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
+  by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
+  by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
+  by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;
+  state-counts-for-refs-issue: func(refs: list<uri>) -> result<issue-state-counts, error>;
+}
+
+world ext-issues {
+  // Inherit every host import + the reactor export from the platform.
+  include comtrya:platform/extension@0.1.0;
+  export issues;
+}

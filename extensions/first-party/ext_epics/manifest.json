@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_epics",
+  "name": "epics",
+  "displayName": "Epics",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_epics.wasm",
+  "witWorld": "ext-epics",
+  "ui": { "manifest": "ui/manifest.json" },
+  "routePrefix": "epics",
+  "runtime": {
+    "resolver": "platform-wit-extension",
+    "outputType": "comtrya.epics/summary.v1"
+  },
+  "contributes": {
+    "cueSchemas": [
+      {
+        "id": "epics",
+        "snippet": "package comtrya\n\n// Per-Project epic policy. The status set mirrors the WIT\n// `epic-state` variant exposed by ext_epics; if you add a state\n// here, also extend the variant. Read by ext_epics; the kernel\n// and other extensions do not interpret these fields.\n#EpicStatus: \"planned\" | \"in-progress\" | \"at-risk\" | \"done\" | \"canceled\"\n\n#EpicsPolicy: {\n  defaultLabels?:  [...string]\n  defaultStatus?:  #EpicStatus | *\"planned\"\n  requiredFields?: [...string]\n}\n\n#Project: { epics?: #EpicsPolicy }\n"
+      }
+    ],
+    "resourceKinds": [{ "name": "epic", "prefix": "epc" }],
+    "relationshipTypes": [
+      {
+        "id": "ext_epics.issue-part-of-epic",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["epic"],
+        "outgoingLabel": "part of epic",
+        "incomingLabel": "contains issue",
+        "order": 100
+      },
+      {
+        "id": "ext_epics.epic-part-of-epic",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["epic"],
+        "targetKinds": ["epic"],
+        "outgoingLabel": "child of",
+        "incomingLabel": "parent of",
+        "order": 110
+      }
+    ],
+    "collections": [
+      {
+        "name": "epics",
+        "ownerExtension": "ext_epics",
+        "indexes": [
+          { "name": "by_workspace_state_updated", "fields": ["workspaceId", "state", "updatedAt"], "unique": false }
+        ]
+      }
+    ]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "relations.read", "relations.write",
+    "events.write",
+    "time", "ids", "ops", "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.epic.created",
+    "dev.comtrya.epic.state-changed"
+  ],
+  "allowedEventReads": ["ext_issues"],
+  "allowedCrossCalls": [
+    "ext_issues/issues.state-counts-for-refs-issue",
+    "ext_issues/issues.by-ref-issue"
+  ],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_workspace_home",
+  "name": "workspace-home",
+  "displayName": "Workspace Home",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_workspace_home.wasm",
+  "witWorld": "ext-workspace-home",
+  "ui": { "manifest": "ui/manifest.json" },
+  "runtime": { "resolver": "platform-wit-extension", "outputType": "comtrya.workspace-home/summary.v1" },
+  "hostImports": [],
+  "allowedEmits": [],
+  "allowedEventReads": [],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

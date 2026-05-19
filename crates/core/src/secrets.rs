@@ -32,7 +32,7 @@ impl SecretStore {
         if !grant.write.iter().any(|allowed| allowed == &name) {
             return Err(CoreError::forbidden(
                 "extension cannot write secret",
-                format!("forgepoint://secret/{name}"),
+                format!("comtrya://secret/{name}"),
                 "secrets:write",
             ));
         }
@@ -56,7 +56,7 @@ impl SecretStore {
         if !grant.read.iter().any(|allowed| allowed == name) {
             return Err(CoreError::forbidden(
                 "extension cannot read secret",
-                format!("forgepoint://secret/{name}"),
+                format!("comtrya://secret/{name}"),
                 "secrets:read",
             ));
         }
@@ -64,15 +64,14 @@ impl SecretStore {
             .secrets
             .get(name)
             .ok_or_else(|| CoreError::bad_user_input("unknown secret"))?;
-        let source =
-            ResourceRef::parse("forgepoint://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let source = ResourceRef::parse("comtrya://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         outbox.append(EventEnvelope::core(
             CoreEventType::SecretAccessed,
             source.clone(),
             Some(name.to_string()),
             EventActor {
                 kind: "extension".to_string(),
-                uri: "forgepoint://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                uri: "comtrya://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
                 display_name: None,
             },
             Visibility::Private,

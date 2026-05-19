@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_issues",
+  "name": "issues",
+  "displayName": "Issues",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "wasmComponent": "dist/ext_issues.wasm",
+  "platformWitVersion": "0.1.0",
+  "witWorld": "comtrya:platform/extension@0.1.0",
+  "perExtensionWit": "wit",
+  "ui": {
+    "manifest": "ui/manifest.json"
+  },
+  "routePrefix": "issues",
+  "runtime": {
+    "resolver": "platform-wit-extension",
+    "outputType": "comtrya.issues/summary.v1"
+  },
+  "contributes": {
+    "cueSchemas": [
+      {
+        "id": "issues",
+        "snippet": "package comtrya\n\n// Per-Project issue routing. Each Project may declare default labels\n// applied on issue open, plus assignment rules.\n#IssuesPolicy: {\n  defaultLabels?: [...string]\n  autoAssign?:    [...string]\n  closeOnMerge?:  bool | *true\n}\n\n#Project: { issues?: #IssuesPolicy }\n"
+      }
+    ],
+    "resourceKinds": [
+      { "name": "issue", "prefix": "iss" }
+    ],
+    "relationshipTypes": [
+      {
+        "id": "ext_issues.blocks",
+        "kind": "comtrya://rel/blocks",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "blocks",
+        "incomingLabel": "blocked by",
+        "order": 10
+      },
+      {
+        "id": "ext_issues.part-of",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "child of",
+        "incomingLabel": "parent of",
+        "order": 20
+      },
+      {
+        "id": "ext_issues.relates-to",
+        "kind": "comtrya://rel/relates-to",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "related to",
+        "incomingLabel": "related to",
+        "symmetric": true,
+        "order": 30
+      },
+      {
+        "id": "ext_issues.duplicates",
+        "kind": "comtrya://rel/duplicates",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "duplicates",
+        "incomingLabel": "duplicated by",
+        "order": 40
+      }
+    ],
+    "collections": [
+      {
+        "name": "issues",
+        "ownerExtension": "ext_issues",
+        "indexes": [
+          { "name": "by_workspace_number", "fields": ["workspaceId", "number"], "unique": true },
+          { "name": "by_repository_state_updated", "fields": ["repositoryId", "state", "updatedAt"], "unique": false }
+        ]
+      },
+      {
+        "name": "_meta",
+        "ownerExtension": "ext_issues",
+        "indexes": [
+          { "name": "by_id", "fields": ["id"], "unique": true }
+        ]
+      }
+    ]
+  },
+  "hostImports": [
+    "storage.read",
+    "storage.write",
+    "relations.read",
+    "relations.write",
+    "events.read",
+    "events.write",
+    "identity",
+    "time",
+    "ids",
+    "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.issues.opened",
+    "dev.comtrya.issues.closed",
+    "dev.comtrya.issues.reopened"
+  ],
+  "allowedEventReads": [
+    "ext_pull_requests"
+  ],
+  "allowedCrossCalls": [],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

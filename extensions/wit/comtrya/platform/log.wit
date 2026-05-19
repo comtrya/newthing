@@ -1,0 +1,19 @@
+// Structured logging. Extensions emit diagnostic lines that the kernel
+// routes to its observability sinks (stdout, file, OTLP, depending on
+// kernel config). Logs are *not* events — they are not persisted to the
+// event log and do not trigger reactors.
+//
+// Use `events.append` for state-transition records that other
+// extensions or the UI need to observe; use `log` for debugging and
+// runtime diagnostics.
+
+interface log {
+  use types.{log-level};
+
+  /// Emit a structured log line. `fields` is JSON-encoded
+  /// key→scalar map; the kernel renders it as structured fields in its
+  /// configured log format. The kernel never returns an error from
+  /// `emit` — log emission is best-effort and failures are silently
+  /// dropped to avoid extensions retrying inside log calls.
+  emit: func(level: log-level, message: string, fields: option<list<u8>>);
+}

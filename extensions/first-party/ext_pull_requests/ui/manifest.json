@@ -1,24 +1,15 @@
 {
-  "schemaVersion": "forgepoint.ui-extension/v1",
+  "schemaVersion": "comtrya.ui-extension/v2",
   "id": "ext_pull_requests",
   "extension": "pull-requests",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
   "assets": {
     "entry": "/_extensions/ext_pull_requests/assets/index.js",
-    "entryIntegrity": "sha256-d282c6c8fc89e43a75dafde441001a80952a565b7bb2af9f1bff74448aafbbb3",
+    "entryIntegrity": "sha256-94575b2d5cd7dca45f1e128ee60447c54a960437c3197a9e95f91654638a1777",
     "styles": []
   },
-  "routes": [
-    {
-      "path": "/forgepoint/forgepoint",
-      "element": "forgepoint-pull-requests",
-      "requiredPermission": "pull-requests.read"
-    }
-  ],
-  "slots": [
-    {
-      "slot": "repository.overview",
-      "element": "forgepoint-pull-requests",
-      "requiredPermission": "pull-requests.read"
-    }
+  "permissions": [
+    "pull-requests.read"
   ]
 }

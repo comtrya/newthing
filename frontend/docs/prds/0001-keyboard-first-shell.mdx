@@ -1,0 +1,16 @@
+---
+title: Keyboard-first shell
+status: shipping
+owner: frontend-maintainers
+---
+
+Every action in the forge must have a keyboard-only path. The mouse is a fallback, not the primary input.
+
+The shell ships:
+- `⌘ K` (or `Ctrl K`) command palette — every WIT operation is reachable as a command.
+- `g h`, `g r`, `g i`, `g p`, `g n` two-key navigation chords.
+- `?` to toggle a keyboard cheat sheet.
+- `j`/`k`/`↵` on every dense list (pulls, issues, activity, diff files).
+- Per-PR `m` to merge, `x` to close.
+
+Anti-pattern: features that only exist behind a mouse click. If you cannot get there with the keyboard you cannot ship.

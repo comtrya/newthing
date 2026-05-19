@@ -1,0 +1,58 @@
+// Event log access. Extensions append typed events; the kernel's
+// dispatcher routes them to subscribers (see `reactor`).
+//
+// `read-recent` lets queries fetch a recent activity feed. Visibility
+// is scoped by the kernel — an extension only sees events emitted by
+// itself or by extensions it has declared in its manifest's
+// `allowed-event-reads` (a new manifest field; absent means same-extension-only).
+//
+// The `event` record itself lives in `types` so the `reactor` export can
+// reference it without forcing every reactor-exporting world to also
+// import this interface.
+
+interface events {
+  use types.{event, uri, extension-id, error, page-token};
+
+  record event-page {
+    events: list<event>,
+    next-page: option<page-token>,
+  }
+
+  /// Append an event. The kernel:
+  ///   1. validates the event-type matches one of the calling extension's
+  ///      manifest-declared `allowed-emits`;
+  ///   2. fills `id`, `timestamp-ms`, and `emitter-extension`;
+  ///   3. persists the event to the log;
+  ///   4. dispatches to subscribed reactors (see `reactor`).
+  ///
+  /// `source-uri` defaults to the extension's own credential URI when
+  /// `none` is supplied. Returns the persisted record so the caller
+  /// can correlate, audit, and idempotently retry.
+  append: func(
+    event-type: string,
+    payload: list<u8>,
+    source-uri: option<uri>,
+  ) -> result<event, error>;
+
+  /// Read recent events, newest-first.
+  ///
+  /// Visibility filter (kernel-enforced):
+  ///   * the calling extension always sees its own events;
+  ///   * events from other extensions are visible only if listed in
+  ///     the manifest's `allowed-event-reads` allowlist.
+  ///
+  /// Caller filters:
+  ///   * `type-filter` matches `event.event-type` literally (no globs);
+  ///   * `source-extension-filter` matches `event.emitter-extension`;
+  ///   * `after` is an opaque cursor consistent with `storage.query` —
+  ///     "after" here means "older than", since the result order is
+  ///     newest-first.
+  ///
+  /// Required `limit`, capped at 256.
+  read-recent: func(
+    %limit: u32,
+    type-filter: option<string>,
+    source-extension-filter: option<extension-id>,
+    after: option<page-token>,
+  ) -> result<event-page, error>;
+}

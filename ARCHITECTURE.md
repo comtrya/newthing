@@ -1,111 +1,151 @@
-# Forgepoint Production-Testbed Architecture
+# Comtrya v3 architecture
 
-This document describes the runnable production-testbed shape. It is not a claim
-that the full Forgepoint v1 product is complete.
+This document describes the runnable v3 production-testbed shape. It is not a
+claim that every Comtrya v1 product surface is complete.
 
-## Rust Host
+## Rust host
 
 The Rust host lives in `crates/server/src/main.rs`. It owns startup gates,
-runtime state, auth/session issuance, GraphQL responses, extension asset
-serving, event streams, unsupported-surface errors, and the temporary Git smart
-HTTP adapter.
+runtime state, auth/session issuance, GraphQL, extension asset serving, event
+streams, unsupported-surface errors, and the Git smart HTTP endpoint.
 
-Startup reads `config/production-testbed.cue` through `FORGEPOINT_CONFIG`,
-initializes `$FORGEPOINT_DATA_DIR`, opens or seeds the demo bare repository,
-opens extension runtime storage, validates first-party extension packages, and
-instantiates the minimal Wasmtime resolver components. `/readyz` reports the
-runtime checks and the explicitly unsupported surfaces.
+Startup reads `config/production-testbed.cue` through `COMTRYA_CONFIG`,
+initializes `$COMTRYA_DATA_DIR`, opens or seeds the demo bare repository,
+opens extension runtime storage, validates installed extension packages, and
+loads first-party Component Model artifacts from `dist/<extension-id>.wasm`.
+`/readyz` reports runtime checks and the explicitly unsupported surfaces.
 
 Production-testbed startup fails closed when required production posture is
 missing: TLS termination, absolute data paths, HTTPS origins, local repository
-storage paths, first-party extension files, demo Git refs, resolver exports, or
-operator-code requirements. `FORGEPOINT_EXTERNAL_DEMO=1` additionally rejects
-the local default operator code from `.envrc.example`.
+storage paths, first-party extension files, demo Git refs, component artifacts,
+manifest validation, or operator-code requirements. `COMTRYA_EXTERNAL_DEMO=1`
+also rejects the local default operator code from `.envrc.example`.
 
-## Astro Shell
+## GraphQL and WASM dispatch
 
-The Astro shell lives under `frontend/`.
+The platform contract lives under `extensions/wit/comtrya/platform/` and is
+locked at `comtrya:platform@0.1.0`.
 
-- `frontend/src/server/forgepoint.ts` proxies requests to the Rust host and
-  forwards only the HTTP headers the testbed needs.
-- `frontend/src/client.ts` is the browser client for GraphQL, mutation,
-  subscription-shaped calls, events, extension sessions, navigation, and toast
-  hooks.
-- `frontend/src/main.ts` renders the current repository shell, exchanges the
-  operator code for a bearer credential, fetches typed GraphQL roots, mounts
-  extension slots from runtime manifests, and shows extension load/resolver/
-  permission failures in the Extensions panel.
-- `frontend/src/extension-host.ts` defines the `<forgepoint-extension-host>`
-  custom element that passes the host client, viewer, resource, route params,
-  and capability context into extension UI elements.
+Each first-party extension declares its own WIT under
+`extensions/first-party/<id>/wit/` and implements that world in a
+`cargo-component` crate under `component/`. `crates/server/build.rs` discovers
+installed extensions and runs `crates/wit-codegen` to generate the dispatch
+table used by GraphQL.
 
-The shell still renders substantial product UI directly. The intended end state
-is a smaller host shell that delegates code browsing, pull requests, and checks
-to first-party extension surfaces.
+At request time the GraphQL handler parses the root field, resolves it through
+the generated dispatch table, builds a host state with the authenticated
+principal/resource/manifest context, and invokes the typed extension component
+through Wasmtime. Hand-written substring routing is gone.
 
-## Extension Package Layout
+## Host imports
+
+`crates/server/src/wasm_host.rs` implements the platform imports exposed to
+extensions:
+
+- storage
+- relations
+- comments
+- events
+- identity
+- time
+- ids
+- cross-extension `ops.invoke`
+- log
+
+Manifest allowlists gate host imports, emitted event types, event reads,
+cross-extension calls, and reactor-issued mutations.
+
+## Reactors
+
+Extensions can subscribe to events through their WIT reactor export and
+manifest reactor declaration. The host records subscriptions at startup and
+dispatches matching appended events through Wasmtime.
+
+The current first-party proof is `ext_pull_requests`: merging a pull request
+emits `dev.comtrya.pull-request.merged`; the pull-request reactor reads
+`closes` relations and calls `ext_issues/issues.close-issue` through
+`ops.invoke`; `ext_issues` persists the issue state and emits
+`dev.comtrya.issues.closed`.
+
+## Vue shell
+
+The frontend lives under `frontend/` and is a Vite Vue SPA.
+
+The shell owns navigation, route handling, auth/session exchange, GraphQL
+transport, extension UI loading, core widgets, and shared layout. Extension UI
+bundles are browser ESM assets served from `/_extensions/<id>/assets/...` and
+loaded through the SDK registry.
+
+Route ownership:
+
+- `/`: workspace homepage (shell-owned).
+- `/r/<group>/<...>/<repo>`: repository dashboard (shell-owned). Renders
+  `repository.main` and `repository.sidebar` slots filled by widgets.
+- `/x/<prefix>/<...>`: extension-owned pages. Extensions own this
+  namespace and nothing else; `buildExtensionUrl` is the only sanctioned
+  URL constructor and rejects anything outside `/x/<routePrefix>/`.
+- `/new`, `/instance`, `/settings`, `/health`: shell-owned operational pages.
+
+The shell does not own any extension-specific routes (e.g. there is no
+shell-owned `/r/.../issues` — `/x/issues/...` is the only entry point;
+a redirect rule covers links from earlier releases).
+
+## Slot model
+
+Slots are generic regions the shell defines (`repository.main`,
+`repository.sidebar`, `home.your-work`, etc.). Extensions publish widgets
+through `host.registerWidget({ defaultSlot, defaultPriority, ... })`.
+
+A persisted user layout (per-user, per-repository) can override widget
+placement, priority, or hide a widget. The layout currently lives in
+`localStorage` (`frontend/src/user-layout.ts`); the shape matches what a
+federated GraphQL mutation will accept, so swapping the persistence
+layer is a single function change.
+
+## Extension package layout
 
 First-party extension packages live in `extensions/first-party/<extension-id>/`.
 Each package has:
 
-- `manifest.json`: backend extension metadata, component path, resolver name,
-  and output type.
-- `component.wat`: minimal Component Model proof component loaded by Wasmtime.
-- `ui/manifest.json`: UI schema, extension id/name, entry asset, SHA-256
-  integrity, routes, and mountable slots.
-- `assets/index.js`: browser ESM that defines the extension custom element.
+- `manifest.json`: backend identity, Component Model artifact path,
+  host-import allowlists, event allowlists, storage collections, resource kinds,
+  reactor policy, and UI manifest path.
+- `wit/`: extension-local WIT package.
+- `component/`: Rust `cargo-component` crate.
+- `dist/<extension-id>.wasm`: real Component Model artifact loaded by the host.
+- `ui/manifest.json`: browser UI schema, route/slot declarations, entry asset,
+  and SHA-256 integrity.
+- `assets/index.js`: browser ESM bundle imported by the Vue shell.
 
-The current first-party extensions are `ext_pull_requests`,
-`ext_code_browser`, and `ext_checks`.
+The current first-party extensions are `ext_issues`, `ext_epics`,
+`ext_pull_requests`, `ext_checks`, and `ext_workspace_home`.
 
-## Wasmtime Invocation Path
-
-Startup loads every first-party extension manifest, validates the matching UI
-manifest, checks the declared UI entry asset integrity, compiles the `.wat`
-component, instantiates it with Wasmtime, verifies the expected resolver export,
-and calls that export once. Runtime GraphQL exposes resolver records with typed
-summary outputs for the code browser, pull requests, and checks extensions.
-
-What is not real yet: the components still expose a minimal proof ABI. The host
-computes the typed summaries; real WIT input/output types and resolver-owned
-business logic are still TODO work.
-
-## Extension Storage
+## Extension storage
 
 Extension runtime storage is under
-`$FORGEPOINT_DATA_DIR/extensions/storage/`.
+`$COMTRYA_DATA_DIR/extensions/storage/`.
 
-- `schema.json`: storage schema version, migration list, collections, and
-  indexes.
-- `documents.jsonl`: versioned extension documents for workspaces,
-  repositories, pull requests, check runs, extension installs, and activity.
-- `events.jsonl`: storage-level events such as seeding and document updates.
+- `schema.json`: generated from core-owned declarations and installed
+  extension `contributes.collections`.
+- `documents.jsonl`: versioned extension documents.
+- `events.jsonl`: extension storage and product events.
 
 On first startup, `fixtures/demo/conference.json` is copied into
-`$FORGEPOINT_DATA_DIR/metadata/demo-state.json` by `start.sh`; the Rust host
-imports that seed input into extension storage. Request-time GraphQL reads Git
-state plus these extension storage documents instead of reading the fixture
-directly.
+`$COMTRYA_DATA_DIR/metadata/demo-state.json` by `start.sh`. The Rust host uses
+that file as seed input, then writes extension-owned records through the same
+WASM-backed creation paths used by runtime behavior.
 
-## Git Storage And Protocol Adapter
+## Git storage and protocol
 
-The demo repository is a real local bare Git repository under
-`$FORGEPOINT_DATA_DIR/repositories/forgepoint/forgepoint.git`. Startup seeds or
-opens it idempotently, validates `HEAD`, and checks expected demo branch refs.
+The demo repositories are real local bare Git repositories under
+`$COMTRYA_DATA_DIR/repositories/`.
 
-Git clone/fetch currently works through the Astro origin and Rust host by
-shelling out to `git http-backend`. That is an intentional production-testbed
-adapter, not native `gix` storage. Receive-pack/push remains explicitly
-unsupported and returns the registered `UNSUPPORTED` surface until write support
-is implemented.
+Git clone/fetch works through the Vue origin and Rust host using the pure-Rust
+`comtrya-git-http` Smart HTTP v2 path. Receive-pack/push remains explicitly
+unsupported and returns the registered `UNSUPPORTED` surface until write
+support is implemented.
 
-## Known Not Real Yet
+## Known unsupported surfaces
 
-- Typed WIT resolver calls do not yet own code browser, pull request, or checks
-  behavior.
-- Pull request and checks behavior is seeded extension storage plus host-side
-  GraphQL aggregation, not full extension-owned product logic.
-- The host UI still renders product panels directly.
-- Receive-pack/push is disabled.
-- Only the seeded `forgepoint/forgepoint.git` repository path is supported.
-- Some workspace/repository metadata remains seeded demo data.
+- Git receive-pack/push is disabled.
+- Full OIDC browser callback validation is disabled in the testbed.

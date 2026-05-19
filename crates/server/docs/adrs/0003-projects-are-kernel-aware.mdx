@@ -1,0 +1,20 @@
+---
+title: Projects are kernel-aware; shapes come from extensions
+status: accepted
+date: 2026-05-14
+author: rawkode
+---
+
+## Context
+
+A monorepo holds many independent things. We need a single primitive the kernel and all extensions can reason about per-area without each extension inventing its own grouping.
+
+## Decision
+
+`#Project` is a kernel-defined CUE schema. By default a repo is one Project; a repo declares more by populating `projects: [name]: #Project` in any `package comtrya` file. The kernel's `#Project` carries only `name`, `root`, `labels`, plus an open ellipsis — every other per-Project field (`docs`, `pulls`, `issues`, `builds`, `agents`, …) is defined by an extension's CUE snippet registered through `manifest.contributes.cueSchemas`. The kernel never interprets those fields.
+
+## Consequences
+
+- Removing an extension makes its field disappear from `comtryaConfig` and from validation. Schemas live with the code that consumes them.
+- Adding a new forge surface means: define a CUE shape, register it, build a consumer extension. No kernel change.
+- A monorepo with N projects gets N typed config blocks per extension automatically.

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_issues",
+  "extension": "issues",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_issues/assets/index.js",
+    "entryIntegrity": "sha256-ed6d35b0deda1a2b725fc3ff1b918129227e97dce0c84df34b3574bff745fe5b",
+    "styles": []
+  },
+  "permissions": [
+    "issues.read",
+    "issues.write"
+  ]
+}

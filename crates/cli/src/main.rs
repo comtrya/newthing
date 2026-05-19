@@ -1,4 +1,4 @@
-use forgepoint_core::{
+use comtrya_core::{
     BackupCoordinator, EventOutbox, InstanceCapabilities, InstanceConfig, demo_backup_store,
 };
 
@@ -33,7 +33,7 @@ fn main() {
                 &store,
                 vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
                 0,
-                "package forgepoint",
+                "package comtrya",
                 false,
             );
             println!(
@@ -50,7 +50,7 @@ fn main() {
                 &store,
                 vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
                 0,
-                "package forgepoint",
+                "package comtrya",
                 false,
             );
             let mut outbox = EventOutbox::default();

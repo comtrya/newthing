@@ -5,6 +5,17 @@ use crate::events::{CoreEventType, EventActor, EventEnvelope, EventOutbox};
 use crate::ids::{IdPrefix, OpaqueId};
 use std::collections::BTreeMap;
 
+/// Bearer token for a `ScopedCredential` with 128 bits of entropy from
+/// the OS RNG. Format: `fp_{32-hex-chars}`. The `fp` prefix matches
+/// the server's `issue_credential` so on-the-wire shapes line up
+/// across the two issuance paths.
+fn secure_access_token() -> String {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("os rng unavailable");
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!("fp_{hex}")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenAction {
     GitRead,
@@ -134,7 +145,7 @@ impl AuthService {
             self.audit_login(false, None);
             return Err(CoreError::forbidden(
                 "OIDC JIT provisioning denied by issuer rules",
-                "forgepoint://instance/local",
+                "comtrya://instance/local",
                 "auth:login",
             ));
         }
@@ -166,7 +177,7 @@ impl AuthService {
         now_ms: u64,
         allowed_actions: &[TokenAction],
     ) -> CoreResult<ScopedCredential> {
-        if request.grant_type != "urn:forgepoint:grant:oidc-token-exchange" {
+        if request.grant_type != "urn:comtrya:grant:oidc-token-exchange" {
             return Err(CoreError::bad_user_input("unsupported grantType"));
         }
         if request.subject_token_type != "urn:ietf:params:oauth:token-type:jwt" {
@@ -198,7 +209,7 @@ impl AuthService {
             .map(|action| action.as_scope().to_string())
             .collect::<Vec<_>>();
         let credential = ScopedCredential {
-            access_token: format!("fp_{}_{}", now_ms, scope.join("_")),
+            access_token: secure_access_token(),
             token_type: "Bearer".to_string(),
             expires_at_ms: now_ms + 300_000,
             scope,
@@ -211,7 +222,7 @@ impl AuthService {
 
     fn audit_login(&mut self, succeeded: bool, user: Option<&User>) {
         let source =
-            ResourceRef::parse("forgepoint://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         let event_type = if succeeded {
             CoreEventType::AuthLoginSucceeded
         } else {
@@ -220,8 +231,8 @@ impl AuthService {
         let actor = EventActor {
             kind: "user".to_string(),
             uri: user
-                .map(|user| format!("forgepoint://user/{}", user.id))
-                .unwrap_or_else(|| "forgepoint://user/unknown".to_string()),
+                .map(|user| format!("comtrya://user/{}", user.id))
+                .unwrap_or_else(|| "comtrya://user/unknown".to_string()),
             display_name: user.and_then(|user| user.display_name.clone()),
         };
         self.outbox.append(EventEnvelope::core(
@@ -237,14 +248,14 @@ impl AuthService {
 
     fn emit_user_created(&mut self, user: &User) {
         let source =
-            ResourceRef::parse("forgepoint://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         self.outbox.append(EventEnvelope::core(
             CoreEventType::UserCreated,
             source.clone(),
             Some(user.subject.clone()),
             EventActor {
                 kind: "user".to_string(),
-                uri: format!("forgepoint://user/{}", user.id),
+                uri: format!("comtrya://user/{}", user.id),
                 display_name: user.display_name.clone(),
             },
             crate::Visibility::Private,
@@ -260,7 +271,7 @@ impl AuthService {
             None,
             EventActor {
                 kind: "workload".to_string(),
-                uri: "forgepoint://workload/token-exchange".to_string(),
+                uri: "comtrya://workload/token-exchange".to_string(),
                 display_name: None,
             },
             crate::Visibility::Private,
@@ -321,10 +332,10 @@ mod tests {
         let credential = auth
             .exchange_token(
                 TokenExchangeRequest {
-                    grant_type: "urn:forgepoint:grant:oidc-token-exchange".to_string(),
+                    grant_type: "urn:comtrya:grant:oidc-token-exchange".to_string(),
                     subject_token: "jwt".to_string(),
                     subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
-                    requested_resource: "forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
+                    requested_resource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
                         .to_string(),
                     requested_actions: vec!["git:read".to_string(), "git:write".to_string()],
                 },
@@ -356,7 +367,7 @@ mod tests {
     fn production_confidential_secret_rule_is_in_config_layer() {
         let mut config = InstanceConfig::minimal_dev();
         config.environment = Environment::Production;
-        config.public_url = "https://forgepoint.example.test".to_string();
+        config.public_url = "https://comtrya.example.test".to_string();
         config.oidc_issuers[0].client_kind = ClientKind::Confidential;
         config.oidc_issuers[0].client_secret = None;
 

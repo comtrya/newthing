@@ -1,13 +1,33 @@
 [package]
-name = "forgepoint-server"
+name = "comtrya-server"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
+
+[build-dependencies]
+comtrya-wit-codegen = { path = "../wit-codegen" }
+serde_json = "1"
 
 [dependencies]
+anyhow = "1"
 axum = "0.7.9"
-forgepoint-core = { path = "../core" }
+tower-http = { version = "0.6", default-features = false, features = ["limit", "set-header"] }
+bytes = "1"
+comtrya-core = { path = "../core" }
+comtrya-git-http = { path = "../git-http" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
-tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread"] }
-wasmtime = { version = "43.0.2", default-features = false, features = ["anyhow", "component-model", "cranelift", "runtime", "std", "wat"] }
+tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+wasmtime = { version = "43", default-features = false, features = ["anyhow", "component-model", "cranelift", "runtime", "std", "wat"] }
+jsonschema = { version = "0.18", default-features = false }
+cuengine = "0.40"
+openidconnect = "4.0.1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "json"] }
+getrandom = "0.3"
+
+[dev-dependencies]
+tempfile = "3"

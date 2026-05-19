@@ -1,0 +1,21 @@
+---
+title: Adopt the WebAssembly Component Model for extensions
+status: accepted
+date: 2025-11-12
+author: rawkode
+---
+
+## Context
+
+We need a typed extension boundary. Plain WASI modules expose `(memory, table, funcref)` and force us to hand-marshal every payload. We want named interfaces, typed records, structured errors, and language-agnostic component definitions so first-party and third-party extensions look the same to the kernel.
+
+## Decision
+
+Use the WebAssembly Component Model via `wasm-tools` and `wit-bindgen`. Every first-party extension declares its WIT world in `extensions/first-party/<id>/wit/`, ships a real `dist/<id>.wasm` produced by `cargo-component`, and is dispatched through a generated table in `crates/server/build.rs`.
+
+## Consequences
+
+- Build chain gains a `cargo-component` dependency. Worth it.
+- Generated TypeScript clients fall out for free (`crates/wit-codegen`).
+- Extensions are typed across the kernel boundary — no hand-marshalling.
+- Memory cost per instance is real; we mitigate with per-call instantiation rather than long-lived stores.

@@ -3,6 +3,14 @@ members = [
     "crates/core",
     "crates/server",
     "crates/cli",
+    "crates/git-http",
+    "crates/extension-oci",
+    "crates/wit-codegen",
+]
+exclude = [
+    # Component-Model crates target wasm32-unknown-unknown and have
+    # their own [workspace] root; keep them out of the host workspace.
+    "extensions/first-party/*/component",
 ]
 resolver = "3"
 

@@ -1,0 +1,91 @@
+// Core-owned relations graph. Same semantics as the GraphQL surface that
+// already exists: canonical-direction storage; verbs are URIs in
+// `comtrya://rel/<name>`.
+//
+// `create` is idempotent on the triple (canonical-source,
+// canonical-target, kind): a duplicate call returns the existing
+// relation in the `already-existed` variant, never `conflict`. Symmetric
+// verbs are canonicalised at write time so the same logical edge cannot
+// be inserted twice in either direction.
+//
+// Any extension can read the graph (subject to the resources being
+// visible to its principal). Writes require the extension's manifest to
+// declare `host-imports: [relations.write]`.
+
+interface relations {
+  use types.{id, uri, iso-timestamp, delete-result, page-token, error};
+
+  record relation {
+    %id: id,
+    /// Verb URI: `comtrya://rel/part-of`, `comtrya://rel/<reverse-dns>/<verb>`, etc.
+    kind: uri,
+    // `source` and `target` are the relation's endpoints. We avoid the
+    // WIT reserved words `from`/`to` here even though the GraphQL surface
+    // uses those names; the codegen aliases on the way out.
+    source: uri,
+    target: uri,
+    /// JSON-encoded attributes; opaque to the kernel.
+    attributes: option<list<u8>>,
+    created-at: iso-timestamp,
+  }
+
+  /// Distinguishes a fresh create from an idempotent hit on a duplicate.
+  variant create-result {
+    created(relation),
+    already-existed(relation),
+  }
+
+  /// Page of relations returned by `outgoing` / `incoming` / `between`.
+  record relation-page {
+    relations: list<relation>,
+    next-page: option<page-token>,
+  }
+
+  /// Create (or no-op return-existing) a relation. Attributes on an
+  /// `already-existed` hit are NOT merged or replaced; callers wanting
+  /// to refresh attributes use `replace-attributes` for an atomic
+  /// update.
+  create: func(
+    source: uri,
+    target: uri,
+    kind: uri,
+    attributes: option<list<u8>>,
+  ) -> result<create-result, error>;
+
+  /// Atomically replace the attributes blob on an existing relation.
+  /// Returns `not-found` if the relation is absent. Use this rather
+  /// than `delete` + `create` to avoid a race window where readers see
+  /// a missing edge.
+  replace-attributes: func(
+    %id: id,
+    attributes: option<list<u8>>,
+  ) -> result<relation, error>;
+
+  delete: func(%id: id) -> result<delete-result, error>;
+
+  /// Relations with `source` matching this URI. For symmetric verbs the
+  /// kernel also returns relations where `target` matches (since
+  /// canonical-direction storage may have swapped them). Required
+  /// `limit`, capped at 1024 by the kernel.
+  outgoing: func(
+    source: uri,
+    kind-filter: option<uri>,
+    limit: u32,
+    after: option<page-token>,
+  ) -> result<relation-page, error>;
+
+  incoming: func(
+    target: uri,
+    kind-filter: option<uri>,
+    limit: u32,
+    after: option<page-token>,
+  ) -> result<relation-page, error>;
+
+  between: func(
+    source: uri,
+    target: uri,
+    kind-filter: option<uri>,
+    limit: u32,
+    after: option<page-token>,
+  ) -> result<relation-page, error>;
+}

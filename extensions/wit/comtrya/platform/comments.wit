@@ -1,0 +1,56 @@
+// Core-owned comments. Same semantics as the existing GraphQL surface.
+// Nested threads via `parent`. Body size capped at 64KB by the kernel.
+//
+// Delete is a hard delete and is idempotent: deleting an absent comment
+// returns `ok(was-absent)`. Replies to a deleted comment are *not*
+// cascaded — they become orphaned (their `parent` URI still resolves to
+// the deleted comment's URI but `thread` no longer returns the parent
+// row). `parent` cycles are rejected by the kernel at `post` time with
+// `bad-input`.
+
+interface comments {
+  use types.{id, uri, iso-timestamp, delete-result, page-token, error};
+
+  record comment {
+    %id: id,
+    target: uri,
+    /// Parent comment id (within the same target's thread) for reply
+    /// composition. `none` for top-level comments. Narrower than
+    /// `option<uri>` so the type itself enforces "parent is another
+    /// comment, not an arbitrary resource."
+    parent: option<id>,
+    author-ref: uri,
+    body-markdown: string,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+    edited-at: option<iso-timestamp>,
+  }
+
+  record comment-page {
+    comments: list<comment>,
+    next-page: option<page-token>,
+  }
+
+  /// Flat list of comments on a target, ordered by `created-at`
+  /// ascending. Required `limit`, capped at 256 by the kernel.
+  /// Callers build the reply tree client-side using `parent`.
+  thread: func(
+    target: uri,
+    %limit: u32,
+    after: option<page-token>,
+  ) -> result<comment-page, error>;
+
+  post: func(
+    target: uri,
+    parent: option<id>,
+    body-markdown: string,
+  ) -> result<comment, error>;
+
+  edit: func(%id: id, body-markdown: string) -> result<comment, error>;
+
+  /// Idempotent: no-op on absent. Same `delete-result` variant as
+  /// `storage.delete`. Replies to a deleted comment are NOT cascaded —
+  /// they remain in the thread with their `parent` pointing at an
+  /// id that `thread` no longer returns.
+  delete: func(%id: id) -> result<delete-result, error>;
+}

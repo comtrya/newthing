@@ -211,14 +211,14 @@ mod tests {
         let mut storage = storage();
         let mut outbox = EventOutbox::default();
         let repo =
-            ResourceRef::parse("forgepoint://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+            ResourceRef::parse("comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         let event = crate::EventEnvelope::core(
             CoreEventType::RepositoryUpdated,
             repo.clone(),
             None,
             EventActor {
                 kind: "extension".to_string(),
-                uri: "forgepoint://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                uri: "comtrya://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
                 display_name: None,
             },
             Visibility::Private,

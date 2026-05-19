@@ -41,53 +41,9 @@ pub fn allowed_methods_for_route(route: &str) -> Vec<&'static str> {
         }
         route if route.starts_with("/auth/") => vec!["GET", "POST", "OPTIONS"],
         route if route.starts_with("/_extensions/") => vec!["GET", "OPTIONS"],
+        route if route.starts_with("/api/ops/") => vec!["POST", "OPTIONS"],
         route if route.starts_with("/git/") => vec!["GET", "POST", "OPTIONS"],
         _ => vec!["OPTIONS"],
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionToken {
-    token: String,
-    principal_key: String,
-    expires_at_ms: u64,
-    used: bool,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct SessionTokenIssuer {
-    sessions: BTreeMap<String, SessionToken>,
-}
-
-impl SessionTokenIssuer {
-    pub fn issue(&mut self, principal_key: impl Into<String>, now_ms: u64) -> String {
-        let principal_key = principal_key.into();
-        let token = format!("sess_{}_{}", now_ms, self.sessions.len());
-        self.sessions.insert(
-            token.clone(),
-            SessionToken {
-                token: token.clone(),
-                principal_key,
-                expires_at_ms: now_ms + 300_000,
-                used: false,
-            },
-        );
-        token
-    }
-
-    pub fn consume(&mut self, token: &str, principal_key: &str, now_ms: u64) -> CoreResult<()> {
-        let session = self
-            .sessions
-            .get_mut(token)
-            .ok_or_else(|| CoreError::bad_user_input("unknown session token"))?;
-        if session.used || session.principal_key != principal_key || now_ms >= session.expires_at_ms
-        {
-            return Err(CoreError::bad_user_input(
-                "session token is expired, reused, or bound to another principal",
-            ));
-        }
-        session.used = true;
-        Ok(())
     }
 }
 
@@ -179,18 +135,6 @@ mod tests {
                 .get("Access-Control-Allow-Origin")
                 .map(String::as_str),
             Some("http://localhost:4321")
-        );
-    }
-
-    #[test]
-    fn browser_sse_session_token_is_single_use() {
-        let mut issuer = SessionTokenIssuer::default();
-        let token = issuer.issue("user:1", 0);
-
-        issuer.consume(&token, "user:1", 1_000).unwrap();
-        assert_eq!(
-            issuer.consume(&token, "user:1", 2_000).unwrap_err().code,
-            crate::ErrorCode::BadUserInput
         );
     }
 

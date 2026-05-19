@@ -1,0 +1,29 @@
+[workspace]
+
+[package]
+name = "ext_workspace_home_component"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen-rt = { version = "0.44", features = ["bitflags"] }
+
+[package.metadata.component]
+package = "comtrya:ext-workspace-home"
+
+[package.metadata.component.target]
+path = "../wit"
+world = "ext-workspace-home"
+
+[package.metadata.component.target.dependencies]
+"comtrya:platform" = { path = "../../../wit/comtrya/platform" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,132 @@
+// Shared records used across every other interface in the package.
+//
+// The cardinal rules:
+//   * Every URI is a `string` shaped like `comtrya://<kind>/<id>`. The
+//     kernel parses it; extensions treat it as opaque.
+//   * IDs are opaque kebab-case strings like `iss_01HV0K…` — the kernel
+//     mints them via `ids.mint`.
+//   * Timestamps are ISO-8601 strings (`time.now-iso`).
+//   * Errors are a typed variant so the kernel can map them to HTTP
+//     status codes and the generated TS client can pattern-match.
+
+interface types {
+  /// Opaque kebab-prefixed identifier, e.g. `iss_01HV0K4XAVE2H6R5M8KJZ8Q1A3`.
+  /// Extensions never construct these by hand — use `ids.mint`. The kernel
+  /// rejects any host-import call whose `id` was not produced by `ids.mint`
+  /// for the calling extension.
+  type id = string;
+
+  /// Extension identifier (e.g. `ext_issues`). Stable across versions of
+  /// the same extension. Used by `ops.invoke`, `events.event.emitter-extension`,
+  /// and the manifest's `allowed-cross-calls` allowlist.
+  type extension-id = string;
+
+  /// Canonical URI: `comtrya://<kind>/<id>`. Used as the cross-cutting
+  /// reference between resources of any kind.
+  type uri = string;
+
+  /// ISO-8601 timestamp. Always UTC, second precision unless otherwise
+  /// specified by a particular interface.
+  type iso-timestamp = string;
+
+  /// `comtrya://user/usr_…` or `comtrya://extension/ext_…`. The kernel
+  /// surfaces both kinds through `identity`.
+  type principal-uri = uri;
+
+  /// Opaque kernel-minted version token returned by `storage.update-begin`
+  /// and required by `storage.update-commit`. Two reads of the same
+  /// document at the same instant return identical tokens; any successful
+  /// write produces a fresh token. Tokens are not orderable by extensions.
+  type version = string;
+
+  /// Event-type pattern accepted by `reactor.subscribed-event-types`.
+  /// Grammar: dot-separated segments, each segment is either an exact
+  /// kebab name `[a-z][a-z0-9-]*` or the single-segment wildcard `*`.
+  /// `**` is NOT supported. Examples:
+  ///   "pull-request.merged"   — exact
+  ///   "pull-request.*"        — any action on pull-request
+  /// The kernel rejects patterns that do not match this grammar at
+  /// registration time with `bad-input`.
+  type event-pattern = string;
+
+  /// Fully-qualified op name. Either `<extension-id>/<op-name>`
+  /// (cross-extension) or `<op-name>` (same-extension). `<op-name>` is
+  /// itself dotted, kebab-cased, e.g. `issues.close-issue`.
+  type op-name = string;
+
+  /// Typed error variant. Each variant maps to an HTTP status:
+  ///   not-found        → 404
+  ///   conflict         → 409
+  ///   forbidden        → 403
+  ///   unauthenticated  → 401
+  ///   bad-input        → 400
+  ///   internal         → 500
+  ///   unavailable      → 503
+  ///
+  /// `internal` is for genuine bugs / data corruption (not retry-able);
+  /// `unavailable` is for transient dependency outages (retry-able).
+  variant error-code {
+    not-found,
+    conflict,
+    forbidden,
+    unauthenticated,
+    bad-input,
+    internal,
+    unavailable,
+  }
+
+  record error {
+    code: error-code,
+    message: string,
+    /// Dotted path into the request (e.g. `input.title`) that caused the
+    /// error. Optional; useful for form-level validation.
+    path: option<string>,
+  }
+
+  /// Distinguishes deletion-as-state-transition from idempotent retry.
+  /// `deleted` = the row existed at call time and is now gone.
+  /// `was-absent` = there was nothing to delete; the call is a no-op.
+  /// Used uniformly by `storage.delete`, `relations.delete`, `comments.delete`.
+  variant delete-result {
+    deleted,
+    was-absent,
+  }
+
+  /// Opaque pagination cursor. Returned by list-style functions; passed
+  /// back on the next call. Stable for the lifetime of the dataset's
+  /// current ordering; the kernel may invalidate a token if the
+  /// underlying index is rebuilt (callers MUST treat
+  /// `bad-input` from a stale cursor as "restart from the beginning").
+  record page-token {
+    cursor: string,
+  }
+
+  /// Persisted event. The kernel mints `id`, `timestamp-ms`, and
+  /// `emitter-extension`; extensions supply `event-type`, `payload`,
+  /// and optionally `source-uri` (the resource the event is about; the
+  /// extension's own credential URI is used when omitted).
+  ///
+  /// Lives in `types` so both the `events` interface and the `reactor`
+  /// export can reference it without `reactor` having to `use` the
+  /// `events` interface — that cross-interface `use` would force every
+  /// world exporting `reactor` to also import `events`, breaking the
+  /// `reader-extension` capability shape.
+  record event {
+    %id: id,
+    event-type: string,
+    payload: list<u8>,
+    timestamp-ms: u64,
+    source-uri: uri,
+    emitter-extension: extension-id,
+  }
+
+  /// Log severity for the `log` host import. Higher levels are more
+  /// noisy; the kernel routes by configured threshold.
+  variant log-level {
+    %trace,
+    %debug,
+    %info,
+    %warn,
+    %error,
+  }
+}

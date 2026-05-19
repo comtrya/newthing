@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Comtrya · Terminal Grid · workspace homepage</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #000000;
+        --bg-alt: #060606;
+        --bg-hi: #0c0c0c;
+        --rule: #1a1a1a;
+        --rule-bright: #2a2a2a;
+        --fg: #d8d8d8;
+        --fg-bright: #ffffff;
+        --fg-soft: #8a8a8a;
+        --fg-faint: #5a5a5a;
+        --green: #69ff85;
+        --amber: #ffb84f;
+        --red: #ff6464;
+        --cyan: #5ee0e0;
+        --blue: #74a4ff;
+        --magenta: #d585ff;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+        --sans: "IBM Plex Sans", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12.5px; line-height: 1.55; -webkit-font-smoothing: antialiased; font-variant-ligatures: none; }
+      a { color: var(--fg); text-decoration: none; }
+      a:hover { color: var(--cyan); }
+      .sans { font-family: var(--sans); }
+      kbd { font-family: var(--mono); background: var(--bg-hi); border: 1px solid var(--rule-bright); padding: 0 5px; font-size: 11px; color: var(--fg-soft); }
+
+      /* All-mono brutalist terminal grid. */
+      .shell { display: grid; grid-template-rows: 28px 1fr; min-height: 100vh; }
+
+      /* Topbar */
+      .topbar { display: grid; grid-template-columns: 240px 1fr auto; align-items: center; padding: 0 14px; border-bottom: 1px solid var(--rule-bright); background: var(--bg); font-size: 12px; }
+      .topbar .brand { display: flex; align-items: center; gap: 8px; }
+      .topbar .brand .pip { width: 8px; height: 8px; background: var(--green); }
+      .topbar .brand strong { color: var(--fg-bright); font-weight: 700; letter-spacing: 0.06em; }
+      .topbar .brand span { color: var(--fg-faint); }
+      .topbar .cmd { display: flex; align-items: center; gap: 10px; padding: 0 8px; }
+      .topbar .cmd .prompt { color: var(--green); }
+      .topbar .cmd input { background: transparent; border: 0; outline: none; flex: 1; color: var(--fg); font-family: var(--mono); font-size: 12px; }
+      .topbar .cmd input::placeholder { color: var(--fg-faint); }
+      .topbar .actions { display: flex; gap: 14px; align-items: center; color: var(--fg-soft); font-size: 11.5px; }
+      .topbar .actions .ok { color: var(--green); }
+
+      .layout { display: grid; grid-template-columns: 220px 1fr; min-height: calc(100vh - 28px); }
+      .sidebar { border-right: 1px solid var(--rule-bright); padding: 12px 0; display: flex; flex-direction: column; gap: 14px; }
+      .sidebar .heading { padding: 4px 12px; color: var(--fg-faint); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+      .sidebar .ws { padding: 4px 12px; display: flex; flex-direction: column; gap: 2px; }
+      .sidebar .ws strong { color: var(--fg-bright); font-weight: 500; }
+      .sidebar .ws span { color: var(--fg-soft); font-size: 11px; }
+
+      .nav { display: flex; flex-direction: column; }
+      .nav a { display: grid; grid-template-columns: 16px 1fr auto; padding: 3px 12px; color: var(--fg-soft); gap: 6px; }
+      .nav a.active { background: var(--bg-hi); color: var(--fg-bright); }
+      .nav a .pip { width: 4px; height: 4px; background: var(--fg-faint); justify-self: center; align-self: center; }
+      .nav a.active .pip { background: var(--green); }
+      .nav a .k { color: var(--fg-faint); font-size: 11px; }
+      .nav a:hover { color: var(--fg); }
+
+      .main { padding: 14px 18px 50px; max-width: none; font-size: 12.5px; }
+
+      .ds-banner { display: grid; grid-template-columns: 1fr auto; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--rule-bright); margin-bottom: 14px; }
+      .ds-banner h1 { margin: 0; font-family: var(--mono); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; color: var(--fg-bright); }
+      .ds-banner h1 span { color: var(--cyan); }
+      .ds-banner .crumbs { color: var(--fg-faint); }
+
+      .ribbon { display: flex; gap: 18px; padding: 6px 0; border-bottom: 1px solid var(--rule-bright); color: var(--fg-soft); font-size: 11.5px; }
+      .ribbon span.ok { color: var(--green); }
+      .ribbon span.warn { color: var(--amber); }
+      .ribbon span.err { color: var(--red); }
+
+      .layout-grid { display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 16px; align-items: start; margin-top: 14px; }
+
+      .block { border: 1px solid var(--rule-bright); }
+      .block-head { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; padding: 5px 10px; align-items: center; background: var(--bg-hi); border-bottom: 1px solid var(--rule-bright); }
+      .block-head .tag { color: var(--green); font-weight: 700; letter-spacing: 0.06em; }
+      .block-head h2 { margin: 0; font-size: 12px; font-weight: 500; color: var(--fg-bright); letter-spacing: 0.04em; text-transform: uppercase; }
+      .block-head .meta { color: var(--fg-faint); font-size: 11px; }
+
+      .sub-head { padding: 4px 10px; border-bottom: 1px solid var(--rule); color: var(--fg-faint); font-size: 11px; display: grid; grid-template-columns: 1fr auto; }
+      .sub-head .count { color: var(--fg-soft); }
+
+      /* Tabular row */
+      .trow { display: grid; grid-template-columns: 22px minmax(0,1fr) 130px 14px 90px 50px; gap: 8px; padding: 5px 10px; border-bottom: 1px solid var(--rule); align-items: center; white-space: nowrap; overflow: hidden; }
+      .trow:last-child { border-bottom: 0; }
+      .trow:hover { background: var(--bg-alt); }
+      .trow .id { color: var(--cyan); }
+      .trow .title { overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+      .trow .author { color: var(--fg-soft); }
+      .trow .check { color: var(--green); }
+      .trow .check.warn { color: var(--amber); }
+      .trow .check.err { color: var(--red); }
+      .trow .sep { color: var(--fg-faint); }
+      .trow .time { color: var(--fg-faint); text-align: right; }
+      .trow .path { color: var(--fg-faint); }
+
+      .yw-sub-head { padding: 5px 10px; border-bottom: 1px solid var(--rule); border-top: 1px dashed var(--rule-bright); display: grid; grid-template-columns: 1fr auto; color: var(--fg-faint); font-size: 11px; }
+      .yw-sub-head strong { color: var(--fg-bright); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+
+      /* repos */
+      .repos .row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--rule); align-items: center; }
+      .repos .row:hover { background: var(--bg-alt); }
+      .repos .row .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .repos .row .n .prefix { color: var(--fg-faint); }
+      .repos .row .n .leaf { color: var(--fg); font-weight: 500; }
+      .repos .row .pr { color: var(--fg-soft); min-width: 28px; text-align: right; }
+      .repos .row .ch { color: var(--green); min-width: 40px; text-align: right; }
+      .repos .row .ch.warn { color: var(--amber); }
+      .repos .row .t { color: var(--fg-faint); min-width: 40px; text-align: right; }
+
+      .repos .filter { display: grid; grid-template-columns: auto 1fr; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--rule); align-items: center; }
+      .repos .filter span { color: var(--fg-faint); }
+      .repos .filter input { background: transparent; border: 0; outline: none; flex: 1; color: var(--fg); font-family: var(--mono); font-size: 12px; }
+
+      /* activity */
+      .activity .day { padding: 6px 10px; color: var(--fg-faint); font-size: 11px; border-bottom: 1px solid var(--rule); border-top: 1px dashed var(--rule-bright); letter-spacing: 0.08em; text-transform: uppercase; }
+      .activity .ev { display: grid; grid-template-columns: 16px 1fr 44px; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--rule); align-items: center; }
+      .activity .ev .g { color: var(--cyan); text-align: center; }
+      .activity .ev .src { color: var(--fg-faint); margin-left: 4px; }
+      .activity .ev .t { color: var(--fg-faint); text-align: right; }
+
+      /* instance ribbon */
+      .instance { margin-top: 14px; display: grid; grid-template-columns: auto auto auto auto auto 1fr auto; gap: 14px; padding: 6px 12px; border: 1px solid var(--rule-bright); align-items: center; }
+      .instance .ok { color: var(--green); }
+      .instance .label { color: var(--fg-faint); }
+      .instance .clone { color: var(--cyan); }
+
+      /* design system footer */
+      .ds-footer { margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--rule-bright); display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+      .ds-footer h4 { margin: 0 0 6px; font-size: 11px; color: var(--green); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
+      .ds-footer p { margin: 0; color: var(--fg-soft); font-size: 11.5px; }
+      .ds-footer .palette { display: flex; gap: 4px; margin-top: 8px; }
+      .ds-footer .swatch { width: 22px; height: 22px; border: 1px solid var(--rule-bright); }
+
+      /* ascii decoration */
+      .ascii-rule { color: var(--fg-faint); white-space: pre; padding: 4px 0; user-select: none; }
+
+      .name-banner { padding: 12px 0; color: var(--fg-faint); font-size: 11px; }
+      .name-banner strong { color: var(--green); font-size: 14px; font-weight: 700; letter-spacing: 0.08em; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="pip"></span>
+          <strong>COMTRYA</strong>
+          <span>/ comtrya-labs</span>
+        </div>
+        <label class="cmd">
+          <span class="prompt">$</span>
+          <input type="search" placeholder="grep -- repo|ref|pr|file" />
+          <kbd>⌘K</kbd>
+        </label>
+        <div class="actions">
+          <span class="ok">● READY</span>
+          <span>extensions 3/3</span>
+          <span>localhost:8443</span>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="heading">workspace</div>
+          <div class="ws">
+            <strong>comtrya-labs</strong>
+            <span>single-tenant · 8 repos</span>
+          </div>
+
+          <div class="heading">nav</div>
+          <nav class="nav">
+            <a class="active" href="#"><span class="pip"></span><span>home</span><span class="k">g h</span></a>
+            <a href="#"><span class="pip"></span><span>activity</span><span class="k">g a</span></a>
+            <a href="#"><span class="pip"></span><span>extensions</span><span class="k">g e</span></a>
+            <a href="#"><span class="pip"></span><span>instance</span><span class="k">g i</span></a>
+          </nav>
+
+          <div class="heading">ext routes</div>
+          <nav class="nav">
+            <a href="#"><span class="pip"></span><span>/x/pulls</span><span class="k">g p</span></a>
+            <a href="#"><span class="pip"></span><span>/x/code</span><span class="k">g c</span></a>
+            <a href="#"><span class="pip"></span><span>/x/checks</span><span class="k">g k</span></a>
+          </nav>
+
+          <div class="heading">viewer</div>
+          <div class="ws">
+            <strong>david.flanagan</strong>
+            <span>instance.admin</span>
+          </div>
+        </aside>
+
+        <main class="main">
+          <div class="name-banner">
+            <strong>TERMINAL GRID</strong> · DIRECTION 03 · mono-first · JetBrains Mono · max density · ascii rules
+          </div>
+
+          <section class="ds-banner">
+            <h1>WORKSPACE <span>::</span> HOME</h1>
+            <span class="crumbs">/ → home · 14s ago</span>
+          </section>
+
+          <section class="ribbon">
+            <span>reviews <strong style="color: var(--fg-bright)">3</strong></span>
+            <span>pulls <strong style="color: var(--fg-bright)">2</strong></span>
+            <span>failing <strong class="err">2</strong></span>
+            <span>activity <strong style="color: var(--fg-bright)">∞</strong></span>
+            <span>instance <span class="ok">●</span></span>
+            <span>uptime 4d 11h</span>
+          </section>
+
+          <section class="layout-grid">
+            <!-- spine -->
+            <div class="block">
+              <div class="block-head"><span class="tag">[01]</span><h2>YOUR WORK</h2><span class="meta">ext_pull_requests · ext_checks</span></div>
+
+              <div class="yw-sub-head"><strong>review queue</strong><span>3 pull requests</span></div>
+              <div class="trow"><span class="id">#482</span><span class="title">Compose extension GraphQL SDL across resolvers</span><span class="path">comtrya</span><span class="sep">·</span><span class="check">✓ 14/14</span><span class="time">1h</span></div>
+              <div class="trow"><span class="id">#479</span><span class="title">Reject GraphQL SDL ellipsis tokens</span><span class="path">comtrya</span><span class="sep">·</span><span class="check warn">⚠ 7/8</span><span class="time">3h</span></div>
+              <div class="trow"><span class="id">#41</span><span class="title">OCI cache: handle 503 from registry</span><span class="path">ext-pull-requests</span><span class="sep">·</span><span class="check">✓ 9/9</span><span class="time">7h</span></div>
+
+              <div class="yw-sub-head"><strong>your pulls</strong><span>2 authored</span></div>
+              <div class="trow"><span class="id">#468</span><span class="title">Wire pure-Rust Smart HTTP v2 into server</span><span class="path">comtrya · draft</span><span class="sep">·</span><span class="check">✓ 14/14</span><span class="time">4h</span></div>
+              <div class="trow"><span class="id">#491</span><span class="title">Workspace homepage extension scaffold</span><span class="path">comtrya · ready</span><span class="sep">·</span><span class="check warn">⚠ 1 conflict</span><span class="time">2d</span></div>
+
+              <div class="yw-sub-head"><strong>failing on your branches</strong><span>2 checks</span></div>
+              <div class="trow"><span class="id">!ck</span><span class="title">smoke / extension-host</span><span class="path">v3/homepage-spike</span><span class="sep">·</span><span class="check err">✗ failing</span><span class="time">12m</span></div>
+              <div class="trow"><span class="id">!ck</span><span class="title">lint / biome</span><span class="path">v3/oci-503-handling</span><span class="sep">·</span><span class="check err">✗ failing</span><span class="time">34m</span></div>
+            </div>
+
+            <!-- rail -->
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+              <div class="block repos">
+                <div class="block-head"><span class="tag">[02]</span><h2>REPOS</h2><span class="meta">8</span></div>
+                <div class="filter"><span>/</span><input placeholder="filter…" /></div>
+                <div class="row"><span class="n"><span class="leaf">comtrya</span></span><span class="pr">12 pr</span><span class="ch">142✓</span><span class="t">4m</span></div>
+                <div class="row"><span class="n"><span class="leaf">ext-checks</span></span><span class="pr">0 pr</span><span class="ch warn">11/12</span><span class="t">3d</span></div>
+                <div class="row"><span class="n"><span class="leaf">ext-code-browser</span></span><span class="pr">1 pr</span><span class="ch">14✓</span><span class="t">1d</span></div>
+                <div class="row"><span class="n"><span class="leaf">ext-pull-requests</span></span><span class="pr">3 pr</span><span class="ch">28✓</span><span class="t">2h</span></div>
+                <div class="row"><span class="n"><span class="prefix">infra/</span><span class="leaf">cluster-state</span></span><span class="pr">0 pr</span><span class="ch">33✓</span><span class="t">9d</span></div>
+                <div class="row"><span class="n"><span class="prefix">infra/</span><span class="leaf">secrets</span></span><span class="pr">2 pr</span><span class="ch">19✓</span><span class="t">22h</span></div>
+                <div class="row"><span class="n"><span class="prefix">public/internal/</span><span class="leaf">observability</span></span><span class="pr">7 pr</span><span class="ch">56✓</span><span class="t">18m</span></div>
+                <div class="row"><span class="n"><span class="prefix">public/playground/</span><span class="leaf">wit-experiments</span></span><span class="pr">1 pr</span><span class="ch warn">4/8</span><span class="t">6h</span></div>
+              </div>
+
+              <div class="block activity">
+                <div class="block-head"><span class="tag">[03]</span><h2>ACTIVITY</h2><span class="meta"><span style="color: var(--green)">●</span> live</span></div>
+                <div class="day">— TODAY ──────────────────</div>
+                <div class="ev"><span class="g">↑</span><span>@sandra pushed 3 commits<span class="src">comtrya/main</span></span><span class="t">4m</span></div>
+                <div class="ev"><span class="g">⇄</span><span>PR #482 opened<span class="src">graphql SDL</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="g">✓</span><span>checks passed 14/14<span class="src">comtrya/v3</span></span><span class="t">1h</span></div>
+                <div class="ev"><span class="g">●</span><span>PR #475 merged<span class="src">ExtensionInstallConfig</span></span><span class="t">3h</span></div>
+                <div class="ev"><span class="g">◇</span><span>resolver 200 OK<span class="src">ext_checks</span></span><span class="t">5h</span></div>
+                <div class="day">— YESTERDAY ──────────────</div>
+                <div class="ev"><span class="g">↑</span><span>@maria push +1<span class="src">observability/main</span></span><span class="t">18h</span></div>
+                <div class="ev"><span class="g">⇄</span><span>PR #41 opened<span class="src">OCI 503</span></span><span class="t">19h</span></div>
+                <div class="ev"><span class="g">≋</span><span>cloudevent: ref.updated<span class="src">infra/cluster-state</span></span><span class="t">22h</span></div>
+              </div>
+            </div>
+          </section>
+
+          <div class="ascii-rule">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</div>
+
+          <section class="instance">
+            <span class="label">[04] INSTANCE</span>
+            <span class="ok">● ready</span>
+            <span class="label">boundaries</span><span>0</span>
+            <span class="label">extensions</span><span>3/3 executed</span>
+            <span class="clone">$ git clone https://localhost:8443/git/comtrya.git</span>
+            <a href="#" style="color: var(--cyan);">/instance →</a>
+          </section>
+
+          <section class="ds-footer">
+            <div>
+              <h4>// Aesthetic</h4>
+              <p>Mono-first terminal grid. ASCII rules separate regions. Highest information density of the four. Closest to a real terminal session.</p>
+            </div>
+            <div>
+              <h4>// Palette</h4>
+              <p>True-black bg, light-fg, 16-color terminal accents.</p>
+              <div class="palette">
+                <div class="swatch" style="background: #000;"></div>
+                <div class="swatch" style="background: #0c0c0c;"></div>
+                <div class="swatch" style="background: #d8d8d8;"></div>
+                <div class="swatch" style="background: #69ff85;"></div>
+                <div class="swatch" style="background: #ffb84f;"></div>
+                <div class="swatch" style="background: #ff6464;"></div>
+                <div class="swatch" style="background: #5ee0e0;"></div>
+              </div>
+            </div>
+            <div>
+              <h4>// Typography</h4>
+              <p><code style="color: var(--fg-bright);">JetBrains Mono</code> 12.5px for almost everything. <strong class="sans">IBM Plex Sans</strong> reserved for prose / empty states only.</p>
+            </div>
+            <div>
+              <h4>// Density</h4>
+              <p>4–5px row padding. 1px solid + dashed rules. Tabular columns aligned by character. ⌘K is `grep`.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

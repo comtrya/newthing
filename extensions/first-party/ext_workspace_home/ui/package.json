@@ -1,0 +1,8 @@
+{
+  "name": "@comtrya/ext-workspace-home-ui",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "cd ../../../../frontend && bun ./node_modules/vite/bin/vite.js build --config ../extensions/first-party/ext_workspace_home/ui/vite.config.ts"
+  }
+}

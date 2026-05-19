@@ -1,0 +1,167 @@
+// Per-extension document storage. Each extension has its own private
+// namespace of collections; the kernel scopes every storage call by
+// the calling extension's id. Cross-extension reads happen through
+// the `relations` graph or `ops.invoke`, never by reaching into another
+// extension's storage.
+//
+// Concurrency model: every write is single-write-atomic. Read-modify-write
+// is expressed by the two-step `update-begin` / `update-commit` protocol
+// with an opaque version token; the kernel rejects a commit whose token
+// does not match the current document version (returns `conflict`).
+//
+// Storage is the *only* place an extension persists state. There is no
+// in-memory state across op invocations; the kernel re-instantiates the
+// WASM component per call. The two-step update therefore spans two
+// invocations — the kernel holds no in-process lock between them.
+
+interface storage {
+  use types.{id, uri, version, delete-result, page-token, error};
+
+  /// Document payloads are JSON bytes in the extension's declared
+  /// resource shape. The kernel validates them against the extension's
+  /// own WIT before persisting.
+  type doc = list<u8>;
+
+  /// Typed scalar filter value. Null is expressed via the `null-check`
+  /// filter variant, not via a scalar case — this keeps illegal states
+  /// (e.g. `eq(null)` vs `is-null`) unrepresentable.
+  variant scalar {
+    str(string),
+    num(s64),
+    boolean(bool),
+  }
+
+  /// Comparison operator for `scalar-filter`. `%in` and full-text
+  /// predicates are deferred to 0.2.0 when `scalar` gains a list case.
+  variant scalar-op {
+    eq,
+    neq,
+    lt,
+    lte,
+    gt,
+    gte,
+  }
+
+  record scalar-filter {
+    field: string,
+    %op: scalar-op,
+    value: scalar,
+  }
+
+  record null-filter {
+    field: string,
+    /// `true` → field IS NULL / absent; `false` → field IS NOT NULL.
+    is-null: bool,
+  }
+
+  /// Filter on an indexed field. Field name is interpreted relative to
+  /// the document's indexed-fields map; only fields the extension
+  /// declared as indexed in its manifest are queryable. Querying an
+  /// un-indexed field returns `bad-input`. The variant shape makes
+  /// "comparison with a typed value" and "null check" structurally
+  /// distinct so callers cannot accidentally express `eq` with a
+  /// null-typed value.
+  variant index-filter {
+    scalar-cmp(scalar-filter),
+    null-check(null-filter),
+  }
+
+  /// Result-set ordering.
+  record order-by {
+    field: string,
+    descending: bool,
+  }
+
+  /// Bag of metadata kept orthogonal to the document body. Future
+  /// fields (ttl, visibility, tags) extend this record without changing
+  /// the arity of `create` / `replace`.
+  record document-metadata {
+    /// Document's primary URI (e.g. `comtrya://issue/iss_…`).
+    resource-uri: uri,
+    /// Broader scope URIs (workspace, repo) used for visibility
+    /// filtering. The kernel auto-includes the document's own URI.
+    resource-refs: list<uri>,
+  }
+
+  /// Page of documents returned by `query` / `list-all`.
+  record doc-page {
+    docs: list<doc>,
+    /// `none` when the page is the last one.
+    next-page: option<page-token>,
+  }
+
+  /// Document snapshot returned by `get` / `update-begin`. The `version`
+  /// is opaque; pass it back to `update-commit` to detect conflicting
+  /// writes.
+  record doc-snapshot {
+    data: doc,
+    %version: version,
+  }
+
+  /// Create a new document. Fails with `conflict` if (collection, id)
+  /// already exists. The kernel validates that `id` was minted by
+  /// `ids.mint` for this extension; otherwise returns `forbidden`.
+  create: func(
+    collection: string,
+    %id: id,
+    data: doc,
+    metadata: document-metadata,
+  ) -> result<_, error>;
+
+  /// Read a document by id. Returns `none` if not found. The returned
+  /// `version` is the snapshot's version at read time; subsequent
+  /// writers may have advanced it before any later commit.
+  get: func(collection: string, %id: id) -> result<option<doc-snapshot>, error>;
+
+  /// Begin a read-modify-write. Returns the current snapshot. Missing
+  /// documents return `err(not-found)` — callers who want create-or-
+  /// update semantics use `get` first. The extension computes new
+  /// bytes and submits them via `update-commit` with the snapshot's
+  /// `version` unchanged. The kernel:
+  ///   * accepts the commit if the document's current version still
+  ///     equals the supplied `version` → returns `ok`;
+  ///   * returns `conflict` if another writer has advanced the version
+  ///     since `update-begin`. The extension is expected to retry
+  ///     (re-read with `update-begin`, recompute, commit) up to a
+  ///     bounded number of times.
+  ///
+  /// The kernel holds NO in-process lock between begin and commit. The
+  /// two calls are independent invocations of the WASM component;
+  /// concurrency is detected at commit time by the version comparison.
+  ///
+  /// (When WIT 0.3 closure support stabilises this will collapse into a
+  /// single `update(coll, id, fn)` host import.)
+  update-begin: func(collection: string, %id: id) -> result<doc-snapshot, error>;
+  update-commit: func(
+    collection: string,
+    %id: id,
+    expected-version: version,
+    data: doc,
+  ) -> result<_, error>;
+
+  /// Delete a document. Idempotent: deleting an absent doc returns
+  /// `ok(was-absent)`. Same result variant as `relations.delete` /
+  /// `comments.delete`.
+  delete: func(collection: string, %id: id) -> result<delete-result, error>;
+
+  /// Query documents in a collection matching all supplied index
+  /// filters. Filters AND together. Required `limit` keeps result-set
+  /// memory bounded; the kernel rejects a `limit` larger than 1024.
+  query: func(
+    collection: string,
+    filters: list<index-filter>,
+    order: option<order-by>,
+    %limit: u32,
+    after: option<page-token>,
+  ) -> result<doc-page, error>;
+
+  /// Enumerate a collection. Required `limit`, capped at 1024 by the
+  /// kernel. For large collections, callers MUST loop with `after`
+  /// until `next-page` is `none`. Named `list-all` because `list`
+  /// collides with the WIT keyword.
+  list-all: func(
+    collection: string,
+    %limit: u32,
+    after: option<page-token>,
+  ) -> result<doc-page, error>;
+}

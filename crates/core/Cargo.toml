@@ -1,6 +1,9 @@
 [package]
-name = "forgepoint-core"
+name = "comtrya-core"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
+cuengine = "0.40"
+tempfile = "3"
+getrandom = "0.3"

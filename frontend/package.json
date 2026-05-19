@@ -1,21 +1,38 @@
 {
-  "name": "@forgepoint/frontend",
+  "name": "@comtrya/frontend",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "astro dev --host 127.0.0.1",
-    "typecheck": "bun ./node_modules/typescript/bin/tsc --noEmit",
-    "build": "astro build",
-    "preview": "astro preview"
+    "dev": "vite --host 127.0.0.1",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "bun test"
   },
   "dependencies": {
-    "@astrojs/node": "latest",
+    "@comtrya/sdk-core": "workspace:*",
+    "@comtrya/sdk-preact": "workspace:*",
+    "@comtrya/sdk-vue": "workspace:*",
+    "@headlessui/vue": "^1.7.23",
     "@pierre/diffs": "^1.1.21",
     "@pierre/trees": "^1.0.0-beta.3",
-    "astro": "latest"
+    "@preact/signals": "^1.0.0",
+    "@terrastruct/d2": "^0.1.33",
+    "@vitejs/plugin-vue": "latest",
+    "mermaid": "^11.15.0",
+    "preact": "^10.0.0",
+    "tinykeys": "^3.0.0",
+    "vite": "latest",
+    "vue": "latest",
+    "vue-router": "latest"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "happy-dom": "^20.9.0",
+    "vue-tsc": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
