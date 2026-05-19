@@ -18,8 +18,29 @@ use std::sync::Arc;
 use serde_json::Value;
 use wasmtime::Store;
 
-use crate::wasm_host::{OpsDispatcher, wit_types};
+use crate::wasm_host::{HostState, OpsDispatcher, WASM_PER_INVOCATION_FUEL, wit_types};
 use crate::wasm_registry::{RegistryDispatcher, WasmReaction, WasmRegistry, build_host_state};
+
+/// Create a fresh wasm `Store` for a single extension invocation with
+/// the per-invocation fuel budget pre-loaded. Every production invoker
+/// in this file MUST go through this helper — direct `Store::new`
+/// calls would drift past the budget enforcement. Test code that needs
+/// a `Store` against a specific extension wasm sets fuel inline (see
+/// `wasm_host::m1_ext_issues_smoke`) rather than depending on this
+/// private helper.
+fn new_invocation_store(
+    engine: &wasmtime::Engine,
+    host_state: HostState,
+) -> Result<Store<HostState>, wit_types::Error> {
+    let mut store = Store::new(engine, host_state);
+    store.set_fuel(WASM_PER_INVOCATION_FUEL).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("set wasm fuel: {e}"),
+        )
+    })?;
+    Ok(store)
+}
 
 pub type ExtensionInvokerFn = fn(
     &WasmRegistry,
@@ -229,7 +250,7 @@ fn reactor_subscriptions_ext_pull_requests(
         0,
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -277,7 +298,7 @@ fn reactor_on_event_ext_pull_requests(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = depth + 1;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -340,7 +361,7 @@ pub fn dispatch_ext_issues(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -573,7 +594,7 @@ pub fn dispatch_ext_epics(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -811,7 +832,7 @@ pub fn dispatch_ext_pull_requests(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -986,7 +1007,7 @@ pub fn dispatch_ext_checks(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -1105,7 +1126,7 @@ pub fn dispatch_ext_workspace_home(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
@@ -1587,7 +1608,7 @@ pub fn dispatch_ext_docs(
     )
     .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
     host_state.reactor_depth = reactor_depth;
-    let mut wasm_store = Store::new(registry.engine.as_ref(), host_state);
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
     let instance = registry
         .linker
         .instantiate(&mut wasm_store, &ext.component)
