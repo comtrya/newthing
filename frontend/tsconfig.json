@@ -36,5 +36,6 @@
       "@comtrya/sdk-vue": ["./packages/sdk-vue/src/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "src/**/*.d.ts", "vite.config.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }
