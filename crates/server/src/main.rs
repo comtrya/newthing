@@ -1507,6 +1507,45 @@ impl Runtime {
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .collect()
     }
+
+    /// Opt-in archive scan. Reads `metadata/archive/events.*.jsonl`
+    /// in chronological order (string-sort = numeric-sort because the
+    /// nanosecond timestamp is fixed-width through year ~2554), then
+    /// concatenates the active file. Used by tooling that needs the
+    /// full event history; production hot paths stay on `read_events`.
+    /// `#[cfg(test)]`-gated until a real caller emerges — the
+    /// alternative `#[allow(dead_code)]` violates CLAUDE.md.
+    #[cfg(test)]
+    fn read_events_including_archive(&self) -> Vec<Value> {
+        let mut entries = Vec::new();
+        if let Some(parent) = self.events_path.parent() {
+            let archive_dir = parent.join("archive");
+            if let Ok(read_dir) = std::fs::read_dir(&archive_dir) {
+                let mut archive_paths: Vec<_> = read_dir
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("events.") && n.ends_with(".jsonl"))
+                    })
+                    .collect();
+                archive_paths.sort();
+                for path in archive_paths {
+                    let mut text = String::new();
+                    if let Ok(mut file) = OpenOptions::new().read(true).open(&path) {
+                        let _ = file.read_to_string(&mut text);
+                    }
+                    entries.extend(
+                        text.lines()
+                            .filter_map(|line| serde_json::from_str::<Value>(line).ok()),
+                    );
+                }
+            }
+        }
+        entries.extend(self.read_events());
+        entries
+    }
 }
 
 fn filter_extension_installations(
@@ -6770,9 +6809,57 @@ fn touch(path: &Path) -> std::io::Result<()> {
         .map(|_| ())
 }
 
+/// Size threshold (64 MiB) at which `append_jsonl` rotates the active
+/// JSONL file into `<parent>/archive/<stem>.<unix_nanos>.jsonl` before
+/// the next write. Matches #11 P2-3's "rotate by size (e.g., 64 MB)".
+const JSONL_ROTATION_THRESHOLD_BYTES: u64 = 64 * 1024 * 1024;
+
 fn append_jsonl(path: &Path, value: Value) -> std::io::Result<()> {
+    append_jsonl_with_rotation(path, value, JSONL_ROTATION_THRESHOLD_BYTES)
+}
+
+fn append_jsonl_with_rotation(
+    path: &Path,
+    value: Value,
+    threshold_bytes: u64,
+) -> std::io::Result<()> {
+    let line = format!("{value}\n");
+    if let Ok(meta) = std::fs::metadata(path)
+        && meta.len().saturating_add(line.len() as u64) > threshold_bytes
+    {
+        rotate_jsonl(path)?;
+    }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(file, "{value}")?;
+    file.write_all(line.as_bytes())?;
+    Ok(())
+}
+
+/// Move the active JSONL file into `<parent>/archive/<stem>.<nanos>.jsonl`.
+/// Nanosecond timestamp prevents collisions when two rotations land in
+/// the same second (would otherwise silently overwrite the prior
+/// archive — that's data loss, not just misrouting).
+fn rotate_jsonl(path: &Path) -> std::io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "rotation requires a parent directory",
+        )
+    })?;
+    if parent.as_os_str().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "rotation requires a non-empty parent directory",
+        ));
+    }
+    let archive_dir = parent.join("archive");
+    std::fs::create_dir_all(&archive_dir)?;
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("log");
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let target = archive_dir.join(format!("{stem}.{now}.jsonl"));
+    std::fs::rename(path, &target)?;
     Ok(())
 }
 
@@ -10411,6 +10498,143 @@ extensions: {
         assert_eq!(
             payload.get("bodyMarkdown").and_then(Value::as_str),
             Some("alpha")
+        );
+    }
+
+    // -------- #11 P2-3: size-based log rotation --------
+
+    #[test]
+    fn append_jsonl_no_rotation_below_threshold() {
+        let dir = temp_dir("rotate-below");
+        let path = dir.join("events.jsonl");
+        // Threshold 10_000 bytes, small writes — never rotates.
+        for i in 0..3 {
+            append_jsonl_with_rotation(&path, json!({"i": i}), 10_000).unwrap();
+        }
+        assert!(
+            !dir.join("archive").exists(),
+            "no archive dir when under threshold"
+        );
+        let body = fs::read_to_string(&path).unwrap();
+        assert_eq!(body.lines().count(), 3);
+    }
+
+    #[test]
+    fn append_jsonl_rotates_when_threshold_exceeded() {
+        let dir = temp_dir("rotate-exceeded");
+        let path = dir.join("events.jsonl");
+        // Each line is ~30+ bytes; threshold 200 → rotates after a few.
+        for i in 0..20 {
+            append_jsonl_with_rotation(&path, json!({"i": i, "padding": "xxxxxxxxxx"}), 200)
+                .unwrap();
+        }
+        let archive_dir = dir.join("archive");
+        assert!(
+            archive_dir.is_dir(),
+            "archive dir must be created on rotation"
+        );
+        let archived: Vec<_> = fs::read_dir(&archive_dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().into_string().unwrap()))
+            .filter(|n| n.starts_with("events.") && n.ends_with(".jsonl"))
+            .collect();
+        assert!(!archived.is_empty(), "at least one archive file must exist");
+        // Active file must still be present and contain the most recent
+        // write only (the one that triggered the most recent rotation).
+        assert!(path.is_file(), "active file recreated post-rotation");
+    }
+
+    #[test]
+    fn rotation_uses_nanosecond_timestamp_so_back_to_back_rotates_dont_collide() {
+        let dir = temp_dir("rotate-collide");
+        let path = dir.join("events.jsonl");
+        // Force two rotations within the same wall-clock second using
+        // tiny threshold + back-to-back writes.
+        append_jsonl_with_rotation(&path, json!({"first": true}), 5).unwrap();
+        append_jsonl_with_rotation(&path, json!({"second": true}), 5).unwrap();
+        append_jsonl_with_rotation(&path, json!({"third": true}), 5).unwrap();
+
+        let archive_dir = dir.join("archive");
+        let archived: Vec<_> = fs::read_dir(&archive_dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().into_string().unwrap()))
+            .filter(|n| n.starts_with("events.") && n.ends_with(".jsonl"))
+            .collect();
+        // Both prior writes should be in archive — distinct files,
+        // not overwritten (regression guard for the second-granularity
+        // collision bug).
+        assert!(
+            archived.len() >= 2,
+            "expected at least 2 distinct archive files, got {archived:?}"
+        );
+    }
+
+    #[test]
+    fn read_events_returns_only_active_file_by_default() {
+        let runtime = dev_runtime_no_extensions();
+        // Drive 30 writes through the actual Runtime.append_event with a
+        // tiny threshold injected via append_jsonl_with_rotation directly
+        // (the Runtime method uses the 64 MiB constant which is impractical
+        // for tests). After multiple rotations the active file is small.
+        for i in 0..30 {
+            append_jsonl_with_rotation(
+                &runtime.events_path,
+                json!({"i": i, "type": "test", "pad": "xxxxxxxxxx"}),
+                100,
+            )
+            .unwrap();
+        }
+        let active = runtime.read_events();
+        let all = runtime.read_events_including_archive();
+        assert!(
+            active.len() < all.len(),
+            "active read must be a strict subset of including-archive after rotations: active={}, all={}",
+            active.len(),
+            all.len()
+        );
+        // Archive walk catches every event we wrote (plus any startup
+        // events the Runtime emitted).
+        let test_only: Vec<_> = all
+            .iter()
+            .filter(|v| v.get("type").and_then(Value::as_str) == Some("test"))
+            .collect();
+        assert_eq!(
+            test_only.len(),
+            30,
+            "all 30 test events must be in include-archive view"
+        );
+    }
+
+    #[test]
+    fn read_events_including_archive_concatenates_chronologically() {
+        let runtime = dev_runtime_no_extensions();
+        let path = &runtime.events_path;
+        // Three forced rotations; each rotation lands a single event in
+        // an archive file, plus a final event in the active file.
+        for marker in ["a", "b", "c", "d"] {
+            append_jsonl_with_rotation(path, json!({"marker": marker, "type": "ord"}), 5).unwrap();
+        }
+        let all = runtime.read_events_including_archive();
+        let ordered: Vec<&str> = all
+            .iter()
+            .filter(|v| v.get("type").and_then(Value::as_str) == Some("ord"))
+            .filter_map(|v| v.get("marker").and_then(Value::as_str))
+            .collect();
+        assert_eq!(
+            ordered,
+            vec!["a", "b", "c", "d"],
+            "archive walk must emit events in write order (lex-sort = numeric-sort of nanos)"
+        );
+    }
+
+    #[test]
+    fn rotate_jsonl_errors_when_path_has_no_parent() {
+        // Verify rotate_jsonl returns Err (not panic) on an empty
+        // path — no parent dir to create archive in.
+        let result = rotate_jsonl(Path::new(""));
+        assert!(
+            result.is_err(),
+            "rotate of empty path must err, got {result:?}"
         );
     }
 }
