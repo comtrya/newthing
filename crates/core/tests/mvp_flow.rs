@@ -82,6 +82,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         .validate_config_tree(
             &GitOid::new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
     assert!(!invalid.accepted);
@@ -105,7 +106,7 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         .unwrap();
     valid_txn.stage_pack(&[0; 32], 1).unwrap();
     let valid = valid_txn
-        .validate_config_tree(&new_oid, &CueEvalBudget::default())
+        .validate_config_tree(&new_oid, &CueEvalBudget::default(), &[])
         .unwrap();
     assert!(valid.accepted);
     let result = storage

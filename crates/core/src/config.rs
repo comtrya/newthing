@@ -341,6 +341,55 @@ pub struct CueFile {
     pub source: String,
 }
 
+/// A schema snippet injected into the receive-pack CUE validator's
+/// workdir alongside the kernel base schema. One per extension that
+/// registers a `cueSchemas` entry. Constructed via `new()` which
+/// enforces a strict id allowlist — sanitisation happens once at
+/// the type boundary, write paths trust the value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CueSchemaFile {
+    id: String,
+    contents: String,
+}
+
+impl CueSchemaFile {
+    /// `id` must match `^[a-z][a-z0-9-]*$`. Excludes path separators,
+    /// `..`, NUL, control chars, uppercase, and leading digits. The
+    /// final on-disk path will be `01-comtrya-ext-{id}.cue`; the
+    /// allowlist rules out every shape that could escape the workdir
+    /// or collide with the kernel slot.
+    pub fn new(id: impl Into<String>, contents: impl Into<String>) -> CoreResult<Self> {
+        let id = id.into();
+        let mut chars = id.chars();
+        let valid = matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !valid {
+            return Err(CoreError::bad_user_input(
+                "CueSchemaFile.id must match ^[a-z][a-z0-9-]*$",
+            ));
+        }
+        Ok(Self {
+            id,
+            contents: contents.into(),
+        })
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn contents(&self) -> &str {
+        &self.contents
+    }
+}
+
+/// Kernel CUE base schema. Every repo evaluated by the receive-pack
+/// validator (and by the server's per-repo browser) sees this in
+/// scope. Defines `#Ref`, `#PrincipalRef`, `#OwnerRef`, `#Project`
+/// and the `projects` map. Kept minimal — extension-specific concepts
+/// live in extension-registered schemas.
+pub const KERNEL_CUE_BASE: &str = include_str!("kernel_base.cue");
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiagnostic {
     pub severity: String,
@@ -372,6 +421,7 @@ pub fn validate_repository_cue_sources(
     commit_oid: &str,
     files: &[CueFile],
     budget: &CueEvalBudget,
+    extension_schemas: &[CueSchemaFile],
 ) -> CoreResult<ConfigValidation> {
     let comtrya_files: Vec<&CueFile> = files
         .iter()
@@ -409,7 +459,7 @@ pub fn validate_repository_cue_sources(
     // real CUE evaluator — which catches type conflicts, constraint
     // violations, and full parse errors.
     if diagnostics.is_empty()
-        && let Err(diagnostic) = evaluate_cue_files_with_cuengine(&comtrya_files)
+        && let Err(diagnostic) = evaluate_cue_files_with_cuengine(&comtrya_files, extension_schemas)
     {
         diagnostics.push(diagnostic);
     }
@@ -459,11 +509,15 @@ pub fn validate_repository_cue_sources(
 /// stripped (cuengine emits the absolute workdir; leaking it to a
 /// GraphQL client is information disclosure).
 ///
-/// Known limitation tracked as a follow-up: this validator does not load
-/// `KERNEL_CUE_BASE` or extension schemas into the workdir, so violations
-/// of kernel-declared required fields are NOT caught here. Only in-file
-/// type unification and constraint failures are.
-fn evaluate_cue_files_with_cuengine(files: &[&CueFile]) -> Result<(), ConfigDiagnostic> {
+/// Writes `00-comtrya-kernel.cue` (verbatim [`KERNEL_CUE_BASE`]) plus
+/// each `extension_schemas[i]` as `01-comtrya-ext-<id>.cue` into the
+/// workdir before running cuengine. This matches the server's
+/// `cue_config::install_schemas` layout so the receive-pack validator
+/// and the per-repo browser stay aligned.
+fn evaluate_cue_files_with_cuengine(
+    files: &[&CueFile],
+    extension_schemas: &[CueSchemaFile],
+) -> Result<(), ConfigDiagnostic> {
     use std::path::{Component, Path};
 
     // 1. Sanitize EVERY path before touching the filesystem.
@@ -488,6 +542,21 @@ fn evaluate_cue_files_with_cuengine(files: &[&CueFile]) -> Result<(), ConfigDiag
                 severity: "error".to_string(),
                 path: Some(file.path.clone()),
                 message: "CUE file path must not write into cue.mod/ — that directory is reserved for the synthetic module declaration".to_string(),
+            });
+        }
+        // Reject paths that would silently overwrite an injected
+        // kernel or extension schema in step 3 below (and let an
+        // attacker bypass kernel-required-field validation).
+        // Compare case-insensitively because the workdir tempdir
+        // lives on macOS HFS+ / APFS by default, both case-insensitive
+        // — `01-COMTRYA-ext-foo.cue` would otherwise pass this guard
+        // and silently collide at write time.
+        let lower = file.path.to_ascii_lowercase();
+        if lower == "00-comtrya-kernel.cue" || lower.starts_with("01-comtrya-ext-") {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: Some(file.path.clone()),
+                message: "CUE file path collides with kernel-injected schema slot".to_string(),
             });
         }
     }
@@ -533,6 +602,29 @@ fn evaluate_cue_files_with_cuengine(files: &[&CueFile]) -> Result<(), ConfigDiag
             path: None,
             message: format!("write cuengine module.cue: {e}"),
         });
+    }
+
+    // 3a. Inject the kernel base schema + each extension schema at the
+    //     workdir root. File names use the same `01-comtrya-ext-{id}.cue`
+    //     pattern as the server's install_schemas so both validators
+    //     stay aligned. CueSchemaFile.id is allowlist-validated at
+    //     construction; the write site trusts the type.
+    if let Err(e) = std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_CUE_BASE) {
+        return Err(ConfigDiagnostic {
+            severity: "error".to_string(),
+            path: None,
+            message: format!("write kernel base schema: {e}"),
+        });
+    }
+    for schema in extension_schemas {
+        let path = workdir.join(format!("01-comtrya-ext-{}.cue", schema.id()));
+        if let Err(e) = std::fs::write(&path, schema.contents()) {
+            return Err(ConfigDiagnostic {
+                severity: "error".to_string(),
+                path: None,
+                message: format!("write extension schema {}: {e}", schema.id()),
+            });
+        }
     }
 
     // 4. Write each user file to its sanitized relative path.
@@ -937,6 +1029,7 @@ mod tests {
                 source: "# hello".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -957,6 +1050,7 @@ mod tests {
                 source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -975,6 +1069,7 @@ mod tests {
                 source: "package comtrya\ncount: int & <3\ncount: 5".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -994,6 +1089,7 @@ mod tests {
                 source: "package comtrya\nfoo: [".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -1013,6 +1109,7 @@ mod tests {
                 source: "package comtrya\nfoo: {".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -1041,6 +1138,7 @@ mod tests {
                     source: "package comtrya".to_string(),
                 }],
                 &CueEvalBudget::default(),
+                &[],
             )
             .unwrap();
             assert!(
@@ -1073,6 +1171,7 @@ mod tests {
                     source: "package comtrya".to_string(),
                 }],
                 &CueEvalBudget::default(),
+                &[],
             )
             .unwrap();
             assert!(
@@ -1103,6 +1202,7 @@ mod tests {
                 source: "package comtrya\nfoo: \"a\"\nfoo: 42".to_string(),
             }],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 
@@ -1135,11 +1235,150 @@ mod tests {
                 source: "package comtrya\nrepo: {}".to_string(),
             }],
             &budget,
+            &[],
         )
         .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::ConfigInvalid);
         assert!(err.message.contains("evaluation_budget"));
+    }
+
+    // -------- #18: kernel + extension CUE schemas in validator --------
+
+    fn validate_with(files: Vec<CueFile>, extension_schemas: &[CueSchemaFile]) -> ConfigValidation {
+        validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &files,
+            &CueEvalBudget::default(),
+            extension_schemas,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_kernel_enum_violation() {
+        // KERNEL_CUE_BASE defines #PrincipalRef as #Ref with kind restricted
+        // to "user" | "agent" | "bot" | "credential". A value of "team"
+        // is allowed by #Ref but rejected by #PrincipalRef.
+        //
+        // Note: cuengine's evaluate_module accepts incomplete-but-not-
+        // conflicting structs silently, so we test the "wrong value"
+        // shape of the issue's acceptance ("mistypes a kernel-declared
+        // field") rather than "omits a kernel-required field." The
+        // proof that kernel schemas are loaded is identical: cuengine
+        // could only catch this if KERNEL_CUE_BASE is in scope.
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "owner: #PrincipalRef & { slug: \"rawkode\", kind: \"team\" }\n",
+                )
+                .to_string(),
+            }],
+            &[],
+        );
+        assert!(!result.accepted, "kernel enum violation must reject");
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_kernel_type_violation() {
+        // Kernel #Project requires `root: string | *""`. An integer
+        // value forces a unification failure on the projects map.
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: "package comtrya\nprojects: bad: { root: 42 }".to_string(),
+            }],
+            &[],
+        );
+        assert!(
+            !result.accepted,
+            "type violation on kernel field must reject"
+        );
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_extension_type_violation() {
+        // Extension schema constrains a new field on #Project to string.
+        // User config that types it as an integer must fail.
+        // (Same "wrong-type" shape as the kernel test — proves the
+        // extension schema is loaded and applied.)
+        let extension = CueSchemaFile::new(
+            "test-required",
+            "package comtrya\n#Project: { reviewer: string }",
+        )
+        .expect("valid CueSchemaFile id");
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "projects: must_review: { root: \"p\", reviewer: 42 }\n",
+                )
+                .to_string(),
+            }],
+            &[extension],
+        );
+        assert!(!result.accepted, "extension type violation must reject");
+        assert!(
+            result.diagnostics.iter().any(|d| d.severity == "error"),
+            "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_rejects_path_collision_with_kernel_schema() {
+        // A crafted push containing a file whose path matches the
+        // kernel-injected slot would otherwise overwrite the kernel
+        // schema and bypass kernel-required-field validation.
+        let result = validate_with(
+            vec![CueFile {
+                path: "00-comtrya-kernel.cue".to_string(),
+                source: "package comtrya\n#Project: { name: string | *\"hacked\" }".to_string(),
+            }],
+            &[],
+        );
+        assert!(!result.accepted, "must refuse to write over kernel slot");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("collides")),
+            "expected collision diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cue_schema_file_rejects_path_traversal_ids() {
+        for bad in [
+            "../etc/passwd",
+            "foo/bar",
+            "foo bar",
+            "Foo",
+            "1leading-digit",
+            "",
+            "with\0nul",
+        ] {
+            assert!(
+                CueSchemaFile::new(bad, "package comtrya").is_err(),
+                "{bad:?} should be rejected by CueSchemaFile::new"
+            );
+        }
+        assert!(CueSchemaFile::new("ok-id", "package comtrya").is_ok());
     }
 
     #[test]
@@ -1158,6 +1397,7 @@ mod tests {
                 },
             ],
             &CueEvalBudget::default(),
+            &[],
         )
         .unwrap();
 

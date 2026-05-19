@@ -1,6 +1,7 @@
 use crate::auth::TokenAction;
 use crate::config::{
-    ConfigSnapshot, ConfigValidation, CueEvalBudget, CueFile, validate_repository_cue_sources,
+    ConfigSnapshot, ConfigValidation, CueEvalBudget, CueFile, CueSchemaFile,
+    validate_repository_cue_sources,
 };
 use crate::error::{CoreError, CoreResult, ErrorCode};
 use crate::ids::OpaqueId;
@@ -292,12 +293,14 @@ impl InMemoryReceivePackTxn {
         &mut self,
         commit_oid: &GitOid,
         budget: &CueEvalBudget,
+        extension_schemas: &[CueSchemaFile],
     ) -> CoreResult<ConfigValidation> {
         let validation = validate_repository_cue_sources(
             self.repo.repository_id.as_str(),
             commit_oid.as_str(),
             &self.cue_files,
             budget,
+            extension_schemas,
         )?;
         self.validation = Some(validation.clone());
         Ok(validation)
@@ -462,7 +465,7 @@ mod tests {
             .unwrap();
 
         let validation = txn
-            .validate_config_tree(&oid('a'), &CueEvalBudget::default())
+            .validate_config_tree(&oid('a'), &CueEvalBudget::default(), &[])
             .unwrap();
 
         assert!(!validation.accepted);
