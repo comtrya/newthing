@@ -8,7 +8,6 @@
 // extraction here once we want server-side validation against the
 // `properties` declared in each Project's doc-type CUE.
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::types::{Error, Event};

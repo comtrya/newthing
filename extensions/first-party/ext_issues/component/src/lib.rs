@@ -12,7 +12,6 @@
 // state survives across calls (relied upon by the platform's per-call
 // model).
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::events;

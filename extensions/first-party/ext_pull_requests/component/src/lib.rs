@@ -1,6 +1,5 @@
 // ext_pull_requests — WASM Component-Model implementation of `pull-requests.wit`.
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::events;

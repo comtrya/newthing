@@ -1,6 +1,5 @@
 // ext_workspace_home — layout-only WASM Component-Model implementation.
 
-#[allow(warnings)]
 mod bindings;
 
 use bindings::comtrya::platform::types::{Error, Event};
