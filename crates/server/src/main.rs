@@ -107,24 +107,50 @@ impl GitHttpState for PureRustGitState {
     }
 }
 
+/// Initialize the process-wide tracing subscriber. Respects `RUST_LOG`
+/// (default `info`); switches to JSON-Lines output to stderr when
+/// `COMTRYA_LOG_FORMAT=json`, otherwise compact human-readable. Must
+/// be called exactly once, before any `tracing::*!` macro fires.
+fn init_tracing() {
+    use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let json_format = std::env::var("COMTRYA_LOG_FORMAT")
+        .map(|v| v == "json")
+        .unwrap_or(false);
+    let registry = tracing_subscriber::registry().with(filter);
+    let result = if json_format {
+        registry
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .try_init()
+    } else {
+        registry
+            .with(fmt::layer().compact().with_writer(std::io::stderr))
+            .try_init()
+    };
+    result.expect("install tracing subscriber");
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing();
+
     let options = StartupOptions::from_env_and_args(std::env::args().skip(1));
     let runtime = match Runtime::start(options) {
         Ok(runtime) => Arc::new(runtime),
         Err(error) => {
-            eprintln!("comtrya-server refused to start: {error}");
+            tracing::error!(%error, "comtrya-server refused to start");
             std::process::exit(1);
         }
     };
 
     if runtime.options.check {
         let ready = runtime.readiness();
-        println!(
-            "comtrya-server ready={} mode={} dataDir={}",
-            ready.ready,
-            ready.mode,
-            runtime.data_dir.display()
+        tracing::info!(
+            ready = ready.ready,
+            mode = %ready.mode,
+            data_dir = %runtime.data_dir.display(),
+            "readiness check complete"
         );
         if !ready.ready {
             std::process::exit(1);
@@ -138,12 +164,12 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .unwrap_or_else(|error| {
-            eprintln!("failed to bind: {error}");
+            tracing::error!(?error, %listen, "failed to bind listener");
             std::process::exit(1);
         });
-    println!(
-        "comtrya-server listening on http://{}",
-        listener.local_addr().expect("listener has local addr")
+    tracing::info!(
+        address = %listener.local_addr().expect("listener has local addr"),
+        "server listening"
     );
     axum::serve(listener, app).await.expect("server failed");
 }

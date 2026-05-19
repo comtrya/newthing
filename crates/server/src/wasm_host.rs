@@ -105,7 +105,8 @@ pub struct HostState {
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     /// Manifest-declared permissions, parsed at extension load time.
     pub manifest: Arc<HostManifest>,
-    /// Diagnostic sink for `log.emit`. Defaults to `eprintln!`.
+    /// Diagnostic sink for `log.emit`. Defaults to the kernel's
+    /// `tracing` subscriber.
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
     /// Clock. Defaults to system time; tests substitute a fake clock.
     pub clock: Arc<dyn Clock + Send + Sync>,
@@ -239,9 +240,9 @@ fn days_to_ymd(g: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-pub struct StderrLogSink;
+pub struct TracingLogSink;
 
-impl LogSink for StderrLogSink {
+impl LogSink for TracingLogSink {
     fn emit(
         &self,
         extension_id: &str,
@@ -259,10 +260,34 @@ impl LogSink for StderrLogSink {
         let fields_str = fields
             .and_then(|b| std::str::from_utf8(b).ok())
             .unwrap_or("");
-        eprintln!(
-            "[wasm:{}] {} {} {}",
-            extension_id, level_str, message, fields_str
-        );
+        match level {
+            wit_types::LogLevel::Trace | wit_types::LogLevel::Debug => {
+                tracing::debug!(
+                    extension = %extension_id,
+                    level = level_str,
+                    fields = fields_str,
+                    "{message}"
+                )
+            }
+            wit_types::LogLevel::Info => tracing::info!(
+                extension = %extension_id,
+                level = level_str,
+                fields = fields_str,
+                "{message}"
+            ),
+            wit_types::LogLevel::Warn => tracing::warn!(
+                extension = %extension_id,
+                level = level_str,
+                fields = fields_str,
+                "{message}"
+            ),
+            wit_types::LogLevel::Error => tracing::error!(
+                extension = %extension_id,
+                level = level_str,
+                fields = fields_str,
+                "{message}"
+            ),
+        }
     }
 }
 
@@ -1676,7 +1701,7 @@ mod tests {
             }),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
-            log_sink: Arc::new(StderrLogSink),
+            log_sink: Arc::new(TracingLogSink),
             authz: Arc::new(DefaultAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
@@ -1749,7 +1774,7 @@ mod tests {
             }),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
-            log_sink: Arc::new(StderrLogSink),
+            log_sink: Arc::new(TracingLogSink),
             authz: Arc::new(DefaultAuthz),
             ops_dispatcher: Arc::new(dispatcher.clone()),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
@@ -1856,7 +1881,7 @@ mod tests {
             }),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
-            log_sink: Arc::new(StderrLogSink),
+            log_sink: Arc::new(TracingLogSink),
             authz: Arc::new(DefaultAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
@@ -2078,7 +2103,7 @@ mod m1_ext_issues_smoke {
             manifest,
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
-            log_sink: Arc::new(StderrLogSink),
+            log_sink: Arc::new(TracingLogSink),
             authz: Arc::new(DefaultAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),

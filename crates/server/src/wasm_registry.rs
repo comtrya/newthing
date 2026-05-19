@@ -22,7 +22,7 @@ use wasmtime::component::{Component, Linker};
 
 use crate::wasm_host::{
     AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, HostStateForOp, IdMinter, LogSink,
-    OpsDispatcher, SharedMintedIds, SharedOccTokens, StderrLogSink, SystemClock, UlidMinter,
+    OpsDispatcher, SharedMintedIds, SharedOccTokens, SystemClock, TracingLogSink, UlidMinter,
     host_state_for_op, make_platform_linker, wit_types,
 };
 
@@ -92,7 +92,7 @@ impl WasmRegistry {
             reactor_subscriptions: Arc::new(RwLock::new(BTreeMap::new())),
             authz: Arc::new(DefaultAuthz),
             clock: Arc::new(SystemClock),
-            log_sink: Arc::new(StderrLogSink),
+            log_sink: Arc::new(TracingLogSink),
             id_minter,
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
@@ -247,7 +247,11 @@ impl WasmRegistry {
         }
         if depth >= REACTOR_RECURSION_DEPTH_CAP {
             if let Err(error) = self.append_reaction_depth_exceeded_event(store, event, depth) {
-                eprintln!("reactor: failed to append reaction depth exceeded event: {error}");
+                tracing::error!(
+                    %error,
+                    depth,
+                    "reactor: failed to append reaction depth exceeded event"
+                );
             }
             return 0;
         }
@@ -265,9 +269,11 @@ impl WasmRegistry {
                     self.apply_reactor_reactions(store.clone(), &extension_id, reactions, depth);
                 }
                 Err(error) => {
-                    eprintln!(
-                        "reactor {extension_id}: on-event for {} failed: {}",
-                        event.event_type, error.message
+                    tracing::warn!(
+                        reactor = %extension_id,
+                        event_type = %event.event_type,
+                        message = %error.message,
+                        "reactor on-event failed"
                     );
                 }
             }
@@ -283,7 +289,10 @@ impl WasmRegistry {
         depth: u32,
     ) {
         let Some(reactor_extension) = self.get(reactor_extension_id) else {
-            eprintln!("reactor {reactor_extension_id}: extension disappeared during dispatch");
+            tracing::warn!(
+                reactor = %reactor_extension_id,
+                "reactor extension disappeared during dispatch"
+            );
             return;
         };
         for reaction in reactions {
@@ -295,24 +304,26 @@ impl WasmRegistry {
                         .iter()
                         .any(|allowed| allowed == &name)
                     {
-                        eprintln!(
-                            "reactor {reactor_extension_id}: mutation {name:?} is not in reactor.allowedMutations, skipping"
+                        tracing::warn!(
+                            reactor = %reactor_extension_id,
+                            mutation = %name,
+                            "mutation not in reactor.allowedMutations, skipping"
                         );
                         continue;
                     }
-                    let (target_extension, op) = match parse_reactor_mutation_name(
-                        reactor_extension_id,
-                        &name,
-                    ) {
-                        Ok(route) => route,
-                        Err(error) => {
-                            eprintln!(
-                                "reactor {reactor_extension_id}: mutation {name:?} is invalid: {}",
-                                error.message
-                            );
-                            continue;
-                        }
-                    };
+                    let (target_extension, op) =
+                        match parse_reactor_mutation_name(reactor_extension_id, &name) {
+                            Ok(route) => route,
+                            Err(error) => {
+                                tracing::warn!(
+                                    reactor = %reactor_extension_id,
+                                    mutation = %name,
+                                    message = %error.message,
+                                    "mutation name is invalid"
+                                );
+                                continue;
+                            }
+                        };
                     let dispatcher = RegistryDispatcher {
                         registry: self.clone(),
                         store: store.clone(),
@@ -326,9 +337,11 @@ impl WasmRegistry {
                         0,
                         depth + 1,
                     ) {
-                        eprintln!(
-                            "reactor {reactor_extension_id}: mutation {name} failed: {}",
-                            error.message
+                        tracing::warn!(
+                            reactor = %reactor_extension_id,
+                            mutation = %name,
+                            message = %error.message,
+                            "reactor mutation dispatch failed"
                         );
                     }
                 }
@@ -342,8 +355,10 @@ impl WasmRegistry {
                         .iter()
                         .any(|allowed| allowed == &event_type)
                     {
-                        eprintln!(
-                            "reactor {reactor_extension_id}: emit {event_type:?} is not in reactor.allowedEmits, skipping"
+                        tracing::warn!(
+                            reactor = %reactor_extension_id,
+                            event_type = %event_type,
+                            "emit not in reactor.allowedEmits, skipping"
                         );
                         continue;
                     }
@@ -355,8 +370,11 @@ impl WasmRegistry {
                     ) {
                         Ok(event) => event,
                         Err(error) => {
-                            eprintln!(
-                                "reactor {reactor_extension_id}: emit {event_type:?} failed: {error}"
+                            tracing::warn!(
+                                reactor = %reactor_extension_id,
+                                event_type = %event_type,
+                                %error,
+                                "reactor emit failed"
                             );
                             continue;
                         }
