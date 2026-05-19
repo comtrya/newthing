@@ -1,3 +1,5 @@
+import { activeWorkspaceId } from "@comtrya/sdk-core";
+
 export interface ShellGraphQLClient {
   query<T = unknown>(
     query: string,
@@ -48,6 +50,13 @@ export function extensionElementContext(): Record<string, unknown> {
     viewer: context.viewer,
     capabilities: context.capabilities,
     labelCatalog: activeLabelCatalog,
+    // Workspace ID is read from the shared store every time the
+    // context is built so a slot mount that re-runs after
+    // `loadShellSummary` resolves picks up the live value. Extensions
+    // that read `workspaceId` from their element props no longer need
+    // to hardcode a fallback ULID — once their fallback is removed
+    // (PR 2 of #8 P1-1), this is the authoritative source.
+    workspaceId: activeWorkspaceId(),
   };
 }
 

@@ -21,9 +21,12 @@
  */
 
 import { onMounted, onUnmounted, ref } from "vue";
-import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
-
-const DEFAULT_WORKSPACE_URI = "comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+import {
+  activeWorkspaceUri,
+  invokeOp,
+  subscribeLiveEvents,
+  whenWorkspaceReady,
+} from "@comtrya/sdk-core";
 
 const TRACKED_TOPICS = [
   "dev.comtrya.issues.opened",
@@ -56,9 +59,9 @@ export function emptyProjectCounts(): ProjectCounts {
 export interface UseProjectCountsOptions {
   /**
    * Workspace URI to scope listing against. Defaults to the
-   * dogfood workspace URI to match the existing call sites'
-   * behaviour. Once the kernel exposes the current viewer's
-   * workspace via auth, the call sites can pass it explicitly.
+   * shell-active workspace published by `App.vue::loadShellSummary`
+   * via `setActiveWorkspaceId`. Callers may override (e.g. an
+   * embedded preview rendering a different workspace's projects).
    */
   workspace?: string;
 }
@@ -74,12 +77,26 @@ interface EpicLite {
 }
 
 export function useProjectCounts(options: UseProjectCountsOptions = {}) {
-  const workspace = options.workspace ?? DEFAULT_WORKSPACE_URI;
   const counts = ref<Record<string, ProjectCounts>>({});
   const isReady = ref(false);
   const unsubscribers: Array<() => void> = [];
 
+  /** Resolve the workspace URI fresh on each refresh so we pick up
+   *  whichever ID the shell store has by then. An explicit `options.
+   *  workspace` always wins. Returns `null` if neither is available
+   *  (we then skip the fetch instead of querying the wrong scope). */
+  async function resolveWorkspace(): Promise<string | null> {
+    if (options.workspace) return options.workspace;
+    const live = activeWorkspaceUri();
+    if (live) return live;
+    // Bootstrap window: wait until the shell has resolved a workspace.
+    const id = await whenWorkspaceReady();
+    return `comtrya://workspace/${id}`;
+  }
+
   async function refresh(): Promise<void> {
+    const workspace = await resolveWorkspace();
+    if (!workspace) return;
     const [issuesRes, epicsRes] = await Promise.all([
       invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
         repository: workspace,

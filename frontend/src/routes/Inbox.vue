@@ -17,7 +17,11 @@
 import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getGraphQLClient, invokeOp } from "@comtrya/sdk-core";
-import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
+import {
+  LabelPill,
+  type LabelCatalog,
+  useWorkspaceContext,
+} from "@comtrya/sdk-vue";
 
 import { isFailedCheckState, isOpenPrState } from "./inbox-filters";
 
@@ -63,8 +67,8 @@ interface CheckRow {
   updatedAt?: string | null;
 }
 
-const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
-const WORKSPACE_URI = `comtrya://workspace/${WORKSPACE_ID}`;
+const { workspaceId, workspaceUri, ready: workspaceReady } =
+  useWorkspaceContext();
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const loadError = ref<string | null>(null);
@@ -237,6 +241,13 @@ onMounted(async () => {
   loadState.value = "loading";
   loadError.value = null;
   try {
+    // Wait for the shell's `workspace { id }` query to resolve before
+    // firing any workspace-scoped op. The shell publishes the ID
+    // synchronously inside `loadShellSummary`; this `await` is
+    // essentially free once that has run, and a couple of ms during
+    // first paint.
+    const id = await workspaceReady;
+    const workspaceUriStr = `comtrya://workspace/${id}`;
     const [workspaceData, issueRes, pullRes] = await Promise.all([
       getGraphQLClient().query<{
         workspace?: {
@@ -246,11 +257,11 @@ onMounted(async () => {
         "{ workspace { repositories { id path labelCatalog } } }",
       ),
       invokeOp<IssueRow[]>("ext_issues", "issues", "list-issues", {
-        repository: WORKSPACE_URI,
+        repository: workspaceUriStr,
         limit: 1024,
       }),
       invokeOp<PullRow[]>("ext_pull_requests", "pulls", "list-pulls", {
-        repository: WORKSPACE_URI,
+        repository: workspaceUriStr,
         limit: 1024,
       }),
     ]);
@@ -262,7 +273,7 @@ onMounted(async () => {
     const checkResults = await Promise.all(
       repositories.value.map((repo) =>
         invokeOp<CheckRow[]>("ext_checks", "checks", "list-checks", {
-          repository: `${WORKSPACE_URI}/repository/${repo.id}`,
+          repository: `${workspaceUriStr}/repository/${repo.id}`,
           limit: 256,
         }),
       ),
@@ -278,7 +289,12 @@ onMounted(async () => {
 });
 
 function issueHref(issue: IssueRow): string {
-  return `/x/issues/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3/${issue.number ?? 0}`;
+  // workspaceId is null only during the loading flash — the template
+  // already gates issue rows on `loadState === "ready"`, which only
+  // flips after `workspaceReady` resolves. Fall back to "?" so a stray
+  // call during the gap renders a visibly-broken link rather than a
+  // silent wrong-workspace URL.
+  return `/x/issues/${workspaceId.value ?? "unknown"}/${issue.number ?? 0}`;
 }
 
 function pullHref(pull: PullRow): string {

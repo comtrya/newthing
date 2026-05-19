@@ -237,3 +237,9 @@ export type {
 } from "./LabelPill.vue";
 
 export { useDiagrams } from "./use-diagrams";
+
+export {
+  useWorkspaceContext,
+  currentWorkspaceUri,
+  type WorkspaceContext,
+} from "./use-workspace-context";
