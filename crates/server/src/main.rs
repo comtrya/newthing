@@ -4824,6 +4824,41 @@ struct StorageDemoSeedWasmRoute {
     extension_id: String,
     interface_name: String,
     op_name: String,
+    #[serde(default)]
+    payload_template: Option<BTreeMap<String, PayloadTemplateField>>,
+}
+
+/// Declarative description of one field in a seed-time WIT op payload.
+/// Either `kernel` (a kernel-side enrichment helper) or `from` (one or
+/// more data paths to try, in order) — and optionally `default` if all
+/// `from` paths are absent or null.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct PayloadTemplateField {
+    #[serde(default)]
+    kernel: Option<PayloadTemplateKernel>,
+    #[serde(default)]
+    from: Option<PayloadTemplateFrom>,
+    #[serde(default)]
+    default: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum PayloadTemplateKernel {
+    /// Resolves to the canonical `comtrya://workspace/<ws>/repository/<repo>` URI
+    /// for the record. Same as `demo_seed_repository_uri`.
+    Repository,
+    /// Resolves the seed record's author to a `comtrya://user/<id>` URI,
+    /// passing through values that are already URIs.
+    AuthorRef,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+enum PayloadTemplateFrom {
+    Single(String),
+    Fallback(Vec<String>),
 }
 
 struct SeedDocument {
@@ -5498,42 +5533,42 @@ fn demo_seed_wasm_payload(
     record: &ExtensionDocumentRecord,
     route: &StorageDemoSeedWasmRoute,
 ) -> Result<Value, String> {
-    match (
-        route.extension_id.as_str(),
-        route.interface_name.as_str(),
-        route.op_name.as_str(),
-    ) {
-        ("ext_pull_requests", "pulls", "create-pull") => Ok(json!({
-            "repository": demo_seed_repository_uri(record),
-            "title": record.data.get("title").and_then(Value::as_str).unwrap_or("Seeded pull request"),
-            "bodyMarkdown": record
-                .data
-                .get("bodyMarkdown")
-                .or_else(|| record.data.get("body"))
-                .and_then(Value::as_str)
-                .unwrap_or(""),
-            "headRef": record.data.get("head").or_else(|| record.data.get("headRef")).and_then(Value::as_str).unwrap_or("seed/head"),
-            "baseRef": record.data.get("base").or_else(|| record.data.get("baseRef")).and_then(Value::as_str).unwrap_or("main"),
-            "authorRef": demo_seed_author_ref(&record.data),
-        })),
-        ("ext_checks", "checks", "record-check") => Ok(json!({
-            "repository": demo_seed_repository_uri(record),
-            "commitOID": record
-                .data
-                .get("commitOID")
-                .or_else(|| record.data.get("commitOid"))
-                .and_then(Value::as_str)
-                .unwrap_or("seed"),
-            "name": record.data.get("name").and_then(Value::as_str).unwrap_or("seeded check"),
-            "state": demo_seed_check_state(&record.data),
-            "conclusion": record.data.get("conclusion").and_then(Value::as_str),
-            "required": record.data.get("required").and_then(Value::as_bool).unwrap_or(true),
-        })),
-        _ => Err(format!(
-            "no demo seed WASM payload mapper for {}.{}.{}",
+    let template = route.payload_template.as_ref().ok_or_else(|| {
+        format!(
+            "{}.{}.{} has no demo-seed payloadTemplate in manifest",
             route.extension_id, route.interface_name, route.op_name
-        )),
+        )
+    })?;
+    let mut out = serde_json::Map::new();
+    for (key, field) in template {
+        out.insert(key.clone(), build_payload_field(field, record));
     }
+    Ok(Value::Object(out))
+}
+
+fn build_payload_field(field: &PayloadTemplateField, record: &ExtensionDocumentRecord) -> Value {
+    if let Some(kernel) = field.kernel {
+        return match kernel {
+            PayloadTemplateKernel::Repository => Value::String(demo_seed_repository_uri(record)),
+            PayloadTemplateKernel::AuthorRef => demo_seed_author_ref(&record.data)
+                .map(Value::String)
+                .unwrap_or(Value::Null),
+        };
+    }
+    if let Some(from) = &field.from {
+        let paths: &[String] = match from {
+            PayloadTemplateFrom::Single(p) => std::slice::from_ref(p),
+            PayloadTemplateFrom::Fallback(ps) => ps.as_slice(),
+        };
+        for path in paths {
+            if let Some(v) = record.data.get(path)
+                && !v.is_null()
+            {
+                return v.clone();
+            }
+        }
+    }
+    field.default.clone().unwrap_or(Value::Null)
 }
 
 fn demo_seed_author_ref(data: &Value) -> Option<String> {
@@ -5549,14 +5584,6 @@ fn demo_seed_author_ref(data: &Value) -> Option<String> {
                 }
             })
         })
-}
-
-fn demo_seed_check_state(data: &Value) -> String {
-    data.get("state")
-        .or_else(|| data.get("conclusion"))
-        .and_then(Value::as_str)
-        .unwrap_or("SUCCESS")
-        .to_string()
 }
 
 fn demo_seed_repository_uri(record: &ExtensionDocumentRecord) -> String {
@@ -10318,5 +10345,72 @@ extensions: {
         let path = dir.join("does-not-exist.jsonl");
         let err = fsync_jsonl_path(&path).expect_err("missing path must Err, not panic");
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    // -------- #6 P1-8: generic demo_seed_wasm_payload --------
+
+    fn record_with(data: serde_json::Value) -> ExtensionDocumentRecord {
+        ExtensionDocumentRecord {
+            schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+            owner_extension: "ext_test".to_string(),
+            collection: "items".to_string(),
+            id: "iss_demo".to_string(),
+            resource: "comtrya://workspace/ws_t/repository/repo_t".to_string(),
+            resource_refs: vec![],
+            visibility: "PRIVATE".to_string(),
+            indexed_fields: std::collections::BTreeMap::new(),
+            version: 1,
+            updated_at: "seed".to_string(),
+            data,
+        }
+    }
+
+    #[test]
+    fn demo_seed_wasm_payload_errors_when_template_missing() {
+        let route = StorageDemoSeedWasmRoute {
+            extension_id: "ext_test".to_string(),
+            interface_name: "things".to_string(),
+            op_name: "do".to_string(),
+            payload_template: None,
+        };
+        let record = record_with(json!({}));
+        let err = demo_seed_wasm_payload(&record, &route).expect_err("must error");
+        assert!(err.contains("ext_test"), "error must name extension: {err}");
+        assert!(err.contains("things"), "error must name interface: {err}");
+        assert!(err.contains("do"), "error must name op: {err}");
+        assert!(
+            err.to_lowercase().contains("payloadtemplate")
+                || err.to_lowercase().contains("template"),
+            "error must mention the missing template: {err}"
+        );
+    }
+
+    #[test]
+    fn demo_seed_wasm_payload_uses_template_with_fallback() {
+        let mut template = std::collections::BTreeMap::new();
+        template.insert(
+            "bodyMarkdown".to_string(),
+            PayloadTemplateField {
+                kernel: None,
+                from: Some(PayloadTemplateFrom::Fallback(vec![
+                    "bodyMarkdown".to_string(),
+                    "body".to_string(),
+                ])),
+                default: None,
+            },
+        );
+        let route = StorageDemoSeedWasmRoute {
+            extension_id: "ext_test".to_string(),
+            interface_name: "i".to_string(),
+            op_name: "o".to_string(),
+            payload_template: Some(template),
+        };
+        // Legacy alias only — fallback chain must promote `body` to `bodyMarkdown`.
+        let record = record_with(json!({"body": "alpha"}));
+        let payload = demo_seed_wasm_payload(&record, &route).expect("ok");
+        assert_eq!(
+            payload.get("bodyMarkdown").and_then(Value::as_str),
+            Some("alpha")
+        );
     }
 }

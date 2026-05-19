@@ -168,7 +168,25 @@
                     "properties": {
                       "extensionId": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
                       "interfaceName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-                      "opName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+                      "opName": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                      "payloadTemplate": {
+                        "type": "object",
+                        "description": "Per-field rules for building the WIT op payload from a seed record. Keys are WIT input field names. Each value is a rule: either kernel-supplied (kernel: 'repository'|'authorRef') or a value read from the seed data (from: a path or list of paths, with optional default).",
+                        "additionalProperties": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "kernel": { "type": "string", "enum": ["repository", "authorRef"] },
+                            "from": {
+                              "oneOf": [
+                                { "type": "string" },
+                                { "type": "array", "items": { "type": "string" } }
+                              ]
+                            },
+                            "default": {}
+                          }
+                        }
+                      }
                     }
                   }
                 }
