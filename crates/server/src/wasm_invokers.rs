@@ -31,7 +31,6 @@ pub type ExtensionInvokerFn = fn(
     u32,
 ) -> Result<Vec<u8>, wit_types::Error>;
 
-#[allow(warnings)]
 mod ext_issues_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_issues/wit",
@@ -44,7 +43,6 @@ use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     CloseIssueInput, Issue, IssueState, IssueStateCounts, OpenIssueInput,
 };
 
-#[allow(warnings)]
 mod ext_epics_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_epics/wit",
@@ -57,7 +55,6 @@ use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
 };
 
-#[allow(warnings)]
 mod ext_pull_requests_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_pull_requests/wit",
@@ -70,7 +67,6 @@ use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
 };
 
-#[allow(warnings)]
 mod ext_checks_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_checks/wit",
@@ -83,7 +79,6 @@ use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
     CheckRun, CheckState, RecordCheckInput,
 };
 
-#[allow(warnings)]
 mod ext_workspace_home_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_workspace_home/wit",
@@ -93,7 +88,6 @@ mod ext_workspace_home_bindings {
 
 use ext_workspace_home_bindings::ExtWorkspaceHome;
 
-#[allow(warnings)]
 mod ext_docs_bindings {
     wasmtime::component::bindgen!({
         path: "../../extensions/first-party/ext_docs/wit",
