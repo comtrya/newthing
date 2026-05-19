@@ -19,6 +19,8 @@ import { useRoute, useRouter } from "vue-router";
 import { getGraphQLClient, invokeOp } from "@comtrya/sdk-core";
 import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
 
+import { isFailedCheckState, isOpenPrState } from "./inbox-filters";
+
 const route = useRoute();
 const router = useRouter();
 
@@ -63,8 +65,6 @@ interface CheckRow {
 
 const WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const WORKSPACE_URI = `comtrya://workspace/${WORKSPACE_ID}`;
-const OPEN_PR_STATES = new Set(["DRAFT", "READY", "REVIEW", "OPEN", "REOPENED"]);
-const FAILED_CHECK_STATES = new Set(["FAILURE", "FAILED"]);
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const loadError = ref<string | null>(null);
@@ -128,7 +128,7 @@ function setProjectFilter(name: string | null): void {
 const openPulls = computed(() => {
   const sel = selectedRepoId.value;
   return [...pulls.value]
-    .filter((p) => OPEN_PR_STATES.has((p.state ?? "").toUpperCase()))
+    .filter((p) => isOpenPrState(p.state))
     .filter((p) => !sel || p.repositoryId === sel)
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 });
@@ -141,7 +141,7 @@ const failingChecks = computed(() => {
   const sel = selectedRepoId.value;
   return [...checks.value]
     .filter((c) => c.required === true)
-    .filter((c) => FAILED_CHECK_STATES.has((c.state ?? "").toUpperCase()))
+    .filter((c) => isFailedCheckState(c.state))
     .filter((c) => !sel || c.repositoryId === sel)
     .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
 });
@@ -155,17 +155,14 @@ const failingChecks = computed(() => {
 const filterRepoOptions = computed<RepoLookupRow[]>(() => {
   const reposWithSignal = new Set<string>();
   for (const p of pulls.value) {
-    if (
-      OPEN_PR_STATES.has((p.state ?? "").toUpperCase()) &&
-      typeof p.repositoryId === "string"
-    ) {
+    if (isOpenPrState(p.state) && typeof p.repositoryId === "string") {
       reposWithSignal.add(p.repositoryId);
     }
   }
   for (const c of checks.value) {
     if (
       c.required === true &&
-      FAILED_CHECK_STATES.has((c.state ?? "").toUpperCase()) &&
+      isFailedCheckState(c.state) &&
       typeof c.repositoryId === "string"
     ) {
       reposWithSignal.add(c.repositoryId);

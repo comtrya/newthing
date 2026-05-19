@@ -1,6 +1,6 @@
 // ext_pull_requests — per-extension WIT.
 //
-// PR state machine: DRAFT → READY → MERGED | CLOSED. The reactor
+// PR state machine: DRAFT → READY → REVIEW → MERGED | CLOSED. The reactor
 // listens for `dev.comtrya.pull-request.merged` events emitted by this
 // extension and calls `ext_issues/issues.close-issue` for every linked
 // issue via `ops.invoke` (the auto-close-on-merge story).
@@ -13,6 +13,7 @@ interface pulls {
   variant pr-state {
     draft,
     ready,
+    review,
     merged,
     closed,
   }

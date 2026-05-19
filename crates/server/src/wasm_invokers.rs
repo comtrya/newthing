@@ -1360,6 +1360,7 @@ fn pull_state_to_graphql(state: PrState) -> &'static str {
     match state {
         PrState::Draft => "DRAFT",
         PrState::Ready => "READY",
+        PrState::Review => "REVIEW",
         PrState::Merged => "MERGED",
         PrState::Closed => "CLOSED",
     }
@@ -1653,5 +1654,28 @@ fn wit_error(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_type
         code,
         message: message.into(),
         path: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #6 P0-6 regression: REVIEW WIT case maps to "REVIEW" GraphQL
+    /// string. Compile-time exhaustive match on PrState catches any
+    /// future variant addition that forgets to update the mapping.
+    #[test]
+    fn pr_state_review_maps_to_uppercase_review() {
+        assert_eq!(pull_state_to_graphql(PrState::Review), "REVIEW");
+    }
+
+    /// Sanity-check the existing 4 cases still map as before — guards
+    /// against a future rename accidentally regressing the wire format.
+    #[test]
+    fn pr_state_pre_existing_cases_unchanged() {
+        assert_eq!(pull_state_to_graphql(PrState::Draft), "DRAFT");
+        assert_eq!(pull_state_to_graphql(PrState::Ready), "READY");
+        assert_eq!(pull_state_to_graphql(PrState::Merged), "MERGED");
+        assert_eq!(pull_state_to_graphql(PrState::Closed), "CLOSED");
     }
 }
