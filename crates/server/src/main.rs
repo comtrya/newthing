@@ -1000,14 +1000,17 @@ impl Runtime {
                     .map(str::to_owned)
             })
             .unwrap_or_else(|| "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string());
-        let name = segments
-            .last()
-            .cloned()
-            .expect("validate_repo_path guarantees ≥1 segment");
-        let owner = segments
-            .first()
-            .cloned()
-            .expect("validate_repo_path guarantees ≥1 segment");
+        // validate_repo_path() above errors on empty input, so segments is
+        // non-empty. Explicit destructuring (rather than .expect()) survives
+        // future refactors that might detach this code from validate_repo_path
+        // — and the PANIC_AUDIT.md tracks the intent.
+        let (Some(name), Some(owner)) = (segments.last().cloned(), segments.first().cloned())
+        else {
+            return Err(
+                "internal invariant violated: validate_repo_path produced empty segments"
+                    .to_string(),
+            );
+        };
         let git_http_path = format!("/git/{}.git", canonical);
         let now_iso = chrono_now_iso();
 
@@ -3001,10 +3004,20 @@ fn apply_extension_asset_headers(response: &mut Response, etag: &str) {
         CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=31536000, immutable"),
     );
-    response.headers_mut().insert(
-        ETAG,
-        HeaderValue::from_str(etag).expect("valid extension asset ETag"),
-    );
+    // ETag is a cache optimization, not a correctness contract. If
+    // for some reason the computed etag isn't a valid HeaderValue
+    // (would require a non-visible-ASCII byte in the SHA-256 hex —
+    // impossible today, but the defensive fallback survives a future
+    // etag-format change), serve the asset without the header rather
+    // than panicking the handler.
+    if let Ok(value) = HeaderValue::from_str(etag) {
+        response.headers_mut().insert(ETAG, value);
+    } else {
+        // Matches the eprintln!-based diagnostics pattern in
+        // wasm_registry.rs; PR #28's tracing sweep will convert
+        // both to `tracing::warn!`.
+        eprintln!("skip malformed ETag {etag:?} — extension asset served without cache header");
+    }
 }
 
 async fn git_endpoint(
@@ -9681,6 +9694,80 @@ extensions: {
         assert!(
             viewer["failingChecks"]["items"].is_array(),
             "failing check items must be array"
+        );
+    }
+
+    // ---- #14 P3-4 regression: handlers must not panic on bad input ----
+
+    /// `createRepository` with a path-traversal segment must reject
+    /// cleanly (not panic). Guards against future refactors that
+    /// might bypass `validate_repo_path` and reach the
+    /// `segments.last()` / `segments.first()` invariant at the
+    /// repository-create site.
+    #[tokio::test]
+    async fn create_repository_handler_rejects_traversal_path_without_panic() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://localhost:4321"));
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "mutation($input: CreateRepositoryInput!) { createRepository(input: $input) { repository { id } } }",
+                "variables": { "input": { "path": "../etc/passwd" } }
+            })
+            .to_string(),
+        )
+        .await;
+
+        // Must not panic. Any 4xx status is acceptable — the contract
+        // is "graceful rejection, not crash."
+        let status = response.status();
+        assert!(
+            status.is_client_error(),
+            "expected 4xx for traversal path, got {status}; panic-free is the real assertion",
+        );
+    }
+
+    /// Malformed JSON to /graphql must yield a graceful response,
+    /// not panic. `graphql_post` already coerces parse failure to
+    /// `json!({})`; this test pins the contract so future refactors
+    /// don't reintroduce a panic.
+    #[tokio::test]
+    async fn graphql_endpoint_handles_malformed_json_without_panic() {
+        let runtime = dev_runtime_no_extensions();
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("http://localhost:4321"));
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            "{not valid json".to_string(),
+        )
+        .await;
+
+        // Must not panic. Status may be 200 (empty-payload fall-through)
+        // or 4xx — the contract is "no crash, terminal response."
+        let status = response.status();
+        assert!(
+            status.is_success() || status.is_client_error(),
+            "expected 2xx or 4xx for malformed JSON, got {status}; panic-free is the real assertion",
         );
     }
 }
