@@ -1,0 +1,60 @@
+name: codeql
+
+# Required by the `main` branch ruleset (`code_scanning` with
+# `alerts_threshold: errors`). Runs on PRs and pushes so the ruleset's
+# auto-merge condition can clear, and on a weekly cron so newly-published
+# CodeQL queries surface regressions on existing code without a push.
+on:
+  pull_request:
+  push:
+    branches: [main, v3]
+  schedule:
+    # Mondays 06:13 UTC — odd minute to avoid the hourly-cron stampede.
+    - cron: "13 6 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege: only `security-events: write` for findings upload.
+# No run: step consumes untrusted external input (issue/PR/commit text);
+# the only template expansion is `matrix.language`, a static list.
+permissions:
+  security-events: write
+  actions: read
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          # CodeQL's Rust extractor only supports `build-mode: none`
+          # (source-only) — see CodeQL 2.25+ release notes. No cargo
+          # build step needed; the extractor parses .rs files directly.
+          - rust
+          # JS/TS extracts source files directly. Covers .ts, .tsx,
+          # .js, and `<script>` blocks inside .vue files (the JS/TS
+          # extractor reads Vue SFCs natively).
+          - javascript-typescript
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          # `security-and-quality` is the broader pack; the ruleset
+          # only blocks on `errors`, so quality-pack warnings/notices
+          # surface in the Security tab without gating merges.
+          queries: security-and-quality
+
+      - name: perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
