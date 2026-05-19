@@ -291,13 +291,41 @@ impl LogSink for TracingLogSink {
     }
 }
 
-pub struct DefaultAuthz;
+/// Canonical URI for the anonymous (unauthenticated) principal.
+///
+/// FIXME: `main.rs::PrincipalContext::anonymous()` still inlines the
+/// same literal — dedup when refactoring that constructor (deferred
+/// here to avoid touching main.rs, which is in the open-PR conflict
+/// zone for #25/#26/#29/#32).
+pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 
-impl AuthzLayer for DefaultAuthz {
-    fn has_permission(&self, _principal: &str, _permission: &str) -> Option<bool> {
-        // Phase 2: permissive default. The kernel's existing authz layer
-        // (crates/core/src/authz.rs) wires in here once the broker is
-        // refactored to accept WIT principals.
+/// Default authz layer for the kernel: deny anonymous principals on
+/// any non-`.read` permission, allow everyone else through.
+///
+/// The `.read` suffix is the read marker per the platform's manifest
+/// convention (every first-party extension uses `<resource>.read` for
+/// reads, `<resource>.write` etc for mutations). Third-party
+/// extensions that declare semantically-read perms with a different
+/// suffix (`events.list`, `data.fetch`) will be denied for anonymous
+/// principals — workaround: use `.read`. Real per-resource authz
+/// arrives with the SpiceDB integration (separate sub-PR).
+///
+/// Authenticated principals still receive `Some(true)` for every
+/// permission. This layer ONLY closes the anonymous mutation hole
+/// the previous DefaultAuthz left wide open. Real authenticated-
+/// principal authz is a follow-up.
+pub struct SimpleAuthz;
+
+impl AuthzLayer for SimpleAuthz {
+    fn has_permission(&self, principal: &str, permission: &str) -> Option<bool> {
+        if principal == ANONYMOUS_PRINCIPAL {
+            // Allow-list the `.read` suffix. `rsplit('.').next()` on
+            // "storage.read" yields Some("read"); on "" yields
+            // Some(""); on "write" (single segment) yields
+            // Some("write") — all correctly handled as "not read".
+            let last_segment = permission.rsplit('.').next().unwrap_or("");
+            return Some(last_segment == "read");
+        }
         Some(true)
     }
 }
@@ -1656,6 +1684,83 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
 }
 
 #[cfg(test)]
+mod authz_tests {
+    use super::{ANONYMOUS_PRINCIPAL, AuthzLayer, SimpleAuthz};
+
+    /// Anonymous principals MUST be denied any non-`.read` permission.
+    /// This is the core security property the previous DefaultAuthz
+    /// (Some(true)) violated and that this PR closes.
+    #[test]
+    fn anonymous_denied_on_write_permissions() {
+        let authz = SimpleAuthz;
+        for perm in [
+            "storage.write",
+            "events.write",
+            "relations.write",
+            "ext_issues.blocks",
+            "ext_issues.duplicates",
+        ] {
+            assert_eq!(
+                authz.has_permission(ANONYMOUS_PRINCIPAL, perm),
+                Some(false),
+                "anonymous must be denied `{perm}`"
+            );
+        }
+    }
+
+    /// Anonymous principals retain read access. Matches the manifest
+    /// convention (`<resource>.read`) across all first-party
+    /// extensions.
+    #[test]
+    fn anonymous_allowed_on_read_permissions() {
+        let authz = SimpleAuthz;
+        for perm in ["storage.read", "events.read", "relations.read"] {
+            assert_eq!(
+                authz.has_permission(ANONYMOUS_PRINCIPAL, perm),
+                Some(true),
+                "anonymous must be allowed `{perm}`"
+            );
+        }
+    }
+
+    /// Authenticated principals still get permissive allow for every
+    /// permission — this layer ONLY closes the anonymous mutation
+    /// hole. Real per-resource authz (SpiceDB) is a separate sub-PR.
+    #[test]
+    fn authenticated_principal_still_permissive() {
+        let authz = SimpleAuthz;
+        let user = "comtrya://user/usr_01XYZ";
+        assert_eq!(authz.has_permission(user, "storage.write"), Some(true));
+        assert_eq!(authz.has_permission(user, "storage.read"), Some(true));
+        assert_eq!(authz.has_permission(user, "events.write"), Some(true));
+    }
+
+    /// Struct-level unit test: empty permission string is treated as
+    /// non-read (denied for anonymous). In production this case is
+    /// unreachable because `is_valid_permission_grammar` rejects
+    /// empty input as BadInput before SimpleAuthz is consulted.
+    #[test]
+    fn empty_permission_string_denied_for_anonymous() {
+        assert_eq!(
+            SimpleAuthz.has_permission(ANONYMOUS_PRINCIPAL, ""),
+            Some(false)
+        );
+    }
+
+    /// Struct-level unit test: single-segment permission ("write" with
+    /// no resource prefix) is denied for anonymous because the suffix
+    /// after `rsplit('.').next()` is "write", not "read". Also
+    /// unreachable in production (grammar guard rejects single-segment).
+    #[test]
+    fn single_segment_permission_denied_for_anonymous() {
+        assert_eq!(
+            SimpleAuthz.has_permission(ANONYMOUS_PRINCIPAL, "write"),
+            Some(false)
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1702,7 +1807,7 @@ mod tests {
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
-            authz: Arc::new(DefaultAuthz),
+            authz: Arc::new(SimpleAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
@@ -1775,7 +1880,7 @@ mod tests {
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
-            authz: Arc::new(DefaultAuthz),
+            authz: Arc::new(SimpleAuthz),
             ops_dispatcher: Arc::new(dispatcher.clone()),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
@@ -1882,7 +1987,7 @@ mod tests {
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
-            authz: Arc::new(DefaultAuthz),
+            authz: Arc::new(SimpleAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
@@ -2104,7 +2209,7 @@ mod m1_ext_issues_smoke {
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
             log_sink: Arc::new(TracingLogSink),
-            authz: Arc::new(DefaultAuthz),
+            authz: Arc::new(SimpleAuthz),
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),

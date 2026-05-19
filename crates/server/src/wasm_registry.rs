@@ -21,8 +21,8 @@ use wasmtime::Engine;
 use wasmtime::component::{Component, Linker};
 
 use crate::wasm_host::{
-    AuthzLayer, Clock, DefaultAuthz, HostManifest, HostState, HostStateForOp, IdMinter, LogSink,
-    OpsDispatcher, SharedMintedIds, SharedOccTokens, SystemClock, TracingLogSink, UlidMinter,
+    AuthzLayer, Clock, HostManifest, HostState, HostStateForOp, IdMinter, LogSink, OpsDispatcher,
+    SharedMintedIds, SharedOccTokens, SimpleAuthz, SystemClock, TracingLogSink, UlidMinter,
     host_state_for_op, make_platform_linker, wit_types,
 };
 
@@ -90,7 +90,7 @@ impl WasmRegistry {
             linker: Arc::new(linker),
             extensions: Arc::new(RwLock::new(BTreeMap::new())),
             reactor_subscriptions: Arc::new(RwLock::new(BTreeMap::new())),
-            authz: Arc::new(DefaultAuthz),
+            authz: Arc::new(SimpleAuthz),
             clock: Arc::new(SystemClock),
             log_sink: Arc::new(TracingLogSink),
             id_minter,
