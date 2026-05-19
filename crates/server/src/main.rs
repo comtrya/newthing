@@ -35,6 +35,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 mod cue_config;
 mod oidc;
+mod persistence;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -190,6 +191,30 @@ async fn main() {
 
     let listen = runtime.options.listen;
     let git_state = PureRustGitState::from_runtime(&runtime);
+
+    // Background sweep of expired sessions / credentials / stale
+    // rate-limit rows. Runs every 30s; cheap because the indexes on
+    // expires_at make each scan O(log n + matched). Lazy lookup
+    // already ignores stale rows, so this is a memory-bounding sweep
+    // rather than a correctness gate.
+    let eviction_runtime = Arc::clone(&runtime);
+    let eviction_handle = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tick.tick().await;
+            // 120s keep window for rate-limit rows — we only care
+            // about the current and previous minute slot.
+            match eviction_runtime.store.evict_expired(now_seconds(), 120) {
+                Ok((s, c, r)) if s + c + r > 0 => {
+                    tracing::debug!(sessions = s, credentials = c, rate_limits = r, "evicted expired rows");
+                }
+                Ok(_) => {}
+                Err(error) => tracing::warn!(%error, "auth-store eviction failed"),
+            }
+        }
+    });
+
     let app = router(AppState { runtime, git_state });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
@@ -222,6 +247,7 @@ async fn main() {
         }
     }
 
+    eviction_handle.abort();
     tracing::info!("graceful shutdown: draining complete; flushing logs");
     if let Err(error) = fsync_jsonl_path(&events_path) {
         tracing::error!(%error, path = ?events_path, "graceful shutdown: events.jsonl fsync failed");
@@ -441,9 +467,12 @@ struct Runtime {
     wasm_registry: wasm_registry::WasmRegistry,
     events_path: PathBuf,
     audit_path: PathBuf,
-    sessions: Mutex<HashMap<String, SessionRecord>>,
-    credentials: Mutex<HashMap<String, CredentialRecord>>,
-    rate_limits: Mutex<HashMap<(String, u64), u32>>,
+    /// Durable session / credential / rate-limit storage (#9, #12).
+    /// Replaces the three `Mutex<HashMap>` fields the in-process
+    /// kernel previously kept here. The store is opened in
+    /// `Runtime::start` against `data_dir/comtrya.db` and applies
+    /// every `migrations/sqlite/NNNN_*.sql` on open.
+    store: persistence::PersistentStore,
     token_counter: AtomicU64,
     oidc_sessions: oidc::OidcSessionStore,
     oidc_discovery: oidc::OidcDiscoveryCache,
@@ -564,6 +593,16 @@ impl Runtime {
         // Capture config before move so AuthService can be built from it.
         let auth_service = comtrya_core::auth::AuthService::new(&config);
 
+        // Open the durable auth store. Migrations are applied here;
+        // a fresh data_dir gets a brand-new comtrya.db with both
+        // 0001_core.sql and 0002_auth.sql in `schema_migrations`.
+        let migrations_dir = locate_sqlite_migrations()?;
+        let store = persistence::PersistentStore::open(
+            &options.data_dir.join("metadata"),
+            &migrations_dir,
+        )
+        .map_err(|error| format!("failed to open persistent store: {error}"))?;
+
         let runtime = Self {
             data_dir: options.data_dir.clone(),
             options,
@@ -574,9 +613,7 @@ impl Runtime {
             wasm_registry,
             events_path,
             audit_path,
-            sessions: Mutex::new(HashMap::new()),
-            credentials: Mutex::new(HashMap::new()),
-            rate_limits: Mutex::new(HashMap::new()),
+            store,
             token_counter: AtomicU64::new(0),
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
@@ -1424,10 +1461,15 @@ impl Runtime {
 
     fn rate_limit(&self, bucket: &str, ceiling: u32) -> ResponseResult<()> {
         let minute = now_seconds() / 60;
-        let mut limits = self.rate_limits.lock().expect("rate lock not poisoned");
-        let count = limits.entry((bucket.to_string(), minute)).or_insert(0);
-        *count += 1;
-        if *count > ceiling {
+        let count = self.store.tally_rate(bucket, minute).map_err(|error| {
+            tracing::error!(%error, %bucket, "rate-limit tally failed");
+            Box::new(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "rate-limit storage failed",
+            ))
+        })?;
+        if count > ceiling {
             Err(Box::new(error_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 ErrorCode::RateLimited.as_str(),
@@ -1451,20 +1493,13 @@ impl Runtime {
             return PrincipalContext::anonymous();
         };
 
-        let credentials = self
-            .credentials
-            .lock()
-            .expect("credential lock not poisoned");
-        if let Some(credential) = credentials.get(token)
-            && credential.expires_at > now_seconds()
-        {
-            return PrincipalContext {
-                status: credential.principal,
-                uri: credential.principal_uri.clone(),
-            };
+        match self.store.lookup_credential(token, now_seconds()) {
+            Ok(Some(credential)) => PrincipalContext {
+                status: stored_to_principal(credential.principal),
+                uri: credential.principal_uri,
+            },
+            _ => PrincipalContext::invalid(),
         }
-
-        PrincipalContext::invalid()
     }
 
     fn credential_allows(&self, headers: &HeaderMap, action: &str) -> bool {
@@ -1476,29 +1511,23 @@ impl Runtime {
             return false;
         };
 
-        self.credentials
-            .lock()
-            .expect("credential lock not poisoned")
-            .get(token)
-            .is_some_and(|credential| {
-                credential.expires_at > now_seconds()
-                    && credential.actions.iter().any(|granted| granted == action)
-            })
+        match self.store.lookup_credential(token, now_seconds()) {
+            Ok(Some(credential)) => credential.actions.iter().any(|granted| granted == action),
+            _ => false,
+        }
     }
 
     fn issue_session(&self, principal: PrincipalStatus) -> String {
         let token = self.next_secure_token("sess");
-        self.sessions
-            .lock()
-            .expect("session lock not poisoned")
-            .insert(
-                token.clone(),
-                SessionRecord {
-                    principal,
-                    expires_at: now_seconds().saturating_add(self.options.session_ttl_seconds),
-                    used: false,
-                },
-            );
+        let now = now_seconds();
+        if let Err(error) = self.store.insert_session(
+            &token,
+            principal_to_stored(principal),
+            now.saturating_add(self.options.session_ttl_seconds),
+            now,
+        ) {
+            tracing::error!(%error, "session persistence failed");
+        }
         let _ = self.append_audit(
             "dev.comtrya.session.issued",
             json!({"token_sha256_prefix": token_audit_id(&token)}),
@@ -1507,23 +1536,22 @@ impl Runtime {
     }
 
     fn consume_session(&self, token: &str) -> ResponseResult<PrincipalStatus> {
-        let mut sessions = self.sessions.lock().expect("session lock not poisoned");
-        let Some(session) = sessions.get_mut(token) else {
-            return Err(Box::new(error_response(
+        match self.store.take_session(token, now_seconds()) {
+            Ok(Some(stored)) => Ok(stored_to_principal(stored)),
+            Ok(None) => Err(Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
-                "unknown event session",
-            )));
-        };
-        if session.used || session.expires_at <= now_seconds() {
-            return Err(Box::new(error_response(
-                StatusCode::UNAUTHORIZED,
-                ErrorCode::Unauthenticated.as_str(),
-                "event session is expired or already used",
-            )));
+                "event session is expired, already used, or unknown",
+            ))),
+            Err(error) => {
+                tracing::error!(%error, "session take failed");
+                Err(Box::new(error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorCode::InternalServerError.as_str(),
+                    "session storage failed",
+                )))
+            }
         }
-        session.used = true;
-        Ok(session.principal)
     }
 
     fn issue_credential(
@@ -1534,18 +1562,17 @@ impl Runtime {
     ) -> String {
         let token = self.next_secure_token("fp");
         let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
-        self.credentials
-            .lock()
-            .expect("credential lock not poisoned")
-            .insert(
-                token.clone(),
-                CredentialRecord {
-                    actions: actions.clone(),
-                    principal,
-                    principal_uri: principal_uri.clone(),
-                    expires_at: now_seconds() + 300,
-                },
-            );
+        let now = now_seconds();
+        if let Err(error) = self.store.insert_credential(
+            &token,
+            principal_to_stored(principal),
+            &principal_uri,
+            &actions,
+            now.saturating_add(300),
+            now,
+        ) {
+            tracing::error!(%error, "credential persistence failed");
+        }
         let _ = self.append_event(
             "dev.comtrya.auth.credential.issued",
             json!({"resource": resource, "scope": actions, "principal": principal_uri}),
@@ -1761,19 +1788,58 @@ impl PrincipalContext {
     }
 }
 
-#[derive(Debug, Clone)]
-struct SessionRecord {
-    principal: PrincipalStatus,
-    expires_at: u64,
-    used: bool,
+/// Translate the runtime's `PrincipalStatus` to the persistence
+/// layer's mirror. The two enums are kept separate so a future
+/// refactor that moves `PrincipalStatus` doesn't drag the
+/// `persistence` module along; the conversions are the contract.
+fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
+    match p {
+        PrincipalStatus::OperatorCredential => persistence::StoredPrincipal::OperatorCredential,
+        PrincipalStatus::Credential => persistence::StoredPrincipal::Credential,
+        PrincipalStatus::Anonymous => persistence::StoredPrincipal::Anonymous,
+        PrincipalStatus::Invalid => persistence::StoredPrincipal::Invalid,
+    }
 }
 
-#[derive(Debug, Clone)]
-struct CredentialRecord {
-    actions: Vec<String>,
-    principal: PrincipalStatus,
-    principal_uri: String,
-    expires_at: u64,
+fn stored_to_principal(p: persistence::StoredPrincipal) -> PrincipalStatus {
+    match p {
+        persistence::StoredPrincipal::OperatorCredential => PrincipalStatus::OperatorCredential,
+        persistence::StoredPrincipal::Credential => PrincipalStatus::Credential,
+        persistence::StoredPrincipal::Anonymous => PrincipalStatus::Anonymous,
+        persistence::StoredPrincipal::Invalid => PrincipalStatus::Invalid,
+    }
+}
+
+/// Discover the `migrations/sqlite/` directory at runtime. Walks up
+/// from `CARGO_MANIFEST_DIR` (the server crate) to find the repo
+/// root. Cached at process start by `Runtime::start`; no per-request
+/// cost. Honours `$COMTRYA_MIGRATIONS_DIR` for deployments where the
+/// migrations live outside the source tree (containerised builds).
+fn locate_sqlite_migrations() -> Result<PathBuf, String> {
+    if let Ok(dir) = std::env::var("COMTRYA_MIGRATIONS_DIR") {
+        let path = PathBuf::from(dir).join("sqlite");
+        if path.is_dir() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "COMTRYA_MIGRATIONS_DIR is set but {}/sqlite/ is not a directory",
+            path.parent().map(|p| p.display().to_string()).unwrap_or_default()
+        ));
+    }
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..4 {
+        let candidate = dir.join("migrations/sqlite");
+        if candidate.is_dir() {
+            return Ok(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    Err(format!(
+        "could not locate migrations/sqlite/ above {}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -7773,7 +7839,7 @@ mod tests {
         );
         assert_eq!(
             payload["errors"][0]["message"],
-            "event session is expired or already used"
+            "event session is expired, already used, or unknown"
         );
     }
 
