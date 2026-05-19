@@ -51,7 +51,16 @@ export function buildExtensionUrl(
     );
   }
   const normalized = subPath.startsWith("/") ? subPath : `/${subPath}`;
-  const trimmed = normalized === "/" ? "" : normalized.replace(/\/+$/, "");
+  // Strip a trailing run of `/` without a backtracking regex. The
+  // previous `/\/+$/` was flagged as polynomial ReDoS on long inputs
+  // of unbroken slashes; a hand loop is O(n) worst-case and clearer
+  // about the intent ("trim trailing slashes, but never collapse the
+  // single-slash root").
+  let end = normalized.length;
+  while (end > 1 && normalized.charCodeAt(end - 1) === 0x2f /* '/' */) {
+    end -= 1;
+  }
+  const trimmed = normalized === "/" ? "" : normalized.slice(0, end);
   return `/x/${routePrefix}${trimmed}`;
 }
 
