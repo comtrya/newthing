@@ -1,4 +1,16 @@
-export const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+import { activeWorkspaceId } from "@comtrya/sdk-core";
+
+/**
+ * Resolve the active workspace id, sourced from the shell-published
+ * store at call time. Returns `""` during the brief boot-race window
+ * before `App.vue::loadShellSummary` runs; callers downstream of
+ * `whenWorkspaceReady()` or `useWorkspaceContext()` (the preferred
+ * paths) will never see the empty value. Replaces the previous
+ * hardcoded `DEFAULT_WORKSPACE_ID` export — see #8 P1-1 part 2.
+ */
+export function defaultWorkspaceId(): string {
+  return activeWorkspaceId() ?? "";
+}
 
 export type IssueState = "OPEN" | "CLOSED" | "REOPENED";
 

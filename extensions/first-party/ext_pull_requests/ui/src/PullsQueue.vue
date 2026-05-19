@@ -33,7 +33,6 @@ const FILTERS: Array<{ id: Filter; label: string; key: string }> = [
   { id: "ALL", label: "All", key: "a" },
 ];
 
-const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 
 const filter = ref<Filter>("OPEN");
 const search = ref("");
@@ -53,7 +52,7 @@ const error = ref<string | null>(null);
 const focusedIndex = ref(0);
 
 const workspaceId = computed(
-  () => props.workspaceId ?? props.host?.workspaceId ?? DEFAULT_WORKSPACE_ID,
+  () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
 );
 const repositoryId = computed(() => props.repositoryId ?? props.host?.repositoryId ?? null);
 

@@ -167,10 +167,9 @@ const canClose = computed(
 // Hardcoded default workspace matches the rest of ext_pull_requests
 // (PullsQueue, PullsOverview, PullsYourWork); swap to a real
 // resolver when the multi-workspace surface lands.
-const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
 const renderedBody = computed(() =>
   pull.value?.bodyMarkdown
-    ? renderMarkdown(pull.value.bodyMarkdown, { workspaceId: DEFAULT_WORKSPACE_ID })
+    ? renderMarkdown(pull.value.bodyMarkdown, { workspaceId: defaultWorkspaceId() })
     : "",
 );
 

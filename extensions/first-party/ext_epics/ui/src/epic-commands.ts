@@ -13,10 +13,13 @@
  * across tabs.
  */
 
-import { registerCommand, subscribeLiveEvents } from "@comtrya/sdk-core";
+import {
+  registerCommand,
+  subscribeLiveEvents,
+  whenWorkspaceReady,
+} from "@comtrya/sdk-core";
 import { changeEpicState, listEpics } from "./api";
 import {
-  DEFAULT_WORKSPACE_ID,
   epicHref,
   type ComtryaGraphQLClient,
   type Epic,
@@ -112,24 +115,33 @@ async function syncEpicCommands(
 }
 
 export function bindEpicCommands(client: ComtryaGraphQLClient): () => void {
-  const workspaceId = DEFAULT_WORKSPACE_ID;
-  void syncEpicCommands(client, workspaceId);
+  // Defer binding until the shell publishes a workspace id
+  // (`App.vue::loadShellSummary`). Replaces the previous hardcoded
+  // ULID; production workspaces don't change mid-session.
+  const unsubscribers: Array<() => void> = [];
+  let cancelled = false;
 
-  const topics = [
-    "dev.comtrya.epic.created",
-    "dev.comtrya.epic.state-changed",
-  ];
-  const unsubscribers = topics.map((type) =>
-    subscribeLiveEvents({
-      type,
-      onEvent: () => {
-        void syncEpicCommands(client, workspaceId);
-      },
-      onError: () => {},
-    }),
-  );
+  void whenWorkspaceReady().then((workspaceId) => {
+    if (cancelled) return;
+    void syncEpicCommands(client, workspaceId);
+    for (const type of [
+      "dev.comtrya.epic.created",
+      "dev.comtrya.epic.state-changed",
+    ]) {
+      unsubscribers.push(
+        subscribeLiveEvents({
+          type,
+          onEvent: () => {
+            void syncEpicCommands(client, workspaceId);
+          },
+          onError: () => {},
+        }),
+      );
+    }
+  });
 
   return () => {
+    cancelled = true;
     for (const off of unsubscribers) off();
     for (const entry of active.values()) entry.unregister();
     active.clear();

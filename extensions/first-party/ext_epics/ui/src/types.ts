@@ -1,4 +1,14 @@
-export const DEFAULT_WORKSPACE_ID = "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3";
+import { activeWorkspaceId } from "@comtrya/sdk-core";
+
+/**
+ * Resolve the active workspace id from the shell store. Returns `""`
+ * during the boot-race window only; production callers gate on
+ * `whenWorkspaceReady()` first. Replaces the previous hardcoded
+ * `DEFAULT_WORKSPACE_ID` export — see #8 P1-1 part 2.
+ */
+export function defaultWorkspaceId(): string {
+  return activeWorkspaceId() ?? "";
+}
 
 export type EpicState = "PLANNED" | "IN_PROGRESS" | "AT_RISK" | "DONE" | "CANCELED";
 export type LoadState = "idle" | "loading" | "ready" | "empty" | "error";

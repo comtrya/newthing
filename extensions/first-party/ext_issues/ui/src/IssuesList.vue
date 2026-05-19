@@ -17,7 +17,7 @@ import {
 } from "./api";
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   issueHref,
   newIssueHref as newIssueHrefBuilder,
   stateTone,
@@ -41,7 +41,7 @@ const props = withDefaults(defineProps<{
   /** Active repo's label catalog (see IssueDetail for details). */
   labelCatalog?: LabelCatalog | null;
 }>(), {
-  workspaceId: DEFAULT_WORKSPACE_ID,
+  workspaceId: defaultWorkspaceId(),
   repositoryId: null,
   state: null,
   title: "Issues",

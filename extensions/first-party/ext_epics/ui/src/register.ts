@@ -6,7 +6,7 @@ import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
 import EpicsList from "./EpicsList.vue";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   epicRef,
   type ComtryaGraphQLClient,
   type ExtensionRouteParams,
@@ -82,7 +82,7 @@ const extension: ExtensionDefinition = {
       resourceKind: "epic",
       loadTargets: async (context) => {
         const epics = await listEpics(host.client, {
-          workspaceId: context.workspaceId ?? DEFAULT_WORKSPACE_ID,
+          workspaceId: context.workspaceId ?? defaultWorkspaceId(),
         });
         return epics.map((epic) => ({
           ref: epicRef(epic),
@@ -146,7 +146,7 @@ function newEpicRouteContext(routeParams?: ExtensionRouteParams): NewEpicContext
     workspaceId:
       params.get("workspaceId") ??
       routeParams?.params?.workspaceId ??
-      DEFAULT_WORKSPACE_ID,
+      defaultWorkspaceId(),
     projectName:
       params.get("projectName") ??
       routeParams?.params?.projectName ??

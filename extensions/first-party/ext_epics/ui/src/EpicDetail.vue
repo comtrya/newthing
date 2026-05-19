@@ -24,7 +24,7 @@ import { ensureEpicDetailStyles } from "./epic-detail-styles";
 import CustomElementHost from "./CustomElementHost.vue";
 import { resolveProjectPolicy, type ProjectPolicy } from "./project-policy";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   epicRef,
   stateTone,
   type ComtryaGraphQLClient,
@@ -59,7 +59,7 @@ const graphClient = computed(() => props.client ?? props.comtryaClient);
 const workspaceId = computed(
   () => props.workspaceId
     ?? props.routeParams?.params?.workspaceId
-    ?? DEFAULT_WORKSPACE_ID,
+    ?? defaultWorkspaceId(),
 );
 const epicId = computed(() => props.id ?? props.routeParams?.params?.id ?? "");
 const currentRef = computed(() => props.epic ? epicRef(props.epic) : `comtrya://epic/${epicId.value}`);

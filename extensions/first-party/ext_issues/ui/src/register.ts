@@ -7,7 +7,7 @@ import { listIssues, openIssue } from "./api";
 import { bindIssueCommands } from "./issue-commands";
 import { resolveIssuesPolicy } from "./policy";
 import {
-  DEFAULT_WORKSPACE_ID,
+  defaultWorkspaceId,
   issueHref,
   issueRef,
   type ComtryaGraphQLClient,
@@ -85,7 +85,7 @@ const extension: ExtensionDefinition = {
       resourceKind: "issue",
       loadTargets: async (context) => {
         const issues = await listIssues(host.client, {
-          workspaceId: context.workspaceId ?? DEFAULT_WORKSPACE_ID,
+          workspaceId: context.workspaceId ?? defaultWorkspaceId(),
           repositoryId: context.repositoryId,
         });
         return issues.map((issue) => ({
@@ -159,7 +159,7 @@ function routeContext(
       params.get("workspaceId") ??
       context.workspaceId ??
       routeParams?.params?.workspaceId ??
-      DEFAULT_WORKSPACE_ID,
+      defaultWorkspaceId(),
     repositoryId:
       params.get("repositoryId") ??
       context.repositoryId ??
