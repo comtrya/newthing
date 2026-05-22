@@ -128,8 +128,7 @@ impl PersistentStore {
             .collect();
         entries.sort_by_key(|(v, _, _)| *v);
 
-        let mut applied_versions: std::collections::HashSet<u32> =
-            std::collections::HashSet::new();
+        let mut applied_versions: std::collections::HashSet<u32> = std::collections::HashSet::new();
         {
             let mut stmt = conn
                 .prepare("SELECT version FROM schema_migrations")
@@ -138,8 +137,7 @@ impl PersistentStore {
                 .query_map([], |row| row.get::<_, u32>(0))
                 .map_err(|e| format!("read schema_migrations failed: {e}"))?;
             for row in rows {
-                applied_versions
-                    .insert(row.map_err(|e| format!("read row failed: {e}"))?);
+                applied_versions.insert(row.map_err(|e| format!("read row failed: {e}"))?);
             }
         }
 
@@ -176,7 +174,12 @@ impl PersistentStore {
             .execute(
                 "INSERT INTO sessions(token, principal, expires_at, used, created_at) \
                  VALUES (?1, ?2, ?3, 0, ?4)",
-                params![token, principal_tag(principal), expires_at as i64, now as i64],
+                params![
+                    token,
+                    principal_tag(principal),
+                    expires_at as i64,
+                    now as i64
+                ],
             )
             .map_err(|e| format!("insert session failed: {e}"))?;
         Ok(())
@@ -186,11 +189,7 @@ impl PersistentStore {
     /// the session is live and previously unused; returns `Ok(None)`
     /// if missing / expired / already used so the caller can return
     /// a single "unknown or expired" 401 without leaking which.
-    pub fn take_session(
-        &self,
-        token: &str,
-        now: u64,
-    ) -> Result<Option<StoredPrincipal>, String> {
+    pub fn take_session(&self, token: &str, now: u64) -> Result<Option<StoredPrincipal>, String> {
         let mut conn = self.conn.lock().expect("conn lock poisoned");
         let tx = conn
             .transaction()
@@ -238,8 +237,8 @@ impl PersistentStore {
         expires_at: u64,
         now: u64,
     ) -> Result<(), String> {
-        let actions_json = serde_json::to_string(actions)
-            .map_err(|e| format!("serialize actions failed: {e}"))?;
+        let actions_json =
+            serde_json::to_string(actions).map_err(|e| format!("serialize actions failed: {e}"))?;
         self.conn
             .lock()
             .expect("conn lock poisoned")
@@ -334,7 +333,11 @@ impl PersistentStore {
     /// rate-limit rows older than `now - keep_seconds`. Safe to call
     /// concurrently with reads; SQLite serialises writes inside the
     /// connection.
-    pub fn evict_expired(&self, now: u64, keep_seconds: u64) -> Result<(usize, usize, usize), String> {
+    pub fn evict_expired(
+        &self,
+        now: u64,
+        keep_seconds: u64,
+    ) -> Result<(usize, usize, usize), String> {
         let conn = self.conn.lock().expect("conn lock poisoned");
         let sessions = conn
             .execute(
@@ -407,7 +410,10 @@ mod tests {
                 break;
             }
         }
-        panic!("could not locate migrations/sqlite/ above {}", env!("CARGO_MANIFEST_DIR"));
+        panic!(
+            "could not locate migrations/sqlite/ above {}",
+            env!("CARGO_MANIFEST_DIR")
+        );
     }
 
     #[test]
@@ -415,7 +421,9 @@ mod tests {
         let (_tmp, store) = fresh_store();
         let conn = store.conn.lock().unwrap();
         let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert!(
             count >= 2,
@@ -467,7 +475,12 @@ mod tests {
         let migrations_dir = workspace_migrations_dir();
         let store = PersistentStore::open(tmp.path(), &migrations_dir).unwrap();
         store
-            .insert_session("sess_abc", StoredPrincipal::OperatorCredential, 9_999_999_999, 1000)
+            .insert_session(
+                "sess_abc",
+                StoredPrincipal::OperatorCredential,
+                9_999_999_999,
+                1000,
+            )
             .unwrap();
         drop(store);
         // New process, same DB.
@@ -499,10 +512,7 @@ mod tests {
         store
             .insert_session("sess_exp", StoredPrincipal::Credential, 100, 50)
             .unwrap();
-        assert_eq!(
-            store.take_session("sess_exp", 200).unwrap(),
-            None,
-        );
+        assert_eq!(store.take_session("sess_exp", 200).unwrap(), None,);
     }
 
     #[test]
@@ -525,7 +535,10 @@ mod tests {
             .unwrap();
         drop(store);
         let reopened = PersistentStore::open(tmp.path(), &migrations_dir).unwrap();
-        let cred = reopened.lookup_credential("tok_xyz", 1001).unwrap().unwrap();
+        let cred = reopened
+            .lookup_credential("tok_xyz", 1001)
+            .unwrap()
+            .unwrap();
         assert_eq!(cred.principal, StoredPrincipal::OperatorCredential);
         assert_eq!(cred.principal_uri, "comtrya://credential/prn_1");
         assert_eq!(cred.actions, vec!["graphql:read", "git:read"]);
