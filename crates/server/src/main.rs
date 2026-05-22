@@ -2766,11 +2766,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 .get("variables")
                 .and_then(|v| v.get("oid"))
                 .and_then(Value::as_str);
-            if query_str.contains("commitDiff") && let Some(oid) = oid_var {
-                repo_obj.insert(
-                    "commitDiff".to_string(),
-                    commit_diff_payload(&git_dir, oid),
-                );
+            if query_str.contains("commitDiff")
+                && let Some(oid) = oid_var
+            {
+                repo_obj.insert("commitDiff".to_string(), commit_diff_payload(&git_dir, oid));
             }
         }
     }
@@ -4743,7 +4742,8 @@ fn commit_diff_payload(git_dir: &Path, oid: &str) -> Value {
     // `git show --no-color --format=…` emits the metadata header in
     // our SOH-delimited shape (same trick `git_commits` uses) and
     // appends the unified patch after a blank line.
-    let format = "%H%x01%h%x01%s%x01%b%x01%an%x01%ae%x01%cr%x01%P%x01%(trailers:key=Change-Id,valueonly)";
+    let format =
+        "%H%x01%h%x01%s%x01%b%x01%an%x01%ae%x01%cr%x01%P%x01%(trailers:key=Change-Id,valueonly)";
     let combined = match git_text(
         git_dir,
         &[
@@ -10019,7 +10019,10 @@ extensions: {
         let cd = &payload["data"]["workspace"]["repositoryByPath"]["commitDiff"];
         assert_eq!(cd["oid"].as_str().unwrap(), head_oid);
         assert!(cd["shortOid"].as_str().unwrap().len() >= 4);
-        assert!(cd["error"].is_null(), "commitDiff envelope must not carry an error for HEAD; got {cd:?}");
+        assert!(
+            cd["error"].is_null(),
+            "commitDiff envelope must not carry an error for HEAD; got {cd:?}"
+        );
         let patch = cd["patch"].as_str().unwrap_or("");
         assert!(
             patch.contains("diff --git") || patch.is_empty(),
