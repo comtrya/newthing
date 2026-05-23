@@ -2755,6 +2755,22 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             apply_repository_cue_overrides(repo_obj, &comtrya_config);
             annotate_bookmarks_with_resolution(repo_obj, &git_dir);
             repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
+
+            // CommitDetail.vue asks for `commitDiff(oid: $oid)` on
+            // repositoryByPath. The JSON-shim shaper builds responses
+            // by checking the query for field names; populate the
+            // field only when the query asks for it AND the caller
+            // supplied an oid variable.
+            let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
+            let oid_var = payload
+                .get("variables")
+                .and_then(|v| v.get("oid"))
+                .and_then(Value::as_str);
+            if query_str.contains("commitDiff")
+                && let Some(oid) = oid_var
+            {
+                repo_obj.insert("commitDiff".to_string(), commit_diff_payload(&git_dir, oid));
+            }
         }
     }
 
@@ -4698,6 +4714,99 @@ fn branch_distance(git_dir: &Path, branch: &str) -> Result<(u32, u32), String> {
     let behind = parts.next().unwrap_or("0").parse().unwrap_or(0);
     let ahead = parts.next().unwrap_or("0").parse().unwrap_or(0);
     Ok((behind, ahead))
+}
+
+/// Metadata + unified patch for a single commit. Used by the
+/// `repositoryByPath.commitDiff(oid)` field on the GraphQL surface
+/// (CommitDetail.vue parses the patch client-side via the same
+/// `frontend/src/diff.ts` the PR DiffView uses).
+///
+/// Returns an envelope shape that always includes `oid` so the
+/// client can correlate against the request even when the lookup
+/// failed; failures land in `error` instead of bubbling as a
+/// GraphQL-level error so a typo'd OID renders an empty "missing"
+/// page rather than blowing up the surrounding workspace query.
+fn commit_diff_payload(git_dir: &Path, oid: &str) -> Value {
+    // Reject anything that isn't a 4-40 char hex OID before shelling
+    // out to git. Belt-and-braces against an argument-injection class
+    // bug — `git_text` already uses `Command` with separate args so
+    // shell metacharacters can't escape, but the caller-provided
+    // path-segment `oid` may still confuse `git show` if it parses
+    // as a ref/option. Keeps the surface narrow.
+    if !is_valid_oid(oid) {
+        return json!({
+            "oid": oid,
+            "error": "oid must be 4-40 hex characters",
+        });
+    }
+    // `git show --no-color --format=…` emits the metadata header in
+    // our SOH-delimited shape (same trick `git_commits` uses) and
+    // appends the unified patch after a blank line.
+    let format =
+        "%H%x01%h%x01%s%x01%b%x01%an%x01%ae%x01%cr%x01%P%x01%(trailers:key=Change-Id,valueonly)";
+    let combined = match git_text(
+        git_dir,
+        &[
+            "show",
+            "--no-color",
+            "--find-renames",
+            &format!("--format={format}"),
+            "--patch",
+            oid,
+        ],
+    ) {
+        Ok(text) => text,
+        Err(error) => {
+            return json!({
+                "oid": oid,
+                "error": error,
+            });
+        }
+    };
+    // Patch starts after the first blank line. Header is the
+    // SOH-delimited block before that.
+    let (header_chunk, patch) = match combined.find("\n\n") {
+        Some(idx) => (&combined[..idx], combined[idx + 2..].to_string()),
+        None => (combined.as_str(), String::new()),
+    };
+    let fields: Vec<&str> = header_chunk.split('\u{1}').collect();
+    if fields.len() < 7 {
+        return json!({
+            "oid": oid,
+            "error": "git show output was malformed (header parse failed)",
+        });
+    }
+    let parents: Vec<String> = fields
+        .get(7)
+        .copied()
+        .unwrap_or("")
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let change_id = fields.get(8).copied().unwrap_or("").trim();
+    let body = fields.get(3).copied().unwrap_or("").trim_end();
+    let author_email = fields.get(5).copied().unwrap_or("");
+    json!({
+        "oid": fields[0],
+        "shortOid": fields[1],
+        "subject": fields[2],
+        "body": if body.is_empty() { Value::Null } else { Value::String(body.to_string()) },
+        "author": fields[4],
+        "authorEmail": if author_email.is_empty() { Value::Null } else { Value::String(author_email.to_string()) },
+        "time": fields[6],
+        "parents": parents,
+        "changeId": if change_id.is_empty() { Value::Null } else { Value::String(change_id.to_string()) },
+        "patch": patch,
+        "error": Value::Null,
+    })
+}
+
+fn is_valid_oid(oid: &str) -> bool {
+    !oid.is_empty()
+        && oid.len() <= 40
+        && oid.len() >= 4
+        && oid.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
@@ -9871,6 +9980,85 @@ extensions: {
             response.status(),
             StatusCode::UNAUTHORIZED,
             "anonymous /api/ops/* must be rejected under #16 lockdown",
+        );
+    }
+
+    #[tokio::test]
+    async fn graphql_commit_diff_returns_metadata_and_patch_for_head() {
+        let runtime = dev_runtime_no_extensions();
+        let head_oid = git_text(
+            &runtime.demo_repository.git_dir,
+            &["rev-parse", "refs/heads/main"],
+        )
+        .unwrap()
+        .trim()
+        .to_string();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($segments:[String!]!,$oid:ID!){ workspace { repositoryByPath(segments:$segments) { id commitDiff(oid:$oid){ oid shortOid subject author patch error } } } }",
+                "variables": { "segments": ["comtrya", "comtrya"], "oid": head_oid }
+            })
+            .to_string(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let cd = &payload["data"]["workspace"]["repositoryByPath"]["commitDiff"];
+        assert_eq!(cd["oid"].as_str().unwrap(), head_oid);
+        assert!(cd["shortOid"].as_str().unwrap().len() >= 4);
+        assert!(
+            cd["error"].is_null(),
+            "commitDiff envelope must not carry an error for HEAD; got {cd:?}"
+        );
+        let patch = cd["patch"].as_str().unwrap_or("");
+        assert!(
+            patch.contains("diff --git") || patch.is_empty(),
+            "commitDiff.patch should be a unified diff or empty; got {patch:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn graphql_commit_diff_returns_error_envelope_for_malformed_oid() {
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            headers,
+            json!({
+                "query": "query($segments:[String!]!,$oid:ID!){ workspace { repositoryByPath(segments:$segments) { commitDiff(oid:$oid){ oid error } } } }",
+                "variables": { "segments": ["comtrya", "comtrya"], "oid": "not-a-hex-oid" }
+            })
+            .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let err = &payload["data"]["workspace"]["repositoryByPath"]["commitDiff"]["error"];
+        assert!(
+            err.as_str().unwrap_or("").contains("hex"),
+            "malformed oid must surface a validation error; got {err:?}"
         );
     }
 

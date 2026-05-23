@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import AdminAccess from "./routes/AdminAccess.vue";
 import AdminOverview from "./routes/AdminOverview.vue";
 import AdminStorage from "./routes/AdminStorage.vue";
+import CommitDetail from "./routes/CommitDetail.vue";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
@@ -122,6 +123,18 @@ export const shellRoutes: RouteRecordRaw[] = [
     name: "repo-issue-board",
     component: IssueTracker,
     props: repoRouteProps,
+  },
+  {
+    // Must appear BEFORE any `repoCommits` catch-all that may follow
+    // — the OID-specific path is matched here first. Per-commit detail
+    // view; `oid` is the 4-40 hex commit hash carried in the URL.
+    path: shellRoutePaths.repoCommitDetail,
+    name: "repo-commit-detail",
+    component: CommitDetail,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      oid: paramValue(route.params.oid),
+    }),
   },
   {
     path: shellRoutePaths.repoPipelines,
