@@ -57,12 +57,17 @@ Server check without the frontend:
 
 ```sh
 mkdir -p /private/tmp/comtrya-production-testbed
-COMTRYA_CONFIG=config/production-testbed.cue \
+COMTRYA_CONFIG_REPO_URL="https://github.com/your-org/comtrya-config.git" \
 COMTRYA_DATA_DIR=/private/tmp/comtrya-production-testbed \
 COMTRYA_TLS_TERMINATED=true \
 COMTRYA_OPERATOR_CODE="comtrya-local-operator-code" \
 cargo run -p comtrya-server -- --check
 ```
+
+Configuration is pure GitOps: the server clones the CUE config repo named by
+`COMTRYA_CONFIG_REPO_URL` and evaluates it. `start.sh` materialises the bundled
+`fixtures/config-repo` into a local git repo automatically, so a local run needs
+no external repo.
 
 The server is designed to sit behind a TLS-terminating reverse proxy. In
 `environment: "production"`, startup fails unless `COMTRYA_TLS_TERMINATED=true`,

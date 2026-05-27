@@ -67,3 +67,98 @@ fn non_empty_env(key: &str) -> Option<String> {
         .ok()
         .filter(|value| !value.trim().is_empty())
 }
+
+#[cfg(test)]
+impl ConfigRepo {
+    /// Build a repo pointing at `url` (e.g. a `file://` source) cloning into
+    /// `checkout_dir`, with no auth and the remote default branch.
+    fn for_test(url: String, checkout_dir: std::path::PathBuf) -> Self {
+        Self {
+            sync: GitSync {
+                repo: url,
+                dir: checkout_dir.clone(),
+                ..GitSync::default()
+            },
+            checkout_dir,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.test")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.test")
+            .status()
+            .expect("run git");
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    const CONFIG: &str = r#"package comtrya
+instance: {
+    id: "t"
+    name: "T"
+    publicURL: "http://localhost:8080"
+    environment: "development"
+    allowedOrigins: ["http://localhost:4321"]
+}
+database: { kind: "sqlite", url: "sqlite://comtrya.db" }
+oidc: issuers: [{
+    id: "dev"
+    issuerURL: "https://issuer.example.test"
+    clientID: "c"
+    clientKind: "confidential"
+    clientSecret: "s"
+    redirectURL: "http://localhost:8080/auth/oidc/dev/callback"
+    allowed: domains: ["example.test"]
+}]
+storage: repositories: { default: "local", backends: local: { kind: "local", path: "./data/repos" } }
+authz: kind: "spicedb"
+workspaces: default: { name: "Default", visibility: "PRIVATE" }
+"#;
+
+    /// End-to-end GitOps path: clone a `file://` source repo via gitsync and
+    /// evaluate the checked-out CUE module into a typed config.
+    #[test]
+    fn clones_file_url_and_evaluates() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source");
+        let module = source.join("cue.mod");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            module.join("module.cue"),
+            "module: \"comtrya.test/config\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("config.cue"), CONFIG).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["add", "-A"]);
+        git(&source, &["commit", "-q", "-m", "config"]);
+
+        let url = format!("file://{}", source.display());
+        let repo = ConfigRepo::for_test(url, tmp.path().join("checkout"));
+        let config = repo.bootstrap_and_load().expect("bootstrap + evaluate");
+        assert_eq!(config.id, "t");
+        assert_eq!(config.oidc_issuers.len(), 1);
+    }
+
+    /// The bundled config fixture that start.sh materialises must evaluate and
+    /// validate as a real instance config.
+    #[test]
+    fn bundled_fixture_config_evaluates() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/config-repo");
+        let config = comtrya_core::evaluate_instance_config(&fixture).expect("fixture evaluates");
+        assert_eq!(config.environment, comtrya_core::Environment::Production);
+        assert_eq!(config.oidc_issuers.len(), 1);
+        assert_eq!(config.workspaces.len(), 1);
+    }
+}

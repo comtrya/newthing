@@ -1,5 +1,9 @@
 package comtrya
 
+// Bundled GitOps config fixture. start.sh materialises this directory into a
+// local git repo and points COMTRYA_CONFIG_REPO_URL at it. Production
+// deployments point COMTRYA_CONFIG_REPO_URL at their own CUE config repo.
+
 instance: {
 	id:          "comtrya-production-testbed"
 	name:        "Comtrya Production Testbed"
@@ -34,6 +38,6 @@ storage: repositories: {
 authz: kind: "spicedb"
 
 workspaces: default: {
-	name: "Default"
+	name:       "Default"
 	visibility: "PRIVATE"
 }

@@ -12,9 +12,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
 use comtrya_core::{
-    ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, ExtensionInstallConfig,
-    ExtensionSource, IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId,
-    RepoStorageBackend, ResourceKind, ResourceRef, Slug, TokenAction, allowed_methods_for_route,
+    ClientKind, CorsPolicy, Environment, ErrorCode, ExtensionInstallConfig, ExtensionSource,
+    IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId, RepoStorageBackend,
+    ResourceKind, ResourceRef, Slug, TokenAction, allowed_methods_for_route,
 };
 use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
@@ -394,7 +394,6 @@ struct AppState {
 
 #[derive(Debug, Clone)]
 struct StartupOptions {
-    config_path: Option<PathBuf>,
     data_dir: PathBuf,
     extension_dir: PathBuf,
     listen: SocketAddr,
@@ -406,7 +405,6 @@ struct StartupOptions {
 
 impl StartupOptions {
     fn from_env_and_args(args: impl Iterator<Item = String>) -> Self {
-        let mut config_path = std::env::var_os("COMTRYA_CONFIG").map(PathBuf::from);
         let mut data_dir = std::env::var_os("COMTRYA_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("./data"));
@@ -423,11 +421,6 @@ impl StartupOptions {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--check" => check = true,
-                "--config" => {
-                    if let Some(path) = args.next() {
-                        config_path = Some(PathBuf::from(path));
-                    }
-                }
                 "--data-dir" => {
                     if let Some(path) = args.next() {
                         data_dir = PathBuf::from(path);
@@ -448,7 +441,6 @@ impl StartupOptions {
         }
 
         Self {
-            config_path,
             data_dir,
             extension_dir: absolute_path(extension_dir),
             listen,
@@ -534,26 +526,39 @@ struct ExtensionAsset {
 
 impl Runtime {
     fn start(options: StartupOptions) -> Result<Self, String> {
-        // The config repo (if any) clones into data_dir/config-repo, so the
-        // data dir must exist before we resolve the config source.
+        // The config repo clones into data_dir/config-repo, so the data dir
+        // must exist before we resolve the config source.
         fs::create_dir_all(&options.data_dir)
             .map_err(|error| format!("failed to create data dir: {error}"))?;
 
-        // Config source precedence: the GitOps config repo wins when its URL is
-        // set; otherwise the local --config file; otherwise an unconfigured dev
-        // default. A synced repo is the source of truth, so it declares the
-        // full extension set (extension_config_declared = true).
+        // Pure GitOps: the external CUE config repo is the only config source.
+        // When its URL is unset the instance runs an unconfigured dev default.
         let (config, extension_config_declared) =
-            if let Some(repo) = config_sync::ConfigRepo::from_env(&options.data_dir) {
-                (repo.bootstrap_and_load()?, true)
-            } else if let Some(path) = &options.config_path {
-                let loaded = load_config_file_with_metadata(path)?;
-                (loaded.config, loaded.extension_config_declared)
-            } else {
-                (InstanceConfig::minimal_dev(), false)
+            match config_sync::ConfigRepo::from_env(&options.data_dir) {
+                Some(repo) => {
+                    let config = repo.bootstrap_and_load()?;
+                    // A declared (non-empty) extension set is authoritative; an
+                    // omitted/empty one falls back to first-party discovery.
+                    let declared = !config.extensions.is_empty();
+                    (config, declared)
+                }
+                None => (InstanceConfig::minimal_dev(), false),
             };
+        Self::start_with_config(options, config, extension_config_declared)
+    }
+
+    /// Assemble a runtime from an already-resolved config. Separated from
+    /// [`Runtime::start`] so tests can inject a config directly — pure GitOps
+    /// keeps env/file config sources out of the test path.
+    fn start_with_config(
+        options: StartupOptions,
+        config: InstanceConfig,
+        extension_config_declared: bool,
+    ) -> Result<Self, String> {
         config.validate().map_err(|error| error.to_string())?;
         validate_production_testbed(&config, &options)?;
+        fs::create_dir_all(&options.data_dir)
+            .map_err(|error| format!("failed to create data dir: {error}"))?;
         for dirname in ["metadata", "repositories", "extensions", "secrets"] {
             fs::create_dir_all(options.data_dir.join(dirname))
                 .map_err(|error| format!("failed to create data/{dirname}: {error}"))?;
@@ -5813,483 +5818,6 @@ fn validate_production_testbed(
     Ok(())
 }
 
-#[derive(Debug)]
-struct LoadedConfig {
-    config: InstanceConfig,
-    extension_config_declared: bool,
-}
-
-#[cfg(test)]
-fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
-    load_config_file_with_metadata(path).map(|loaded| loaded.config)
-}
-
-fn load_config_file_with_metadata(path: &Path) -> Result<LoadedConfig, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read config {}: {error}", path.display()))?;
-    let mut config = InstanceConfig::minimal_dev();
-    if let Some(value) = cue_string(&source, "id") {
-        config.id = value;
-    }
-    if let Some(value) = cue_string(&source, "name") {
-        config.name = value;
-    }
-    if let Some(value) = cue_string(&source, "publicURL") {
-        config.public_url = value;
-    }
-    if let Some(value) = cue_string(&source, "environment") {
-        config.environment = match value.as_str() {
-            "production" => Environment::Production,
-            _ => Environment::Development,
-        };
-    }
-    if let Some(origins) = cue_string_array(&source, "allowedOrigins") {
-        config.allowed_origins = origins;
-    }
-    if let Some(value) = cue_string_after(&source, "database", "url") {
-        config.database = if value.starts_with("postgres://") {
-            DatabaseConfig::Postgres { url: value }
-        } else {
-            DatabaseConfig::Sqlite { url: value }
-        };
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "issuerURL") {
-        config.oidc_issuers[0].issuer_url = value;
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientID") {
-        config.oidc_issuers[0].client_id = value;
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientKind") {
-        config.oidc_issuers[0].client_kind = if value == "public" {
-            config.oidc_issuers[0].client_secret = None;
-            ClientKind::Public
-        } else {
-            ClientKind::Confidential
-        };
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientSecret") {
-        config.oidc_issuers[0].client_secret = Some(value);
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "redirectURL") {
-        config.oidc_issuers[0].redirect_url = value;
-    }
-    if let Some(domains) = cue_string_array_after(&source, "allowed", "domains") {
-        config.oidc_issuers[0].allowed_domains = domains;
-    }
-    if let Some(path) = cue_string_after(&source, "backends", "path") {
-        config
-            .repository_storage_backends
-            .insert("local".to_string(), RepoStorageBackend::Local { path });
-    }
-    if let Some(value) = cue_string_after(&source, "workspaces", "visibility")
-        && let Some(workspace) = config.workspaces.get_mut("default")
-    {
-        workspace.visibility = match value.as_str() {
-            "PUBLIC" => comtrya_core::Visibility::Public,
-            "INTERNAL" => comtrya_core::Visibility::Internal,
-            _ => comtrya_core::Visibility::Private,
-        };
-    }
-    let extensions = cue_extension_install_configs(&source)?;
-    let extension_config_declared = extensions.is_some();
-    if let Some(extensions) = extensions {
-        config.extensions = extensions;
-    }
-    config.validate().map_err(|error| error.to_string())?;
-    Ok(LoadedConfig {
-        config,
-        extension_config_declared,
-    })
-}
-
-fn cue_string(source: &str, key: &str) -> Option<String> {
-    source.lines().find_map(|line| quoted_value(line, key))
-}
-
-fn cue_string_after(source: &str, section: &str, key: &str) -> Option<String> {
-    let section_start = source.find(section)?;
-    cue_string(&source[section_start..], key)
-}
-
-fn cue_string_array(source: &str, key: &str) -> Option<Vec<String>> {
-    source.lines().find_map(|line| quoted_array(line, key))
-}
-
-fn cue_string_array_after(source: &str, section: &str, key: &str) -> Option<Vec<String>> {
-    let section_start = source.find(section)?;
-    cue_string_array(&source[section_start..], key)
-}
-
-fn quoted_value(line: &str, key: &str) -> Option<String> {
-    let (_, rest) = line.split_once(key)?;
-    let (_, rest) = rest.split_once('"')?;
-    let (value, _) = rest.split_once('"')?;
-    Some(value.to_string())
-}
-
-fn quoted_array(line: &str, key: &str) -> Option<Vec<String>> {
-    let (_, rest) = line.split_once(key)?;
-    let (_, rest) = rest.split_once('[')?;
-    let (inside, _) = rest.split_once(']')?;
-    Some(
-        inside
-            .split(',')
-            .filter_map(|part| {
-                let (_, rest) = part.split_once('"')?;
-                let (value, _) = rest.split_once('"')?;
-                Some(value.to_string())
-            })
-            .collect(),
-    )
-}
-
-fn cue_extension_install_configs(
-    source: &str,
-) -> Result<Option<Vec<ExtensionInstallConfig>>, String> {
-    let Some(key_offset) = cue_key_offset(source, "extensions") else {
-        return Ok(None);
-    };
-    let colon_index = source[key_offset..]
-        .find(':')
-        .map(|relative| key_offset + relative)
-        .ok_or_else(|| "extensions field missing :".to_string())?;
-    let Some((value_index, value_start)) = cue_first_significant_char(source, colon_index + 1)
-    else {
-        return Ok(None);
-    };
-    if value_start == '[' {
-        return Ok(None);
-    }
-    let body = if value_start == '{' {
-        let close_index = cue_balanced_close(source, value_index, '{', '}')
-            .ok_or_else(|| "extensions map has an unclosed { block".to_string())?;
-        source[value_index + 1..close_index].to_string()
-    } else {
-        let open_index = source[value_index..]
-            .find('{')
-            .map(|relative| value_index + relative)
-            .ok_or_else(|| "extensions keyed entry missing { block".to_string())?;
-        let close_index = cue_balanced_close(source, open_index, '{', '}')
-            .ok_or_else(|| "extensions keyed entry has an unclosed { block".to_string())?;
-        source[value_index..=close_index].to_string()
-    };
-    let blocks = cue_top_level_keyed_objects(&body)?;
-    let mut configs = Vec::new();
-    for (id, block) in blocks {
-        configs.push(cue_extension_install_config(id, &block)?);
-    }
-    Ok(Some(configs))
-}
-
-fn cue_extension_install_config(id: String, block: &str) -> Result<ExtensionInstallConfig, String> {
-    if let Some(field_id) = cue_field_string(block, "id")
-        && field_id != id
-    {
-        return Err(format!(
-            "extension keyed as {id:?} must not declare mismatched id {field_id:?}"
-        ));
-    }
-    let source = cue_balanced_body_after_key(block, "source", '{', '}')?
-        .ok_or_else(|| format!("extension {id} missing source block"))?;
-    let kind = cue_field_string(&source, "kind")
-        .ok_or_else(|| format!("extension {id} source missing kind"))?;
-    let source = match kind.as_str() {
-        "local" => {
-            let path = cue_field_string(&source, "path")
-                .ok_or_else(|| format!("extension {id} local source missing path"))?;
-            ExtensionSource::Local { path }
-        }
-        "oci" => {
-            let registry = cue_field_string(&source, "registry")
-                .ok_or_else(|| format!("extension {id} OCI source missing registry"))?;
-            let image = cue_field_string(&source, "image")
-                .ok_or_else(|| format!("extension {id} OCI source missing image"))?;
-            let reference = if let Some(digest) = cue_field_string(&source, "digest") {
-                OciReference::Digest(digest)
-            } else if let Some(reference) = cue_field_string(&source, "reference") {
-                oci_reference_from_config(reference)
-            } else if let Some(tag) = cue_field_string(&source, "tag") {
-                OciReference::Tag(tag)
-            } else {
-                return Err(format!("extension {id} OCI source missing reference"));
-            };
-            ExtensionSource::Oci {
-                registry,
-                image,
-                reference,
-            }
-        }
-        _ => {
-            return Err(format!(
-                "extension {id} source kind {kind:?} is not supported"
-            ));
-        }
-    };
-
-    Ok(ExtensionInstallConfig {
-        id,
-        source,
-        enabled: cue_field_bool(block, "enabled").unwrap_or(true),
-        route_prefix: None,
-    })
-}
-
-fn oci_reference_from_config(reference: String) -> OciReference {
-    if reference.starts_with("sha256:") {
-        OciReference::Digest(reference)
-    } else {
-        OciReference::Tag(reference)
-    }
-}
-
-fn cue_key_offset(source: &str, key: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = offset + line.len() - trimmed.len();
-        if let Some(rest) = trimmed.strip_prefix(key)
-            && rest.trim_start().starts_with(':')
-        {
-            return Some(start);
-        }
-        offset += line.len();
-    }
-    None
-}
-
-fn cue_balanced_body_after_key(
-    source: &str,
-    key: &str,
-    open: char,
-    close: char,
-) -> Result<Option<String>, String> {
-    let Some(key_offset) = cue_key_offset(source, key) else {
-        return Ok(None);
-    };
-    let Some(open_relative) = source[key_offset..].find(open) else {
-        return Err(format!("{key} missing {open} block"));
-    };
-    let open_index = key_offset + open_relative;
-    let close_index = cue_balanced_close(source, open_index, open, close)
-        .ok_or_else(|| format!("{key} has an unclosed {open} block"))?;
-    Ok(Some(
-        source[open_index + open.len_utf8()..close_index].to_string(),
-    ))
-}
-
-fn cue_balanced_close(source: &str, open_index: usize, open: char, close: char) -> Option<usize> {
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut in_line_comment = false;
-    for (relative, ch) in source[open_index..].char_indices() {
-        let index = open_index + relative;
-        if in_line_comment {
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if source[index..].starts_with("//") {
-            in_line_comment = true;
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if ch == open {
-            depth += 1;
-        } else if ch == close {
-            depth = depth.checked_sub(1)?;
-            if depth == 0 {
-                return Some(index);
-            }
-        }
-    }
-    None
-}
-
-fn cue_top_level_keyed_objects(source: &str) -> Result<Vec<(String, String)>, String> {
-    let mut objects = Vec::new();
-    let mut offset = 0usize;
-    while offset < source.len() {
-        let Some((key, colon_index)) = cue_next_key_colon(source, offset)? else {
-            break;
-        };
-        let Some((open_index, open_char)) = cue_first_significant_char(source, colon_index + 1)
-        else {
-            return Err(format!("extension {key} missing value"));
-        };
-        if open_char != '{' {
-            return Err(format!("extension {key} value must be an object"));
-        }
-        let close_index = cue_balanced_close(source, open_index, '{', '}')
-            .ok_or_else(|| format!("extension {key} has an unclosed object"))?;
-        objects.push((key, source[open_index..=close_index].to_string()));
-        offset = close_index + 1;
-    }
-    Ok(objects)
-}
-
-fn cue_next_key_colon(source: &str, offset: usize) -> Result<Option<(String, usize)>, String> {
-    let mut absolute_offset = offset;
-    for line in source[offset..].split_inclusive('\n') {
-        let stripped = cue_strip_line_comment(line);
-        let trimmed = stripped.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with(',') {
-            absolute_offset += line.len();
-            continue;
-        }
-        let key_start = absolute_offset + stripped.len() - trimmed.len();
-        if let Some(rest) = trimmed.strip_prefix('"') {
-            let mut escaped = false;
-            for (relative, ch) in rest.char_indices() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == '"' {
-                    let after_key = &rest[relative + ch.len_utf8()..];
-                    let colon_after_key = after_key.trim_start();
-                    if colon_after_key.starts_with(':') {
-                        let colon_relative = trimmed.len() - colon_after_key.len();
-                        return Ok(Some((
-                            rest[..relative].to_string(),
-                            key_start + colon_relative,
-                        )));
-                    }
-                    break;
-                }
-            }
-        } else {
-            let Some(colon_relative) = trimmed.find(':') else {
-                absolute_offset += line.len();
-                continue;
-            };
-            let key = trimmed[..colon_relative].trim();
-            if key.contains('-') {
-                return Err(format!(
-                    "extension label {key:?} must be quoted because raw CUE labels cannot contain '-'"
-                ));
-            }
-            if !key.is_empty() && key.chars().all(cue_raw_label_char) {
-                return Ok(Some((key.to_string(), key_start + colon_relative)));
-            }
-            if !key.is_empty() {
-                return Err(format!(
-                    "extension label {key:?} is not a valid raw CUE label"
-                ));
-            }
-        }
-        absolute_offset += line.len();
-    }
-    Ok(None)
-}
-
-fn cue_raw_label_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
-}
-
-fn cue_first_significant_char(source: &str, start: usize) -> Option<(usize, char)> {
-    let mut index = start;
-    while index < source.len() {
-        let remainder = &source[index..];
-        if remainder.starts_with("//") {
-            if let Some(newline) = remainder.find('\n') {
-                index += newline + 1;
-                continue;
-            }
-            return None;
-        }
-        let ch = remainder.chars().next()?;
-        if ch.is_whitespace() {
-            index += ch.len_utf8();
-            continue;
-        }
-        return Some((index, ch));
-    }
-    None
-}
-
-fn cue_field_string(source: &str, key: &str) -> Option<String> {
-    cue_field_value(source, key).and_then(|value| {
-        let (_, rest) = value.split_once('"')?;
-        let (value, _) = rest.split_once('"')?;
-        Some(value.to_string())
-    })
-}
-
-fn cue_field_bool(source: &str, key: &str) -> Option<bool> {
-    cue_field_value(source, key).and_then(|value| {
-        let value = value.trim_start();
-        if value.starts_with("true") {
-            Some(true)
-        } else if value.starts_with("false") {
-            Some(false)
-        } else {
-            None
-        }
-    })
-}
-
-fn cue_field_value(source: &str, key: &str) -> Option<String> {
-    for line in source.lines() {
-        let line = cue_strip_line_comment(line);
-        let mut remainder = line.as_str();
-        while let Some(index) = remainder.find(key) {
-            let before = remainder[..index].chars().next_back();
-            let after_key = &remainder[index + key.len()..];
-            if !cue_identifier_char(before) && after_key.trim_start().starts_with(':') {
-                let (_, value) = after_key.split_once(':')?;
-                return Some(value.to_string());
-            }
-            remainder = &after_key[after_key.char_indices().nth(1).map_or(0, |(idx, _)| idx)..];
-        }
-    }
-    None
-}
-
-fn cue_identifier_char(ch: Option<char>) -> bool {
-    ch.map(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-        .unwrap_or(false)
-}
-
-fn cue_strip_line_comment(line: &str) -> String {
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in line.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if line[index..].starts_with("//") {
-            return line[..index].to_string();
-        }
-    }
-    line.to_string()
-}
-
 fn touch(path: &Path) -> std::io::Result<()> {
     OpenOptions::new()
         .create(true)
@@ -6627,7 +6155,6 @@ mod tests {
     fn dev_runtime_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
         Arc::new(
             Runtime::start(StartupOptions {
-                config_path: None,
                 data_dir: temp_dir("dev"),
                 extension_dir: test_extension_dir(),
                 listen: "127.0.0.1:0".parse().unwrap(),
@@ -6640,31 +6167,31 @@ mod tests {
         )
     }
 
-    /// Like `dev_runtime` but with an empty extensions config so the on-disk
-    /// v1 manifests are never loaded.  Use this for tests that exercise auth,
-    /// CORS, git, GraphQL core fields, or other concerns orthogonal to the
-    /// extension manifest format.
+    /// Like `dev_runtime` but with an explicit (empty) extension set so the
+    /// on-disk v1 manifests are never loaded. Use this for tests that exercise
+    /// auth, CORS, git, GraphQL core fields, or other concerns orthogonal to
+    /// the extension manifest format.
     fn dev_runtime_no_extensions() -> Arc<Runtime> {
         dev_runtime_no_extensions_with_session_ttl(300)
     }
 
     fn dev_runtime_no_extensions_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
-        // Write a minimal config with an explicit (empty) extensions block so
-        // that extension_config_declared = true and no WASM packages are loaded.
-        let config_dir = temp_dir("dev-no-ext-cfg");
-        let config_path = config_dir.join("config.cue");
-        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
+        // Inject an unconfigured dev config and mark the extension set as
+        // declared (= true) so no WASM packages are discovered or loaded.
         Arc::new(
-            Runtime::start(StartupOptions {
-                config_path: Some(config_path),
-                data_dir: temp_dir("dev-no-ext"),
-                extension_dir: test_extension_dir(),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                check: false,
-                tls_terminated: false,
-                operator_code: Some("testbed-operator-code".to_string()),
-                session_ttl_seconds,
-            })
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("dev-no-ext"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds,
+                },
+                InstanceConfig::minimal_dev(),
+                true,
+            )
             .unwrap(),
         )
     }
@@ -7268,7 +6795,6 @@ mod tests {
         .unwrap();
 
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("declared-ui-manifest-data"),
             extension_dir,
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -7348,7 +6874,6 @@ mod tests {
         config.repository_storage_backends = backends;
 
         let options = StartupOptions {
-            config_path: None,
             data_dir: temp_dir("prod"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -7366,225 +6891,6 @@ mod tests {
         let mut options = options;
         options.tls_terminated = true;
         assert!(validate_production_testbed(&config, &options).is_ok());
-    }
-
-    #[test]
-    fn config_loader_reads_production_testbed_cue_subset() {
-        let dir = temp_dir("config");
-        let repos = temp_dir("config-repos");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            format!(
-                r#"
-package comtrya
-instance: {{
-  id: "prod"
-  name: "Prod"
-  publicURL: "https://comtrya.example.test"
-  environment: "production"
-  allowedOrigins: ["https://comtrya.example.test"]
-}}
-database: {{ kind: "sqlite", url: "sqlite://comtrya.db" }}
-oidc: issuers: [{{
-  issuerURL: "https://issuer.example.test"
-  clientID: "comtrya"
-  clientKind: "confidential"
-  clientSecret: "prod-secret"
-  redirectURL: "https://comtrya.example.test/auth/oidc/prod/callback"
-  allowed: domains: ["example.test"]
-}}]
-storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
-"#,
-                repos.display()
-            ),
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.environment, Environment::Production);
-        assert_eq!(config.allowed_origins, ["https://comtrya.example.test"]);
-    }
-
-    #[test]
-    fn config_loader_reads_extension_install_configs() {
-        let dir = temp_dir("config-extensions");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  checks: {
-    source: {
-      kind: "local"
-      path: "ext_checks"
-    }
-    enabled: true
-  }
-  "pull-requests": {
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/pull-requests"
-      reference: "v1.0.0"
-    }
-    enabled: false
-  }
-  "code-browser": {
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/code-browser"
-      digest: "sha256:abc123"
-    }
-  }
-}
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.extensions.len(), 3);
-        assert_eq!(config.extensions[0].id, "checks");
-        assert!(config.extensions[0].enabled);
-        assert_eq!(
-            config.extensions[0].source,
-            ExtensionSource::Local {
-                path: "ext_checks".to_string()
-            }
-        );
-        assert!(!config.extensions[1].enabled);
-        assert_eq!(
-            config.extensions[1].source,
-            ExtensionSource::Oci {
-                registry: "ghcr.io".to_string(),
-                image: "comtrya/extensions/pull-requests".to_string(),
-                reference: OciReference::Tag("v1.0.0".to_string())
-            }
-        );
-        assert_eq!(
-            config.extensions[2].source,
-            ExtensionSource::Oci {
-                registry: "ghcr.io".to_string(),
-                image: "comtrya/extensions/code-browser".to_string(),
-                reference: OciReference::Digest("sha256:abc123".to_string())
-            }
-        );
-        assert!(config.extensions[2].enabled);
-    }
-
-    #[test]
-    fn config_loader_reads_shorthand_keyed_extension_install_config() {
-        let dir = temp_dir("config-extension-shorthand");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: checks: {
-  source: {
-    kind: "local"
-    path: "ext_checks"
-  }
-  enabled: true
-}
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.extensions.len(), 1);
-        assert_eq!(config.extensions[0].id, "checks");
-        assert_eq!(
-            config.extensions[0].source,
-            ExtensionSource::Local {
-                path: "ext_checks".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn config_loader_rejects_unquoted_hyphenated_extension_labels() {
-        let dir = temp_dir("config-extension-invalid-raw-label");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  pull-requests: {
-    source: {
-      kind: "local"
-      path: "ext_pull_requests"
-    }
-  }
-}
-"#,
-        )
-        .unwrap();
-
-        let error = load_config_file(&config_path).unwrap_err();
-
-        assert!(error.contains("must be quoted"));
-    }
-
-    #[test]
-    fn config_loader_treats_list_extension_block_as_documentation_only() {
-        let dir = temp_dir("config-extension-list-docs");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: [
-  {
-    id: "checks"
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/checks"
-      reference: "v1.0.0"
-    }
-    enabled: true
-  },
-]
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert!(config.extensions.is_empty());
-    }
-
-    #[test]
-    fn config_loader_records_empty_extension_map_as_declared() {
-        let dir = temp_dir("config-extension-empty-map");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {}
-"#,
-        )
-        .unwrap();
-
-        let loaded = load_config_file_with_metadata(&config_path).unwrap();
-        let runtime = load_configured_extension_runtime(
-            &test_extension_dir(),
-            true,
-            &loaded.config.extensions,
-        )
-        .unwrap();
-
-        assert!(loaded.extension_config_declared);
-        assert!(loaded.config.extensions.is_empty());
-        assert!(runtime.records.is_empty());
     }
 
     #[tokio::test]
@@ -7924,41 +7230,40 @@ extensions: {}
 
     #[test]
     fn runtime_payload_filters_disabled_configured_extension_installations() {
-        let dir = temp_dir("configured-runtime-filter");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  checks: {
-    source: {
-      kind: "local"
-      path: "ext_checks"
-    }
-    enabled: true
-  }
-  "pull-requests": {
-    source: {
-      kind: "local"
-      path: "ext_pull_requests"
-    }
-    enabled: false
-  }
-}
-"#,
+        // Declare two local extensions, one disabled — the disabled one must
+        // be filtered out of the loaded runtime.
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions = vec![
+            ExtensionInstallConfig {
+                id: "checks".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_checks".to_string(),
+                },
+                enabled: true,
+                route_prefix: None,
+            },
+            ExtensionInstallConfig {
+                id: "pull-requests".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_pull_requests".to_string(),
+                },
+                enabled: false,
+                route_prefix: None,
+            },
+        ];
+        let runtime = Runtime::start_with_config(
+            StartupOptions {
+                data_dir: temp_dir("configured-runtime-filter-data"),
+                extension_dir: test_extension_dir(),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                check: false,
+                tls_terminated: false,
+                operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds: 300,
+            },
+            config,
+            true,
         )
-        .unwrap();
-        let runtime = Runtime::start(StartupOptions {
-            config_path: Some(config_path),
-            data_dir: temp_dir("configured-runtime-filter-data"),
-            extension_dir: test_extension_dir(),
-            listen: "127.0.0.1:0".parse().unwrap(),
-            check: false,
-            tls_terminated: false,
-            operator_code: Some("testbed-operator-code".to_string()),
-            session_ttl_seconds: 300,
-        })
         .unwrap();
 
         let payload = runtime.runtime_payload().unwrap();
@@ -8103,7 +7408,6 @@ extensions: {
     #[test]
     fn runtime_loaded_registry_dispatches_ext_issues_wasm_and_persists_event() {
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("runtime-loaded-registry-dispatch"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -8183,7 +7487,6 @@ extensions: {
     #[test]
     fn runtime_loaded_registry_enforces_ext_issues_create_validation() {
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("runtime-loaded-registry-issue-validation"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -10392,20 +9695,20 @@ extensions: {
     }
 
     fn dev_runtime_with_tls_terminated(tls_terminated: bool) -> Arc<Runtime> {
-        let config_dir = temp_dir("sec-tls-cfg");
-        let config_path = config_dir.join("config.cue");
-        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
         Arc::new(
-            Runtime::start(StartupOptions {
-                config_path: Some(config_path),
-                data_dir: temp_dir("sec-tls"),
-                extension_dir: test_extension_dir(),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                check: false,
-                tls_terminated,
-                operator_code: Some("testbed-operator-code".to_string()),
-                session_ttl_seconds: 300,
-            })
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("sec-tls"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                InstanceConfig::minimal_dev(),
+                true,
+            )
             .unwrap(),
         )
     }
