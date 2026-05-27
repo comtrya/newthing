@@ -5,7 +5,7 @@ import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
 import { formatUnixTime, useAdminTelemetry } from "../admin-telemetry";
 
-const { telemetry, loading, error, refresh } = useAdminTelemetry();
+const { telemetry, loading, error, refresh, syncNow, configSync } = useAdminTelemetry();
 
 const accessStats = computed(() => {
   const data = telemetry.value;
@@ -51,6 +51,56 @@ const accessStats = computed(() => {
           <div v-for="stat in accessStats" :key="stat.label" class="glass stat-card">
             <div class="eyebrow">{{ stat.label }}</div>
             <div class="mono stat-value">{{ stat.value }}</div>
+          </div>
+        </div>
+
+        <div class="glass" style="margin-bottom: 16px">
+          <div class="section-hd">
+            <div class="section-hd-title">Configuration sync</div>
+            <div class="section-hd-sub">GitOps config repo</div>
+            <div class="spacer" />
+            <button
+              class="btn"
+              type="button"
+              :disabled="loading || !configSync?.configured"
+              @click="syncNow"
+            >
+              <Icon name="retry" /><span>{{ loading ? "Syncing" : "Sync now" }}</span>
+            </button>
+          </div>
+          <div v-if="configSync?.configured" class="kv-list">
+            <div>
+              <span>repo</span>
+              <strong class="mono">{{ configSync.repoUrl }}</strong>
+            </div>
+            <div>
+              <span>last commit</span>
+              <strong class="mono">{{
+                configSync.lastCommit ? configSync.lastCommit.slice(0, 12) : "unknown"
+              }}</strong>
+            </div>
+            <div>
+              <span>last synced</span>
+              <strong class="mono">{{
+                formatUnixTime(configSync.lastSyncedUnix ?? undefined)
+              }}</strong>
+            </div>
+            <div>
+              <span>interval</span>
+              <strong class="mono">{{ configSync.intervalSeconds }}s</strong>
+            </div>
+            <div v-if="configSync.pendingExtensionReload">
+              <span>extensions</span>
+              <Chip mono tone="warn">restart required to apply</Chip>
+            </div>
+            <div v-if="configSync.lastError">
+              <span>last error</span>
+              <strong class="mono" style="color: var(--err)">{{ configSync.lastError }}</strong>
+            </div>
+          </div>
+          <div v-else class="empty">
+            This instance is not configured with a config repo
+            (COMTRYA_CONFIG_REPO_URL is unset).
           </div>
         </div>
 
