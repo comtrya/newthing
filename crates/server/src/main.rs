@@ -2272,6 +2272,7 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
     match extract_root_operation_field(query).as_deref() {
         Some("createRepository") => return create_repository_mutation(state, headers, payload),
+        Some("syncConfig") => return sync_config_mutation(state, headers, payload),
         Some("relations.create") => {
             return relations_create_mutation(state, headers, payload);
         }
@@ -2956,6 +2957,73 @@ fn relations_between_query(state: AppState, headers: HeaderMap, payload: Value) 
             cors,
         ),
     }
+}
+
+/// Admin-only manual config sync (the /admin "Sync now" button). Fast-forwards
+/// the config repo, reconciles live on change, and returns the sync status.
+fn sync_config_mutation(state: AppState, headers: HeaderMap, _payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return graphql_error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "syncConfig requires an admin session",
+            cors,
+        );
+    }
+    let Some(repo) = config_sync::ConfigRepo::from_env(&state.runtime.data_dir) else {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "instance has no configured config repo (COMTRYA_CONFIG_REPO_URL is unset)",
+            cors,
+        );
+    };
+    // poll() does blocking git I/O; consistent with the other sync mutation
+    // handlers, and manual sync is rare. Never hold the status lock across
+    // reconcile_live — the reconciler locks it internally.
+    match repo.poll() {
+        Ok(config_sync::SyncPoll::Changed { commit, config }) => {
+            reconcile::reconcile_live(&state.runtime, &config);
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_synced(commit, now_seconds());
+            }
+        }
+        Ok(config_sync::SyncPoll::Unchanged { commit }) => {
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_synced(commit, now_seconds());
+            }
+        }
+        Err(error) => {
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_error(error.clone(), now_seconds());
+            }
+            return graphql_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                &error,
+                cors,
+            );
+        }
+    }
+    let snapshot = state
+        .runtime
+        .config_sync_status
+        .lock()
+        .ok()
+        .and_then(|status| serde_json::to_value(&*status).ok())
+        .unwrap_or(Value::Null);
+    json_response(
+        StatusCode::OK,
+        json!({ "data": { "syncConfig": snapshot } }),
+        cors,
+    )
 }
 
 fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
