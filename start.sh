@@ -130,7 +130,8 @@ load_envrc() {
   local override_names=(
     BUN
     COMTRYA_BROWSER_SMOKE
-    COMTRYA_CONFIG
+    COMTRYA_CONFIG_REPO_REF
+    COMTRYA_CONFIG_REPO_URL
     COMTRYA_DATA_DIR
     COMTRYA_EXTENSION_DIR
     COMTRYA_FRONTEND_LISTEN
@@ -894,7 +895,6 @@ if [[ "${COMTRYA_ONESHOT:-0}" == "1" && -z "${COMTRYA_SESSION_TTL_SECONDS+x}" ]]
   export COMTRYA_SESSION_TTL_SECONDS=2
 fi
 
-CONFIG="${COMTRYA_CONFIG:-config/production-testbed.cue}"
 DATA_DIR="${COMTRYA_DATA_DIR:-/private/tmp/comtrya-production-testbed}"
 RESET_DATA="${COMTRYA_RESET_DATA:-0}"
 BACKEND_LISTEN="${COMTRYA_LISTEN:-127.0.0.1:8080}"
@@ -934,7 +934,6 @@ require_command git
 require_command rg
 [[ -x "$BUN" ]] || fail "missing Bun executable: $BUN"
 
-export COMTRYA_CONFIG="$CONFIG"
 export COMTRYA_DATA_DIR="$DATA_DIR"
 export COMTRYA_EXTENSION_DIR="${COMTRYA_EXTENSION_DIR:-$ROOT_DIR/extensions/first-party}"
 export COMTRYA_TLS_TERMINATED=true
@@ -949,9 +948,31 @@ if [[ "$RESET_DATA" == "1" ]]; then
   reset_generated_path "$DATA_DIR/repositories"
   reset_generated_path "$DATA_DIR/metadata"
   reset_generated_path "$DATA_DIR/extensions/storage"
+  reset_generated_path "$DATA_DIR/config-repo"
+  reset_generated_path "$DATA_DIR/config-source"
   log "reset runtime data under: $DATA_DIR"
 fi
 mkdir -p "$DATA_DIR/metadata"
+
+# Pure GitOps: configuration comes from an external CUE git repo. By default
+# we materialise the bundled fixture (fixtures/config-repo) into a local git
+# repo and point the server at it via file://. Override COMTRYA_CONFIG_REPO_URL
+# (e.g. in .envrc) to use your own config repo instead.
+export COMTRYA_CONFIG_REPO_REF="${COMTRYA_CONFIG_REPO_REF:-main}"
+if [[ -z "${COMTRYA_CONFIG_REPO_URL:-}" ]]; then
+  CONFIG_SOURCE="$DATA_DIR/config-source"
+  # Re-materialise from scratch so the clone in $DATA_DIR/config-repo always
+  # fast-forwards cleanly against a fresh single-commit history.
+  rm -rf "$CONFIG_SOURCE" "$DATA_DIR/config-repo"
+  mkdir -p "$CONFIG_SOURCE"
+  cp -R "$ROOT_DIR/fixtures/config-repo/." "$CONFIG_SOURCE/"
+  git -C "$CONFIG_SOURCE" init -q -b "$COMTRYA_CONFIG_REPO_REF"
+  git -C "$CONFIG_SOURCE" add -A
+  git -C "$CONFIG_SOURCE" -c user.email=ci@comtrya.dev -c user.name=comtrya \
+    commit -q -m "bundled config fixture"
+  export COMTRYA_CONFIG_REPO_URL="file://$CONFIG_SOURCE"
+  log "materialised bundled config repo: $COMTRYA_CONFIG_REPO_URL"
+fi
 
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/comtrya-start.XXXXXX")"
 SERVER_LOG="${COMTRYA_SERVER_LOG:-$DATA_DIR/server.log}"

@@ -22,7 +22,8 @@ capacity signals.
 
 | Var | Required | Effect |
 |---|---|---|
-| `COMTRYA_CONFIG` | No (recommended in prod) | Path to the CUE config file. Optional — the server starts with built-in defaults if unset. Set explicitly in production so the operator owns the config surface. |
+| `COMTRYA_CONFIG_REPO_URL` | Yes (prod) | URL of the external CUE config repo (pure GitOps). Unset runs an unconfigured dev default; set it in production so the config repo owns the entire config surface. |
+| `COMTRYA_CONFIG_REPO_REF` | No (remote default) | Branch/ref of the config repo to track. |
 | `COMTRYA_DATA_DIR` | No (defaults `./data`) | Root of persistent state (events.jsonl, audit.jsonl, repositories/, extensions/, secrets/). Override in production to point at the mounted data volume. |
 | `COMTRYA_EXTENSION_DIR` | No (defaults `extensions/first-party`) | Root containing first-party extension manifests + `.wasm` artifacts. Override only if you ship extensions in a non-default location. |
 | `COMTRYA_LISTEN` | No (defaults `127.0.0.1:8080`) | Bind address. The shipped Dockerfile overrides to `0.0.0.0:8080`. |
@@ -85,9 +86,10 @@ capacity signals.
    ```
    The image runs as UID 10001. Kubernetes operators: set
    `securityContext.fsGroup: 10001` on the pod spec.
-3. Prepare the CUE config file. Start from `config/production-testbed.cue`
-   in the repo and replace placeholder OIDC client secrets,
-   redirect URLs, and repository storage backends with real values.
+3. Prepare your CUE config repo. Start from `fixtures/config-repo`
+   in this repo, replace placeholder OIDC client secrets, redirect URLs,
+   and repository storage backends with real values, and push it to a git
+   remote the server can clone.
 4. Set the required env vars (see surface inventory above). In
    `Production` mode, `COMTRYA_TLS_TERMINATED=true` and
    `COMTRYA_OPERATOR_CODE` are required for `/readyz` to report
@@ -96,8 +98,7 @@ capacity signals.
    ```bash
    docker run --rm \
        -v "$(pwd)/data:/app/data" \
-       -v "$(pwd)/config/production-testbed.cue:/app/config.cue:ro" \
-       -e COMTRYA_CONFIG=/app/config.cue \
+       -e COMTRYA_CONFIG_REPO_URL="https://github.com/your-org/comtrya-config.git" \
        comtrya-server --check
    ```
    The config file MUST be bind-mounted into the container —
@@ -268,7 +269,7 @@ otherwise vulnerable to "torn read" during the tar.
 
 ### OIDC client secret
 
-The OIDC issuer block in `$COMTRYA_CONFIG` declares
+The OIDC issuer block in your CUE config repo declares
 `clientSecret`. Rotation:
 
 1. Generate a new secret in the issuer dashboard

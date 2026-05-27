@@ -12,9 +12,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
 use comtrya_core::{
-    ClientKind, CorsPolicy, DatabaseConfig, Environment, ErrorCode, ExtensionInstallConfig,
-    ExtensionSource, IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId,
-    RepoStorageBackend, ResourceKind, ResourceRef, Slug, TokenAction, allowed_methods_for_route,
+    ClientKind, CorsPolicy, Environment, ErrorCode, ExtensionInstallConfig, ExtensionSource,
+    IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId, RepoStorageBackend,
+    ResourceKind, ResourceRef, Slug, TokenAction, allowed_methods_for_route,
 };
 use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
@@ -33,9 +33,11 @@ use tokio::sync::Semaphore;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 
+mod config_sync;
 mod cue_config;
 mod oidc;
 mod persistence;
+mod reconcile;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -220,6 +222,61 @@ async fn main() {
         }
     });
 
+    // Background GitOps config sync. Fast-forwards the config repo on an
+    // interval (default 15m); on change it re-evaluates so validation errors
+    // surface in the sync status. Applying the new config live is the
+    // reconciler's job (later phase). Unconfigured instances no-op.
+    let sync_runtime = Arc::clone(&runtime);
+    let sync_handle = tokio::spawn(async move {
+        let interval_seconds = sync_runtime
+            .config_sync_status
+            .lock()
+            .expect("config sync status lock")
+            .interval_seconds;
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The first tick fires immediately; startup already synced, so drop it.
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            let data_dir = sync_runtime.data_dir.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                config_sync::ConfigRepo::from_env(&data_dir)
+                    .map(|repo| repo.poll())
+                    .transpose()
+            })
+            .await;
+            match result {
+                Ok(Ok(Some(config_sync::SyncPoll::Changed { commit, config }))) => {
+                    reconcile::reconcile_live(&sync_runtime, &config);
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_synced(commit.clone(), now_seconds());
+                    tracing::info!(commit = %commit, "config repo changed; reconciled live");
+                }
+                Ok(Ok(Some(config_sync::SyncPoll::Unchanged { commit }))) => {
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_synced(commit, now_seconds());
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(error)) => {
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_error(error.clone(), now_seconds());
+                    tracing::warn!(%error, "config repo sync failed");
+                }
+                Err(join) => tracing::warn!(%join, "config sync task panicked"),
+            }
+        }
+    });
+
     let app = router(AppState { runtime, git_state });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
@@ -253,6 +310,7 @@ async fn main() {
     }
 
     eviction_handle.abort();
+    sync_handle.abort();
     tracing::info!("graceful shutdown: draining complete; flushing logs");
     if let Err(error) = fsync_jsonl_path(&events_path) {
         tracing::error!(%error, path = ?events_path, "graceful shutdown: events.jsonl fsync failed");
@@ -393,7 +451,6 @@ struct AppState {
 
 #[derive(Debug, Clone)]
 struct StartupOptions {
-    config_path: Option<PathBuf>,
     data_dir: PathBuf,
     extension_dir: PathBuf,
     listen: SocketAddr,
@@ -405,7 +462,6 @@ struct StartupOptions {
 
 impl StartupOptions {
     fn from_env_and_args(args: impl Iterator<Item = String>) -> Self {
-        let mut config_path = std::env::var_os("COMTRYA_CONFIG").map(PathBuf::from);
         let mut data_dir = std::env::var_os("COMTRYA_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("./data"));
@@ -422,11 +478,6 @@ impl StartupOptions {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "--check" => check = true,
-                "--config" => {
-                    if let Some(path) = args.next() {
-                        config_path = Some(PathBuf::from(path));
-                    }
-                }
                 "--data-dir" => {
                     if let Some(path) = args.next() {
                         data_dir = PathBuf::from(path);
@@ -447,7 +498,6 @@ impl StartupOptions {
         }
 
         Self {
-            config_path,
             data_dir,
             extension_dir: absolute_path(extension_dir),
             listen,
@@ -489,6 +539,13 @@ struct Runtime {
     /// lifetime. Replaces the previous "evaluate on every request"
     /// behaviour at `evaluate_repo_config` call sites.
     cue_config_cache: cue_config::CueConfigCache,
+    /// Observable state of GitOps config-repo syncing. Updated at startup and
+    /// by the background sync loop; surfaced in admin telemetry.
+    config_sync_status: Mutex<config_sync::SyncStatus>,
+    /// Live admin allow-list (OIDC-claim matchers). Seeded from config at
+    /// startup and replaced by the reconciler on each config sync, so admin
+    /// changes take effect without a restart.
+    admins: std::sync::RwLock<Vec<comtrya_core::AdminConfig>>,
 }
 
 type ResponseResult<T> = Result<T, Box<Response>>;
@@ -533,19 +590,53 @@ struct ExtensionAsset {
 
 impl Runtime {
     fn start(options: StartupOptions) -> Result<Self, String> {
-        let loaded_config = if let Some(path) = &options.config_path {
-            load_config_file_with_metadata(path)?
-        } else {
-            LoadedConfig {
-                config: InstanceConfig::minimal_dev(),
-                extension_config_declared: false,
-            }
-        };
-        let config = loaded_config.config;
-        let extension_config_declared = loaded_config.extension_config_declared;
+        // The config repo clones into data_dir/config-repo, so the data dir
+        // must exist before we resolve the config source.
+        fs::create_dir_all(&options.data_dir)
+            .map_err(|error| format!("failed to create data dir: {error}"))?;
+
+        // Pure GitOps: the external CUE config repo is the only config source.
+        // When its URL is unset the instance runs an unconfigured dev default.
+        let interval = config_sync::sync_interval_seconds_from_env();
+        let (config, extension_config_declared, sync_status) =
+            match config_sync::ConfigRepo::from_env(&options.data_dir) {
+                Some(repo) => {
+                    let (config, commit) = repo.bootstrap_and_load()?;
+                    // A declared (non-empty) extension set is authoritative; an
+                    // omitted/empty one falls back to first-party discovery.
+                    let declared = !config.extensions.is_empty();
+                    let status = config_sync::SyncStatus::synced(
+                        repo.url().to_string(),
+                        commit,
+                        now_seconds(),
+                        interval,
+                    );
+                    (config, declared, status)
+                }
+                None => (
+                    InstanceConfig::minimal_dev(),
+                    false,
+                    config_sync::SyncStatus::unconfigured(interval),
+                ),
+            };
+        let runtime = Self::start_with_config(options, config, extension_config_declared)?;
+        *runtime
+            .config_sync_status
+            .lock()
+            .expect("config sync status lock") = sync_status;
+        Ok(runtime)
+    }
+
+    /// Assemble a runtime from an already-resolved config. Separated from
+    /// [`Runtime::start`] so tests can inject a config directly — pure GitOps
+    /// keeps env/file config sources out of the test path.
+    fn start_with_config(
+        options: StartupOptions,
+        config: InstanceConfig,
+        extension_config_declared: bool,
+    ) -> Result<Self, String> {
         config.validate().map_err(|error| error.to_string())?;
         validate_production_testbed(&config, &options)?;
-
         fs::create_dir_all(&options.data_dir)
             .map_err(|error| format!("failed to create data dir: {error}"))?;
         for dirname in ["metadata", "repositories", "extensions", "secrets"] {
@@ -585,6 +676,7 @@ impl Runtime {
 
         // Capture config before move so AuthService can be built from it.
         let auth_service = comtrya_core::auth::AuthService::new(&config);
+        let admins_seed = config.admins.clone();
 
         // Open the durable auth store. Migrations are applied here;
         // a fresh data_dir gets a brand-new comtrya.db with both
@@ -610,6 +702,10 @@ impl Runtime {
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
             auth_service: Mutex::new(auth_service),
             cue_config_cache: cue_config::CueConfigCache::new(),
+            config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
+                config_sync::sync_interval_seconds_from_env(),
+            )),
+            admins: std::sync::RwLock::new(admins_seed),
         };
         runtime
             .wasm_registry
@@ -1291,6 +1387,134 @@ impl Runtime {
         Ok(data)
     }
 
+    /// `(canonical path, document id)` for every stored repository. Used by the
+    /// reconciler to diff declared vs actual.
+    fn repository_docs(&self) -> Vec<(String, String)> {
+        self.extension_storage
+            .collection_data("repositories")
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|doc| {
+                let path = doc.get("path").and_then(Value::as_str)?.to_string();
+                let id = doc.get("id").and_then(Value::as_str)?.to_string();
+                Some((path, id))
+            })
+            .collect()
+    }
+
+    /// Create a repository declared in config, then stamp its declared
+    /// visibility and description onto the document.
+    fn create_declared_repository(
+        &self,
+        repo: &comtrya_core::RepositoryConfig,
+    ) -> Result<(), String> {
+        let created = self.create_repository_document(&repo.path, None)?;
+        let id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("created repository document missing id")?
+            .to_string();
+        let visibility = visibility_label(repo.visibility);
+        let description = repo.description.clone().unwrap_or_default();
+        self.extension_storage
+            .update_document_atomically("repositories", &id, |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert(
+                        "visibility".to_string(),
+                        Value::String(visibility.to_string()),
+                    );
+                    obj.insert("description".to_string(), Value::String(description));
+                }
+            })
+    }
+
+    /// Delete a repository: remove its document and its on-disk bare repo.
+    /// Strict GitOps — this destroys git history for repos absent from config.
+    fn delete_repository(&self, path: &str, id: &str) -> Result<(), String> {
+        self.extension_storage
+            .delete_document("core", "repositories", id)?;
+        let git_dir = self.repository_root().join(format!("{path}.git"));
+        if git_dir.exists() {
+            fs::remove_dir_all(&git_dir)
+                .map_err(|error| format!("failed to remove {}: {error}", git_dir.display()))?;
+        }
+        let _ = self.append_event(
+            "dev.comtrya.repository.deleted",
+            json!({ "path": path, "id": id }),
+        );
+        Ok(())
+    }
+
+    /// `(scope, name, color, description, id)` for every stored label. `scope`
+    /// is `None` for a global (inheritable) label.
+    fn label_docs(&self) -> Vec<(Option<String>, String, String, String, String)> {
+        self.extension_storage
+            .collection_data("labels")
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|doc| {
+                let name = doc.get("name").and_then(Value::as_str)?.to_string();
+                let id = doc.get("id").and_then(Value::as_str)?.to_string();
+                let color = doc
+                    .get("color")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let description = doc
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let scope = doc.get("scope").and_then(Value::as_str).map(str::to_owned);
+                Some((scope, name, color, description, id))
+            })
+            .collect()
+    }
+
+    fn create_label(&self, label: &comtrya_core::LabelConfig) -> Result<(), String> {
+        let id = OpaqueId::new(IdPrefix::Owned("lbl_".to_string()));
+        let now_iso = chrono_now_iso();
+        let data = json!({
+            "id": id.as_str(),
+            "name": label.name,
+            "color": label.color,
+            "description": label.description.clone().unwrap_or_default(),
+            "scope": label.scope.clone().map(Value::from).unwrap_or(Value::Null),
+            "visibility": "PUBLIC",
+        });
+        let label_ref = format!("comtrya://label/{}", id.as_str());
+        let record = extension_document_record(
+            "core",
+            "labels",
+            id.as_str(),
+            &label_ref,
+            vec![label_ref.clone()],
+            data,
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)
+    }
+
+    fn update_label(&self, id: &str, color: &str, description: &str) -> Result<(), String> {
+        let color = color.to_string();
+        let description = description.to_string();
+        self.extension_storage
+            .update_document_atomically("labels", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("color".to_string(), Value::String(color));
+                    obj.insert("description".to_string(), Value::String(description));
+                }
+            })
+    }
+
+    fn delete_label(&self, id: &str) -> Result<(), String> {
+        self.extension_storage.delete_document("core", "labels", id)
+    }
+
     fn runtime_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
@@ -1345,8 +1569,15 @@ impl Runtime {
             .rev()
             .take(12)
             .collect::<Vec<_>>();
+        let config_sync = self
+            .config_sync_status
+            .lock()
+            .ok()
+            .and_then(|status| serde_json::to_value(&*status).ok())
+            .unwrap_or(Value::Null);
 
         json!({
+            "configSync": config_sync,
             "instance": {
                 "id": self.config.id,
                 "name": self.config.name,
@@ -1650,6 +1881,27 @@ impl Runtime {
         }
     }
 
+    /// True when the OIDC claims match a configured admin (live allow-list).
+    /// `handle` carries `preferred_username` when available; today it is `None`.
+    fn is_admin_claims(&self, issuer: &str, subject: &str, email: Option<&str>) -> bool {
+        self.admins
+            .read()
+            .map(|admins| {
+                admins
+                    .iter()
+                    .any(|admin| admin.matches(issuer, subject, email, None))
+            })
+            .unwrap_or(false)
+    }
+
+    /// Replace the live admin allow-list. The reconciler calls this on each
+    /// config sync so admin changes apply without a restart.
+    fn set_admins(&self, admins: Vec<comtrya_core::AdminConfig>) {
+        if let Ok(mut guard) = self.admins.write() {
+            *guard = admins;
+        }
+    }
+
     fn issue_credential(
         &self,
         resource: String,
@@ -1858,6 +2110,8 @@ fn inject_route_prefix(
 enum PrincipalStatus {
     Anonymous,
     OperatorCredential,
+    /// OIDC-authenticated bearer whose claims matched a configured admin.
+    AdminCredential,
     Credential,
     Invalid,
 }
@@ -1891,6 +2145,7 @@ impl PrincipalContext {
 fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
     match p {
         PrincipalStatus::OperatorCredential => persistence::StoredPrincipal::OperatorCredential,
+        PrincipalStatus::AdminCredential => persistence::StoredPrincipal::AdminCredential,
         PrincipalStatus::Credential => persistence::StoredPrincipal::Credential,
         PrincipalStatus::Anonymous => persistence::StoredPrincipal::Anonymous,
         PrincipalStatus::Invalid => persistence::StoredPrincipal::Invalid,
@@ -1900,6 +2155,7 @@ fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
 fn stored_to_principal(p: persistence::StoredPrincipal) -> PrincipalStatus {
     match p {
         persistence::StoredPrincipal::OperatorCredential => PrincipalStatus::OperatorCredential,
+        persistence::StoredPrincipal::AdminCredential => PrincipalStatus::AdminCredential,
         persistence::StoredPrincipal::Credential => PrincipalStatus::Credential,
         persistence::StoredPrincipal::Anonymous => PrincipalStatus::Anonymous,
         persistence::StoredPrincipal::Invalid => PrincipalStatus::Invalid,
@@ -2016,6 +2272,7 @@ async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: S
     let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
     match extract_root_operation_field(query).as_deref() {
         Some("createRepository") => return create_repository_mutation(state, headers, payload),
+        Some("syncConfig") => return sync_config_mutation(state, headers, payload),
         Some("relations.create") => {
             return relations_create_mutation(state, headers, payload);
         }
@@ -2502,6 +2759,33 @@ pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseRe
     require_authenticated_principal(principal, cors)
 }
 
+/// Guard for read-only GraphQL: permits anonymous callers (zero-auth public
+/// read access) but still rejects an `Invalid` (malformed/expired) credential.
+/// The caller visibility-filters results by principal — anonymous sees PUBLIC
+/// repositories only; authenticated principals see all.
+pub(crate) fn graphql_read_guard(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> ResponseResult<HeaderMap> {
+    let cors = cors_or_response(state, headers)?;
+    state.runtime.rate_limit(
+        "graphql",
+        state.runtime.config.rate_limits.graphql_per_principal,
+    )?;
+    if matches!(
+        state.runtime.principal_from_headers(headers),
+        PrincipalStatus::Invalid
+    ) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "invalid credential",
+            cors,
+        )));
+    }
+    Ok(cors)
+}
+
 /// Reject `Anonymous` and `Invalid` principals. Preserves `cors` headers on
 /// the error response so cross-origin browsers receive a real 401 instead
 /// of an opaque CORS failure. Centralised so the GraphQL guard and the
@@ -2702,6 +2986,73 @@ fn relations_between_query(state: AppState, headers: HeaderMap, payload: Value) 
     }
 }
 
+/// Admin-only manual config sync (the /admin "Sync now" button). Fast-forwards
+/// the config repo, reconciles live on change, and returns the sync status.
+fn sync_config_mutation(state: AppState, headers: HeaderMap, _payload: Value) -> Response {
+    let cors = match graphql_guard(&state, &headers) {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return graphql_error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "syncConfig requires an admin session",
+            cors,
+        );
+    }
+    let Some(repo) = config_sync::ConfigRepo::from_env(&state.runtime.data_dir) else {
+        return graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "instance has no configured config repo (COMTRYA_CONFIG_REPO_URL is unset)",
+            cors,
+        );
+    };
+    // poll() does blocking git I/O; consistent with the other sync mutation
+    // handlers, and manual sync is rare. Never hold the status lock across
+    // reconcile_live — the reconciler locks it internally.
+    match repo.poll() {
+        Ok(config_sync::SyncPoll::Changed { commit, config }) => {
+            reconcile::reconcile_live(&state.runtime, &config);
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_synced(commit, now_seconds());
+            }
+        }
+        Ok(config_sync::SyncPoll::Unchanged { commit }) => {
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_synced(commit, now_seconds());
+            }
+        }
+        Err(error) => {
+            if let Ok(mut status) = state.runtime.config_sync_status.lock() {
+                status.record_error(error.clone(), now_seconds());
+            }
+            return graphql_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                &error,
+                cors,
+            );
+        }
+    }
+    let snapshot = state
+        .runtime
+        .config_sync_status
+        .lock()
+        .ok()
+        .and_then(|status| serde_json::to_value(&*status).ok())
+        .unwrap_or(Value::Null);
+    json_response(
+        StatusCode::OK,
+        json!({ "data": { "syncConfig": snapshot } }),
+        cors,
+    )
+}
+
 fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Value) -> Response {
     let cors = match graphql_guard(&state, &headers) {
         Ok(c) => c,
@@ -2778,7 +3129,10 @@ pub(crate) fn graphql_error_response(
 }
 
 fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
+    // Reads are zero-auth: anonymous callers are allowed (and PUBLIC-filtered
+    // below); only Invalid credentials are rejected. Writes (mutations) keep
+    // the stricter `graphql_guard`.
+    let cors = match graphql_read_guard(&state, &headers) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -2801,6 +3155,28 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         .get("repositories")
         .cloned()
         .unwrap_or_else(|| json!([]));
+    // Zero-auth read access is PUBLIC-only: anonymous callers see only public
+    // repositories; authenticated principals (OIDC admin / operator) see all.
+    // Every downstream read field (repositoryByPath, repositories, repository)
+    // derives from this list, so filtering here covers the whole read surface.
+    let repositories_value = if matches!(principal, PrincipalStatus::Anonymous) {
+        Value::Array(
+            repositories_value
+                .as_array()
+                .map(|repos| {
+                    repos
+                        .iter()
+                        .filter(|repo| {
+                            repo.get("visibility").and_then(Value::as_str) == Some("PUBLIC")
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )
+    } else {
+        repositories_value
+    };
     let path_segments: Vec<String> = payload
         .get("variables")
         .and_then(|v| v.get("segments"))
@@ -2988,10 +3364,23 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                         "extensionRuntime": capabilities.extension_runtime
                     }
                 },
-                "adminTelemetry": state.runtime.admin_telemetry(),
+                // Admin-only: non-admins see null and the shell hides /admin.
+                "adminTelemetry": if matches!(
+                    principal,
+                    PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+                ) {
+                    state.runtime.admin_telemetry()
+                } else {
+                    Value::Null
+                },
                 "workspace": workspace,
                 "repository": repository,
                 "repositories": repositories_value,
+                "labels": state
+                    .runtime
+                    .extension_storage
+                    .collection_data("labels")
+                    .unwrap_or_else(|_| json!([])),
                 "extensionInstallations": inject_route_prefix(
                     runtime_data.get("extensions").cloned().unwrap_or_else(|| json!([])),
                     &state.runtime.config.extensions,
@@ -3035,7 +3424,9 @@ fn event_stream_response(
     };
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -3076,7 +3467,9 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -3483,11 +3876,21 @@ async fn oidc_callback(
         }
     };
 
-    // 6. Issue session. `PrincipalStatus::Credential` marks the
-    //    bearer as OIDC-authenticated; the user id itself is captured
-    //    in the audit event below for trace correlation, not in the
-    //    SessionRecord (which only stores PrincipalStatus today).
-    let token = state.runtime.issue_session(PrincipalStatus::Credential);
+    // 6. Issue session. Claims matching a configured admin mint an
+    //    AdminCredential (gates /admin surfaces); everyone else gets a plain
+    //    OIDC-authenticated Credential. The user id is captured in the audit
+    //    event below for trace correlation (the session stores only the
+    //    PrincipalStatus today).
+    let principal = if state.runtime.is_admin_claims(
+        &login.user.issuer,
+        &login.user.subject,
+        login.user.email.as_deref(),
+    ) {
+        PrincipalStatus::AdminCredential
+    } else {
+        PrincipalStatus::Credential
+    };
+    let token = state.runtime.issue_session(principal);
     let cookie = session_cookie_value(
         &token,
         state.runtime.options.session_ttl_seconds,
@@ -3626,7 +4029,9 @@ async fn git_endpoint(
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
@@ -4109,6 +4514,14 @@ fn validate_verb_uri(uri: &str) -> Result<(), String> {
     }
     Ok(())
 }
+fn visibility_label(visibility: comtrya_core::Visibility) -> &'static str {
+    match visibility {
+        comtrya_core::Visibility::Public => "PUBLIC",
+        comtrya_core::Visibility::Internal => "INTERNAL",
+        comtrya_core::Visibility::Private => "PRIVATE",
+    }
+}
+
 fn init_bare_repository_on_disk(
     project_root: &Path,
     canonical_path: &str,
@@ -4802,6 +5215,11 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_repository_time", &["repositoryID", "time"], false),
                 storage_index("by_type_time", &["type", "time"], false),
             ],
+        ),
+        storage_collection(
+            "core",
+            "labels",
+            vec![storage_index("by_scope_name", &["scope", "name"], false)],
         ),
     ]
 }
@@ -5807,483 +6225,6 @@ fn validate_production_testbed(
     Ok(())
 }
 
-#[derive(Debug)]
-struct LoadedConfig {
-    config: InstanceConfig,
-    extension_config_declared: bool,
-}
-
-#[cfg(test)]
-fn load_config_file(path: &Path) -> Result<InstanceConfig, String> {
-    load_config_file_with_metadata(path).map(|loaded| loaded.config)
-}
-
-fn load_config_file_with_metadata(path: &Path) -> Result<LoadedConfig, String> {
-    let source = fs::read_to_string(path)
-        .map_err(|error| format!("failed to read config {}: {error}", path.display()))?;
-    let mut config = InstanceConfig::minimal_dev();
-    if let Some(value) = cue_string(&source, "id") {
-        config.id = value;
-    }
-    if let Some(value) = cue_string(&source, "name") {
-        config.name = value;
-    }
-    if let Some(value) = cue_string(&source, "publicURL") {
-        config.public_url = value;
-    }
-    if let Some(value) = cue_string(&source, "environment") {
-        config.environment = match value.as_str() {
-            "production" => Environment::Production,
-            _ => Environment::Development,
-        };
-    }
-    if let Some(origins) = cue_string_array(&source, "allowedOrigins") {
-        config.allowed_origins = origins;
-    }
-    if let Some(value) = cue_string_after(&source, "database", "url") {
-        config.database = if value.starts_with("postgres://") {
-            DatabaseConfig::Postgres { url: value }
-        } else {
-            DatabaseConfig::Sqlite { url: value }
-        };
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "issuerURL") {
-        config.oidc_issuers[0].issuer_url = value;
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientID") {
-        config.oidc_issuers[0].client_id = value;
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientKind") {
-        config.oidc_issuers[0].client_kind = if value == "public" {
-            config.oidc_issuers[0].client_secret = None;
-            ClientKind::Public
-        } else {
-            ClientKind::Confidential
-        };
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "clientSecret") {
-        config.oidc_issuers[0].client_secret = Some(value);
-    }
-    if let Some(value) = cue_string_after(&source, "oidc", "redirectURL") {
-        config.oidc_issuers[0].redirect_url = value;
-    }
-    if let Some(domains) = cue_string_array_after(&source, "allowed", "domains") {
-        config.oidc_issuers[0].allowed_domains = domains;
-    }
-    if let Some(path) = cue_string_after(&source, "backends", "path") {
-        config
-            .repository_storage_backends
-            .insert("local".to_string(), RepoStorageBackend::Local { path });
-    }
-    if let Some(value) = cue_string_after(&source, "workspaces", "visibility")
-        && let Some(workspace) = config.workspaces.get_mut("default")
-    {
-        workspace.visibility = match value.as_str() {
-            "PUBLIC" => comtrya_core::Visibility::Public,
-            "INTERNAL" => comtrya_core::Visibility::Internal,
-            _ => comtrya_core::Visibility::Private,
-        };
-    }
-    let extensions = cue_extension_install_configs(&source)?;
-    let extension_config_declared = extensions.is_some();
-    if let Some(extensions) = extensions {
-        config.extensions = extensions;
-    }
-    config.validate().map_err(|error| error.to_string())?;
-    Ok(LoadedConfig {
-        config,
-        extension_config_declared,
-    })
-}
-
-fn cue_string(source: &str, key: &str) -> Option<String> {
-    source.lines().find_map(|line| quoted_value(line, key))
-}
-
-fn cue_string_after(source: &str, section: &str, key: &str) -> Option<String> {
-    let section_start = source.find(section)?;
-    cue_string(&source[section_start..], key)
-}
-
-fn cue_string_array(source: &str, key: &str) -> Option<Vec<String>> {
-    source.lines().find_map(|line| quoted_array(line, key))
-}
-
-fn cue_string_array_after(source: &str, section: &str, key: &str) -> Option<Vec<String>> {
-    let section_start = source.find(section)?;
-    cue_string_array(&source[section_start..], key)
-}
-
-fn quoted_value(line: &str, key: &str) -> Option<String> {
-    let (_, rest) = line.split_once(key)?;
-    let (_, rest) = rest.split_once('"')?;
-    let (value, _) = rest.split_once('"')?;
-    Some(value.to_string())
-}
-
-fn quoted_array(line: &str, key: &str) -> Option<Vec<String>> {
-    let (_, rest) = line.split_once(key)?;
-    let (_, rest) = rest.split_once('[')?;
-    let (inside, _) = rest.split_once(']')?;
-    Some(
-        inside
-            .split(',')
-            .filter_map(|part| {
-                let (_, rest) = part.split_once('"')?;
-                let (value, _) = rest.split_once('"')?;
-                Some(value.to_string())
-            })
-            .collect(),
-    )
-}
-
-fn cue_extension_install_configs(
-    source: &str,
-) -> Result<Option<Vec<ExtensionInstallConfig>>, String> {
-    let Some(key_offset) = cue_key_offset(source, "extensions") else {
-        return Ok(None);
-    };
-    let colon_index = source[key_offset..]
-        .find(':')
-        .map(|relative| key_offset + relative)
-        .ok_or_else(|| "extensions field missing :".to_string())?;
-    let Some((value_index, value_start)) = cue_first_significant_char(source, colon_index + 1)
-    else {
-        return Ok(None);
-    };
-    if value_start == '[' {
-        return Ok(None);
-    }
-    let body = if value_start == '{' {
-        let close_index = cue_balanced_close(source, value_index, '{', '}')
-            .ok_or_else(|| "extensions map has an unclosed { block".to_string())?;
-        source[value_index + 1..close_index].to_string()
-    } else {
-        let open_index = source[value_index..]
-            .find('{')
-            .map(|relative| value_index + relative)
-            .ok_or_else(|| "extensions keyed entry missing { block".to_string())?;
-        let close_index = cue_balanced_close(source, open_index, '{', '}')
-            .ok_or_else(|| "extensions keyed entry has an unclosed { block".to_string())?;
-        source[value_index..=close_index].to_string()
-    };
-    let blocks = cue_top_level_keyed_objects(&body)?;
-    let mut configs = Vec::new();
-    for (id, block) in blocks {
-        configs.push(cue_extension_install_config(id, &block)?);
-    }
-    Ok(Some(configs))
-}
-
-fn cue_extension_install_config(id: String, block: &str) -> Result<ExtensionInstallConfig, String> {
-    if let Some(field_id) = cue_field_string(block, "id")
-        && field_id != id
-    {
-        return Err(format!(
-            "extension keyed as {id:?} must not declare mismatched id {field_id:?}"
-        ));
-    }
-    let source = cue_balanced_body_after_key(block, "source", '{', '}')?
-        .ok_or_else(|| format!("extension {id} missing source block"))?;
-    let kind = cue_field_string(&source, "kind")
-        .ok_or_else(|| format!("extension {id} source missing kind"))?;
-    let source = match kind.as_str() {
-        "local" => {
-            let path = cue_field_string(&source, "path")
-                .ok_or_else(|| format!("extension {id} local source missing path"))?;
-            ExtensionSource::Local { path }
-        }
-        "oci" => {
-            let registry = cue_field_string(&source, "registry")
-                .ok_or_else(|| format!("extension {id} OCI source missing registry"))?;
-            let image = cue_field_string(&source, "image")
-                .ok_or_else(|| format!("extension {id} OCI source missing image"))?;
-            let reference = if let Some(digest) = cue_field_string(&source, "digest") {
-                OciReference::Digest(digest)
-            } else if let Some(reference) = cue_field_string(&source, "reference") {
-                oci_reference_from_config(reference)
-            } else if let Some(tag) = cue_field_string(&source, "tag") {
-                OciReference::Tag(tag)
-            } else {
-                return Err(format!("extension {id} OCI source missing reference"));
-            };
-            ExtensionSource::Oci {
-                registry,
-                image,
-                reference,
-            }
-        }
-        _ => {
-            return Err(format!(
-                "extension {id} source kind {kind:?} is not supported"
-            ));
-        }
-    };
-
-    Ok(ExtensionInstallConfig {
-        id,
-        source,
-        enabled: cue_field_bool(block, "enabled").unwrap_or(true),
-        route_prefix: None,
-    })
-}
-
-fn oci_reference_from_config(reference: String) -> OciReference {
-    if reference.starts_with("sha256:") {
-        OciReference::Digest(reference)
-    } else {
-        OciReference::Tag(reference)
-    }
-}
-
-fn cue_key_offset(source: &str, key: &str) -> Option<usize> {
-    let mut offset = 0;
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = offset + line.len() - trimmed.len();
-        if let Some(rest) = trimmed.strip_prefix(key)
-            && rest.trim_start().starts_with(':')
-        {
-            return Some(start);
-        }
-        offset += line.len();
-    }
-    None
-}
-
-fn cue_balanced_body_after_key(
-    source: &str,
-    key: &str,
-    open: char,
-    close: char,
-) -> Result<Option<String>, String> {
-    let Some(key_offset) = cue_key_offset(source, key) else {
-        return Ok(None);
-    };
-    let Some(open_relative) = source[key_offset..].find(open) else {
-        return Err(format!("{key} missing {open} block"));
-    };
-    let open_index = key_offset + open_relative;
-    let close_index = cue_balanced_close(source, open_index, open, close)
-        .ok_or_else(|| format!("{key} has an unclosed {open} block"))?;
-    Ok(Some(
-        source[open_index + open.len_utf8()..close_index].to_string(),
-    ))
-}
-
-fn cue_balanced_close(source: &str, open_index: usize, open: char, close: char) -> Option<usize> {
-    let mut depth = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut in_line_comment = false;
-    for (relative, ch) in source[open_index..].char_indices() {
-        let index = open_index + relative;
-        if in_line_comment {
-            if ch == '\n' {
-                in_line_comment = false;
-            }
-            continue;
-        }
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if source[index..].starts_with("//") {
-            in_line_comment = true;
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if ch == open {
-            depth += 1;
-        } else if ch == close {
-            depth = depth.checked_sub(1)?;
-            if depth == 0 {
-                return Some(index);
-            }
-        }
-    }
-    None
-}
-
-fn cue_top_level_keyed_objects(source: &str) -> Result<Vec<(String, String)>, String> {
-    let mut objects = Vec::new();
-    let mut offset = 0usize;
-    while offset < source.len() {
-        let Some((key, colon_index)) = cue_next_key_colon(source, offset)? else {
-            break;
-        };
-        let Some((open_index, open_char)) = cue_first_significant_char(source, colon_index + 1)
-        else {
-            return Err(format!("extension {key} missing value"));
-        };
-        if open_char != '{' {
-            return Err(format!("extension {key} value must be an object"));
-        }
-        let close_index = cue_balanced_close(source, open_index, '{', '}')
-            .ok_or_else(|| format!("extension {key} has an unclosed object"))?;
-        objects.push((key, source[open_index..=close_index].to_string()));
-        offset = close_index + 1;
-    }
-    Ok(objects)
-}
-
-fn cue_next_key_colon(source: &str, offset: usize) -> Result<Option<(String, usize)>, String> {
-    let mut absolute_offset = offset;
-    for line in source[offset..].split_inclusive('\n') {
-        let stripped = cue_strip_line_comment(line);
-        let trimmed = stripped.trim_start();
-        if trimmed.is_empty() || trimmed.starts_with(',') {
-            absolute_offset += line.len();
-            continue;
-        }
-        let key_start = absolute_offset + stripped.len() - trimmed.len();
-        if let Some(rest) = trimmed.strip_prefix('"') {
-            let mut escaped = false;
-            for (relative, ch) in rest.char_indices() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-                if ch == '\\' {
-                    escaped = true;
-                    continue;
-                }
-                if ch == '"' {
-                    let after_key = &rest[relative + ch.len_utf8()..];
-                    let colon_after_key = after_key.trim_start();
-                    if colon_after_key.starts_with(':') {
-                        let colon_relative = trimmed.len() - colon_after_key.len();
-                        return Ok(Some((
-                            rest[..relative].to_string(),
-                            key_start + colon_relative,
-                        )));
-                    }
-                    break;
-                }
-            }
-        } else {
-            let Some(colon_relative) = trimmed.find(':') else {
-                absolute_offset += line.len();
-                continue;
-            };
-            let key = trimmed[..colon_relative].trim();
-            if key.contains('-') {
-                return Err(format!(
-                    "extension label {key:?} must be quoted because raw CUE labels cannot contain '-'"
-                ));
-            }
-            if !key.is_empty() && key.chars().all(cue_raw_label_char) {
-                return Ok(Some((key.to_string(), key_start + colon_relative)));
-            }
-            if !key.is_empty() {
-                return Err(format!(
-                    "extension label {key:?} is not a valid raw CUE label"
-                ));
-            }
-        }
-        absolute_offset += line.len();
-    }
-    Ok(None)
-}
-
-fn cue_raw_label_char(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
-}
-
-fn cue_first_significant_char(source: &str, start: usize) -> Option<(usize, char)> {
-    let mut index = start;
-    while index < source.len() {
-        let remainder = &source[index..];
-        if remainder.starts_with("//") {
-            if let Some(newline) = remainder.find('\n') {
-                index += newline + 1;
-                continue;
-            }
-            return None;
-        }
-        let ch = remainder.chars().next()?;
-        if ch.is_whitespace() {
-            index += ch.len_utf8();
-            continue;
-        }
-        return Some((index, ch));
-    }
-    None
-}
-
-fn cue_field_string(source: &str, key: &str) -> Option<String> {
-    cue_field_value(source, key).and_then(|value| {
-        let (_, rest) = value.split_once('"')?;
-        let (value, _) = rest.split_once('"')?;
-        Some(value.to_string())
-    })
-}
-
-fn cue_field_bool(source: &str, key: &str) -> Option<bool> {
-    cue_field_value(source, key).and_then(|value| {
-        let value = value.trim_start();
-        if value.starts_with("true") {
-            Some(true)
-        } else if value.starts_with("false") {
-            Some(false)
-        } else {
-            None
-        }
-    })
-}
-
-fn cue_field_value(source: &str, key: &str) -> Option<String> {
-    for line in source.lines() {
-        let line = cue_strip_line_comment(line);
-        let mut remainder = line.as_str();
-        while let Some(index) = remainder.find(key) {
-            let before = remainder[..index].chars().next_back();
-            let after_key = &remainder[index + key.len()..];
-            if !cue_identifier_char(before) && after_key.trim_start().starts_with(':') {
-                let (_, value) = after_key.split_once(':')?;
-                return Some(value.to_string());
-            }
-            remainder = &after_key[after_key.char_indices().nth(1).map_or(0, |(idx, _)| idx)..];
-        }
-    }
-    None
-}
-
-fn cue_identifier_char(ch: Option<char>) -> bool {
-    ch.map(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-        .unwrap_or(false)
-}
-
-fn cue_strip_line_comment(line: &str) -> String {
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in line.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if line[index..].starts_with("//") {
-            return line[..index].to_string();
-        }
-    }
-    line.to_string()
-}
-
 fn touch(path: &Path) -> std::io::Result<()> {
     OpenOptions::new()
         .create(true)
@@ -6621,7 +6562,6 @@ mod tests {
     fn dev_runtime_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
         Arc::new(
             Runtime::start(StartupOptions {
-                config_path: None,
                 data_dir: temp_dir("dev"),
                 extension_dir: test_extension_dir(),
                 listen: "127.0.0.1:0".parse().unwrap(),
@@ -6634,31 +6574,31 @@ mod tests {
         )
     }
 
-    /// Like `dev_runtime` but with an empty extensions config so the on-disk
-    /// v1 manifests are never loaded.  Use this for tests that exercise auth,
-    /// CORS, git, GraphQL core fields, or other concerns orthogonal to the
-    /// extension manifest format.
+    /// Like `dev_runtime` but with an explicit (empty) extension set so the
+    /// on-disk v1 manifests are never loaded. Use this for tests that exercise
+    /// auth, CORS, git, GraphQL core fields, or other concerns orthogonal to
+    /// the extension manifest format.
     fn dev_runtime_no_extensions() -> Arc<Runtime> {
         dev_runtime_no_extensions_with_session_ttl(300)
     }
 
     fn dev_runtime_no_extensions_with_session_ttl(session_ttl_seconds: u64) -> Arc<Runtime> {
-        // Write a minimal config with an explicit (empty) extensions block so
-        // that extension_config_declared = true and no WASM packages are loaded.
-        let config_dir = temp_dir("dev-no-ext-cfg");
-        let config_path = config_dir.join("config.cue");
-        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
+        // Inject an unconfigured dev config and mark the extension set as
+        // declared (= true) so no WASM packages are discovered or loaded.
         Arc::new(
-            Runtime::start(StartupOptions {
-                config_path: Some(config_path),
-                data_dir: temp_dir("dev-no-ext"),
-                extension_dir: test_extension_dir(),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                check: false,
-                tls_terminated: false,
-                operator_code: Some("testbed-operator-code".to_string()),
-                session_ttl_seconds,
-            })
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("dev-no-ext"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds,
+                },
+                InstanceConfig::minimal_dev(),
+                true,
+            )
             .unwrap(),
         )
     }
@@ -6670,6 +6610,181 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
         );
         headers
+    }
+
+    fn runtime_with_admins(admins: Vec<comtrya_core::AdminConfig>) -> Arc<Runtime> {
+        let mut config = InstanceConfig::minimal_dev();
+        config.admins = admins;
+        Arc::new(
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("admins"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                config,
+                true,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn admin_identity_matches_oidc_claims() {
+        let runtime = runtime_with_admins(vec![comtrya_core::AdminConfig {
+            issuer: Some("dev".to_string()),
+            subject: None,
+            email: Some("boss@example.test".to_string()),
+            handle: None,
+        }]);
+        assert!(runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+        // Wrong issuer or wrong email is not an admin.
+        assert!(!runtime.is_admin_claims("other", "sub", Some("boss@example.test")));
+        assert!(!runtime.is_admin_claims("dev", "sub", Some("nobody@example.test")));
+    }
+
+    #[test]
+    fn reconcile_applies_admin_list_live() {
+        let runtime = runtime_with_admins(vec![comtrya_core::AdminConfig {
+            issuer: None,
+            subject: None,
+            email: Some("boss@example.test".to_string()),
+            handle: None,
+        }]);
+        assert!(runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+
+        let mut next = InstanceConfig::minimal_dev();
+        next.admins = vec![comtrya_core::AdminConfig {
+            issuer: None,
+            subject: Some("sub-2".to_string()),
+            email: None,
+            handle: None,
+        }];
+        reconcile::reconcile_live(&runtime, &next);
+
+        // Old admin no longer matches; the new subject-based admin does.
+        assert!(!runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+        assert!(runtime.is_admin_claims("any-issuer", "sub-2", None));
+    }
+
+    #[test]
+    fn reconcile_repositories_creates_declared_and_deletes_extras() {
+        let runtime = runtime_with_admins(vec![]);
+        // An ad-hoc repo the config does not declare — strict GitOps removes it.
+        runtime
+            .create_repository_document("legacy/old", None)
+            .expect("seed legacy repo");
+
+        let mut config = InstanceConfig::minimal_dev();
+        config.repositories = vec![comtrya_core::RepositoryConfig {
+            path: "platform/api".to_string(),
+            visibility: comtrya_core::Visibility::Internal,
+            description: Some("API".to_string()),
+            storage_backend: None,
+            default_branch: None,
+        }];
+        reconcile::reconcile_repositories(&runtime, &config);
+
+        let paths: Vec<String> = runtime
+            .repository_docs()
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert!(
+            paths.iter().any(|p| p == "platform/api"),
+            "declared repo created: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p == "legacy/old"),
+            "undeclared repo deleted (strict GitOps): {paths:?}"
+        );
+    }
+
+    #[test]
+    fn reconcile_labels_creates_updates_and_deletes() {
+        let runtime = runtime_with_admins(vec![]);
+        let mut config = InstanceConfig::minimal_dev();
+        config.labels = vec![
+            comtrya_core::LabelConfig {
+                name: "bug".to_string(),
+                color: "#ff0000".to_string(),
+                description: Some("defect".to_string()),
+                scope: None,
+            },
+            comtrya_core::LabelConfig {
+                name: "scoped".to_string(),
+                color: "#00ff00".to_string(),
+                description: None,
+                scope: Some("platform".to_string()),
+            },
+        ];
+        reconcile::reconcile_labels(&runtime, &config);
+        assert_eq!(runtime.label_docs().len(), 2);
+
+        // Recolor bug, drop scoped, add feature.
+        let mut next = InstanceConfig::minimal_dev();
+        next.labels = vec![
+            comtrya_core::LabelConfig {
+                name: "bug".to_string(),
+                color: "#0000ff".to_string(),
+                description: Some("defect".to_string()),
+                scope: None,
+            },
+            comtrya_core::LabelConfig {
+                name: "feature".to_string(),
+                color: "#abcdef".to_string(),
+                description: None,
+                scope: None,
+            },
+        ];
+        reconcile::reconcile_labels(&runtime, &next);
+
+        let docs = runtime.label_docs();
+        let names: Vec<&str> = docs.iter().map(|(_, name, ..)| name.as_str()).collect();
+        assert!(names.contains(&"bug") && names.contains(&"feature"));
+        assert!(
+            !names.contains(&"scoped"),
+            "scoped label deleted: {names:?}"
+        );
+        let bug = docs.iter().find(|(_, name, ..)| name == "bug").unwrap();
+        assert_eq!(bug.2, "#0000ff", "bug color updated live");
+    }
+
+    #[test]
+    fn reconcile_extensions_flags_enabled_set_drift() {
+        let runtime = runtime_with_admins(vec![]);
+        // Same (empty) set as loaded → no reload pending.
+        reconcile::reconcile_extensions(&runtime, &InstanceConfig::minimal_dev());
+        assert!(
+            !runtime
+                .config_sync_status
+                .lock()
+                .unwrap()
+                .pending_extension_reload
+        );
+
+        // Declaring an extension absent from the loaded set flags a reload.
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions = vec![ExtensionInstallConfig {
+            id: "ext_checks".to_string(),
+            source: ExtensionSource::Local {
+                path: "ext_checks".to_string(),
+            },
+            enabled: true,
+            route_prefix: None,
+        }];
+        reconcile::reconcile_extensions(&runtime, &config);
+        assert!(
+            runtime
+                .config_sync_status
+                .lock()
+                .unwrap()
+                .pending_extension_reload
+        );
     }
 
     /// Headers carrying the default test `Origin` so `check_boundary` populates
@@ -7262,7 +7377,6 @@ mod tests {
         .unwrap();
 
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("declared-ui-manifest-data"),
             extension_dir,
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -7342,7 +7456,6 @@ mod tests {
         config.repository_storage_backends = backends;
 
         let options = StartupOptions {
-            config_path: None,
             data_dir: temp_dir("prod"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -7360,225 +7473,6 @@ mod tests {
         let mut options = options;
         options.tls_terminated = true;
         assert!(validate_production_testbed(&config, &options).is_ok());
-    }
-
-    #[test]
-    fn config_loader_reads_production_testbed_cue_subset() {
-        let dir = temp_dir("config");
-        let repos = temp_dir("config-repos");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            format!(
-                r#"
-package comtrya
-instance: {{
-  id: "prod"
-  name: "Prod"
-  publicURL: "https://comtrya.example.test"
-  environment: "production"
-  allowedOrigins: ["https://comtrya.example.test"]
-}}
-database: {{ kind: "sqlite", url: "sqlite://comtrya.db" }}
-oidc: issuers: [{{
-  issuerURL: "https://issuer.example.test"
-  clientID: "comtrya"
-  clientKind: "confidential"
-  clientSecret: "prod-secret"
-  redirectURL: "https://comtrya.example.test/auth/oidc/prod/callback"
-  allowed: domains: ["example.test"]
-}}]
-storage: repositories: backends: local: {{ kind: "local", path: "{}" }}
-"#,
-                repos.display()
-            ),
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.environment, Environment::Production);
-        assert_eq!(config.allowed_origins, ["https://comtrya.example.test"]);
-    }
-
-    #[test]
-    fn config_loader_reads_extension_install_configs() {
-        let dir = temp_dir("config-extensions");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  checks: {
-    source: {
-      kind: "local"
-      path: "ext_checks"
-    }
-    enabled: true
-  }
-  "pull-requests": {
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/pull-requests"
-      reference: "v1.0.0"
-    }
-    enabled: false
-  }
-  "code-browser": {
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/code-browser"
-      digest: "sha256:abc123"
-    }
-  }
-}
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.extensions.len(), 3);
-        assert_eq!(config.extensions[0].id, "checks");
-        assert!(config.extensions[0].enabled);
-        assert_eq!(
-            config.extensions[0].source,
-            ExtensionSource::Local {
-                path: "ext_checks".to_string()
-            }
-        );
-        assert!(!config.extensions[1].enabled);
-        assert_eq!(
-            config.extensions[1].source,
-            ExtensionSource::Oci {
-                registry: "ghcr.io".to_string(),
-                image: "comtrya/extensions/pull-requests".to_string(),
-                reference: OciReference::Tag("v1.0.0".to_string())
-            }
-        );
-        assert_eq!(
-            config.extensions[2].source,
-            ExtensionSource::Oci {
-                registry: "ghcr.io".to_string(),
-                image: "comtrya/extensions/code-browser".to_string(),
-                reference: OciReference::Digest("sha256:abc123".to_string())
-            }
-        );
-        assert!(config.extensions[2].enabled);
-    }
-
-    #[test]
-    fn config_loader_reads_shorthand_keyed_extension_install_config() {
-        let dir = temp_dir("config-extension-shorthand");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: checks: {
-  source: {
-    kind: "local"
-    path: "ext_checks"
-  }
-  enabled: true
-}
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert_eq!(config.extensions.len(), 1);
-        assert_eq!(config.extensions[0].id, "checks");
-        assert_eq!(
-            config.extensions[0].source,
-            ExtensionSource::Local {
-                path: "ext_checks".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn config_loader_rejects_unquoted_hyphenated_extension_labels() {
-        let dir = temp_dir("config-extension-invalid-raw-label");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  pull-requests: {
-    source: {
-      kind: "local"
-      path: "ext_pull_requests"
-    }
-  }
-}
-"#,
-        )
-        .unwrap();
-
-        let error = load_config_file(&config_path).unwrap_err();
-
-        assert!(error.contains("must be quoted"));
-    }
-
-    #[test]
-    fn config_loader_treats_list_extension_block_as_documentation_only() {
-        let dir = temp_dir("config-extension-list-docs");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: [
-  {
-    id: "checks"
-    source: {
-      kind: "oci"
-      registry: "ghcr.io"
-      image: "comtrya/extensions/checks"
-      reference: "v1.0.0"
-    }
-    enabled: true
-  },
-]
-"#,
-        )
-        .unwrap();
-
-        let config = load_config_file(&config_path).unwrap();
-
-        assert!(config.extensions.is_empty());
-    }
-
-    #[test]
-    fn config_loader_records_empty_extension_map_as_declared() {
-        let dir = temp_dir("config-extension-empty-map");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {}
-"#,
-        )
-        .unwrap();
-
-        let loaded = load_config_file_with_metadata(&config_path).unwrap();
-        let runtime = load_configured_extension_runtime(
-            &test_extension_dir(),
-            true,
-            &loaded.config.extensions,
-        )
-        .unwrap();
-
-        assert!(loaded.extension_config_declared);
-        assert!(loaded.config.extensions.is_empty());
-        assert!(runtime.records.is_empty());
     }
 
     #[tokio::test]
@@ -7918,41 +7812,40 @@ extensions: {}
 
     #[test]
     fn runtime_payload_filters_disabled_configured_extension_installations() {
-        let dir = temp_dir("configured-runtime-filter");
-        let config_path = dir.join("config.cue");
-        fs::write(
-            &config_path,
-            r#"
-package comtrya
-extensions: {
-  checks: {
-    source: {
-      kind: "local"
-      path: "ext_checks"
-    }
-    enabled: true
-  }
-  "pull-requests": {
-    source: {
-      kind: "local"
-      path: "ext_pull_requests"
-    }
-    enabled: false
-  }
-}
-"#,
+        // Declare two local extensions, one disabled — the disabled one must
+        // be filtered out of the loaded runtime.
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions = vec![
+            ExtensionInstallConfig {
+                id: "checks".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_checks".to_string(),
+                },
+                enabled: true,
+                route_prefix: None,
+            },
+            ExtensionInstallConfig {
+                id: "pull-requests".to_string(),
+                source: ExtensionSource::Local {
+                    path: "ext_pull_requests".to_string(),
+                },
+                enabled: false,
+                route_prefix: None,
+            },
+        ];
+        let runtime = Runtime::start_with_config(
+            StartupOptions {
+                data_dir: temp_dir("configured-runtime-filter-data"),
+                extension_dir: test_extension_dir(),
+                listen: "127.0.0.1:0".parse().unwrap(),
+                check: false,
+                tls_terminated: false,
+                operator_code: Some("testbed-operator-code".to_string()),
+                session_ttl_seconds: 300,
+            },
+            config,
+            true,
         )
-        .unwrap();
-        let runtime = Runtime::start(StartupOptions {
-            config_path: Some(config_path),
-            data_dir: temp_dir("configured-runtime-filter-data"),
-            extension_dir: test_extension_dir(),
-            listen: "127.0.0.1:0".parse().unwrap(),
-            check: false,
-            tls_terminated: false,
-            operator_code: Some("testbed-operator-code".to_string()),
-            session_ttl_seconds: 300,
-        })
         .unwrap();
 
         let payload = runtime.runtime_payload().unwrap();
@@ -8097,7 +7990,6 @@ extensions: {
     #[test]
     fn runtime_loaded_registry_dispatches_ext_issues_wasm_and_persists_event() {
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("runtime-loaded-registry-dispatch"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -8177,7 +8069,6 @@ extensions: {
     #[test]
     fn runtime_loaded_registry_enforces_ext_issues_create_validation() {
         let runtime = Runtime::start(StartupOptions {
-            config_path: None,
             data_dir: temp_dir("runtime-loaded-registry-issue-validation"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
@@ -9199,11 +9090,11 @@ extensions: {
         );
     }
 
-    /// #16 lockdown: the `workspace { ... }` query the shell sends on boot
-    /// requires a session. Mirrors the exact shape `App.vue:loadShellSummary`
-    /// uses so a regression here breaks the shell test in lockstep.
+    /// Zero-auth read access: the `workspace { ... }` query the shell sends on
+    /// boot is served to anonymous callers (read-only). Repositories are
+    /// PUBLIC-filtered for anonymous; mutations and admin surfaces stay gated.
     #[tokio::test]
-    async fn graphql_query_workspace_rejects_anonymous() {
+    async fn graphql_query_workspace_allows_anonymous_read() {
         let runtime = dev_runtime_no_extensions();
         let response = graphql_post(
             State(AppState {
@@ -9219,8 +9110,57 @@ extensions: {
         .await;
         assert_eq!(
             response.status(),
-            StatusCode::UNAUTHORIZED,
-            "anonymous workspace query must be rejected under #16 lockdown",
+            StatusCode::OK,
+            "anonymous workspace read is allowed under zero-auth read-only access",
+        );
+    }
+
+    /// Zero-auth reads are PUBLIC-only: an anonymous workspace query returns
+    /// public repositories but never private ones.
+    #[tokio::test]
+    async fn anonymous_workspace_read_is_public_only() {
+        let runtime = dev_runtime_no_extensions();
+        runtime
+            .create_declared_repository(&comtrya_core::RepositoryConfig {
+                path: "open/public-repo".to_string(),
+                visibility: comtrya_core::Visibility::Public,
+                description: None,
+                storage_backend: None,
+                default_branch: None,
+            })
+            .expect("create public repo");
+        // create_repository_document defaults to PRIVATE visibility.
+        runtime
+            .create_repository_document("secret/private-repo", None)
+            .expect("create private repo");
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            origin_headers(),
+            json!({ "query": "query { workspace { repositories { path visibility } } }" })
+                .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let paths: Vec<String> = payload["data"]["workspace"]["repositories"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|repo| repo["path"].as_str().map(str::to_owned))
+            .collect();
+        assert!(
+            paths.iter().any(|p| p == "open/public-repo"),
+            "public repo visible to anonymous: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p == "secret/private-repo"),
+            "private repo hidden from anonymous: {paths:?}"
         );
     }
 
@@ -10386,20 +10326,20 @@ extensions: {
     }
 
     fn dev_runtime_with_tls_terminated(tls_terminated: bool) -> Arc<Runtime> {
-        let config_dir = temp_dir("sec-tls-cfg");
-        let config_path = config_dir.join("config.cue");
-        fs::write(&config_path, "package comtrya\nextensions: {}\n").unwrap();
         Arc::new(
-            Runtime::start(StartupOptions {
-                config_path: Some(config_path),
-                data_dir: temp_dir("sec-tls"),
-                extension_dir: test_extension_dir(),
-                listen: "127.0.0.1:0".parse().unwrap(),
-                check: false,
-                tls_terminated,
-                operator_code: Some("testbed-operator-code".to_string()),
-                session_ttl_seconds: 300,
-            })
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("sec-tls"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                InstanceConfig::minimal_dev(),
+                true,
+            )
             .unwrap(),
         )
     }

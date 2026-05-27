@@ -55,7 +55,8 @@ recurring probe.
 | `COMTRYA_DATA_DIR` | `/app/data` | Persistent state (sessions, events, audit, repos). |
 | `COMTRYA_EXTENSION_DIR` | `/app/extensions/first-party` | Where the kernel looks for extension manifests + `.wasm`. |
 | `COMTRYA_LISTEN` | `0.0.0.0:8080` | Server bind address. Override with caution. |
-| `COMTRYA_CONFIG` | unset | Optional path to a CUE config that overrides defaults. |
+| `COMTRYA_CONFIG_REPO_URL` | unset | CUE config repo URL (pure GitOps). Unset runs an unconfigured dev default. |
+| `COMTRYA_CONFIG_REPO_REF` | remote default | Branch/ref of the config repo to track. |
 | `RUST_LOG` | unset (defaults `info` once #28 lands) | Tracing-subscriber filter. |
 | `COMTRYA_LOG_FORMAT` | unset (compact, once #28 lands) | `json` switches to JSON-Lines output. |
 

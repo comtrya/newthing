@@ -15,7 +15,18 @@ export interface AdminTelemetryService {
   detail: string;
 }
 
+export interface ConfigSync {
+  configured: boolean;
+  repoUrl: string | null;
+  lastCommit: string | null;
+  lastSyncedUnix: number | null;
+  lastError: string | null;
+  intervalSeconds: number;
+  pendingExtensionReload: boolean;
+}
+
 export interface AdminTelemetry {
+  configSync: ConfigSync | null;
   instance: {
     id: string;
     name: string;
@@ -111,6 +122,18 @@ export function useAdminTelemetry() {
     }
   }
 
+  async function syncNow(): Promise<void> {
+    loading.value = true;
+    error.value = null;
+    try {
+      await getGraphQLClient().mutate(`mutation SyncConfig { syncConfig }`);
+      await refresh();
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught);
+      loading.value = false;
+    }
+  }
+
   onMounted(() => {
     void refresh();
   });
@@ -120,7 +143,9 @@ export function useAdminTelemetry() {
     loading,
     error,
     refresh,
+    syncNow,
     ready: computed(() => telemetry.value?.readiness.ready ?? false),
+    configSync: computed(() => telemetry.value?.configSync ?? null),
   };
 }
 

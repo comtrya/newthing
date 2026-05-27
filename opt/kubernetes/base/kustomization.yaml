@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: comtrya
+
+# Non-selector labels (selectors stay pinned in the manifests so they remain
+# immutable across rollouts).
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/part-of: comtrya
+      app.kubernetes.io/managed-by: kustomize
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+
+# Override in an overlay or with `kustomize edit set image` to pin a digest:
+#   images:
+#     - name: ghcr.io/comtrya/comtrya-server
+#       newName: registry.example.com/comtrya-server
+#       digest: sha256:...
+images:
+  - name: ghcr.io/comtrya/comtrya-server
+    newTag: latest

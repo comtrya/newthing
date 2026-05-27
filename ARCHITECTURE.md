@@ -9,7 +9,8 @@ The Rust host lives in `crates/server/src/main.rs`. It owns startup gates,
 runtime state, auth/session issuance, GraphQL, extension asset serving, event
 streams, unsupported-surface errors, and the Git smart HTTP endpoint.
 
-Startup reads `config/production-testbed.cue` through `COMTRYA_CONFIG`,
+Startup clones the external CUE config repo (`COMTRYA_CONFIG_REPO_URL`) into
+`$COMTRYA_DATA_DIR/config-repo` and evaluates it into the typed instance config,
 initializes `$COMTRYA_DATA_DIR`, opens extension runtime storage, bootstraps
 configured workspaces and extension installation records, validates installed extension packages, and
 loads first-party Component Model artifacts from `dist/<extension-id>.wasm`.
