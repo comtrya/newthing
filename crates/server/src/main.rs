@@ -1387,6 +1387,66 @@ impl Runtime {
         Ok(data)
     }
 
+    /// `(canonical path, document id)` for every stored repository. Used by the
+    /// reconciler to diff declared vs actual.
+    fn repository_docs(&self) -> Vec<(String, String)> {
+        self.extension_storage
+            .collection_data("repositories")
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|doc| {
+                let path = doc.get("path").and_then(Value::as_str)?.to_string();
+                let id = doc.get("id").and_then(Value::as_str)?.to_string();
+                Some((path, id))
+            })
+            .collect()
+    }
+
+    /// Create a repository declared in config, then stamp its declared
+    /// visibility and description onto the document.
+    fn create_declared_repository(
+        &self,
+        repo: &comtrya_core::RepositoryConfig,
+    ) -> Result<(), String> {
+        let created = self.create_repository_document(&repo.path, None)?;
+        let id = created
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("created repository document missing id")?
+            .to_string();
+        let visibility = visibility_label(repo.visibility);
+        let description = repo.description.clone().unwrap_or_default();
+        self.extension_storage
+            .update_document_atomically("repositories", &id, |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert(
+                        "visibility".to_string(),
+                        Value::String(visibility.to_string()),
+                    );
+                    obj.insert("description".to_string(), Value::String(description));
+                }
+            })
+    }
+
+    /// Delete a repository: remove its document and its on-disk bare repo.
+    /// Strict GitOps — this destroys git history for repos absent from config.
+    fn delete_repository(&self, path: &str, id: &str) -> Result<(), String> {
+        self.extension_storage
+            .delete_document("core", "repositories", id)?;
+        let git_dir = self.repository_root().join(format!("{path}.git"));
+        if git_dir.exists() {
+            fs::remove_dir_all(&git_dir)
+                .map_err(|error| format!("failed to remove {}: {error}", git_dir.display()))?;
+        }
+        let _ = self.append_event(
+            "dev.comtrya.repository.deleted",
+            json!({ "path": path, "id": id }),
+        );
+        Ok(())
+    }
+
     fn runtime_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
@@ -4261,6 +4321,14 @@ fn validate_verb_uri(uri: &str) -> Result<(), String> {
     }
     Ok(())
 }
+fn visibility_label(visibility: comtrya_core::Visibility) -> &'static str {
+    match visibility {
+        comtrya_core::Visibility::Public => "PUBLIC",
+        comtrya_core::Visibility::Internal => "INTERNAL",
+        comtrya_core::Visibility::Private => "PRIVATE",
+    }
+}
+
 fn init_bare_repository_on_disk(
     project_root: &Path,
     canonical_path: &str,
@@ -6403,6 +6471,39 @@ mod tests {
         // Old admin no longer matches; the new subject-based admin does.
         assert!(!runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
         assert!(runtime.is_admin_claims("any-issuer", "sub-2", None));
+    }
+
+    #[test]
+    fn reconcile_repositories_creates_declared_and_deletes_extras() {
+        let runtime = runtime_with_admins(vec![]);
+        // An ad-hoc repo the config does not declare — strict GitOps removes it.
+        runtime
+            .create_repository_document("legacy/old", None)
+            .expect("seed legacy repo");
+
+        let mut config = InstanceConfig::minimal_dev();
+        config.repositories = vec![comtrya_core::RepositoryConfig {
+            path: "platform/api".to_string(),
+            visibility: comtrya_core::Visibility::Internal,
+            description: Some("API".to_string()),
+            storage_backend: None,
+            default_branch: None,
+        }];
+        reconcile::reconcile_repositories(&runtime, &config);
+
+        let paths: Vec<String> = runtime
+            .repository_docs()
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert!(
+            paths.iter().any(|p| p == "platform/api"),
+            "declared repo created: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p == "legacy/old"),
+            "undeclared repo deleted (strict GitOps): {paths:?}"
+        );
     }
 
     /// Headers carrying the default test `Origin` so `check_boundary` populates
