@@ -221,6 +221,55 @@ async fn main() {
         }
     });
 
+    // Background GitOps config sync. Fast-forwards the config repo on an
+    // interval (default 15m); on change it re-evaluates so validation errors
+    // surface in the sync status. Applying the new config live is the
+    // reconciler's job (later phase). Unconfigured instances no-op.
+    let sync_runtime = Arc::clone(&runtime);
+    let sync_handle = tokio::spawn(async move {
+        let interval_seconds = sync_runtime
+            .config_sync_status
+            .lock()
+            .expect("config sync status lock")
+            .interval_seconds;
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(interval_seconds));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        // The first tick fires immediately; startup already synced, so drop it.
+        tick.tick().await;
+        loop {
+            tick.tick().await;
+            let data_dir = sync_runtime.data_dir.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                config_sync::ConfigRepo::from_env(&data_dir)
+                    .map(|repo| repo.sync_and_validate())
+                    .transpose()
+            })
+            .await;
+            match result {
+                Ok(Ok(Some(moved))) => {
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_synced(moved.commit.clone(), now_seconds());
+                    if moved.changed {
+                        tracing::info!(commit = %moved.commit, "config repo changed on sync");
+                    }
+                }
+                Ok(Ok(None)) => {}
+                Ok(Err(error)) => {
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_error(error.clone(), now_seconds());
+                    tracing::warn!(%error, "config repo sync failed");
+                }
+                Err(join) => tracing::warn!(%join, "config sync task panicked"),
+            }
+        }
+    });
+
     let app = router(AppState { runtime, git_state });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
@@ -254,6 +303,7 @@ async fn main() {
     }
 
     eviction_handle.abort();
+    sync_handle.abort();
     tracing::info!("graceful shutdown: draining complete; flushing logs");
     if let Err(error) = fsync_jsonl_path(&events_path) {
         tracing::error!(%error, path = ?events_path, "graceful shutdown: events.jsonl fsync failed");
@@ -482,6 +532,9 @@ struct Runtime {
     /// lifetime. Replaces the previous "evaluate on every request"
     /// behaviour at `evaluate_repo_config` call sites.
     cue_config_cache: cue_config::CueConfigCache,
+    /// Observable state of GitOps config-repo syncing. Updated at startup and
+    /// by the background sync loop; surfaced in admin telemetry.
+    config_sync_status: Mutex<config_sync::SyncStatus>,
 }
 
 type ResponseResult<T> = Result<T, Box<Response>>;
@@ -533,18 +586,34 @@ impl Runtime {
 
         // Pure GitOps: the external CUE config repo is the only config source.
         // When its URL is unset the instance runs an unconfigured dev default.
-        let (config, extension_config_declared) =
+        let interval = config_sync::sync_interval_seconds_from_env();
+        let (config, extension_config_declared, sync_status) =
             match config_sync::ConfigRepo::from_env(&options.data_dir) {
                 Some(repo) => {
-                    let config = repo.bootstrap_and_load()?;
+                    let (config, commit) = repo.bootstrap_and_load()?;
                     // A declared (non-empty) extension set is authoritative; an
                     // omitted/empty one falls back to first-party discovery.
                     let declared = !config.extensions.is_empty();
-                    (config, declared)
+                    let status = config_sync::SyncStatus::synced(
+                        repo.url().to_string(),
+                        commit,
+                        now_seconds(),
+                        interval,
+                    );
+                    (config, declared, status)
                 }
-                None => (InstanceConfig::minimal_dev(), false),
+                None => (
+                    InstanceConfig::minimal_dev(),
+                    false,
+                    config_sync::SyncStatus::unconfigured(interval),
+                ),
             };
-        Self::start_with_config(options, config, extension_config_declared)
+        let runtime = Self::start_with_config(options, config, extension_config_declared)?;
+        *runtime
+            .config_sync_status
+            .lock()
+            .expect("config sync status lock") = sync_status;
+        Ok(runtime)
     }
 
     /// Assemble a runtime from an already-resolved config. Separated from
@@ -621,6 +690,9 @@ impl Runtime {
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
             auth_service: Mutex::new(auth_service),
             cue_config_cache: cue_config::CueConfigCache::new(),
+            config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
+                config_sync::sync_interval_seconds_from_env(),
+            )),
         };
         runtime
             .wasm_registry
@@ -1356,8 +1428,15 @@ impl Runtime {
             .rev()
             .take(12)
             .collect::<Vec<_>>();
+        let config_sync = self
+            .config_sync_status
+            .lock()
+            .ok()
+            .and_then(|status| serde_json::to_value(&*status).ok())
+            .unwrap_or(Value::Null);
 
         json!({
+            "configSync": config_sync,
             "instance": {
                 "id": self.config.id,
                 "name": self.config.name,

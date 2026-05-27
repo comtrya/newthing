@@ -43,9 +43,15 @@ impl ConfigRepo {
         Some(Self { sync, checkout_dir })
     }
 
-    /// Clone the repo if absent, fast-forward to the latest commit, and
-    /// evaluate the checked-out CUE module into a validated `InstanceConfig`.
-    pub(crate) fn bootstrap_and_load(&self) -> Result<InstanceConfig, String> {
+    /// The configured config-repo URL.
+    pub(crate) fn url(&self) -> &str {
+        &self.sync.repo
+    }
+
+    /// Clone the repo if absent, fast-forward to the latest commit, evaluate
+    /// the checked-out CUE module into a validated `InstanceConfig`, and return
+    /// it together with the synced commit oid.
+    pub(crate) fn bootstrap_and_load(&self) -> Result<(InstanceConfig, String), String> {
         self.sync
             .bootstrap()
             .map_err(|err| format!("config repo bootstrap failed: {err}"))?;
@@ -53,13 +59,97 @@ impl ConfigRepo {
             .sync
             .sync()
             .map_err(|err| format!("config repo sync failed: {err}"))?;
-        tracing::info!(
-            commit = %outcome.current,
-            changed = outcome.changed,
-            "synced config repo"
-        );
+        tracing::info!(commit = %outcome.current, changed = outcome.changed, "synced config repo");
+        Ok((self.load()?, outcome.current.to_string()))
+    }
+
+    /// Fast-forward the existing checkout and, when it changed, re-evaluate the
+    /// config so validation errors surface in the sync status. Returns what
+    /// moved; applying the new config is the reconciler's job (later phase).
+    pub(crate) fn sync_and_validate(&self) -> Result<SyncTick, String> {
+        let outcome = self
+            .sync
+            .sync()
+            .map_err(|err| format!("config repo sync failed: {err}"))?;
+        if outcome.changed {
+            let _ = self.load()?;
+        }
+        Ok(SyncTick {
+            changed: outcome.changed,
+            commit: outcome.current.to_string(),
+        })
+    }
+
+    fn load(&self) -> Result<InstanceConfig, String> {
         comtrya_core::evaluate_instance_config(&self.checkout_dir).map_err(|err| err.to_string())
     }
+}
+
+/// What a single background sync moved.
+pub(crate) struct SyncTick {
+    pub(crate) changed: bool,
+    pub(crate) commit: String,
+}
+
+/// Observable state of config-repo syncing, surfaced in admin telemetry.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SyncStatus {
+    pub configured: bool,
+    pub repo_url: Option<String>,
+    pub last_commit: Option<String>,
+    pub last_synced_unix: Option<u64>,
+    pub last_error: Option<String>,
+    pub interval_seconds: u64,
+}
+
+impl SyncStatus {
+    pub(crate) fn unconfigured(interval_seconds: u64) -> Self {
+        Self {
+            configured: false,
+            repo_url: None,
+            last_commit: None,
+            last_synced_unix: None,
+            last_error: None,
+            interval_seconds,
+        }
+    }
+
+    pub(crate) fn synced(
+        repo_url: String,
+        commit: String,
+        now_unix: u64,
+        interval_seconds: u64,
+    ) -> Self {
+        Self {
+            configured: true,
+            repo_url: Some(repo_url),
+            last_commit: Some(commit),
+            last_synced_unix: Some(now_unix),
+            last_error: None,
+            interval_seconds,
+        }
+    }
+
+    pub(crate) fn record_synced(&mut self, commit: String, now_unix: u64) {
+        self.last_commit = Some(commit);
+        self.last_synced_unix = Some(now_unix);
+        self.last_error = None;
+    }
+
+    pub(crate) fn record_error(&mut self, error: String, now_unix: u64) {
+        self.last_error = Some(error);
+        self.last_synced_unix = Some(now_unix);
+    }
+}
+
+/// Background sync cadence. `COMTRYA_CONFIG_SYNC_INTERVAL_SECONDS` overrides the
+/// 15-minute default; non-positive or unparseable values fall back to it.
+pub(crate) fn sync_interval_seconds_from_env() -> u64 {
+    non_empty_env("COMTRYA_CONFIG_SYNC_INTERVAL_SECONDS")
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(900)
 }
 
 fn non_empty_env(key: &str) -> Option<String> {
@@ -146,9 +236,10 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
 
         let url = format!("file://{}", source.display());
         let repo = ConfigRepo::for_test(url, tmp.path().join("checkout"));
-        let config = repo.bootstrap_and_load().expect("bootstrap + evaluate");
+        let (config, commit) = repo.bootstrap_and_load().expect("bootstrap + evaluate");
         assert_eq!(config.id, "t");
         assert_eq!(config.oidc_issuers.len(), 1);
+        assert_eq!(commit.len(), 40, "full sha-1 commit oid");
     }
 
     /// The bundled config fixture that start.sh materialises must evaluate and
