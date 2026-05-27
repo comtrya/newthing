@@ -38,15 +38,11 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 
 WORKDIR /build
 
-# crates/server/src/main.rs uses include_str!("../../../fixtures/demo/conference.json")
-# at compile time. Without `COPY fixtures`, the build fails with
-# `No such file or directory` inside the macro expansion.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY extensions ./extensions
 COPY migrations ./migrations
 COPY docs ./docs
-COPY fixtures ./fixtures
 
 RUN cargo build --release --bin comtrya-server
 
@@ -79,8 +75,8 @@ EXPOSE 8080
 
 # HEALTHCHECK probes the running server's HTTP endpoint rather than
 # spawning a second `comtrya-server --check` process. `--check` does
-# a full Runtime::start (cold-init Wasmtime + ~15 git subprocesses
-# for the demo-repo seed), which is too heavy for an every-30s
+# a full Runtime::start (cold-init Wasmtime + extension storage
+# bootstrap), which is too heavy for an every-30s
 # probe. `start-period=30s` leaves room for cold-start before
 # Docker counts failures.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

@@ -89,7 +89,7 @@ important v3 fields are:
 - `contributes.resourceKinds`: resource URI kinds owned by the extension.
 - `contributes.relationshipTypes`: relation verbs and labels the extension
   makes available to UI surfaces for typed relationship creation.
-- `contributes.collections`: storage collections, indexes, and demo bootstrap
+- `contributes.collections`: storage collections and indexes
   declarations owned by the extension.
 - `uiManifest`: path to the browser-side UI manifest, when the extension has a
   UI surface.

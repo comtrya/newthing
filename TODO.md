@@ -7,10 +7,11 @@ Comtrya product.
 ## Current truth
 
 - Real: `start.sh` builds and launches the Rust server and Vite/Vue frontend.
-- Real: the operator-code flow exchanges the seeded `.envrc` code for scoped
+- Real: the operator-code flow exchanges the configured `.envrc` code for scoped
   bearer credentials.
-- Real: the server seeds or opens local bare Git repositories under
-  `$COMTRYA_DATA_DIR/repositories`.
+- Real: the server opens local bare Git repositories under
+  `$COMTRYA_DATA_DIR/repositories`; repositories are created/imported through
+  GraphQL.
 - Real: GraphQL returns refs, branches, commits, tree entries, blobs, file
   previews, and diffs derived from Git.
 - Real: Git clone/fetch works through the Vue origin using a scoped Comtrya
@@ -35,8 +36,8 @@ Comtrya product.
 - Not complete: OCI extension distribution exists as code/contracts, but local
   first-party extension directories are still the production-testbed install
   source.
-- Not complete: repository creation/import exists for the testbed path, but this
-  is not yet a full multi-tenant hosted Git product.
+- Not complete: repository creation/import exists, but this is not yet a full
+  multi-tenant hosted Git product.
 
 ## Definition of a proper product demo
 
@@ -61,10 +62,10 @@ models.
   refs atomically, append ref update events, and update PR/check derived state.
 - Expand typed field-level authorization and stable error codes for kernel-owned
   GraphQL fields.
-- Expand repository support beyond the seeded testbed paths and make repository
-  metadata derive from records and Git config.
-- Finish production OIDC callback validation and remove the operator-code-only
-  demo posture from non-testbed environments.
+- Expand repository metadata so language, license, and activity derive from
+  records and Git config.
+- Finish production OIDC callback validation and replace the operator-code-only
+  testbed posture in production environments.
 - Wire OCI extension installation into startup so configured OCI references can
   install into the runtime without local first-party source directories.
 - Add richer extension-owned code browsing for tree/blob/diff flows if the core

@@ -6,7 +6,7 @@ Operational procedures for production-class deployments of
 - [`docs/CONTAINER.md`](CONTAINER.md) — image build/run mechanics.
 - [`../PRODUCTION_TESTBED.md`](../PRODUCTION_TESTBED.md) — what the
   testbed runtime is and what it deliberately leaves un-implemented.
-- [`../DEMO_RUNBOOK.md`](../DEMO_RUNBOOK.md) — local-demo operator
+- [`../DEMO_RUNBOOK.md`](../DEMO_RUNBOOK.md) — local runtime smoke operator
   commands (reset, smoke, inspect).
 - [`../ARCHITECTURE.md`](../ARCHITECTURE.md) — runtime map.
 - [`PANIC_AUDIT.md`](PANIC_AUDIT.md) — the panic-free-HTTP-paths
@@ -31,7 +31,6 @@ capacity signals.
 | `COMTRYA_OPERATOR_CODE` | Yes (prod) | Operator-only auth fallback. `/readyz` reports `operatorCodeConfigured: false` until set in `Production` env — pod stays out of rotation until configured. |
 | `COMTRYA_TLS_TERMINATED` | Yes (prod) | Set to `true` behind a TLS terminator. `/readyz` reports `productionTlsTerminated: false` until set in `Production` env. |
 | `COMTRYA_SESSION_TTL_SECONDS` | No | Session expiry. Defaults are conservative; tune per deployment. |
-| `COMTRYA_EXTERNAL_DEMO` | No | Shared-demo gate. When set, default `COMTRYA_OPERATOR_CODE` values are rejected at boot. |
 
 ### Persistent data layout under `$COMTRYA_DATA_DIR`
 
@@ -39,9 +38,8 @@ capacity signals.
 |---|---|---|
 | `metadata/events.jsonl` | Append-only domain events (extension lifecycle, issue/pull lifecycle, etc.). | Grows unbounded — rotation is a deferred sub-item (#11 P2-3). Tail for business-level signals. |
 | `metadata/audit.jsonl` | Append-only audit trail (auth, session issuance). | Same rotation caveat. Inspect after security incidents. |
-| `metadata/demo-state.json` | Demo-only state snapshot (excluded from production volumes). | N/A in production. |
 | `repositories/` | Bare Git repositories. | Backup target. Per-repo subdirs. |
-| `extensions/` | Per-extension runtime storage (Sled). | Backup target. Each extension owns a sub-namespace. |
+| `extensions/` | Per-extension runtime storage. | Backup target. Each extension owns a sub-namespace. |
 | `secrets/` | Reserved for future secret material. | Currently empty; do not delete the dir. |
 
 ### Health endpoints
@@ -59,8 +57,7 @@ capacity signals.
       "dataDirWritable": true,
       "eventLogWritable": true,
       "auditLogWritable": true,
-      "demoBareRepository": true,
-      "demoRepositoryRefs": true,
+      "repositoryRoot": true,
       "extensionStorageSchema": true,
       "extensionStorageDocuments": true,
       "productionTlsTerminated": true,
@@ -241,7 +238,7 @@ applies — these are ordinary bare repos.
 
 The `comtrya backup` and `comtrya restore` CLI commands exist
 (see `crates/cli/src/main.rs`) but currently operate on
-`demo_backup_store()` — an in-memory demo store, NOT the live
+`empty_backup_store()` — an in-memory empty store, NOT the live
 data dir. Real persistent backup is a deferred sub-PR.
 
 For now, treat `$COMTRYA_DATA_DIR` itself as the backup unit:
@@ -355,7 +352,7 @@ materially change procedures once merged:
 |---|---|---|
 | Graceful shutdown | #32 (open) | SIGTERM will drain in-flight requests instead of aborting. The connection-drain caveat in "Deploy → Subsequent rolling deploys" goes away. |
 | Durable session storage | #4 P1-4 (blocked) | Sessions survive restart; rolling deploys stop forcing re-auth. |
-| Real backup wiring | follow-up (no PR) | `comtrya backup` operates on the live data dir instead of `demo_backup_store()`. |
+| Real backup wiring | follow-up (no PR) | `comtrya backup` operates on the live data dir instead of `empty_backup_store()`. |
 | Migration runner | #12 P2-1 (blocked) | Rollback section needs a data-dir compatibility matrix. |
 | SimpleAuthz on WIT path | #40 (open) | Anonymous principals denied at the WIT `has_permission` boundary too (today blocked only at GraphQL/REST). |
 | Per-request tracing spans | follow-up (no PR) | Server log lines gain `principal`/`extension`/`op` structured fields. |

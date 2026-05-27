@@ -1,7 +1,7 @@
 /**
  * Canonical fetcher for the repo's merged `package comtrya` CUE
  * configuration. The kernel evaluates this server-side via
- * `cuengine` and exposes it on `repository.comtryaConfig` —
+ * `cuengine` and exposes it on `workspace.repositoryByPath(...).comtryaConfig` —
  * surfaces the typed-#Ref Project entries (`name`, `root`,
  * `labels`, `owners`, `issues`, `pulls`, `docs`) every Project-
  * spine consumer reads from.
@@ -41,9 +41,6 @@ interface ComtryaConfigRoot {
       comtryaConfig?: { projects?: ComtryaProject[] } | null;
     } | null;
   };
-  repository?: {
-    comtryaConfig?: { projects?: ComtryaProject[] } | null;
-  };
 }
 
 /**
@@ -73,19 +70,15 @@ export async function fetchComtryaProjects(
 ): Promise<ComtryaProject[]> {
   try {
     const repoSegments = segments ?? repositorySegmentsFromLocation();
-    const query = repoSegments.length > 0
-      ? `query ComtryaProjects($segments: [String!]!) {
-          workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
-        }`
-      : `query ComtryaProjectsCwd { repository { comtryaConfig } }`;
-    const variables = repoSegments.length > 0 ? { segments: repoSegments } : undefined;
+    if (repoSegments.length === 0) return [];
+    const query = `query ComtryaProjects($segments: [String!]!) {
+      workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
+    }`;
     const data = await getGraphQLClient().query<ComtryaConfigRoot>(
       query,
-      variables,
+      { segments: repoSegments },
     );
-    const config = data.workspace?.repositoryByPath?.comtryaConfig
-      ?? data.repository?.comtryaConfig
-      ?? null;
+    const config = data.workspace?.repositoryByPath?.comtryaConfig ?? null;
     return (config?.projects ?? []).filter(
       (p): p is ComtryaProject => p !== null && typeof p === "object",
     );

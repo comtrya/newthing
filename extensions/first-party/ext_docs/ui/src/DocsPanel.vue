@@ -2,7 +2,7 @@
 /**
  * Repo-resident docs surface, owned by ext_docs.
  *
- * Reads `repository.comtryaConfig.projects` (kernel-evaluated from the
+ * Reads `workspace.repositoryByPath(...).comtryaConfig.projects` (kernel-evaluated from the
  * repo's `package comtrya` CUE config) and `repository.blobs` (file
  * preview content). Iterates every Project's `docs` map — keyed by
  * user-chosen type names ("adr", "rfc", "prd", "runbook", …) — and for
@@ -62,7 +62,6 @@ interface RepositoryPayload {
   workspace?: {
     repositoryByPath?: ResolvedRepository | null;
   };
-  repository?: ResolvedRepository;
 }
 
 const props = defineProps<{
@@ -190,17 +189,19 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     const segments = props.repositorySegments ?? [];
-    const data = segments.length > 0
-      ? await getGraphQLClient().query<RepositoryPayload>(
-          `query Q($segments: [String!]!) {
-            workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }
-          }`,
-          { segments },
-        )
-      : await getGraphQLClient().query<RepositoryPayload>(
-          `{ repository { comtryaConfig blobs { path preview size } } }`,
-        );
-    const resolved = data.workspace?.repositoryByPath ?? data.repository ?? null;
+    if (segments.length === 0) {
+      config.value = null;
+      blobs.value = [];
+      loadState.value = "ready";
+      return;
+    }
+    const data = await getGraphQLClient().query<RepositoryPayload>(
+      `query Q($segments: [String!]!) {
+        workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }
+      }`,
+      { segments },
+    );
+    const resolved = data.workspace?.repositoryByPath ?? null;
     config.value = resolved?.comtryaConfig ?? null;
     blobs.value = resolved?.blobs ?? [];
     loadState.value = "ready";

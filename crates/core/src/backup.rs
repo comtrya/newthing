@@ -69,8 +69,7 @@ impl BackupCoordinator {
                 "backup bundle signature is required",
             ));
         }
-        let source =
-            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let source = ResourceRef::parse("comtrya://workspace").unwrap();
         outbox.append(EventEnvelope::core(
             CoreEventType::InstanceRestoreCompleted,
             source.clone(),
@@ -92,13 +91,8 @@ impl BackupCoordinator {
     }
 }
 
-pub fn demo_backup_store() -> MetadataStore {
-    let mut store = MetadataStore::new(MetadataBackend::Sqlite);
-    store.secrets_metadata.insert(
-        "github-token".to_string(),
-        "sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-    );
-    store
+pub fn empty_backup_store() -> MetadataStore {
+    MetadataStore::new(MetadataBackend::Sqlite)
 }
 
 #[cfg(test)]
@@ -107,20 +101,14 @@ mod tests {
 
     #[test]
     fn backup_pauses_writes_and_restore_requires_empty_target() {
-        let store = demo_backup_store();
+        let store = empty_backup_store();
         let mut coordinator = BackupCoordinator::default();
-        let bundle = coordinator.backup(
-            &store,
-            vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
-            1,
-            "package comtrya",
-            true,
-        );
+        let bundle = coordinator.backup(&store, Vec::new(), 1, "package comtrya", true);
 
         assert!(bundle.signed);
         assert!(bundle.encrypted);
         assert!(!coordinator.receive_pack_paused);
-        assert_eq!(bundle.secret_names, ["github-token"]);
+        assert!(bundle.secret_names.is_empty());
 
         let mut outbox = EventOutbox::default();
         assert_eq!(
@@ -134,8 +122,8 @@ mod tests {
             .restore_to_empty(bundle, true, &mut outbox)
             .unwrap();
 
-        assert_eq!(report.repository_count, 1);
-        assert_eq!(report.secret_count, 1);
+        assert_eq!(report.repository_count, 0);
+        assert_eq!(report.secret_count, 0);
         assert_eq!(
             report.emitted_event_type,
             CoreEventType::InstanceRestoreCompleted.as_str()

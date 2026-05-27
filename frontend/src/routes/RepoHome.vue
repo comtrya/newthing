@@ -336,8 +336,8 @@ function relativeUpdated(value: string | null | undefined): string | null {
   if (!value) return null;
   // The kernel returns `updated` in three shapes depending on the
   // repository's source: an ISO-8601 timestamp for imported repos,
-  // a human-readable "3 minutes ago" string for some demo repos,
-  // and an `@<epoch-seconds>` form for ones with only a unix mtime.
+  // a human-readable relative string from older records, and an
+  // `@<epoch-seconds>` form for ones with only a unix mtime.
   // Normalise to a relative phrase.
   let epochMs: number | null = null;
   if (/^@\d+$/.test(value)) {
@@ -873,11 +873,17 @@ async function fetchRepositoryIdentity(
       </p>
     </section>
 
-    <!-- /r/:path/code → the code browser slot, full-width. -->
+    <!-- /r/:path/code → repository-backed code surface plus repo-scoped widgets. -->
     <section v-else-if="view === 'code'" class="repo-code">
       <SlotMount
         name="repository.main"
-        label="Code"
+        label="Main"
+        :element-context="repoContext"
+        smoke-prefix="repo-code"
+      />
+      <SlotMount
+        name="repository.sidebar"
+        label="Sidebar"
         :element-context="repoContext"
         smoke-prefix="repo-code"
       />

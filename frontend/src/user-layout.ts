@@ -3,7 +3,7 @@
  *
  * Loads/saves through the federated GraphQL endpoint. Falls back to
  * localStorage for unauthenticated principals or if the server is
- * unreachable, so the hybrid model still works in offline / demo mode.
+ * unreachable, so widget placement still works while the API is unavailable.
  */
 
 import { getGraphQLClient, setUserLayout, type UserLayout } from "@comtrya/sdk-core";

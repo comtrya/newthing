@@ -360,6 +360,30 @@ impl PersistentStore {
             .map_err(|e| format!("evict rate_limits failed: {e}"))?;
         Ok((sessions, credentials, rate_limits))
     }
+
+    pub fn telemetry_counts(&self, now: u64) -> Result<(u64, u64, u64), String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let sessions = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sessions WHERE expires_at > ?1",
+                params![now as i64],
+                |row| row.get::<_, u64>(0),
+            )
+            .map_err(|e| format!("count sessions failed: {e}"))?;
+        let credentials = conn
+            .query_row(
+                "SELECT COUNT(*) FROM credentials WHERE expires_at > ?1",
+                params![now as i64],
+                |row| row.get::<_, u64>(0),
+            )
+            .map_err(|e| format!("count credentials failed: {e}"))?;
+        let rate_limit_rows = conn
+            .query_row("SELECT COUNT(*) FROM rate_limits", [], |row| {
+                row.get::<_, u64>(0)
+            })
+            .map_err(|e| format!("count rate limits failed: {e}"))?;
+        Ok((sessions, credentials, rate_limit_rows))
+    }
 }
 
 fn principal_tag(p: StoredPrincipal) -> &'static str {

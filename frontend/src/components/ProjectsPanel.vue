@@ -2,7 +2,7 @@
 /**
  * Kernel-discovered Projects for the current repository.
  *
- * Reads `repository.comtryaConfig.projects` (populated by the
+ * Reads `workspace.repositoryByPath(...).comtryaConfig.projects` (populated by the
  * `cuengine`-backed evaluator) and renders one card per Project with
  * its root path, labels, owners, and every per-extension config slice
  * (`pulls`, `issues`, `docs`, `builds`, `agents`, etc.). The kernel
@@ -61,7 +61,6 @@ interface RepositoryPayload {
   workspace?: {
     repositoryByPath?: ResolvedRepository | null;
   };
-  repository?: ResolvedRepository;
 }
 
 const props = defineProps<{
@@ -111,17 +110,19 @@ async function load(): Promise<void> {
   loadError.value = null;
   try {
     const segments = props.segments ?? [];
-    const data = segments.length > 0
-      ? await getGraphQLClient().query<RepositoryPayload>(
-          `query Q($segments: [String!]!) {
-            workspace { repositoryByPath(segments: $segments) { comtryaConfig files { path kind } } }
-          }`,
-          { segments },
-        )
-      : await getGraphQLClient().query<RepositoryPayload>(
-          `{ repository { comtryaConfig files { path kind } } }`,
-        );
-    const resolved = data.workspace?.repositoryByPath ?? data.repository ?? null;
+    if (segments.length === 0) {
+      config.value = null;
+      repoFiles.value = [];
+      loadState.value = "ready";
+      return;
+    }
+    const data = await getGraphQLClient().query<RepositoryPayload>(
+      `query Q($segments: [String!]!) {
+        workspace { repositoryByPath(segments: $segments) { comtryaConfig files { path kind } } }
+      }`,
+      { segments },
+    );
+    const resolved = data.workspace?.repositoryByPath ?? null;
     config.value = resolved?.comtryaConfig ?? null;
     repoFiles.value = resolved?.files ?? [];
     loadState.value = "ready";

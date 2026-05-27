@@ -10,16 +10,15 @@ runtime state, auth/session issuance, GraphQL, extension asset serving, event
 streams, unsupported-surface errors, and the Git smart HTTP endpoint.
 
 Startup reads `config/production-testbed.cue` through `COMTRYA_CONFIG`,
-initializes `$COMTRYA_DATA_DIR`, opens or seeds the demo bare repository,
-opens extension runtime storage, validates installed extension packages, and
+initializes `$COMTRYA_DATA_DIR`, opens extension runtime storage, bootstraps
+configured workspaces and extension installation records, validates installed extension packages, and
 loads first-party Component Model artifacts from `dist/<extension-id>.wasm`.
 `/readyz` reports runtime checks and the explicitly unsupported surfaces.
 
 Production-testbed startup fails closed when required production posture is
 missing: TLS termination, absolute data paths, HTTPS origins, local repository
-storage paths, first-party extension files, demo Git refs, component artifacts,
-manifest validation, or operator-code requirements. `COMTRYA_EXTERNAL_DEMO=1`
-also rejects the local default operator code from `.envrc.example`.
+storage paths, first-party extension files, component artifacts, manifest
+validation, or operator-code requirements.
 
 ## GraphQL and WASM dispatch
 
@@ -130,14 +129,13 @@ Extension runtime storage is under
 - `documents.jsonl`: versioned extension documents.
 - `events.jsonl`: extension storage and product events.
 
-On first startup, `fixtures/demo/conference.json` is copied into
-`$COMTRYA_DATA_DIR/metadata/demo-state.json` by `start.sh`. The Rust host uses
-that file as seed input, then writes extension-owned records through the same
-WASM-backed creation paths used by runtime behavior.
+On first startup, the Rust host creates only configured workspace records and
+loaded extension installation records. Repositories and extension-owned product
+records are created through GraphQL and canonical WIT operation routes.
 
 ## Git storage and protocol
 
-The demo repositories are real local bare Git repositories under
+Repositories are real local bare Git repositories under
 `$COMTRYA_DATA_DIR/repositories/`.
 
 Git clone/fetch works through the Vue origin and Rust host using the pure-Rust

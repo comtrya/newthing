@@ -2922,36 +2922,99 @@ function fo(e) {
 	return g(e) ? document.querySelector(e) : e;
 }
 //#endregion
+//#region packages/sdk-core/src/session.ts
+var po, mo, ho = "/auth/oidc/google/login";
+async function go(e = {}) {
+	return po && po.expiresAtMs > Date.now() + 5e3 ? po.token : (mo ||= vo(e).finally(() => {
+		mo = void 0;
+	}), mo);
+}
+function _o() {
+	po = void 0;
+}
+async function vo(e) {
+	let t = e.operatorCode ?? yo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
+	if (!t) {
+		(e.redirectTo ?? bo)(e.oidcLoginPath ?? ho);
+		return;
+	}
+	let i = await n(`${r}/auth/token-exchange`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			grantType: "urn:comtrya:grant:operator-code",
+			subjectToken: t,
+			subjectTokenType: "urn:comtrya:token-type:operator-code",
+			requestedResource: "comtrya://workspace",
+			requestedActions: [
+				"graphql:read",
+				"graphql:write",
+				"events:read",
+				"git:read",
+				"checks:read"
+			]
+		})
+	});
+	if (!i.ok) throw Error(`token-exchange failed (${i.status}): ${await i.text()}`);
+	let a = await i.json();
+	if (!a.accessToken) throw Error("token-exchange response missing accessToken");
+	let o = (a.expiresIn ?? 1800) * 1e3;
+	return po = {
+		token: a.accessToken,
+		expiresAtMs: Date.now() + o
+	}, po.token;
+}
+function yo() {
+	try {
+		return {
+			BASE_URL: "/",
+			DEV: !1,
+			MODE: "production",
+			PROD: !0,
+			SSR: !1
+		}?.PUBLIC_COMTRYA_OPERATOR_CODE;
+	} catch {
+		return;
+	}
+}
+function bo(e) {
+	typeof window < "u" && window.location && (window.location.href = e);
+}
+//#endregion
 //#region packages/sdk-core/src/graphql-client.ts
-var po = {
+var xo = {
 	endpoint: "/graphql",
 	credentials: "include",
 	fetchImpl: typeof fetch < "u" ? fetch.bind(globalThis) : (() => {
 		throw Error("no fetch implementation available");
 	})
-}, mo;
-function ho() {
-	return mo ||= go(po), mo;
+}, So;
+function Co() {
+	return So ||= wo(xo), So;
 }
-function go(e) {
+function wo(e) {
 	let t = async (t, n) => {
-		let r = await e.fetchImpl(e.endpoint, {
+		let r = await go(), i = { "Content-Type": "application/json" };
+		r && (i.Authorization = `Bearer ${r}`);
+		let a = await e.fetchImpl(e.endpoint, {
 			method: "POST",
 			credentials: e.credentials,
-			headers: { "Content-Type": "application/json" },
+			headers: i,
 			body: JSON.stringify({
 				query: t,
 				variables: n
 			})
-		}), i;
+		});
+		a.status === 401 && _o();
+		let o;
 		try {
-			i = await r.json();
+			o = await a.json();
 		} catch (e) {
 			throw Error(`GraphQL response was not JSON: ${e instanceof Error ? e.message : String(e)}`);
 		}
-		if (!r.ok || i.errors?.length) throw Error(i.errors?.[0]?.message ?? r.statusText ?? "GraphQL request failed");
-		if (i.data === void 0) throw Error("GraphQL response did not include data");
-		return i.data;
+		if (!a.ok || o.errors?.length) throw Error(o.errors?.[0]?.message ?? a.statusText ?? "GraphQL request failed");
+		if (o.data === void 0) throw Error("GraphQL response did not include data");
+		return o.data;
 	};
 	return {
 		query: t,
@@ -2960,64 +3023,64 @@ function go(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/relationship-registry.ts
-var _o = Symbol.for("comtrya.relationship-registry");
-vo();
-function vo() {
+var To = Symbol.for("comtrya.relationship-registry");
+Eo();
+function Eo() {
 	let e = globalThis;
-	return e[_o] ??= {
+	return e[To] ??= {
 		types: /* @__PURE__ */ new Map(),
 		providers: /* @__PURE__ */ new Map(),
 		subscribers: /* @__PURE__ */ new Set()
-	}, e[_o];
+	}, e[To];
 }
 //#endregion
 //#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
-var yo = [
+var Do = [
 	"Shift",
 	"Meta",
 	"Alt",
 	"Control"
-], bo = typeof navigator == "object" ? navigator.platform : "", xo = /Mac|iPod|iPhone|iPad/.test(bo), So = xo ? "Meta" : "Control", Co = bo === "Win32" ? ["Control", "Alt"] : xo ? ["Alt"] : [];
-function wo(e, t) {
-	return typeof e.getModifierState == "function" && (e.getModifierState(t) || Co.includes(t) && e.getModifierState("AltGraph"));
+], Oo = typeof navigator == "object" ? navigator.platform : "", ko = /Mac|iPod|iPhone|iPad/.test(Oo), Ao = ko ? "Meta" : "Control", jo = Oo === "Win32" ? ["Control", "Alt"] : ko ? ["Alt"] : [];
+function Mo(e, t) {
+	return typeof e.getModifierState == "function" && (e.getModifierState(t) || jo.includes(t) && e.getModifierState("AltGraph"));
 }
-function To(e) {
+function No(e) {
 	return e.trim().split(" ").map(function(e) {
 		var t = e.split(/\b\+/), n = t.pop(), r = n.match(/^\((.+)\)$/);
 		return r && (n = RegExp("^" + r[1] + "$")), [t = t.map(function(e) {
-			return e === "$mod" ? So : e;
+			return e === "$mod" ? Ao : e;
 		}), n];
 	});
 }
-function Eo(e, t) {
+function Po(e, t) {
 	var n = t[0], r = t[1];
 	return !((r instanceof RegExp ? !r.test(e.key) && !r.test(e.code) : r.toUpperCase() !== e.key.toUpperCase() && r !== e.code) || n.find(function(t) {
-		return !wo(e, t);
-	}) || yo.find(function(t) {
-		return !n.includes(t) && r !== t && wo(e, t);
+		return !Mo(e, t);
+	}) || Do.find(function(t) {
+		return !n.includes(t) && r !== t && Mo(e, t);
 	}));
 }
-function Do(e, t) {
+function Fo(e, t) {
 	t === void 0 && (t = {});
 	var n = t.timeout ?? 1e3, r = Object.keys(e).map(function(t) {
-		return [To(t), e[t]];
+		return [No(t), e[t]];
 	}), i = /* @__PURE__ */ new Map(), a = null;
 	return function(e) {
 		e instanceof KeyboardEvent && (r.forEach(function(t) {
 			var n = t[0], r = t[1], a = i.get(n) || n;
-			Eo(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : wo(e, e.key) || i.delete(n);
+			Po(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : Mo(e, e.key) || i.delete(n);
 		}), a && clearTimeout(a), a = setTimeout(i.clear.bind(i), n));
 	};
 }
-function Oo(e, t, n) {
-	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = Do(t, { timeout: r.timeout });
+function Io(e, t, n) {
+	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = Fo(t, { timeout: r.timeout });
 	return e.addEventListener(a, s, o), function() {
 		e.removeEventListener(a, s, o);
 	};
 }
 //#endregion
 //#region packages/sdk-vue/src/use-shortcuts.ts
-function ko(e) {
+function Lo(e) {
 	if (!(e instanceof HTMLElement)) return !1;
 	if (e instanceof HTMLInputElement) {
 		let t = e.type;
@@ -3025,26 +3088,26 @@ function ko(e) {
 	}
 	return !!(e instanceof HTMLTextAreaElement || e.isContentEditable);
 }
-function Ao(e) {
+function Ro(e) {
 	return /Escape/i.test(e) ? !0 : /\$mod|Cmd|Ctrl|Alt|Shift|Meta|Control/i.test(e);
 }
-function jo(e) {
+function zo(e) {
 	let t = {};
 	for (let [n, r] of Object.entries(e)) {
-		if (Ao(n)) {
+		if (Ro(n)) {
 			t[n] = r;
 			continue;
 		}
 		t[n] = (e) => {
-			ko(e.target) || r(e);
+			Lo(e.target) || r(e);
 		};
 	}
 	return t;
 }
-function Mo(e, t = {}) {
+function Bo(e, t = {}) {
 	if (typeof window > "u") return;
-	let n = null, r = jo(e), i = () => {
-		n ||= Oo(t.target ?? window, r);
+	let n = null, r = zo(e), i = () => {
+		n ||= Io(t.target ?? window, r);
 	}, a = () => {
 		n?.(), n = null;
 	};
@@ -3054,20 +3117,20 @@ function Mo(e, t = {}) {
 }
 //#endregion
 //#region packages/sdk-vue/src/markdown.ts
-var No = {
+var Vo = {
 	"&": "&amp;",
 	"<": "&lt;",
 	">": "&gt;",
 	"\"": "&quot;",
 	"'": "&#39;"
 };
-function Po(e) {
-	return e.replace(/[&<>"']/g, (e) => No[e] ?? e);
+function Ho(e) {
+	return e.replace(/[&<>"']/g, (e) => Vo[e] ?? e);
 }
-var Fo = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, Io = "CODE", Lo = "END";
-function Ro(e, t) {
-	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), Io + (n.length - 1) + Lo));
-	if (r = r.replace(Fo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
+var Uo = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, Wo = "CODE", Go = "END";
+function Ko(e, t) {
+	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), Wo + (n.length - 1) + Go));
+	if (r = r.replace(Uo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
 		let e = encodeURIComponent(t.workspaceId);
 		r = r.replace(/(^|[^\w&])#(\d+)\b/g, (t, n, r) => n + "<a href=\"/x/issues/" + e + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>");
 	}
@@ -3075,7 +3138,7 @@ function Ro(e, t) {
 	let i = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
 	return r.replace(i, (e, t) => n[Number(t)] ?? "");
 }
-function zo(e) {
+function qo(e) {
 	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
 	for (; r < t.length;) {
 		let e = t[r] ?? "";
@@ -3136,41 +3199,41 @@ function zo(e) {
 	}
 	return n;
 }
-function Bo(e, t = {}) {
+function Jo(e, t = {}) {
 	if (!e) return "";
-	let n = zo(e), r = [];
+	let n = qo(e), r = [];
 	for (let e of n) switch (e.kind) {
 		case "heading": {
-			let n = e.level ?? 1, i = Ro(Po(e.text), t);
+			let n = e.level ?? 1, i = Ko(Ho(e.text), t);
 			r.push("<h" + n + ">" + i + "</h" + n + ">");
 			break;
 		}
 		case "paragraph": {
-			let n = Ro(Po(e.text), t);
+			let n = Ko(Ho(e.text), t);
 			r.push("<p>" + n.replace(/\n/g, "<br />") + "</p>");
 			break;
 		}
 		case "code": {
-			let t = e.lang ? " data-lang=\"" + Po(e.lang) + "\"" : "";
-			r.push("<pre" + t + "><code>" + Po(e.text) + "</code></pre>");
+			let t = e.lang ? " data-lang=\"" + Ho(e.lang) + "\"" : "";
+			r.push("<pre" + t + "><code>" + Ho(e.text) + "</code></pre>");
 			break;
 		}
 		case "list": {
-			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + Ro(Po(e), t) + "</li>").join("\n");
+			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + Ko(Ho(e), t) + "</li>").join("\n");
 			r.push("<" + n + ">\n" + i + "\n</" + n + ">");
 			break;
 		}
 	}
 	return r.join("\n");
 }
-function Vo(e, t = 280) {
+function Yo(e, t = 280) {
 	let n = e.replace(/\s+/g, " ").trim();
 	return n.length <= t ? n : n.slice(0, t) + "…";
 }
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Ho(e) {
-	Uo(e.tagName, e.component);
+function Xo(e) {
+	Zo(e.tagName, e.component);
 	let t = /* @__PURE__ */ Za(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -3178,65 +3241,65 @@ function Ho(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(Go(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute($o(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Uo(e, t) {
+function Zo(e, t) {
 	if (typeof document > "u") return;
-	let n = Wo(t);
+	let n = Qo(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function Wo(e) {
+function Qo(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function Go(e) {
+function $o(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_docs/ui/src/DocsPanel.vue?vue&type=script&setup=true&lang.ts
-var Ko = {
+var es = {
 	class: "docs-panel",
 	"data-smoke": "docs-panel"
-}, qo = { class: "docs-head" }, Jo = { class: "title-block" }, Yo = { class: "muted" }, Xo = {
+}, ts = { class: "docs-head" }, ns = { class: "title-block" }, rs = { class: "muted" }, is = {
 	key: 0,
 	class: "muted error",
 	role: "alert"
-}, Zo = {
+}, as = {
 	key: 1,
 	class: "muted error",
 	role: "alert"
-}, Qo = { class: "docs-project-head" }, $o = { class: "docs-project-root" }, es = { class: "docs-type-head" }, ts = { class: "docs-type-key" }, ns = { class: "docs-type-label" }, rs = { class: "docs-type-scope" }, is = { class: "muted docs-type-count" }, as = {
+}, os = { class: "docs-project-head" }, ss = { class: "docs-project-root" }, cs = { class: "docs-type-head" }, ls = { class: "docs-type-key" }, us = { class: "docs-type-label" }, ds = { class: "docs-type-scope" }, fs = { class: "muted docs-type-count" }, ps = {
 	key: 0,
 	class: "docs-type-desc"
-}, os = {
+}, ms = {
 	key: 1,
 	class: "docs-type-props"
-}, ss = {
+}, hs = {
 	key: 2,
 	class: "docs-files"
-}, cs = [
+}, gs = [
 	"onClick",
 	"onFocus",
 	"onMouseenter",
 	"onKeydown"
-], ls = { class: "docs-file-head" }, us = { class: "docs-file-caret" }, ds = { class: "docs-file-title" }, fs = { class: "docs-file-path" }, ps = {
+], _s = { class: "docs-file-head" }, vs = { class: "docs-file-caret" }, ys = { class: "docs-file-title" }, bs = { class: "docs-file-path" }, xs = {
 	key: 0,
 	class: "docs-file-front"
-}, ms = {
+}, Ss = {
 	key: 1,
 	class: "docs-file-body"
-}, hs = ["innerHTML"], gs = {
+}, Cs = ["innerHTML"], ws = {
 	key: 3,
 	class: "muted no-files"
-}, _s = /* @__PURE__ */ ((e, t) => {
+}, Ts = /* @__PURE__ */ ((e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
@@ -3275,7 +3338,7 @@ var Ko = {
 			let n = u.value, r = n ? t.indexOf(n) : -1;
 			u.value = t[Math.max(0, Math.min(t.length - 1, r + e))] ?? null;
 		}
-		Mo({
+		Bo({
 			Escape: (e) => {
 				l.value &&= (e.preventDefault(), null);
 			},
@@ -3303,8 +3366,13 @@ var Ko = {
 		async function g() {
 			n.value = "loading", r.value = null;
 			try {
-				let e = t.repositorySegments ?? [], r = e.length > 0 ? await ho().query("query Q($segments: [String!]!) {\n            workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }\n          }", { segments: e }) : await ho().query("{ repository { comtryaConfig blobs { path preview size } } }"), o = r.workspace?.repositoryByPath ?? r.repository ?? null;
-				i.value = o?.comtryaConfig ?? null, a.value = o?.blobs ?? [], n.value = "ready";
+				let e = t.repositorySegments ?? [];
+				if (e.length === 0) {
+					i.value = null, a.value = [], n.value = "ready";
+					return;
+				}
+				let r = (await Co().query("query Q($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }\n      }", { segments: e })).workspace?.repositoryByPath ?? null;
+				i.value = r?.comtryaConfig ?? null, a.value = r?.blobs ?? [], n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = e instanceof Error ? e.message : String(e);
 			}
@@ -3374,8 +3442,8 @@ var Ko = {
 		function T(e) {
 			return e == null ? "·" : Array.isArray(e) ? e.map(T).join(" · ") : typeof e == "object" ? Object.entries(e).map(([e, t]) => `${e}=${T(t)}`).join(" · ") : String(e);
 		}
-		return (t, a) => (J(), Y("section", Ko, [
-			X("header", qo, [X("div", Jo, [a[8] ||= X("h2", null, "Docs", -1), X("span", Yo, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
+		return (t, a) => (J(), Y("section", es, [
+			X("header", ts, [X("div", ns, [a[8] ||= X("h2", null, "Docs", -1), X("span", rs, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
 				a[0] ||= Q(" No MDX docs declared. Add a ", -1),
 				a[1] ||= X("code", null, "docs", -1),
 				a[2] ||= Q(" block to a Project in ", -1),
@@ -3390,27 +3458,27 @@ var Ko = {
 				a[6] ||= X("code", null, "ext_docs", -1),
 				a[7] ||= Q("'s registered CUE schema ", -1)
 			], 64))])])]),
-			n.value === "error" ? (J(), Y("p", Xo, A(r.value), 1)) : i.value?.error ? (J(), Y("p", Zo, A(i.value.error), 1)) : Fi("", !0),
+			n.value === "error" ? (J(), Y("p", is, A(r.value), 1)) : i.value?.error ? (J(), Y("p", as, A(i.value.error), 1)) : Fi("", !0),
 			(J(!0), Y(K, null, sr(s.value, (t) => Sn((J(), Y("article", {
 				key: t.name,
 				class: "docs-project"
-			}, [X("header", Qo, [X("h3", null, A(t.name), 1), X("code", $o, A(t.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(t), (n) => (J(), Y("section", {
+			}, [X("header", os, [X("h3", null, A(t.name), 1), X("code", ss, A(t.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(t), (n) => (J(), Y("section", {
 				key: n.key,
 				class: "docs-type"
 			}, [
-				X("header", es, [
-					X("code", ts, A(n.key), 1),
-					X("span", ns, A(n.type.label || n.key), 1),
-					X("code", rs, A(v(t, n.type) || "<project root>") + "/", 1),
-					X("span", is, [Q(A(x(t, n.type).length) + " file", 1), x(t, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
+				X("header", cs, [
+					X("code", ls, A(n.key), 1),
+					X("span", us, A(n.type.label || n.key), 1),
+					X("code", ds, A(v(t, n.type) || "<project root>") + "/", 1),
+					X("span", fs, [Q(A(x(t, n.type).length) + " file", 1), x(t, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
 				]),
-				n.type.description ? (J(), Y("p", as, A(n.type.description), 1)) : Fi("", !0),
-				C(n.type).length > 0 ? (J(), Y("dl", os, [
+				n.type.description ? (J(), Y("p", ps, A(n.type.description), 1)) : Fi("", !0),
+				C(n.type).length > 0 ? (J(), Y("dl", ms, [
 					(J(!0), Y(K, null, sr(C(n.type), (e) => (J(), Y(K, { key: e.name }, [X("dt", null, [X("code", null, A(e.name), 1)]), X("dd", null, A(w(e.spec)), 1)], 64))), 128)),
 					a[9] ||= X("dt", { class: "implicit" }, [X("code", null, "body")], -1),
 					a[10] ||= X("dd", { class: "implicit" }, "MDX body (implicit)", -1)
 				])) : Fi("", !0),
-				x(t, n.type).length > 0 ? (J(), Y("ol", ss, [(J(!0), Y(K, null, sr(x(t, n.type), (t) => (J(), Y("li", {
+				x(t, n.type).length > 0 ? (J(), Y("ol", hs, [(J(!0), Y(K, null, sr(x(t, n.type), (t) => (J(), Y("li", {
 					key: t.path,
 					class: he(["docs-file", {
 						focused: u.value === t.path,
@@ -3422,19 +3490,19 @@ var Ko = {
 					onMouseenter: (e) => p(t.path),
 					onKeydown: io(no((e) => f(t.path), ["prevent"]), ["enter"])
 				}, [
-					X("header", ls, [
-						X("span", us, A(d(t.path) ? "▾" : "▸"), 1),
-						X("strong", ds, A(t.title), 1),
-						X("code", fs, A(t.path), 1)
+					X("header", _s, [
+						X("span", vs, A(d(t.path) ? "▾" : "▸"), 1),
+						X("strong", ys, A(t.title), 1),
+						X("code", bs, A(t.path), 1)
 					]),
-					Object.keys(t.frontMatter).length > 0 ? (J(), Y("dl", ps, [(J(!0), Y(K, null, sr(t.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
-					t.body && !d(t.path) ? (J(), Y("p", ms, A(Wt(Vo)(t.body)), 1)) : Fi("", !0),
+					Object.keys(t.frontMatter).length > 0 ? (J(), Y("dl", xs, [(J(!0), Y(K, null, sr(t.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
+					t.body && !d(t.path) ? (J(), Y("p", Ss, A(Wt(Yo)(t.body)), 1)) : Fi("", !0),
 					t.body && d(t.path) ? (J(), Y("article", {
 						key: 2,
 						class: "docs-file-rendered",
-						innerHTML: Wt(Bo)(t.body, { workspaceId: e.workspaceId ?? "" })
-					}, null, 8, hs)) : Fi("", !0)
-				], 42, cs))), 128))])) : (J(), Y("p", gs, [
+						innerHTML: Wt(Jo)(t.body, { workspaceId: e.workspaceId ?? "" })
+					}, null, 8, Cs)) : Fi("", !0)
+				], 42, gs))), 128))])) : (J(), Y("p", ws, [
 					a[11] ||= Q(" No MDX files in ", -1),
 					X("code", null, A(v(t, n.type)) + "/", 1),
 					a[12] ||= Q(" yet. ", -1)
@@ -3442,17 +3510,17 @@ var Ko = {
 			]))), 128))])), [[xa, S(t).length > 0]])), 128))
 		]));
 	}
-}), [["styles", [".docs-panel{font-family:var(--font-sans,system-ui);gap:14px;display:grid}.docs-panel .docs-head{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;padding-bottom:6px;display:flex}.docs-panel h2{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.docs-panel .title-block{flex-wrap:wrap;align-items:baseline;gap:14px;display:inline-flex}.docs-panel .muted{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.docs-panel .muted code{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 4px;font-size:11px}.docs-panel .muted.error{color:var(--accent-err,#c9341c)}.docs-panel .docs-project{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e)}.docs-panel .docs-project-head{background:var(--bg-2,#0e1014);border-bottom:.5px solid var(--line,#ffffff12);flex-wrap:wrap;align-items:baseline;gap:12px;padding:10px 14px;display:flex}.docs-panel .docs-project-head h3{font-family:var(--font-serif,system-ui);margin:0;font-size:16px;line-height:1}.docs-panel .docs-project-root{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.docs-panel .docs-type{border-bottom:.5px solid var(--line,#ffffff12);padding:12px 14px}.docs-panel .docs-type:last-child{border-bottom:0}.docs-panel .docs-type-head{flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:6px;display:flex}.docs-panel .docs-type-key{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;color:var(--accent-blue,#1d55a6);font-size:12px;font-weight:700}.docs-panel .docs-type-label{font-family:var(--font-serif,system-ui);font-size:14px;font-weight:600}.docs-panel .docs-type-scope{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 5px;font-size:11px}.docs-panel .docs-type-count{margin-left:auto}.docs-panel .docs-type-desc{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);margin:0 0 8px;font-size:13px}.docs-panel .docs-type-props{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:2px 14px;margin:0 0 10px;font-size:11px;display:grid}.docs-panel .docs-type-props dt{font-weight:600}.docs-panel .docs-type-props dt code{color:var(--fg,#fffffff0)}.docs-panel .docs-type-props .implicit code,.docs-panel .docs-type-props .implicit{color:var(--fg-4,#ffffff57);font-style:italic}.docs-panel .docs-files{gap:8px;margin:0;padding:0;list-style:none;display:grid}.docs-panel .docs-file{border-left:2px solid var(--line,#ffffff12);cursor:pointer;padding:6px 0 6px 12px;transition:border-color .12s}.docs-panel .docs-file:hover,.docs-panel .docs-file.focused{border-left-color:var(--fg-3,#ffffff85);background:var(--surface)}.docs-panel .docs-file.expanded{border-left-color:var(--accent-blue,#1d55a6);cursor:default}.docs-panel .docs-file:focus{outline:none}.docs-panel .docs-file-caret{width:12px;color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);display:inline-block}.docs-panel .docs-file-head{flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:2px;display:flex}.docs-panel .docs-file-title{font-family:var(--font-serif,system-ui);font-size:13px}.docs-panel .docs-file-path{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.docs-panel .docs-file-front{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:1px 12px;margin:0 0 4px;font-size:11px;display:grid}.docs-panel .docs-file-front dt code{color:var(--fg-2,#ffffffbd)}.docs-panel .docs-file-body{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}.docs-panel .docs-file-rendered{border-top:.5px solid var(--line,#ffffff12);font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);margin-top:8px;padding:12px 0 4px;font-size:13px;line-height:1.55}.docs-panel .docs-file-rendered h1,.docs-panel .docs-file-rendered h2,.docs-panel .docs-file-rendered h3,.docs-panel .docs-file-rendered h4{font-family:var(--font-serif,system-ui);margin:12px 0 6px;line-height:1.2}.docs-panel .docs-file-rendered h1{font-size:20px}.docs-panel .docs-file-rendered h2{font-size:16px}.docs-panel .docs-file-rendered h3{text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3,#ffffff85);font-size:14px}.docs-panel .docs-file-rendered p{margin:0 0 8px}.docs-panel .docs-file-rendered ul{margin:0 0 8px 18px;padding:0;list-style:outside}.docs-panel .docs-file-rendered ul li{margin:2px 0}.docs-panel .docs-file-rendered code{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:0 4px;font-size:12px}.docs-panel .docs-file-rendered pre{background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--line,#ffffff12);margin:8px 0;padding:10px 12px;font-size:12px;line-height:1.45}.docs-panel .docs-file-rendered pre code{background:0 0;padding:0}.docs-panel .docs-file-rendered strong{font-weight:700}.docs-panel .docs-file-rendered em{font-style:italic}.docs-panel .no-files{margin:0}"]]]), vs = "ext_docs", ys = "comtrya-docs-panel";
-Ho({
-	tagName: ys,
-	component: _s
+}), [["styles", [".docs-panel{font-family:var(--font-sans,system-ui);gap:14px;display:grid}.docs-panel .docs-head{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;padding-bottom:6px;display:flex}.docs-panel h2{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.docs-panel .title-block{flex-wrap:wrap;align-items:baseline;gap:14px;display:inline-flex}.docs-panel .muted{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.docs-panel .muted code{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 4px;font-size:11px}.docs-panel .muted.error{color:var(--accent-err,#c9341c)}.docs-panel .docs-project{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e)}.docs-panel .docs-project-head{background:var(--bg-2,#0e1014);border-bottom:.5px solid var(--line,#ffffff12);flex-wrap:wrap;align-items:baseline;gap:12px;padding:10px 14px;display:flex}.docs-panel .docs-project-head h3{font-family:var(--font-serif,system-ui);margin:0;font-size:16px;line-height:1}.docs-panel .docs-project-root{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.docs-panel .docs-type{border-bottom:.5px solid var(--line,#ffffff12);padding:12px 14px}.docs-panel .docs-type:last-child{border-bottom:0}.docs-panel .docs-type-head{flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:6px;display:flex}.docs-panel .docs-type-key{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;color:var(--accent-blue,#1d55a6);font-size:12px;font-weight:700}.docs-panel .docs-type-label{font-family:var(--font-serif,system-ui);font-size:14px;font-weight:600}.docs-panel .docs-type-scope{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 5px;font-size:11px}.docs-panel .docs-type-count{margin-left:auto}.docs-panel .docs-type-desc{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);margin:0 0 8px;font-size:13px}.docs-panel .docs-type-props{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:2px 14px;margin:0 0 10px;font-size:11px;display:grid}.docs-panel .docs-type-props dt{font-weight:600}.docs-panel .docs-type-props dt code{color:var(--fg,#fffffff0)}.docs-panel .docs-type-props .implicit code,.docs-panel .docs-type-props .implicit{color:var(--fg-4,#ffffff57);font-style:italic}.docs-panel .docs-files{gap:8px;margin:0;padding:0;list-style:none;display:grid}.docs-panel .docs-file{border-left:2px solid var(--line,#ffffff12);cursor:pointer;padding:6px 0 6px 12px;transition:border-color .12s}.docs-panel .docs-file:hover,.docs-panel .docs-file.focused{border-left-color:var(--fg-3,#ffffff85);background:var(--surface)}.docs-panel .docs-file.expanded{border-left-color:var(--accent-blue,#1d55a6);cursor:default}.docs-panel .docs-file:focus{outline:none}.docs-panel .docs-file-caret{width:12px;color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);display:inline-block}.docs-panel .docs-file-head{flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:2px;display:flex}.docs-panel .docs-file-title{font-family:var(--font-serif,system-ui);font-size:13px}.docs-panel .docs-file-path{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.docs-panel .docs-file-front{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:1px 12px;margin:0 0 4px;font-size:11px;display:grid}.docs-panel .docs-file-front dt code{color:var(--fg-2,#ffffffbd)}.docs-panel .docs-file-body{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}.docs-panel .docs-file-rendered{border-top:.5px solid var(--line,#ffffff12);font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);margin-top:8px;padding:12px 0 4px;font-size:13px;line-height:1.55}.docs-panel .docs-file-rendered h1,.docs-panel .docs-file-rendered h2,.docs-panel .docs-file-rendered h3,.docs-panel .docs-file-rendered h4{font-family:var(--font-serif,system-ui);margin:12px 0 6px;line-height:1.2}.docs-panel .docs-file-rendered h1{font-size:20px}.docs-panel .docs-file-rendered h2{font-size:16px}.docs-panel .docs-file-rendered h3{text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3,#ffffff85);font-size:14px}.docs-panel .docs-file-rendered p{margin:0 0 8px}.docs-panel .docs-file-rendered ul{margin:0 0 8px 18px;padding:0;list-style:outside}.docs-panel .docs-file-rendered ul li{margin:2px 0}.docs-panel .docs-file-rendered code{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:0 4px;font-size:12px}.docs-panel .docs-file-rendered pre{background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--line,#ffffff12);margin:8px 0;padding:10px 12px;font-size:12px;line-height:1.45}.docs-panel .docs-file-rendered pre code{background:0 0;padding:0}.docs-panel .docs-file-rendered strong{font-weight:700}.docs-panel .docs-file-rendered em{font-style:italic}.docs-panel .no-files{margin:0}"]]]), Es = "ext_docs", Ds = "comtrya-docs-panel";
+Xo({
+	tagName: Ds,
+	component: Ts
 });
-var bs = {
-	id: vs,
+var Os = {
+	id: Es,
 	setup(e) {
 		e.registerWidget({
 			id: "docs-panel",
-			element: ys,
+			element: Ds,
 			defaultSlot: "repository.main",
 			defaultPriority: 80,
 			requiredPermission: "workspace.read"
@@ -3460,4 +3528,4 @@ var bs = {
 	}
 };
 //#endregion
-export { bs as default };
+export { Os as default };
