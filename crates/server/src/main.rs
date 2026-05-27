@@ -1447,6 +1447,74 @@ impl Runtime {
         Ok(())
     }
 
+    /// `(scope, name, color, description, id)` for every stored label. `scope`
+    /// is `None` for a global (inheritable) label.
+    fn label_docs(&self) -> Vec<(Option<String>, String, String, String, String)> {
+        self.extension_storage
+            .collection_data("labels")
+            .ok()
+            .and_then(|value| value.as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|doc| {
+                let name = doc.get("name").and_then(Value::as_str)?.to_string();
+                let id = doc.get("id").and_then(Value::as_str)?.to_string();
+                let color = doc
+                    .get("color")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let description = doc
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let scope = doc.get("scope").and_then(Value::as_str).map(str::to_owned);
+                Some((scope, name, color, description, id))
+            })
+            .collect()
+    }
+
+    fn create_label(&self, label: &comtrya_core::LabelConfig) -> Result<(), String> {
+        let id = OpaqueId::new(IdPrefix::Owned("lbl_".to_string()));
+        let now_iso = chrono_now_iso();
+        let data = json!({
+            "id": id.as_str(),
+            "name": label.name,
+            "color": label.color,
+            "description": label.description.clone().unwrap_or_default(),
+            "scope": label.scope.clone().map(Value::from).unwrap_or(Value::Null),
+            "visibility": "PUBLIC",
+        });
+        let label_ref = format!("comtrya://label/{}", id.as_str());
+        let record = extension_document_record(
+            "core",
+            "labels",
+            id.as_str(),
+            &label_ref,
+            vec![label_ref.clone()],
+            data,
+            &now_iso,
+        );
+        self.extension_storage.create_document(record)
+    }
+
+    fn update_label(&self, id: &str, color: &str, description: &str) -> Result<(), String> {
+        let color = color.to_string();
+        let description = description.to_string();
+        self.extension_storage
+            .update_document_atomically("labels", id, move |data| {
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("color".to_string(), Value::String(color));
+                    obj.insert("description".to_string(), Value::String(description));
+                }
+            })
+    }
+
+    fn delete_label(&self, id: &str) -> Result<(), String> {
+        self.extension_storage.delete_document("core", "labels", id)
+    }
+
     fn runtime_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
@@ -3188,6 +3256,11 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 "workspace": workspace,
                 "repository": repository,
                 "repositories": repositories_value,
+                "labels": state
+                    .runtime
+                    .extension_storage
+                    .collection_data("labels")
+                    .unwrap_or_else(|_| json!([])),
                 "extensionInstallations": inject_route_prefix(
                     runtime_data.get("extensions").cloned().unwrap_or_else(|| json!([])),
                     &state.runtime.config.extensions,
@@ -5023,6 +5096,11 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_type_time", &["type", "time"], false),
             ],
         ),
+        storage_collection(
+            "core",
+            "labels",
+            vec![storage_index("by_scope_name", &["scope", "name"], false)],
+        ),
     ]
 }
 
@@ -6504,6 +6582,56 @@ mod tests {
             !paths.iter().any(|p| p == "legacy/old"),
             "undeclared repo deleted (strict GitOps): {paths:?}"
         );
+    }
+
+    #[test]
+    fn reconcile_labels_creates_updates_and_deletes() {
+        let runtime = runtime_with_admins(vec![]);
+        let mut config = InstanceConfig::minimal_dev();
+        config.labels = vec![
+            comtrya_core::LabelConfig {
+                name: "bug".to_string(),
+                color: "#ff0000".to_string(),
+                description: Some("defect".to_string()),
+                scope: None,
+            },
+            comtrya_core::LabelConfig {
+                name: "scoped".to_string(),
+                color: "#00ff00".to_string(),
+                description: None,
+                scope: Some("platform".to_string()),
+            },
+        ];
+        reconcile::reconcile_labels(&runtime, &config);
+        assert_eq!(runtime.label_docs().len(), 2);
+
+        // Recolor bug, drop scoped, add feature.
+        let mut next = InstanceConfig::minimal_dev();
+        next.labels = vec![
+            comtrya_core::LabelConfig {
+                name: "bug".to_string(),
+                color: "#0000ff".to_string(),
+                description: Some("defect".to_string()),
+                scope: None,
+            },
+            comtrya_core::LabelConfig {
+                name: "feature".to_string(),
+                color: "#abcdef".to_string(),
+                description: None,
+                scope: None,
+            },
+        ];
+        reconcile::reconcile_labels(&runtime, &next);
+
+        let docs = runtime.label_docs();
+        let names: Vec<&str> = docs.iter().map(|(_, name, ..)| name.as_str()).collect();
+        assert!(names.contains(&"bug") && names.contains(&"feature"));
+        assert!(
+            !names.contains(&"scoped"),
+            "scoped label deleted: {names:?}"
+        );
+        let bug = docs.iter().find(|(_, name, ..)| name == "bug").unwrap();
+        assert_eq!(bug.2, "#0000ff", "bug color updated live");
     }
 
     /// Headers carrying the default test `Origin` so `check_boundary` populates

@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use comtrya_core::{InstanceConfig, RepositoryConfig};
+use comtrya_core::{InstanceConfig, LabelConfig, RepositoryConfig};
 
 use crate::Runtime;
 
@@ -19,6 +19,48 @@ pub(crate) fn reconcile_live(runtime: &Runtime, config: &InstanceConfig) {
         auth.set_issuers(&config.oidc_issuers);
     }
     reconcile_repositories(runtime, config);
+    reconcile_labels(runtime, config);
+}
+
+/// Reconcile the instance-declared label set (the config repo is authoritative):
+/// create labels that don't exist, update color/description, and delete labels
+/// absent from config. Keyed by `(scope, name)` so a global label (`scope =
+/// None`) and a scoped one with the same name are distinct.
+pub(crate) fn reconcile_labels(runtime: &Runtime, config: &InstanceConfig) {
+    let mut desired: BTreeMap<(Option<String>, String), &LabelConfig> = BTreeMap::new();
+    for label in &config.labels {
+        desired.insert((label.scope.clone(), label.name.clone()), label);
+    }
+
+    let actual = runtime.label_docs();
+    let mut seen: BTreeSet<(Option<String>, String)> = BTreeSet::new();
+    for (scope, name, color, description, id) in &actual {
+        let key = (scope.clone(), name.clone());
+        seen.insert(key.clone());
+        match desired.get(&key) {
+            Some(label) => {
+                let want_description = label.description.clone().unwrap_or_default();
+                if (&label.color != color || want_description != *description)
+                    && let Err(error) = runtime.update_label(id, &label.color, &want_description)
+                {
+                    tracing::warn!(%name, %error, "reconcile: failed to update label");
+                }
+            }
+            None => {
+                if let Err(error) = runtime.delete_label(id) {
+                    tracing::warn!(%name, %error, "reconcile: failed to delete label");
+                }
+            }
+        }
+    }
+
+    for (key, label) in &desired {
+        if !seen.contains(key)
+            && let Err(error) = runtime.create_label(label)
+        {
+            tracing::warn!(name = %label.name, %error, "reconcile: failed to create label");
+        }
+    }
 }
 
 /// Strict GitOps repository reconcile: create repositories declared in config
