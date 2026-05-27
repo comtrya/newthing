@@ -1,0 +1,31 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: comtrya-server
+  annotations:
+    # The server runs with COMTRYA_TLS_TERMINATED=true, so TLS terminates here.
+    # Add controller-specific annotations as needed (e.g. cert-manager:
+    #   cert-manager.io/cluster-issuer: letsencrypt-prod).
+    {}
+spec:
+  ingressClassName: nginx # REPLACE with your ingress class
+  tls:
+    - hosts:
+        - comtrya.example.com # REPLACE
+      secretName: comtrya-tls # TLS cert secret (cert-manager or pre-provisioned)
+  rules:
+    # REPLACE the host. This routes everything to comtrya-server, which serves
+    # /graphql, /git, /auth, /api/ops, /_extensions, /healthz, /readyz. The
+    # frontend SPA (/, /r/…, /admin, /x/…) is built+served separately (there is
+    # no frontend image yet); once it has a Service, add a higher-priority rule
+    # routing the API paths above to comtrya-server and `/` to the frontend.
+    - host: comtrya.example.com # REPLACE
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80

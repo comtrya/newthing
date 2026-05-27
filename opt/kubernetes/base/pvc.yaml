@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: comtrya-data
+spec:
+  # Single-writer: the server keeps SQLite (sessions/credentials) plus bare git
+  # repositories and extension storage on this volume. It is not horizontally
+  # scalable, hence ReadWriteOnce + a single replica + the Recreate strategy.
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName intentionally unset → use the cluster default. Pin it in
+  # an overlay if you need a specific class.

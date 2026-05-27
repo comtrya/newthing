@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comtrya-server
+spec:
+  # Single replica: state is SQLite + bare git repos on one ReadWriteOnce
+  # volume, so the server is not horizontally scalable. Recreate (not
+  # RollingUpdate) avoids two pods contending for the same PVC during rollouts.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: comtrya-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: comtrya-server
+    spec:
+      serviceAccountName: comtrya-server
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        # The image's /app/data is owned by uid 10001; fsGroup makes the
+        # mounted PVC group-writable for that uid (see docs/CONTAINER.md).
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # Graceful shutdown drains in-flight requests for up to 30s.
+      terminationGracePeriodSeconds: 35
+      containers:
+        - name: comtrya-server
+          image: ghcr.io/comtrya/comtrya-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: comtrya-server-config
+            - secretRef:
+                name: comtrya-server-secrets
+          # Cold start clones + evaluates the config repo, compiles WASM
+          # components, and bootstraps storage; gate traffic until /healthz is up.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            # CUE evaluation materialises a worktree under the system temp dir
+            # via `git archive | tar -x`; give it a writable scratch space so the
+            # root filesystem can stay read-only.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: comtrya-data
+        - name: tmp
+          emptyDir: {}
