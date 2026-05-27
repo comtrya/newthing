@@ -33,6 +33,7 @@ use tokio::sync::Semaphore;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 
+mod config_sync;
 mod cue_config;
 mod oidc;
 mod persistence;
@@ -533,21 +534,26 @@ struct ExtensionAsset {
 
 impl Runtime {
     fn start(options: StartupOptions) -> Result<Self, String> {
-        let loaded_config = if let Some(path) = &options.config_path {
-            load_config_file_with_metadata(path)?
-        } else {
-            LoadedConfig {
-                config: InstanceConfig::minimal_dev(),
-                extension_config_declared: false,
-            }
-        };
-        let config = loaded_config.config;
-        let extension_config_declared = loaded_config.extension_config_declared;
-        config.validate().map_err(|error| error.to_string())?;
-        validate_production_testbed(&config, &options)?;
-
+        // The config repo (if any) clones into data_dir/config-repo, so the
+        // data dir must exist before we resolve the config source.
         fs::create_dir_all(&options.data_dir)
             .map_err(|error| format!("failed to create data dir: {error}"))?;
+
+        // Config source precedence: the GitOps config repo wins when its URL is
+        // set; otherwise the local --config file; otherwise an unconfigured dev
+        // default. A synced repo is the source of truth, so it declares the
+        // full extension set (extension_config_declared = true).
+        let (config, extension_config_declared) =
+            if let Some(repo) = config_sync::ConfigRepo::from_env(&options.data_dir) {
+                (repo.bootstrap_and_load()?, true)
+            } else if let Some(path) = &options.config_path {
+                let loaded = load_config_file_with_metadata(path)?;
+                (loaded.config, loaded.extension_config_declared)
+            } else {
+                (InstanceConfig::minimal_dev(), false)
+            };
+        config.validate().map_err(|error| error.to_string())?;
+        validate_production_testbed(&config, &options)?;
         for dirname in ["metadata", "repositories", "extensions", "secrets"] {
             fs::create_dir_all(options.data_dir.join(dirname))
                 .map_err(|error| format!("failed to create data/{dirname}: {error}"))?;
