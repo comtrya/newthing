@@ -103,31 +103,19 @@ describe("session bootstrap", () => {
     expect(calls).toBe(2);
   });
 
-  test("redirects to OIDC login when no operator-code is available", async () => {
-    let redirectedTo: string | undefined;
-    const token = await getSessionToken({
-      operatorCode: undefined,
-      redirectTo: (url) => {
-        redirectedTo = url;
-      },
-      fetchImpl: mockFetchOK({}),
-    });
+  test("returns no token (anonymous) when no operator-code is available", async () => {
+    let fetched = false;
+    const fetchImpl = (async () => {
+      fetched = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
 
+    const token = await getSessionToken({ operatorCode: undefined, fetchImpl });
+
+    // Zero-auth: no token, no exchange, no redirect — the shell reads
+    // anonymously (public, read-only). Sign-in is an explicit action.
     expect(token).toBeUndefined();
-    expect(redirectedTo).toBe("/auth/oidc/google/login");
-  });
-
-  test("honours a custom oidcLoginPath", async () => {
-    let redirectedTo: string | undefined;
-    await getSessionToken({
-      operatorCode: undefined,
-      oidcLoginPath: "/auth/oidc/bluesky/login",
-      redirectTo: (url) => {
-        redirectedTo = url;
-      },
-      fetchImpl: mockFetchOK({}),
-    });
-    expect(redirectedTo).toBe("/auth/oidc/bluesky/login");
+    expect(fetched).toBe(false);
   });
 
   test("throws if token-exchange returns a non-2xx", async () => {

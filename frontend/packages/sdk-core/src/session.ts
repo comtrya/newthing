@@ -33,15 +33,9 @@ export interface SessionBootstrapOptions {
   baseUrl?: string;
   /** Override the operator-code (defaults to the build-inlined env var). */
   operatorCode?: string;
-  /** Where to redirect when no operator-code is available. */
-  oidcLoginPath?: string;
   /** Override fetch (used by tests). */
   fetchImpl?: typeof fetch;
-  /** Override location (used by tests to capture redirects). */
-  redirectTo?: (url: string) => void;
 }
-
-const DEFAULT_OIDC_LOGIN_PATH = "/auth/oidc/google/login";
 
 /** Returns the current session token, bootstrapping one if needed. */
 export async function getSessionToken(
@@ -77,11 +71,10 @@ async function bootstrap(
   const baseUrl = options.baseUrl ?? "";
 
   if (!operatorCode) {
-    // Production path: no operator-code grant available. Redirect to
-    // OIDC sign-in. The callback issues a session cookie; the next
-    // page load skips this branch and uses the cookie directly.
-    const redirect = options.redirectTo ?? defaultRedirect;
-    redirect(options.oidcLoginPath ?? DEFAULT_OIDC_LOGIN_PATH);
+    // Zero-auth: proceed anonymously (read-only public access). The shell no
+    // longer force-redirects to OIDC on load; sign-in is an explicit user
+    // action. Anonymous reads succeed for public surfaces; private/admin
+    // surfaces require an authenticated (OIDC admin / operator-code) session.
     return undefined;
   }
 
@@ -133,11 +126,5 @@ function readBuildEnv(): string | undefined {
     return env?.PUBLIC_COMTRYA_OPERATOR_CODE;
   } catch {
     return undefined;
-  }
-}
-
-function defaultRedirect(url: string): void {
-  if (typeof window !== "undefined" && window.location) {
-    window.location.href = url;
   }
 }
