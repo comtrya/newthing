@@ -6634,6 +6634,39 @@ mod tests {
         assert_eq!(bug.2, "#0000ff", "bug color updated live");
     }
 
+    #[test]
+    fn reconcile_extensions_flags_enabled_set_drift() {
+        let runtime = runtime_with_admins(vec![]);
+        // Same (empty) set as loaded → no reload pending.
+        reconcile::reconcile_extensions(&runtime, &InstanceConfig::minimal_dev());
+        assert!(
+            !runtime
+                .config_sync_status
+                .lock()
+                .unwrap()
+                .pending_extension_reload
+        );
+
+        // Declaring an extension absent from the loaded set flags a reload.
+        let mut config = InstanceConfig::minimal_dev();
+        config.extensions = vec![ExtensionInstallConfig {
+            id: "ext_checks".to_string(),
+            source: ExtensionSource::Local {
+                path: "ext_checks".to_string(),
+            },
+            enabled: true,
+            route_prefix: None,
+        }];
+        reconcile::reconcile_extensions(&runtime, &config);
+        assert!(
+            runtime
+                .config_sync_status
+                .lock()
+                .unwrap()
+                .pending_extension_reload
+        );
+    }
+
     /// Headers carrying the default test `Origin` so `check_boundary` populates
     /// `Access-Control-Allow-Origin` on the response. Required by any test that
     /// asserts CORS-header presence on 4xx responses.

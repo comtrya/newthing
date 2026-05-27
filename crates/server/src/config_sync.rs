@@ -107,6 +107,10 @@ pub(crate) struct SyncStatus {
     pub last_synced_unix: Option<u64>,
     pub last_error: Option<String>,
     pub interval_seconds: u64,
+    /// True when the synced config's enabled-extension set differs from the set
+    /// loaded at process start. OIDC/admins/repos/labels apply live; the
+    /// extension component set requires a restart to load/unload safely.
+    pub pending_extension_reload: bool,
 }
 
 impl SyncStatus {
@@ -118,6 +122,7 @@ impl SyncStatus {
             last_synced_unix: None,
             last_error: None,
             interval_seconds,
+            pending_extension_reload: false,
         }
     }
 
@@ -134,7 +139,12 @@ impl SyncStatus {
             last_synced_unix: Some(now_unix),
             last_error: None,
             interval_seconds,
+            pending_extension_reload: false,
         }
+    }
+
+    pub(crate) fn set_pending_extension_reload(&mut self, pending: bool) {
+        self.pending_extension_reload = pending;
     }
 
     pub(crate) fn record_synced(&mut self, commit: String, now_unix: u64) {

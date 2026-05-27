@@ -20,6 +20,43 @@ pub(crate) fn reconcile_live(runtime: &Runtime, config: &InstanceConfig) {
     }
     reconcile_repositories(runtime, config);
     reconcile_labels(runtime, config);
+    reconcile_extensions(runtime, config);
+}
+
+/// Detect whether the synced config's enabled-extension set differs from the
+/// set loaded at process start and record a "reload pending" signal.
+///
+/// OIDC, admins, repositories, and labels apply live. The extension component
+/// set does not yet hot-swap in-process: a consistent swap means atomically
+/// replacing both the compiled-component registry and the served record map
+/// (UI manifests, dispatch metadata) while no request is mid-flight. Until that
+/// lands, an extension-set change is surfaced here and applied on next restart,
+/// rather than leaving the registry and records inconsistent.
+pub(crate) fn reconcile_extensions(runtime: &Runtime, config: &InstanceConfig) {
+    let loaded = enabled_extension_ids(&runtime.config);
+    let desired = enabled_extension_ids(config);
+    let pending = loaded != desired;
+    if let Ok(mut status) = runtime.config_sync_status.lock() {
+        status.set_pending_extension_reload(pending);
+    }
+    if pending {
+        tracing::warn!(
+            ?loaded,
+            ?desired,
+            "reconcile: enabled extension set changed; restart required to apply"
+        );
+    }
+}
+
+fn enabled_extension_ids(config: &InstanceConfig) -> Vec<String> {
+    let mut ids: Vec<String> = config
+        .extensions
+        .iter()
+        .filter(|ext| ext.enabled)
+        .map(|ext| ext.id.clone())
+        .collect();
+    ids.sort();
+    ids
 }
 
 /// Reconcile the instance-declared label set (the config repo is authoritative):
