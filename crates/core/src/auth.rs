@@ -125,6 +125,15 @@ impl AuthService {
         self.users_by_issuer_subject.len()
     }
 
+    /// Replace the configured OIDC issuers, keeping already-provisioned users.
+    /// Used by the GitOps reconciler to apply issuer changes without a restart.
+    pub fn set_issuers(&mut self, issuers: &[OidcIssuerConfig]) {
+        self.issuers = issuers
+            .iter()
+            .map(|issuer| (issuer.id.clone(), issuer.clone()))
+            .collect();
+    }
+
     pub fn login(&mut self, issuer_id: &str, claims: OidcClaims) -> CoreResult<LoginResult> {
         let issuer = self
             .issuers

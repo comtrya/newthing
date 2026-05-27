@@ -64,20 +64,21 @@ impl ConfigRepo {
     }
 
     /// Fast-forward the existing checkout and, when it changed, re-evaluate the
-    /// config so validation errors surface in the sync status. Returns what
-    /// moved; applying the new config is the reconciler's job (later phase).
-    pub(crate) fn sync_and_validate(&self) -> Result<SyncTick, String> {
+    /// config so the reconciler can apply it (and validation errors surface).
+    pub(crate) fn poll(&self) -> Result<SyncPoll, String> {
         let outcome = self
             .sync
             .sync()
             .map_err(|err| format!("config repo sync failed: {err}"))?;
+        let commit = outcome.current.to_string();
         if outcome.changed {
-            let _ = self.load()?;
+            Ok(SyncPoll::Changed {
+                commit,
+                config: Box::new(self.load()?),
+            })
+        } else {
+            Ok(SyncPoll::Unchanged { commit })
         }
-        Ok(SyncTick {
-            changed: outcome.changed,
-            commit: outcome.current.to_string(),
-        })
     }
 
     fn load(&self) -> Result<InstanceConfig, String> {
@@ -85,10 +86,15 @@ impl ConfigRepo {
     }
 }
 
-/// What a single background sync moved.
-pub(crate) struct SyncTick {
-    pub(crate) changed: bool,
-    pub(crate) commit: String,
+/// The result of one background poll of the config repo.
+pub(crate) enum SyncPoll {
+    Unchanged {
+        commit: String,
+    },
+    Changed {
+        commit: String,
+        config: Box<InstanceConfig>,
+    },
 }
 
 /// Observable state of config-repo syncing, surfaced in admin telemetry.

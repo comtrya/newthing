@@ -38,6 +38,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StoredPrincipal {
     OperatorCredential,
+    /// An OIDC-authenticated bearer whose claims matched a configured admin.
+    AdminCredential,
     Credential,
     Anonymous,
     Invalid,
@@ -389,6 +391,7 @@ impl PersistentStore {
 fn principal_tag(p: StoredPrincipal) -> &'static str {
     match p {
         StoredPrincipal::OperatorCredential => "OperatorCredential",
+        StoredPrincipal::AdminCredential => "AdminCredential",
         StoredPrincipal::Credential => "Credential",
         StoredPrincipal::Anonymous => "Anonymous",
         StoredPrincipal::Invalid => "Invalid",
@@ -398,6 +401,7 @@ fn principal_tag(p: StoredPrincipal) -> &'static str {
 fn parse_principal(tag: &str) -> Option<StoredPrincipal> {
     match tag {
         "OperatorCredential" => Some(StoredPrincipal::OperatorCredential),
+        "AdminCredential" => Some(StoredPrincipal::AdminCredential),
         "Credential" => Some(StoredPrincipal::Credential),
         "Anonymous" => Some(StoredPrincipal::Anonymous),
         "Invalid" => Some(StoredPrincipal::Invalid),

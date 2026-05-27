@@ -37,6 +37,7 @@ mod config_sync;
 mod cue_config;
 mod oidc;
 mod persistence;
+mod reconcile;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -241,20 +242,26 @@ async fn main() {
             let data_dir = sync_runtime.data_dir.clone();
             let result = tokio::task::spawn_blocking(move || {
                 config_sync::ConfigRepo::from_env(&data_dir)
-                    .map(|repo| repo.sync_and_validate())
+                    .map(|repo| repo.poll())
                     .transpose()
             })
             .await;
             match result {
-                Ok(Ok(Some(moved))) => {
+                Ok(Ok(Some(config_sync::SyncPoll::Changed { commit, config }))) => {
+                    reconcile::reconcile_live(&sync_runtime, &config);
                     sync_runtime
                         .config_sync_status
                         .lock()
                         .expect("config sync status lock")
-                        .record_synced(moved.commit.clone(), now_seconds());
-                    if moved.changed {
-                        tracing::info!(commit = %moved.commit, "config repo changed on sync");
-                    }
+                        .record_synced(commit.clone(), now_seconds());
+                    tracing::info!(commit = %commit, "config repo changed; reconciled live");
+                }
+                Ok(Ok(Some(config_sync::SyncPoll::Unchanged { commit }))) => {
+                    sync_runtime
+                        .config_sync_status
+                        .lock()
+                        .expect("config sync status lock")
+                        .record_synced(commit, now_seconds());
                 }
                 Ok(Ok(None)) => {}
                 Ok(Err(error)) => {
@@ -535,6 +542,10 @@ struct Runtime {
     /// Observable state of GitOps config-repo syncing. Updated at startup and
     /// by the background sync loop; surfaced in admin telemetry.
     config_sync_status: Mutex<config_sync::SyncStatus>,
+    /// Live admin allow-list (OIDC-claim matchers). Seeded from config at
+    /// startup and replaced by the reconciler on each config sync, so admin
+    /// changes take effect without a restart.
+    admins: std::sync::RwLock<Vec<comtrya_core::AdminConfig>>,
 }
 
 type ResponseResult<T> = Result<T, Box<Response>>;
@@ -665,6 +676,7 @@ impl Runtime {
 
         // Capture config before move so AuthService can be built from it.
         let auth_service = comtrya_core::auth::AuthService::new(&config);
+        let admins_seed = config.admins.clone();
 
         // Open the durable auth store. Migrations are applied here;
         // a fresh data_dir gets a brand-new comtrya.db with both
@@ -693,6 +705,7 @@ impl Runtime {
             config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
                 config_sync::sync_interval_seconds_from_env(),
             )),
+            admins: std::sync::RwLock::new(admins_seed),
         };
         runtime
             .wasm_registry
@@ -1740,6 +1753,27 @@ impl Runtime {
         }
     }
 
+    /// True when the OIDC claims match a configured admin (live allow-list).
+    /// `handle` carries `preferred_username` when available; today it is `None`.
+    fn is_admin_claims(&self, issuer: &str, subject: &str, email: Option<&str>) -> bool {
+        self.admins
+            .read()
+            .map(|admins| {
+                admins
+                    .iter()
+                    .any(|admin| admin.matches(issuer, subject, email, None))
+            })
+            .unwrap_or(false)
+    }
+
+    /// Replace the live admin allow-list. The reconciler calls this on each
+    /// config sync so admin changes apply without a restart.
+    fn set_admins(&self, admins: Vec<comtrya_core::AdminConfig>) {
+        if let Ok(mut guard) = self.admins.write() {
+            *guard = admins;
+        }
+    }
+
     fn issue_credential(
         &self,
         resource: String,
@@ -1948,6 +1982,8 @@ fn inject_route_prefix(
 enum PrincipalStatus {
     Anonymous,
     OperatorCredential,
+    /// OIDC-authenticated bearer whose claims matched a configured admin.
+    AdminCredential,
     Credential,
     Invalid,
 }
@@ -1981,6 +2017,7 @@ impl PrincipalContext {
 fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
     match p {
         PrincipalStatus::OperatorCredential => persistence::StoredPrincipal::OperatorCredential,
+        PrincipalStatus::AdminCredential => persistence::StoredPrincipal::AdminCredential,
         PrincipalStatus::Credential => persistence::StoredPrincipal::Credential,
         PrincipalStatus::Anonymous => persistence::StoredPrincipal::Anonymous,
         PrincipalStatus::Invalid => persistence::StoredPrincipal::Invalid,
@@ -1990,6 +2027,7 @@ fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
 fn stored_to_principal(p: persistence::StoredPrincipal) -> PrincipalStatus {
     match p {
         persistence::StoredPrincipal::OperatorCredential => PrincipalStatus::OperatorCredential,
+        persistence::StoredPrincipal::AdminCredential => PrincipalStatus::AdminCredential,
         persistence::StoredPrincipal::Credential => PrincipalStatus::Credential,
         persistence::StoredPrincipal::Anonymous => PrincipalStatus::Anonymous,
         persistence::StoredPrincipal::Invalid => PrincipalStatus::Invalid,
@@ -3078,7 +3116,15 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                         "extensionRuntime": capabilities.extension_runtime
                     }
                 },
-                "adminTelemetry": state.runtime.admin_telemetry(),
+                // Admin-only: non-admins see null and the shell hides /admin.
+                "adminTelemetry": if matches!(
+                    principal,
+                    PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+                ) {
+                    state.runtime.admin_telemetry()
+                } else {
+                    Value::Null
+                },
                 "workspace": workspace,
                 "repository": repository,
                 "repositories": repositories_value,
@@ -3125,7 +3171,9 @@ fn event_stream_response(
     };
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -3166,7 +3214,9 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -3573,11 +3623,21 @@ async fn oidc_callback(
         }
     };
 
-    // 6. Issue session. `PrincipalStatus::Credential` marks the
-    //    bearer as OIDC-authenticated; the user id itself is captured
-    //    in the audit event below for trace correlation, not in the
-    //    SessionRecord (which only stores PrincipalStatus today).
-    let token = state.runtime.issue_session(PrincipalStatus::Credential);
+    // 6. Issue session. Claims matching a configured admin mint an
+    //    AdminCredential (gates /admin surfaces); everyone else gets a plain
+    //    OIDC-authenticated Credential. The user id is captured in the audit
+    //    event below for trace correlation (the session stores only the
+    //    PrincipalStatus today).
+    let principal = if state.runtime.is_admin_claims(
+        &login.user.issuer,
+        &login.user.subject,
+        login.user.email.as_deref(),
+    ) {
+        PrincipalStatus::AdminCredential
+    } else {
+        PrincipalStatus::Credential
+    };
+    let token = state.runtime.issue_session(principal);
     let cookie = session_cookie_value(
         &token,
         state.runtime.options.session_ttl_seconds,
@@ -3716,7 +3776,9 @@ async fn git_endpoint(
     let principal = state.runtime.principal_from_headers(&headers);
     if !matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     ) {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
@@ -6282,6 +6344,65 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
         );
         headers
+    }
+
+    fn runtime_with_admins(admins: Vec<comtrya_core::AdminConfig>) -> Arc<Runtime> {
+        let mut config = InstanceConfig::minimal_dev();
+        config.admins = admins;
+        Arc::new(
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("admins"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                config,
+                true,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn admin_identity_matches_oidc_claims() {
+        let runtime = runtime_with_admins(vec![comtrya_core::AdminConfig {
+            issuer: Some("dev".to_string()),
+            subject: None,
+            email: Some("boss@example.test".to_string()),
+            handle: None,
+        }]);
+        assert!(runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+        // Wrong issuer or wrong email is not an admin.
+        assert!(!runtime.is_admin_claims("other", "sub", Some("boss@example.test")));
+        assert!(!runtime.is_admin_claims("dev", "sub", Some("nobody@example.test")));
+    }
+
+    #[test]
+    fn reconcile_applies_admin_list_live() {
+        let runtime = runtime_with_admins(vec![comtrya_core::AdminConfig {
+            issuer: None,
+            subject: None,
+            email: Some("boss@example.test".to_string()),
+            handle: None,
+        }]);
+        assert!(runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+
+        let mut next = InstanceConfig::minimal_dev();
+        next.admins = vec![comtrya_core::AdminConfig {
+            issuer: None,
+            subject: Some("sub-2".to_string()),
+            email: None,
+            handle: None,
+        }];
+        reconcile::reconcile_live(&runtime, &next);
+
+        // Old admin no longer matches; the new subject-based admin does.
+        assert!(!runtime.is_admin_claims("dev", "sub", Some("boss@example.test")));
+        assert!(runtime.is_admin_claims("any-issuer", "sub-2", None));
     }
 
     /// Headers carrying the default test `Origin` so `check_boundary` populates
