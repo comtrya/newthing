@@ -2759,6 +2759,33 @@ pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseRe
     require_authenticated_principal(principal, cors)
 }
 
+/// Guard for read-only GraphQL: permits anonymous callers (zero-auth public
+/// read access) but still rejects an `Invalid` (malformed/expired) credential.
+/// The caller visibility-filters results by principal — anonymous sees PUBLIC
+/// repositories only; authenticated principals see all.
+pub(crate) fn graphql_read_guard(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> ResponseResult<HeaderMap> {
+    let cors = cors_or_response(state, headers)?;
+    state.runtime.rate_limit(
+        "graphql",
+        state.runtime.config.rate_limits.graphql_per_principal,
+    )?;
+    if matches!(
+        state.runtime.principal_from_headers(headers),
+        PrincipalStatus::Invalid
+    ) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "invalid credential",
+            cors,
+        )));
+    }
+    Ok(cors)
+}
+
 /// Reject `Anonymous` and `Invalid` principals. Preserves `cors` headers on
 /// the error response so cross-origin browsers receive a real 401 instead
 /// of an opaque CORS failure. Centralised so the GraphQL guard and the
@@ -3102,7 +3129,10 @@ pub(crate) fn graphql_error_response(
 }
 
 fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Response {
-    let cors = match graphql_guard(&state, &headers) {
+    // Reads are zero-auth: anonymous callers are allowed (and PUBLIC-filtered
+    // below); only Invalid credentials are rejected. Writes (mutations) keep
+    // the stricter `graphql_guard`.
+    let cors = match graphql_read_guard(&state, &headers) {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -3125,6 +3155,28 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         .get("repositories")
         .cloned()
         .unwrap_or_else(|| json!([]));
+    // Zero-auth read access is PUBLIC-only: anonymous callers see only public
+    // repositories; authenticated principals (OIDC admin / operator) see all.
+    // Every downstream read field (repositoryByPath, repositories, repository)
+    // derives from this list, so filtering here covers the whole read surface.
+    let repositories_value = if matches!(principal, PrincipalStatus::Anonymous) {
+        Value::Array(
+            repositories_value
+                .as_array()
+                .map(|repos| {
+                    repos
+                        .iter()
+                        .filter(|repo| {
+                            repo.get("visibility").and_then(Value::as_str) == Some("PUBLIC")
+                        })
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+        )
+    } else {
+        repositories_value
+    };
     let path_segments: Vec<String> = payload
         .get("variables")
         .and_then(|v| v.get("segments"))
@@ -9038,11 +9090,11 @@ mod tests {
         );
     }
 
-    /// #16 lockdown: the `workspace { ... }` query the shell sends on boot
-    /// requires a session. Mirrors the exact shape `App.vue:loadShellSummary`
-    /// uses so a regression here breaks the shell test in lockstep.
+    /// Zero-auth read access: the `workspace { ... }` query the shell sends on
+    /// boot is served to anonymous callers (read-only). Repositories are
+    /// PUBLIC-filtered for anonymous; mutations and admin surfaces stay gated.
     #[tokio::test]
-    async fn graphql_query_workspace_rejects_anonymous() {
+    async fn graphql_query_workspace_allows_anonymous_read() {
         let runtime = dev_runtime_no_extensions();
         let response = graphql_post(
             State(AppState {
@@ -9058,8 +9110,57 @@ mod tests {
         .await;
         assert_eq!(
             response.status(),
-            StatusCode::UNAUTHORIZED,
-            "anonymous workspace query must be rejected under #16 lockdown",
+            StatusCode::OK,
+            "anonymous workspace read is allowed under zero-auth read-only access",
+        );
+    }
+
+    /// Zero-auth reads are PUBLIC-only: an anonymous workspace query returns
+    /// public repositories but never private ones.
+    #[tokio::test]
+    async fn anonymous_workspace_read_is_public_only() {
+        let runtime = dev_runtime_no_extensions();
+        runtime
+            .create_declared_repository(&comtrya_core::RepositoryConfig {
+                path: "open/public-repo".to_string(),
+                visibility: comtrya_core::Visibility::Public,
+                description: None,
+                storage_backend: None,
+                default_branch: None,
+            })
+            .expect("create public repo");
+        // create_repository_document defaults to PRIVATE visibility.
+        runtime
+            .create_repository_document("secret/private-repo", None)
+            .expect("create private repo");
+
+        let response = graphql_post(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            origin_headers(),
+            json!({ "query": "query { workspace { repositories { path visibility } } }" })
+                .to_string(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let paths: Vec<String> = payload["data"]["workspace"]["repositories"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|repo| repo["path"].as_str().map(str::to_owned))
+            .collect();
+        assert!(
+            paths.iter().any(|p| p == "open/public-repo"),
+            "public repo visible to anonymous: {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p == "secret/private-repo"),
+            "private repo hidden from anonymous: {paths:?}"
         );
     }
 
