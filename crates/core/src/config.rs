@@ -83,6 +83,83 @@ pub struct WorkspaceConfig {
     pub allow_public_descendants: bool,
 }
 
+/// An admin identity matched against a logged-in OIDC user's claims.
+///
+/// Admins are pure OIDC-claim matches — there is no local auth (see
+/// `feedback_auth_oidc_only`). A user is an admin when, within the optional
+/// `issuer` constraint, ANY populated matcher equals the corresponding claim.
+/// At least one of `subject`/`email`/`handle` must be set (enforced by
+/// [`InstanceConfig::validate`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminConfig {
+    pub issuer: Option<String>,
+    pub subject: Option<String>,
+    pub email: Option<String>,
+    pub handle: Option<String>,
+}
+
+impl AdminConfig {
+    /// True when this entry grants admin to the given OIDC claims. An empty
+    /// `issuer` matches any issuer; a populated one must equal `issuer_id`.
+    /// Among the populated matchers, any single equal claim is sufficient.
+    pub fn matches(
+        &self,
+        issuer_id: &str,
+        subject: &str,
+        email: Option<&str>,
+        handle: Option<&str>,
+    ) -> bool {
+        if let Some(want) = &self.issuer
+            && want != issuer_id
+        {
+            return false;
+        }
+        if self.subject.as_deref() == Some(subject) {
+            return true;
+        }
+        if let Some(want) = &self.email
+            && email == Some(want.as_str())
+        {
+            return true;
+        }
+        if let Some(want) = &self.handle
+            && handle == Some(want.as_str())
+        {
+            return true;
+        }
+        false
+    }
+
+    fn has_matcher(&self) -> bool {
+        self.subject.is_some() || self.email.is_some() || self.handle.is_some()
+    }
+}
+
+/// A repository the instance declares in its config. The GitOps reconciler
+/// treats the declared set as authoritative (create/update/delete).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepositoryConfig {
+    /// Slash-separated path under the instance root, e.g. `platform/api`.
+    /// Each segment must be a valid [`Slug`].
+    pub path: String,
+    pub visibility: Visibility,
+    pub description: Option<String>,
+    /// Storage backend name; falls back to `repository_storage_default`.
+    pub storage_backend: Option<String>,
+    pub default_branch: Option<String>,
+}
+
+/// A label definition. Global (instance) labels are inheritable; per-repo CUE
+/// can add scoped labels. `scope` is `None` for a global inheritable label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelConfig {
+    pub name: String,
+    /// `#rrggbb` hex color.
+    pub color: String,
+    pub description: Option<String>,
+    pub scope: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceConfig {
     pub id: String,
@@ -99,6 +176,9 @@ pub struct InstanceConfig {
     pub ceilings: Ceilings,
     pub rate_limits: RateLimits,
     pub extensions: Vec<crate::extensions::ExtensionInstallConfig>,
+    pub admins: Vec<AdminConfig>,
+    pub repositories: Vec<RepositoryConfig>,
+    pub labels: Vec<LabelConfig>,
 }
 
 impl InstanceConfig {
@@ -134,6 +214,88 @@ impl InstanceConfig {
                 return Err(CoreError::config_invalid(format!(
                     "duplicate extension id {:?} in config",
                     ext.id
+                )));
+            }
+        }
+        self.validate_admins()?;
+        self.validate_repositories()?;
+        self.validate_labels()?;
+        Ok(())
+    }
+
+    fn validate_admins(&self) -> CoreResult<()> {
+        for admin in &self.admins {
+            if !admin.has_matcher() {
+                return Err(CoreError::config_invalid(
+                    "each admin entry must set at least one of subject/email/handle",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_repositories(&self) -> CoreResult<()> {
+        let mut seen = BTreeMap::new();
+        for repo in &self.repositories {
+            if repo.path.trim().is_empty() {
+                return Err(CoreError::config_invalid(
+                    "repository.path must be non-empty",
+                ));
+            }
+            for segment in repo.path.split('/') {
+                Slug::new(segment.to_string()).map_err(|err| {
+                    CoreError::config_invalid(format!(
+                        "repository path {:?} segment {segment:?}: {}",
+                        repo.path, err.message
+                    ))
+                })?;
+            }
+            if seen.insert(repo.path.clone(), ()).is_some() {
+                return Err(CoreError::config_invalid(format!(
+                    "duplicate repository path {:?} in config",
+                    repo.path
+                )));
+            }
+            if !self
+                .ceilings
+                .repository
+                .allowed_visibility
+                .contains(&repo.visibility)
+            {
+                return Err(CoreError::config_invalid(format!(
+                    "repository {:?} visibility {} is outside allowedVisibility",
+                    repo.path, repo.visibility
+                )));
+            }
+            if let Some(backend) = &repo.storage_backend
+                && !self.repository_storage_backends.contains_key(backend)
+            {
+                return Err(CoreError::config_invalid(format!(
+                    "repository {:?} storageBackend {backend:?} is not a configured backend",
+                    repo.path
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_labels(&self) -> CoreResult<()> {
+        for label in &self.labels {
+            if label.name.trim().is_empty() {
+                return Err(CoreError::config_invalid("label.name must be non-empty"));
+            }
+            if !is_hex_color(&label.color) {
+                return Err(CoreError::config_invalid(format!(
+                    "label {:?} color {:?} must be a #rrggbb hex string",
+                    label.name, label.color
+                )));
+            }
+            if let Some(scope) = &label.scope
+                && scope.trim().is_empty()
+            {
+                return Err(CoreError::config_invalid(format!(
+                    "label {:?} scope must be non-empty when present",
+                    label.name
                 )));
             }
         }
@@ -185,8 +347,19 @@ impl InstanceConfig {
             ceilings: Ceilings::default(),
             rate_limits: RateLimits::default(),
             extensions: Vec::new(),
+            admins: Vec::new(),
+            repositories: Vec::new(),
+            labels: Vec::new(),
         }
     }
+}
+
+/// `#rrggbb` (exactly six hex digits after a leading `#`).
+fn is_hex_color(value: &str) -> bool {
+    let Some(hex) = value.strip_prefix('#') else {
+        return false;
+    };
+    hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

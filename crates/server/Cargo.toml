@@ -32,6 +32,12 @@ getrandom = "0.3"
 # rate-limit counters, future durable schema). `bundled` ships a vendored
 # libsqlite3 so a fresh `./start.sh --reset` works without a system dep.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# GitOps config-sync engine. Pinned to the git `main` branch until the
+# v2.0.0 tag lands. gitsync is pure-Rust (gix) — matching the rest of the
+# repo, no system libgit2 — and re-exports `gitsync::Oid` so we don't need a
+# direct gix dependency. Note: it shells out to the `git` binary for
+# checkout/reset, so a `git` executable must be on PATH at runtime.
+gitsync = { git = "https://github.com/rawkode/gitsync", branch = "main" }
 
 [dev-dependencies]
 tempfile = "3"
