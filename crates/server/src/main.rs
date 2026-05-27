@@ -58,7 +58,7 @@ struct PureRustGitState {
 impl PureRustGitState {
     fn from_runtime(runtime: &Runtime) -> Self {
         Self {
-            project_root: runtime.demo_repository.project_root.clone(),
+            project_root: runtime.repository_root(),
             semaphore: Arc::new(Semaphore::new(8)),
             max_body: 64 * 1024 * 1024,
             timeout_ms: 60_000,
@@ -401,7 +401,6 @@ struct StartupOptions {
     tls_terminated: bool,
     operator_code: Option<String>,
     session_ttl_seconds: u64,
-    external_demo: bool,
 }
 
 impl StartupOptions {
@@ -456,7 +455,6 @@ impl StartupOptions {
             tls_terminated: env_truthy("COMTRYA_TLS_TERMINATED"),
             operator_code: std::env::var("COMTRYA_OPERATOR_CODE").ok(),
             session_ttl_seconds: env_u64("COMTRYA_SESSION_TTL_SECONDS", 300),
-            external_demo: env_truthy("COMTRYA_EXTERNAL_DEMO"),
         }
     }
 }
@@ -467,11 +465,11 @@ struct Runtime {
     config: InstanceConfig,
     data_dir: PathBuf,
     extension_storage: ExtensionRuntimeStore,
-    demo_repository: DemoRepositoryRuntime,
     extension_runtime: BTreeMap<String, ExtensionRuntimeRecord>,
     wasm_registry: wasm_registry::WasmRegistry,
     events_path: PathBuf,
     audit_path: PathBuf,
+    started_at_seconds: u64,
     /// Durable session / credential / rate-limit storage (#9, #12).
     /// Replaces the three `Mutex<HashMap>` fields the in-process
     /// kernel previously kept here. The store is opened in
@@ -491,12 +489,6 @@ struct Runtime {
     /// lifetime. Replaces the previous "evaluate on every request"
     /// behaviour at `evaluate_repo_config` call sites.
     cue_config_cache: cue_config::CueConfigCache,
-}
-
-#[derive(Debug, Clone)]
-struct DemoRepositoryRuntime {
-    git_dir: PathBuf,
-    project_root: PathBuf,
 }
 
 type ResponseResult<T> = Result<T, Box<Response>>;
@@ -570,10 +562,6 @@ impl Runtime {
 
         let events_path = options.data_dir.join("metadata/events.jsonl");
         let audit_path = options.data_dir.join("metadata/audit.jsonl");
-        let demo_repository = ensure_demo_repository(&options.data_dir)
-            .map_err(|error| format!("failed to seed/open demo repository: {error}"))?;
-        validate_demo_repository_refs(&demo_repository)
-            .map_err(|error| format!("demo repository validation failed: {error}"))?;
         validate_route_prefix_uniqueness(&config.extensions)
             .map_err(|error| format!("extension config invalid: {error}"))?;
         let ExtensionRuntimeOutput {
@@ -586,12 +574,12 @@ impl Runtime {
         )
         .map_err(|error| format!("failed to load Wasmtime extension runtime: {error}"))?;
         let storage_collections = storage_schema_collections(&extension_runtime);
-        let extension_storage = ExtensionRuntimeStore::open(
-            &options.data_dir,
-            &storage_collections,
-            Some(&wasm_registry),
-        )
-        .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
+        let extension_storage =
+            ExtensionRuntimeStore::open(&options.data_dir, &storage_collections)
+                .map_err(|error| format!("failed to open extension runtime storage: {error}"))?;
+        extension_storage
+            .ensure_core_bootstrap(&config, &extension_runtime)
+            .map_err(|error| format!("failed to initialize runtime storage: {error}"))?;
         touch(&events_path).map_err(|error| format!("failed to initialize event log: {error}"))?;
         touch(&audit_path).map_err(|error| format!("failed to initialize audit log: {error}"))?;
 
@@ -611,11 +599,11 @@ impl Runtime {
             options,
             config,
             extension_storage,
-            demo_repository,
             extension_runtime,
             wasm_registry,
             events_path,
             audit_path,
+            started_at_seconds: now_seconds(),
             store,
             token_counter: AtomicU64::new(0),
             oidc_sessions: oidc::OidcSessionStore::new(),
@@ -656,6 +644,10 @@ impl Runtime {
         }
     }
 
+    fn repository_root(&self) -> PathBuf {
+        self.data_dir.join("repositories")
+    }
+
     fn readiness(&self) -> Readiness {
         let mut readiness_map = BTreeMap::new();
         readiness_map.insert("configValid".to_string(), true);
@@ -666,12 +658,8 @@ impl Runtime {
         readiness_map.insert("eventLogWritable".to_string(), self.events_path.is_file());
         readiness_map.insert("auditLogWritable".to_string(), self.audit_path.is_file());
         readiness_map.insert(
-            "demoBareRepository".to_string(),
-            self.demo_repository.git_dir.join("HEAD").is_file(),
-        );
-        readiness_map.insert(
-            "demoRepositoryRefs".to_string(),
-            validate_demo_repository_refs(&self.demo_repository).is_ok(),
+            "repositoryRoot".to_string(),
+            self.repository_root().is_dir(),
         );
         readiness_map.insert(
             "extensionStorageSchema".to_string(),
@@ -1226,7 +1214,7 @@ impl Runtime {
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             })
-            .unwrap_or_else(|| "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string());
+            .ok_or_else(|| "repository creation requires an initialized workspace".to_string())?;
         // validate_repo_path() above errors on empty input, so segments is
         // non-empty. Explicit destructuring (rather than .expect()) survives
         // future refactors that might detach this code from validate_repo_path
@@ -1241,7 +1229,7 @@ impl Runtime {
         let git_http_path = format!("/git/{}.git", canonical);
         let now_iso = chrono_now_iso();
 
-        let project_root = self.data_dir.join("repositories");
+        let project_root = self.repository_root();
         let git_dir = match clone_from_url {
             Some(url) => clone_bare_repository_on_disk(&project_root, &canonical, url)?,
             None => init_bare_repository_on_disk(&project_root, &canonical)?,
@@ -1253,6 +1241,7 @@ impl Runtime {
 
         let data = json!({
             "id": repo_id.as_str(),
+            "workspaceID": workspace_id.clone(),
             "owner": owner,
             "name": name,
             "path": canonical,
@@ -1302,26 +1291,12 @@ impl Runtime {
         Ok(data)
     }
 
-    fn demo_payload(&self) -> Result<Value, String> {
+    fn runtime_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
             .single_document_data("workspaces")?
-            .unwrap_or_else(|| {
-                json!({
-                    "id": "ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-                    "slug": "comtrya",
-                    "name": "Comtrya Labs",
-                    "visibility": "PRIVATE",
-                    "members": 0
-                })
-            });
+            .ok_or_else(|| "runtime storage did not contain a workspace".to_string())?;
         let repository_documents = self.extension_storage.collection_data("repositories")?;
-        let git = self.git_snapshot()?;
-        let repository_metadata = repository_documents
-            .as_array()
-            .and_then(|repositories| repositories.first());
-        let repository = merge_repository_metadata(git.repository.clone(), repository_metadata);
-        let repositories = repository_collection_payload(&repository, &repository_documents);
         let pull_requests = self.extension_storage.collection_data("pull_requests")?;
         let checks = self.extension_storage.collection_data("check_runs")?;
         let extensions = filter_extension_installations(
@@ -1333,16 +1308,16 @@ impl Runtime {
         Ok(json!({
             "generatedBy": "comtrya-runtime/v1",
             "workspace": workspace,
-            "repository": repository,
-            "repositories": repositories,
-            "refs": git.refs,
-            "branches": git.branches,
-            "commits": git.commits,
-            "treeEntries": git.tree_entries,
-            "files": git.files,
-            "blobs": git.blobs,
-            "diff": git.diff,
-            "comtryaConfig": git.comtrya_config,
+            "repository": Value::Null,
+            "repositories": repository_documents,
+            "refs": [],
+            "branches": [],
+            "commits": [],
+            "treeEntries": [],
+            "files": [],
+            "blobs": [],
+            "diff": Value::Null,
+            "comtryaConfig": Value::Null,
             "pullRequests": pull_requests,
             "checks": checks,
             "extensions": extensions,
@@ -1350,12 +1325,130 @@ impl Runtime {
         }))
     }
 
-    fn git_snapshot(&self) -> Result<GitDemoSnapshot, String> {
-        git_demo_snapshot(
-            &self.demo_repository,
-            &self.collected_cue_schemas(),
-            &self.cue_config_cache,
-        )
+    fn admin_telemetry(&self) -> Value {
+        let now = now_seconds();
+        let readiness = self.readiness();
+        let repositories = self
+            .extension_storage
+            .collection_data("repositories")
+            .unwrap_or_else(|_| json!([]));
+        let repository_count = repositories.as_array().map(Vec::len).unwrap_or(0);
+        let extension_count = self.extension_runtime.len();
+        let (active_sessions, active_credentials, rate_limit_rows) =
+            self.store.telemetry_counts(now).unwrap_or((0, 0, 0));
+        let repository_root = self.repository_root();
+        let extension_storage_root = self.extension_storage.root.clone();
+        let metadata_root = self.data_dir.join("metadata");
+        let recent_events = self
+            .read_events()
+            .into_iter()
+            .rev()
+            .take(12)
+            .collect::<Vec<_>>();
+
+        json!({
+            "instance": {
+                "id": self.config.id,
+                "name": self.config.name,
+                "mode": self.mode(),
+                "version": env!("CARGO_PKG_VERSION"),
+                "publicURL": self.config.public_url,
+                "uptimeSeconds": now.saturating_sub(self.started_at_seconds),
+                "startedAt": self.started_at_seconds,
+                "now": now,
+                "processID": std::process::id(),
+            },
+            "services": [
+                {
+                    "name": "server",
+                    "status": "ok",
+                    "detail": format!("listening on {}", self.options.listen),
+                },
+                {
+                    "name": "graphql",
+                    "status": if readiness.ready { "ok" } else { "degraded" },
+                    "detail": format!("{} readiness checks", readiness.checks.len()),
+                },
+                {
+                    "name": "git-http",
+                    "status": if repository_root.is_dir() { "ok" } else { "degraded" },
+                    "detail": repository_root.display().to_string(),
+                },
+                {
+                    "name": "extension-runtime",
+                    "status": "ok",
+                    "detail": format!("{extension_count} loaded"),
+                },
+                {
+                    "name": "event-stream",
+                    "status": if self.events_path.is_file() { "ok" } else { "degraded" },
+                    "detail": self.events_path.display().to_string(),
+                },
+                {
+                    "name": "persistence",
+                    "status": "ok",
+                    "detail": "sqlite metadata store",
+                }
+            ],
+            "readiness": readiness,
+            "access": {
+                "activeSessions": active_sessions,
+                "activeCredentials": active_credentials,
+                "rateLimitRows": rate_limit_rows,
+                "oidcIssuers": self.config.oidc_issuers.iter().map(|issuer| {
+                    json!({
+                        "id": issuer.id,
+                        "issuerURL": issuer.issuer_url,
+                        "clientID": issuer.client_id,
+                        "clientKind": match issuer.client_kind {
+                            ClientKind::Public => "public",
+                            ClientKind::Confidential => "confidential",
+                        },
+                        "redirectURL": issuer.redirect_url,
+                        "allowedDomains": issuer.allowed_domains,
+                        "allowedGroups": issuer.allowed_groups,
+                        "allowedSubjects": issuer.allowed_subjects,
+                        "hasClientSecret": issuer.client_secret.is_some(),
+                    })
+                }).collect::<Vec<_>>(),
+            },
+            "storage": {
+                "dataDir": path_telemetry(&self.data_dir),
+                "metadata": path_telemetry(&metadata_root),
+                "repositories": {
+                    "count": repository_count,
+                    "root": path_telemetry(&repository_root),
+                    "backends": self.config.repository_storage_backends.iter().map(|(name, backend)| {
+                        json!({
+                            "name": name,
+                            "kind": match backend {
+                                RepoStorageBackend::Local { .. } => "local",
+                                RepoStorageBackend::S3 { .. } => "s3",
+                                RepoStorageBackend::CloudflareArtifacts { .. } => "cloudflare-artifacts",
+                            },
+                            "configuredPath": match backend {
+                                RepoStorageBackend::Local { path } => Value::String(path.clone()),
+                                _ => Value::Null,
+                            }
+                        })
+                    }).collect::<Vec<_>>(),
+                },
+                "extensionStorage": path_telemetry(&extension_storage_root),
+                "events": file_telemetry(&self.events_path),
+                "audit": file_telemetry(&self.audit_path),
+            },
+            "extensions": self.extension_runtime.values().map(|record| {
+                json!({
+                    "id": record.id,
+                    "status": record.status,
+                    "component": record.component,
+                    "outputType": record.output_type,
+                    "routePrefix": record.route_prefix,
+                    "relationshipTypes": record.relationship_types,
+                })
+            }).collect::<Vec<_>>(),
+            "recentEvents": recent_events,
+        })
     }
 
     /// Walk every loaded extension and emit one `ExtensionSchema` per
@@ -1873,7 +1966,7 @@ const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
     UnsupportedSurface {
         id: "git_receive_pack",
         path_prefix: "/git/",
-        message: "git receive-pack writes are disabled in the production-testbed demo",
+        message: "git receive-pack writes are not implemented",
     },
 ];
 
@@ -2690,8 +2783,8 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         Err(response) => return *response,
     };
     let principal = state.runtime.principal_from_headers(&headers);
-    let demo = match state.runtime.demo_payload() {
-        Ok(demo) => demo,
+    let runtime_data = match state.runtime.runtime_payload() {
+        Ok(payload) => payload,
         Err(error) => {
             return error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
@@ -2700,11 +2793,11 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             );
         }
     };
-    let repository = typed_repository_payload(&demo);
+    let repository = Value::Null;
     let capabilities = InstanceCapabilities::v1();
 
     // Resolve workspace.repositoryByPath from query variables if provided.
-    let repositories_value = demo
+    let repositories_value = runtime_data
         .get("repositories")
         .cloned()
         .unwrap_or_else(|| json!([]));
@@ -2722,7 +2815,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     let mut repository_by_path =
         resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
-    // so the code-browser widget can render any repo, not just the demo one.
+    // so the code-browser widget can render any imported or created repo.
     if let Some(repo_obj) = repository_by_path.as_object_mut()
         && let Some(canonical) = repo_obj
             .get("path")
@@ -2743,10 +2836,9 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     repo_obj.insert(key.clone(), value.clone());
                 }
             }
-            // Evaluate this repo's `package comtrya` CUE config — same
-            // pipeline the demo `repository` field uses — so the
+            // Evaluate this repo's `package comtrya` CUE config so the
             // Projects panel and ext_docs work for any path-resolved
-            // repository, including the dogfood import.
+            // repository.
             let schemas = state.runtime.collected_cue_schemas();
             let comtrya_config = state
                 .runtime
@@ -2775,11 +2867,14 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     }
 
     // Enrich repositories with groups[], openPullRequests, checkSummary, lastCommitAt.
-    let pull_requests_for_summary = demo
+    let pull_requests_for_summary = runtime_data
         .get("pullRequests")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let checks_for_summary = demo.get("checks").cloned().unwrap_or_else(|| json!([]));
+    let checks_for_summary = runtime_data
+        .get("checks")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let schemas_for_overlay = state.runtime.collected_cue_schemas();
     let repositories_root = state.runtime.data_dir.join("repositories");
     let enriched_repositories: Value = Value::Array(
@@ -2818,7 +2913,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     // Build the workspace object enriched with the repositoryByPath resolver result,
     // the enriched repositories list, and workspace.events filtered to viewer-accessible repos.
     let workspace = {
-        let mut ws = demo.get("workspace").cloned().unwrap_or_else(|| json!({}));
+        let mut ws = runtime_data
+            .get("workspace")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
         if let Some(obj) = ws.as_object_mut() {
             obj.insert("repositoryByPath".to_string(), repository_by_path);
             obj.insert("repositories".to_string(), enriched_repositories);
@@ -2832,7 +2930,10 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 .iter()
                 .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
                 .collect();
-            let activity_events = demo.get("activity").cloned().unwrap_or_else(|| json!([]));
+            let activity_events = runtime_data
+                .get("activity")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
             let filtered_events = filter_events_for_viewer(&activity_events, &all_repo_ids);
             // workspace.events: scoped, filtered activity feed (scope fixed to WORKSPACE in v1).
             obj.insert(
@@ -2887,11 +2988,12 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                         "extensionRuntime": capabilities.extension_runtime
                     }
                 },
+                "adminTelemetry": state.runtime.admin_telemetry(),
                 "workspace": workspace,
                 "repository": repository,
                 "repositories": repositories_value,
                 "extensionInstallations": inject_route_prefix(
-                    demo.get("extensions").cloned().unwrap_or_else(|| json!([])),
+                    runtime_data.get("extensions").cloned().unwrap_or_else(|| json!([])),
                     &state.runtime.config.extensions,
                     &state.runtime.extension_runtime,
                 )
@@ -3031,7 +3133,7 @@ async fn token_exchange(
         return error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
-            "subject token did not validate against the seeded production-testbed operator code",
+            "subject token did not validate against the configured operator code",
         );
     }
     if let Err(error) = ResourceRef::parse(&request.requested_resource) {
@@ -3704,54 +3806,6 @@ fn unsupported_response(surface: &UnsupportedSurface, headers: HeaderMap) -> Res
     )
 }
 
-fn typed_repository_payload(demo: &Value) -> Value {
-    let mut repository = demo.get("repository").cloned().unwrap_or_else(|| json!({}));
-    if let Some(repository) = repository.as_object_mut() {
-        for (field, source) in [
-            ("refs", "refs"),
-            ("branches", "branches"),
-            ("commits", "commits"),
-            ("treeEntries", "treeEntries"),
-            ("files", "files"),
-            ("blobs", "blobs"),
-            ("pullRequests", "pullRequests"),
-            ("checks", "checks"),
-        ] {
-            repository.insert(
-                field.to_string(),
-                demo.get(source).cloned().unwrap_or_else(|| json!([])),
-            );
-        }
-        repository.insert(
-            "diff".to_string(),
-            demo.get("diff").cloned().unwrap_or(Value::Null),
-        );
-        repository.insert(
-            "comtryaConfig".to_string(),
-            demo.get("comtryaConfig").cloned().unwrap_or(Value::Null),
-        );
-    }
-    repository
-}
-
-fn repository_collection_payload(live_repository: &Value, stored_repositories: &Value) -> Value {
-    let mut repositories = Vec::new();
-    let live_id = live_repository.get("id").and_then(Value::as_str);
-    repositories.push(live_repository.clone());
-
-    if let Some(stored) = stored_repositories.as_array() {
-        for repository in stored {
-            let stored_id = repository.get("id").and_then(Value::as_str);
-            if stored_id.is_some() && stored_id == live_id {
-                continue;
-            }
-            repositories.push(repository.clone());
-        }
-    }
-
-    Value::Array(repositories)
-}
-
 /// Resolve a repository from a flat JSON repositories array by URL path segments.
 ///
 /// `repositories` must be a `Value::Array` of repository objects each carrying
@@ -4055,26 +4109,6 @@ fn validate_verb_uri(uri: &str) -> Result<(), String> {
     }
     Ok(())
 }
-const DEFAULT_OPERATOR_CODES: &[&str] = &["dev-secret", "comtrya-local-operator-code"];
-const DEMO_EXPECTED_REFS: &[&str] = &[
-    "refs/heads/main",
-    "refs/heads/extensions/checks-dashboard",
-    "refs/heads/ui/repository-intelligence",
-];
-
-#[derive(Debug, Clone)]
-struct GitDemoSnapshot {
-    repository: Value,
-    refs: Vec<Value>,
-    branches: Vec<Value>,
-    commits: Vec<Value>,
-    tree_entries: Vec<Value>,
-    files: Vec<Value>,
-    blobs: Vec<Value>,
-    diff: Value,
-    comtrya_config: Value,
-}
-
 fn init_bare_repository_on_disk(
     project_root: &Path,
     canonical_path: &str,
@@ -4289,368 +4323,6 @@ fn chrono_now_iso() -> String {
         .map(|duration| duration.as_secs())
         .unwrap_or_default();
     format!("@{now}")
-}
-
-fn ensure_demo_repository(data_dir: &Path) -> Result<DemoRepositoryRuntime, String> {
-    let project_root = data_dir.join("repositories");
-    let git_dir = project_root.join("comtrya/comtrya.git");
-    fs::create_dir_all(git_dir.parent().expect("demo repo has parent"))
-        .map_err(|error| format!("failed to create repository root: {error}"))?;
-
-    if git_ref_exists(&git_dir, "refs/heads/main") {
-        let export_marker = git_dir.join("git-daemon-export-ok");
-        if !export_marker.exists() {
-            fs::write(&export_marker, b"")
-                .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
-        }
-        return Ok(DemoRepositoryRuntime {
-            git_dir,
-            project_root,
-        });
-    }
-    if git_dir.exists() {
-        return Err(format!(
-            "{} exists but does not contain refs/heads/main",
-            git_dir.display()
-        ));
-    }
-
-    let workdir = data_dir.join("metadata/demo-repository-workdir");
-    if workdir.exists() {
-        fs::remove_dir_all(&workdir)
-            .map_err(|error| format!("failed to reset demo workdir: {error}"))?;
-    }
-    fs::create_dir_all(&workdir)
-        .map_err(|error| format!("failed to create demo workdir: {error}"))?;
-
-    run_command(
-        Command::new("git")
-            .arg("init")
-            .arg("--initial-branch=main")
-            .arg(&workdir),
-        "git init demo repository",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("config")
-            .arg("user.name")
-            .arg("Comtrya Demo"),
-        "git config user.name",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("config")
-            .arg("user.email")
-            .arg("demo@comtrya.local"),
-        "git config user.email",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("config")
-            .arg("commit.gpgsign")
-            .arg("false"),
-        "git disable commit signing",
-    )?;
-
-    write_seed_file(
-        &workdir,
-        "README.md",
-        "# Comtrya\n\nComtrya is a self-hosted code forge built around a Rust kernel and extension-delivered product surfaces.\n",
-    )?;
-    write_seed_file(
-        &workdir,
-        "SPEC.md",
-        "## Frontend\n\nThe frontend discovers backend capabilities through GraphQL, core capability manifests, and extension UI manifests.\n",
-    )?;
-    write_seed_file(
-        &workdir,
-        "crates/server/src/main.rs",
-        "fn router() {\n    // Rust server routes GraphQL, events, Git smart HTTP, and extension assets.\n}\n",
-    )?;
-    write_seed_file(
-        &workdir,
-        "frontend/src/main.ts",
-        "export function mountRepository() {\n  return \"live comtrya repository\";\n}\n",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("add")
-            .arg("."),
-        "git add initial demo files",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("commit")
-            .arg("--no-gpg-sign")
-            .arg("-m")
-            .arg("Seed Comtrya demo repository"),
-        "git commit initial demo files",
-    )?;
-
-    write_seed_file(
-        &workdir,
-        "README.md",
-        "# Comtrya\n\nComtrya is a self-hosted code forge built around a Rust kernel, live Git storage, and Wasmtime-loaded product extensions.\n\nThis repository is a real bare Git repository opened by the local Comtrya server and cloned through the Vue origin during smoke validation.\n",
-    )?;
-    write_seed_file(
-        &workdir,
-        "crates/core/src/extensions.rs",
-        "pub fn resolver_surface() -> &'static str {\n    \"component-model\"\n}\n",
-    )?;
-    write_seed_file(
-        &workdir,
-        "frontend/src/main.ts",
-        "export function mountRepository() {\n  return \"live refs, commits, trees, blobs, and diffs\";\n}\n\nexport const extensions = [\"pull-requests\", \"issues\", \"checks\"];\n",
-    )?;
-    // Minimal CUE module so `cuengine` can evaluate. Real per-Project
-    // CUE files come from the imported source repo (start.sh imports
-    // this codebase as `comtrya/dogfood` at boot); the demo bare repo
-    // intentionally stays sparse so the kernel smoke can prove the
-    // import path end-to-end.
-    write_seed_file(
-        &workdir,
-        "cue.mod/module.cue",
-        "module: \"comtrya.dev/demo\"\nlanguage: version: \"v0.10.0\"\n",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("add")
-            .arg("."),
-        "git add live demo changes",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("commit")
-            .arg("--no-gpg-sign")
-            .arg("-m")
-            .arg(
-                "Wire live Git and extension demo data\n\n\
-                 Change-Id: I9d2c3f7a4b6e8c1d2f3a4b6e8c1d2f3a4b6e8c\n",
-            ),
-        "git commit live demo changes",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("branch")
-            .arg("extensions/checks-dashboard")
-            .arg("HEAD~1"),
-        "git branch checks demo",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("branch")
-            .arg("ui/repository-intelligence")
-            .arg("HEAD"),
-        "git branch UI demo",
-    )?;
-    run_command(
-        Command::new("git").arg("init").arg("--bare").arg(&git_dir),
-        "git init bare demo repository",
-    )?;
-    fs::write(git_dir.join("git-daemon-export-ok"), b"")
-        .map_err(|error| format!("failed to mark git-daemon-export-ok: {error}"))?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("remote")
-            .arg("add")
-            .arg("origin")
-            .arg(&git_dir),
-        "git remote add demo origin",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("-C")
-            .arg(&workdir)
-            .arg("push")
-            .arg("origin")
-            .arg("main")
-            .arg("extensions/checks-dashboard")
-            .arg("ui/repository-intelligence"),
-        "git push demo branches",
-    )?;
-    run_command(
-        Command::new("git")
-            .arg("--git-dir")
-            .arg(&git_dir)
-            .arg("symbolic-ref")
-            .arg("HEAD")
-            .arg("refs/heads/main"),
-        "git set bare HEAD",
-    )?;
-
-    Ok(DemoRepositoryRuntime {
-        git_dir,
-        project_root,
-    })
-}
-
-fn git_ref_exists(git_dir: &Path, reference: &str) -> bool {
-    Command::new("git")
-        .arg("--git-dir")
-        .arg(git_dir)
-        .arg("rev-parse")
-        .arg("--verify")
-        .arg(reference)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-}
-
-fn validate_demo_repository_refs(repo: &DemoRepositoryRuntime) -> Result<(), String> {
-    let head = git_text(&repo.git_dir, &["symbolic-ref", "HEAD"])?;
-    if head.trim() != "refs/heads/main" {
-        return Err(format!(
-            "HEAD points to {}, expected refs/heads/main",
-            head.trim()
-        ));
-    }
-
-    let missing_refs = DEMO_EXPECTED_REFS
-        .iter()
-        .copied()
-        .filter(|reference| !git_ref_exists(&repo.git_dir, reference))
-        .collect::<Vec<_>>();
-    if !missing_refs.is_empty() {
-        return Err(format!(
-            "missing expected refs: {}",
-            missing_refs.join(", ")
-        ));
-    }
-
-    Ok(())
-}
-
-fn git_demo_snapshot(
-    repo: &DemoRepositoryRuntime,
-    extension_schemas: &[cue_config::ExtensionSchema],
-    cue_cache: &cue_config::CueConfigCache,
-) -> Result<GitDemoSnapshot, String> {
-    let head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"])?;
-    let head = head.trim().to_string();
-    let short_head = head.chars().take(12).collect::<String>();
-    let refs = git_refs(&repo.git_dir)?;
-    let branches = git_branches(&repo.git_dir)?;
-    let commits = git_commits(&repo.git_dir)?;
-    let (tree_entries, files, blobs) = git_tree(&repo.git_dir)?;
-    let language = dominant_language(&files);
-    let license = detected_license(&files);
-    let diff_patch = git_text(
-        &repo.git_dir,
-        &["diff", "--patch", "--find-renames", "main~1", "main"],
-    )
-    .unwrap_or_default();
-    let comtrya_config = cue_cache.evaluate(&repo.git_dir, "main", extension_schemas);
-    let mut repository = json!({
-        "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
-        "owner": "comtrya",
-        "name": "comtrya",
-        "path": "comtrya/comtrya",
-        "gitHttpPath": "/git/comtrya/comtrya.git",
-        "visibility": "PRIVATE",
-        "description": "Local bare Git repository opened by the Comtrya production-testbed runtime.",
-        "defaultBranch": "main",
-        "currentCommit": short_head,
-        "headOid": head,
-        "stars": 0,
-        "forks": 0,
-        "watchers": 0,
-        "language": language,
-        "license": license,
-        "updated": commits.first().and_then(|commit| commit.get("time")).cloned().unwrap_or_else(|| json!("unknown"))
-    });
-    if let Some(obj) = repository.as_object_mut() {
-        apply_repository_cue_overrides(obj, &comtrya_config);
-        annotate_bookmarks_with_resolution(obj, &repo.git_dir);
-    }
-    Ok(GitDemoSnapshot {
-        repository,
-        refs,
-        branches,
-        commits,
-        tree_entries,
-        files,
-        blobs,
-        diff: json!({
-            "path": "main~1...main",
-            "language": "diff",
-            "patch": diff_patch
-        }),
-        comtrya_config: (*comtrya_config).clone(),
-    })
-}
-
-fn merge_repository_metadata(mut live_repository: Value, metadata: Option<&Value>) -> Value {
-    let Some(metadata) = metadata.and_then(Value::as_object) else {
-        return live_repository;
-    };
-    let Some(live_object) = live_repository.as_object_mut() else {
-        return live_repository;
-    };
-    for key in ["id", "owner", "name", "path", "visibility", "description"] {
-        if let Some(value) = metadata.get(key) {
-            live_object.insert(key.to_string(), value.clone());
-        }
-    }
-    live_repository
-}
-
-fn dominant_language(files: &[Value]) -> String {
-    let mut counts = BTreeMap::<String, usize>::new();
-    for kind in files
-        .iter()
-        .filter_map(|file| file.get("kind").and_then(Value::as_str))
-        .filter(|kind| *kind != "markdown" && *kind != "file")
-    {
-        *counts.entry(kind.to_string()).or_default() += 1;
-    }
-    counts
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .map(|(kind, _)| match kind.as_str() {
-            "rust" => "Rust".to_string(),
-            "typescript" => "TypeScript".to_string(),
-            "javascript" => "JavaScript".to_string(),
-            "json" => "JSON".to_string(),
-            "cue" => "CUE".to_string(),
-            "toml" => "TOML".to_string(),
-            other => other.to_string(),
-        })
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn detected_license(files: &[Value]) -> String {
-    files
-        .iter()
-        .filter_map(|file| file.get("path").and_then(Value::as_str))
-        .find(|path| {
-            let normalized = path.to_ascii_lowercase();
-            normalized == "license"
-                || normalized == "license.md"
-                || normalized == "license.txt"
-                || normalized.starts_with("license.")
-        })
-        .map(|_| "detected".to_string())
-        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn git_refs(git_dir: &Path) -> Result<Vec<Value>, String> {
@@ -4887,10 +4559,6 @@ fn repo_git_data(git_dir: &Path) -> Value {
 
 type GitTreePayload = (Vec<Value>, Vec<Value>, Vec<Value>);
 
-fn git_tree(git_dir: &Path) -> Result<GitTreePayload, String> {
-    git_tree_at_ref(git_dir, "main")
-}
-
 fn git_tree_at_ref(git_dir: &Path, reference: &str) -> Result<GitTreePayload, String> {
     let output = git_bytes(git_dir, &["ls-tree", "-r", "-z", "--long", reference])?;
     let mut entries = Vec::new();
@@ -5049,8 +4717,6 @@ struct StorageCollectionDeclaration {
     owner_extension: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     indexes: Vec<StorageIndexDeclaration>,
-    #[serde(default, skip_serializing)]
-    demo_seed: Option<StorageDemoSeedDeclaration>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -5076,79 +4742,6 @@ struct StorageIndexDeclaration {
     unique: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct StorageDemoSeedDeclaration {
-    source: String,
-    #[serde(default)]
-    primary_source: Option<String>,
-    id_prefix: String,
-    #[serde(default = "default_seed_resource")]
-    resource: String,
-    #[serde(default)]
-    resource_kind: Option<String>,
-    #[serde(default)]
-    resource_refs: Vec<String>,
-    #[serde(default)]
-    add_repository_id: bool,
-    #[serde(default)]
-    dedupe_by_path: bool,
-    #[serde(default)]
-    wasm_route: Option<StorageDemoSeedWasmRoute>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct StorageDemoSeedWasmRoute {
-    extension_id: String,
-    interface_name: String,
-    op_name: String,
-    #[serde(default)]
-    payload_template: Option<BTreeMap<String, PayloadTemplateField>>,
-}
-
-/// Declarative description of one field in a seed-time WIT op payload.
-/// Either `kernel` (a kernel-side enrichment helper) or `from` (one or
-/// more data paths to try, in order) — and optionally `default` if all
-/// `from` paths are absent or null.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct PayloadTemplateField {
-    #[serde(default)]
-    kernel: Option<PayloadTemplateKernel>,
-    #[serde(default)]
-    from: Option<PayloadTemplateFrom>,
-    #[serde(default)]
-    default: Option<Value>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum PayloadTemplateKernel {
-    /// Resolves to the canonical `comtrya://workspace/<ws>/repository/<repo>` URI
-    /// for the record. Same as `demo_seed_repository_uri`.
-    Repository,
-    /// Resolves the seed record's author to a `comtrya://user/<id>` URI,
-    /// passing through values that are already URIs.
-    AuthorRef,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(untagged)]
-enum PayloadTemplateFrom {
-    Single(String),
-    Fallback(Vec<String>),
-}
-
-struct SeedDocument {
-    record: ExtensionDocumentRecord,
-    wasm_route: Option<StorageDemoSeedWasmRoute>,
-}
-
-fn default_seed_resource() -> String {
-    "repository".to_string()
-}
-
 fn storage_schema_collections(
     extension_runtime: &BTreeMap<String, ExtensionRuntimeRecord>,
 ) -> Vec<StorageCollectionDeclaration> {
@@ -5167,17 +4760,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
             "core",
             "workspaces",
             vec![storage_index("by_slug", &["slug"], true)],
-            Some(StorageDemoSeedDeclaration {
-                source: "workspace".to_string(),
-                primary_source: None,
-                id_prefix: "workspace".to_string(),
-                resource: "self".to_string(),
-                resource_kind: Some("workspace".to_string()),
-                resource_refs: vec!["self".to_string()],
-                add_repository_id: false,
-                dedupe_by_path: false,
-                wasm_route: None,
-            }),
         ),
         storage_collection(
             "core",
@@ -5186,17 +4768,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_path", &["path"], true),
                 storage_index("by_workspace", &["workspaceID", "path"], false),
             ],
-            Some(StorageDemoSeedDeclaration {
-                source: "repositories".to_string(),
-                primary_source: Some("repository".to_string()),
-                id_prefix: "repository".to_string(),
-                resource: "self".to_string(),
-                resource_kind: Some("repository".to_string()),
-                resource_refs: vec!["self".to_string(), "workspace".to_string()],
-                add_repository_id: false,
-                dedupe_by_path: true,
-                wasm_route: None,
-            }),
         ),
         storage_collection(
             "core",
@@ -5206,7 +4777,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_to", &["to"], false),
                 storage_index("by_pair_verb", &["from", "to", "verb"], true),
             ],
-            None,
         ),
         storage_collection(
             "core",
@@ -5215,7 +4785,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_target", &["target"], false),
                 storage_index("by_parent", &["parent"], false),
             ],
-            None,
         ),
         storage_collection(
             "core",
@@ -5225,17 +4794,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 &["extensionID", "status"],
                 true,
             )],
-            Some(StorageDemoSeedDeclaration {
-                source: "extensions".to_string(),
-                primary_source: None,
-                id_prefix: "extension_installation".to_string(),
-                resource: "repository".to_string(),
-                resource_kind: None,
-                resource_refs: vec!["repository".to_string()],
-                add_repository_id: false,
-                dedupe_by_path: false,
-                wasm_route: None,
-            }),
         ),
         storage_collection(
             "core",
@@ -5244,17 +4802,6 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
                 storage_index("by_repository_time", &["repositoryID", "time"], false),
                 storage_index("by_type_time", &["type", "time"], false),
             ],
-            Some(StorageDemoSeedDeclaration {
-                source: "activity".to_string(),
-                primary_source: None,
-                id_prefix: "activity_event".to_string(),
-                resource: "repository".to_string(),
-                resource_kind: None,
-                resource_refs: vec!["repository".to_string()],
-                add_repository_id: true,
-                dedupe_by_path: false,
-                wasm_route: None,
-            }),
         ),
     ]
 }
@@ -5263,13 +4810,11 @@ fn storage_collection(
     owner_extension: &str,
     name: &str,
     indexes: Vec<StorageIndexDeclaration>,
-    demo_seed: Option<StorageDemoSeedDeclaration>,
 ) -> StorageCollectionDeclaration {
     StorageCollectionDeclaration {
         name: name.to_string(),
         owner_extension: owner_extension.to_string(),
         indexes,
-        demo_seed,
     }
 }
 
@@ -5330,16 +4875,15 @@ impl ExtensionRuntimeStore {
     fn open(
         data_dir: &Path,
         storage_collections: &[StorageCollectionDeclaration],
-        wasm_registry: Option<&wasm_registry::WasmRegistry>,
     ) -> Result<Self, String> {
         let root = data_dir.join("extensions/storage");
         fs::create_dir_all(&root)
             .map_err(|error| format!("failed to create extension storage dir: {error}"))?;
         let store = Self { root };
         store.ensure_schema(storage_collections)?;
-        if !store.documents_path().is_file() {
-            store.seed_from_demo_payload(data_dir, storage_collections, wasm_registry)?;
-        }
+        touch(&store.documents_path()).map_err(|error| {
+            format!("failed to initialize extension storage documents: {error}")
+        })?;
         touch(&store.events_path()).map_err(|error| {
             format!("failed to initialize extension storage event log: {error}")
         })?;
@@ -5349,7 +4893,7 @@ impl ExtensionRuntimeStore {
     #[cfg(test)]
     pub(crate) fn open_for_tests(data_dir: &Path) -> Result<Self, String> {
         let collections = core_storage_collections();
-        Self::open(data_dir, &collections, None)
+        Self::open(data_dir, &collections)
     }
 
     fn schema_path(&self) -> PathBuf {
@@ -5382,91 +4926,73 @@ impl ExtensionRuntimeStore {
         .map_err(|error| format!("failed to write {}: {error}", schema_path.display()))
     }
 
-    fn seed_from_demo_payload(
+    fn ensure_core_bootstrap(
         &self,
-        data_dir: &Path,
-        storage_collections: &[StorageCollectionDeclaration],
-        wasm_registry: Option<&wasm_registry::WasmRegistry>,
+        config: &InstanceConfig,
+        runtime: &BTreeMap<String, ExtensionRuntimeRecord>,
     ) -> Result<(), String> {
-        let seed = read_demo_seed_payload(data_dir)?;
-        let documents = seed_extension_documents(&seed, storage_collections)?;
-        let document_count = documents.len();
-        for document in documents {
-            if let Some(route) = &document.wasm_route {
-                let Some(registry) = wasm_registry else {
-                    return Err(format!(
-                        "demo seed for {}/{} requires WASM route {}.{}.{}, but no registry was provided",
-                        document.record.owner_extension,
-                        document.record.collection,
-                        route.extension_id,
-                        route.interface_name,
-                        route.op_name
-                    ));
-                };
-                self.bootstrap_seed_document_via_wasm(registry, &document.record, route)?;
-            } else {
-                self.create_document(document.record)?;
-            }
-        }
-        self.append_storage_event(
-            "dev.comtrya.extension_storage.seeded",
-            json!({
-                "schemaVersion": EXTENSION_STORAGE_SCHEMA_VERSION,
-                "documents": document_count
-            }),
-        )
-    }
+        let existing = self.load_records()?;
+        let now = now_iso_timestamp();
 
-    fn bootstrap_seed_document_via_wasm(
-        &self,
-        wasm_registry: &wasm_registry::WasmRegistry,
-        record: &ExtensionDocumentRecord,
-        route: &StorageDemoSeedWasmRoute,
-    ) -> Result<(), String> {
-        let op = format!("{}.{}", route.interface_name, route.op_name);
-        let info = crate::generated_dispatch::dispatch_wit_route(&route.extension_id, &op)
-            .ok_or_else(|| {
-                format!(
-                    "demo seed route {}.{} has no generated dispatch entry",
-                    route.extension_id, op
-                )
-            })?;
-        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
-            .ok_or_else(|| format!("demo seed route {} has no typed invoker", info.extension_id))?;
-        let payload = demo_seed_wasm_payload(record, route)?;
-        let payload_bytes = serde_json::to_vec(&payload)
-            .map_err(|error| format!("failed to encode demo seed WASM payload: {error}"))?;
-        let result = invoker(
-            wasm_registry,
-            Arc::new(self.clone()),
-            "comtrya://kernel/demo-seed",
-            &info,
-            &payload_bytes,
-            0,
-            0,
-        )
-        .map_err(|error| {
-            format!(
-                "demo seed WASM route {}.{} failed: {}",
-                route.extension_id, op, error.message
-            )
-        })?;
-        let created = serde_json::from_slice::<Value>(&result)
-            .map_err(|error| format!("failed to parse demo seed WASM result: {error}"))?;
-        let created_id = created
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                format!(
-                    "demo seed WASM route {}.{} returned no id",
-                    route.extension_id, op
-                )
-            })?
-            .to_string();
-        let seed_data = record.data.clone();
-        self.update_document_atomically(&record.collection, &created_id, move |data| {
-            merge_seed_document_data(data, &seed_data);
-        })
+        for (slug, workspace) in &config.workspaces {
+            let already_exists = existing.iter().any(|record| {
+                record.collection == "workspaces"
+                    && record.data.get("slug").and_then(Value::as_str) == Some(slug.as_str())
+            });
+            if already_exists {
+                continue;
+            }
+            let id = OpaqueId::new(IdPrefix::Workspace);
+            let resource = format!("comtrya://workspace/{id}");
+            self.create_document(extension_document_record(
+                "core",
+                "workspaces",
+                id.as_str(),
+                &resource,
+                vec![resource.clone()],
+                json!({
+                    "id": id.as_str(),
+                    "slug": slug,
+                    "name": workspace.name.clone(),
+                    "visibility": workspace.visibility.as_str(),
+                    "description": workspace.description.clone(),
+                    "allowPublicDescendants": workspace.allow_public_descendants,
+                    "members": 0
+                }),
+                &now,
+            ))?;
+        }
+
+        let existing = self.load_records()?;
+        for record in runtime.values() {
+            let already_exists = existing.iter().any(|stored| {
+                stored.collection == "extension_installations"
+                    && stored.data.get("id").and_then(Value::as_str) == Some(record.id.as_str())
+            });
+            if already_exists {
+                continue;
+            }
+            let resource = format!("comtrya://extension/{}", record.id);
+            self.create_document(extension_document_record(
+                "core",
+                "extension_installations",
+                &format!("extension_installation_{}", stable_slug(&record.id)),
+                &resource,
+                vec![resource.clone()],
+                json!({
+                    "id": record.id.clone(),
+                    "extensionID": record.id.clone(),
+                    "name": record.id.clone(),
+                    "status": record.status.clone(),
+                    "component": record.component.clone(),
+                    "outputType": record.output_type.clone(),
+                    "manifest": format!("/_extensions/{}/manifest.json", record.id),
+                }),
+                &now,
+            ))?;
+        }
+
+        Ok(())
     }
 
     fn collection_data(&self, collection: &str) -> Result<Value, String> {
@@ -5658,251 +5184,6 @@ impl ExtensionRuntimeStore {
     }
 }
 
-fn read_demo_seed_payload(data_dir: &Path) -> Result<Value, String> {
-    let seed_path = data_dir.join("metadata/demo-state.json");
-    let source = if seed_path.is_file() {
-        fs::read_to_string(&seed_path)
-            .map_err(|error| format!("failed to read {}: {error}", seed_path.display()))?
-    } else {
-        include_str!("../../../fixtures/demo/conference.json").to_string()
-    };
-    serde_json::from_str::<Value>(&source)
-        .map_err(|error| format!("failed to parse demo seed payload: {error}"))
-}
-
-fn seed_extension_documents(
-    seed: &Value,
-    storage_collections: &[StorageCollectionDeclaration],
-) -> Result<Vec<SeedDocument>, String> {
-    let generated_at = seed
-        .get("generatedAt")
-        .and_then(Value::as_str)
-        .unwrap_or("seed")
-        .to_string();
-    let repo_id = seed
-        .pointer("/repository/id")
-        .and_then(Value::as_str)
-        .unwrap_or("repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
-    let repo_ref = format!("comtrya://repository/{repo_id}");
-    let workspace_id = seed
-        .pointer("/workspace/id")
-        .and_then(Value::as_str)
-        .unwrap_or("ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
-    let workspace_ref = format!("comtrya://workspace/{workspace_id}");
-    let mut records = Vec::new();
-    let mut dedupe_keys = BTreeSet::new();
-
-    for collection in storage_collections {
-        let Some(seed_decl) = &collection.demo_seed else {
-            continue;
-        };
-        let values = demo_seed_values(seed, seed_decl);
-        for (index, mut data) in values {
-            let id = document_id(&seed_decl.id_prefix, &data, index);
-            if seed_decl.dedupe_by_path && !dedupe_keys.insert(demo_seed_dedupe_key(&data, &id)) {
-                continue;
-            }
-            if seed_decl.add_repository_id {
-                data = with_repository_scope(data, repo_id, workspace_id);
-            }
-            let resource =
-                demo_seed_resource(seed_decl, collection, &id, &repo_ref, &workspace_ref);
-            let resource_refs =
-                demo_seed_resource_refs(seed_decl, collection, &id, &repo_ref, &workspace_ref);
-            records.push(SeedDocument {
-                record: extension_document_record(
-                    &collection.owner_extension,
-                    &collection.name,
-                    &id,
-                    &resource,
-                    resource_refs,
-                    data,
-                    &generated_at,
-                ),
-                wasm_route: seed_decl.wasm_route.clone(),
-            });
-        }
-    }
-
-    if records.is_empty() {
-        return Err("demo seed payload did not contain extension storage documents".to_string());
-    }
-    Ok(records)
-}
-
-fn demo_seed_values(seed: &Value, seed_decl: &StorageDemoSeedDeclaration) -> Vec<(usize, Value)> {
-    let mut values = Vec::new();
-    if let Some(primary_source) = &seed_decl.primary_source
-        && let Some(value) = seed.get(primary_source).cloned()
-    {
-        values.push((0, value));
-    }
-    if let Some(value) = seed.get(&seed_decl.source) {
-        if let Some(array) = value.as_array() {
-            let offset = values.len();
-            values.extend(
-                array
-                    .iter()
-                    .cloned()
-                    .enumerate()
-                    .map(|(index, value)| (offset + index, value)),
-            );
-        } else if seed_decl.primary_source.is_none() {
-            values.push((0, value.clone()));
-        }
-    }
-    values
-}
-
-fn demo_seed_resource(
-    seed_decl: &StorageDemoSeedDeclaration,
-    collection: &StorageCollectionDeclaration,
-    id: &str,
-    repo_ref: &str,
-    workspace_ref: &str,
-) -> String {
-    match seed_decl.resource.as_str() {
-        "self" => {
-            let kind = seed_decl
-                .resource_kind
-                .as_deref()
-                .unwrap_or_else(|| collection.name.trim_end_matches('s'));
-            format!("comtrya://{kind}/{id}")
-        }
-        "workspace" => workspace_ref.to_string(),
-        _ => repo_ref.to_string(),
-    }
-}
-
-fn demo_seed_resource_refs(
-    seed_decl: &StorageDemoSeedDeclaration,
-    collection: &StorageCollectionDeclaration,
-    id: &str,
-    repo_ref: &str,
-    workspace_ref: &str,
-) -> Vec<String> {
-    if seed_decl.resource_refs.is_empty() {
-        return vec![demo_seed_resource(
-            seed_decl,
-            collection,
-            id,
-            repo_ref,
-            workspace_ref,
-        )];
-    }
-    seed_decl
-        .resource_refs
-        .iter()
-        .map(|resource| match resource.as_str() {
-            "self" => {
-                let kind = seed_decl
-                    .resource_kind
-                    .as_deref()
-                    .unwrap_or_else(|| collection.name.trim_end_matches('s'));
-                format!("comtrya://{kind}/{id}")
-            }
-            "workspace" => workspace_ref.to_string(),
-            "repository" => repo_ref.to_string(),
-            other => other.to_string(),
-        })
-        .collect()
-}
-
-fn demo_seed_wasm_payload(
-    record: &ExtensionDocumentRecord,
-    route: &StorageDemoSeedWasmRoute,
-) -> Result<Value, String> {
-    let template = route.payload_template.as_ref().ok_or_else(|| {
-        format!(
-            "{}.{}.{} has no demo-seed payloadTemplate in manifest",
-            route.extension_id, route.interface_name, route.op_name
-        )
-    })?;
-    let mut out = serde_json::Map::new();
-    for (key, field) in template {
-        out.insert(key.clone(), build_payload_field(field, record));
-    }
-    Ok(Value::Object(out))
-}
-
-fn build_payload_field(field: &PayloadTemplateField, record: &ExtensionDocumentRecord) -> Value {
-    if let Some(kernel) = field.kernel {
-        return match kernel {
-            PayloadTemplateKernel::Repository => Value::String(demo_seed_repository_uri(record)),
-            PayloadTemplateKernel::AuthorRef => demo_seed_author_ref(&record.data)
-                .map(Value::String)
-                .unwrap_or(Value::Null),
-        };
-    }
-    if let Some(from) = &field.from {
-        let paths: &[String] = match from {
-            PayloadTemplateFrom::Single(p) => std::slice::from_ref(p),
-            PayloadTemplateFrom::Fallback(ps) => ps.as_slice(),
-        };
-        for path in paths {
-            if let Some(v) = record.data.get(path)
-                && !v.is_null()
-            {
-                return v.clone();
-            }
-        }
-    }
-    field.default.clone().unwrap_or(Value::Null)
-}
-
-fn demo_seed_author_ref(data: &Value) -> Option<String> {
-    data.get("authorRef")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .or_else(|| {
-            data.get("author").and_then(Value::as_str).map(|author| {
-                if author.starts_with("comtrya://") {
-                    author.to_string()
-                } else {
-                    format!("comtrya://user/{author}")
-                }
-            })
-        })
-}
-
-fn demo_seed_repository_uri(record: &ExtensionDocumentRecord) -> String {
-    let workspace_id = record
-        .data
-        .get("workspaceID")
-        .or_else(|| record.data.get("workspaceId"))
-        .and_then(Value::as_str);
-    let repository_id = record
-        .data
-        .get("repositoryID")
-        .or_else(|| record.data.get("repositoryId"))
-        .and_then(Value::as_str);
-    match (workspace_id, repository_id) {
-        (Some(workspace_id), Some(repository_id)) => {
-            format!("comtrya://workspace/{workspace_id}/repository/{repository_id}")
-        }
-        _ => record.resource.clone(),
-    }
-}
-
-fn merge_seed_document_data(target: &mut Value, seed: &Value) {
-    let (Some(target), Some(seed)) = (target.as_object_mut(), seed.as_object()) else {
-        return;
-    };
-    for (key, value) in seed {
-        if key == "id" {
-            continue;
-        }
-        target.insert(key.clone(), value.clone());
-    }
-}
-
-fn demo_seed_dedupe_key(data: &Value, id: &str) -> String {
-    data.get("path")
-        .and_then(Value::as_str)
-        .map(|path| format!("path:{path}"))
-        .unwrap_or_else(|| format!("id:{id}"))
-}
-
 fn extension_document_record(
     owner_extension: &str,
     collection: &str,
@@ -5965,34 +5246,6 @@ fn indexed_fields(data: &Value) -> BTreeMap<String, Value> {
         }
     }
     fields
-}
-
-fn with_repository_scope(mut value: Value, repository_id: &str, workspace_id: &str) -> Value {
-    if let Some(object) = value.as_object_mut() {
-        object
-            .entry("repositoryID")
-            .or_insert_with(|| json!(repository_id));
-        object
-            .entry("workspaceID")
-            .or_insert_with(|| json!(workspace_id));
-    }
-    value
-}
-
-fn document_id(prefix: &str, data: &Value, index: usize) -> String {
-    if let Some(id) = data.get("id").and_then(Value::as_str) {
-        return id.to_string();
-    }
-    if let Some(number) = data.get("number").and_then(Value::as_u64) {
-        return format!("{prefix}_{number}");
-    }
-    if let Some(name) = data.get("name").and_then(Value::as_str) {
-        return format!("{prefix}_{}", stable_slug(name));
-    }
-    if let Some(event_type) = data.get("type").and_then(Value::as_str) {
-        return format!("{prefix}_{}_{}", index + 1, stable_slug(event_type));
-    }
-    format!("{prefix}_{}", index + 1)
 }
 
 fn stable_slug(value: &str) -> String {
@@ -6090,6 +5343,11 @@ fn storage_collections_from_manifest(
     };
     let mut parsed = Vec::new();
     for collection in collections {
+        if collection.get("demoSeed").is_some() {
+            return Err(format!(
+                "{id} contributes.collections entry uses removed demoSeed bootstrap contract"
+            ));
+        }
         let declaration =
             serde_json::from_value::<StorageCollectionDeclaration>(collection.clone())
                 .map_err(|error| format!("{id} contributes.collections entry invalid: {error}"))?;
@@ -6495,15 +5753,6 @@ fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
-fn write_seed_file(root: &Path, relative: &str, body: &str) -> Result<(), String> {
-    let path = root.join(relative);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create {}: {error}", parent.display()))?;
-    }
-    fs::write(&path, body).map_err(|error| format!("failed to write {}: {error}", path.display()))
-}
-
 fn run_command(command: &mut Command, label: &str) -> Result<(), String> {
     let output = command
         .output()
@@ -6532,12 +5781,6 @@ fn validate_production_testbed(
     if operator_code.len() < 12 || operator_code == "dev-secret" {
         return Err(
             "production testbed requires COMTRYA_OPERATOR_CODE with at least 12 characters"
-                .to_string(),
-        );
-    }
-    if options.external_demo && DEFAULT_OPERATOR_CODES.contains(&operator_code) {
-        return Err(
-            "external production-testbed demos require a non-default COMTRYA_OPERATOR_CODE"
                 .to_string(),
         );
     }
@@ -7049,6 +6292,52 @@ fn touch(path: &Path) -> std::io::Result<()> {
         .map(|_| ())
 }
 
+fn path_telemetry(path: &Path) -> Value {
+    let (bytes, files) = directory_usage(path);
+    json!({
+        "path": path.display().to_string(),
+        "exists": path.exists(),
+        "isDirectory": path.is_dir(),
+        "bytes": bytes,
+        "files": files,
+    })
+}
+
+fn file_telemetry(path: &Path) -> Value {
+    let metadata = fs::metadata(path).ok();
+    json!({
+        "path": path.display().to_string(),
+        "exists": metadata.is_some(),
+        "bytes": metadata.as_ref().map(|m| m.len()).unwrap_or(0),
+    })
+}
+
+fn directory_usage(path: &Path) -> (u64, u64) {
+    let mut bytes = 0;
+    let mut files = 0;
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        let Ok(metadata) = fs::symlink_metadata(&current) else {
+            continue;
+        };
+        if metadata.is_file() {
+            bytes += metadata.len();
+            files += 1;
+            continue;
+        }
+        if !metadata.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            stack.push(entry.path());
+        }
+    }
+    (bytes, files)
+}
+
 /// Size threshold (64 MiB) at which `append_jsonl` rotates the active
 /// JSONL file into `<parent>/archive/<stem>.<unix_nanos>.jsonl` before
 /// the next write. Matches #11 P2-3's "rotate by size (e.g., 64 MB)".
@@ -7214,6 +6503,117 @@ mod tests {
         }
     }
 
+    fn write_test_file(path: &Path, contents: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    fn test_source_repository(name: &str) -> PathBuf {
+        let repo = temp_dir(name);
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).arg("init"),
+            "git init",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["checkout", "-B", "main"]),
+            "git checkout main",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["config", "user.name", "Comtrya Test"]),
+            "git config user.name",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).args([
+                "config",
+                "user.email",
+                "test@comtrya.local",
+            ]),
+            "git config user.email",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["config", "commit.gpgsign", "false"]),
+            "git config commit.gpgsign",
+        )
+        .unwrap();
+
+        write_test_file(&repo.join("README.md"), "# Runtime repository\n");
+        write_test_file(
+            &repo.join("comtrya.cue"),
+            "package comtrya\n\nprojects: kernel: { root: \".\" }\n",
+        );
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).arg("add").arg("."),
+            "git add",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).args([
+                "commit",
+                "-m",
+                "initial runtime repository",
+            ]),
+            "git commit",
+        )
+        .unwrap();
+
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).args([
+                "checkout",
+                "-b",
+                "ui/repository-intelligence",
+            ]),
+            "git checkout branch",
+        )
+        .unwrap();
+        write_test_file(
+            &repo.join("frontend/src/panel.ts"),
+            "export const panel = true;\n",
+        );
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).arg("add").arg("."),
+            "git add",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["commit", "-m", "add UI branch"]),
+            "git commit branch",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["checkout", "main"]),
+            "git checkout main",
+        )
+        .unwrap();
+        repo
+    }
+
+    fn import_test_repository(runtime: &Runtime, path: &str) -> Value {
+        let source = test_source_repository("source-repository");
+        let url = format!("file://{}", source.display());
+        runtime
+            .create_repository_document(path, Some(&url))
+            .unwrap()
+    }
+
     fn dev_runtime() -> Arc<Runtime> {
         dev_runtime_with_session_ttl(300)
     }
@@ -7229,7 +6629,6 @@ mod tests {
                 tls_terminated: false,
                 operator_code: Some("testbed-operator-code".to_string()),
                 session_ttl_seconds,
-                external_demo: false,
             })
             .unwrap(),
         )
@@ -7259,7 +6658,6 @@ mod tests {
                 tls_terminated: false,
                 operator_code: Some("testbed-operator-code".to_string()),
                 session_ttl_seconds,
-                external_demo: false,
             })
             .unwrap(),
         )
@@ -7323,7 +6721,7 @@ mod tests {
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
         assert_eq!(payload["ready"], true);
-        assert_eq!(payload["checks"]["demoRepositoryRefs"], true);
+        assert_eq!(payload["checks"]["repositoryRoot"], true);
         assert_eq!(
             payload["unsupported"].as_array().unwrap().len(),
             UNSUPPORTED_SURFACES.len()
@@ -7344,79 +6742,40 @@ mod tests {
     }
 
     #[test]
-    fn demo_repository_validation_rejects_missing_seed_ref() {
-        let data_dir = temp_dir("demo-repository-refs");
-        let repo = ensure_demo_repository(&data_dir).unwrap();
-        validate_demo_repository_refs(&repo).unwrap();
+    fn repo_git_data_extracts_refs_tree_and_blobs_from_imported_repo() {
+        let runtime = dev_runtime_no_extensions();
+        let repository = import_test_repository(&runtime, "comtrya/comtrya");
+        let git_dir = runtime.repository_root().join("comtrya/comtrya.git");
 
-        run_command(
-            Command::new("git")
-                .arg("--git-dir")
-                .arg(&repo.git_dir)
-                .arg("branch")
-                .arg("-D")
-                .arg("ui/repository-intelligence"),
-            "delete seeded UI demo branch",
-        )
-        .unwrap();
+        let data = repo_git_data(&git_dir);
 
-        let error = validate_demo_repository_refs(&repo).unwrap_err();
-        assert!(error.contains("refs/heads/ui/repository-intelligence"));
-    }
-
-    #[test]
-    fn demo_repository_seeding_is_idempotent_and_reopens_existing_repo() {
-        let data_dir = temp_dir("demo-repository-idempotent");
-        let repo = ensure_demo_repository(&data_dir).unwrap();
-        let first_head = git_text(&repo.git_dir, &["rev-parse", "refs/heads/main"]).unwrap();
-
-        let reopened = ensure_demo_repository(&data_dir).unwrap();
-        let second_head = git_text(&reopened.git_dir, &["rev-parse", "refs/heads/main"]).unwrap();
-
-        assert_eq!(reopened.git_dir, repo.git_dir);
-        assert_eq!(reopened.project_root, repo.project_root);
-        assert_eq!(first_head, second_head);
-        validate_demo_repository_refs(&reopened).unwrap();
-    }
-
-    #[test]
-    fn git_demo_snapshot_extracts_refs_tree_blobs_and_diff_from_seeded_repo() {
-        let data_dir = temp_dir("demo-repository-snapshot");
-        let repo = ensure_demo_repository(&data_dir).unwrap();
-
-        let snapshot = git_demo_snapshot(&repo, &[], &cue_config::CueConfigCache::new()).unwrap();
-
-        assert_eq!(snapshot.repository["path"], "comtrya/comtrya");
-        assert_eq!(snapshot.repository["defaultBranch"], "main");
-        assert_eq!(snapshot.repository["headOid"].as_str().unwrap().len(), 40);
-        assert!(snapshot.refs.iter().any(|reference| {
-            reference["name"] == "refs/heads/main"
-                && reference["target"] == snapshot.repository["headOid"]
+        assert_eq!(repository["path"], "comtrya/comtrya");
+        assert_eq!(data["defaultBranch"], "main");
+        assert_eq!(data["headOid"].as_str().unwrap().len(), 40);
+        assert!(data["refs"].as_array().unwrap().iter().any(|reference| {
+            reference["name"] == "refs/heads/main" && reference["target"] == data["headOid"]
         }));
         assert!(
-            snapshot
-                .branches
+            data["branches"]
+                .as_array()
+                .unwrap()
                 .iter()
                 .any(|branch| branch["name"] == "main")
         );
-        assert!(snapshot.commits.len() >= 2);
+        assert!(data["commits"].as_array().unwrap().len() >= 1);
         assert!(
-            snapshot
-                .tree_entries
+            data["treeEntries"]
+                .as_array()
+                .unwrap()
                 .iter()
                 .any(|entry| entry["path"] == "README.md")
         );
         assert!(
-            snapshot
-                .blobs
+            data["blobs"]
+                .as_array()
+                .unwrap()
                 .iter()
                 .any(|blob| blob["path"] == "README.md")
-        );
-        assert!(
-            snapshot.diff["patch"]
-                .as_str()
-                .unwrap()
-                .contains("live Git storage")
         );
     }
 
@@ -7911,7 +7270,6 @@ mod tests {
             tls_terminated: false,
             operator_code: Some("testbed-operator-code".to_string()),
             session_ttl_seconds: 300,
-            external_demo: false,
         })
         .unwrap();
 
@@ -7992,7 +7350,6 @@ mod tests {
             tls_terminated: false,
             operator_code: Some("operator-code".to_string()),
             session_ttl_seconds: 300,
-            external_demo: false,
         };
 
         assert!(
@@ -8002,15 +7359,6 @@ mod tests {
         );
         let mut options = options;
         options.tls_terminated = true;
-        assert!(validate_production_testbed(&config, &options).is_ok());
-        options.external_demo = true;
-        options.operator_code = Some("comtrya-local-operator-code".to_string());
-        assert!(
-            validate_production_testbed(&config, &options)
-                .unwrap_err()
-                .contains("non-default COMTRYA_OPERATOR_CODE")
-        );
-        options.operator_code = Some("operator-code-for-external-demo".to_string());
         assert!(validate_production_testbed(&config, &options).is_ok());
     }
 
@@ -8262,9 +7610,10 @@ extensions: {}
     #[tokio::test]
     async fn git_endpoint_serves_upload_pack_after_auth() {
         let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
         let git_state = PureRustGitState::from_runtime(&runtime);
         let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://workspace".to_string(),
             vec!["git:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -8434,10 +7783,10 @@ extensions: {}
     }
 
     #[tokio::test]
-    async fn graphql_response_exposes_typed_repository_fields() {
+    async fn graphql_response_starts_with_empty_workspace_and_nullable_root_repository() {
         let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
@@ -8453,7 +7802,7 @@ extensions: {}
                 git_state: PureRustGitState::test_default(),
             }),
             headers,
-            json!({"query": "{ repository { refs commits pullRequests checks } }"}).to_string(),
+            json!({"query": "{ workspace { name repositories { id path } } repository extensionInstallations adminTelemetry }"}).to_string(),
         )
         .await;
 
@@ -8461,138 +7810,57 @@ extensions: {}
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
 
-        assert_eq!(payload["data"]["repository"]["path"], "comtrya/comtrya");
+        assert_eq!(payload["data"]["workspace"]["name"], "Default");
         assert!(
-            payload["data"]["repository"]["refs"]
-                .as_array()
-                .unwrap()
-                .len()
-                > 0
-        );
-        assert!(
-            payload["data"]["repository"]["pullRequests"]
+            payload["data"]["workspace"]["repositories"]
                 .as_array()
                 .unwrap()
                 .is_empty()
+        );
+        assert!(payload["data"]["repository"].is_null());
+        assert_eq!(
+            payload["data"]["adminTelemetry"]["storage"]["repositories"]["count"],
+            0
         );
         assert!(payload["data"].get("demo").is_none());
     }
 
     #[test]
-    fn repository_seed_metadata_cannot_override_derived_facts() {
-        let live_repository = json!({
-            "id": "repo_live",
-            "owner": "comtrya",
-            "name": "comtrya",
-            "path": "comtrya/comtrya",
-            "visibility": "PRIVATE",
-            "description": "derived from runtime",
-            "stars": 0,
-            "forks": 0,
-            "watchers": 0,
-            "language": "Rust",
-            "license": "unknown",
-            "updated": "2026-05-11T00:00:00Z"
-        });
-        let seed_metadata = json!({
-            "id": "repo_seed",
-            "owner": "seeded",
-            "name": "repo",
-            "path": "seeded/repo",
-            "visibility": "PUBLIC",
-            "description": "seeded description",
-            "stars": 12842,
-            "forks": 417,
-            "watchers": 931,
-            "language": "COBOL",
-            "license": "Apache-2.0",
-            "updated": "18 minutes ago"
-        });
+    fn extension_storage_bootstraps_configured_workspace_and_extensions_without_fixture() {
+        let runtime = dev_runtime();
 
-        let merged = merge_repository_metadata(live_repository, Some(&seed_metadata));
+        assert!(runtime.extension_storage.schema_path().is_file());
+        assert!(runtime.extension_storage.documents_path().is_file());
+        assert!(
+            runtime
+                .extension_storage
+                .collection_data("repositories")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            runtime
+                .extension_storage
+                .single_document_data("workspaces")
+                .unwrap()
+                .unwrap()["name"],
+            "Default"
+        );
+        assert_eq!(
+            runtime
+                .extension_storage
+                .collection_data("extension_installations")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            runtime.extension_runtime.len()
+        );
 
-        assert_eq!(merged["description"], "seeded description");
-        assert_eq!(merged["stars"], 0);
-        assert_eq!(merged["forks"], 0);
-        assert_eq!(merged["watchers"], 0);
-        assert_eq!(merged["language"], "Rust");
-        assert_eq!(merged["license"], "unknown");
-        assert_eq!(merged["updated"], "2026-05-11T00:00:00Z");
-    }
-
-    #[test]
-    fn extension_storage_seeds_documents_and_survives_fixture_deletion() {
-        let data_dir = temp_dir("extension-storage");
-        let seed_path = data_dir.join("metadata/demo-state.json");
-        fs::create_dir_all(seed_path.parent().unwrap()).unwrap();
-        fs::write(
-            &seed_path,
-            serde_json::to_vec_pretty(&json!({
-                "generatedAt": "2026-05-11T00:00:00Z",
-                "workspace": {
-                    "id": "ws_test",
-                    "slug": "comtrya",
-                    "name": "Comtrya Labs",
-                    "visibility": "PRIVATE",
-                    "members": 3
-                },
-                "repository": {
-                    "id": "repo_test",
-                    "owner": "comtrya",
-                    "name": "comtrya",
-                    "path": "comtrya/comtrya",
-                    "visibility": "PRIVATE",
-                    "description": "Runtime storage test",
-                    "stars": 9,
-                    "forks": 2,
-                    "watchers": 5,
-                    "language": "Rust",
-                    "license": "Apache-2.0"
-                },
-                "pullRequests": [
-                    {
-                        "number": 7,
-                        "title": "Seed through runtime storage",
-                        "state": "READY",
-                        "base": "main",
-                        "head": "storage/runtime"
-                    }
-                ],
-                "checks": [],
-                "extensions": [],
-                "activity": []
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-
-        let runtime = load_extension_runtime(&test_extension_dir()).unwrap();
-        let storage_collections = storage_schema_collections(&runtime.records);
-        let store =
-            ExtensionRuntimeStore::open(&data_dir, &storage_collections, Some(&runtime.registry))
-                .unwrap();
-        assert!(store.schema_path().is_file());
-        assert!(store.documents_path().is_file());
-        assert!(!data_dir.join("extensions/runtime-state.json").exists());
-        fs::remove_file(seed_path).unwrap();
-
-        let reopened =
-            ExtensionRuntimeStore::open(&data_dir, &storage_collections, Some(&runtime.registry))
-                .unwrap();
-        let pulls = reopened
-            .query_documents_by_index(
-                "pull_requests",
-                &[
-                    ("repositoryID", json!("repo_test")),
-                    ("state", json!("READY")),
-                ],
-            )
-            .unwrap();
-
-        assert_eq!(pulls.len(), 1);
-        assert_eq!(pulls[0].data["title"], "Seed through runtime storage");
-
-        reopened
+        runtime
+            .extension_storage
             .create_document(extension_document_record(
                 "ext_checks",
                 "check_runs",
@@ -8609,33 +7877,37 @@ extensions: {}
                 "2026-05-11T00:00:00Z",
             ))
             .unwrap();
-        let check_docs = reopened
+        let check_docs = runtime
+            .extension_storage
             .query_documents_by_index("check_runs", &[("name", json!("runtime mutation"))])
             .unwrap();
         assert_eq!(check_docs.len(), 1);
     }
 
     #[test]
-    fn demo_payload_reflects_runtime_storage_updates() {
+    fn runtime_payload_reflects_runtime_storage_updates() {
         let runtime = dev_runtime();
-        let check = runtime
-            .extension_storage
-            .query_documents_by_index("check_runs", &[("provider", json!("Comtrya CI"))])
-            .unwrap()
-            .into_iter()
-            .next()
-            .expect("seeded check document");
-
         runtime
             .extension_storage
-            .update_document_atomically("check_runs", &check.id, |data| {
-                data["conclusion"] = json!("FAILURE");
-                data["duration"] = json!("99s");
-            })
+            .create_document(extension_document_record(
+                "ext_checks",
+                "check_runs",
+                "check_runtime_payload",
+                "comtrya://repository/repo_test",
+                vec!["comtrya://repository/repo_test".to_string()],
+                json!({
+                    "repositoryID": "repo_test",
+                    "name": "runtime payload",
+                    "provider": "Comtrya CI",
+                    "conclusion": "FAILURE",
+                    "duration": "99s"
+                }),
+                "2026-05-11T00:00:00Z",
+            ))
             .unwrap();
 
-        let demo = runtime.demo_payload().unwrap();
-        let checks = demo["checks"].as_array().expect("checks array");
+        let payload = runtime.runtime_payload().unwrap();
+        let checks = payload["checks"].as_array().expect("checks array");
 
         assert!(
             checks
@@ -8645,8 +7917,8 @@ extensions: {}
     }
 
     #[test]
-    fn demo_payload_filters_disabled_configured_extension_installations() {
-        let dir = temp_dir("configured-demo-filter");
+    fn runtime_payload_filters_disabled_configured_extension_installations() {
+        let dir = temp_dir("configured-runtime-filter");
         let config_path = dir.join("config.cue");
         fs::write(
             &config_path,
@@ -8673,19 +7945,18 @@ extensions: {
         .unwrap();
         let runtime = Runtime::start(StartupOptions {
             config_path: Some(config_path),
-            data_dir: temp_dir("configured-demo-filter-data"),
+            data_dir: temp_dir("configured-runtime-filter-data"),
             extension_dir: test_extension_dir(),
             listen: "127.0.0.1:0".parse().unwrap(),
             check: false,
             tls_terminated: false,
             operator_code: Some("testbed-operator-code".to_string()),
             session_ttl_seconds: 300,
-            external_demo: false,
         })
         .unwrap();
 
-        let demo = runtime.demo_payload().unwrap();
-        let extensions = demo["extensions"]
+        let payload = runtime.runtime_payload().unwrap();
+        let extensions = payload["extensions"]
             .as_array()
             .expect("extension installations array");
 
@@ -8834,7 +8105,6 @@ extensions: {
             tls_terminated: false,
             operator_code: Some("testbed-operator-code".to_string()),
             session_ttl_seconds: 300,
-            external_demo: false,
         })
         .unwrap();
         let resolver = runtime
@@ -8915,7 +8185,6 @@ extensions: {
             tls_terminated: false,
             operator_code: Some("testbed-operator-code".to_string()),
             session_ttl_seconds: 300,
-            external_demo: false,
         })
         .unwrap();
         let dispatcher = crate::wasm_registry::RegistryDispatcher {
@@ -9556,8 +8825,8 @@ extensions: {
         );
     }
 
-    /// Build a minimal repositories JSON array that mirrors the demo seed shape.
-    fn demo_repositories() -> Value {
+    /// Build a minimal repositories JSON array for path resolver unit tests.
+    fn repository_rows() -> Value {
         json!([
             {
                 "id": "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
@@ -9570,8 +8839,8 @@ extensions: {
     }
 
     #[test]
-    fn repository_by_path_resolves_demo_repo() {
-        let repos = demo_repositories();
+    fn repository_by_path_resolves_repo() {
+        let repos = repository_rows();
         let resolved =
             resolve_repository_by_path(&repos, &["comtrya".to_string(), "comtrya".to_string()]);
         assert!(resolved.is_some(), "expected to find comtrya/comtrya");
@@ -9587,14 +8856,14 @@ extensions: {
 
     #[test]
     fn repository_by_path_returns_none_for_unknown_path() {
-        let repos = demo_repositories();
+        let repos = repository_rows();
         let resolved = resolve_repository_by_path(&repos, &["nothing".to_string()]);
         assert!(resolved.is_none());
     }
 
     #[test]
     fn repository_by_path_returns_none_for_empty_segments() {
-        let repos = demo_repositories();
+        let repos = repository_rows();
         let resolved = resolve_repository_by_path(&repos, &[]);
         assert!(resolved.is_none());
     }
@@ -9651,7 +8920,7 @@ extensions: {
             json!({
                 "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
                 "variables": {
-                    "repositoryId": "repo_demo",
+                    "repositoryId": "repo_test",
                     "layout": { "entries": entries }
                 }
             })
@@ -9674,7 +8943,7 @@ extensions: {
             headers,
             json!({
                 "query": "query($repositoryId: ID!) { userLayout(repositoryId: $repositoryId) { entries } }",
-                "variables": { "repositoryId": "repo_demo" }
+                "variables": { "repositoryId": "repo_test" }
             })
             .to_string(),
         )
@@ -9704,7 +8973,7 @@ extensions: {
             json!({
                 "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
                 "variables": {
-                    "repositoryId": "repo_demo",
+                    "repositoryId": "repo_test",
                     "layout": { "entries": { "issues-list": { "slot": "repository.sidebar" } } }
                 }
             })
@@ -9718,7 +8987,7 @@ extensions: {
             json!({
                 "query": "mutation($repositoryId: ID!, $layout: UserLayoutInput!) { setUserLayout(repositoryId: $repositoryId, layout: $layout) { entries } }",
                 "variables": {
-                    "repositoryId": "repo_demo",
+                    "repositoryId": "repo_test",
                     "layout": { "entries": { "checks-board": { "priority": 999 } } }
                 }
             })
@@ -9986,13 +9255,12 @@ extensions: {
     #[tokio::test]
     async fn graphql_commit_diff_returns_metadata_and_patch_for_head() {
         let runtime = dev_runtime_no_extensions();
-        let head_oid = git_text(
-            &runtime.demo_repository.git_dir,
-            &["rev-parse", "refs/heads/main"],
-        )
-        .unwrap()
-        .trim()
-        .to_string();
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_dir = runtime.repository_root().join("comtrya/comtrya.git");
+        let head_oid = git_text(&git_dir, &["rev-parse", "refs/heads/main"])
+            .unwrap()
+            .trim()
+            .to_string();
         let token = runtime.issue_credential(
             "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
@@ -10033,6 +9301,7 @@ extensions: {
     #[tokio::test]
     async fn graphql_commit_diff_returns_error_envelope_for_malformed_oid() {
         let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
         let token = runtime.issue_credential(
             "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
@@ -10065,6 +9334,7 @@ extensions: {
     #[tokio::test]
     async fn graphql_workspace_repository_by_path_resolves_via_variables() {
         let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
         let token = runtime.issue_credential(
             "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
@@ -10100,6 +9370,7 @@ extensions: {
     #[tokio::test]
     async fn graphql_workspace_repository_by_path_resolves_rawkode_smoke_repo() {
         let runtime = dev_runtime_no_extensions();
+        let created = import_test_repository(&runtime, "rawkode/rawkode");
         let token = runtime.issue_credential(
             "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
@@ -10129,7 +9400,7 @@ extensions: {
             !repo.is_null(),
             "repositoryByPath should resolve for rawkode/rawkode"
         );
-        assert_eq!(repo["id"], "repo_01HV0K4XAVE2H6R5M8KJZ8R4W1");
+        assert_eq!(repo["id"], created["id"]);
         assert_eq!(repo["name"], "rawkode");
         assert_eq!(repo["path"], "rawkode/rawkode");
         assert_eq!(repo["groups"], json!(["rawkode"]));
@@ -10371,6 +9642,7 @@ extensions: {
     #[tokio::test]
     async fn graphql_workspace_repositories_exposes_groups_and_summary_fields() {
         let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
         let token = runtime.issue_credential(
             "comtrya://workspace".to_string(),
             vec!["graphql:read".to_string()],
@@ -10394,7 +9666,7 @@ extensions: {
         let repos = payload["data"]["workspace"]["repositories"]
             .as_array()
             .expect("workspace.repositories must be an array");
-        assert!(!repos.is_empty(), "expected at least one seeded repository");
+        assert!(!repos.is_empty(), "expected imported repository");
         for repo in repos {
             assert!(repo.get("id").is_some(), "each repository must have id");
             assert!(repo.get("name").is_some(), "each repository must have name");
@@ -10781,73 +10053,6 @@ extensions: {
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
-    // -------- #6 P1-8: generic demo_seed_wasm_payload --------
-
-    fn record_with(data: serde_json::Value) -> ExtensionDocumentRecord {
-        ExtensionDocumentRecord {
-            schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
-            owner_extension: "ext_test".to_string(),
-            collection: "items".to_string(),
-            id: "iss_demo".to_string(),
-            resource: "comtrya://workspace/ws_t/repository/repo_t".to_string(),
-            resource_refs: vec![],
-            visibility: "PRIVATE".to_string(),
-            indexed_fields: std::collections::BTreeMap::new(),
-            version: 1,
-            updated_at: "seed".to_string(),
-            data,
-        }
-    }
-
-    #[test]
-    fn demo_seed_wasm_payload_errors_when_template_missing() {
-        let route = StorageDemoSeedWasmRoute {
-            extension_id: "ext_test".to_string(),
-            interface_name: "things".to_string(),
-            op_name: "do".to_string(),
-            payload_template: None,
-        };
-        let record = record_with(json!({}));
-        let err = demo_seed_wasm_payload(&record, &route).expect_err("must error");
-        assert!(err.contains("ext_test"), "error must name extension: {err}");
-        assert!(err.contains("things"), "error must name interface: {err}");
-        assert!(err.contains("do"), "error must name op: {err}");
-        assert!(
-            err.to_lowercase().contains("payloadtemplate")
-                || err.to_lowercase().contains("template"),
-            "error must mention the missing template: {err}"
-        );
-    }
-
-    #[test]
-    fn demo_seed_wasm_payload_uses_template_with_fallback() {
-        let mut template = std::collections::BTreeMap::new();
-        template.insert(
-            "bodyMarkdown".to_string(),
-            PayloadTemplateField {
-                kernel: None,
-                from: Some(PayloadTemplateFrom::Fallback(vec![
-                    "bodyMarkdown".to_string(),
-                    "body".to_string(),
-                ])),
-                default: None,
-            },
-        );
-        let route = StorageDemoSeedWasmRoute {
-            extension_id: "ext_test".to_string(),
-            interface_name: "i".to_string(),
-            op_name: "o".to_string(),
-            payload_template: Some(template),
-        };
-        // Legacy alias only — fallback chain must promote `body` to `bodyMarkdown`.
-        let record = record_with(json!({"body": "alpha"}));
-        let payload = demo_seed_wasm_payload(&record, &route).expect("ok");
-        assert_eq!(
-            payload.get("bodyMarkdown").and_then(Value::as_str),
-            Some("alpha")
-        );
-    }
-
     // -------- #11 P2-3: size-based log rotation --------
 
     #[test]
@@ -11194,7 +10399,6 @@ extensions: {
                 tls_terminated,
                 operator_code: Some("testbed-operator-code".to_string()),
                 session_ttl_seconds: 300,
-                external_demo: false,
             })
             .unwrap(),
         )

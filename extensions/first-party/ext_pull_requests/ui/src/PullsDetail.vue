@@ -291,14 +291,6 @@ async function load(): Promise<void> {
   }
 }
 
-/**
- * Load the diff for this PR. The kernel does not yet expose a per-PR
- * `gitDiff(head, base)` field; until it does, we surface the workspace
- * repository's `diff` (currently `main~1...main` against the seeded
- * repo) so the review UI is real and exercised. Swap the query body
- * once the kernel adds the per-PR field — the component contract is
- * stable.
- */
 async function loadLinked(): Promise<void> {
   if (!pullId.value) return;
   linkedState.value = "loading";
@@ -338,28 +330,44 @@ async function loadDiff(): Promise<void> {
   diffState.value = "loading";
   diffError.value = null;
   try {
+    const segments = repositorySegmentsFromLocation();
+    if (segments.length === 0) {
+      diffPatch.value = "";
+      diffPath.value = "";
+      projects.value = [];
+      diffState.value = "ready";
+      return;
+    }
     const data = await getGraphQLClient().query<{
-      repository?: {
-        diff?: { path?: string; patch?: string } | null;
-        comtryaConfig?: { projects?: CueProject[] | null } | null;
+      workspace?: {
+        repositoryByPath?: {
+          comtryaConfig?: { projects?: CueProject[] | null } | null;
+        } | null;
       };
     }>(
-      `query PullDiff {
-        repository {
-          diff { path language patch }
-          comtryaConfig
-        }
+      `query PullProjects($segments: [String!]!) {
+        workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
       }`,
+      { segments },
     );
-    const diff = data.repository?.diff;
-    diffPatch.value = diff?.patch ?? "";
-    diffPath.value = diff?.path ?? "";
-    projects.value = data.repository?.comtryaConfig?.projects ?? [];
+    diffPatch.value = "";
+    diffPath.value = "";
+    projects.value = data.workspace?.repositoryByPath?.comtryaConfig?.projects ?? [];
     diffState.value = "ready";
   } catch (caught) {
     diffState.value = "error";
     diffError.value = caught instanceof Error ? caught.message : String(caught);
   }
+}
+
+function repositorySegmentsFromLocation(): string[] {
+  if (typeof window === "undefined") return [];
+  const path = window.location.pathname;
+  if (!path.startsWith("/r/")) return [];
+  const rest = path.slice("/r/".length);
+  const projectIdx = rest.indexOf("/p/");
+  const repoPath = projectIdx >= 0 ? rest.slice(0, projectIdx) : rest;
+  return repoPath.split("/").filter(Boolean).map(decodeURIComponent);
 }
 
 async function onMerge(): Promise<void> {

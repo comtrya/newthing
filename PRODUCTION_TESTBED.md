@@ -40,22 +40,18 @@ prove expired browser session tokens fail closed without waiting five minutes.
 Interactive runs keep the five-minute session TTL unless you set the variable
 yourself.
 
-Set `COMTRYA_EXTERNAL_DEMO=1` for shared demos; production startup then rejects
-the local `.envrc.example` operator code and requires a non-default
-`COMTRYA_OPERATOR_CODE`.
+`./start.sh` starts from persisted runtime storage. A fresh data directory only
+contains the configured workspace and loaded extension installation records; no
+repositories, issues, pulls, checks, or activity are created at boot.
 
-`./start.sh` seeds demo input into
-`$COMTRYA_DATA_DIR/metadata/demo-state.json` from
-`fixtures/demo/conference.json`. Server startup imports that seed input into
-versioned extension storage under `$COMTRYA_DATA_DIR/extensions/storage`, using
-WASM-backed creation paths for extension-owned records where the v3 runtime owns
-that behavior.
+The one-shot smoke creates a temporary Git repository under `$TMPDIR` and imports
+it through the public `createRepository` GraphQL mutation. Extension smoke data
+is created through canonical `/api/ops` WIT routes.
 
-Use `./start.sh --reset` or `COMTRYA_RESET_DEMO_DATA=1` to intentionally delete
-and reseed generated demo repository and extension storage paths under
-`$COMTRYA_DATA_DIR`; set `COMTRYA_RESET_DEMO_DATA=0` if you want to keep edits
-in that data directory between runs. Explicit environment values passed to
-`./start.sh` win over values loaded from `.envrc`.
+Use `./start.sh --reset` or `COMTRYA_RESET_DATA=1` to delete generated
+repository, metadata, and extension storage paths under `$COMTRYA_DATA_DIR`.
+Explicit environment values passed to `./start.sh` win over values loaded from
+`.envrc`.
 
 Server check without the frontend:
 
@@ -96,9 +92,8 @@ Ready means the runtime is safe to run as a production-style testbed:
 - production startup gates enforced
 - data directories initialized
 - event and audit logs are durable JSONL files
-- local bare Git repositories are seeded or opened under
+- local bare Git repositories are created/imported through product APIs under
   `$COMTRYA_DATA_DIR/repositories`
-- seeded Git refs and `HEAD` validate at startup
 - browser CORS checks are enforced
 - operator-code token exchange issues scoped credentials
 - SSE and extension asset session tokens are single-use and expire fail-closed
@@ -112,8 +107,8 @@ Ready means the runtime is safe to run as a production-style testbed:
 - extension-owned state is persisted in versioned storage
 - Git upload-pack clone/fetch works through the Vue origin with a scoped
   Comtrya credential
-- smoke validation compares GraphQL diff patches with cloned-repository Git
-  diff output
+- smoke validation imports a temporary source repo and verifies clone/fetch,
+  refs, file-tree GraphQL, and extension operations against the imported repo
 - smoke validation drives the live Vue page in headless Chrome/Chromium
 - unsupported runtime surfaces are listed from one registry in `/readyz` and
   return `UNSUPPORTED` JSON errors
@@ -123,4 +118,4 @@ It does **not** mean full Comtrya v1 production completeness. `/readyz` reports
 these unsupported areas until they are replaced with real implementations:
 
 - full OIDC browser callback validation
-- git receive-pack writes in the production-testbed demo
+- git receive-pack writes

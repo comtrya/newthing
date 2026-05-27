@@ -1,5 +1,5 @@
 use comtrya_core::{
-    BackupCoordinator, EventOutbox, InstanceCapabilities, InstanceConfig, demo_backup_store,
+    BackupCoordinator, EventOutbox, InstanceCapabilities, InstanceConfig, empty_backup_store,
 };
 
 fn main() {
@@ -27,15 +27,9 @@ fn main() {
             );
         }
         "backup" => {
-            let store = demo_backup_store();
+            let store = empty_backup_store();
             let mut coordinator = BackupCoordinator::default();
-            let bundle = coordinator.backup(
-                &store,
-                vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
-                0,
-                "package comtrya",
-                false,
-            );
+            let bundle = coordinator.backup(&store, Vec::new(), 0, "package comtrya", false);
             println!(
                 "backup signed={} repositories={} secrets={}",
                 bundle.signed,
@@ -44,15 +38,9 @@ fn main() {
             );
         }
         "restore" => {
-            let store = demo_backup_store();
+            let store = empty_backup_store();
             let mut coordinator = BackupCoordinator::default();
-            let bundle = coordinator.backup(
-                &store,
-                vec!["repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string()],
-                0,
-                "package comtrya",
-                false,
-            );
+            let bundle = coordinator.backup(&store, Vec::new(), 0, "package comtrya", false);
             let mut outbox = EventOutbox::default();
             match coordinator.restore_to_empty(bundle, true, &mut outbox) {
                 Ok(report) => println!(

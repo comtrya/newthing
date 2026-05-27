@@ -13,7 +13,6 @@ import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
 import PullRequestStackedReview from "./routes/PullRequestStackedReview.vue";
 import Releases from "./routes/Releases.vue";
-import RepoCode from "./routes/RepoCode.vue";
 import RepoHome from "./routes/RepoHome.vue";
 import Repos from "./routes/Repos.vue";
 import WorkspaceHome from "./routes/WorkspaceHome.vue";
@@ -101,8 +100,11 @@ export const shellRoutes: RouteRecordRaw[] = [
   {
     path: shellRoutePaths.repoCode,
     name: "repo-code",
-    component: RepoCode,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "code",
+    }),
   },
   {
     // Must appear BEFORE the catch-all repoPulls route so that
@@ -140,11 +142,13 @@ export const shellRoutes: RouteRecordRaw[] = [
     path: shellRoutePaths.repoPipelines,
     name: "repo-pipelines",
     component: Pipelines,
+    props: repoRouteProps,
   },
   {
     path: shellRoutePaths.repoReleases,
     name: "repo-releases",
     component: Releases,
+    props: repoRouteProps,
   },
   {
     path: shellRoutePaths.repoConfig,

@@ -56,7 +56,6 @@ crates/                         Rust workspace crates
 frontend/                       Vite/Vue shell and SDK packages
 extensions/first-party/         First-party Component Model extensions
 extensions/wit/comtrya/platform Shared platform WIT package
-fixtures/                       Demo/bootstrap data
 docs/                           Architecture, manifest, and runtime docs
 start.sh                        End-to-end local smoke test runner
 ```

@@ -1,145 +1,38 @@
 <script setup lang="ts">
-/**
- * AdminStorage — storage pools, snapshot timeline, off-site target.
- *
- * Static port of `ScreenAdminStorage`. All data hardcoded; this is
- * the page that will eventually surface real storage telemetry once
- * the admin backend is wired up.
- */
-
+import { computed } from "vue";
 import AdminNav from "../components/AdminNav.vue";
 import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
+import {
+  formatBytes,
+  useAdminTelemetry,
+  type TelemetryPath,
+} from "../admin-telemetry";
 
-interface PoolBreakdown {
-  name: string;
-  value: number;
-  color: string;
-}
+const { telemetry, loading, error, refresh } = useAdminTelemetry();
 
-interface Pool {
-  name: string;
-  path: string;
-  used: number;
-  cap: number;
-  encrypted: boolean;
-  breakdown: readonly PoolBreakdown[];
-}
-
-const pools: readonly Pool[] = [
-  {
-    name: "repos · nvme0",
-    path: "/srv/forge/repos",
-    used: 12.4,
-    cap: 200,
-    encrypted: true,
-    breakdown: [
-      { name: "rawkode/core", value: 4.8, color: "oklch(70% 0.16 25)" },
-      { name: "rawkode/k8s-lab", value: 2.1, color: "oklch(78% 0.14 215)" },
-      { name: "rawkode/dotfiles", value: 0.6, color: "oklch(72% 0.16 280)" },
-      { name: "other (5 repos)", value: 4.9, color: "var(--fg-4)" },
-    ],
-  },
-  {
-    name: "lfs + artifacts · nvme1",
-    path: "/srv/forge/blobs",
-    used: 38.2,
-    cap: 500,
-    encrypted: true,
-    breakdown: [
-      { name: "release artifacts", value: 18.4, color: "var(--accent)" },
-      { name: "CI build cache", value: 12.0, color: "oklch(78% 0.14 215)" },
-      { name: "LFS objects", value: 6.8, color: "oklch(80% 0.13 130)" },
-      { name: "docker registry", value: 1.0, color: "var(--fg-4)" },
-    ],
-  },
-];
-
-interface CalendarBar {
-  height: number;
-  failed: boolean;
-  isToday: boolean;
-  label: string | null;
-}
-
-// Precomputed snapshot calendar bars. Mirrors the source formula
-// `0.55 + (sin(i * 0.6) + 1) * 0.18`; one slot (i=8) is the
-// verify-only example used to demonstrate the failure colour.
-const calendarBars: readonly CalendarBar[] = Array.from({ length: 30 }, (_, i) => {
-  const v = 0.55 + (Math.sin(i * 0.6) + 1) * 0.18;
-  const failed = i === 8;
-  const isToday = i === 29;
-  const showLabel = i === 0 || i === 7 || i === 14 || i === 21 || i === 29;
-  const label = showLabel ? (isToday ? "today" : `−${29 - i}d`) : null;
-  return { height: v * 100, failed, isToday, label };
+const directoryRows = computed(() => {
+  const data = telemetry.value;
+  if (!data) return [];
+  return [
+    { label: "data dir", value: data.storage.dataDir },
+    { label: "metadata", value: data.storage.metadata },
+    { label: "repositories", value: data.storage.repositories.root },
+    { label: "extension storage", value: data.storage.extensionStorage },
+  ];
 });
 
-interface Snapshot {
-  when: string;
-  kind: string;
-  size: string;
-  status: "ok" | "warn";
-  color: string;
-  note: string;
-}
+const logRows = computed(() => {
+  const data = telemetry.value;
+  if (!data) return [];
+  return [
+    { label: "events", value: data.storage.events },
+    { label: "audit", value: data.storage.audit },
+  ];
+});
 
-const snapshots: readonly Snapshot[] = [
-  {
-    when: "2026-05-18 · 12:00",
-    kind: "auto · 6h",
-    size: "1.8 GB",
-    status: "ok",
-    color: "var(--ok)",
-    note: "verified",
-  },
-  {
-    when: "2026-05-18 · 06:00",
-    kind: "auto · 6h",
-    size: "1.8 GB",
-    status: "ok",
-    color: "var(--ok)",
-    note: "verified",
-  },
-  {
-    when: "2026-05-18 · 00:00",
-    kind: "daily · full",
-    size: "32.1 GB",
-    status: "ok",
-    color: "var(--ok)",
-    note: "verified",
-  },
-  {
-    when: "2026-05-17 · 18:00",
-    kind: "auto · 6h",
-    size: "1.7 GB",
-    status: "ok",
-    color: "var(--ok)",
-    note: "verified",
-  },
-  {
-    when: "2026-05-17 · 12:00",
-    kind: "auto · 6h",
-    size: "1.9 GB",
-    status: "warn",
-    color: "var(--warn)",
-    note: "verify pending",
-  },
-  {
-    when: "2026-05-11 · 00:00",
-    kind: "weekly · cold",
-    size: "31.4 GB",
-    status: "ok",
-    color: "var(--ok)",
-    note: "off-site · b2",
-  },
-];
-
-function pct(p: Pool): string {
-  return ((p.used / p.cap) * 100).toFixed(1);
-}
-
-function widthPct(value: number, cap: number): string {
-  return `${(value / cap) * 100}%`;
+function statusTone(path: TelemetryPath): "ok" | "err" {
+  return path.exists ? "ok" : "err";
 }
 </script>
 
@@ -147,281 +40,126 @@ function widthPct(value: number, cap: number): string {
   <div class="admin-screen">
     <AdminNav active="storage" />
     <div class="admin-content no-scrollbar">
-
-      <div
-        style="display: flex; align-items: flex-end; margin-bottom: 22px"
-      >
+      <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Storage & backups</div>
-          <h1
-            class="serif"
-            style="font-size: 32px; margin: 0; font-weight: 400"
-          >
-            Your forge, your hardware
-          </h1>
-          <div
-            style="
-              margin-top: 8px;
-              font-size: 13px;
-              color: var(--fg-2);
-              max-width: 640px;
-            "
-          >
-            Repositories on local NVMe, large-object cache on a second pool,
-            off-site snapshots to
-            <span
-              class="mono"
-              style="color: var(--fg)"
-            >b2://forge-snapshots</span> every 6 hours.
+          <div class="eyebrow" style="margin-bottom: 6px">Storage telemetry</div>
+          <h1 class="serif">Runtime storage paths</h1>
+          <div class="subline">
+            <template v-if="telemetry">
+              Live filesystem counts from the configured data directory.
+            </template>
+            <template v-else-if="loading">Loading storage telemetry...</template>
+            <template v-else>Storage telemetry unavailable</template>
           </div>
         </div>
-        <div style="flex: 1" />
-        <div style="display: flex; gap: 8px">
-          <button class="btn"><Icon name="retry" /><span>Run backup now</span></button>
-          <button class="btn"><Icon name="eye" /><span>Verify integrity</span></button>
-        </div>
+        <div class="spacer" />
+        <button class="btn" type="button" :disabled="loading" @click="refresh">
+          <Icon name="retry" /><span>{{ loading ? "Refreshing" : "Refresh" }}</span>
+        </button>
       </div>
 
-      <!-- Storage pools -->
-      <div
-        style="
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 14px;
-          margin-bottom: 16px;
-        "
-      >
-        <div v-for="p in pools" :key="p.name" class="glass" style="padding: 16px">
-          <div
-            style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px"
-          >
-            <span
-              class="mono"
-              style="font-size: 13px; font-weight: 500"
-            >{{ p.name }}</span>
-            <Chip v-if="p.encrypted" mono tone="ok">
-              <Icon name="lock" /><span style="margin-left: 2px">luks2</span>
-            </Chip>
-          </div>
-          <div
-            class="mono"
-            style="font-size: 11px; color: var(--fg-3); margin-bottom: 14px"
-          >{{ p.path }}</div>
+      <div v-if="error" class="glass error-panel">
+        <Icon name="x" />
+        <span>{{ error }}</span>
+      </div>
 
-          <div
-            style="display: flex; align-items: baseline; gap: 4px; margin-bottom: 8px"
-          >
-            <span
-              class="mono"
-              style="font-size: 24px; font-weight: 500"
-            >{{ p.used.toFixed(1) }}</span>
-            <span
-              class="mono"
-              style="font-size: 12px; color: var(--fg-3)"
-            >/ {{ p.cap }} GB · {{ pct(p) }}%</span>
+      <template v-if="telemetry">
+        <div class="summary-grid">
+          <div class="glass summary-card">
+            <div class="eyebrow">repositories</div>
+            <div class="mono summary-value">{{ telemetry.storage.repositories.count }}</div>
+            <div class="summary-detail">
+              {{ telemetry.storage.repositories.root.files ?? 0 }} files ·
+              {{ formatBytes(telemetry.storage.repositories.root.bytes) }}
+            </div>
           </div>
+          <div class="glass summary-card">
+            <div class="eyebrow">extension storage</div>
+            <div class="mono summary-value">
+              {{ formatBytes(telemetry.storage.extensionStorage.bytes) }}
+            </div>
+            <div class="summary-detail">
+              {{ telemetry.storage.extensionStorage.files ?? 0 }} files
+            </div>
+          </div>
+          <div class="glass summary-card">
+            <div class="eyebrow">metadata</div>
+            <div class="mono summary-value">{{ formatBytes(telemetry.storage.metadata.bytes) }}</div>
+            <div class="summary-detail">{{ telemetry.storage.metadata.files ?? 0 }} files</div>
+          </div>
+        </div>
 
-          <!-- Stacked bar -->
-          <div
-            style="
-              display: flex;
-              height: 10px;
-              border-radius: 999px;
-              overflow: hidden;
-              gap: 1px;
-              background: var(--surface-2);
-            "
-          >
-            <div
-              v-for="b in p.breakdown"
-              :key="b.name"
-              :style="{
-                background: b.color,
-                width: widthPct(b.value, p.cap),
-                height: '100%',
-              }"
-            />
+        <div class="glass" style="margin-bottom: 16px">
+          <div class="section-hd">
+            <div class="section-hd-title">Directories</div>
+            <div class="section-hd-sub">{{ directoryRows.length }} tracked paths</div>
           </div>
-          <div
-            style="
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 4px;
-              margin-top: 12px;
-            "
-          >
-            <div
-              v-for="b in p.breakdown"
-              :key="b.name"
-              style="display: flex; align-items: center; gap: 6px; font-size: 11px"
-            >
-              <span
-                :style="{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '999px',
-                  background: b.color,
-                  flexShrink: 0,
-                }"
-              />
-              <span
-                class="trunc"
-                style="color: var(--fg-2); flex: 1"
-              >{{ b.name }}</span>
-              <span
-                class="mono tnum"
-                style="color: var(--fg-3)"
-              >{{ b.value.toFixed(1) }}</span>
+          <div class="path-grid">
+            <div v-for="row in directoryRows" :key="row.label" class="path-card">
+              <div class="path-card-head">
+                <span class="mono">{{ row.label }}</span>
+                <Chip :tone="statusTone(row.value)" mono>
+                  {{ row.value.exists ? "present" : "missing" }}
+                </Chip>
+              </div>
+              <div class="path mono">{{ row.value.path }}</div>
+              <div class="path-meta">
+                <span>{{ row.value.files ?? 0 }} files</span>
+                <span>{{ formatBytes(row.value.bytes) }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Backups -->
-      <div class="glass" style="margin-bottom: 16px">
-        <div class="section-hd">
-          <div class="section-hd-title">Snapshot timeline</div>
-          <div class="section-hd-sub">encrypted · off-site · weekly verify</div>
-          <div class="section-hd-right">
-            <Chip mono tone="ok" dot>0 failures · 30d</Chip>
-            <Chip mono>4.2 TB cumulative</Chip>
-          </div>
-        </div>
-        <div style="padding: 16px 18px">
-
-          <!-- Calendar-strip of snapshots -->
-          <div
-            style="
-              display: flex;
-              align-items: flex-end;
-              gap: 2px;
-              height: 80px;
-              margin-bottom: 14px;
-            "
-          >
-            <div
-              v-for="(bar, i) in calendarBars"
-              :key="i"
-              style="
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 2px;
-              "
-            >
+        <div class="grid two">
+          <div class="glass">
+            <div class="section-hd">
+              <div class="section-hd-title">Repository backends</div>
+              <div class="section-hd-sub">
+                {{ telemetry.storage.repositories.backends.length }} configured
+              </div>
+            </div>
+            <div v-if="telemetry.storage.repositories.backends.length" class="rows">
               <div
-                :style="{
-                  width: '100%',
-                  height: bar.height + '%',
-                  background: bar.failed
-                    ? 'var(--warn)'
-                    : bar.isToday
-                      ? 'var(--accent)'
-                      : 'var(--surface-3)',
-                  borderRadius: '2px',
-                }"
-              />
-              <span
-                v-if="bar.label"
-                class="mono"
-                style="font-size: 9px; color: var(--fg-4)"
-              >{{ bar.label }}</span>
+                v-for="backend in telemetry.storage.repositories.backends"
+                :key="backend.name"
+                class="backend-row"
+              >
+                <span class="backend-icon"><Icon name="ds" /></span>
+                <div class="backend-main">
+                  <div class="backend-title">
+                    <span class="mono">{{ backend.name }}</span>
+                    <Chip mono>{{ backend.kind }}</Chip>
+                  </div>
+                  <div class="backend-detail mono">
+                    {{ backend.configuredPath || telemetry.storage.repositories.root.path }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty">No repository storage backends were reported.</div>
+          </div>
+
+          <div class="glass">
+            <div class="section-hd">
+              <div class="section-hd-title">Runtime logs</div>
+              <div class="section-hd-sub">append-only metadata files</div>
+            </div>
+            <div class="rows">
+              <div v-for="row in logRows" :key="row.label" class="log-row">
+                <span :class="['log-icon', row.value.exists ? 'ok' : 'err']">
+                  <Icon :name="row.value.exists ? 'check' : 'x'" />
+                </span>
+                <div class="log-main">
+                  <div class="mono log-title">{{ row.label }}</div>
+                  <div class="mono log-path">{{ row.value.path }}</div>
+                </div>
+                <div class="mono log-size">{{ formatBytes(row.value.bytes) }}</div>
+              </div>
             </div>
           </div>
-
-          <!-- Recent snapshots -->
-          <div style="display: flex; flex-direction: column; gap: 1px">
-            <div
-              v-for="(snap, i) in snapshots"
-              :key="i"
-              :style="{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '14px',
-                padding: '8px 10px',
-                borderRadius: '6px',
-                background: i === 0 ? 'var(--accent-soft)' : 'transparent',
-              }"
-            >
-              <span :style="{ color: snap.color, display: 'inline-flex' }">
-                <Icon :name="snap.status === 'ok' ? 'check' : 'clock'" />
-              </span>
-              <span
-                class="mono tnum"
-                style="font-size: 11.5px; color: var(--fg); width: 170px"
-              >{{ snap.when }}</span>
-              <span
-                style="font-size: 11.5px; color: var(--fg-3); flex: 1"
-              >{{ snap.kind }}</span>
-              <span
-                class="mono tnum"
-                style="font-size: 11px; color: var(--fg-2); width: 80px"
-              >{{ snap.size }}</span>
-              <Chip mono :tone="snap.status === 'ok' ? 'ok' : 'warn'">
-                {{ snap.note }}
-              </Chip>
-            </div>
-          </div>
-
-          <div
-            style="
-              margin-top: 14px;
-              display: flex;
-              align-items: center;
-              gap: 10px;
-            "
-          >
-            <button class="btn btn-sm">Restore from snapshot…</button>
-            <span style="font-size: 11px; color: var(--fg-3)">
-              Retention: 24× 6h · 30× daily · 12× weekly · 12× monthly
-            </span>
-          </div>
         </div>
-      </div>
-
-      <!-- Off-site target -->
-      <div
-        class="glass"
-        style="padding: 16px; display: flex; align-items: center; gap: 16px"
-      >
-        <span
-          style="
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            background: var(--surface-2);
-            color: var(--accent);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          "
-          ><Icon name="globe"
-        /></span>
-        <div style="flex: 1">
-          <div style="font-size: 13px; color: var(--fg); margin-bottom: 2px">
-            Off-site target ·
-            <span class="mono">b2://forge-snapshots</span>
-          </div>
-          <div style="font-size: 11px; color: var(--fg-3)">
-            Backblaze B2 · eu-central · age-encrypted · last upload 12 min ago
-          </div>
-        </div>
-        <div style="display: flex; gap: 22px">
-          <div class="stat">
-            <span class="stat-label">Stored</span>
-            <span class="stat-value mono">427.8 GB</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Cost/mo</span>
-            <span class="stat-value mono">$2.14</span>
-          </div>
-          <div class="stat">
-            <span class="stat-label">Last verify</span>
-            <span class="stat-value mono accent">OK · 3d</span>
-          </div>
-        </div>
-      </div>
+      </template>
     </div>
   </div>
 </template>
@@ -436,6 +174,51 @@ function widthPct(value: number, cap: number): string {
   flex: 1;
   padding: 22px 28px;
   overflow-y: auto;
+}
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+.page-header h1 {
+  font-size: 32px;
+  margin: 0;
+  font-weight: 400;
+}
+.subline {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.spacer {
+  flex: 1;
+}
+.error-panel {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  color: var(--err);
+}
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.summary-card {
+  padding: 16px;
+}
+.summary-value {
+  font-size: 26px;
+  color: var(--fg);
+  margin-top: 8px;
+}
+.summary-detail {
+  font-size: 11px;
+  color: var(--fg-3);
+  margin-top: 4px;
 }
 .section-hd {
   display: flex;
@@ -453,30 +236,112 @@ function widthPct(value: number, cap: number): string {
   color: var(--fg-3);
   margin-left: 8px;
 }
-.section-hd-right {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.path-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
 }
-.stat {
+.path-card {
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 0.5px solid var(--line);
+}
+.path-card-head {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-}
-.stat-label {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-4);
-  font-family: var(--font-mono);
-}
-.stat-value {
-  font-size: 13px;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  font-size: 12px;
   color: var(--fg);
 }
-.stat-value.accent {
+.path {
+  margin-top: 8px;
+  color: var(--fg-3);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.grid.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.rows {
+  padding: 6px;
+}
+.backend-row,
+.log-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.backend-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--surface-2);
   color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.backend-main,
+.log-main {
+  flex: 1;
+  min-width: 0;
+}
+.backend-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fg);
+  font-size: 12px;
+}
+.backend-detail,
+.log-path {
+  margin-top: 4px;
+  color: var(--fg-3);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-icon {
+  display: inline-flex;
+  color: var(--fg-3);
+}
+.log-icon.ok {
+  color: var(--ok);
+}
+.log-icon.err {
+  color: var(--err);
+}
+.log-title {
+  color: var(--fg);
+  font-size: 12px;
+}
+.log-size {
+  color: var(--fg-2);
+  font-size: 11px;
+}
+.empty {
+  padding: 18px;
+  font-size: 12px;
+  color: var(--fg-3);
 }
 </style>

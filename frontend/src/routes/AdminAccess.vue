@@ -1,377 +1,148 @@
 <script setup lang="ts">
-/**
- * AdminAccess — owner, collaborators, and access tokens.
- *
- * Static port of `ScreenAdminAccess`. Data hardcoded; replaced once
- * the access backend (users, tokens, scopes) is wired up.
- */
-
+import { computed } from "vue";
 import AdminNav from "../components/AdminNav.vue";
 import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
-import Avi from "../components/Avi.vue";
+import { formatUnixTime, useAdminTelemetry } from "../admin-telemetry";
 
-interface Collaborator {
-  name: string;
-  handle: string;
-  hue: number;
-  role: "maintainer" | "reviewer" | "triage" | "read";
-  scope: string;
-  last: string;
-  state: "active" | "invited";
-}
+const { telemetry, loading, error, refresh } = useAdminTelemetry();
 
-const collaborators: readonly Collaborator[] = [
-  {
-    name: "Nia Iyer",
-    handle: "@nia",
-    hue: 320,
-    role: "maintainer",
-    scope: "rawkode/core",
-    last: "2h",
-    state: "active",
-  },
-  {
-    name: "Jules Saito",
-    handle: "@jules",
-    hue: 140,
-    role: "reviewer",
-    scope: "all repos",
-    last: "5h",
-    state: "active",
-  },
-  {
-    name: "Kepa Otaño",
-    handle: "@kepa",
-    hue: 60,
-    role: "triage",
-    scope: "issues only",
-    last: "1d",
-    state: "active",
-  },
-  {
-    name: "Søren Holm",
-    handle: "@soren",
-    hue: 30,
-    role: "read",
-    scope: "rawkode/k8s-lab",
-    last: "9d",
-    state: "invited",
-  },
-];
-
-interface Token {
-  name: string;
-  repo: string;
-  scope: readonly string[];
-  created: string;
-  expires: string;
-  state: "active" | "rolling" | "expired";
-}
-
-const tokens: readonly Token[] = [
-  {
-    name: "ci-cd-runner-prod",
-    repo: "all repos",
-    scope: ["pipelines:read", "registry:write"],
-    created: "12m ago",
-    expires: "Aug 18 · 90d",
-    state: "active",
-  },
-  {
-    name: "matrix-bot",
-    repo: "rawkode/core",
-    scope: ["issues:write"],
-    created: "2d ago",
-    expires: "never",
-    state: "active",
-  },
-  {
-    name: "release-cosign",
-    repo: "rawkode/core",
-    scope: ["releases:write"],
-    created: "3d ago",
-    expires: "2 days · rolling",
-    state: "rolling",
-  },
-  {
-    name: "homelab-pull",
-    repo: "rawkode/dotfiles",
-    scope: ["contents:read"],
-    created: "5w ago",
-    expires: "ok",
-    state: "active",
-  },
-  {
-    name: "old-laptop",
-    repo: "rawkode/dotfiles",
-    scope: ["contents:read"],
-    created: "11mo",
-    expires: "expired",
-    state: "expired",
-  },
-];
-
-function aviName(handle: string): string {
-  return handle.slice(1, 3).toUpperCase();
-}
+const accessStats = computed(() => {
+  const data = telemetry.value;
+  if (!data) return [];
+  return [
+    { label: "active sessions", value: data.access.activeSessions },
+    { label: "active credentials", value: data.access.activeCredentials },
+    { label: "rate limit rows", value: data.access.rateLimitRows },
+    { label: "oidc issuers", value: data.access.oidcIssuers.length },
+  ];
+});
 </script>
 
 <template>
   <div class="admin-screen">
     <AdminNav active="users" />
     <div class="admin-content no-scrollbar">
-
-      <div
-        style="display: flex; align-items: flex-end; margin-bottom: 22px"
-      >
+      <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">
-            Access · single tenant
-          </div>
-          <h1
-            class="serif"
-            style="font-size: 32px; margin: 0; font-weight: 400"
-          >
-            Who can touch this forge
-          </h1>
-          <div
-            style="
-              margin-top: 8px;
-              font-size: 13px;
-              color: var(--fg-2);
-              max-width: 640px;
-            "
-          >
-            One owner. A few trusted collaborators with scoped roles. Everything
-            else is a token — short-lived, narrowly-scoped, auditable.
+          <div class="eyebrow" style="margin-bottom: 6px">Access telemetry</div>
+          <h1 class="serif">Authentication and authorization</h1>
+          <div class="subline">
+            <template v-if="telemetry">
+              Live metadata from the local session, credential, rate-limit, and OIDC stores.
+            </template>
+            <template v-else-if="loading">Loading access telemetry...</template>
+            <template v-else>Access telemetry unavailable</template>
           </div>
         </div>
-        <div style="flex: 1" />
-        <div style="display: flex; gap: 8px">
-          <button class="btn">
-            <Icon name="plus" /><span>Invite collaborator</span>
-          </button>
-          <button class="btn btn-primary">
-            <Icon name="plus" /><span>New token</span>
-          </button>
-        </div>
+        <div class="spacer" />
+        <button class="btn" type="button" :disabled="loading" @click="refresh">
+          <Icon name="retry" /><span>{{ loading ? "Refreshing" : "Refresh" }}</span>
+        </button>
       </div>
 
-      <!-- Owner card -->
-      <div
-        class="glass"
-        style="
-          padding: 18px;
-          margin-bottom: 14px;
-          position: relative;
-          overflow: hidden;
-        "
-      >
-        <div
-          style="
-            position: absolute;
-            inset: 0;
-            background: radial-gradient(70% 80% at 100% 0%, var(--accent-soft), transparent 60%);
-            pointer-events: none;
-          "
-        />
-        <div
-          style="
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-          "
-        >
-          <span
-            class="avi"
-            style="
-              width: 48px;
-              height: 48px;
-              font-size: 16px;
-              background: linear-gradient(135deg, var(--accent), oklch(78% 0.14 320));
-              color: #0a0b0e;
-            "
-            >DM</span
-          >
-          <div style="flex: 1">
-            <div style="display: flex; align-items: baseline; gap: 8px">
-              <span style="font-size: 16px; font-weight: 600">David McKay</span>
-              <span
-                class="mono"
-                style="font-size: 12px; color: var(--fg-3)"
-              >@rawkode</span>
-              <Chip tone="accent" dot>owner</Chip>
-            </div>
-            <div
-              style="
-                display: flex;
-                gap: 18px;
-                margin-top: 6px;
-                font-size: 11.5px;
-                color: var(--fg-3);
-              "
-            >
-              <span
-                >2FA:
-                <span style="color: var(--ok)">passkey + TOTP</span></span
-              >
-              <span
-                >SSH keys:
-                <span class="mono" style="color: var(--fg-2)">4</span></span
-              >
-              <span
-                >GPG keys:
-                <span class="mono" style="color: var(--fg-2)">2</span></span
-              >
-              <span
-                >last seen
-                <span class="mono" style="color: var(--fg-2)">now</span></span
-              >
-            </div>
-          </div>
-          <button class="btn btn-sm">
-            <Icon name="settings" /><span>Manage</span>
-          </button>
-        </div>
+      <div v-if="error" class="glass error-panel">
+        <Icon name="x" />
+        <span>{{ error }}</span>
       </div>
 
-      <!-- Collaborators -->
-      <div class="glass" style="margin-bottom: 18px">
-        <div class="section-hd">
-          <div class="section-hd-title">Collaborators</div>
-          <div class="section-hd-sub">3 active · scoped, no admin rights</div>
-          <div class="section-hd-right">
-            <button class="btn btn-sm"><Icon name="plus" /><span>Invite</span></button>
-          </div>
-        </div>
-        <div
-          v-for="(p, i) in collaborators"
-          :key="p.handle"
-          :style="{
-            padding: '12px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            borderBottom:
-              i < collaborators.length - 1
-                ? '0.5px solid var(--line)'
-                : 'none',
-          }"
-        >
-          <Avi :name="aviName(p.handle)" :hue="p.hue" :size="28" />
-          <div style="flex: 1">
-            <div style="display: flex; align-items: baseline; gap: 8px">
-              <span style="font-size: 13px; font-weight: 500">{{ p.name }}</span>
-              <span
-                class="mono"
-                style="font-size: 11px; color: var(--fg-3)"
-              >{{ p.handle }}</span>
-              <Chip v-if="p.state === 'invited'" mono tone="warn">invited</Chip>
-            </div>
-            <div
-              style="font-size: 11px; color: var(--fg-3); margin-top: 2px"
-            >
-              scope: <span style="color: var(--fg-2)">{{ p.scope }}</span>
-            </div>
-          </div>
-          <Chip
-            mono
-            :tone="p.role === 'maintainer' ? 'accent' : undefined"
-          >{{ p.role }}</Chip>
-          <span
-            class="mono"
-            style="
-              font-size: 11px;
-              color: var(--fg-3);
-              width: 50px;
-              text-align: right;
-            "
-          >{{ p.last }}</span>
-          <button
-            class="btn btn-sm btn-ghost"
-            style="padding: 0; width: 26px; justify-content: center"
-          >
-            <Icon name="dot3" />
-          </button>
-        </div>
-      </div>
-
-      <!-- Access tokens -->
-      <div class="glass">
-        <div class="section-hd">
-          <div class="section-hd-title">Access tokens</div>
-          <div class="section-hd-sub">5 active · scoped by repo and action</div>
-          <div class="section-hd-right">
-            <Chip mono>4 deploy</Chip>
-            <Chip mono>1 personal</Chip>
+      <template v-if="telemetry">
+        <div class="stat-grid">
+          <div v-for="stat in accessStats" :key="stat.label" class="glass stat-card">
+            <div class="eyebrow">{{ stat.label }}</div>
+            <div class="mono stat-value">{{ stat.value }}</div>
           </div>
         </div>
 
-        <div
-          v-for="(t, i) in tokens"
-          :key="t.name"
-          :style="{
-            padding: '12px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '14px',
-            borderBottom:
-              i < tokens.length - 1 ? '0.5px solid var(--line)' : 'none',
-            opacity: t.state === 'expired' ? 0.5 : 1,
-          }"
-        >
-          <span
-            style="
-              width: 28px;
-              height: 28px;
-              border-radius: 7px;
-              background: var(--surface-2);
-              color: var(--fg-3);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              flex-shrink: 0;
-            "
-            ><Icon name="lock"
-          /></span>
-          <div style="flex: 1; min-width: 0">
-            <div style="display: flex; align-items: baseline; gap: 8px">
-              <span
-                class="mono"
-                style="font-size: 12.5px; color: var(--fg); font-weight: 500"
-              >{{ t.name }}</span>
-              <span
-                style="font-size: 11px; color: var(--fg-3)"
-              >{{ t.repo }}</span>
-            </div>
-            <div
-              style="display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap"
-            >
-              <Chip v-for="s in t.scope" :key="s" mono>{{ s }}</Chip>
+        <div class="glass" style="margin-bottom: 16px">
+          <div class="section-hd">
+            <div class="section-hd-title">OIDC issuers</div>
+            <div class="section-hd-sub">
+              {{ telemetry.access.oidcIssuers.length }} configured
             </div>
           </div>
-          <div style="text-align: right; flex-shrink: 0">
-            <div
-              class="mono"
-              style="font-size: 11px; color: var(--fg-2)"
-            >{{ t.expires }}</div>
-            <div
-              style="font-size: 10px; color: var(--fg-4); margin-top: 2px"
-            >{{ t.created }}</div>
+          <div v-if="telemetry.access.oidcIssuers.length" class="rows">
+            <div v-for="issuer in telemetry.access.oidcIssuers" :key="issuer.id" class="issuer-row">
+              <span class="issuer-icon"><Icon name="lock" /></span>
+              <div class="issuer-main">
+                <div class="issuer-title">
+                  <span class="mono">{{ issuer.id }}</span>
+                  <Chip mono>{{ issuer.clientKind }}</Chip>
+                  <Chip v-if="issuer.hasClientSecret" mono tone="ok">secret configured</Chip>
+                  <Chip v-else mono tone="warn">no client secret</Chip>
+                </div>
+                <div class="issuer-detail mono">{{ issuer.issuerURL }}</div>
+                <div class="issuer-detail mono">{{ issuer.redirectURL }}</div>
+              </div>
+              <div class="issuer-policy">
+                <div>
+                  <span>domains</span>
+                  <strong>{{ issuer.allowedDomains.length || 0 }}</strong>
+                </div>
+                <div>
+                  <span>groups</span>
+                  <strong>{{ issuer.allowedGroups.length || 0 }}</strong>
+                </div>
+                <div>
+                  <span>subjects</span>
+                  <strong>{{ issuer.allowedSubjects.length || 0 }}</strong>
+                </div>
+              </div>
+            </div>
           </div>
-          <Chip v-if="t.state === 'rolling'" tone="info" dot>rolling</Chip>
-          <Chip v-else-if="t.state === 'expired'" mono tone="err">expired</Chip>
-          <Chip v-else tone="ok" dot>active</Chip>
-          <button
-            class="btn btn-sm btn-ghost"
-            style="padding: 0; width: 26px; justify-content: center"
-          >
-            <Icon name="dot3" />
-          </button>
+          <div v-else class="empty">No OIDC issuers are configured for this instance.</div>
         </div>
-      </div>
+
+        <div class="grid two">
+          <div class="glass">
+            <div class="section-hd">
+              <div class="section-hd-title">Credential store</div>
+              <div class="section-hd-sub">SQLite-backed runtime counts</div>
+            </div>
+            <div class="kv-list">
+              <div>
+                <span>active credentials</span>
+                <strong class="mono">{{ telemetry.access.activeCredentials }}</strong>
+              </div>
+              <div>
+                <span>active sessions</span>
+                <strong class="mono">{{ telemetry.access.activeSessions }}</strong>
+              </div>
+              <div>
+                <span>rate limit rows</span>
+                <strong class="mono">{{ telemetry.access.rateLimitRows }}</strong>
+              </div>
+              <div>
+                <span>sampled at</span>
+                <strong class="mono">{{ formatUnixTime(telemetry.instance.now) }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="glass">
+            <div class="section-hd">
+              <div class="section-hd-title">Unsupported admin surfaces</div>
+              <div class="section-hd-sub">
+                {{ telemetry.readiness.unsupported.length }} explicit gaps
+              </div>
+            </div>
+            <div v-if="telemetry.readiness.unsupported.length" class="rows">
+              <div
+                v-for="surface in telemetry.readiness.unsupported"
+                :key="surface.id"
+                class="unsupported-row"
+              >
+                <Chip mono tone="warn">{{ surface.id }}</Chip>
+                <div>
+                  <div class="mono path">{{ surface.pathPrefix }}</div>
+                  <div class="detail">{{ surface.message }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty">No unsupported access surfaces were reported.</div>
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -386,6 +157,46 @@ function aviName(handle: string): string {
   flex: 1;
   padding: 22px 28px;
   overflow-y: auto;
+}
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 22px;
+}
+.page-header h1 {
+  font-size: 32px;
+  margin: 0;
+  font-weight: 400;
+}
+.subline {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.spacer {
+  flex: 1;
+}
+.error-panel {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  color: var(--err);
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  padding: 16px;
+}
+.stat-value {
+  font-size: 28px;
+  color: var(--fg);
+  margin-top: 8px;
 }
 .section-hd {
   display: flex;
@@ -403,10 +214,107 @@ function aviName(handle: string): string {
   color: var(--fg-3);
   margin-left: 8px;
 }
-.section-hd-right {
-  margin-left: auto;
+.rows {
+  padding: 6px;
+}
+.issuer-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+.issuer-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--accent);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.issuer-main {
+  flex: 1;
+  min-width: 0;
+}
+.issuer-title {
+  display: flex;
   gap: 6px;
+  align-items: center;
+  color: var(--fg);
+  font-size: 13px;
+}
+.issuer-detail {
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.issuer-policy {
+  display: flex;
+  gap: 16px;
+}
+.issuer-policy div {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+.issuer-policy span {
+  font-size: 10px;
+  color: var(--fg-4);
+}
+.issuer-policy strong {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+}
+.grid {
+  display: grid;
+  gap: 16px;
+}
+.grid.two {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.kv-list {
+  display: grid;
+  gap: 1px;
+  padding: 10px;
+}
+.kv-list > div {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.kv-list span,
+.detail {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.kv-list strong,
+.path {
+  font-size: 11px;
+  color: var(--fg-2);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unsupported-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  align-items: start;
+}
+.empty {
+  padding: 18px;
+  font-size: 12px;
+  color: var(--fg-3);
 }
 </style>

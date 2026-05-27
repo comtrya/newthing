@@ -44,9 +44,6 @@ interface IssuesPolicyConfig {
       comtryaConfig?: { projects?: CueProject[] } | null;
     } | null;
   };
-  repository?: {
-    comtryaConfig?: { projects?: CueProject[] } | null;
-  };
 }
 
 export type SegmentsSource = "location" | "referrer";
@@ -89,16 +86,14 @@ export async function resolveIssuesPolicy(
 ): Promise<IssuesPolicy> {
   try {
     const segments = repositorySegmentsFromLocation(source);
-    const query = segments.length > 0
-      ? `query Q($segments: [String!]!) {
-          workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
-        }`
-      : `{ repository { comtryaConfig } }`;
-    const variables = segments.length > 0 ? { segments } : undefined;
-    const data = await getGraphQLClient().query<IssuesPolicyConfig>(query, variables);
-    const config = data.workspace?.repositoryByPath?.comtryaConfig
-      ?? data.repository?.comtryaConfig
-      ?? null;
+    if (segments.length === 0) return EMPTY_POLICY;
+    const data = await getGraphQLClient().query<IssuesPolicyConfig>(
+      `query Q($segments: [String!]!) {
+        workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
+      }`,
+      { segments },
+    );
+    const config = data.workspace?.repositoryByPath?.comtryaConfig ?? null;
     const project = (config?.projects ?? []).find((p) => p.name === projectName);
     const ownerRefs = (project?.owners ?? [])
       .map((owner) => owner?.ref)

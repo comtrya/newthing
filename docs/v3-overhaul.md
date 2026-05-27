@@ -21,8 +21,8 @@ extensions built from cargo-component crates.
   pull-request events and calls `ext_issues/issues.close-issue` through
   `ops.invoke`.
 - **Manifest-driven storage:** core storage declarations live in typed Rust
-  declarations; extension-owned collections and demo bootstrap routes live in
-  `manifest.json` `contributes.collections`.
+  declarations; extension-owned collections live in `manifest.json`
+  `contributes.collections`.
 - **Vite/Vue frontend:** `frontend/` is a Vite Vue app. The old frontend stack
   has been deleted.
   UI extension packages build browser assets consumed by the shell and SDK.

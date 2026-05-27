@@ -1547,6 +1547,13 @@ kbd {
 .shell-app .repo-code,
 .shell-app .repo-extension-embed { margin-top: 28px; }
 
+.shell-app .repo-code {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 28px;
+  align-items: start;
+}
+
 .shell-app .repo-config { margin-top: 28px; display: flex; flex-direction: column; gap: 24px; }
 
 .shell-app .repo-config-error {
@@ -2250,6 +2257,7 @@ kbd {
   .shell-app .page-header,
   .shell-app .work-grid,
   .shell-app .home-grid,
+  .shell-app .repo-code,
   .shell-app .repo-code-layout,
   .shell-app .admin-grid {
     grid-template-columns: 1fr;
@@ -2281,8 +2289,6 @@ kbd {
   .side-rail { display: none; }
   .layout { grid-template-columns: 1fr; }
   .shell-app .page { width: 100%; }
-  .shell-app .pipelines-page,
-  .shell-app .releases-page,
   .shell-app .admin-screen {
     padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }

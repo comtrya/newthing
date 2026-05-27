@@ -50,7 +50,6 @@ truth.
 | `self.sessions.lock().expect("session lock not poisoned")` ×2 | Idiomatic lock | No |
 | `if let Ok(value) = HeaderValue::from_str(etag) { … } else { eprintln!(…) }` in `apply_extension_asset_headers` | **Converted** from `.expect()` → graceful fallback. ETag is a cache optimization; serving without it on a malformed value is correct degradation. | No — fallback path active |
 | `expect("git_receive_pack unsupported surface is registered")` | Compile-time invariant on a `const` table | No |
-| `git_dir.parent().expect("demo repo has parent")` in `--reset` boot path | Startup | No — operator-provided data dir read at startup |
 
 ### `crates/server/src/wasm_registry.rs`
 
