@@ -64,12 +64,14 @@ RUN useradd --system --uid 10001 --create-home --home-dir /app comtrya \
 
 COPY --from=builder /build/target/release/comtrya-server /usr/local/bin/comtrya-server
 COPY --from=builder --chown=comtrya:comtrya /build/extensions/first-party /app/extensions/first-party
+COPY --from=builder --chown=comtrya:comtrya /build/migrations /app/migrations
 
 USER comtrya
 WORKDIR /app
 
 ENV COMTRYA_DATA_DIR=/app/data \
     COMTRYA_EXTENSION_DIR=/app/extensions/first-party \
+    COMTRYA_MIGRATIONS_DIR=/app/migrations \
     COMTRYA_LISTEN=0.0.0.0:8080
 
 EXPOSE 8080
