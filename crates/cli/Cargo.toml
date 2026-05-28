@@ -3,5 +3,9 @@ name = "comtrya-cli"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "comtrya"
+path = "src/main.rs"
+
 [dependencies]
 comtrya-core = { path = "../core" }

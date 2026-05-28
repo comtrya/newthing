@@ -7,7 +7,7 @@
 //! unset, [`ConfigRepo::from_env`] returns `None` and the caller falls back to
 //! its local config path.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use comtrya_core::InstanceConfig;
 use gitsync::GitSync;
@@ -16,6 +16,7 @@ use gitsync::GitSync;
 pub(crate) struct ConfigRepo {
     sync: GitSync,
     checkout_dir: PathBuf,
+    config_repo_path: Option<String>,
 }
 
 impl ConfigRepo {
@@ -26,10 +27,12 @@ impl ConfigRepo {
     /// `COMTRYA_CONFIG_REPO_USERNAME`), or an SSH key path via
     /// `COMTRYA_CONFIG_REPO_SSH_KEY` (+ optional
     /// `COMTRYA_CONFIG_REPO_SSH_PASSPHRASE`). `COMTRYA_CONFIG_REPO_REF` pins the
-    /// branch (default: the remote's default branch).
+    /// branch (default: the remote's default branch). `COMTRYA_CONFIG_REPO_PATH`
+    /// optionally evaluates a subdirectory inside the cloned repo.
     pub(crate) fn from_env(data_dir: &Path) -> Option<Self> {
         let url = non_empty_env("COMTRYA_CONFIG_REPO_URL")?;
         let checkout_dir = data_dir.join("config-repo");
+        let config_repo_path = non_empty_env("COMTRYA_CONFIG_REPO_PATH");
         let sync = GitSync {
             repo: url,
             dir: checkout_dir.clone(),
@@ -40,7 +43,11 @@ impl ConfigRepo {
             passphrase: non_empty_env("COMTRYA_CONFIG_REPO_SSH_PASSPHRASE"),
             ..GitSync::default()
         };
-        Some(Self { sync, checkout_dir })
+        Some(Self {
+            sync,
+            checkout_dir,
+            config_repo_path,
+        })
     }
 
     /// The configured config-repo URL.
@@ -82,8 +89,45 @@ impl ConfigRepo {
     }
 
     fn load(&self) -> Result<InstanceConfig, String> {
-        comtrya_core::evaluate_instance_config(&self.checkout_dir).map_err(|err| err.to_string())
+        let config_dir = config_dir(&self.checkout_dir, self.config_repo_path.as_deref())?;
+        comtrya_core::evaluate_instance_config(&config_dir).map_err(|err| err.to_string())
     }
+}
+
+fn config_dir(checkout_dir: &Path, config_repo_path: Option<&str>) -> Result<PathBuf, String> {
+    let Some(config_repo_path) = config_repo_path else {
+        return Ok(checkout_dir.to_path_buf());
+    };
+    let relative_path = parse_config_repo_path(config_repo_path)?;
+    let config_dir = checkout_dir.join(&relative_path);
+    if !config_dir.is_dir() {
+        return Err(format!(
+            "COMTRYA_CONFIG_REPO_PATH {:?} does not exist or is not a directory in the config repo",
+            config_repo_path
+        ));
+    }
+    Ok(config_dir)
+}
+
+fn parse_config_repo_path(value: &str) -> Result<PathBuf, String> {
+    let path = Path::new(value);
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(segment) => normalized.push(segment),
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(format!(
+                    "COMTRYA_CONFIG_REPO_PATH {:?} must be a relative path inside the config repo",
+                    value
+                ));
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        return Ok(PathBuf::from("."));
+    }
+    Ok(normalized)
 }
 
 /// The result of one background poll of the config repo.
@@ -186,6 +230,18 @@ impl ConfigRepo {
                 ..GitSync::default()
             },
             checkout_dir,
+            config_repo_path: None,
+        }
+    }
+
+    fn for_test_with_config_path(
+        url: String,
+        checkout_dir: std::path::PathBuf,
+        config_repo_path: &str,
+    ) -> Self {
+        Self {
+            config_repo_path: Some(config_repo_path.to_string()),
+            ..Self::for_test(url, checkout_dir)
         }
     }
 }
@@ -197,6 +253,8 @@ mod tests {
 
     fn git(dir: &Path, args: &[&str]) {
         let status = Command::new("git")
+            .arg("-c")
+            .arg("commit.gpgsign=false")
             .arg("-C")
             .arg(dir)
             .args(args)
@@ -256,6 +314,55 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
         assert_eq!(config.id, "t");
         assert_eq!(config.oidc_issuers.len(), 1);
         assert_eq!(commit.len(), 40, "full sha-1 commit oid");
+    }
+
+    #[test]
+    fn clones_file_url_and_evaluates_config_subdirectory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source");
+        let config_dir = source.join("projects/instance/config");
+        let module = config_dir.join("cue.mod");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            module.join("module.cue"),
+            "module: \"comtrya.test/config\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(config_dir.join("config.cue"), CONFIG).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["add", "-A"]);
+        git(&source, &["commit", "-q", "-m", "config"]);
+
+        let url = format!("file://{}", source.display());
+        let repo = ConfigRepo::for_test_with_config_path(
+            url,
+            tmp.path().join("checkout"),
+            "projects/instance/config",
+        );
+        let (config, commit) = repo.bootstrap_and_load().expect("bootstrap + evaluate");
+        assert_eq!(config.id, "t");
+        assert_eq!(commit.len(), 40, "full sha-1 commit oid");
+    }
+
+    #[test]
+    fn config_subdirectory_must_exist() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = config_dir(tmp.path(), Some("missing/config")).expect_err("missing path errors");
+        assert!(
+            err.contains("does not exist or is not a directory"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn config_subdirectory_rejects_traversal() {
+        for value in ["../config", "config/../../other", "/config"] {
+            let err = parse_config_repo_path(value).expect_err("invalid path errors");
+            assert!(
+                err.contains("must be a relative path inside the config repo"),
+                "unexpected error for {value:?}: {err}"
+            );
+        }
     }
 
     /// The bundled config fixture that start.sh materialises must evaluate and

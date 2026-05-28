@@ -24,6 +24,7 @@ capacity signals.
 |---|---|---|
 | `COMTRYA_CONFIG_REPO_URL` | Yes (prod) | URL of the external CUE config repo (pure GitOps). Unset runs an unconfigured dev default; set it in production so the config repo owns the entire config surface. |
 | `COMTRYA_CONFIG_REPO_REF` | No (remote default) | Branch/ref of the config repo to track. |
+| `COMTRYA_CONFIG_REPO_PATH` | No (repo root) | Relative subdirectory inside the config repo to evaluate; useful when config lives in a monorepo. Absolute paths and `..` are rejected. |
 | `COMTRYA_DATA_DIR` | No (defaults `./data`) | Root of persistent state (events.jsonl, audit.jsonl, repositories/, extensions/, secrets/). Override in production to point at the mounted data volume. |
 | `COMTRYA_EXTENSION_DIR` | No (defaults `extensions/first-party`) | Root containing first-party extension manifests + `.wasm` artifacts. Override only if you ship extensions in a non-default location. |
 | `COMTRYA_LISTEN` | No (defaults `127.0.0.1:8080`) | Bind address. The shipped Dockerfile overrides to `0.0.0.0:8080`. |
@@ -86,10 +87,14 @@ capacity signals.
    ```
    The image runs as UID 10001. Kubernetes operators: set
    `securityContext.fsGroup: 10001` on the pod spec.
-3. Prepare your CUE config repo. Start from `fixtures/config-repo`
-   in this repo, replace placeholder OIDC client secrets, redirect URLs,
-   and repository storage backends with real values, and push it to a git
-   remote the server can clone.
+3. Prepare your CUE config repo. Generate a starter global config:
+   ```bash
+   comtrya generate config --dir ./config
+   ```
+   Commit the generated `config/comtrya.cue` and `config/cue.mod/module.cue`,
+   replace placeholder OIDC client secrets, redirect URLs, and repository
+   storage backends with real values, and push it to a git remote the server
+   can clone.
 4. Set the required env vars (see surface inventory above). In
    `Production` mode, `COMTRYA_TLS_TERMINATED=true` and
    `COMTRYA_OPERATOR_CODE` are required for `/readyz` to report
@@ -101,8 +106,8 @@ capacity signals.
        -e COMTRYA_CONFIG_REPO_URL="https://github.com/your-org/comtrya-config.git" \
        comtrya-server --check
    ```
-   The config file MUST be bind-mounted into the container —
-   the env var only names the path; it doesn't provide content.
+   The server clones the configured repo at startup; set
+   `COMTRYA_CONFIG_REPO_PATH` as well if the CUE module is not at the repo root.
    Exits 0 only if `Runtime::start` succeeds and `/readyz`
    reports `ready: true`. Use this as a CI gate before promoting
    an image to production.

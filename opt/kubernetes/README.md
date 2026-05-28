@@ -12,9 +12,8 @@ opt/kubernetes/
 ## Quick start
 
 ```sh
-# Build + push the server image (root Dockerfile) and pin it:
-#   docker build -t registry.example.com/comtrya-server:<tag> .
-#   docker push registry.example.com/comtrya-server:<tag>
+# Server images are published to ghcr.io/comtrya/comtrya-server.
+# Pin the image by digest for production.
 
 # Render to review:
 kubectl kustomize opt/kubernetes/overlays/production
@@ -26,10 +25,12 @@ kubectl apply -k opt/kubernetes/overlays/production
 Before applying, set the placeholders:
 
 - **Image** — `images:` in `overlays/production/kustomization.yaml` (pin a digest).
-- **Config repo** — `COMTRYA_CONFIG_REPO_URL` / `_REF` (overlay patch or
+- **Config repo** — `COMTRYA_CONFIG_REPO_URL` / `_REF` / optional `_PATH`
+  (overlay patch or
   `base/configmap.yaml`). This is **required**: the server clones it on startup
   and crash-loops if it can't (pure GitOps — OIDC, admins, repositories, labels,
-  and extensions all come from this CUE repo).
+  and extensions all come from this CUE repo). `_PATH` must be a relative
+  subdirectory inside the repo when set.
 - **Secrets** — `base/secret.yaml` is a template with placeholders. Replace the
   values, or delete the file from `base/kustomization.yaml` and supply a Secret
   named `comtrya-server-secrets` via your secret manager (External Secrets,
@@ -53,7 +54,8 @@ Before applying, set the placeholders:
 - **Probes**: startup + liveness on `/healthz`, readiness on `/readyz`.
 - **Egress**: the pod must reach the config repo host and the OIDC issuer(s)
   declared in the CUE config (add a NetworkPolicy if your cluster default-denies).
-- **Frontend**: the SPA is built and served separately (no frontend image yet).
-  The production Ingress routes everything to the server, which covers the API,
-  git, auth, and extension surfaces; extend it to serve the SPA once it has a
-  Service. See `docs/CONTAINER.md` / `docs/RUNBOOK.md`.
+- **Frontend**: the SPA is published separately as
+  `ghcr.io/comtrya/comtrya-frontend`. The base manifests only deploy the server;
+  deployments that expose the full product should route API/auth/git/extension
+  paths to `comtrya-server` and SPA paths to the frontend service.
+  See `docs/CONTAINER.md` / `docs/RUNBOOK.md`.

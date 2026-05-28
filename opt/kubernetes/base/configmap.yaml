@@ -17,6 +17,8 @@ data:
   # re-syncs on the interval below. ----
   COMTRYA_CONFIG_REPO_URL: "https://github.com/your-org/comtrya-config.git"
   COMTRYA_CONFIG_REPO_REF: "main"
+  # Optional relative subdirectory when the CUE module lives in a monorepo.
+  COMTRYA_CONFIG_REPO_PATH: ""
   COMTRYA_CONFIG_SYNC_INTERVAL_SECONDS: "900"
   # Optional: username for HTTPS token auth (defaults to a generic git user).
   COMTRYA_CONFIG_REPO_USERNAME: ""

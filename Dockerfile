@@ -43,6 +43,7 @@ COPY crates ./crates
 COPY extensions ./extensions
 COPY migrations ./migrations
 COPY docs ./docs
+COPY schema ./schema
 
 RUN cargo build --release --bin comtrya-server
 
