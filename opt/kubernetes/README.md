@@ -1,10 +1,10 @@
 # Kubernetes deployment (Kustomize)
 
-Manifests to run `comtrya-server` on Kubernetes.
+Manifests to run Comtrya on Kubernetes.
 
 ```
 opt/kubernetes/
-  base/                     # namespace, SA, config, secret, PVC, deployment, service
+  base/                     # namespace, SA, config, secret, PVC, server/frontend deployments and services
   overlays/
     production/             # base + TLS Ingress + real config-repo URL
 ```
@@ -12,8 +12,8 @@ opt/kubernetes/
 ## Quick start
 
 ```sh
-# Server images are published to ghcr.io/comtrya/comtrya-server.
-# Pin the image by digest for production.
+# Images are published to ghcr.io/comtrya/comtrya-server and
+# ghcr.io/comtrya/comtrya-frontend. Pin images by digest for production.
 
 # Render to review:
 kubectl kustomize opt/kubernetes/overlays/production
@@ -24,7 +24,8 @@ kubectl apply -k opt/kubernetes/overlays/production
 
 Before applying, set the placeholders:
 
-- **Image** — `images:` in `overlays/production/kustomization.yaml` (pin a digest).
+- **Images** — `images:` in `overlays/production/kustomization.yaml`
+  (pin digests).
 - **Config repo** — `COMTRYA_CONFIG_REPO_URL` / `_REF` / optional `_PATH`
   (overlay patch or
   `base/configmap.yaml`). This is **required**: the server clones it on startup
@@ -54,8 +55,6 @@ Before applying, set the placeholders:
 - **Probes**: startup + liveness on `/healthz`, readiness on `/readyz`.
 - **Egress**: the pod must reach the config repo host and the OIDC issuer(s)
   declared in the CUE config (add a NetworkPolicy if your cluster default-denies).
-- **Frontend**: the SPA is published separately as
-  `ghcr.io/comtrya/comtrya-frontend`. The base manifests only deploy the server;
-  deployments that expose the full product should route API/auth/git/extension
-  paths to `comtrya-server` and SPA paths to the frontend service.
-  See `docs/CONTAINER.md` / `docs/RUNBOOK.md`.
+- **Frontend**: the SPA runs as `comtrya-frontend`. Route
+  API/auth/git/extension paths to `comtrya-server` and SPA paths to
+  `comtrya-frontend`. See `docs/CONTAINER.md` / `docs/RUNBOOK.md`.

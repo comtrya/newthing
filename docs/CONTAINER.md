@@ -56,8 +56,9 @@ seed git repo) and is intended for boot-time validation, not as a
 recurring probe.
 
 The frontend image exposes port `8080` and serves `/healthz` as a light
-static readiness endpoint. Route API paths (`/graphql`, `/api/ops`,
-`/auth`, `/_extensions`, `/git`, `/events`, `/healthz`, `/readyz`) to
+static readiness endpoint. The Kubernetes base deploys it as
+`comtrya-frontend`. Route API paths (`/graphql`, `/api`, `/auth`,
+`/_extensions`, `/git`, `/events`, `/healthz`, `/readyz`) to
 `comtrya-server`, and route SPA paths to `comtrya-frontend`.
 
 ## Environment

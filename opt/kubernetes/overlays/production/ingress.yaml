@@ -14,18 +14,71 @@ spec:
         - comtrya.example.com # REPLACE
       secretName: comtrya-tls # TLS cert secret (cert-manager or pre-provisioned)
   rules:
-    # REPLACE the host. This routes everything to comtrya-server, which serves
-    # /graphql, /git, /auth, /api/ops, /_extensions, /healthz, /readyz. The
-    # frontend SPA (/, /r/…, /admin, /x/…) is built+served separately (there is
-    # no frontend image yet); once it has a Service, add a higher-priority rule
-    # routing the API paths above to comtrya-server and `/` to the frontend.
+    # REPLACE the host. API/auth/git/extension paths go to the server; everything
+    # else falls through to the frontend SPA.
     - host: comtrya.example.com # REPLACE
       http:
         paths:
-          - path: /
+          - path: /graphql
             pathType: Prefix
             backend:
               service:
                 name: comtrya-server
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /_extensions
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /git
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /events
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /healthz
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /readyz
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-server
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: comtrya-frontend
                 port:
                   number: 80
