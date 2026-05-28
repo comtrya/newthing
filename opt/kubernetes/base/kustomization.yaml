@@ -19,6 +19,8 @@ resources:
   - pvc.yaml
   - deployment.yaml
   - service.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
 
 # Override in an overlay or with `kustomize edit set image` to pin a digest:
 #   images:
@@ -27,4 +29,6 @@ resources:
 #       digest: sha256:...
 images:
   - name: ghcr.io/comtrya/comtrya-server
+    newTag: latest
+  - name: ghcr.io/comtrya/comtrya-frontend
     newTag: latest
