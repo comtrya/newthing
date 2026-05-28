@@ -3903,7 +3903,16 @@ async fn oidc_callback(
         .await
     {
         Ok(c) => c,
-        Err(_e) => {
+        Err(error) => {
+            // The user-facing message stays scrubbed, but operators need the
+            // real reason (issuer/audience/nonce/signature mismatch, token
+            // endpoint rejection). The error string carries no code, nonce,
+            // verifier, or secret — only the verification/transport detail.
+            tracing::warn!(
+                provider = %provider,
+                error = %error,
+                "OIDC callback: code exchange or ID-token verification failed"
+            );
             return err(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
