@@ -299,6 +299,24 @@ kbd {
   border-color: var(--line-2);
 }
 
+.topbar-auth {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 0.5px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.topbar-auth:hover {
+  text-decoration: none;
+  background: var(--surface-3);
+}
+
 .topbar-shortcuts kbd {
   font-family: var(--font-mono);
   font-size: 12px;

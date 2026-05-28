@@ -18,6 +18,7 @@ import {
   recentRoutes,
   recordRouteVisit,
 } from "./recents";
+import { fetchOidcProviders, type OidcProvider } from "./auth";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
@@ -66,6 +67,9 @@ const cmdLabel = computed(() => (isMac ? "⌘" : "Ctrl"));
 const route = useRoute();
 const router = useRouter();
 const recents = recentRoutes();
+const oidcProviders = ref<OidcProvider[]>([]);
+const viewerAuthenticated = ref(false);
+const loginProvider = computed(() => oidcProviders.value[0] ?? null);
 
 router.afterEach((to) => {
   recordRouteVisit(to.path, labelForRoute(to.path));
@@ -181,6 +185,7 @@ const activeRepoPath = computed<string | null>(() => {
 const shortcutsVisible = ref(false);
 
 onMounted(() => {
+  void loadAuthProviders();
   void loadShellSummary();
   const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
   if (!token) {
@@ -225,11 +230,14 @@ async function loadShellSummary(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         query:
-          "{ workspace { id name repositories { id name path groups openPullRequests } } }",
+          "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
       }),
     });
     const envelope = (await response.json()) as {
       data?: {
+        viewer?: {
+          authenticated?: boolean;
+        };
         workspace?: {
           id?: string;
           name?: string;
@@ -237,6 +245,7 @@ async function loadShellSummary(): Promise<void> {
         };
       };
     };
+    viewerAuthenticated.value = envelope.data?.viewer?.authenticated === true;
     workspace.value = {
       ...workspace.value,
       name: envelope.data?.workspace?.name ?? workspace.value.name,
@@ -308,6 +317,14 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
   for (const [id, n] of entries) map[id] = n;
   failingChecksByRepoId.value = map;
 }
+
+async function loadAuthProviders(): Promise<void> {
+  try {
+    oidcProviders.value = await fetchOidcProviders();
+  } catch {
+    oidcProviders.value = [];
+  }
+}
 </script>
 
 <template>
@@ -327,6 +344,17 @@ async function refreshFailingChecksMap(workspaceId: string): Promise<void> {
           :class="['chip', degradedLiveState === 'error' ? 'err' : '']"
           :title="liveStateTitle"
         >{{ degradedLiveState }}</span>
+        <span
+          v-if="viewerAuthenticated"
+          class="chip ok"
+          title="Authenticated session"
+        >signed in</span>
+        <a
+          v-else-if="loginProvider"
+          class="topbar-auth"
+          data-smoke="sign-in"
+          :href="loginProvider.loginUrl"
+        >Sign in</a>
         <button
           type="button"
           class="topbar-shortcuts"

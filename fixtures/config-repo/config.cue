@@ -17,9 +17,8 @@ database: {
 	url:  "sqlite:///private/tmp/comtrya-production-testbed/metadata/comtrya.db"
 }
 
-// Issuer id matches the frontend's default OIDC provider
-// (DEFAULT_OIDC_LOGIN_PATH = "/auth/oidc/google/login") so the sign-in path
-// resolves in the testbed. Replace with your real IdP in production.
+// The frontend discovers configured OIDC issuers from /auth/oidc/providers.
+// Replace this test issuer with your real IdP in production.
 oidc: issuers: [{
 	id:           "google"
 	issuerURL:    "https://issuer.example.test"

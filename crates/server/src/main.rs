@@ -348,6 +348,14 @@ const GRAPHQL_BODY_LIMIT: usize = 256 * 1024;
 const OPS_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_BODY_LIMIT: usize = 4 * 1024;
 const GIT_BODY_LIMIT: usize = 16 * 1024 * 1024;
+const COMTRYA_SESSION_COOKIE: &str = "comtrya_session";
+const OIDC_BROWSER_ACTIONS: [&str; 5] = [
+    "graphql:read",
+    "graphql:write",
+    "events:read",
+    "git:read",
+    "checks:read",
+];
 
 fn router(state: AppState) -> Router {
     let tls_terminated = state.runtime.options.tls_terminated;
@@ -370,6 +378,7 @@ fn router(state: AppState) -> Router {
             "/auth/token-exchange",
             post(token_exchange).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
         )
+        .route("/auth/oidc/providers", get(oidc_providers))
         .route("/auth/oidc/:provider/login", get(oidc_login))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
@@ -1812,11 +1821,7 @@ impl Runtime {
     }
 
     pub(crate) fn principal_context_from_headers(&self, headers: &HeaderMap) -> PrincipalContext {
-        let Some(token) = headers
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-        else {
+        let Some(token) = auth_token_from_headers(headers) else {
             return PrincipalContext::anonymous();
         };
 
@@ -1830,11 +1835,7 @@ impl Runtime {
     }
 
     fn credential_allows(&self, headers: &HeaderMap, action: &str) -> bool {
-        let Some(token) = headers
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-        else {
+        let Some(token) = auth_token_from_headers(headers) else {
             return false;
         };
 
@@ -2160,6 +2161,29 @@ fn stored_to_principal(p: persistence::StoredPrincipal) -> PrincipalStatus {
         persistence::StoredPrincipal::Anonymous => PrincipalStatus::Anonymous,
         persistence::StoredPrincipal::Invalid => PrincipalStatus::Invalid,
     }
+}
+
+fn auth_token_from_headers(headers: &HeaderMap) -> Option<&str> {
+    bearer_token_from_headers(headers).or_else(|| session_cookie_from_headers(headers))
+}
+
+fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+fn session_cookie_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookie| {
+            cookie.split(';').find_map(|part| {
+                let (name, value) = part.trim().split_once('=')?;
+                (name == COMTRYA_SESSION_COOKIE && !value.is_empty()).then_some(value)
+            })
+        })
 }
 
 /// Discover the `migrations/sqlite/` directory at runtime. Walks up
@@ -3555,6 +3579,29 @@ async fn token_exchange(
     )
 }
 
+async fn oidc_providers(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let cors = match state
+        .runtime
+        .check_boundary(&headers, "/auth/oidc/providers")
+    {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    let providers = state
+        .runtime
+        .config
+        .oidc_issuers
+        .iter()
+        .map(|issuer| {
+            json!({
+                "id": issuer.id.clone(),
+                "loginUrl": format!("/auth/oidc/{}/login", issuer.id),
+            })
+        })
+        .collect::<Vec<_>>();
+    json_response(StatusCode::OK, json!({ "providers": providers }), cors)
+}
+
 async fn oidc_login(
     State(state): State<AppState>,
     AxumPath(provider): AxumPath<String>,
@@ -3708,7 +3755,7 @@ async fn oidc_login(
 fn session_cookie_value(token: &str, ttl_secs: u64, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     format!(
-        "comtrya_session={token}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age={ttl_secs}"
+        "{COMTRYA_SESSION_COOKIE}={token}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age={ttl_secs}"
     )
 }
 
@@ -3728,7 +3775,7 @@ struct OidcCallbackQuery {
 /// 5. Upsert the user via `AuthService::login` (Mutex acquired AFTER
 ///    the async exchange; guard dropped at the statement end — never
 ///    held across an `.await`).
-/// 6. Issue a session and set a `comtrya_session` cookie.
+/// 6. Issue a browser credential and set a `comtrya_session` cookie.
 /// 7. 302 redirect to `/`.
 ///
 /// Logging discipline: NO tracing event or audit log entry emitted by
@@ -3876,11 +3923,11 @@ async fn oidc_callback(
         }
     };
 
-    // 6. Issue session. Claims matching a configured admin mint an
+    // 6. Issue a browser credential. Claims matching a configured admin mint an
     //    AdminCredential (gates /admin surfaces); everyone else gets a plain
-    //    OIDC-authenticated Credential. The user id is captured in the audit
-    //    event below for trace correlation (the session stores only the
-    //    PrincipalStatus today).
+    //    OIDC-authenticated Credential. The HttpOnly cookie carries a credential
+    //    token, not a single-use event session, so normal browser fetches can
+    //    authenticate via `credentials: "include"`.
     let principal = if state.runtime.is_admin_claims(
         &login.user.issuer,
         &login.user.subject,
@@ -3890,7 +3937,14 @@ async fn oidc_callback(
     } else {
         PrincipalStatus::Credential
     };
-    let token = state.runtime.issue_session(principal);
+    let token = state.runtime.issue_credential(
+        "comtrya://workspace".to_string(),
+        OIDC_BROWSER_ACTIONS
+            .iter()
+            .map(|action| action.to_string())
+            .collect(),
+        principal,
+    );
     let cookie = session_cookie_value(
         &token,
         state.runtime.options.session_ttl_seconds,
@@ -6955,6 +7009,39 @@ mod tests {
         h
     }
 
+    fn cookie_header_map(cookie: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        let cookie_value = cookie.split(';').next().expect("cookie pair");
+        headers.insert(
+            axum::http::header::COOKIE,
+            HeaderValue::from_str(cookie_value).expect("valid cookie header"),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn oidc_providers_lists_configured_login_urls() {
+        let runtime = dev_runtime_with_oidc_mock();
+        let response = oidc_providers(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            origin_header_map(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            payload["providers"][0],
+            json!({"id": "dev", "loginUrl": "/auth/oidc/dev/login"})
+        );
+    }
+
     #[tokio::test]
     async fn oidc_login_unknown_provider_returns_404() {
         let runtime = dev_runtime_with_oidc_mock();
@@ -7172,7 +7259,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn oidc_callback_happy_path_issues_session_cookie() {
+    async fn oidc_callback_happy_path_issues_browser_credential_cookie() {
         let claims = comtrya_core::auth::OidcClaims {
             issuer: "https://issuer.example.test".to_string(),
             subject: "user-rawkode".to_string(),
@@ -7234,17 +7321,14 @@ mod tests {
             .users_len();
         assert_eq!(users_after, users_before + 1, "user must be upserted");
 
-        // The cookie's token consumes back to a Credential principal.
-        let token = cookie
-            .strip_prefix("comtrya_session=")
-            .unwrap()
-            .split(';')
-            .next()
-            .unwrap();
-        let principal = runtime
-            .consume_session(token)
-            .expect("freshly issued session must consume");
+        // The cookie authenticates subsequent browser requests without a
+        // bearer header, and carries the same scoped credential actions as the
+        // production-testbed operator flow.
+        let cookie_headers = cookie_header_map(&cookie);
+        let principal = runtime.principal_from_headers(&cookie_headers);
         assert!(matches!(principal, PrincipalStatus::Credential));
+        assert!(runtime.credential_allows(&cookie_headers, "graphql:read"));
+        assert!(runtime.credential_allows(&cookie_headers, "git:read"));
     }
 
     #[tokio::test]
