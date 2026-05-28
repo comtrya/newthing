@@ -22,6 +22,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
+use std::future::IntoFuture;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -289,19 +290,31 @@ async fn main() {
         "server listening"
     );
 
-    // Bounded drain: once shutdown_signal resolves, axum stops accepting
-    // and lets in-flight handlers finish. We wrap the whole serve future
-    // in tokio::time::timeout so a stuck/slow client cannot block exit
-    // indefinitely. 30s matches the k8s default
-    // `terminationGracePeriodSeconds` — long enough for normal HTTP
-    // handlers, short enough that SIGKILL won't usually arrive first.
-    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(sigterm));
-    match tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, serve).await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            tracing::error!(%error, "graceful shutdown: serve error");
+    // Bounded drain: once shutdown_signal resolves, axum stops accepting and
+    // lets in-flight handlers finish. The 30s cap applies ONLY to that drain —
+    // it must NOT wrap the whole serve future, or the server would self-
+    // terminate 30s after startup. The timer starts when the signal fires (via
+    // the Notify) so a stuck/slow client cannot block exit indefinitely. 30s
+    // matches the k8s default `terminationGracePeriodSeconds`.
+    let drain_started = Arc::new(tokio::sync::Notify::new());
+    let signal_notify = Arc::clone(&drain_started);
+    let serve = axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown_signal(sigterm).await;
+            signal_notify.notify_one();
+        })
+        .into_future();
+    tokio::pin!(serve);
+    tokio::select! {
+        result = &mut serve => {
+            if let Err(error) = result {
+                tracing::error!(%error, "graceful shutdown: serve error");
+            }
         }
-        Err(_elapsed) => {
+        _ = async {
+            drain_started.notified().await;
+            tokio::time::sleep(SHUTDOWN_DRAIN_TIMEOUT).await;
+        } => {
             tracing::warn!(
                 timeout_seconds = SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
                 "graceful shutdown: drain timeout exceeded; aborting in-flight"
