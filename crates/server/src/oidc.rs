@@ -20,12 +20,81 @@
 //!   `CoreProviderMetadata` per issuer for the process lifetime.
 
 use comtrya_core::auth::OidcClaims;
-use openidconnect::core::{CoreClient, CoreProviderMetadata};
-use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, IssuerUrl, Nonce, PkceCodeVerifier, RedirectUrl,
+use openidconnect::core::{
+    CoreClient, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
+    CoreProviderMetadata,
 };
+use openidconnect::{
+    AdditionalClaims, AuthorizationCode, ClientId, ClientSecret, IdToken, IssuerUrl, Nonce,
+    PkceCodeVerifier, RedirectUrl,
+};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
+
+type ComtryaIdToken = IdToken<
+    OidcAdditionalClaims,
+    CoreGenderClaim,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJwsSigningAlgorithm,
+>;
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+struct OidcAdditionalClaims {
+    #[serde(default, deserialize_with = "deserialize_optional_string_or_vec")]
+    groups: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "deserialize_optional_string_or_vec")]
+    roles: Option<Vec<String>>,
+    #[serde(
+        default,
+        rename = "https://rawkode.academy/roles",
+        deserialize_with = "deserialize_optional_string_or_vec"
+    )]
+    rawkode_roles: Option<Vec<String>>,
+}
+
+impl AdditionalClaims for OidcAdditionalClaims {}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrVec {
+    String(String),
+    Vec(Vec<String>),
+}
+
+fn deserialize_optional_string_or_vec<'de, D>(
+    deserializer: D,
+) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(
+        Option::<StringOrVec>::deserialize(deserializer)?.map(|value| match value {
+            StringOrVec::String(value) => vec![value],
+            StringOrVec::Vec(values) => values,
+        }),
+    )
+}
+
+fn append_claim_values(groups: &mut Vec<String>, values: Option<&[String]>) {
+    if let Some(values) = values {
+        for value in values {
+            if !value.is_empty() && !groups.contains(value) {
+                groups.push(value.clone());
+            }
+        }
+    }
+}
+
+impl OidcAdditionalClaims {
+    fn comtrya_groups(&self) -> Vec<String> {
+        let mut groups = Vec::new();
+        append_claim_values(&mut groups, self.groups.as_deref());
+        append_claim_values(&mut groups, self.roles.as_deref());
+        append_claim_values(&mut groups, self.rawkode_roles.as_deref());
+        groups
+    }
+}
 
 /// Per-invocation PKCE + nonce material, indexed in the session store
 /// by the CSRF state token sent to the IdP. Single-use:
@@ -218,6 +287,11 @@ impl OidcCodeExchanger for ReqwestCodeExchanger {
             .id_token()
             .ok_or_else(|| "OIDC token response missing id_token".to_string())?
             .clone();
+        let id_token = id_token
+            .to_string()
+            .parse::<ComtryaIdToken>()
+            .map_err(|e| format!("OIDC id_token custom claim parse failed: {e}"))?;
+
         // Library performs full standard verification: signature against
         // JWKS, audience, issuer match against metadata, nonce match,
         // expiry, etc.
@@ -232,17 +306,13 @@ impl OidcCodeExchanger for ReqwestCodeExchanger {
             .name()
             .and_then(|n| n.get(None))
             .map(|n| n.as_str().to_string());
-        // openidconnect's default Core claims don't expose `groups`.
-        // OIDC `groups` is not a standard claim; the library ships only
-        // the spec-defined claims unless we widen `CoreIdTokenClaims`
-        // with a custom additional-claims type. Leaving empty for now;
-        // group-based JIT provisioning is a follow-up.
+        let groups = claims.additional_claims().comtrya_groups();
         Ok(OidcClaims {
             issuer,
             subject,
             email,
             display_name,
-            groups: Vec::new(),
+            groups,
         })
     }
 }
@@ -384,5 +454,30 @@ mod tests {
             store.insert(state, session, now).is_err(),
             "insert at cap returns Err"
         );
+    }
+
+    #[test]
+    fn additional_claims_merge_groups_roles_and_namespaced_roles() {
+        let claims: OidcAdditionalClaims = serde_json::from_str(
+            r#"{
+                "groups": ["maintainer", "admin"],
+                "roles": ["admin", "reviewer"],
+                "https://rawkode.academy/roles": ["owner"]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            claims.comtrya_groups(),
+            vec!["maintainer", "admin", "reviewer", "owner"]
+        );
+    }
+
+    #[test]
+    fn additional_claims_accept_string_values() {
+        let claims: OidcAdditionalClaims =
+            serde_json::from_str(r#"{"groups": "maintainer", "roles": "admin"}"#).unwrap();
+
+        assert_eq!(claims.comtrya_groups(), vec!["maintainer", "admin"]);
     }
 }
