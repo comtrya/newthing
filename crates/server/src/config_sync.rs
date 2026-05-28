@@ -58,16 +58,54 @@ impl ConfigRepo {
     /// Clone the repo if absent, fast-forward to the latest commit, evaluate
     /// the checked-out CUE module into a validated `InstanceConfig`, and return
     /// it together with the synced commit oid.
+    ///
+    /// A checkout that lives on a durable volume can become unusable between
+    /// boots: an interrupted fetch leaves ref locks, the worktree drifts, the
+    /// remote branch is force-pushed, or the configured repo URL changes and no
+    /// longer matches the checkout's `origin`. `gix` reports these as hard
+    /// errors, and because the bad state persists the server would refuse to
+    /// start on every restart. The remote is the GitOps source of truth, so on
+    /// any such failure we discard the checkout and clone it again rather than
+    /// wedge startup.
     pub(crate) fn bootstrap_and_load(&self) -> Result<(InstanceConfig, String), String> {
-        self.sync
-            .bootstrap()
-            .map_err(|err| format!("config repo bootstrap failed: {err}"))?;
-        let outcome = self
-            .sync
-            .sync()
-            .map_err(|err| format!("config repo sync failed: {err}"))?;
+        let outcome = match self.bootstrap_then_sync() {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                tracing::warn!(
+                    %err,
+                    checkout = %self.checkout_dir.display(),
+                    "config repo bootstrap/sync failed; discarding checkout and re-cloning"
+                );
+                self.discard_checkout()?;
+                self.bootstrap_then_sync()
+                    .map_err(|err| format!("config repo sync failed after re-clone: {err}"))?
+            }
+        };
         tracing::info!(commit = %outcome.current, changed = outcome.changed, "synced config repo");
         Ok((self.load()?, outcome.current.to_string()))
+    }
+
+    /// Clone the repo if absent (or adopt an existing checkout) and fast-forward
+    /// it to the remote tip. The two halves are bundled so a single failure of
+    /// either — a wrong-remote checkout, a stale ref lock, a dirty worktree — is
+    /// recovered the same way: by discarding and re-cloning.
+    fn bootstrap_then_sync(&self) -> Result<gitsync::SyncOutcome, gitsync::errors::GitSyncError> {
+        self.sync.bootstrap()?;
+        self.sync.sync()
+    }
+
+    /// Remove the local checkout so the next bootstrap clones it fresh. Recovers
+    /// from a checkout the sync engine can no longer reconcile.
+    fn discard_checkout(&self) -> Result<(), String> {
+        if self.checkout_dir.exists() {
+            std::fs::remove_dir_all(&self.checkout_dir).map_err(|err| {
+                format!(
+                    "failed to clear config repo checkout {}: {err}",
+                    self.checkout_dir.display()
+                )
+            })?;
+        }
+        Ok(())
     }
 
     /// Fast-forward the existing checkout and, when it changed, re-evaluate the
@@ -267,6 +305,24 @@ mod tests {
         assert!(status.success(), "git {args:?} failed");
     }
 
+    /// Initialise a `file://`-able source repo with a CUE module containing the
+    /// given config, committed on `main`.
+    fn make_source(parent: &Path, name: &str, config: &str) -> PathBuf {
+        let source = parent.join(name);
+        let module = source.join("cue.mod");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            module.join("module.cue"),
+            "module: \"comtrya.test/config\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("config.cue"), config).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["add", "-A"]);
+        git(&source, &["commit", "-q", "-m", "config"]);
+        source
+    }
+
     const CONFIG: &str = r#"package comtrya
 instance: {
     id: "t"
@@ -313,6 +369,77 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
         let (config, commit) = repo.bootstrap_and_load().expect("bootstrap + evaluate");
         assert_eq!(config.id, "t");
         assert_eq!(config.oidc_issuers.len(), 1);
+        assert_eq!(commit.len(), 40, "full sha-1 commit oid");
+    }
+
+    /// A persisted checkout that can no longer be synced (here a drifted
+    /// worktree standing in for the ref-lock / force-push corruption seen in
+    /// production) must not wedge startup: `bootstrap_and_load` discards the
+    /// checkout and re-clones from the remote.
+    #[test]
+    fn bootstrap_recovers_from_unsyncable_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("source");
+        let module = source.join("cue.mod");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(
+            module.join("module.cue"),
+            "module: \"comtrya.test/config\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("config.cue"), CONFIG).unwrap();
+        git(&source, &["init", "-q", "-b", "main"]);
+        git(&source, &["add", "-A"]);
+        git(&source, &["commit", "-q", "-m", "config"]);
+
+        let url = format!("file://{}", source.display());
+        let checkout = tmp.path().join("checkout");
+        let repo = ConfigRepo::for_test(url, checkout.clone());
+
+        // First boot clones cleanly.
+        repo.bootstrap_and_load().expect("initial clone + evaluate");
+
+        // Corrupt the checkout so `sync` can no longer reconcile it.
+        std::fs::write(checkout.join("config.cue"), "package comtrya\n// drifted\n").unwrap();
+        assert!(
+            repo.sync.sync().is_err(),
+            "precondition: the drifted checkout is unsyncable"
+        );
+
+        // Next boot self-heals by re-cloning instead of propagating the error.
+        let (config, commit) = repo
+            .bootstrap_and_load()
+            .expect("bootstrap recovers by re-cloning");
+        assert_eq!(config.id, "t");
+        assert_eq!(commit.len(), 40, "full sha-1 commit oid");
+    }
+
+    /// Repointing the config repo at a new URL must not wedge startup on the
+    /// stale checkout. `gitsync::bootstrap` rejects an existing checkout whose
+    /// `origin` differs from the configured URL; `bootstrap_and_load` recovers
+    /// by discarding it and cloning the new remote.
+    #[test]
+    fn bootstrap_recovers_when_config_repo_url_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let checkout = tmp.path().join("checkout");
+
+        let source_a = make_source(tmp.path(), "source-a", CONFIG);
+        let repo_a =
+            ConfigRepo::for_test(format!("file://{}", source_a.display()), checkout.clone());
+        let (config_a, _) = repo_a.bootstrap_and_load().expect("clone source A");
+        assert_eq!(config_a.id, "t");
+
+        // A different remote with a different config, reusing the same checkout
+        // dir — the persisted checkout still points at source A's origin.
+        let config_b = CONFIG.replace("id: \"t\"", "id: \"b\"");
+        assert_ne!(config_b, CONFIG, "config_b must differ from CONFIG");
+        let source_b = make_source(tmp.path(), "source-b", &config_b);
+        let repo_b =
+            ConfigRepo::for_test(format!("file://{}", source_b.display()), checkout.clone());
+        let (config, commit) = repo_b
+            .bootstrap_and_load()
+            .expect("self-heal adopts the new remote");
+        assert_eq!(config.id, "b", "checkout re-cloned from the new URL");
         assert_eq!(commit.len(), 40, "full sha-1 commit oid");
     }
 
