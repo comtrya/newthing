@@ -1,11 +1,13 @@
 package comtrya
 
+import "github.com/comtrya/comtrya/schema"
+
 projects: ext_docs: {
 	root:   "."
 	labels: ["extension", "rust", "wasm", "typescript", "vue"]
 
 	owners: [
-		{kind: "team", slug: "platform-maintainers"},
+		schema.#OwnerRef & {kind: "team", slug: "platform-maintainers"},
 	]
 
 	docs: {

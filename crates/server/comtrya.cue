@@ -1,5 +1,7 @@
 package comtrya
 
+import "github.com/comtrya/comtrya/schema"
+
 projects: kernel: {
 	root:   "."
 	labels: ["kernel", "rust", "wasmtime", "graphql"]
@@ -7,8 +9,8 @@ projects: kernel: {
 	// Typed owners — each entry's `kind` discriminator picks the
 	// canonical URN scheme; the kernel derives `ref` from `slug`.
 	owners: [
-		{kind: "team", slug: "platform-maintainers"},
-		{kind: "user", slug: "rawkode"},
+		schema.#OwnerRef & {kind: "team", slug: "platform-maintainers"},
+		schema.#OwnerRef & {kind: "user", slug: "rawkode"},
 	]
 
 	docs: {

@@ -97,10 +97,12 @@ impl Drop for SyncPermit<'_> {
 /// global floor. 8 × 2 pipes × 2 processes = 64 FDs reserved at peak.
 static MATERIALISE_SEMAPHORE: SyncSemaphore = SyncSemaphore::new(8);
 
-/// Kernel-defined CUE base schema. Single source of truth lives in
-/// `comtrya_core::config::KERNEL_CUE_BASE` so both the receive-pack
-/// validator and this per-repo browser stay aligned. See #18.
-use comtrya_core::config::KERNEL_CUE_BASE;
+/// Kernel schema installer. Single source of truth lives in
+/// `comtrya_core::config::install_kernel_schema` (it writes the
+/// `package comtrya` bridge and vendors the published schema package)
+/// so both the receive-pack validator and this per-repo browser stay
+/// aligned. See #18.
+use comtrya_core::config::install_kernel_schema;
 
 /// One CUE snippet registered by an extension. The kernel writes each
 /// snippet to its own file inside the materialised workdir so cuengine
@@ -227,23 +229,26 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
         .map_err(|e| format!("write synthetic module.cue failed: {e}"))?;
     }
 
-    // Inject the kernel base + extension schemas at the workdir
+    // Inject the kernel bridge + extension schemas at the workdir
     // ROOT, not into a `_`-prefixed subdirectory. CUE excludes
     // `_`-prefixed directories from `./...` evaluation (the Go-module
     // convention), so anything under `_comtrya/` is invisible to the
     // per-Project CUE files in subdirectories and the definitions
     // can't unify with their declarations — derived fields like
     // `ref: "comtrya://\(kind)/\(slug)"` won't compute. Inject at
-    // the root so the schemas land in the same package instance as
+    // the root so the bridge lands in the same package instance as
     // the user's root-level CUE (if any) and cuengine's recursive
     // walk reaches them.
     //
-    // Files are name-prefixed (`00-comtrya-kernel.cue`,
-    // `01-comtrya-ext-<id>.cue`) so they don't collide with
-    // any user-authored CUE at the workdir root and to keep ordering
-    // stable in `cue export` output.
-    std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_CUE_BASE)
-        .map_err(|e| format!("write kernel base schema failed: {e}"))?;
+    // `install_kernel_schema` writes the `package comtrya` bridge as
+    // `00-comtrya-kernel.cue` and vendors the published schema package
+    // (skipping the vendor step when the repo IS
+    // `github.com/comtrya/comtrya` and already ships `schema/`
+    // in-module). Extension schemas are name-prefixed
+    // (`01-comtrya-ext-<id>.cue`) so they don't collide with any
+    // user-authored CUE at the workdir root and to keep ordering stable
+    // in `cue export` output.
+    install_kernel_schema(workdir).map_err(|e| format!("install kernel schema failed: {e}"))?;
 
     for schema in extension_schemas {
         // Route through the same canonicalisation the receive-pack

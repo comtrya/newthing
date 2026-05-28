@@ -1,12 +1,14 @@
 package comtrya
 
+import "github.com/comtrya/comtrya/schema"
+
 projects: frontend: {
 	root:   "."
 	labels: ["shell", "typescript", "vue"]
 
 	owners: [
-		{kind: "team", slug: "frontend-maintainers"},
-		{kind: "user", slug: "rawkode"},
+		schema.#OwnerRef & {kind: "team", slug: "frontend-maintainers"},
+		schema.#OwnerRef & {kind: "user", slug: "rawkode"},
 	]
 
 	docs: {

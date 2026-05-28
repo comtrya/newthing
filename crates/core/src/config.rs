@@ -556,12 +556,69 @@ impl CueSchemaFile {
     }
 }
 
-/// Kernel CUE base schema. Every repo evaluated by the receive-pack
-/// validator (and by the server's per-repo browser) sees this in
-/// scope. Defines `#Ref`, `#PrincipalRef`, `#OwnerRef`, `#Project`
-/// and the `projects` map. Kept minimal — extension-specific concepts
-/// live in extension-registered schemas.
-pub const KERNEL_CUE_BASE: &str = include_str!("kernel_base.cue");
+/// The published Comtrya configuration schema (`package schema`),
+/// authored at `./schema/schema.cue` and imported by repos as
+/// `github.com/comtrya/comtrya/schema`. Defines `#Ref`,
+/// `#PrincipalRef`, `#OwnerRef`, `#Repository`, the `#Label` family
+/// and the open `#Project`. The kernel is the source of truth, so the
+/// forge embeds it and vendors the package into eval workdirs for
+/// repos that don't ship it in-module.
+pub const SCHEMA_CUE: &str = include_str!("../../../schema/schema.cue");
+
+/// Thin `package comtrya` bridge the forge injects at the eval workdir
+/// root as `00-comtrya-kernel.cue`. It imports the published schema and
+/// re-exposes every kernel definition as a local `package comtrya`
+/// alias, preserving the kernel contract that the full vocabulary is
+/// available *unqualified* in `package comtrya`. Extension-contributed
+/// schemas and repo configs reference these names directly (e.g.
+/// ext_docs uses `#PrincipalRef`, every extension reopens `#Project`),
+/// so the bridge must alias all of them — not just `#Project`. It also
+/// constrains the top-level config shape the forge projects to its JSON
+/// API. Extension-specific concepts live in extension-registered
+/// schemas, not here.
+pub const KERNEL_BRIDGE_CUE: &str = concat!(
+    "package comtrya\n\n",
+    "import \"github.com/comtrya/comtrya/schema\"\n\n",
+    "#Ref: schema.#Ref\n",
+    "#PrincipalRef: schema.#PrincipalRef\n",
+    "#OwnerRef: schema.#OwnerRef\n",
+    "#Bookmark: schema.#Bookmark\n",
+    "#PlainLabel: schema.#PlainLabel\n",
+    "#ScopedLabel: schema.#ScopedLabel\n",
+    "#ExclusiveLabel: schema.#ExclusiveLabel\n",
+    "#Label: schema.#Label\n",
+    "#Repository: schema.#Repository\n",
+    "#Project: schema.#Project\n",
+    "projects: [Name=string]: #Project & {name: Name}\n",
+    "repository?: #Repository\n",
+);
+
+/// Workdir-relative directory the published schema package is vendored
+/// into so a cross-module `import "github.com/comtrya/comtrya/schema"`
+/// resolves. Matches the module path of [`SCHEMA_CUE`].
+const SCHEMA_VENDOR_REL: &str = "cue.mod/pkg/github.com/comtrya/comtrya/schema";
+
+/// Install the kernel schema into a cuengine eval `workdir`: write the
+/// `package comtrya` bridge as `00-comtrya-kernel.cue`, and vendor the
+/// published schema package unless the workdir already ships it
+/// in-module. The in-module case is `github.com/comtrya/comtrya`
+/// itself (it has a top-level `schema/` directory); vendoring a package
+/// whose path matches the main module would collide, so it is skipped
+/// there and the bridge's import resolves against the in-tree package.
+///
+/// Shared by the receive-pack validator ([`evaluate_cue_files_with_cuengine`])
+/// and the server's per-repo browser (`cue_config::install_schemas`) so
+/// both evaluate against an identical workdir layout.
+pub fn install_kernel_schema(workdir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_BRIDGE_CUE)?;
+    if workdir.join("schema").is_dir() {
+        return Ok(());
+    }
+    let pkg_dir = workdir.join(SCHEMA_VENDOR_REL);
+    std::fs::create_dir_all(&pkg_dir)?;
+    std::fs::write(pkg_dir.join("schema.cue"), SCHEMA_CUE)?;
+    Ok(())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigDiagnostic {
@@ -682,9 +739,10 @@ pub fn validate_repository_cue_sources(
 /// stripped (cuengine emits the absolute workdir; leaking it to a
 /// GraphQL client is information disclosure).
 ///
-/// Writes `00-comtrya-kernel.cue` (verbatim [`KERNEL_CUE_BASE`]) plus
-/// each `extension_schemas[i]` as `01-comtrya-ext-<id>.cue` into the
-/// workdir before running cuengine. This matches the server's
+/// Writes the `package comtrya` bridge as `00-comtrya-kernel.cue`,
+/// vendors the published schema package (via [`install_kernel_schema`]),
+/// and writes each `extension_schemas[i]` as `01-comtrya-ext-<id>.cue`
+/// into the workdir before running cuengine. This matches the server's
 /// `cue_config::install_schemas` layout so the receive-pack validator
 /// and the per-repo browser stay aligned.
 fn evaluate_cue_files_with_cuengine(
@@ -777,16 +835,17 @@ fn evaluate_cue_files_with_cuengine(
         });
     }
 
-    // 3a. Inject the kernel base schema + each extension schema at the
-    //     workdir root. File names use the same `01-comtrya-ext-{id}.cue`
+    // 3a. Inject the kernel bridge + vendor the published schema
+    //     package, then write each extension schema at the workdir
+    //     root. File names use the same `01-comtrya-ext-{id}.cue`
     //     pattern as the server's install_schemas so both validators
     //     stay aligned. CueSchemaFile.id is allowlist-validated at
     //     construction; the write site trusts the type.
-    if let Err(e) = std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_CUE_BASE) {
+    if let Err(e) = install_kernel_schema(workdir) {
         return Err(ConfigDiagnostic {
             severity: "error".to_string(),
             path: None,
-            message: format!("write kernel base schema: {e}"),
+            message: format!("install kernel schema: {e}"),
         });
     }
     for schema in extension_schemas {
@@ -1431,22 +1490,24 @@ mod tests {
 
     #[test]
     fn cuengine_validator_rejects_kernel_enum_violation() {
-        // KERNEL_CUE_BASE defines #PrincipalRef as #Ref with kind restricted
-        // to "user" | "agent" | "bot" | "credential". A value of "team"
-        // is allowed by #Ref but rejected by #PrincipalRef.
+        // The published schema defines #PrincipalRef as #Ref with kind
+        // restricted to "user" | "agent" | "bot" | "credential". A value
+        // of "team" is allowed by #Ref but rejected by #PrincipalRef.
         //
         // Note: cuengine's evaluate_module accepts incomplete-but-not-
         // conflicting structs silently, so we test the "wrong value"
         // shape of the issue's acceptance ("mistypes a kernel-declared
         // field") rather than "omits a kernel-required field." The
-        // proof that kernel schemas are loaded is identical: cuengine
-        // could only catch this if KERNEL_CUE_BASE is in scope.
+        // proof that the schema is loaded is identical: cuengine could
+        // only catch this if the vendored `github.com/comtrya/comtrya/schema`
+        // package is in scope.
         let result = validate_with(
             vec![CueFile {
                 path: "comtrya.cue".to_string(),
                 source: concat!(
                     "package comtrya\n",
-                    "owner: #PrincipalRef & { slug: \"rawkode\", kind: \"team\" }\n",
+                    "import \"github.com/comtrya/comtrya/schema\"\n",
+                    "owner: schema.#PrincipalRef & { slug: \"rawkode\", kind: \"team\" }\n",
                 )
                 .to_string(),
             }],
@@ -1508,6 +1569,40 @@ mod tests {
         assert!(
             result.diagnostics.iter().any(|d| d.severity == "error"),
             "must surface an error diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn cuengine_validator_accepts_extension_schema_referencing_kernel_ref() {
+        // Regression: ext_docs' schema references `#PrincipalRef`
+        // UNQUALIFIED (it is `package comtrya`). The injected bridge must
+        // re-expose the full kernel vocabulary as unqualified aliases, not
+        // just `#Project`, or extension schemas fail with
+        // `reference "#PrincipalRef" not found`.
+        let extension = CueSchemaFile::new(
+            "docs",
+            concat!(
+                "package comtrya\n",
+                "#DocPropertyType: string | #PrincipalRef\n",
+                "#Project: { docs?: [string]: { slug: string, properties?: [string]: #DocPropertyType } }\n",
+            ),
+        )
+        .expect("valid CueSchemaFile id");
+        let result = validate_with(
+            vec![CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "projects: kernel: { root: \".\", docs: adr: { slug: \"docs/adrs\", properties: author: #PrincipalRef & {kind: \"user\", slug: \"rawkode\"} } }\n",
+                )
+                .to_string(),
+            }],
+            &[extension],
+        );
+        assert!(
+            result.accepted,
+            "extension schema using a kernel #PrincipalRef must evaluate; got: {:?}",
             result.diagnostics
         );
     }
