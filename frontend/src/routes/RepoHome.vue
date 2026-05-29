@@ -180,7 +180,8 @@ const displayPath = computed(() => repository.value?.path ?? repoPath.value);
 /**
  * Clone command for the repository — absolute URL built from the
  * frontend origin + the kernel's `gitHttpPath` (e.g.
- * `/git/comtrya/dogfood.git`). One of the most-used DX touchpoints
+ * `/r/comtrya/dogfood`, the same URL the SPA browses). One of the
+ * most-used DX touchpoints
  * in a forge; previously surfaced only inside extension widgets.
  *
  * Click-to-copy uses `navigator.clipboard.writeText()` with a

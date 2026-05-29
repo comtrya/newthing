@@ -423,10 +423,14 @@ fn router(state: AppState) -> Router {
             get(extension_manifest),
         )
         .route("/_extensions/:extension/assets/*path", get(extension_asset))
+        // `/r/<repo>` is the single forge URL: the SPA browses it and git
+        // clients clone/push it. The handler branches on git smart-HTTP
+        // markers; non-git browse traffic is owned by the SPA edge and falls
+        // through to the standard browse handler.
         .route(
-            "/git/*path",
-            get(git_endpoint)
-                .post(git_endpoint)
+            "/r/*path",
+            get(repo_endpoint)
+                .post(repo_endpoint)
                 .layer(RequestBodyLimitLayer::new(GIT_BODY_LIMIT)),
         )
         .route(
@@ -1394,7 +1398,7 @@ impl Runtime {
                     .to_string(),
             ));
         };
-        let git_http_path = format!("/git/{}.git", canonical);
+        let git_http_path = format!("/r/{}", canonical);
         let now_iso = chrono_now_iso();
 
         let project_root = self.repository_root();
@@ -4620,15 +4624,44 @@ fn apply_extension_asset_headers(response: &mut Response, etag: &str) {
     }
 }
 
-async fn git_endpoint(
+/// `/r/<repo>` multiplexes repository browse and git smart-HTTP under the
+/// single forge URL. Requests carrying a git smart-HTTP marker
+/// (`info/refs?service=…`, `…/git-upload-pack`, `…/git-receive-pack`) run the
+/// authenticated git dispatch; everything else is a browse request that the
+/// SPA edge owns, so the kernel falls through to its standard browse handler.
+async fn repo_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
-    _method: Method,
+    method: Method,
     AxumPath(path): AxumPath<String>,
     RawQuery(raw_query): RawQuery,
+    uri: Uri,
     body: Bytes,
 ) -> Response {
-    let cors = match state.runtime.check_boundary(&headers, "/git/*") {
+    if is_git_smart_http(&path, raw_query.as_deref()) {
+        return git_smart_http(state, headers, method, path, raw_query, body).await;
+    }
+    // Non-git `/r/<repo>` browse traffic is served by the SPA edge
+    // (Vite in dev, the static frontend in production). When such a
+    // request reaches the kernel directly it falls through to the same
+    // browse fallback every other unmatched route uses.
+    not_found_or_unsupported(State(state), headers, uri).await
+}
+
+/// Authenticated git Smart HTTP v2 dispatch. Shared by the `/r/<repo>`
+/// multiplexer; enforces the credential/PAT auth boundary, the
+/// `git:read`/`git:write` scope gate, and the per-principal rate limit before
+/// handing off to `git_v2::dispatch`. The path may carry an optional `.git`
+/// suffix, which `split_git_path` strips.
+async fn git_smart_http(
+    state: AppState,
+    headers: HeaderMap,
+    _method: Method,
+    path: String,
+    raw_query: Option<String>,
+    body: Bytes,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/r/*") {
         Ok(cors) => cors,
         Err(response) => return *response,
     };
@@ -6974,6 +7007,26 @@ fn is_receive_pack(path: &str, query: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
+/// Detect a git smart-HTTP request inside the `/r/<repo>` prefix. Matches the
+/// three canonical Smart HTTP markers: `info/refs?service=git-{upload,receive}-pack`,
+/// a path ending in `/git-upload-pack`, or one ending in `/git-receive-pack`.
+/// Anything else is a browse request handled by the SPA edge.
+fn is_git_smart_http(path: &str, query: Option<&str>) -> bool {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.ends_with("/git-upload-pack") || trimmed.ends_with("/git-receive-pack") {
+        return true;
+    }
+    if trimmed.ends_with("/info/refs") {
+        return query
+            .map(|query| {
+                query.contains("service=git-upload-pack")
+                    || query.contains("service=git-receive-pack")
+            })
+            .unwrap_or(false);
+    }
+    false
+}
+
 fn run_command(command: &mut Command, label: &str) -> Result<(), String> {
     let output = command
         .output()
@@ -7413,6 +7466,34 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
         );
         headers
+    }
+
+    // Drive the mounted `/r/<repo>` multiplexer the way axum does, building the
+    // request Uri from the captured `*path` and query so the git-marker branch
+    // and the browse fallthrough are both exercised through the real handler.
+    async fn call_repo_endpoint(
+        state: AppState,
+        headers: HeaderMap,
+        method: Method,
+        path: &str,
+        query: Option<&str>,
+        body: Bytes,
+    ) -> Response {
+        let full_path = match query {
+            Some(q) => format!("/r/{path}?{q}"),
+            None => format!("/r/{path}"),
+        };
+        let uri: Uri = full_path.parse().unwrap();
+        repo_endpoint(
+            State(state),
+            headers,
+            method,
+            AxumPath(path.to_string()),
+            RawQuery(query.map(|q| q.to_string())),
+            uri,
+            body,
+        )
+        .await
     }
 
     fn basic_headers(username: &str, password: &str) -> HeaderMap {
@@ -8357,12 +8438,12 @@ mod tests {
             PrincipalStatus::OperatorCredential,
         );
 
-        let response = git_endpoint(
-            State(AppState { runtime, git_state }),
+        let response = call_repo_endpoint(
+            AppState { runtime, git_state },
             bearer_headers(&token),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-upload-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-upload-pack"),
             Bytes::new(),
         )
         .await;
@@ -8403,15 +8484,15 @@ mod tests {
         );
 
         let request = || {
-            git_endpoint(
-                State(AppState {
+            call_repo_endpoint(
+                AppState {
                     runtime: runtime.clone(),
                     git_state: git_state.clone(),
-                }),
+                },
                 bearer_headers(&token),
                 Method::GET,
-                AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-                RawQuery(Some("service=git-upload-pack".to_string())),
+                "comtrya/comtrya.git/info/refs",
+                Some("service=git-upload-pack"),
                 Bytes::new(),
             )
         };
@@ -8471,15 +8552,15 @@ mod tests {
     #[tokio::test]
     async fn git_upload_pack_fails_closed_without_auth_or_scope() {
         let runtime = dev_runtime_no_extensions();
-        let no_token_response = git_endpoint(
-            State(AppState {
+        let no_token_response = call_repo_endpoint(
+            AppState {
                 runtime: runtime.clone(),
                 git_state: PureRustGitState::test_default(),
-            }),
+            },
             HeaderMap::new(),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-upload-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-upload-pack"),
             Bytes::new(),
         )
         .await;
@@ -8499,15 +8580,15 @@ mod tests {
             vec!["graphql:read".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-        let wrong_scope_response = git_endpoint(
-            State(AppState {
+        let wrong_scope_response = call_repo_endpoint(
+            AppState {
                 runtime: runtime.clone(),
                 git_state: PureRustGitState::test_default(),
-            }),
+            },
             bearer_headers(&token),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-upload-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-upload-pack"),
             Bytes::new(),
         )
         .await;
@@ -8527,15 +8608,15 @@ mod tests {
             vec!["git:write".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-        let write_only_fetch_response = git_endpoint(
-            State(AppState {
+        let write_only_fetch_response = call_repo_endpoint(
+            AppState {
                 runtime,
                 git_state: PureRustGitState::test_default(),
-            }),
+            },
             bearer_headers(&write_only_token),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-upload-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-upload-pack"),
             Bytes::new(),
         )
         .await;
@@ -8560,15 +8641,15 @@ mod tests {
             PrincipalStatus::OperatorCredential,
         );
 
-        let response = git_endpoint(
-            State(AppState {
+        let response = call_repo_endpoint(
+            AppState {
                 runtime,
                 git_state: PureRustGitState::test_default(),
-            }),
+            },
             bearer_headers(&token),
             Method::GET,
-            AxumPath("comtrya/../comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-upload-pack".to_string())),
+            "comtrya/../comtrya.git/info/refs",
+            Some("service=git-upload-pack"),
             Bytes::new(),
         )
         .await;
@@ -8594,15 +8675,15 @@ mod tests {
             PrincipalStatus::OperatorCredential,
         );
 
-        let response = git_endpoint(
-            State(AppState {
+        let response = call_repo_endpoint(
+            AppState {
                 runtime,
                 git_state: PureRustGitState::test_default(),
-            }),
+            },
             bearer_headers(&token),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-receive-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-receive-pack"),
             Bytes::new(),
         )
         .await;
@@ -8787,15 +8868,15 @@ mod tests {
                 Some(90),
             )
             .unwrap();
-        let read_only_response = git_endpoint(
-            State(AppState {
+        let read_only_response = call_repo_endpoint(
+            AppState {
                 runtime: runtime.clone(),
                 git_state: git_state.clone(),
-            }),
+            },
             basic_headers("rawkode", &read_only_pat),
             Method::GET,
-            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
-            RawQuery(Some("service=git-receive-pack".to_string())),
+            "comtrya/comtrya.git/info/refs",
+            Some("service=git-receive-pack"),
             Bytes::new(),
         )
         .await;
@@ -8824,12 +8905,12 @@ mod tests {
         push_body.extend_from_slice(pkt_len.as_bytes());
         push_body.extend_from_slice(command.as_bytes());
         push_body.extend_from_slice(b"0000");
-        let response = git_endpoint(
-            State(AppState { runtime, git_state }),
+        let response = call_repo_endpoint(
+            AppState { runtime, git_state },
             basic_headers("rawkode", &write_pat),
             Method::POST,
-            AxumPath("comtrya/comtrya.git/git-receive-pack".to_string()),
-            RawQuery(None),
+            "comtrya/comtrya.git/git-receive-pack",
+            None,
             Bytes::from(push_body),
         )
         .await;
@@ -8839,6 +8920,153 @@ mod tests {
         assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
         assert_ne!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn repo_endpoint_routes_upload_pack_marker_to_git_auth_gate() {
+        // `/r/<repo>/info/refs?service=git-upload-pack` is a clone, so it must
+        // hit the git auth boundary (401 without creds), never the browse
+        // fallthrough.
+        let runtime = dev_runtime_no_extensions();
+        let response = call_repo_endpoint(
+            AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            },
+            HeaderMap::new(),
+            Method::GET,
+            "comtrya/comtrya/info/refs",
+            Some("service=git-upload-pack"),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response
+                .headers()
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok()),
+            Some("Basic realm=\"comtrya\", Bearer realm=\"comtrya\""),
+        );
+    }
+
+    #[tokio::test]
+    async fn repo_endpoint_routes_receive_pack_marker_to_basic_pat_gate() {
+        // A POST to `/r/<repo>/git-receive-pack` is a push, so a bearer
+        // credential must be challenged for HTTP Basic (PAT-only push path),
+        // not served as a browse route.
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:write".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let response = call_repo_endpoint(
+            AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            },
+            bearer_headers(&token),
+            Method::POST,
+            "comtrya/comtrya/git-receive-pack",
+            None,
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response
+                .headers()
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok()),
+            Some("Basic realm=\"comtrya\""),
+        );
+    }
+
+    #[tokio::test]
+    async fn repo_endpoint_serves_browse_for_non_git_paths() {
+        // `/r/<repo>` and its browse sub-routes carry no git smart-HTTP marker,
+        // so the kernel falls through to the browse handler (the SPA edge owns
+        // rendering); it must never be mistaken for a git request. A valid
+        // git:read credential is supplied to prove the response is the browse
+        // fallthrough rather than a git auth challenge.
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        for path in ["comtrya/comtrya", "comtrya/comtrya/code"] {
+            let response = call_repo_endpoint(
+                AppState {
+                    runtime: runtime.clone(),
+                    git_state: PureRustGitState::test_default(),
+                },
+                bearer_headers(&token),
+                Method::GET,
+                path,
+                None,
+                Bytes::new(),
+            )
+            .await;
+            // The browse fallthrough is `not_found_or_unsupported` at the
+            // kernel (the SPA edge serves the HTML). The load-bearing assertion
+            // is that it is NOT a git auth challenge: no WWW-Authenticate, and
+            // not the 401/403 the git boundary would emit.
+            assert_ne!(response.status(), StatusCode::UNAUTHORIZED, "path={path}");
+            assert_ne!(response.status(), StatusCode::FORBIDDEN, "path={path}");
+            assert!(
+                response.headers().get("WWW-Authenticate").is_none(),
+                "browse path {path} must not emit a git auth challenge",
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_git_prefix_is_no_longer_routed() {
+        // The `/git/*` route was removed when browse and clone unified under
+        // `/r/<repo>`. A request to the old prefix must fall through to the
+        // global not-found handler.
+        let addr = spawn_test_server(dev_runtime_no_extensions()).await;
+        let response = reqwest::Client::new()
+            .get(format!(
+                "http://{addr}/git/comtrya/comtrya.git/info/refs?service=git-upload-pack"
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+        let payload = response.json::<Value>().await.unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::NotFound.as_str()
+        );
+    }
+
+    #[test]
+    fn is_git_smart_http_matches_only_canonical_markers() {
+        assert!(is_git_smart_http(
+            "comtrya/comtrya/info/refs",
+            Some("service=git-upload-pack")
+        ));
+        assert!(is_git_smart_http(
+            "comtrya/comtrya/info/refs",
+            Some("service=git-receive-pack")
+        ));
+        assert!(is_git_smart_http(
+            "comtrya/comtrya.git/git-upload-pack",
+            None
+        ));
+        assert!(is_git_smart_http("comtrya/comtrya/git-receive-pack", None));
+        // info/refs without a git service is a browse request, not git.
+        assert!(!is_git_smart_http("comtrya/comtrya/info/refs", None));
+        assert!(!is_git_smart_http(
+            "comtrya/comtrya/info/refs",
+            Some("service=other")
+        ));
+        // Plain browse routes never match.
+        assert!(!is_git_smart_http("comtrya/comtrya", None));
+        assert!(!is_git_smart_http("comtrya/comtrya/code", None));
     }
 
     #[tokio::test]
@@ -11579,7 +11807,7 @@ mod tests {
         let oversized = vec![0u8; GIT_BODY_LIMIT + 1];
         let response = reqwest::Client::new()
             .post(format!(
-                "http://{addr}/git/comtrya/comtrya.git/git-upload-pack"
+                "http://{addr}/r/comtrya/comtrya.git/git-upload-pack"
             ))
             .header("content-type", "application/x-git-upload-pack-request")
             .body(oversized)
