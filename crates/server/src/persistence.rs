@@ -52,6 +52,25 @@ pub struct StoredCredential {
     pub actions: Vec<String>,
 }
 
+/// A Git personal access token (PAT) row, sans secret material. The
+/// `token_hash` (an argon2id PHC string) never leaves the persistence
+/// layer except via [`PersistentStore::lookup_git_personal_access_token_by_id`],
+/// which returns it alongside this record so the caller can verify the
+/// presented secret before granting scope.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredGitPersonalAccessToken {
+    pub id: String,
+    pub owner_principal_uri: String,
+    pub name: String,
+    pub token_prefix: String,
+    pub scopes: Vec<String>,
+    pub expires_at: Option<u64>,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+    pub revoked_at: Option<u64>,
+}
+
 pub struct PersistentStore {
     conn: Mutex<Connection>,
     #[allow(dead_code)]
@@ -340,6 +359,167 @@ impl PersistentStore {
         tx.commit()
             .map_err(|e| format!("commit tally failed: {e}"))?;
         Ok(count as u32)
+    }
+
+    /// Persist a new Git personal access token. `token_hash` is the
+    /// argon2id PHC string for the full presented secret; the plaintext
+    /// secret is never stored.
+    pub fn insert_git_personal_access_token(
+        &self,
+        record: &StoredGitPersonalAccessToken,
+        token_hash: &str,
+    ) -> Result<(), String> {
+        let scopes_json = serde_json::to_string(&record.scopes)
+            .map_err(|e| format!("serialize PAT scopes failed: {e}"))?;
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "INSERT INTO git_personal_access_tokens(
+                   id, owner_principal_uri, name, token_hash, token_prefix, scopes_json,
+                   expires_at, created_at, last_used_at, revoked_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    record.id,
+                    record.owner_principal_uri,
+                    record.name,
+                    token_hash,
+                    record.token_prefix,
+                    scopes_json,
+                    record.expires_at.map(|v| v as i64),
+                    record.created_at as i64,
+                    record.last_used_at.map(|v| v as i64),
+                    record.revoked_at.map(|v| v as i64),
+                ],
+            )
+            .map_err(|e| format!("insert git personal access token failed: {e}"))?;
+        Ok(())
+    }
+
+    /// List the active (non-revoked, unexpired) PATs owned by a principal,
+    /// most recent first. Secret material is excluded.
+    pub fn list_git_personal_access_tokens(
+        &self,
+        owner_principal_uri: &str,
+        now: u64,
+    ) -> Result<Vec<StoredGitPersonalAccessToken>, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, owner_principal_uri, name, token_prefix, scopes_json, \
+                        expires_at, created_at, last_used_at, revoked_at \
+                 FROM git_personal_access_tokens \
+                 WHERE owner_principal_uri = ?1 \
+                   AND revoked_at IS NULL \
+                   AND (expires_at IS NULL OR expires_at > ?2) \
+                 ORDER BY created_at DESC, id DESC",
+            )
+            .map_err(|e| format!("prepare list git PATs failed: {e}"))?;
+        let rows = stmt
+            .query_map(
+                params![owner_principal_uri, now as i64],
+                Self::git_pat_from_row,
+            )
+            .map_err(|e| format!("query git PATs failed: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("read git PAT row failed: {e}"))
+    }
+
+    /// Fetch a single PAT row by its (non-secret) id together with its
+    /// stored argon2id hash, for secret verification at the auth boundary.
+    /// Returns `Ok(None)` if the row is missing, revoked, or expired so the
+    /// caller cannot distinguish those cases. The id is embedded in the
+    /// presented token and indexed by the primary key, so lookup is O(1)
+    /// even though the salted hash itself is not addressable.
+    pub fn lookup_git_personal_access_token_by_id(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<Option<(StoredGitPersonalAccessToken, String)>, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let row = conn
+            .query_row(
+                "SELECT id, owner_principal_uri, name, token_prefix, scopes_json, \
+                        expires_at, created_at, last_used_at, revoked_at, token_hash \
+                 FROM git_personal_access_tokens \
+                 WHERE id = ?1",
+                params![id],
+                |row| {
+                    let record = Self::git_pat_from_row(row)?;
+                    let token_hash: String = row.get(9)?;
+                    Ok((record, token_hash))
+                },
+            )
+            .optional()
+            .map_err(|e| format!("lookup git PAT failed: {e}"))?;
+        let Some((record, token_hash)) = row else {
+            return Ok(None);
+        };
+        if record.revoked_at.is_some() || record.expires_at.is_some_and(|expires| expires <= now) {
+            return Ok(None);
+        }
+        Ok(Some((record, token_hash)))
+    }
+
+    /// Stamp `last_used_at` after a successful secret verification.
+    pub fn touch_git_personal_access_token(&self, id: &str, now: u64) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE git_personal_access_tokens SET last_used_at = ?1 WHERE id = ?2",
+                params![now as i64, id],
+            )
+            .map_err(|e| format!("mark git PAT used failed: {e}"))?;
+        Ok(())
+    }
+
+    /// Revoke a PAT owned by `owner_principal_uri`. Returns `true` if a
+    /// previously-active row was revoked, `false` if nothing matched.
+    pub fn revoke_git_personal_access_token(
+        &self,
+        owner_principal_uri: &str,
+        id: &str,
+        now: u64,
+    ) -> Result<bool, String> {
+        let changed = self
+            .conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE git_personal_access_tokens \
+                 SET revoked_at = ?1 \
+                 WHERE id = ?2 AND owner_principal_uri = ?3 AND revoked_at IS NULL",
+                params![now as i64, id, owner_principal_uri],
+            )
+            .map_err(|e| format!("revoke git PAT failed: {e}"))?;
+        Ok(changed > 0)
+    }
+
+    fn git_pat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredGitPersonalAccessToken> {
+        let scopes_json: String = row.get(4)?;
+        let scopes = serde_json::from_str(&scopes_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                4,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+        let expires_at: Option<i64> = row.get(5)?;
+        let created_at: i64 = row.get(6)?;
+        let last_used_at: Option<i64> = row.get(7)?;
+        let revoked_at: Option<i64> = row.get(8)?;
+        Ok(StoredGitPersonalAccessToken {
+            id: row.get(0)?,
+            owner_principal_uri: row.get(1)?,
+            name: row.get(2)?,
+            token_prefix: row.get(3)?,
+            scopes,
+            expires_at: expires_at.map(|v| v as u64),
+            created_at: created_at as u64,
+            last_used_at: last_used_at.map(|v| v as u64),
+            revoked_at: revoked_at.map(|v| v as u64),
+        })
     }
 
     /// Periodic cleanup. Removes expired sessions/credentials and

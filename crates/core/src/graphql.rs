@@ -3,6 +3,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceCapabilities {
     pub git_https: bool,
+    pub git_push: bool,
     pub git_lfs: bool,
     pub sse: bool,
     pub graphql_subscriptions: bool,
@@ -13,6 +14,7 @@ impl InstanceCapabilities {
     pub fn v1() -> Self {
         Self {
             git_https: true,
+            git_push: true,
             git_lfs: false,
             sse: true,
             graphql_subscriptions: true,
@@ -30,6 +32,7 @@ mod tests {
         let caps = InstanceCapabilities::v1();
         assert!(!caps.git_lfs);
         assert!(caps.git_https);
+        assert!(caps.git_push);
         assert!(caps.graphql_subscriptions);
     }
 }

@@ -361,12 +361,14 @@ const GRAPHQL_BODY_LIMIT: usize = 256 * 1024;
 const OPS_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_BODY_LIMIT: usize = 4 * 1024;
 const GIT_BODY_LIMIT: usize = 16 * 1024 * 1024;
+const ACCOUNT_TOKEN_BODY_LIMIT: usize = 16 * 1024;
 const COMTRYA_SESSION_COOKIE: &str = "comtrya_session";
-const OIDC_BROWSER_ACTIONS: [&str; 5] = [
+const OIDC_BROWSER_ACTIONS: [&str; 6] = [
     "graphql:read",
     "graphql:write",
     "events:read",
     "git:read",
+    "git:write",
     "checks:read",
 ];
 
@@ -394,6 +396,16 @@ fn router(state: AppState) -> Router {
         .route("/auth/oidc/providers", get(oidc_providers))
         .route("/auth/oidc/:provider/login", get(oidc_login))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
+        .route(
+            "/api/account/git-tokens",
+            get(list_git_tokens)
+                .post(create_git_token)
+                .layer(RequestBodyLimitLayer::new(ACCOUNT_TOKEN_BODY_LIMIT)),
+        )
+        .route(
+            "/api/account/git-tokens/:id",
+            axum::routing::delete(revoke_git_token),
+        )
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -1983,6 +1995,101 @@ impl Runtime {
         token
     }
 
+    /// Mint a Git personal access token for `owner_principal_uri`. Returns
+    /// the one-time plaintext secret (shown to the user exactly once) and
+    /// the stored record (sans secret). The secret is argon2id-hashed
+    /// before storage; only the hash is persisted.
+    fn create_git_personal_access_token(
+        &self,
+        owner_principal_uri: &str,
+        name: &str,
+        scopes: Vec<String>,
+        expires_in_days: Option<u64>,
+    ) -> Result<(String, persistence::StoredGitPersonalAccessToken), String> {
+        let id = self.next_id("pat");
+        let secret = self.next_secure_token("cpat");
+        let token = format_git_pat_token(&id, &secret);
+        let token_hash = git_pat_hash(&token)?;
+        let now = now_seconds();
+        let expires_at = expires_in_days.map(|days| now.saturating_add(days * 24 * 60 * 60));
+        let record = persistence::StoredGitPersonalAccessToken {
+            id,
+            owner_principal_uri: owner_principal_uri.to_string(),
+            name: name.to_string(),
+            token_prefix: token.chars().take(12).collect(),
+            scopes,
+            expires_at,
+            created_at: now,
+            last_used_at: None,
+            revoked_at: None,
+        };
+        self.store
+            .insert_git_personal_access_token(&record, &token_hash)?;
+        let _ = self.append_audit(
+            "dev.comtrya.git_token.created",
+            json!({
+                "token_id": record.id,
+                "owner": owner_principal_uri,
+                "scopes": record.scopes,
+                "expires_at": record.expires_at,
+            }),
+        );
+        Ok((token, record))
+    }
+
+    fn list_git_personal_access_tokens(
+        &self,
+        owner_principal_uri: &str,
+    ) -> Result<Vec<persistence::StoredGitPersonalAccessToken>, String> {
+        self.store
+            .list_git_personal_access_tokens(owner_principal_uri, now_seconds())
+    }
+
+    fn revoke_git_personal_access_token(
+        &self,
+        owner_principal_uri: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let revoked =
+            self.store
+                .revoke_git_personal_access_token(owner_principal_uri, id, now_seconds())?;
+        if revoked {
+            let _ = self.append_audit(
+                "dev.comtrya.git_token.revoked",
+                json!({"token_id": id, "owner": owner_principal_uri}),
+            );
+        }
+        Ok(revoked)
+    }
+
+    /// Verify a presented Git PAT and report whether its scopes include
+    /// `action` (`git:read` / `git:write`). The id embedded in the token
+    /// addresses the row; the secret is argon2id-verified against the stored
+    /// hash. On success, stamps `last_used_at`. Any malformed token,
+    /// missing/revoked/expired row, or hash mismatch yields `false`.
+    fn git_personal_access_token_allows(&self, token: &str, action: &str) -> bool {
+        let Some((id, _secret)) = parse_git_pat_token(token) else {
+            return false;
+        };
+        let now = now_seconds();
+        let lookup = match self.store.lookup_git_personal_access_token_by_id(id, now) {
+            Ok(Some(found)) => found,
+            Ok(None) => return false,
+            Err(error) => {
+                tracing::error!(%error, "git personal access token lookup failed");
+                return false;
+            }
+        };
+        let (record, token_hash) = lookup;
+        if !git_pat_verify(token, &token_hash) {
+            return false;
+        }
+        if let Err(error) = self.store.touch_git_personal_access_token(&record.id, now) {
+            tracing::error!(%error, "git personal access token touch failed");
+        }
+        record.scopes.iter().any(|scope| scope == action)
+    }
+
     /// Monotonic, sortable identifier for non-secret use (event IDs,
     /// principal URI fragments). Format: `{prefix}_{unix_seconds}_{counter}`.
     /// **Never** use for anything that must be unguessable — see
@@ -2100,6 +2207,49 @@ impl Runtime {
 fn token_audit_id(token: &str) -> String {
     let digest = sha2::Sha256::digest(token.as_bytes());
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
+/// Git PAT wire format: `cpat.<id>.<secret>`. `<id>` is the (non-secret)
+/// primary key of the row — it carries no `.` so the secret can be split
+/// off with `rsplit_once('.')`. The `<secret>` tail is the unguessable
+/// material; only its argon2id hash is persisted.
+const GIT_PAT_TOKEN_PREFIX: &str = "cpat.";
+
+fn format_git_pat_token(id: &str, secret: &str) -> String {
+    format!("{GIT_PAT_TOKEN_PREFIX}{id}.{secret}")
+}
+
+/// Split a presented PAT into `(id, secret)`. Returns `None` for any token
+/// that isn't a well-formed `cpat.<id>.<secret>`.
+fn parse_git_pat_token(token: &str) -> Option<(&str, &str)> {
+    let body = token.strip_prefix(GIT_PAT_TOKEN_PREFIX)?;
+    let (id, secret) = body.rsplit_once('.')?;
+    if id.is_empty() || secret.is_empty() {
+        return None;
+    }
+    Some((id, secret))
+}
+
+/// Hash a PAT secret with argon2id (salted, PHC-encoded). The returned
+/// string embeds the salt and parameters and is what we persist.
+fn git_pat_hash(token: &str) -> Result<String, String> {
+    use argon2::password_hash::{PasswordHasher, SaltString, rand_core::OsRng};
+    let salt = SaltString::generate(&mut OsRng);
+    argon2::Argon2::default()
+        .hash_password(token.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|e| format!("argon2 hash failed: {e}"))
+}
+
+/// Constant-time verify a presented PAT against its stored argon2id hash.
+fn git_pat_verify(token: &str, stored_hash: &str) -> bool {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    let Ok(parsed) = PasswordHash::new(stored_hash) else {
+        return false;
+    };
+    argon2::Argon2::default()
+        .verify_password(token.as_bytes(), &parsed)
+        .is_ok()
 }
 
 fn filter_extension_installations(
@@ -2226,6 +2376,23 @@ fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
+}
+
+/// Extract the password from an HTTP Basic `Authorization` header. Git
+/// clients send the PAT as the password (the username is ignored). Returns
+/// `None` if the header is absent, not Basic, malformed, or empty-password.
+fn basic_password_from_headers(headers: &HeaderMap) -> Option<String> {
+    use base64::Engine as _;
+    let encoded = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Basic "))?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded.as_bytes())
+        .ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (_username, password) = decoded.split_once(':')?;
+    (!password.is_empty()).then(|| password.to_string())
 }
 
 fn session_cookie_from_headers(headers: &HeaderMap) -> Option<&str> {
@@ -3454,6 +3621,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     "publicURL": state.runtime.config.public_url,
                     "capabilities": {
                         "gitHTTPS": capabilities.git_https,
+                        "gitPush": capabilities.git_push,
                         "gitLFS": capabilities.git_lfs,
                         "sse": capabilities.sse,
                         "graphqlSubscriptions": capabilities.graphql_subscriptions,
@@ -3649,6 +3817,192 @@ async fn token_exchange(
         }),
         cors,
     )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateGitTokenRequest {
+    name: String,
+    scopes: Vec<String>,
+    expires_in_days: Option<u64>,
+}
+
+/// Resolve the authenticated principal for an account-token API route,
+/// returning the CORS headers and principal context. Anonymous/invalid
+/// callers are rejected with 401 (with CORS headers attached).
+fn account_api_principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    route: &str,
+) -> Result<(HeaderMap, PrincipalContext), Box<Response>> {
+    let cors = state.runtime.check_boundary(headers, route)?;
+    let principal = state.runtime.principal_context_from_headers(headers);
+    if matches!(
+        principal.status,
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid
+    ) {
+        let mut response = error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "account Git tokens require an authenticated session",
+        );
+        response.headers_mut().extend(cors);
+        return Err(Box::new(response));
+    }
+    Ok((cors, principal))
+}
+
+async fn list_git_tokens(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/git-tokens")
+    {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    match state
+        .runtime
+        .list_git_personal_access_tokens(&principal.uri)
+    {
+        Ok(tokens) => json_response(
+            StatusCode::OK,
+            json!({ "personalAccessTokens": tokens }),
+            cors,
+        ),
+        Err(error) => {
+            tracing::error!(%error, "list Git personal access tokens failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
+}
+
+async fn create_git_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateGitTokenRequest>,
+) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/git-tokens")
+    {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 80 {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token name must be 1-80 characters",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    if request.scopes.is_empty()
+        || request
+            .scopes
+            .iter()
+            .any(|scope| !matches!(scope.as_str(), "git:read" | "git:write"))
+    {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token scopes must include only git:read and git:write",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    let mut scopes = request.scopes;
+    scopes.sort();
+    scopes.dedup();
+    // Minting a token can only grant scopes the session itself already holds.
+    if scopes
+        .iter()
+        .any(|scope| !state.runtime.credential_allows(&headers, scope))
+    {
+        let mut response = error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "authenticated session cannot mint the requested Git token scopes",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    let expires_in_days = request.expires_in_days.or(Some(90));
+    if expires_in_days.is_some_and(|days| days == 0 || days > 365) {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token expiry must be between 1 and 365 days",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+
+    match state.runtime.create_git_personal_access_token(
+        &principal.uri,
+        name,
+        scopes,
+        expires_in_days,
+    ) {
+        Ok((token, record)) => json_response(
+            StatusCode::CREATED,
+            json!({
+                "token": token,
+                "personalAccessToken": record,
+            }),
+            cors,
+        ),
+        Err(error) => {
+            tracing::error!(%error, "create Git personal access token failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
+}
+
+async fn revoke_git_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let (cors, principal) =
+        match account_api_principal(&state, &headers, "/api/account/git-tokens/:id") {
+            Ok(result) => result,
+            Err(response) => return *response,
+        };
+    match state
+        .runtime
+        .revoke_git_personal_access_token(&principal.uri, &id)
+    {
+        Ok(true) => json_response(StatusCode::OK, json!({ "revoked": true }), cors),
+        Ok(false) => {
+            let mut response = error_response(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                "Git token was not found",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+        Err(error) => {
+            tracing::error!(%error, "revoke Git personal access token failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
 }
 
 async fn oidc_providers(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -4165,21 +4519,29 @@ async fn git_endpoint(
         Ok(cors) => cors,
         Err(response) => return *response,
     };
+    // Git clients authenticate either with a Comtrya browser/operator
+    // credential (bearer/cookie) or with an HTTP Basic personal access token
+    // (the PAT is the Basic password; the username is ignored). A Basic header
+    // bypasses the credential-principal gate because the PAT is verified
+    // against its scope below.
+    let basic_password = basic_password_from_headers(&headers);
     let principal = state.runtime.principal_from_headers(&headers);
-    if !matches!(
-        principal,
-        PrincipalStatus::OperatorCredential
-            | PrincipalStatus::AdminCredential
-            | PrincipalStatus::Credential
-    ) {
+    if basic_password.is_none()
+        && !matches!(
+            principal,
+            PrincipalStatus::OperatorCredential
+                | PrincipalStatus::AdminCredential
+                | PrincipalStatus::Credential
+        )
+    {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
-            "Git smart HTTP requires a valid Comtrya credential",
+            "Git smart HTTP requires a valid Comtrya credential or personal access token",
         );
         response.headers_mut().insert(
             "WWW-Authenticate",
-            HeaderValue::from_static("Bearer realm=\"comtrya\""),
+            HeaderValue::from_static("Basic realm=\"comtrya\", Bearer realm=\"comtrya\""),
         );
         return response;
     }
@@ -4192,21 +4554,55 @@ async fn git_endpoint(
     }
     // Push (receive-pack) requires the git:write scope; reads (info/refs,
     // upload-pack) require git:read. The pure-Rust receive-pack responder in
-    // comtrya-git-http applies per-ref CAS + connectivity checks once dispatched.
-    let required_git_scope = if is_receive_pack(&path, raw_query.as_deref()) {
-        "git:write"
+    // comtrya-git-http applies per-ref CAS + connectivity checks once
+    // dispatched.
+    //
+    // Writes (receive-pack) are PAT-only: a push must present a Basic-auth
+    // personal access token carrying git:write. Bearer/cookie sessions cannot
+    // push, so a CSRF'd browser cookie can never mutate a repository. Reads
+    // accept either a credential with git:read or a Basic PAT with git:read.
+    if is_receive_pack(&path, raw_query.as_deref()) {
+        let Some(password) = basic_password.as_deref() else {
+            let mut response = error_response(
+                StatusCode::UNAUTHORIZED,
+                ErrorCode::Unauthenticated.as_str(),
+                "Git push requires HTTP Basic authentication with a personal access token",
+            );
+            response.headers_mut().insert(
+                "WWW-Authenticate",
+                HeaderValue::from_static("Basic realm=\"comtrya\""),
+            );
+            return response;
+        };
+        if !state
+            .runtime
+            .git_personal_access_token_allows(password, "git:write")
+        {
+            return error_response(
+                StatusCode::FORBIDDEN,
+                ErrorCode::Forbidden.as_str(),
+                "personal access token scope does not allow Git push",
+            );
+        }
     } else {
-        "git:read"
-    };
-    if !state
-        .runtime
-        .credential_allows(&headers, required_git_scope)
-    {
-        return error_response(
-            StatusCode::FORBIDDEN,
-            ErrorCode::Forbidden.as_str(),
-            "credential scope does not allow requested Git operation",
-        );
+        let credential_reads = state.runtime.credential_allows(&headers, "git:read");
+        let pat_reads = basic_password.as_deref().is_some_and(|password| {
+            state
+                .runtime
+                .git_personal_access_token_allows(password, "git:read")
+        });
+        if !credential_reads && !pat_reads {
+            let mut response = error_response(
+                StatusCode::FORBIDDEN,
+                ErrorCode::Forbidden.as_str(),
+                "credential scope does not allow requested Git operation",
+            );
+            response.headers_mut().insert(
+                "WWW-Authenticate",
+                HeaderValue::from_static("Basic realm=\"comtrya\", Bearer realm=\"comtrya\""),
+            );
+            return response;
+        }
     }
 
     // Pure-Rust Smart HTTP v2 path via comtrya-git-http.

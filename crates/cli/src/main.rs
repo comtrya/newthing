@@ -90,8 +90,9 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
             let capabilities = InstanceCapabilities::v1();
             writeln!(
                 stdout,
-                "gitHTTPS={} gitLFS={} sse={} graphqlSubscriptions={} extensionRuntime={}",
+                "gitHTTPS={} gitPush={} gitLFS={} sse={} graphqlSubscriptions={} extensionRuntime={}",
                 capabilities.git_https,
+                capabilities.git_push,
                 capabilities.git_lfs,
                 capabilities.sse,
                 capabilities.graphql_subscriptions,
