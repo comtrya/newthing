@@ -233,22 +233,20 @@ pub fn decide_command(
     match classify_command(command) {
         CommandKind::Create => match state {
             RefState::Absent => CommandDecision::Accept,
-            RefState::Present(_) => {
-                CommandDecision::Reject("reference already exists".to_string())
-            }
+            RefState::Present(_) => CommandDecision::Reject("reference already exists".to_string()),
         },
         CommandKind::Delete => match state {
             RefState::Absent => CommandDecision::Reject("deletion of non-existent ref".to_string()),
             RefState::Present(current) if *current == command.old_oid => CommandDecision::Accept,
-            RefState::Present(_) => {
-                CommandDecision::Reject("stale info: ref does not match expected old value".to_string())
-            }
+            RefState::Present(_) => CommandDecision::Reject(
+                "stale info: ref does not match expected old value".to_string(),
+            ),
         },
         CommandKind::Update => match state {
             RefState::Absent => CommandDecision::Reject("ref does not exist".to_string()),
-            RefState::Present(current) if *current != command.old_oid => {
-                CommandDecision::Reject("stale info: ref does not match expected old value".to_string())
-            }
+            RefState::Present(current) if *current != command.old_oid => CommandDecision::Reject(
+                "stale info: ref does not match expected old value".to_string(),
+            ),
             RefState::Present(_) => {
                 if force || is_fast_forward {
                     CommandDecision::Accept
@@ -449,11 +447,7 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
         per_ref.push((ev.command.ref_name.clone(), status));
     }
 
-    Ok(report_status_lines(
-        ReportOutcome::Ok,
-        &per_ref,
-        report_v2,
-    ))
+    Ok(report_status_lines(ReportOutcome::Ok, &per_ref, report_v2))
 }
 
 /// Evaluate a command against the live repository, reading the current ref
@@ -693,11 +687,7 @@ enum RefStatus {
 
 /// Build a `report-status` body where every command shares the same status,
 /// used for whole-request failures (e.g. unpack error).
-fn report_status(
-    outcome: ReportOutcome,
-    commands: &[ReceivePackCommand],
-    v2: bool,
-) -> Vec<u8> {
+fn report_status(outcome: ReportOutcome, commands: &[ReceivePackCommand], v2: bool) -> Vec<u8> {
     let reason = match &outcome {
         ReportOutcome::Ok => None,
         ReportOutcome::UnpackError(_) => Some("unpacker error"),
@@ -967,7 +957,9 @@ mod tests {
         let mut body = Vec::new();
         for (i, (old, new, name)) in commands.iter().enumerate() {
             let line = if i == 0 {
-                format!("{old} {new} {name}\0report-status report-status-v2 object-format=sha1 agent=test\n")
+                format!(
+                    "{old} {new} {name}\0report-status report-status-v2 object-format=sha1 agent=test\n"
+                )
             } else {
                 format!("{old} {new} {name}\n")
             };
@@ -990,9 +982,15 @@ mod tests {
         let fx = init_fixture();
         let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
         git(&["branch", "-M", "main"], &fx.work);
-        git(&["remote", "add", "origin", &fx.bare.to_string_lossy()], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
         git(&["push", "origin", "main"], &fx.work);
-        assert_eq!(current_ref(&fx.bare, "refs/heads/main").as_deref(), Some(c1.as_str()));
+        assert_eq!(
+            current_ref(&fx.bare, "refs/heads/main").as_deref(),
+            Some(c1.as_str())
+        );
 
         let c2 = commit(&fx.work, "a.txt", "2\n", "c2");
         let pack = build_pack(&fx.work, &c2, &[&c1]);
@@ -1005,7 +1003,10 @@ mod tests {
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(text.contains("ok refs/heads/main\n"), "report: {text}");
-        assert_eq!(current_ref(&fx.bare, "refs/heads/main").as_deref(), Some(c2.as_str()));
+        assert_eq!(
+            current_ref(&fx.bare, "refs/heads/main").as_deref(),
+            Some(c2.as_str())
+        );
     }
 
     #[test]
@@ -1013,7 +1014,10 @@ mod tests {
         let fx = init_fixture();
         let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
         git(&["branch", "-M", "main"], &fx.work);
-        git(&["remote", "add", "origin", &fx.bare.to_string_lossy()], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
         git(&["push", "origin", "main"], &fx.work);
 
         let pack = build_pack(&fx.work, &c1, &[]);
@@ -1040,7 +1044,10 @@ mod tests {
         let fx = init_fixture();
         let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
         git(&["branch", "-M", "main"], &fx.work);
-        git(&["remote", "add", "origin", &fx.bare.to_string_lossy()], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
         git(&["push", "origin", "main"], &fx.work);
 
         // Create a divergent history that does not contain c1.
@@ -1073,21 +1080,24 @@ mod tests {
         let fx = init_fixture();
         let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
         git(&["branch", "-M", "main"], &fx.work);
-        git(&["remote", "add", "origin", &fx.bare.to_string_lossy()], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
         git(&["push", "origin", "main"], &fx.work);
 
         let c2 = commit(&fx.work, "a.txt", "2\n", "c2");
         let pack = build_pack(&fx.work, &c2, &[&c1]);
         // Send a stale old oid (not the current main).
         let stale = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string();
-        let body = build_request(
-            &[(stale, c2.clone(), "refs/heads/main".to_string())],
-            &pack,
-        );
+        let body = build_request(&[(stale, c2.clone(), "refs/heads/main".to_string())], &pack);
         let out = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
-        assert!(text.contains("ng refs/heads/main stale info"), "report: {text}");
+        assert!(
+            text.contains("ng refs/heads/main stale info"),
+            "report: {text}"
+        );
         assert_eq!(
             current_ref(&fx.bare, "refs/heads/main").as_deref(),
             Some(c1.as_str())
@@ -1100,7 +1110,10 @@ mod tests {
         let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
         git(&["branch", "-M", "main"], &fx.work);
         git(&["branch", "doomed"], &fx.work);
-        git(&["remote", "add", "origin", &fx.bare.to_string_lossy()], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
         git(&["push", "origin", "main"], &fx.work);
         git(&["push", "origin", "doomed"], &fx.work);
         assert_eq!(

@@ -4186,7 +4186,10 @@ async fn git_endpoint(
     } else {
         "git:read"
     };
-    if !state.runtime.credential_allows(&headers, required_git_scope) {
+    if !state
+        .runtime
+        .credential_allows(&headers, required_git_scope)
+    {
         return error_response(
             StatusCode::FORBIDDEN,
             ErrorCode::Forbidden.as_str(),
