@@ -1882,83 +1882,9 @@ kbd {
 
 .shell-app .admin-list code { overflow-wrap: anywhere; }
 
-/* ── Command palette ───────────────────────────────────────── */
-
-.palette-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  place-items: start center;
-  padding-top: 12vh;
-  background: rgba(0, 0, 0, 0.40);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-
-.command-palette {
-  width: min(620px, calc(100vw - 32px));
-  border: 0.5px solid var(--line-2);
-  border-radius: var(--r-lg);
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
-  backdrop-filter: blur(22px) saturate(140%);
-  color: var(--fg);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-  overflow: hidden;
-}
-
-.palette-input {
-  width: 100%;
-  border: 0;
-  border-bottom: 0.5px solid var(--line);
-  padding: 14px 16px;
-  background: transparent;
-  color: var(--fg);
-  font-family: var(--font-sans);
-  font-size: 16px;
-  outline: none;
-}
-
-.palette-list {
-  max-height: 320px;
-  overflow: auto;
-}
-
-.palette-command {
-  width: 100%;
-  min-height: 42px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
-  border: 0;
-  border-bottom: 0.5px solid var(--line);
-  padding: 8px 16px;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.palette-command:hover,
-.palette-command:focus-visible { background: var(--surface-2); }
-
-.palette-command span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.palette-command code,
-.palette-empty {
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.palette-empty { padding: 16px; }
+/* The command palette owns its styling in CommandPalette.vue's scoped
+   block. The former global `.palette-*` rules that lived here were
+   superseded by that refactor; they are intentionally not duplicated. */
 
 /* ── Panels and slot frames ────────────────────────────────── */
 
