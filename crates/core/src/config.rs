@@ -598,26 +598,72 @@ pub const KERNEL_BRIDGE_CUE: &str = concat!(
 /// resolves. Matches the module path of [`SCHEMA_CUE`].
 const SCHEMA_VENDOR_REL: &str = "cue.mod/pkg/github.com/comtrya/comtrya/schema";
 
+/// The module path under which [`SCHEMA_CUE`] ships in-module. Only the
+/// repo whose CUE module IS this path provides the schema package
+/// natively; every other repo needs the package vendored.
+const KERNEL_MODULE_PATH: &str = "github.com/comtrya/comtrya";
+
 /// Install the kernel schema into a cuengine eval `workdir`: write the
 /// `package comtrya` bridge as `00-comtrya-kernel.cue`, and vendor the
 /// published schema package unless the workdir already ships it
-/// in-module. The in-module case is `github.com/comtrya/comtrya`
-/// itself (it has a top-level `schema/` directory); vendoring a package
-/// whose path matches the main module would collide, so it is skipped
-/// there and the bridge's import resolves against the in-tree package.
+/// in-module. The only in-module case is `github.com/comtrya/comtrya`
+/// itself — it declares that module path in `cue.mod/module.cue` and
+/// ships the package at a top-level `schema/` directory, so vendoring a
+/// copy under the same import path would collide. There the vendor step
+/// is skipped and the bridge's import resolves against the in-tree
+/// package.
+///
+/// A `schema/` directory alone is NOT sufficient to skip vendoring: an
+/// imported repo can ship an unrelated top-level `schema/` while its
+/// module is synthesised (`comtrya.synthesised/repo`) or some third-party
+/// path. In that case the bridge's `import
+/// "github.com/comtrya/comtrya/schema"` has nothing to resolve against
+/// unless the package is vendored, so the gate is the module path, not
+/// the directory.
 ///
 /// Shared by the receive-pack validator ([`evaluate_cue_files_with_cuengine`])
 /// and the server's per-repo browser (`cue_config::install_schemas`) so
 /// both evaluate against an identical workdir layout.
 pub fn install_kernel_schema(workdir: &std::path::Path) -> std::io::Result<()> {
     std::fs::write(workdir.join("00-comtrya-kernel.cue"), KERNEL_BRIDGE_CUE)?;
-    if workdir.join("schema").is_dir() {
+    if workdir.join("schema").is_dir() && workdir_module_is_kernel(workdir) {
         return Ok(());
     }
     let pkg_dir = workdir.join(SCHEMA_VENDOR_REL);
     std::fs::create_dir_all(&pkg_dir)?;
     std::fs::write(pkg_dir.join("schema.cue"), SCHEMA_CUE)?;
     Ok(())
+}
+
+/// Whether the workdir's `cue.mod/module.cue` declares the kernel module
+/// path [`KERNEL_MODULE_PATH`] — i.e. this workdir IS
+/// `github.com/comtrya/comtrya` and provides the schema package
+/// in-module. Any major-version suffix (`@v0`) on the module path is
+/// stripped before comparison. A missing or unparseable module file
+/// reads as "not the kernel module", which errs toward vendoring.
+fn workdir_module_is_kernel(workdir: &std::path::Path) -> bool {
+    let Ok(source) = std::fs::read_to_string(workdir.join("cue.mod").join("module.cue")) else {
+        return false;
+    };
+    module_path_of(&source).is_some_and(|path| path == KERNEL_MODULE_PATH)
+}
+
+/// Extract the `module:` path declared in a `cue.mod/module.cue` source,
+/// with any `@<major>` version suffix stripped. Returns `None` when no
+/// `module:` field is present. Tolerates leading whitespace and both
+/// `module: "x"` and `module:"x"` spacing.
+fn module_path_of(module_cue: &str) -> Option<String> {
+    for line in module_cue.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("module:") else {
+            continue;
+        };
+        let value = rest.trim();
+        let unquoted = value.strip_prefix('"')?.split('"').next()?;
+        let path = unquoted.split('@').next().unwrap_or(unquoted);
+        return Some(path.to_string());
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1164,6 +1210,97 @@ mod tests {
     #[test]
     fn minimal_dev_config_validates() {
         InstanceConfig::minimal_dev().validate().unwrap();
+    }
+
+    #[test]
+    fn module_path_of_parses_declared_path() {
+        assert_eq!(
+            module_path_of("module: \"github.com/comtrya/comtrya\"\nlanguage: version: \"v0.10.0\"\n"),
+            Some("github.com/comtrya/comtrya".to_string())
+        );
+        // No space after the colon.
+        assert_eq!(
+            module_path_of("module:\"example.com/x\"\n"),
+            Some("example.com/x".to_string())
+        );
+        // Major-version suffix is stripped.
+        assert_eq!(
+            module_path_of("module: \"github.com/comtrya/comtrya@v0\"\n"),
+            Some("github.com/comtrya/comtrya".to_string())
+        );
+        // No module field.
+        assert_eq!(module_path_of("language: version: \"v0.10.0\"\n"), None);
+    }
+
+    /// Regression: a repo that ships an unrelated top-level `schema/`
+    /// directory but is NOT `github.com/comtrya/comtrya` must still get
+    /// the published schema package vendored, or the kernel bridge's
+    /// `import "github.com/comtrya/comtrya/schema"` fails to resolve and
+    /// cuengine reports "cannot find package …/schema".
+    #[test]
+    fn install_kernel_schema_vendors_when_schema_dir_is_not_kernel_module() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workdir = dir.path();
+        std::fs::create_dir_all(workdir.join("cue.mod")).unwrap();
+        std::fs::write(
+            workdir.join("cue.mod").join("module.cue"),
+            "module: \"comtrya.synthesised/repo\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        // Repo coincidentally ships a top-level `schema/` directory.
+        std::fs::create_dir_all(workdir.join("schema")).unwrap();
+        std::fs::write(workdir.join("schema").join("unrelated.cue"), "package schema\n").unwrap();
+
+        install_kernel_schema(workdir).expect("install");
+
+        assert!(
+            workdir.join(SCHEMA_VENDOR_REL).join("schema.cue").is_file(),
+            "schema package must be vendored when the module is not the kernel module"
+        );
+    }
+
+    /// The in-module case: the workdir IS `github.com/comtrya/comtrya`
+    /// and provides the package at `schema/`. Vendoring would collide,
+    /// so it is skipped.
+    #[test]
+    fn install_kernel_schema_skips_vendor_for_kernel_module() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workdir = dir.path();
+        std::fs::create_dir_all(workdir.join("cue.mod")).unwrap();
+        std::fs::write(
+            workdir.join("cue.mod").join("module.cue"),
+            "module: \"github.com/comtrya/comtrya\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(workdir.join("schema")).unwrap();
+
+        install_kernel_schema(workdir).expect("install");
+
+        assert!(
+            !workdir.join(SCHEMA_VENDOR_REL).exists(),
+            "must not vendor over the in-module schema package"
+        );
+    }
+
+    /// No `schema/` directory at all (the common imported-repo case):
+    /// the package must be vendored regardless of module path.
+    #[test]
+    fn install_kernel_schema_vendors_when_no_schema_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let workdir = dir.path();
+        std::fs::create_dir_all(workdir.join("cue.mod")).unwrap();
+        std::fs::write(
+            workdir.join("cue.mod").join("module.cue"),
+            "module: \"comtrya.synthesised/repo\"\nlanguage: version: \"v0.10.0\"\n",
+        )
+        .unwrap();
+
+        install_kernel_schema(workdir).expect("install");
+
+        assert!(
+            workdir.join(SCHEMA_VENDOR_REL).join("schema.cue").is_file(),
+            "schema package must be vendored when there is no in-tree schema/"
+        );
     }
 
     #[test]
