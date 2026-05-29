@@ -1,10 +1,11 @@
-//! Git Smart HTTP (protocol v2) server scaffolding.
+//! Read-only Git Smart HTTP (protocol v2) server, implemented in pure Rust.
 //!
-//! This module will implement read-only Smart HTTP (upload-pack) end-to-end in Rust.
-//! For now, handlers return 501 until filled in incrementally.
+//! Implements the upload-pack side of Smart HTTP v2 end-to-end: the
+//! `info/refs` capability advertisement, the `ls-refs` command, and
+//! `fetch`/packfile streaming. Push (`receive-pack`) is intentionally
+//! rejected; this surface is read-only.
 
 pub mod errors;
-pub mod negotiation;
 pub mod pack;
 pub mod pkt;
 pub mod repo;
