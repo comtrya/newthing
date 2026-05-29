@@ -9,7 +9,7 @@
 //   4. returns the result bytes (validated against B's output schema).
 //
 // This is how the auto-close-on-merge reactor in ext_pull_requests calls
-// `issues.close` in ext_issues.
+// `issues.close-issue` in ext_issues.
 //
 // The payload erasure (`list<u8>`) is deliberate — it keeps the kernel
 // as the sole trust boundary for cross-extension dispatch. Phase 3
@@ -27,7 +27,7 @@ interface ops {
 
   /// Invoke a named op on another extension. `target-extension` is the
   /// extension id (e.g. `ext_issues`); `op` is the kebab-case op name
-  /// as declared in the target's WIT (e.g. `issues.close`). `payload`
+  /// as declared in the target's WIT (e.g. `issues.close-issue`). `payload`
   /// is JSON bytes matching the target's input record. Returns JSON
   /// bytes matching the target's output record.
   invoke: func(
