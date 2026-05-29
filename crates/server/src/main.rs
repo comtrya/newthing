@@ -30,6 +30,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -1896,7 +1897,11 @@ impl Runtime {
                 status: stored_to_principal(credential.principal),
                 uri: credential.principal_uri,
             },
-            _ => PrincipalContext::invalid(),
+            Ok(None) => PrincipalContext::invalid(),
+            Err(error) => {
+                tracing::error!(%error, "credential lookup failed");
+                PrincipalContext::unavailable()
+            }
         }
     }
 
@@ -1907,7 +1912,14 @@ impl Runtime {
 
         match self.store.lookup_credential(token, now_seconds()) {
             Ok(Some(credential)) => credential.actions.iter().any(|granted| granted == action),
-            _ => false,
+            Ok(None) => false,
+            Err(error) => {
+                // Fail closed on a storage outage: deny the action. The status
+                // path (above) is responsible for surfacing the 503; this
+                // boolean gate only decides allow/deny.
+                tracing::error!(%error, "credential action lookup failed");
+                false
+            }
         }
     }
 
@@ -2354,6 +2366,11 @@ enum PrincipalStatus {
     AdminCredential,
     Credential,
     Invalid,
+    /// The credential store could not be consulted (transient I/O / SQLite
+    /// outage). Distinct from `Invalid` so a storage hiccup surfaces as a
+    /// 503 rather than masquerading as an invalid token (401). Fails closed:
+    /// treated as unauthenticated for every authorization decision.
+    Unavailable,
 }
 
 #[derive(Debug, Clone)]
@@ -2376,6 +2393,13 @@ impl PrincipalContext {
             uri: "comtrya://principal/invalid".to_string(),
         }
     }
+
+    fn unavailable() -> Self {
+        Self {
+            status: PrincipalStatus::Unavailable,
+            uri: "comtrya://principal/unavailable".to_string(),
+        }
+    }
 }
 
 /// Translate the runtime's `PrincipalStatus` to the persistence
@@ -2388,7 +2412,13 @@ fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
         PrincipalStatus::AdminCredential => persistence::StoredPrincipal::AdminCredential,
         PrincipalStatus::Credential => persistence::StoredPrincipal::Credential,
         PrincipalStatus::Anonymous => persistence::StoredPrincipal::Anonymous,
-        PrincipalStatus::Invalid => persistence::StoredPrincipal::Invalid,
+        // `Unavailable` is a transient runtime status produced when the
+        // credential store can't be read; it is never persisted. Map it to the
+        // persisted `Invalid` so the conversion stays total without inventing a
+        // stored variant for a non-stored state.
+        PrincipalStatus::Invalid | PrincipalStatus::Unavailable => {
+            persistence::StoredPrincipal::Invalid
+        }
     }
 }
 
@@ -2709,6 +2739,15 @@ async fn api_op(
         );
     }
     let principal = state.runtime.principal_context_from_headers(&headers);
+    if matches!(principal.status, PrincipalStatus::Unavailable) {
+        return api_op_json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            None,
+            cors,
+        );
+    }
     if matches!(
         principal.status,
         PrincipalStatus::Anonymous | PrincipalStatus::Invalid
@@ -3069,10 +3108,16 @@ pub(crate) fn graphql_read_guard(
         &format!("graphql:{}", principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
-    if matches!(
-        state.runtime.principal_from_headers(headers),
-        PrincipalStatus::Invalid
-    ) {
+    let principal = state.runtime.principal_from_headers(headers);
+    if matches!(principal, PrincipalStatus::Unavailable) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            cors,
+        )));
+    }
+    if matches!(principal, PrincipalStatus::Invalid) {
         return Err(Box::new(graphql_error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
@@ -3091,6 +3136,14 @@ pub(crate) fn require_authenticated_principal(
     principal: PrincipalStatus,
     cors: HeaderMap,
 ) -> ResponseResult<HeaderMap> {
+    if matches!(principal, PrincipalStatus::Unavailable) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            cors,
+        )));
+    }
     if matches!(
         principal,
         PrincipalStatus::Anonymous | PrincipalStatus::Invalid
@@ -3831,13 +3884,22 @@ async fn token_exchange(
             "unsupported production-testbed token exchange grant",
         );
     }
-    if state
-        .runtime
-        .options
-        .operator_code
-        .as_deref()
-        .is_none_or(|code| code != request.subject_token)
-    {
+    // Compare the configured operator code with the attacker-supplied subject
+    // token in constant time. Hashing both to a fixed-size digest first means
+    // neither the byte-by-byte content nor the length of the secret leaks
+    // through a timing side channel.
+    let operator_code_matches =
+        state
+            .runtime
+            .options
+            .operator_code
+            .as_deref()
+            .is_some_and(|code| {
+                let expected = Sha256::digest(code.as_bytes());
+                let presented = Sha256::digest(request.subject_token.as_bytes());
+                expected.ct_eq(presented.as_slice()).into()
+            });
+    if !operator_code_matches {
         return error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
@@ -4603,6 +4665,41 @@ async fn git_endpoint(
             "Git repository was not found",
         );
     }
+    // Per-principal rate limit. Pushes (receive-pack) and reads (info/refs,
+    // upload-pack) have separate ceilings since a clone fan-out and a push are
+    // very different load profiles. Each request spawns git plumbing under a
+    // small semaphore, so an unbounded client is a resource-exhaustion vector.
+    let receive_pack = is_receive_pack(&path, raw_query.as_deref());
+    let (rate_bucket, rate_ceiling) = if receive_pack {
+        (
+            "git_receive_pack",
+            state
+                .runtime
+                .config
+                .rate_limits
+                .git_receive_pack_per_principal,
+        )
+    } else {
+        (
+            "git_info_refs",
+            state.runtime.config.rate_limits.git_info_refs_per_principal,
+        )
+    };
+    if state
+        .runtime
+        .rate_limit(
+            &format!("{rate_bucket}:{}", principal_fingerprint(&headers)),
+            rate_ceiling,
+        )
+        .is_err()
+    {
+        return error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            ErrorCode::RateLimited.as_str(),
+            "git rate limit exceeded",
+        );
+    }
+
     // Push (receive-pack) requires the git:write scope; reads (info/refs,
     // upload-pack) require git:read. The pure-Rust receive-pack responder in
     // comtrya-git-http applies per-ref CAS + connectivity checks once
@@ -4612,7 +4709,7 @@ async fn git_endpoint(
     // personal access token carrying git:write. Bearer/cookie sessions cannot
     // push, so a CSRF'd browser cookie can never mutate a repository. Reads
     // accept either a credential with git:read or a Basic PAT with git:read.
-    if is_receive_pack(&path, raw_query.as_deref()) {
+    if receive_pack {
         let Some(password) = basic_password.as_deref() else {
             let mut response = error_response(
                 StatusCode::UNAUTHORIZED,
@@ -4942,7 +5039,9 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
 /// is separate — so it must not over-report scopes a caller does not hold.
 fn viewer_permissions_for(principal: PrincipalStatus) -> Vec<&'static str> {
     match principal {
-        PrincipalStatus::Anonymous | PrincipalStatus::Invalid => Vec::new(),
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid | PrincipalStatus::Unavailable => {
+            Vec::new()
+        }
         PrincipalStatus::Credential => vec![
             "graphql:read",
             "graphql:write",
@@ -8271,6 +8370,102 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("git-upload-pack"));
+    }
+
+    #[tokio::test]
+    async fn git_endpoint_rate_limits_info_refs_per_principal() {
+        // Build a runtime whose git info-refs ceiling is tiny so we can drive
+        // it over the limit without thousands of requests.
+        let mut config = InstanceConfig::minimal_dev();
+        config.rate_limits.git_info_refs_per_principal = 2;
+        let runtime = Arc::new(
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("git-rate-limit"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                config,
+                true,
+            )
+            .unwrap(),
+        );
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_state = PureRustGitState::from_runtime(&runtime);
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let request = || {
+            git_endpoint(
+                State(AppState {
+                    runtime: runtime.clone(),
+                    git_state: git_state.clone(),
+                }),
+                bearer_headers(&token),
+                Method::GET,
+                AxumPath("comtrya/comtrya.git/info/refs".to_string()),
+                RawQuery(Some("service=git-upload-pack".to_string())),
+                Bytes::new(),
+            )
+        };
+
+        // The ceiling is 2: the first two requests pass, the third trips it.
+        assert_eq!(request().await.status(), StatusCode::OK);
+        assert_eq!(request().await.status(), StatusCode::OK);
+        let limited = request().await;
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = to_bytes(limited.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::RateLimited.as_str()
+        );
+    }
+
+    #[test]
+    fn credential_store_outage_reports_unavailable_not_invalid() {
+        // A storage outage during credential lookup must surface as a distinct
+        // `Unavailable` status (→ 503), never as `Invalid` (→ 401), so a SQLite
+        // hiccup is not mistaken for a bad token.
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+
+        // Sanity: a healthy store resolves the credential.
+        assert!(matches!(
+            runtime.principal_from_headers(&headers),
+            PrincipalStatus::OperatorCredential
+        ));
+
+        // Now break the store and confirm the status flips to Unavailable.
+        runtime
+            .store
+            .drop_credentials_table_for_tests()
+            .expect("drop credentials table");
+        assert!(matches!(
+            runtime.principal_from_headers(&headers),
+            PrincipalStatus::Unavailable
+        ));
+        // The action gate fails closed on the same outage.
+        assert!(!runtime.credential_allows(&headers, "graphql:read"));
+        // require_authenticated_principal surfaces a 503, not a 401.
+        let response =
+            require_authenticated_principal(PrincipalStatus::Unavailable, HeaderMap::new());
+        assert_eq!(
+            response.unwrap_err().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[tokio::test]

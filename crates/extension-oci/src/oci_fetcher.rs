@@ -38,6 +38,14 @@ impl OciExtensionFetcher {
     /// Base delay for exponential backoff (milliseconds)
     const RETRY_BASE_DELAY_MS: u64 = 1000;
 
+    /// Maximum size (bytes) accepted for a pulled WASM layer. A hostile or
+    /// compromised registry can advertise an arbitrarily large layer and OOM
+    /// the host while `pull` reads it fully into memory; the manifest
+    /// descriptor `size` is checked against this cap BEFORE any layer bytes are
+    /// downloaded. 256 MiB is far above any real extension component while
+    /// keeping peak memory bounded.
+    const MAX_WASM_LAYER_BYTES: u64 = 256 * 1024 * 1024;
+
     /// Create a new OCI extension fetcher
     pub fn new(cache_dir: PathBuf, offline_mode: bool, verify_checksums: bool) -> Result<Self> {
         let config = ClientConfig {
@@ -253,52 +261,65 @@ impl OciExtensionFetcher {
 
         let auth = auth.cloned().unwrap_or(RegistryAuth::Anonymous);
 
-        let image_data = self
+        // Pull the manifest BEFORE any layer bytes so we can reject an
+        // oversized WASM layer up front. This bounds peak memory: `pull` reads
+        // each layer fully into a Vec, so a registry advertising a giant layer
+        // would otherwise OOM the host before any digest check runs.
+        let (raw_manifest, _header_digest) = self
             .client
-            .pull(&oci_reference, &auth, vec![WASM_LAYER_MEDIA_TYPE])
+            .pull_manifest_raw(
+                &oci_reference,
+                &auth,
+                &[
+                    oci_distribution::manifest::OCI_IMAGE_MEDIA_TYPE,
+                    oci_distribution::manifest::IMAGE_MANIFEST_MEDIA_TYPE,
+                ],
+            )
             .await
-            .with_context(|| format!("Failed to pull OCI image: {image_ref}"))?;
+            .with_context(|| format!("Failed to pull manifest for {image_ref}"))?;
 
         // When the caller pinned a digest, anchor trust to the manifest bytes WE
         // hash — not the registry-supplied Docker-Content-Digest header, which a
-        // hostile registry can forge to echo whatever digest was requested. Pull
-        // the raw manifest, recompute its sha256, and require it to equal the pin
-        // before trusting any descriptor inside it.
-        let trusted_layer_digests = if let OciReference::Digest(requested) = reference {
-            let (raw_manifest, _header_digest) = self
-                .client
-                .pull_manifest_raw(
-                    &oci_reference,
-                    &auth,
-                    &[
-                        oci_distribution::manifest::OCI_IMAGE_MEDIA_TYPE,
-                        oci_distribution::manifest::IMAGE_MANIFEST_MEDIA_TYPE,
-                    ],
-                )
-                .await
-                .with_context(|| format!("Failed to pull manifest for {image_ref}"))?;
+        // hostile registry can forge to echo whatever digest was requested.
+        // Recompute its sha256 and require it to equal the pin before trusting
+        // any descriptor inside it.
+        if let OciReference::Digest(requested) = reference {
             let actual = format!("sha256:{}", compute_sha256(&raw_manifest));
             if actual != requested.as_str() {
                 anyhow::bail!(
                     "Digest mismatch for {image_ref}: requested {requested}, manifest bytes hash to {actual}"
                 );
             }
-            let trusted: oci_distribution::manifest::OciImageManifest =
-                serde_json::from_slice(&raw_manifest).with_context(|| {
-                    format!("Pinned manifest for {image_ref} is not a valid OCI image manifest")
-                })?;
-            Some(
-                trusted
+        }
+
+        let manifest: oci_distribution::manifest::OciImageManifest =
+            serde_json::from_slice(&raw_manifest).with_context(|| {
+                format!("Manifest for {image_ref} is not a valid OCI image manifest")
+            })?;
+
+        // Reject an oversized WASM layer before downloading it. The descriptor
+        // size is advertised by the (digest-anchored, for a pinned ref)
+        // manifest, so this runs before the layer bytes hit memory.
+        Self::check_wasm_layer_size(&manifest, &image_ref)?;
+
+        let trusted_layer_digests = match reference {
+            OciReference::Digest(_) => Some(
+                manifest
                     .layers
-                    .into_iter()
-                    .map(|layer| layer.digest)
+                    .iter()
+                    .map(|layer| layer.digest.clone())
                     .collect::<std::collections::BTreeSet<String>>(),
-            )
-        } else {
-            None
+            ),
+            OciReference::Tag(_) => None,
         };
 
-        let (wasm, content_digest) = Self::select_verified_layer(&image_data, &image_ref)?;
+        let image_data = self
+            .client
+            .pull(&oci_reference, &auth, vec![WASM_LAYER_MEDIA_TYPE])
+            .await
+            .with_context(|| format!("Failed to pull OCI image: {image_ref}"))?;
+
+        let (wasm, content_digest) = Self::select_verified_layer(image_data, &image_ref)?;
 
         // For a pinned digest, the layer we verified must be declared by the
         // trusted (hash-anchored) manifest — closing any window where `pull`
@@ -332,7 +353,28 @@ impl OciExtensionFetcher {
     /// digest rather than by index. The chosen layer's recomputed sha256 must
     /// equal a manifest descriptor digest of the WASM media type; otherwise the
     /// bytes do not match what the manifest advertised and are rejected.
-    fn select_verified_layer(image_data: &ImageData, image_ref: &str) -> Result<(Vec<u8>, String)> {
+    /// Reject any WASM layer whose advertised descriptor size exceeds the cap.
+    /// Run against the manifest before pulling layer bytes so a hostile
+    /// registry cannot OOM the host with an oversized layer.
+    fn check_wasm_layer_size(
+        manifest: &oci_distribution::manifest::OciImageManifest,
+        image_ref: &str,
+    ) -> Result<()> {
+        for descriptor in &manifest.layers {
+            if descriptor.media_type == WASM_LAYER_MEDIA_TYPE
+                && descriptor.size as u64 > Self::MAX_WASM_LAYER_BYTES
+            {
+                anyhow::bail!(
+                    "WASM layer for {image_ref} is {} bytes, exceeding the {}-byte cap",
+                    descriptor.size,
+                    Self::MAX_WASM_LAYER_BYTES
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn select_verified_layer(image_data: ImageData, image_ref: &str) -> Result<(Vec<u8>, String)> {
         let manifest = image_data
             .manifest
             .as_ref()
@@ -357,14 +399,15 @@ impl OciExtensionFetcher {
                 wasm_descriptor_digests.len()
             );
         }
-        let expected_digest = wasm_descriptor_digests[0];
+        let expected_digest = wasm_descriptor_digests[0].to_string();
 
         // Find the downloaded layer whose bytes hash to the expected descriptor
         // digest. This is the integrity check: it proves the bytes match the
         // manifest, defending against a registry that streams tampered content.
+        // Move the layer's bytes out (no clone) to avoid doubling peak memory.
         let wasm_layer = image_data
             .layers
-            .iter()
+            .into_iter()
             .find(|layer| {
                 layer.media_type == WASM_LAYER_MEDIA_TYPE
                     && layer.sha256_digest() == expected_digest
@@ -375,7 +418,7 @@ impl OciExtensionFetcher {
                 )
             })?;
 
-        Ok((wasm_layer.data.clone(), expected_digest.to_string()))
+        Ok((wasm_layer.data, expected_digest))
     }
 
     /// Validate that data is a WASM core module or component binary.
@@ -456,6 +499,34 @@ mod tests {
         }
     }
 
+    fn manifest_with_wasm_layer_size(size: i64) -> OciImageManifest {
+        OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: WASM_LAYER_MEDIA_TYPE.to_string(),
+                digest: format!("sha256:{}", "a".repeat(64)),
+                size,
+                ..OciDescriptor::default()
+            }],
+            ..OciImageManifest::default()
+        }
+    }
+
+    #[test]
+    fn check_wasm_layer_size_rejects_oversized_layer() {
+        let oversized = OciExtensionFetcher::MAX_WASM_LAYER_BYTES as i64 + 1;
+        let manifest = manifest_with_wasm_layer_size(oversized);
+        let result = OciExtensionFetcher::check_wasm_layer_size(&manifest, "ghcr.io/x:v1");
+        let err = result.expect_err("oversized layer must be rejected");
+        assert!(err.to_string().contains("exceeding"), "{err}");
+    }
+
+    #[test]
+    fn check_wasm_layer_size_accepts_within_cap() {
+        let manifest = manifest_with_wasm_layer_size(1024);
+        OciExtensionFetcher::check_wasm_layer_size(&manifest, "ghcr.io/x:v1")
+            .expect("within-cap layer must pass");
+    }
+
     #[test]
     fn test_validate_wasm_core_module() {
         let (_dir, fetcher) = fetcher();
@@ -526,7 +597,7 @@ mod tests {
         let image = image_with_wasm(CORE_MODULE, descriptor_digest.clone());
 
         let (bytes, digest) =
-            OciExtensionFetcher::select_verified_layer(&image, "ghcr.io/x:v1").unwrap();
+            OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1").unwrap();
         assert_eq!(bytes, CORE_MODULE);
         assert_eq!(digest, descriptor_digest);
     }
@@ -538,7 +609,7 @@ mod tests {
         let bogus_digest = format!("sha256:{}", "b".repeat(64));
         let image = image_with_wasm(CORE_MODULE, bogus_digest);
 
-        let result = OciExtensionFetcher::select_verified_layer(&image, "ghcr.io/x:v1");
+        let result = OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1");
         assert!(result.is_err());
         assert!(
             result
@@ -556,7 +627,7 @@ mod tests {
             config: Config::new(Vec::new(), String::new(), None),
             manifest: Some(OciImageManifest::default()),
         };
-        let result = OciExtensionFetcher::select_verified_layer(&image, "ghcr.io/x:v1");
+        let result = OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1");
         assert!(result.is_err());
     }
 

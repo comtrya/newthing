@@ -12,11 +12,10 @@
 //! `HostState::extension_id` and scopes storage / event access to that
 //! extension. The kernel — not the WIT — is the security boundary.
 //!
-//! Phase 2 scope: `time`, `log`, `identity`, `ids`, and `storage` are
-//! wired to real backing state. `relations`, `comments`, `events`, and
-//! `ops` return `error-code::internal` with an explicit "not yet
-//! implemented" message; their Phase 2 wiring lands in a follow-on
-//! commit once the kernel's event-dispatcher refactor is in place.
+//! Every imported interface is wired to real backing state: `time`, `log`,
+//! `identity`, `ids`, and `storage` provide the runtime primitives, while
+//! `relations`, `comments`, `events`, and `ops` persist real records and
+//! dispatch real cross-extension operations through the kernel.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, RwLock};
@@ -839,10 +838,10 @@ impl wit_storage::Host for HostState {
     fn query(
         &mut self,
         collection: String,
-        _filters: Vec<wit_storage::IndexFilter>,
-        _order: Option<wit_storage::OrderBy>,
+        filters: Vec<wit_storage::IndexFilter>,
+        order: Option<wit_storage::OrderBy>,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_storage::DocPage, wit_types::Error> {
         self.require_host_import("storage.read")?;
         if limit == 0 {
@@ -857,9 +856,23 @@ impl wit_storage::Host for HostState {
                 "limit must not exceed 1024",
             ));
         }
-        // Phase 2: minimal — fetch the extension's collection. Filter / order
-        // are TODO; the kernel's existing `query_documents_by_index` covers
-        // the index-fields case but not the variant index-filter shape yet.
+        // Index-filter and order semantics are not implemented yet. Rather than
+        // silently returning unfiltered, unordered data (which would violate the
+        // storage.wit contract and feed the caller records it explicitly asked
+        // to exclude), reject any filter/order request loudly. Callers that pass
+        // neither get the full collection paginated by id.
+        if !filters.is_empty() {
+            return Err(err(
+                wit_types::ErrorCode::BadInput,
+                "filtered query is not yet supported",
+            ));
+        }
+        if order.is_some() {
+            return Err(err(
+                wit_types::ErrorCode::BadInput,
+                "ordered query is not yet supported",
+            ));
+        }
         // Pagination is real: records are ordered deterministically by id and
         // the cursor is the last id returned (opaque, base64-encoded), so a
         // collection larger than `limit` is fully walkable across calls.
@@ -873,7 +886,7 @@ impl wit_storage::Host for HostState {
             .collect();
         matching.sort_by(|a, b| a.id.cmp(&b.id));
 
-        let after_id = match _after {
+        let after_id = match after {
             Some(token) => Some(decode_doc_cursor(&token.cursor)?),
             None => None,
         };
@@ -912,11 +925,12 @@ impl wit_storage::Host for HostState {
     }
 }
 
-// ---- stubs (relations, comments, events, ops) ----
+// ---- relations, comments, events, ops ----
 //
-// These return `error-code::internal` with a TODO marker. The kernel
-// host import wiring lands in a follow-on commit alongside the event-
-// dispatcher refactor.
+// These interfaces are fully implemented: each persists real records
+// through the kernel store (relations, comments, events) or dispatches
+// real cross-extension operations (ops), gated by the calling extension's
+// host imports and capability grants.
 
 impl wit_relations::Host for HostState {
     fn create(
@@ -2008,6 +2022,53 @@ mod tests {
         assert!(
             matches!(bad, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
             "malformed cursor must be bad-input"
+        );
+    }
+
+    #[test]
+    fn query_rejects_filters_and_order_until_implemented() {
+        // storage.query does not yet honour index filters or ordering. It must
+        // reject those requests with bad-input rather than silently returning
+        // unfiltered, unordered data (a storage.wit contract violation).
+        let store = tmp_store("query-reject");
+        let mut host = host_with_principal(store.clone(), "comtrya://user/usr_test");
+        host.manifest = Arc::new(HostManifest {
+            host_imports: vec!["storage.read".to_string(), "storage.write".to_string()],
+            ..HostManifest::default()
+        });
+
+        let filtered = <HostState as wit_storage::Host>::query(
+            &mut host,
+            "_meta".to_string(),
+            vec![wit_storage::IndexFilter::NullCheck(
+                wit_storage::NullFilter {
+                    field: "state".to_string(),
+                    is_null: false,
+                },
+            )],
+            None,
+            10,
+            None,
+        );
+        assert!(
+            matches!(filtered, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
+            "a filtered query must be bad-input"
+        );
+
+        let ordered = <HostState as wit_storage::Host>::query(
+            &mut host,
+            "_meta".to_string(),
+            Vec::new(),
+            Some(wit_storage::OrderBy {
+                field: "created".to_string(),
+                descending: true,
+            }),
+            10,
+            None,
+        );
+        assert!(
+            matches!(ordered, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
+            "an ordered query must be bad-input"
         );
     }
 

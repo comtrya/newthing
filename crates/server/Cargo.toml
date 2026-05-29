@@ -20,6 +20,7 @@ comtrya-git-http = { path = "../git-http" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.10.9"
+subtle = "2"
 tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 wasmtime = { version = "43", default-features = false, features = ["anyhow", "component-model", "cranelift", "runtime", "std", "wat"] }
 jsonschema = { version = "0.18", default-features = false }

@@ -37,9 +37,17 @@ impl OidcIssuerConfig {
         {
             return true;
         }
+        // The domain part of an email is case-insensitive per RFC 5321, so an
+        // IdP that emits `user@Example.test` must still match an allowlisted
+        // `example.test`. Subjects and groups stay case-sensitive (subjects are
+        // case-sensitive per the OIDC spec).
         if email
             .and_then(|value| value.rsplit_once('@').map(|(_, domain)| domain))
-            .is_some_and(|domain| self.allowed_domains.iter().any(|allowed| allowed == domain))
+            .is_some_and(|domain| {
+                self.allowed_domains
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(domain))
+            })
         {
             return true;
         }
@@ -1256,6 +1264,26 @@ mod tests {
     #[test]
     fn minimal_dev_config_validates() {
         InstanceConfig::minimal_dev().validate().unwrap();
+    }
+
+    #[test]
+    fn oidc_allows_matches_email_domain_case_insensitively() {
+        let issuer = OidcIssuerConfig {
+            id: "primary".to_string(),
+            issuer_url: "https://idp.test".to_string(),
+            client_id: "cid".to_string(),
+            client_kind: ClientKind::Confidential,
+            client_secret: Some("dev-secret".to_string()),
+            redirect_url: "http://localhost:8080/auth/oidc/primary/callback".to_string(),
+            allowed_domains: vec!["example.test".to_string()],
+            allowed_groups: vec![],
+            allowed_subjects: vec![],
+        };
+        // Mixed-case domain from the IdP must still match the lowercase allowlist.
+        assert!(issuer.allows("sub", Some("user@Example.TEST"), &[]));
+        assert!(issuer.allows("sub", Some("user@example.test"), &[]));
+        // A genuinely different domain is still denied.
+        assert!(!issuer.allows("sub", Some("user@other.test"), &[]));
     }
 
     #[test]

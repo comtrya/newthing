@@ -110,10 +110,20 @@ impl AuthService {
         claims: OidcClaims,
         now_ms: u64,
     ) -> CoreResult<LoginResult> {
-        let issuer = self
-            .issuers
-            .get(issuer_id)
-            .ok_or_else(|| CoreError::new(ErrorCode::Unauthenticated, "unknown OIDC issuer"))?;
+        // Clone the matched issuer so the immutable borrow of `self.issuers` is
+        // released before `audit_login` (which needs `&mut self`). An unknown
+        // issuer id must be audited like the other failed-login paths so a
+        // caller probing for valid issuer ids does not slip through unaudited.
+        let issuer = match self.issuers.get(issuer_id).cloned() {
+            Some(issuer) => issuer,
+            None => {
+                self.audit_login(false, None, now_ms);
+                return Err(CoreError::new(
+                    ErrorCode::Unauthenticated,
+                    "unknown OIDC issuer",
+                ));
+            }
+        };
         if issuer.issuer_url != claims.issuer {
             self.audit_login(false, None, now_ms);
             return Err(CoreError::new(
@@ -288,6 +298,32 @@ mod tests {
         let err = auth.login("dev", claims(), 0).unwrap_err();
 
         assert_eq!(err.code, ErrorCode::Forbidden);
+        assert_eq!(auth.users_len(), 0);
+    }
+
+    #[test]
+    fn unknown_issuer_login_is_audited_as_failed() {
+        let config = InstanceConfig::minimal_dev();
+        let mut auth = AuthService::new(&config);
+
+        let err = auth.login("no-such-issuer", claims(), 42).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Unauthenticated);
+
+        // The unknown-issuer path must emit a failed-login audit event, just
+        // like the issuer-mismatch and provisioning-denied paths do.
+        let failed: Vec<_> = auth
+            .outbox
+            .all()
+            .iter()
+            .filter(|event| event.event_type == CoreEventType::AuthLoginFailed.as_str())
+            .cloned()
+            .collect();
+        assert_eq!(
+            failed.len(),
+            1,
+            "unknown issuer must produce one failure audit"
+        );
+        assert_eq!(failed[0].time, "1970-01-01T00:00:00.042Z");
         assert_eq!(auth.users_len(), 0);
     }
 
