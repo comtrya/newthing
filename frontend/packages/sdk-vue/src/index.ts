@@ -30,9 +30,12 @@ import {
 } from "@comtrya/sdk-core";
 import { getGraphQLClient } from "@comtrya/sdk-core";
 
+/** The structured error payload carried by a failed {@link OpResult}. */
+export type OpError<T> = Extract<OpResult<T>, { ok: false }>["error"];
+
 export interface UseOpState<T> {
   data: Ref<T | undefined>;
-  error: Ref<OpResult<T> extends { ok: false } ? unknown : unknown | undefined>;
+  error: Ref<OpError<T> | undefined>;
   pending: Ref<boolean>;
   run: (input?: unknown) => Promise<OpResult<T>>;
 }
@@ -48,7 +51,9 @@ export function useOp<T = unknown>(
   options: InvokeOpOptions = {},
 ): UseOpState<T> {
   const data = ref<T | undefined>(undefined) as Ref<T | undefined>;
-  const error = ref<unknown | undefined>(undefined);
+  const error = ref<OpError<T> | undefined>(undefined) as Ref<
+    OpError<T> | undefined
+  >;
   const pending = ref(false);
   const run = async (input?: unknown): Promise<OpResult<T>> => {
     pending.value = true;

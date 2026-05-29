@@ -7,18 +7,6 @@ import {
 const REPOSITORY_SUMMARY_TAG = "comtrya-repository-summary";
 
 /**
- * Generic regions the repository dashboard renders. Extensions publish
- * widgets with a defaultSlot pointing at one of these names; the user
- * can override placement via the layout overlay.
- */
-export const repositoryHomeSlots = [
-  { name: "repository.main", label: "Main" },
-  { name: "repository.sidebar", label: "Sidebar" },
-] as const;
-
-export type RepositoryHomeSlotName = (typeof repositoryHomeSlots)[number]["name"];
-
-/**
  * Core (shell-owned) widgets are registered through the same widget
  * registry every extension uses. They're treated identically — the user
  * can move them, hide them, or override their priority just like an
