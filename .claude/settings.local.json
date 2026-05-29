@@ -2,6 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(git status *)"
+    ],
+    "additionalDirectories": [
+      "/Users/rawkode/Code/src/github.com/rawkode-academy/rawkode-academy"
     ]
   }
 }

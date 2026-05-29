@@ -876,6 +876,50 @@ mod tests {
     }
 
     #[test]
+    fn reactor_allowed_mutations_accept_bare_same_extension_op() {
+        // Regression for #80: the WIT contract allows a reactor mutation to
+        // name one of the extension's OWN ops with no `<target>/` prefix.
+        // The manifest schema must accept that bare form as well as the
+        // fully-qualified `<extension-id>/<op>` form.
+        let manifest = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "reactor": {
+                "allowedMutations": ["issues.close-issue", "ext_epics/epics.close-epic"]
+            }
+        });
+        validate_manifest_against_schema(
+            &manifest,
+            std::path::Path::new("test://bare-mutation.json"),
+        )
+        .expect("bare same-extension and qualified mutations must validate");
+    }
+
+    #[test]
+    fn reactor_allowed_mutations_reject_malformed_op() {
+        // A dangling slash (no op after the target) is still invalid.
+        let manifest = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "reactor": {
+                "allowedMutations": ["ext_epics/"]
+            }
+        });
+        let err = validate_manifest_against_schema(
+            &manifest,
+            std::path::Path::new("test://bad-mutation.json"),
+        )
+        .expect_err("a dangling-slash mutation must be rejected");
+        assert!(err.contains("schema validation"), "error: {}", err);
+    }
+
+    #[test]
     fn parse_host_manifest_handles_missing_optional_fields() {
         let minimal = serde_json::json!({ "id": "ext_minimal" });
         let wire = parse_wire_manifest(&minimal, std::path::Path::new("test-manifest.json"))

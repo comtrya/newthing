@@ -1136,11 +1136,22 @@ fn validate_oidc(environment: Environment, issuers: &[OidcIssuerConfig]) -> Core
         ));
     }
 
+    // Issuers are keyed by `id` downstream (AuthService::set_issuers collects
+    // into a map), so duplicate ids would silently collapse and drop a
+    // configured login provider. Reject duplicates here, mirroring the
+    // extension/repository uniqueness checks in `validate()`.
+    let mut seen_ids = BTreeSet::new();
     for issuer in issuers {
         if issuer.id.trim().is_empty() {
             return Err(CoreError::config_invalid(
                 "oidc issuer id must be non-empty",
             ));
+        }
+        if !seen_ids.insert(issuer.id.trim().to_string()) {
+            return Err(CoreError::config_invalid(format!(
+                "duplicate oidc issuer id {:?} in config",
+                issuer.id.trim()
+            )));
         }
         if !issuer.issuer_url.starts_with("https://") {
             return Err(CoreError::config_invalid(
@@ -1416,6 +1427,22 @@ mod tests {
             config.validate().unwrap_err().code,
             ErrorCode::ConfigInvalid
         );
+    }
+
+    #[test]
+    fn duplicate_oidc_issuer_ids_are_rejected() {
+        // Two issuers sharing an id would silently collapse downstream and
+        // drop one login provider; validation must reject the config.
+        let mut config = InstanceConfig::minimal_dev();
+        let mut clone = config.oidc_issuers[0].clone();
+        clone.issuer_url = "https://second.example.test".to_string();
+        // Same id (modulo surrounding whitespace) must still collide.
+        clone.id = format!("  {}  ", config.oidc_issuers[0].id);
+        config.oidc_issuers.push(clone);
+
+        let err = config.validate().unwrap_err();
+        assert_eq!(err.code, ErrorCode::ConfigInvalid);
+        assert!(err.message.contains("duplicate oidc issuer id"));
     }
 
     #[test]
