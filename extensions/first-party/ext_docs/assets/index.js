@@ -2923,21 +2923,18 @@ function fo(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/session.ts
-var po, mo, ho = "/auth/oidc/google/login";
-async function go(e = {}) {
-	return po && po.expiresAtMs > Date.now() + 5e3 ? po.token : (mo ||= vo(e).finally(() => {
+var po, mo;
+async function ho(e = {}) {
+	return po && po.expiresAtMs > Date.now() + 5e3 ? po.token : (mo ||= _o(e).finally(() => {
 		mo = void 0;
 	}), mo);
 }
-function _o() {
+function go() {
 	po = void 0;
 }
-async function vo(e) {
-	let t = e.operatorCode ?? yo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
-	if (!t) {
-		(e.redirectTo ?? bo)(e.oidcLoginPath ?? ho);
-		return;
-	}
+async function _o(e) {
+	let t = e.operatorCode ?? vo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
+	if (!t) return;
 	let i = await n(`${r}/auth/token-exchange`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -2964,7 +2961,7 @@ async function vo(e) {
 		expiresAtMs: Date.now() + o
 	}, po.token;
 }
-function yo() {
+function vo() {
 	try {
 		return {
 			BASE_URL: "/",
@@ -2977,24 +2974,21 @@ function yo() {
 		return;
 	}
 }
-function bo(e) {
-	typeof window < "u" && window.location && (window.location.href = e);
-}
 //#endregion
 //#region packages/sdk-core/src/graphql-client.ts
-var xo = {
+var yo = {
 	endpoint: "/graphql",
 	credentials: "include",
 	fetchImpl: typeof fetch < "u" ? fetch.bind(globalThis) : (() => {
 		throw Error("no fetch implementation available");
 	})
-}, So;
-function Co() {
-	return So ||= wo(xo), So;
+}, bo;
+function xo() {
+	return bo ||= So(yo), bo;
 }
-function wo(e) {
+function So(e) {
 	let t = async (t, n) => {
-		let r = await go(), i = { "Content-Type": "application/json" };
+		let r = await ho(), i = { "Content-Type": "application/json" };
 		r && (i.Authorization = `Bearer ${r}`);
 		let a = await e.fetchImpl(e.endpoint, {
 			method: "POST",
@@ -3005,7 +2999,7 @@ function wo(e) {
 				variables: n
 			})
 		});
-		a.status === 401 && _o();
+		a.status === 401 && go();
 		let o;
 		try {
 			o = await a.json();
@@ -3022,65 +3016,53 @@ function wo(e) {
 	};
 }
 //#endregion
-//#region packages/sdk-core/src/relationship-registry.ts
-var To = Symbol.for("comtrya.relationship-registry");
-Eo();
-function Eo() {
-	let e = globalThis;
-	return e[To] ??= {
-		types: /* @__PURE__ */ new Map(),
-		providers: /* @__PURE__ */ new Map(),
-		subscribers: /* @__PURE__ */ new Set()
-	}, e[To];
-}
-//#endregion
 //#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
-var Do = [
+var Co = [
 	"Shift",
 	"Meta",
 	"Alt",
 	"Control"
-], Oo = typeof navigator == "object" ? navigator.platform : "", ko = /Mac|iPod|iPhone|iPad/.test(Oo), Ao = ko ? "Meta" : "Control", jo = Oo === "Win32" ? ["Control", "Alt"] : ko ? ["Alt"] : [];
-function Mo(e, t) {
-	return typeof e.getModifierState == "function" && (e.getModifierState(t) || jo.includes(t) && e.getModifierState("AltGraph"));
+], wo = typeof navigator == "object" ? navigator.platform : "", To = /Mac|iPod|iPhone|iPad/.test(wo), Eo = To ? "Meta" : "Control", Do = wo === "Win32" ? ["Control", "Alt"] : To ? ["Alt"] : [];
+function Oo(e, t) {
+	return typeof e.getModifierState == "function" && (e.getModifierState(t) || Do.includes(t) && e.getModifierState("AltGraph"));
 }
-function No(e) {
+function ko(e) {
 	return e.trim().split(" ").map(function(e) {
 		var t = e.split(/\b\+/), n = t.pop(), r = n.match(/^\((.+)\)$/);
 		return r && (n = RegExp("^" + r[1] + "$")), [t = t.map(function(e) {
-			return e === "$mod" ? Ao : e;
+			return e === "$mod" ? Eo : e;
 		}), n];
 	});
 }
-function Po(e, t) {
+function Ao(e, t) {
 	var n = t[0], r = t[1];
 	return !((r instanceof RegExp ? !r.test(e.key) && !r.test(e.code) : r.toUpperCase() !== e.key.toUpperCase() && r !== e.code) || n.find(function(t) {
-		return !Mo(e, t);
-	}) || Do.find(function(t) {
-		return !n.includes(t) && r !== t && Mo(e, t);
+		return !Oo(e, t);
+	}) || Co.find(function(t) {
+		return !n.includes(t) && r !== t && Oo(e, t);
 	}));
 }
-function Fo(e, t) {
+function jo(e, t) {
 	t === void 0 && (t = {});
 	var n = t.timeout ?? 1e3, r = Object.keys(e).map(function(t) {
-		return [No(t), e[t]];
+		return [ko(t), e[t]];
 	}), i = /* @__PURE__ */ new Map(), a = null;
 	return function(e) {
 		e instanceof KeyboardEvent && (r.forEach(function(t) {
 			var n = t[0], r = t[1], a = i.get(n) || n;
-			Po(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : Mo(e, e.key) || i.delete(n);
+			Ao(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : Oo(e, e.key) || i.delete(n);
 		}), a && clearTimeout(a), a = setTimeout(i.clear.bind(i), n));
 	};
 }
-function Io(e, t, n) {
-	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = Fo(t, { timeout: r.timeout });
+function Mo(e, t, n) {
+	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = jo(t, { timeout: r.timeout });
 	return e.addEventListener(a, s, o), function() {
 		e.removeEventListener(a, s, o);
 	};
 }
 //#endregion
 //#region packages/sdk-vue/src/use-shortcuts.ts
-function Lo(e) {
+function No(e) {
 	if (!(e instanceof HTMLElement)) return !1;
 	if (e instanceof HTMLInputElement) {
 		let t = e.type;
@@ -3088,26 +3070,26 @@ function Lo(e) {
 	}
 	return !!(e instanceof HTMLTextAreaElement || e.isContentEditable);
 }
-function Ro(e) {
+function Po(e) {
 	return /Escape/i.test(e) ? !0 : /\$mod|Cmd|Ctrl|Alt|Shift|Meta|Control/i.test(e);
 }
-function zo(e) {
+function Fo(e) {
 	let t = {};
 	for (let [n, r] of Object.entries(e)) {
-		if (Ro(n)) {
+		if (Po(n)) {
 			t[n] = r;
 			continue;
 		}
 		t[n] = (e) => {
-			Lo(e.target) || r(e);
+			No(e.target) || r(e);
 		};
 	}
 	return t;
 }
-function Bo(e, t = {}) {
+function Io(e, t = {}) {
 	if (typeof window > "u") return;
-	let n = null, r = zo(e), i = () => {
-		n ||= Io(t.target ?? window, r);
+	let n = null, r = Fo(e), i = () => {
+		n ||= Mo(t.target ?? window, r);
 	}, a = () => {
 		n?.(), n = null;
 	};
@@ -3117,20 +3099,20 @@ function Bo(e, t = {}) {
 }
 //#endregion
 //#region packages/sdk-vue/src/markdown.ts
-var Vo = {
+var Lo = {
 	"&": "&amp;",
 	"<": "&lt;",
 	">": "&gt;",
 	"\"": "&quot;",
 	"'": "&#39;"
 };
-function Ho(e) {
-	return e.replace(/[&<>"']/g, (e) => Vo[e] ?? e);
+function Ro(e) {
+	return e.replace(/[&<>"']/g, (e) => Lo[e] ?? e);
 }
-var Uo = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, Wo = "CODE", Go = "END";
-function Ko(e, t) {
-	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), Wo + (n.length - 1) + Go));
-	if (r = r.replace(Uo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
+var zo = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)]/g, Bo = "CODE", Vo = "END";
+function Ho(e, t) {
+	let n = [], r = e.replace(/`([^`]+)`/g, (e, t) => (n.push("<code>" + t + "</code>"), Bo + (n.length - 1) + Vo));
+	if (r = r.replace(zo, (e) => "<a href=\"" + e + "\" rel=\"noopener noreferrer\">" + e + "</a>"), t.workspaceId) {
 		let e = encodeURIComponent(t.workspaceId);
 		r = r.replace(/(^|[^\w&])#(\d+)\b/g, (t, n, r) => n + "<a href=\"/x/issues/" + e + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>");
 	}
@@ -3138,7 +3120,7 @@ function Ko(e, t) {
 	let i = /* @__PURE__ */ RegExp("CODE(\\d+)END", "g");
 	return r.replace(i, (e, t) => n[Number(t)] ?? "");
 }
-function qo(e) {
+function Uo(e) {
 	let t = e.replace(/\r\n?/g, "\n").split("\n"), n = [], r = 0;
 	for (; r < t.length;) {
 		let e = t[r] ?? "";
@@ -3199,41 +3181,41 @@ function qo(e) {
 	}
 	return n;
 }
-function Jo(e, t = {}) {
+function Wo(e, t = {}) {
 	if (!e) return "";
-	let n = qo(e), r = [];
+	let n = Uo(e), r = [];
 	for (let e of n) switch (e.kind) {
 		case "heading": {
-			let n = e.level ?? 1, i = Ko(Ho(e.text), t);
+			let n = e.level ?? 1, i = Ho(Ro(e.text), t);
 			r.push("<h" + n + ">" + i + "</h" + n + ">");
 			break;
 		}
 		case "paragraph": {
-			let n = Ko(Ho(e.text), t);
+			let n = Ho(Ro(e.text), t);
 			r.push("<p>" + n.replace(/\n/g, "<br />") + "</p>");
 			break;
 		}
 		case "code": {
-			let t = e.lang ? " data-lang=\"" + Ho(e.lang) + "\"" : "";
-			r.push("<pre" + t + "><code>" + Ho(e.text) + "</code></pre>");
+			let t = e.lang ? " data-lang=\"" + Ro(e.lang) + "\"" : "";
+			r.push("<pre" + t + "><code>" + Ro(e.text) + "</code></pre>");
 			break;
 		}
 		case "list": {
-			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + Ko(Ho(e), t) + "</li>").join("\n");
+			let n = e.ordered ? "ol" : "ul", i = (e.items ?? []).map((e) => "  <li>" + Ho(Ro(e), t) + "</li>").join("\n");
 			r.push("<" + n + ">\n" + i + "\n</" + n + ">");
 			break;
 		}
 	}
 	return r.join("\n");
 }
-function Yo(e, t = 280) {
+function Go(e, t = 280) {
 	let n = e.replace(/\s+/g, " ").trim();
 	return n.length <= t ? n : n.slice(0, t) + "…";
 }
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Xo(e) {
-	Zo(e.tagName, e.component);
+function Ko(e) {
+	qo(e.tagName, e.component);
 	let t = /* @__PURE__ */ Za(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -3241,65 +3223,65 @@ function Xo(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute($o(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(Yo(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Zo(e, t) {
+function qo(e, t) {
 	if (typeof document > "u") return;
-	let n = Qo(t);
+	let n = Jo(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function Qo(e) {
+function Jo(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function $o(e) {
+function Yo(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_docs/ui/src/DocsPanel.vue?vue&type=script&setup=true&lang.ts
-var es = {
+var Xo = {
 	class: "docs-panel",
 	"data-smoke": "docs-panel"
-}, ts = { class: "docs-head" }, ns = { class: "title-block" }, rs = { class: "muted" }, is = {
+}, Zo = { class: "docs-head" }, Qo = { class: "title-block" }, $o = { class: "muted" }, es = {
 	key: 0,
 	class: "muted error",
 	role: "alert"
-}, as = {
+}, ts = {
 	key: 1,
 	class: "muted error",
 	role: "alert"
-}, os = { class: "docs-project-head" }, ss = { class: "docs-project-root" }, cs = { class: "docs-type-head" }, ls = { class: "docs-type-key" }, us = { class: "docs-type-label" }, ds = { class: "docs-type-scope" }, fs = { class: "muted docs-type-count" }, ps = {
+}, ns = { class: "docs-project-head" }, rs = { class: "docs-project-root" }, is = { class: "docs-type-head" }, as = { class: "docs-type-key" }, os = { class: "docs-type-label" }, ss = { class: "docs-type-scope" }, cs = { class: "muted docs-type-count" }, ls = {
 	key: 0,
 	class: "docs-type-desc"
-}, ms = {
+}, us = {
 	key: 1,
 	class: "docs-type-props"
-}, hs = {
+}, ds = {
 	key: 2,
 	class: "docs-files"
-}, gs = [
+}, fs = [
 	"onClick",
 	"onFocus",
 	"onMouseenter",
 	"onKeydown"
-], _s = { class: "docs-file-head" }, vs = { class: "docs-file-caret" }, ys = { class: "docs-file-title" }, bs = { class: "docs-file-path" }, xs = {
+], ps = { class: "docs-file-head" }, ms = { class: "docs-file-caret" }, hs = { class: "docs-file-title" }, gs = { class: "docs-file-path" }, _s = {
 	key: 0,
 	class: "docs-file-front"
-}, Ss = {
+}, vs = {
 	key: 1,
 	class: "docs-file-body"
-}, Cs = ["innerHTML"], ws = {
+}, ys = ["innerHTML"], bs = {
 	key: 3,
 	class: "muted no-files"
-}, Ts = /* @__PURE__ */ ((e, t) => {
+}, xs = /* @__PURE__ */ ((e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
@@ -3338,7 +3320,7 @@ var es = {
 			let n = u.value, r = n ? t.indexOf(n) : -1;
 			u.value = t[Math.max(0, Math.min(t.length - 1, r + e))] ?? null;
 		}
-		Bo({
+		Io({
 			Escape: (e) => {
 				l.value &&= (e.preventDefault(), null);
 			},
@@ -3371,7 +3353,7 @@ var es = {
 					i.value = null, a.value = [], n.value = "ready";
 					return;
 				}
-				let r = (await Co().query("query Q($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }\n      }", { segments: e })).workspace?.repositoryByPath ?? null;
+				let r = (await xo().query("query Q($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig blobs { path preview size } } }\n      }", { segments: e })).workspace?.repositoryByPath ?? null;
 				i.value = r?.comtryaConfig ?? null, a.value = r?.blobs ?? [], n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = e instanceof Error ? e.message : String(e);
@@ -3442,8 +3424,8 @@ var es = {
 		function T(e) {
 			return e == null ? "·" : Array.isArray(e) ? e.map(T).join(" · ") : typeof e == "object" ? Object.entries(e).map(([e, t]) => `${e}=${T(t)}`).join(" · ") : String(e);
 		}
-		return (t, a) => (J(), Y("section", es, [
-			X("header", ts, [X("div", ns, [a[8] ||= X("h2", null, "Docs", -1), X("span", rs, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
+		return (t, a) => (J(), Y("section", Xo, [
+			X("header", Zo, [X("div", Qo, [a[8] ||= X("h2", null, "Docs", -1), X("span", $o, [n.value === "loading" ? (J(), Y(K, { key: 0 }, [Q("reading repo CUE config…")], 64)) : n.value === "error" ? (J(), Y(K, { key: 1 }, [Q("unavailable")], 64)) : c.value === 0 ? (J(), Y(K, { key: 2 }, [
 				a[0] ||= Q(" No MDX docs declared. Add a ", -1),
 				a[1] ||= X("code", null, "docs", -1),
 				a[2] ||= Q(" block to a Project in ", -1),
@@ -3458,27 +3440,27 @@ var es = {
 				a[6] ||= X("code", null, "ext_docs", -1),
 				a[7] ||= Q("'s registered CUE schema ", -1)
 			], 64))])])]),
-			n.value === "error" ? (J(), Y("p", is, A(r.value), 1)) : i.value?.error ? (J(), Y("p", as, A(i.value.error), 1)) : Fi("", !0),
+			n.value === "error" ? (J(), Y("p", es, A(r.value), 1)) : i.value?.error ? (J(), Y("p", ts, A(i.value.error), 1)) : Fi("", !0),
 			(J(!0), Y(K, null, sr(s.value, (t) => Sn((J(), Y("article", {
 				key: t.name,
 				class: "docs-project"
-			}, [X("header", os, [X("h3", null, A(t.name), 1), X("code", ss, A(t.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(t), (n) => (J(), Y("section", {
+			}, [X("header", ns, [X("h3", null, A(t.name), 1), X("code", rs, A(t.root || "<repo root>") + "/", 1)]), (J(!0), Y(K, null, sr(S(t), (n) => (J(), Y("section", {
 				key: n.key,
 				class: "docs-type"
 			}, [
-				X("header", cs, [
-					X("code", ls, A(n.key), 1),
-					X("span", us, A(n.type.label || n.key), 1),
-					X("code", ds, A(v(t, n.type) || "<project root>") + "/", 1),
-					X("span", fs, [Q(A(x(t, n.type).length) + " file", 1), x(t, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
+				X("header", is, [
+					X("code", as, A(n.key), 1),
+					X("span", os, A(n.type.label || n.key), 1),
+					X("code", ss, A(v(t, n.type) || "<project root>") + "/", 1),
+					X("span", cs, [Q(A(x(t, n.type).length) + " file", 1), x(t, n.type).length === 1 ? Fi("", !0) : (J(), Y(K, { key: 0 }, [Q("s")], 64))])
 				]),
-				n.type.description ? (J(), Y("p", ps, A(n.type.description), 1)) : Fi("", !0),
-				C(n.type).length > 0 ? (J(), Y("dl", ms, [
+				n.type.description ? (J(), Y("p", ls, A(n.type.description), 1)) : Fi("", !0),
+				C(n.type).length > 0 ? (J(), Y("dl", us, [
 					(J(!0), Y(K, null, sr(C(n.type), (e) => (J(), Y(K, { key: e.name }, [X("dt", null, [X("code", null, A(e.name), 1)]), X("dd", null, A(w(e.spec)), 1)], 64))), 128)),
 					a[9] ||= X("dt", { class: "implicit" }, [X("code", null, "body")], -1),
 					a[10] ||= X("dd", { class: "implicit" }, "MDX body (implicit)", -1)
 				])) : Fi("", !0),
-				x(t, n.type).length > 0 ? (J(), Y("ol", hs, [(J(!0), Y(K, null, sr(x(t, n.type), (t) => (J(), Y("li", {
+				x(t, n.type).length > 0 ? (J(), Y("ol", ds, [(J(!0), Y(K, null, sr(x(t, n.type), (t) => (J(), Y("li", {
 					key: t.path,
 					class: he(["docs-file", {
 						focused: u.value === t.path,
@@ -3490,19 +3472,19 @@ var es = {
 					onMouseenter: (e) => p(t.path),
 					onKeydown: io(no((e) => f(t.path), ["prevent"]), ["enter"])
 				}, [
-					X("header", _s, [
-						X("span", vs, A(d(t.path) ? "▾" : "▸"), 1),
-						X("strong", ys, A(t.title), 1),
-						X("code", bs, A(t.path), 1)
+					X("header", ps, [
+						X("span", ms, A(d(t.path) ? "▾" : "▸"), 1),
+						X("strong", hs, A(t.title), 1),
+						X("code", gs, A(t.path), 1)
 					]),
-					Object.keys(t.frontMatter).length > 0 ? (J(), Y("dl", xs, [(J(!0), Y(K, null, sr(t.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
-					t.body && !d(t.path) ? (J(), Y("p", Ss, A(Wt(Yo)(t.body)), 1)) : Fi("", !0),
+					Object.keys(t.frontMatter).length > 0 ? (J(), Y("dl", _s, [(J(!0), Y(K, null, sr(t.frontMatter, (e, t) => (J(), Y(K, { key: t }, [X("dt", null, [X("code", null, A(t), 1)]), X("dd", null, A(T(e)), 1)], 64))), 128))])) : Fi("", !0),
+					t.body && !d(t.path) ? (J(), Y("p", vs, A(Wt(Go)(t.body)), 1)) : Fi("", !0),
 					t.body && d(t.path) ? (J(), Y("article", {
 						key: 2,
 						class: "docs-file-rendered",
-						innerHTML: Wt(Jo)(t.body, { workspaceId: e.workspaceId ?? "" })
-					}, null, 8, Cs)) : Fi("", !0)
-				], 42, gs))), 128))])) : (J(), Y("p", ws, [
+						innerHTML: Wt(Wo)(t.body, { workspaceId: e.workspaceId ?? "" })
+					}, null, 8, ys)) : Fi("", !0)
+				], 42, fs))), 128))])) : (J(), Y("p", bs, [
 					a[11] ||= Q(" No MDX files in ", -1),
 					X("code", null, A(v(t, n.type)) + "/", 1),
 					a[12] ||= Q(" yet. ", -1)
@@ -3510,17 +3492,17 @@ var es = {
 			]))), 128))])), [[xa, S(t).length > 0]])), 128))
 		]));
 	}
-}), [["styles", [".docs-panel{font-family:var(--font-sans,system-ui);gap:14px;display:grid}.docs-panel .docs-head{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;padding-bottom:6px;display:flex}.docs-panel h2{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.docs-panel .title-block{flex-wrap:wrap;align-items:baseline;gap:14px;display:inline-flex}.docs-panel .muted{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.docs-panel .muted code{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 4px;font-size:11px}.docs-panel .muted.error{color:var(--accent-err,#c9341c)}.docs-panel .docs-project{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e)}.docs-panel .docs-project-head{background:var(--bg-2,#0e1014);border-bottom:.5px solid var(--line,#ffffff12);flex-wrap:wrap;align-items:baseline;gap:12px;padding:10px 14px;display:flex}.docs-panel .docs-project-head h3{font-family:var(--font-serif,system-ui);margin:0;font-size:16px;line-height:1}.docs-panel .docs-project-root{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.docs-panel .docs-type{border-bottom:.5px solid var(--line,#ffffff12);padding:12px 14px}.docs-panel .docs-type:last-child{border-bottom:0}.docs-panel .docs-type-head{flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:6px;display:flex}.docs-panel .docs-type-key{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;color:var(--accent-blue,#1d55a6);font-size:12px;font-weight:700}.docs-panel .docs-type-label{font-family:var(--font-serif,system-ui);font-size:14px;font-weight:600}.docs-panel .docs-type-scope{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 5px;font-size:11px}.docs-panel .docs-type-count{margin-left:auto}.docs-panel .docs-type-desc{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);margin:0 0 8px;font-size:13px}.docs-panel .docs-type-props{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:2px 14px;margin:0 0 10px;font-size:11px;display:grid}.docs-panel .docs-type-props dt{font-weight:600}.docs-panel .docs-type-props dt code{color:var(--fg,#fffffff0)}.docs-panel .docs-type-props .implicit code,.docs-panel .docs-type-props .implicit{color:var(--fg-4,#ffffff57);font-style:italic}.docs-panel .docs-files{gap:8px;margin:0;padding:0;list-style:none;display:grid}.docs-panel .docs-file{border-left:2px solid var(--line,#ffffff12);cursor:pointer;padding:6px 0 6px 12px;transition:border-color .12s}.docs-panel .docs-file:hover,.docs-panel .docs-file.focused{border-left-color:var(--fg-3,#ffffff85);background:var(--surface)}.docs-panel .docs-file.expanded{border-left-color:var(--accent-blue,#1d55a6);cursor:default}.docs-panel .docs-file:focus{outline:none}.docs-panel .docs-file-caret{width:12px;color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);display:inline-block}.docs-panel .docs-file-head{flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:2px;display:flex}.docs-panel .docs-file-title{font-family:var(--font-serif,system-ui);font-size:13px}.docs-panel .docs-file-path{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.docs-panel .docs-file-front{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:1px 12px;margin:0 0 4px;font-size:11px;display:grid}.docs-panel .docs-file-front dt code{color:var(--fg-2,#ffffffbd)}.docs-panel .docs-file-body{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}.docs-panel .docs-file-rendered{border-top:.5px solid var(--line,#ffffff12);font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);margin-top:8px;padding:12px 0 4px;font-size:13px;line-height:1.55}.docs-panel .docs-file-rendered h1,.docs-panel .docs-file-rendered h2,.docs-panel .docs-file-rendered h3,.docs-panel .docs-file-rendered h4{font-family:var(--font-serif,system-ui);margin:12px 0 6px;line-height:1.2}.docs-panel .docs-file-rendered h1{font-size:20px}.docs-panel .docs-file-rendered h2{font-size:16px}.docs-panel .docs-file-rendered h3{text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3,#ffffff85);font-size:14px}.docs-panel .docs-file-rendered p{margin:0 0 8px}.docs-panel .docs-file-rendered ul{margin:0 0 8px 18px;padding:0;list-style:outside}.docs-panel .docs-file-rendered ul li{margin:2px 0}.docs-panel .docs-file-rendered code{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:0 4px;font-size:12px}.docs-panel .docs-file-rendered pre{background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--line,#ffffff12);margin:8px 0;padding:10px 12px;font-size:12px;line-height:1.45}.docs-panel .docs-file-rendered pre code{background:0 0;padding:0}.docs-panel .docs-file-rendered strong{font-weight:700}.docs-panel .docs-file-rendered em{font-style:italic}.docs-panel .no-files{margin:0}"]]]), Es = "ext_docs", Ds = "comtrya-docs-panel";
-Xo({
-	tagName: Ds,
-	component: Ts
+}), [["styles", [".docs-panel{font-family:var(--font-sans,system-ui);gap:14px;display:grid}.docs-panel .docs-head{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;padding-bottom:6px;display:flex}.docs-panel h2{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.docs-panel .title-block{flex-wrap:wrap;align-items:baseline;gap:14px;display:inline-flex}.docs-panel .muted{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.docs-panel .muted code{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 4px;font-size:11px}.docs-panel .muted.error{color:var(--accent-err,#c9341c)}.docs-panel .docs-project{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e)}.docs-panel .docs-project-head{background:var(--bg-2,#0e1014);border-bottom:.5px solid var(--line,#ffffff12);flex-wrap:wrap;align-items:baseline;gap:12px;padding:10px 14px;display:flex}.docs-panel .docs-project-head h3{font-family:var(--font-serif,system-ui);margin:0;font-size:16px;line-height:1}.docs-panel .docs-project-root{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.docs-panel .docs-type{border-bottom:.5px solid var(--line,#ffffff12);padding:12px 14px}.docs-panel .docs-type:last-child{border-bottom:0}.docs-panel .docs-type-head{flex-wrap:wrap;align-items:baseline;gap:8px 12px;margin-bottom:6px;display:flex}.docs-panel .docs-type-key{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;color:var(--accent-blue,#1d55a6);font-size:12px;font-weight:700}.docs-panel .docs-type-label{font-family:var(--font-serif,system-ui);font-size:14px;font-weight:600}.docs-panel .docs-type-scope{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);background:var(--bg-2,#0e1014);padding:0 5px;font-size:11px}.docs-panel .docs-type-count{margin-left:auto}.docs-panel .docs-type-desc{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);margin:0 0 8px;font-size:13px}.docs-panel .docs-type-props{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:2px 14px;margin:0 0 10px;font-size:11px;display:grid}.docs-panel .docs-type-props dt{font-weight:600}.docs-panel .docs-type-props dt code{color:var(--fg,#fffffff0)}.docs-panel .docs-type-props .implicit code,.docs-panel .docs-type-props .implicit{color:var(--fg-4,#ffffff57);font-style:italic}.docs-panel .docs-files{gap:8px;margin:0;padding:0;list-style:none;display:grid}.docs-panel .docs-file{border-left:2px solid var(--line,#ffffff12);cursor:pointer;padding:6px 0 6px 12px;transition:border-color .12s}.docs-panel .docs-file:hover,.docs-panel .docs-file.focused{border-left-color:var(--fg-3,#ffffff85);background:var(--surface)}.docs-panel .docs-file.expanded{border-left-color:var(--accent-blue,#1d55a6);cursor:default}.docs-panel .docs-file:focus{outline:none}.docs-panel .docs-file-caret{width:12px;color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);display:inline-block}.docs-panel .docs-file-head{flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:2px;display:flex}.docs-panel .docs-file-title{font-family:var(--font-serif,system-ui);font-size:13px}.docs-panel .docs-file-path{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.docs-panel .docs-file-front{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);grid-template-columns:auto 1fr;gap:1px 12px;margin:0 0 4px;font-size:11px;display:grid}.docs-panel .docs-file-front dt code{color:var(--fg-2,#ffffffbd)}.docs-panel .docs-file-body{font-family:var(--font-sans,system-ui);color:var(--fg-2,#ffffffbd);white-space:pre-wrap;word-break:break-word;margin:0;font-size:12px}.docs-panel .docs-file-rendered{border-top:.5px solid var(--line,#ffffff12);font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);margin-top:8px;padding:12px 0 4px;font-size:13px;line-height:1.55}.docs-panel .docs-file-rendered h1,.docs-panel .docs-file-rendered h2,.docs-panel .docs-file-rendered h3,.docs-panel .docs-file-rendered h4{font-family:var(--font-serif,system-ui);margin:12px 0 6px;line-height:1.2}.docs-panel .docs-file-rendered h1{font-size:20px}.docs-panel .docs-file-rendered h2{font-size:16px}.docs-panel .docs-file-rendered h3{text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3,#ffffff85);font-size:14px}.docs-panel .docs-file-rendered p{margin:0 0 8px}.docs-panel .docs-file-rendered ul{margin:0 0 8px 18px;padding:0;list-style:outside}.docs-panel .docs-file-rendered ul li{margin:2px 0}.docs-panel .docs-file-rendered code{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:0 4px;font-size:12px}.docs-panel .docs-file-rendered pre{background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);white-space:pre-wrap;word-break:break-word;border-left:2px solid var(--line,#ffffff12);margin:8px 0;padding:10px 12px;font-size:12px;line-height:1.45}.docs-panel .docs-file-rendered pre code{background:0 0;padding:0}.docs-panel .docs-file-rendered strong{font-weight:700}.docs-panel .docs-file-rendered em{font-style:italic}.docs-panel .no-files{margin:0}"]]]), Ss = "ext_docs", Cs = "comtrya-docs-panel";
+Ko({
+	tagName: Cs,
+	component: xs
 });
-var Os = {
-	id: Es,
+var ws = {
+	id: Ss,
 	setup(e) {
 		e.registerWidget({
 			id: "docs-panel",
-			element: Ds,
+			element: Cs,
 			defaultSlot: "repository.main",
 			defaultPriority: 80,
 			requiredPermission: "workspace.read"
@@ -3528,4 +3510,4 @@ var Os = {
 	}
 };
 //#endregion
-export { Os as default };
+export { ws as default };
