@@ -6,8 +6,6 @@ use axum::{
 use metrics::{counter, histogram};
 use serde::Deserialize;
 use std::time::Instant;
-use tokio::io::AsyncWriteExt;
-use tokio_util::io::ReaderStream;
 
 use crate::pkt::{PKT_FLUSH, Pkt, decode_pkt_lines, encode_pkt_line};
 use crate::repo::{is_public_repo, resolve_repo_dir};
@@ -16,11 +14,6 @@ use crate::{GitHttpState, pack};
 #[derive(Debug, Deserialize)]
 pub struct ServiceQuery {
     pub service: Option<String>,
-}
-
-enum AdvertiseMode {
-    Git,
-    Rust,
 }
 
 /// Dispatch a parsed Smart HTTP request to the appropriate handler.
@@ -50,27 +43,13 @@ where
             if !is_public_repo(&repo_dir) {
                 return (StatusCode::NOT_FOUND, "repo not found").into_response();
             }
-            match select_advertise_mode() {
-                AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &headers).await,
-                AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &headers).await,
-            }
+            advertise_v2_rust(&state, &segments, &headers).await
         }
         "git-upload-pack" => handle_upload_pack(state, segments, headers, body).await,
         "git-receive-pack" => {
             crate::receive::handle_receive_pack(state, segments, headers, body).await
         }
         _ => (StatusCode::NOT_FOUND, "git endpoint not found").into_response(),
-    }
-}
-
-fn select_advertise_mode() -> AdvertiseMode {
-    match std::env::var("COMTRYA_GIT_SMART_V2_ADVERTISE")
-        .ok()
-        .as_deref()
-    {
-        Some("rust") => AdvertiseMode::Rust,
-        Some("git") => AdvertiseMode::Git,
-        _ => AdvertiseMode::Rust,
     }
 }
 
@@ -101,10 +80,7 @@ where
         return (StatusCode::NOT_FOUND, "repo not found").into_response();
     }
 
-    let resp = match select_advertise_mode() {
-        AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &HeaderMap::new()).await,
-        AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &HeaderMap::new()).await,
-    };
+    let resp = advertise_v2_rust(&state, &segments, &HeaderMap::new()).await;
     counter!("git_http.info_refs", "scope" => "root").increment(1);
     histogram!("git_http.info_refs_ms").record(start.elapsed().as_millis() as f64);
     resp
@@ -136,10 +112,7 @@ where
         return (StatusCode::NOT_FOUND, "repo not found").into_response();
     }
 
-    let resp = match select_advertise_mode() {
-        AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &HeaderMap::new()).await,
-        AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &HeaderMap::new()).await,
-    };
+    let resp = advertise_v2_rust(&state, &segments, &HeaderMap::new()).await;
     counter!("git_http.info_refs", "scope" => "group").increment(1);
     histogram!("git_http.info_refs_ms").record(start.elapsed().as_millis() as f64);
     resp
@@ -224,98 +197,6 @@ where
         .expect("response build")
 }
 
-async fn advertise_v2_via_git<S>(state: &S, segments: &[String], headers: &HeaderMap) -> Response
-where
-    S: GitHttpState,
-{
-    let repo_dir = match resolve_repo_dir(state.storage(), segments) {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
-    };
-    if !is_public_repo(&repo_dir) {
-        return (StatusCode::NOT_FOUND, "repo not found").into_response();
-    }
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("upload-pack")
-        .arg("--stateless-rpc")
-        .arg("--advertise-refs")
-        .arg(repo_dir);
-    cmd.stdout(std::process::Stdio::piped());
-    if let Some(v) = headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
-        cmd.env("GIT_PROTOCOL", v);
-    } else {
-        cmd.env("GIT_PROTOCOL", "version=2");
-    }
-    match cmd.output().await {
-        Ok(output) if output.status.success() => {
-            let mut body = output.stdout;
-            let mut cursor = 0usize;
-            let mut patched = false;
-            while cursor + 4 <= body.len() {
-                let len_bytes = &body[cursor..cursor + 4];
-                let len =
-                    match usize::from_str_radix(std::str::from_utf8(len_bytes).unwrap_or(""), 16) {
-                        Ok(v) => v,
-                        Err(_) => break,
-                    };
-                cursor += 4;
-                if len == 0 {
-                    break;
-                }
-                if len == 1 {
-                    continue;
-                }
-                if cursor + (len - 4) > body.len() {
-                    break;
-                }
-                let data_end = cursor + (len - 4);
-                let data = &body[cursor..data_end];
-                if data.starts_with(b"fetch=")
-                    && !data.windows(b"filter".len()).any(|w| w == b"filter")
-                {
-                    let mut line = data.to_vec();
-                    if line.ends_with(b"\n") {
-                        line.pop();
-                        line.extend_from_slice(b" filter\n");
-                    } else {
-                        line.extend_from_slice(b" filter");
-                    }
-                    let mut patched_body = Vec::with_capacity(body.len() + 8);
-                    patched_body.extend_from_slice(&body[..cursor - 4]);
-                    patched_body.extend_from_slice(&encode_pkt_line(&line));
-                    patched_body.extend_from_slice(&body[data_end..]);
-                    body = patched_body;
-                    patched = true;
-                    break;
-                }
-                cursor = data_end;
-            }
-            if !patched && body.len() >= 4 && &body[body.len() - 4..] == PKT_FLUSH {
-                let mut patched_body = Vec::with_capacity(body.len() + 8);
-                patched_body.extend_from_slice(&body[..body.len() - 4]);
-                patched_body.extend_from_slice(&encode_pkt_line(b"fetch=filter\n"));
-                patched_body.extend_from_slice(PKT_FLUSH);
-                body = patched_body;
-            }
-            Response::builder()
-                .status(StatusCode::OK)
-                .header(
-                    header::CONTENT_TYPE,
-                    "application/x-git-upload-pack-advertisement",
-                )
-                .header(header::CACHE_CONTROL, "no-cache")
-                .body(axum::body::Body::from(body))
-                .expect("response build")
-        }
-        Ok(output) => (
-            StatusCode::BAD_GATEWAY,
-            format!("git upload-pack advertise failed: {}", output.status),
-        )
-            .into_response(),
-        Err(e) => (StatusCode::BAD_GATEWAY, format!("failed to spawn git: {e}")).into_response(),
-    }
-}
-
 pub async fn handle_upload_pack<S>(
     state: S,
     mut segments: Vec<String>,
@@ -394,35 +275,9 @@ where
         return (StatusCode::NOT_FOUND, "repo not found").into_response();
     }
 
-    // Select backend and apply timeout per request
-    match (
-        std::env::var("COMTRYA_GIT_SMART_V2_BACKEND")
-            .ok()
-            .as_deref()
-            .unwrap_or("rust"),
-        command.as_deref(),
-    ) {
-        ("git", _) => {
-            let start = Instant::now();
-            let fut = proxy_to_git_upload_pack(&state, &segments, &bytes, &headers);
-            let resp = match tokio::time::timeout(
-                std::time::Duration::from_millis(state.git_timeout_ms()),
-                fut,
-            )
-            .await
-            {
-                Ok(r) => r,
-                Err(_) => {
-                    return (StatusCode::REQUEST_TIMEOUT, "git upload-pack timed out")
-                        .into_response();
-                }
-            };
-            counter!("git_http.upload_pack", "backend" => "git").increment(1);
-            histogram!("git_http.upload_pack_ms", "backend" => "git")
-                .record(start.elapsed().as_millis() as f64);
-            resp
-        }
-        ("rust", Some("ls-refs")) => {
+    // Dispatch on command and apply timeout per request
+    match command.as_deref() {
+        Some("ls-refs") => {
             let start = Instant::now();
             let resp = respond_ls_refs(&state, &segments, &ls).await;
             counter!("git_http.ls_refs", "backend" => "rust").increment(1);
@@ -430,7 +285,7 @@ where
                 .record(start.elapsed().as_millis() as f64);
             resp
         }
-        ("rust", Some("fetch")) => match parse_fetch(&pkts) {
+        Some("fetch") => match parse_fetch(&pkts) {
             Ok(req) => {
                 tracing::info!(
                     wants = %req.wants().len(),
@@ -797,60 +652,6 @@ fn parse_fetch(pkts: &[Pkt]) -> anyhow::Result<FetchRequest> {
     Ok(req)
 }
 
-async fn proxy_to_git_upload_pack<S>(
-    state: &S,
-    segments: &[String],
-    request_body: &[u8],
-    headers: &HeaderMap,
-) -> Response
-where
-    S: GitHttpState,
-{
-    let repo_dir = match resolve_repo_dir(state.storage(), segments) {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
-    };
-    if !is_public_repo(&repo_dir) {
-        return (StatusCode::NOT_FOUND, "repo not found").into_response();
-    }
-    let mut cmd = tokio::process::Command::new("git");
-    cmd.arg("upload-pack").arg("--stateless-rpc").arg(repo_dir);
-    cmd.stdin(std::process::Stdio::piped());
-    cmd.stdout(std::process::Stdio::piped());
-    // Propagate protocol version to git
-    if let Some(v) = headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
-        cmd.env("GIT_PROTOCOL", v);
-    } else {
-        cmd.env("GIT_PROTOCOL", "version=2");
-    }
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            return (StatusCode::BAD_GATEWAY, format!("failed to spawn git: {e}")).into_response();
-        }
-    };
-
-    if let Some(mut stdin) = child.stdin.take()
-        && let Err(e) = stdin.write_all(request_body).await
-    {
-        return (
-            StatusCode::BAD_GATEWAY,
-            format!("failed to write to git: {e}"),
-        )
-            .into_response();
-    }
-    let stdout = match child.stdout.take() {
-        Some(o) => o,
-        None => return (StatusCode::BAD_GATEWAY, "missing git stdout").into_response(),
-    };
-    let stream = ReaderStream::new(stdout);
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
-        .body(axum::body::Body::from_stream(stream))
-        .expect("response build")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1132,9 +933,6 @@ mod tests {
 
     #[tokio::test]
     async fn info_refs_gated_and_content_type() {
-        unsafe {
-            std::env::set_var("COMTRYA_GIT_SMART_V2_ADVERTISE", "rust");
-        }
         let (state, local_dir) = mk_app_state().await.unwrap();
         let repo = local_dir.path().join("alpha.git");
         init_bare_repo(&repo).await;
@@ -1257,9 +1055,6 @@ mod tests {
 
     #[tokio::test]
     async fn ls_refs_supports_ref_prefix_peel_and_symrefs() {
-        unsafe {
-            std::env::set_var("COMTRYA_GIT_SMART_V2_BACKEND", "rust");
-        }
         let (state, local_dir) = mk_app_state().await.unwrap();
         let repo = local_dir.path().join("alpha.git");
         init_bare_repo(&repo).await;
@@ -1295,9 +1090,6 @@ mod tests {
 
     #[tokio::test]
     async fn upload_pack_unknown_command_400() {
-        unsafe {
-            std::env::set_var("COMTRYA_GIT_SMART_V2_BACKEND", "rust");
-        }
         let (state, local_dir) = mk_app_state().await.unwrap();
         let repo = local_dir.path().join("alpha.git");
         init_bare_repo(&repo).await;
@@ -1319,9 +1111,6 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_with_bad_object_format_is_400() {
-        unsafe {
-            std::env::set_var("COMTRYA_GIT_SMART_V2_BACKEND", "rust");
-        }
         let (state, local_dir) = mk_app_state().await.unwrap();
         let repo = local_dir.path().join("alpha.git");
         init_bare_repo(&repo).await;
