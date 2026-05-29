@@ -94,6 +94,16 @@ impl JobQueue {
         job
     }
 
+    /// Number of jobs currently tracked in the queue (across all states).
+    pub fn len(&self) -> usize {
+        self.jobs.len()
+    }
+
+    /// Whether the queue holds no jobs.
+    pub fn is_empty(&self) -> bool {
+        self.jobs.is_empty()
+    }
+
     pub fn claim_next(
         &mut self,
         queue: &str,

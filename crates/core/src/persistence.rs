@@ -105,9 +105,7 @@ impl MetadataStore {
     }
 
     fn jobs_count(&self) -> usize {
-        // JobQueue intentionally hides internals; clone and debug text would be brittle.
-        // The current contract tests only need parity over empty/non-empty stores.
-        0
+        self.jobs.len()
     }
 }
 
@@ -144,5 +142,23 @@ mod tests {
         let postgres = MetadataStore::new(MetadataBackend::Postgres);
 
         assert_eq!(sqlite.parity_fingerprint(), postgres.parity_fingerprint());
+    }
+
+    #[test]
+    fn parity_fingerprint_reflects_true_job_count() {
+        // Regression for #79: the fingerprint must distinguish stores with
+        // different job counts; a constant `jobs:0` would hide divergence.
+        let empty = MetadataStore::new(MetadataBackend::Sqlite);
+        let mut with_jobs = MetadataStore::new(MetadataBackend::Sqlite);
+        with_jobs.jobs.enqueue("kind", "default", "{}", 0, 0);
+        with_jobs.jobs.enqueue("kind", "default", "{}", 0, 0);
+
+        assert!(empty.parity_fingerprint().contains("jobs:0"));
+        assert!(with_jobs.parity_fingerprint().contains("jobs:2"));
+        assert_ne!(
+            empty.parity_fingerprint(),
+            with_jobs.parity_fingerprint(),
+            "fingerprint must diverge when job counts differ"
+        );
     }
 }
