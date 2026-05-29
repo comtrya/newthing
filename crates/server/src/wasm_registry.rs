@@ -1431,6 +1431,326 @@ mod tests {
         assert_eq!(OpsDispatcher::dispatch_event(&dispatcher, &event, 0), 1);
     }
 
+    // ---- Phase 2 per-repo extension opt-in enforcement (#137) ----
+
+    #[test]
+    fn repository_id_from_ref_parses_known_shapes_and_rejects_malformed() {
+        assert_eq!(
+            repository_id_from_ref("comtrya://repository/repo_a"),
+            Some("repo_a")
+        );
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace/ws_a/repository/repo_b"),
+            Some("repo_b")
+        );
+        // Malformed: empty segments and non-repository refs return None so
+        // they fall through to the extension's own input validation.
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace//repository/repo_c"),
+            None
+        );
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace/ws_a/repository/"),
+            None
+        );
+        assert_eq!(repository_id_from_ref("comtrya://repository/"), None);
+        assert_eq!(repository_id_from_ref("comtrya://workspace/ws_a"), None);
+        assert_eq!(repository_id_from_ref("comtrya://pull_request/pul_a"), None);
+        assert_eq!(repository_id_from_ref("not-a-uri"), None);
+    }
+
+    /// End-to-end production resolver: a bare repo whose comtrya CUE
+    /// declares `repository.enabledExtensions`, reached through a
+    /// repository document (id -> path), surfaces that opt-in set.
+    #[test]
+    fn cue_repo_enablement_reads_enabled_extensions_from_repo_cue() {
+        let tmp = tempdir_for_test("comtrya-cue-enablement");
+        let data_dir = tmp.join("data");
+        let repositories = data_dir.join("repositories");
+        std::fs::create_dir_all(&repositories).expect("create repositories dir");
+
+        // Author the repo in a workdir, then mirror-clone it bare into the
+        // repositories root at `<path>.git`, matching the production layout.
+        let work = tmp.join("work");
+        std::fs::create_dir_all(&work).expect("create work dir");
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            ["config", "user.email", "cue-enable@comtrya"].as_slice(),
+            ["config", "user.name", "cue-enable"].as_slice(),
+            ["config", "commit.gpgsign", "false"].as_slice(),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&work)
+                    .args(args)
+                    .status()
+                    .expect("run git")
+                    .success()
+            );
+        }
+        std::fs::write(
+            work.join("comtrya.cue"),
+            concat!(
+                "package comtrya\n",
+                "import \"github.com/comtrya/comtrya/schema\"\n",
+                "repository: schema.#Repository & { enabledExtensions: [\"ext_issues\"] }\n",
+            ),
+        )
+        .expect("write comtrya.cue");
+        for args in [
+            ["add", "comtrya.cue"].as_slice(),
+            ["commit", "-q", "-m", "seed"].as_slice(),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&work)
+                    .args(args)
+                    .status()
+                    .expect("run git")
+                    .success()
+            );
+        }
+        let git_dir = repositories.join("acme/widget.git");
+        std::fs::create_dir_all(git_dir.parent().unwrap()).expect("create owner dir");
+        assert!(
+            std::process::Command::new("git")
+                .args(["clone", "--bare", "-q"])
+                .arg(&work)
+                .arg(&git_dir)
+                .status()
+                .expect("run git clone --bare")
+                .success()
+        );
+
+        // Repository document maps the opaque id to the on-disk path.
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&data_dir).expect("open store"));
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "core".to_string(),
+                collection: "repositories".to_string(),
+                id: "repo_widget".to_string(),
+                resource: "comtrya://repository/repo_widget".to_string(),
+                resource_refs: vec!["comtrya://repository/repo_widget".to_string()],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "repo_widget", "path": "acme/widget" }),
+            })
+            .expect("seed repository document");
+
+        let resolver = CueRepoEnablement::new(
+            data_dir.clone(),
+            Arc::new(crate::cue_config::CueConfigCache::new()),
+            Vec::new(),
+        );
+        let enabled =
+            resolver.enabled_extensions_for_repo(&store, "comtrya://repository/repo_widget");
+        assert!(
+            enabled.contains("ext_issues"),
+            "expected ext_issues in opt-in set, got {enabled:?}"
+        );
+        assert!(
+            !enabled.contains("ext_checks"),
+            "ext_checks not declared; must be absent, got {enabled:?}"
+        );
+    }
+
+    fn ext_issues_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_issues")
+    }
+
+    /// A repository-scoped op against a repo that has NOT opted into the
+    /// extension is rejected with Forbidden, before any work is done.
+    #[test]
+    fn op_rejected_when_repo_has_not_enabled_extension() {
+        let root = ext_issues_root();
+        if !root.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP op_rejected_when_repo_has_not_enabled_extension: build ext_issues");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_issues");
+        // Resolver installed, but this repo's opt-in set does NOT include
+        // ext_issues (it enables a different extension).
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_gated_off",
+            vec!["ext_pull_requests"],
+        )]));
+        let tmp = tempdir_for_test("comtrya-gate-off");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        let dispatcher = RegistryDispatcher { registry, store };
+
+        let err = dispatcher
+            .dispatch(
+                "ext_issues",
+                "issues.open-issue",
+                &serde_json::to_vec(&serde_json::json!({
+                    "repository": "comtrya://repository/repo_gated_off",
+                    "title": "should be blocked",
+                    "bodyMarkdown": "blocked by per-repo gate",
+                }))
+                .expect("encode payload"),
+                "comtrya://user/usr_gate_test",
+                0,
+            )
+            .expect_err("op must be Forbidden when extension is not enabled for the repo");
+        assert!(matches!(err.code, wit_types::ErrorCode::Forbidden));
+        assert!(
+            err.message.contains("not enabled for repository"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    /// The same op against a repo that HAS opted into the extension
+    /// succeeds.
+    #[test]
+    fn op_allowed_when_repo_has_enabled_extension() {
+        let root = ext_issues_root();
+        if !root.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP op_allowed_when_repo_has_enabled_extension: build ext_issues");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_gated_on/repository/repo_gated_on",
+            vec!["ext_issues"],
+        )]));
+        let tmp = tempdir_for_test("comtrya-gate-on");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        let dispatcher = RegistryDispatcher { registry, store };
+
+        let opened = dispatcher
+            .dispatch(
+                "ext_issues",
+                "issues.open-issue",
+                &serde_json::to_vec(&serde_json::json!({
+                    "repository": "comtrya://workspace/ws_gated_on/repository/repo_gated_on",
+                    "title": "allowed",
+                    "bodyMarkdown": "admitted by per-repo gate",
+                }))
+                .expect("encode payload"),
+                "comtrya://user/usr_gate_test",
+                0,
+            )
+            .expect("op must succeed when extension is enabled for the repo");
+        let value: Value = serde_json::from_slice(&opened).expect("parse opened issue");
+        assert_eq!(value.get("state").and_then(Value::as_str), Some("open"));
+    }
+
+    /// An extension with no repository-scoped contributions is never
+    /// gated: the gate helper returns Ok even with no opt-in installed.
+    #[test]
+    fn instance_scoped_extension_is_never_gated() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_workspace_home");
+        if !root.join("dist/ext_workspace_home.wasm").is_file() {
+            eprintln!("SKIP instance_scoped_extension_is_never_gated: build ext_workspace_home");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_workspace_home");
+        // No resolver installed at all. A repository-scoped extension
+        // would fail closed here; an instance-scoped one must not.
+        let tmp = tempdir_for_test("comtrya-gate-instance");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        assert!(
+            !registry.extension_is_repository_scoped("ext_workspace_home"),
+            "ext_workspace_home has no repository-scoped contributions"
+        );
+        registry
+            .ensure_extension_enabled_for_repo(
+                &store,
+                "comtrya://repository/repo_anything",
+                "ext_workspace_home",
+            )
+            .expect("instance-scoped extension must never be gated");
+    }
+
+    /// A repository-scoped reactor subscriber is skipped when the event's
+    /// source repository has not opted into it (dispatch count is 0).
+    #[test]
+    fn reactor_skipped_for_non_enabled_repo() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        if !root.join("dist/ext_pull_requests.wasm").is_file() {
+            eprintln!("SKIP reactor_skipped_for_non_enabled_repo: build ext_pull_requests");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_pull_requests");
+        let tmp = tempdir_for_test("comtrya-reactor-gate-off");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        registry
+            .register_reactor_subscriptions(store.clone())
+            .expect("register reactor subscriptions");
+
+        // Seed the source pull document carrying a repository ref, but do
+        // NOT enable ext_pull_requests for that repo.
+        let source_repository = "comtrya://workspace/ws_skip/repository/repo_skip";
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_pull_requests".to_string(),
+                collection: "pull_requests".to_string(),
+                id: "pul_skip".to_string(),
+                resource: "comtrya://pull_request/pul_skip".to_string(),
+                resource_refs: vec![
+                    "comtrya://pull_request/pul_skip".to_string(),
+                    source_repository.to_string(),
+                ],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "pul_skip" }),
+            })
+            .expect("seed pull document");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            source_repository,
+            // A different extension is enabled, not ext_pull_requests.
+            vec!["ext_issues"],
+        )]));
+
+        let dispatcher = RegistryDispatcher {
+            registry: registry.clone(),
+            store,
+        };
+        let event = wit_types::Event {
+            id: "evt_skip".to_string(),
+            event_type: "dev.comtrya.pull-request.merged".to_string(),
+            payload: serde_json::to_vec(&serde_json::json!({
+                "pullRequestRef": "comtrya://pull_request/pul_skip"
+            }))
+            .expect("encode event payload"),
+            timestamp_ms: 1,
+            source_uri: "comtrya://pull_request/pul_skip".to_string(),
+            emitter_extension: "ext_pull_requests".to_string(),
+        };
+        assert_eq!(
+            OpsDispatcher::dispatch_event(&dispatcher, &event, 0),
+            0,
+            "reactor must be skipped for a repo that has not enabled the extension"
+        );
+    }
+
     #[test]
     fn registry_rejects_reactor_subscriptions_not_declared_in_manifest() {
         let source_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
