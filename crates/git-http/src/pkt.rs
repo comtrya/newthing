@@ -29,7 +29,12 @@ pub fn decode_pkt_lines(mut buf: &[u8]) -> anyhow::Result<Vec<Pkt>> {
             out.push(Pkt::Delim);
             continue;
         }
-        let data_len = len - 4;
+        // Lengths 2 and 3 are invalid per the pkt-line spec; reject them
+        // explicitly so untrusted input can't underflow `len - 4` (a debug-build
+        // panic / release-build wrap on the attacker-controlled request body).
+        let data_len = len
+            .checked_sub(4)
+            .ok_or_else(|| anyhow::anyhow!("invalid pkt-line length {len}"))?;
         if buf.len() < data_len {
             anyhow::bail!("truncated pkt-line data");
         }
@@ -68,5 +73,18 @@ mod tests {
         let pkts = decode_pkt_lines(&buf).unwrap();
         assert!(matches!(pkts[0], Pkt::Flush));
         assert!(matches!(pkts[1], Pkt::Delim));
+    }
+
+    #[test]
+    fn decode_rejects_reserved_pkt_line_lengths() {
+        // Lengths 2 and 3 are invalid and must be a clean error, never an
+        // arithmetic underflow panic, on attacker-controlled input.
+        for bad in [b"0002".as_slice(), b"0003".as_slice()] {
+            assert!(
+                decode_pkt_lines(bad).is_err(),
+                "length {:?} must be rejected",
+                std::str::from_utf8(bad).unwrap()
+            );
+        }
     }
 }
