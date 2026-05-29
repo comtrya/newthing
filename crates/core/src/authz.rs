@@ -1,35 +1,10 @@
-use crate::domain::{Principal, ResourceRef, Visibility};
+use crate::domain::{Principal, ResourceKind, ResourceRef, Visibility};
 use crate::events::principal_key;
 use std::collections::{BTreeMap, BTreeSet};
-
-pub const SPICEDB_MODEL_SKETCH: &str = r#"
-definition anonymous {}
-definition user {}
-definition team {
-  relation member: user | team#member
-}
-definition repository {
-  relation owner: user | team#member
-  relation maintainer: user | team#member
-  relation developer: user | team#member
-  relation viewer: user | team#member
-  relation public_viewer: user:* | anonymous:*
-  permission git_write = owner + maintainer + developer
-  permission git_read = git_write + viewer
-  permission view_public = git_read + public_viewer
-}
-"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorePermission {
     InstanceAdmin,
-    GraphqlRead,
-    GraphqlWrite,
-    EventsRead,
-    GitRead,
-    GitWrite,
-    ChecksRead,
-    ChecksWrite,
     RepositoryRead,
     RepositoryWrite,
 }
@@ -38,15 +13,19 @@ impl CorePermission {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::InstanceAdmin => "instance.admin",
-            Self::GraphqlRead => "graphql:read",
-            Self::GraphqlWrite => "graphql:write",
-            Self::EventsRead => "events:read",
-            Self::GitRead => "git:read",
-            Self::GitWrite => "git:write",
-            Self::ChecksRead => "checks:read",
-            Self::ChecksWrite => "checks:write",
             Self::RepositoryRead => "repo.read",
             Self::RepositoryWrite => "repo.write",
+        }
+    }
+
+    /// The read permission that gates a private resource of the given kind.
+    /// Returns `None` for kinds that have no kernel-owned read permission;
+    /// such private resources are never readable through this authorizer
+    /// without an explicit grant model wired for that kind.
+    const fn read_for_kind(kind: &ResourceKind) -> Option<Self> {
+        match kind {
+            ResourceKind::Repository => Some(Self::RepositoryRead),
+            _ => None,
         }
     }
 }
@@ -108,7 +87,10 @@ impl InMemoryAuthorizer {
         match visibility {
             Visibility::Public => true,
             Visibility::Internal => !matches!(principal, Principal::Anonymous),
-            Visibility::Private => self.check(principal, resource, CorePermission::RepositoryRead),
+            Visibility::Private => match CorePermission::read_for_kind(&resource.kind) {
+                Some(permission) => self.check(principal, resource, permission),
+                None => false,
+            },
         }
     }
 }
@@ -153,8 +135,15 @@ mod tests {
     }
 
     #[test]
-    fn spicedb_model_includes_anonymous_public_viewer() {
-        assert!(SPICEDB_MODEL_SKETCH.contains("definition anonymous"));
-        assert!(SPICEDB_MODEL_SKETCH.contains("public_viewer"));
+    fn private_non_repository_resource_is_not_readable_via_repository_grant() {
+        let mut authz = InMemoryAuthorizer::default();
+        let user = Principal::User(OpaqueId::new(IdPrefix::User));
+        let project =
+            ResourceRef::parse("comtrya://project/prj_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        // A repo.read grant on a project must not unlock the private project,
+        // because read permission is selected by the resource kind.
+        authz.grant(&user, &project, CorePermission::RepositoryRead);
+
+        assert!(!authz.can_read_visibility(&user, &project, Visibility::Private));
     }
 }

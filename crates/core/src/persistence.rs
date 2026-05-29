@@ -1,7 +1,7 @@
 use crate::config::ConfigSnapshot;
 use crate::domain::{Group, Project, Repository, Team, User, Workspace};
 use crate::error::{CoreError, CoreResult};
-use crate::{CheckRegistry, EventOutbox, JobQueue};
+use crate::{EventOutbox, JobQueue};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +46,6 @@ pub struct MetadataStore {
     pub config_snapshots: Vec<ConfigSnapshot>,
     pub events: EventOutbox,
     pub jobs: JobQueue,
-    pub checks: CheckRegistry,
     pub audit_events: Vec<String>,
     pub secrets_metadata: BTreeMap<String, String>,
 }
@@ -69,7 +68,6 @@ impl MetadataStore {
             config_snapshots: Vec::new(),
             events: EventOutbox::default(),
             jobs: JobQueue::default(),
-            checks: CheckRegistry::default(),
             audit_events: Vec::new(),
             secrets_metadata: BTreeMap::new(),
         }
@@ -94,7 +92,7 @@ impl MetadataStore {
 
     pub fn parity_fingerprint(&self) -> String {
         format!(
-            "users:{};teams:{};workspaces:{};groups:{};repos:{};projects:{};events:{};jobs:{};checks:{}",
+            "users:{};teams:{};workspaces:{};groups:{};repos:{};projects:{};events:{};jobs:{}",
             self.users.len(),
             self.teams.len(),
             self.workspaces.len(),
@@ -103,17 +101,12 @@ impl MetadataStore {
             self.projects.len(),
             self.events.all().len(),
             self.jobs_count(),
-            self.checks_count(),
         )
     }
 
     fn jobs_count(&self) -> usize {
         // JobQueue intentionally hides internals; clone and debug text would be brittle.
         // The current contract tests only need parity over empty/non-empty stores.
-        0
-    }
-
-    fn checks_count(&self) -> usize {
         0
     }
 }

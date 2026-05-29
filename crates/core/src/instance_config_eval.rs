@@ -61,6 +61,7 @@ fn evaluate_root_value(config_dir: &Path) -> CoreResult<serde_json::Value> {
 // ---- Wire structs: the CUE/JSON shape, parsed once at this boundary. ----
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireConfig {
     instance: WireInstance,
     database: WireDatabase,
@@ -81,6 +82,7 @@ struct WireConfig {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireInstance {
     id: String,
     name: String,
@@ -93,18 +95,21 @@ struct WireInstance {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireDatabase {
     kind: String,
     url: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireOidc {
     #[serde(default)]
     issuers: Vec<WireOidcIssuer>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireOidcIssuer {
     id: String,
     #[serde(rename = "issuerURL")]
@@ -122,6 +127,7 @@ struct WireOidcIssuer {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireOidcAllowed {
     #[serde(default)]
     domains: Vec<String>,
@@ -132,11 +138,13 @@ struct WireOidcAllowed {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireStorage {
     repositories: WireRepoStorage,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRepoStorage {
     default: String,
     #[serde(default)]
@@ -144,6 +152,7 @@ struct WireRepoStorage {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireBackend {
     kind: String,
     #[serde(default)]
@@ -169,11 +178,13 @@ struct WireBackend {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireAuthz {
     kind: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireWorkspace {
     name: String,
     #[serde(default)]
@@ -185,6 +196,7 @@ struct WireWorkspace {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireAdmin {
     #[serde(default)]
     issuer: Option<String>,
@@ -197,6 +209,7 @@ struct WireAdmin {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireRepository {
     path: String,
     #[serde(default)]
@@ -210,6 +223,7 @@ struct WireRepository {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireLabel {
     name: String,
     color: String,
@@ -220,6 +234,7 @@ struct WireLabel {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireExtension {
     id: String,
     source: WireExtensionSource,
@@ -230,6 +245,7 @@ struct WireExtension {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct WireExtensionSource {
     kind: String,
     #[serde(default)]
@@ -286,8 +302,8 @@ impl WireConfig {
         let workspaces = self
             .workspaces
             .into_iter()
-            .map(|(slug, ws)| (slug, ws.into_domain()))
-            .collect();
+            .map(|(slug, ws)| ws.into_domain().map(|ws| (slug, ws)))
+            .collect::<CoreResult<BTreeMap<_, _>>>()?;
 
         let extensions = self
             .extensions
@@ -322,7 +338,7 @@ impl WireConfig {
                 .repositories
                 .into_iter()
                 .map(WireRepository::into_domain)
-                .collect(),
+                .collect::<CoreResult<Vec<_>>>()?,
             labels: self
                 .labels
                 .into_iter()
@@ -393,13 +409,13 @@ impl WireBackend {
 }
 
 impl WireWorkspace {
-    fn into_domain(self) -> WorkspaceConfig {
-        WorkspaceConfig {
+    fn into_domain(self) -> CoreResult<WorkspaceConfig> {
+        Ok(WorkspaceConfig {
+            visibility: parse_visibility(self.visibility.as_deref())?,
             name: self.name,
-            visibility: parse_visibility(self.visibility.as_deref()),
             description: self.description,
             allow_public_descendants: self.allow_public_descendants,
-        }
+        })
     }
 }
 
@@ -415,14 +431,14 @@ impl WireAdmin {
 }
 
 impl WireRepository {
-    fn into_domain(self) -> RepositoryConfig {
-        RepositoryConfig {
+    fn into_domain(self) -> CoreResult<RepositoryConfig> {
+        Ok(RepositoryConfig {
+            visibility: parse_visibility(self.visibility.as_deref())?,
             path: self.path,
-            visibility: parse_visibility(self.visibility.as_deref()),
             description: self.description,
             storage_backend: self.storage_backend,
             default_branch: self.default_branch,
-        }
+        })
     }
 }
 
@@ -506,11 +522,18 @@ fn parse_environment(value: Option<&str>) -> CoreResult<Environment> {
     }
 }
 
-fn parse_visibility(value: Option<&str>) -> Visibility {
+fn parse_visibility(value: Option<&str>) -> CoreResult<Visibility> {
+    // Closed parse: an absent value defaults to Private (the safe default), but
+    // an unrecognized value is rejected rather than silently treated as
+    // Private — a silent fallback could mask a typo intended to make a resource
+    // public or internal.
     match value {
-        Some("PUBLIC") => Visibility::Public,
-        Some("INTERNAL") => Visibility::Internal,
-        _ => Visibility::Private,
+        None | Some("PRIVATE") => Ok(Visibility::Private),
+        Some("PUBLIC") => Ok(Visibility::Public),
+        Some("INTERNAL") => Ok(Visibility::Internal),
+        Some(other) => Err(CoreError::config_invalid(format!(
+            "visibility must be \"PUBLIC\", \"INTERNAL\", or \"PRIVATE\", got {other:?}"
+        ))),
     }
 }
 
@@ -634,6 +657,47 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
         .unwrap();
         std::fs::write(dir.path().join("readme.md"), "# not cue").unwrap();
         assert!(evaluate_instance_config(dir.path()).is_err());
+    }
+
+    #[test]
+    fn unknown_top_level_key_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = format!("{MINIMAL}\nenvironmnet: \"production\"\n");
+        let err = eval(dir.path(), &body).unwrap_err();
+        assert!(
+            err.message.contains("unknown field") || err.message.contains("environmnet"),
+            "got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn unknown_visibility_value_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let body = format!(
+            "{MINIMAL}\nrepositories: [{{ path: \"a/b\", visibility: \"public\" }}]\n"
+        );
+        let err = eval(dir.path(), &body).unwrap_err();
+        assert!(err.message.contains("visibility"), "got: {}", err.message);
+    }
+
+    #[test]
+    fn parse_visibility_is_a_closed_parse() {
+        assert!(matches!(parse_visibility(None), Ok(Visibility::Private)));
+        assert!(matches!(
+            parse_visibility(Some("PUBLIC")),
+            Ok(Visibility::Public)
+        ));
+        assert!(matches!(
+            parse_visibility(Some("INTERNAL")),
+            Ok(Visibility::Internal)
+        ));
+        assert!(matches!(
+            parse_visibility(Some("PRIVATE")),
+            Ok(Visibility::Private)
+        ));
+        assert!(parse_visibility(Some("public")).is_err());
+        assert!(parse_visibility(Some("")).is_err());
     }
 
     #[test]

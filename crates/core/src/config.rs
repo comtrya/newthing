@@ -734,10 +734,12 @@ pub fn validate_repository_cue_sources(
     // friendlier message. Everything else falls through to cuengine — the
     // real CUE evaluator — which catches type conflicts, constraint
     // violations, and full parse errors.
-    if diagnostics.is_empty()
-        && let Err(diagnostic) = evaluate_cue_files_with_cuengine(&comtrya_files, extension_schemas)
-    {
-        diagnostics.push(diagnostic);
+    let mut evaluated = serde_json::Value::Object(serde_json::Map::new());
+    if diagnostics.is_empty() {
+        match evaluate_cue_files_with_cuengine(&comtrya_files, extension_schemas) {
+            Ok(value) => evaluated = value,
+            Err(diagnostic) => diagnostics.push(diagnostic),
+        }
     }
 
     if !diagnostics.is_empty() {
@@ -751,10 +753,7 @@ pub fn validate_repository_cue_sources(
     let snapshots = paths
         .into_iter()
         .map(|path| {
-            let effective_json = format!(
-                "{{\"repositoryID\":\"{}\",\"commit\":\"{}\",\"path\":\"{}\"}}",
-                repository_id, commit_oid, path
-            );
+            let effective_json = effective_config_json(repository_id, commit_oid, &path, &evaluated);
             snapshot(
                 repository_id,
                 commit_oid,
@@ -770,6 +769,33 @@ pub fn validate_repository_cue_sources(
         diagnostics: Vec::new(),
         snapshots,
     })
+}
+
+/// Typed projection persisted as a config snapshot's `effective_config_json`.
+/// Serialized via serde so escaping is correct and the field actually carries
+/// the cuengine-evaluated config rather than a hand-built stub.
+#[derive(Debug, serde::Serialize)]
+struct EffectiveConfig<'a> {
+    #[serde(rename = "repositoryID")]
+    repository_id: &'a str,
+    commit: &'a str,
+    path: &'a str,
+    evaluated: &'a serde_json::Value,
+}
+
+fn effective_config_json(
+    repository_id: &str,
+    commit_oid: &str,
+    path: &str,
+    evaluated: &serde_json::Value,
+) -> String {
+    serde_json::to_string(&EffectiveConfig {
+        repository_id,
+        commit: commit_oid,
+        path,
+        evaluated,
+    })
+    .expect("EffectiveConfig serializes")
 }
 
 /// Run cuengine over the user's `package comtrya` files in an ephemeral
@@ -794,7 +820,7 @@ pub fn validate_repository_cue_sources(
 fn evaluate_cue_files_with_cuengine(
     files: &[&CueFile],
     extension_schemas: &[CueSchemaFile],
-) -> Result<(), ConfigDiagnostic> {
+) -> Result<serde_json::Value, ConfigDiagnostic> {
     use std::path::{Component, Path};
 
     // 1. Sanitize EVERY path before touching the filesystem.
@@ -937,7 +963,12 @@ fn evaluate_cue_files_with_cuengine(
         target_dir: None,
     };
     match cuengine::evaluate_module(workdir, "comtrya", Some(&options)) {
-        Ok(_) => Ok(()),
+        Ok(result) => {
+            // Surface the cuengine-evaluated instances (relative path ->
+            // evaluated JSON) so the config snapshot carries the real
+            // effective config rather than a stub.
+            Ok(serde_json::to_value(&result.instances).unwrap_or(serde_json::Value::Null))
+        }
         Err(error) => {
             let raw = format!("{error}");
             // Match the server's `run_cuengine` benign-error policy: when
@@ -948,7 +979,7 @@ fn evaluate_cue_files_with_cuengine(
             // success and the validator must too, or legitimate
             // nested-CUE pushes are wrongly rejected.
             if raw.contains("matched no packages") || raw.contains("no CUE files") {
-                return Ok(());
+                return Ok(serde_json::Value::Object(serde_json::Map::new()));
             }
             // Strip the absolute workdir path AND its canonicalized form
             // — on macOS `/var/folders/...` is a symlink to
@@ -1155,7 +1186,10 @@ fn validate_storage(
     }
     for (name, backend) in backends {
         Slug::new(name.clone()).map_err(|err| {
-            CoreError::config_invalid(format!("repository storage backend {name:?}: {}", err))
+            CoreError::config_invalid(format!(
+                "repository storage backend {name:?}: {}",
+                err.message
+            ))
         })?;
         match backend {
             RepoStorageBackend::Local { path } if path.trim().is_empty() => {
@@ -1820,5 +1854,34 @@ mod tests {
                 .iter()
                 .any(|snapshot| snapshot.path == "/services/api")
         );
+
+        // effective_config_json is serde-serialized typed JSON that carries the
+        // cuengine-evaluated config under "evaluated", not a hand-built stub.
+        let root = result
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.path == "/")
+            .unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(&root.effective_config_json).expect("effective config is JSON");
+        assert_eq!(parsed["repositoryID"], "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
+        assert_eq!(parsed["path"], "/");
+        assert!(parsed.get("evaluated").is_some());
+    }
+
+    #[test]
+    fn effective_config_json_escapes_untrusted_path_segments() {
+        // A path containing a double-quote must not break the JSON; serde
+        // serialization handles escaping (the old hand-built format! could not).
+        let json = effective_config_json(
+            "repo_x",
+            "deadbeef",
+            "a\"b/comtrya.cue",
+            &serde_json::json!({ "k": "v\"q" }),
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&json).expect("hand-untrusted input still yields valid JSON");
+        assert_eq!(parsed["path"], "a\"b/comtrya.cue");
+        assert_eq!(parsed["evaluated"]["k"], "v\"q");
     }
 }
