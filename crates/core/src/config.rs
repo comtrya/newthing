@@ -1215,7 +1215,9 @@ mod tests {
     #[test]
     fn module_path_of_parses_declared_path() {
         assert_eq!(
-            module_path_of("module: \"github.com/comtrya/comtrya\"\nlanguage: version: \"v0.10.0\"\n"),
+            module_path_of(
+                "module: \"github.com/comtrya/comtrya\"\nlanguage: version: \"v0.10.0\"\n"
+            ),
             Some("github.com/comtrya/comtrya".to_string())
         );
         // No space after the colon.
@@ -1249,7 +1251,11 @@ mod tests {
         .unwrap();
         // Repo coincidentally ships a top-level `schema/` directory.
         std::fs::create_dir_all(workdir.join("schema")).unwrap();
-        std::fs::write(workdir.join("schema").join("unrelated.cue"), "package schema\n").unwrap();
+        std::fs::write(
+            workdir.join("schema").join("unrelated.cue"),
+            "package schema\n",
+        )
+        .unwrap();
 
         install_kernel_schema(workdir).expect("install");
 
