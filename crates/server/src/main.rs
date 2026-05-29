@@ -2297,11 +2297,6 @@ const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
     // own handler, so no `UNSUPPORTED_SURFACES` entry is needed for
     // OIDC. Unknown OIDC sub-paths fall through to the global
     // `.fallback(not_found_or_unsupported)`.
-    UnsupportedSurface {
-        id: "git_receive_pack",
-        path_prefix: "/git/",
-        message: "git receive-pack writes are not implemented",
-    },
 ];
 
 async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -4195,14 +4190,18 @@ async fn git_endpoint(
             "Git repository was not found",
         );
     }
-    if is_receive_pack(&path, raw_query.as_deref()) {
-        return unsupported_response(
-            unsupported_surface_by_id("git_receive_pack")
-                .expect("git_receive_pack unsupported surface is registered"),
-            cors,
-        );
-    }
-    if !state.runtime.credential_allows(&headers, "git:read") {
+    // Push (receive-pack) requires the git:write scope; reads (info/refs,
+    // upload-pack) require git:read. The pure-Rust receive-pack responder in
+    // comtrya-git-http applies per-ref CAS + connectivity checks once dispatched.
+    let required_git_scope = if is_receive_pack(&path, raw_query.as_deref()) {
+        "git:write"
+    } else {
+        "git:read"
+    };
+    if !state
+        .runtime
+        .credential_allows(&headers, required_git_scope)
+    {
         return error_response(
             StatusCode::FORBIDDEN,
             ErrorCode::Forbidden.as_str(),
@@ -4333,10 +4332,6 @@ fn unsupported_surface_for_path(path: &str) -> Option<&'static UnsupportedSurfac
     UNSUPPORTED_SURFACES
         .iter()
         .find(|surface| path.starts_with(surface.path_prefix))
-}
-
-fn unsupported_surface_by_id(id: &str) -> Option<&'static UnsupportedSurface> {
-    UNSUPPORTED_SURFACES.iter().find(|surface| surface.id == id)
 }
 
 fn unsupported_response(surface: &UnsupportedSurface, headers: HeaderMap) -> Response {
@@ -7934,7 +7929,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn git_receive_pack_returns_unsupported_registry_error() {
+    async fn git_receive_pack_requires_write_scope() {
+        // A read-only credential must be refused for receive-pack (push); the
+        // git:write scope is required before the request reaches the responder.
         let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
@@ -7955,16 +7952,12 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let payload = serde_json::from_slice::<Value>(&body).unwrap();
         assert_eq!(
             payload["errors"][0]["extensions"]["code"],
-            ErrorCode::Unsupported.as_str()
-        );
-        assert_eq!(
-            payload["errors"][0]["extensions"]["surface"],
-            "git_receive_pack"
+            ErrorCode::Forbidden.as_str()
         );
     }
 

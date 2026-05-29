@@ -56,7 +56,9 @@ where
             }
         }
         "git-upload-pack" => handle_upload_pack(state, segments, headers, body).await,
-        "git-receive-pack" => receive_pack_blocked().await.into_response(),
+        "git-receive-pack" => {
+            crate::receive::handle_receive_pack(state, segments, headers, body).await
+        }
         _ => (StatusCode::NOT_FOUND, "git endpoint not found").into_response(),
     }
 }
@@ -167,169 +169,6 @@ where
     S: GitHttpState,
 {
     handle_upload_pack(state, vec![group, repo], headers, body).await
-}
-
-// POST /.../git-receive-pack (explicitly blocked)
-pub async fn receive_pack_blocked() -> impl IntoResponse {
-    // Receive-pack is intentionally not wired to public dispatch until write auth,
-    // object connectivity validation, pack safety, and ref transactions are reviewed.
-    (StatusCode::FORBIDDEN, "push over HTTP is disabled")
-}
-
-#[cfg(test)]
-const RECEIVE_ZERO_OID: &str = "0000000000000000000000000000000000000000";
-
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ReceivePackCommandSet {
-    commands: Vec<ReceivePackCommand>,
-    capabilities: ReceivePackCapabilities,
-    pack_bytes: usize,
-}
-
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ReceivePackCommand {
-    old_oid: String,
-    new_oid: String,
-    ref_name: String,
-}
-
-#[cfg(test)]
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct ReceivePackCapabilities {
-    report_status: bool,
-    report_status_v2: bool,
-    object_format: Option<String>,
-    agent: Option<String>,
-}
-
-#[cfg(test)]
-fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
-    let mut offset = 0usize;
-    let mut commands = Vec::new();
-    let mut capabilities = ReceivePackCapabilities::default();
-
-    loop {
-        if offset + 4 > bytes.len() {
-            anyhow::bail!("truncated pkt-line length");
-        }
-        let len = usize::from_str_radix(std::str::from_utf8(&bytes[offset..offset + 4])?, 16)?;
-        offset += 4;
-        if len == 0 {
-            break;
-        }
-        if len <= 4 {
-            anyhow::bail!("unsupported receive-pack control packet");
-        }
-        let data_len = len - 4;
-        if offset + data_len > bytes.len() {
-            anyhow::bail!("truncated pkt-line data");
-        }
-        let data = &bytes[offset..offset + data_len];
-        offset += data_len;
-
-        let command_data = if commands.is_empty() {
-            if let Some(nul) = data.iter().position(|b| *b == 0) {
-                parse_receive_pack_capabilities(&data[nul + 1..], &mut capabilities)?;
-                &data[..nul]
-            } else {
-                data
-            }
-        } else {
-            data
-        };
-        commands.push(parse_receive_pack_command(command_data)?);
-    }
-
-    if commands.is_empty() {
-        anyhow::bail!("no ref update commands");
-    }
-
-    Ok(ReceivePackCommandSet {
-        commands,
-        capabilities,
-        pack_bytes: bytes.len().saturating_sub(offset),
-    })
-}
-
-#[cfg(test)]
-fn parse_receive_pack_capabilities(
-    bytes: &[u8],
-    capabilities: &mut ReceivePackCapabilities,
-) -> anyhow::Result<()> {
-    let text = std::str::from_utf8(bytes)?.trim_end_matches('\n');
-    for capability in text.split_whitespace() {
-        match capability {
-            "report-status" => capabilities.report_status = true,
-            "report-status-v2" => capabilities.report_status_v2 = true,
-            capability if capability.starts_with("agent=") => {
-                capabilities.agent = Some(capability["agent=".len()..].to_string());
-            }
-            capability if capability.starts_with("object-format=") => {
-                let object_format = &capability["object-format=".len()..];
-                if object_format != "sha1" {
-                    anyhow::bail!("unsupported object-format {object_format}");
-                }
-                capabilities.object_format = Some(object_format.to_string());
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand> {
-    let line = std::str::from_utf8(data)?.trim_end_matches('\n');
-    let mut parts = line.split(' ');
-    let old_oid = parts.next().unwrap_or_default();
-    let new_oid = parts.next().unwrap_or_default();
-    let ref_name = parts.next().unwrap_or_default();
-    if parts.next().is_some()
-        || !receive_pack_is_sha1_hex(old_oid)
-        || !receive_pack_is_sha1_hex(new_oid)
-    {
-        anyhow::bail!("malformed ref update command");
-    }
-    validate_receive_pack_ref(ref_name)?;
-    Ok(ReceivePackCommand {
-        old_oid: old_oid.to_string(),
-        new_oid: new_oid.to_string(),
-        ref_name: ref_name.to_string(),
-    })
-}
-
-#[cfg(test)]
-fn receive_pack_is_sha1_hex(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-#[cfg(test)]
-fn validate_receive_pack_ref(ref_name: &str) -> anyhow::Result<()> {
-    if !(ref_name.starts_with("refs/heads/") || ref_name.starts_with("refs/tags/")) {
-        anyhow::bail!("unsupported ref namespace");
-    }
-    if ref_name.ends_with('/')
-        || ref_name.contains("//")
-        || ref_name.contains("..")
-        || ref_name.contains("@{")
-        || ref_name
-            .bytes()
-            .any(|b| b <= 0x20 || matches!(b, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\'))
-    {
-        anyhow::bail!("invalid ref name");
-    }
-    if ref_name.split('/').any(|part| {
-        part.is_empty()
-            || part == "."
-            || part.ends_with(".lock")
-            || part.starts_with('.')
-            || part.ends_with('.')
-    }) {
-        anyhow::bail!("invalid ref name");
-    }
-    Ok(())
 }
 
 async fn advertise_v2_rust<S>(state: &S, segments: &[String], _headers: &HeaderMap) -> Response
@@ -1024,6 +863,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::pkt::encode_pkt_line;
+    use crate::receive::{RECEIVE_ZERO_OID, parse_receive_pack_command_set};
     use crate::repo::RepositoryProvider;
 
     #[derive(Clone)]
@@ -1328,24 +1168,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn receive_pack_is_forbidden() {
-        let resp = receive_pack_blocked().await.into_response();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn dispatch_keeps_receive_pack_disabled() {
+    async fn dispatch_routes_receive_pack_to_handler() {
+        // Unknown repo path is rejected with NOT_FOUND by the receive-pack
+        // handler (no longer a blanket FORBIDDEN).
         let (state, _local_dir) = mk_app_state().await.unwrap();
+        let mut body = Vec::new();
+        body.extend_from_slice(&encode_pkt_line(
+            b"0000000000000000000000000000000000000000 1111111111111111111111111111111111111111 refs/heads/main\0report-status\n",
+        ));
+        body.extend_from_slice(PKT_FLUSH);
         let resp = dispatch(
             state,
             vec!["alpha".to_string()],
             "git-receive-pack",
             None,
             AxHeaderMap::new(),
-            axum::body::Body::empty(),
+            axum::body::Body::from(body),
         )
         .await;
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
