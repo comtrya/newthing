@@ -699,6 +699,72 @@ mod tests {
         );
     }
 
+    use super::evaluate_repo_config;
+
+    /// Regression: importing a repo that ships an unrelated top-level
+    /// `schema/` directory and NO comtrya config must evaluate cleanly.
+    /// Previously the kernel installer skipped vendoring the published
+    /// schema package whenever any `schema/` directory existed, so the
+    /// injected bridge's `import "github.com/comtrya/comtrya/schema"`
+    /// failed with "cannot find package …/schema" and the repo home
+    /// surfaced a scary CUE error instead of an implicit default project.
+    #[test]
+    fn repo_without_comtrya_config_but_with_schema_dir_evaluates_cleanly() {
+        let tmp = tempfile::Builder::new()
+            .prefix("comtrya-cue-noschema-")
+            .tempdir()
+            .unwrap();
+        let work = tmp.path();
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            ["config", "user.email", "noconfig-test@comtrya"].as_slice(),
+            ["config", "user.name", "noconfig-test"].as_slice(),
+            ["config", "commit.gpgsign", "false"].as_slice(),
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(work)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "git {args:?} failed"
+            );
+        }
+        // A top-level `schema/` directory unrelated to comtrya, plus a
+        // plain README. No `package comtrya` file, no `cue.mod` — the
+        // module is synthesised at eval time.
+        std::fs::create_dir_all(work.join("schema")).unwrap();
+        std::fs::write(work.join("schema").join("openapi.cue"), "package schema\n").unwrap();
+        std::fs::write(work.join("README.md"), "# rawkode\n").unwrap();
+        for args in [
+            ["add", "-A"].as_slice(),
+            ["commit", "-q", "-m", "seed"].as_slice(),
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(work)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "git {args:?} failed"
+            );
+        }
+
+        let result = evaluate_repo_config(&work.join(".git"), "main", &[]);
+        assert_eq!(
+            result.get("error"),
+            Some(&serde_json::Value::Null),
+            "no-config repo with a schema/ dir must evaluate without error; got: {result}"
+        );
+        let projects = result.get("projects").and_then(|v| v.as_array());
+        assert!(
+            projects.is_some_and(|p| !p.is_empty()),
+            "expected an implicit default project; got: {result}"
+        );
+    }
+
     #[test]
     fn cue_cache_does_not_cache_unresolvable_refs() {
         let (_tmp, git_dir, _oid) = seeded_repo("package comtrya\n");
