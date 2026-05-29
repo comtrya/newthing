@@ -2209,6 +2209,41 @@ fn token_audit_id(token: &str) -> String {
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Best-effort caller IP for anonymous rate-limit bucketing. The server
+/// runs behind a proxy, so the only client-stable signal is the
+/// `X-Forwarded-For` / `X-Real-IP` header. Returns the first forwarded
+/// hop, hashed (non-reversible audit id), or `None` when absent.
+fn forwarded_addr_fingerprint(headers: &HeaderMap) -> Option<String> {
+    let raw = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|hop| !hop.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|hop| !hop.is_empty())
+        })?;
+    Some(token_audit_id(raw))
+}
+
+/// Stable per-principal fingerprint for rate-limit bucket keys. Keyed off
+/// the bearer/session token (hashed) when authenticated, falling back to a
+/// hashed forwarded client address for anonymous callers, and finally a
+/// shared `anon` bucket when neither signal is present.
+fn principal_fingerprint(headers: &HeaderMap) -> String {
+    if let Some(token) = auth_token_from_headers(headers) {
+        return format!("tok:{}", token_audit_id(token));
+    }
+    if let Some(addr) = forwarded_addr_fingerprint(headers) {
+        return format!("ip:{addr}");
+    }
+    "anon".to_string()
+}
+
 /// Git PAT wire format: `cpat.<id>.<secret>`. `<id>` is the (non-secret)
 /// primary key of the row — it carries no `.` so the secret can be split
 /// off with `rsplit_once('.')`. The `<secret>` tail is the unguessable
@@ -2660,7 +2695,7 @@ async fn api_op(
     if state
         .runtime
         .rate_limit(
-            "api_ops",
+            &format!("api_ops:{}", principal_fingerprint(&headers)),
             state.runtime.config.rate_limits.graphql_per_principal,
         )
         .is_err()
@@ -3014,7 +3049,7 @@ fn cors_or_response(state: &AppState, headers: &HeaderMap) -> ResponseResult<Hea
 pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
     state.runtime.rate_limit(
-        "graphql",
+        &format!("graphql:{}", principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
     let principal = state.runtime.principal_from_headers(headers);
@@ -3031,7 +3066,7 @@ pub(crate) fn graphql_read_guard(
 ) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
     state.runtime.rate_limit(
-        "graphql",
+        &format!("graphql:{}", principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
     if matches!(
@@ -3771,6 +3806,22 @@ async fn token_exchange(
         Ok(cors) => cors,
         Err(response) => return *response,
     };
+    // Throttle operator-code guesses before the comparison: the operator
+    // code is the bootstrap admin secret, so an unauthenticated caller must
+    // not get unlimited online brute-force attempts. Anonymous callers key
+    // on forwarded address (or a shared `anon` bucket as a last resort).
+    if let Err(response) = state.runtime.rate_limit(
+        &format!("token_exchange:{}", principal_fingerprint(&headers)),
+        state
+            .runtime
+            .config
+            .rate_limits
+            .token_exchange_per_principal,
+    ) {
+        let mut response = *response;
+        response.headers_mut().extend(cors);
+        return response;
+    }
     if request.grant_type != "urn:comtrya:grant:operator-code"
         || request.subject_token_type != "urn:comtrya:token-type:operator-code"
     {
@@ -11256,6 +11307,47 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), reqwest::StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn token_exchange_brute_force_is_rate_limited() {
+        // The operator code is the bootstrap admin secret; wrong-code guesses
+        // from one caller must be throttled rather than allowed unbounded.
+        let runtime = dev_runtime_no_extensions();
+        let ceiling = runtime.config.rate_limits.token_exchange_per_principal;
+        let addr = spawn_test_server(runtime).await;
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "grantType": "urn:comtrya:grant:operator-code",
+            "subjectTokenType": "urn:comtrya:token-type:operator-code",
+            "subjectToken": "wrong-code",
+            "requestedResource": "comtrya://repository/comtrya/comtrya",
+            "requestedActions": ["repository.read"],
+        })
+        .to_string();
+        // All requests share the anonymous bucket (no auth, no forwarded
+        // address), so the same key tallies across the loop. The ceiling is
+        // inclusive; the (ceiling + 1)-th request must trip the limiter.
+        let mut saw_rate_limit = false;
+        for _ in 0..=ceiling {
+            let response = client
+                .post(format!("http://{addr}/auth/token-exchange"))
+                .header("content-type", "application/json")
+                .body(body.clone())
+                .send()
+                .await
+                .unwrap();
+            if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                saw_rate_limit = true;
+                break;
+            }
+            // Until the limiter trips, a wrong code is rejected as 401, never 200.
+            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+        }
+        assert!(
+            saw_rate_limit,
+            "token-exchange must 429 once the per-principal ceiling is exceeded"
+        );
     }
 
     #[tokio::test]
