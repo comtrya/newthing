@@ -845,40 +845,70 @@ impl wit_storage::Host for HostState {
         _after: Option<wit_types::PageToken>,
     ) -> Result<wit_storage::DocPage, wit_types::Error> {
         self.require_host_import("storage.read")?;
+        if limit == 0 {
+            return Err(err(
+                wit_types::ErrorCode::BadInput,
+                "limit must be greater than zero",
+            ));
+        }
         if limit > 1024 {
             return Err(err(
                 wit_types::ErrorCode::BadInput,
                 "limit must not exceed 1024",
             ));
         }
-        // Phase 2: minimal — fetch all docs in the extension's collection
-        // up to `limit`. Filter / order / cursor are TODO; the kernel's
-        // existing `query_documents_by_index` covers the index-fields
-        // case but not the variant index-filter shape yet.
+        // Phase 2: minimal — fetch the extension's collection. Filter / order
+        // are TODO; the kernel's existing `query_documents_by_index` covers
+        // the index-fields case but not the variant index-filter shape yet.
+        // Pagination is real: records are ordered deterministically by id and
+        // the cursor is the last id returned (opaque, base64-encoded), so a
+        // collection larger than `limit` is fully walkable across calls.
         let records = self
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        let docs: Vec<Vec<u8>> = records
+        let mut matching: Vec<_> = records
             .into_iter()
             .filter(|r| r.owner_extension == self.extension_id && r.collection == collection)
-            .take(limit as usize)
+            .collect();
+        matching.sort_by(|a, b| a.id.cmp(&b.id));
+
+        let after_id = match _after {
+            Some(token) => Some(decode_doc_cursor(&token.cursor)?),
+            None => None,
+        };
+        let start = match after_id {
+            // Cursor points at the last id already returned; resume strictly
+            // after it. `partition_point` on the sorted ids gives the first
+            // index whose id is greater than the cursor.
+            Some(ref cursor) => matching.partition_point(|r| &r.id <= cursor),
+            None => 0,
+        };
+
+        let remaining = &matching[start..];
+        let take = (limit as usize).min(remaining.len());
+        let docs: Vec<Vec<u8>> = remaining[..take]
+            .iter()
             .map(|r| serde_json::to_vec(&r.data).unwrap_or_default())
             .collect();
-        Ok(wit_storage::DocPage {
-            docs,
-            next_page: None,
-        })
+        let next_page = if remaining.len() > take {
+            remaining.get(take - 1).map(|last| wit_types::PageToken {
+                cursor: encode_doc_cursor(&last.id),
+            })
+        } else {
+            None
+        };
+        Ok(wit_storage::DocPage { docs, next_page })
     }
 
     fn list_all(
         &mut self,
         collection: String,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_storage::DocPage, wit_types::Error> {
         self.require_host_import("storage.read")?;
-        self.query(collection, Vec::new(), None, limit, None)
+        self.query(collection, Vec::new(), None, limit, after)
     }
 }
 
@@ -1090,6 +1120,23 @@ impl wit_relations::Host for HostState {
             next_page: None,
         })
     }
+}
+
+/// Opaque page cursor for `storage.query`/`list-all`: the last record id of
+/// the prior page, base64-encoded so callers treat it as opaque. The id is
+/// stable and the result set is ordered by id, so resuming after the cursor
+/// is deterministic.
+fn encode_doc_cursor(id: &str) -> String {
+    base64_encode(id.as_bytes())
+}
+
+/// Decode an opaque page cursor back to the record id. A malformed cursor is a
+/// stale/forged token; the WIT contract says callers must treat `bad-input`
+/// from a stale cursor as "restart from the beginning".
+fn decode_doc_cursor(cursor: &str) -> Result<String, wit_types::Error> {
+    base64_decode(cursor)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(|| err(wit_types::ErrorCode::BadInput, "malformed page cursor"))
 }
 
 pub(crate) fn base64_encode(bytes: &[u8]) -> String {
@@ -1872,6 +1919,96 @@ mod tests {
             Err(e) if matches!(e.code, wit_types::ErrorCode::Forbidden) => {}
             other => panic!("expected Forbidden for unminted id, got: {:?}", other),
         }
+    }
+
+    #[test]
+    fn query_paginates_without_dropping_records() {
+        // Regression for #76: query/list-all must return a cursor when more
+        // records remain past `limit`, and walking `after` must visit every
+        // record exactly once — never silently truncate via `.take(limit)`.
+        let store = tmp_store("paginate");
+        let mut host = host_with_principal(store.clone(), "comtrya://user/usr_test");
+        // Grant storage imports the helper host omits.
+        host.manifest = Arc::new(HostManifest {
+            host_imports: vec!["storage.read".to_string(), "storage.write".to_string()],
+            ..HostManifest::default()
+        });
+
+        // Seed 25 records into the mint-exempt `_meta` collection. Ids are
+        // zero-padded so lexicographic (id) order matches numeric order.
+        let total = 25usize;
+        let mut expected_ids: Vec<String> = (0..total).map(|i| format!("doc-{i:03}")).collect();
+        for id in &expected_ids {
+            <HostState as wit_storage::Host>::create(
+                &mut host,
+                "_meta".to_string(),
+                id.clone(),
+                format!("{{\"id\":\"{id}\"}}").into_bytes(),
+                wit_storage::DocumentMetadata {
+                    resource_uri: format!("comtrya://meta/{id}"),
+                    resource_refs: vec![],
+                },
+            )
+            .expect("seed record");
+        }
+
+        // Walk in pages of 10: expect pages of 10, 10, 5 with a cursor on the
+        // first two and `None` on the last.
+        let limit = 10u32;
+        let mut seen: Vec<String> = Vec::new();
+        let mut after: Option<wit_types::PageToken> = None;
+        let mut pages = 0;
+        loop {
+            pages += 1;
+            assert!(pages <= total + 1, "pagination did not terminate");
+            let page = <HostState as wit_storage::Host>::query(
+                &mut host,
+                "_meta".to_string(),
+                Vec::new(),
+                None,
+                limit,
+                after.clone(),
+            )
+            .expect("query page");
+            for doc in &page.docs {
+                let value: serde_json::Value = serde_json::from_slice(doc).unwrap();
+                seen.push(value["id"].as_str().unwrap().to_string());
+            }
+            match page.next_page {
+                Some(token) => {
+                    assert_eq!(
+                        page.docs.len(),
+                        limit as usize,
+                        "a page with a cursor must be full"
+                    );
+                    after = Some(token);
+                }
+                None => break,
+            }
+        }
+
+        expected_ids.sort();
+        seen.sort();
+        assert_eq!(
+            seen, expected_ids,
+            "every record must be visited exactly once across pages"
+        );
+
+        // A malformed cursor must be reported as bad-input so callers restart.
+        let bad = <HostState as wit_storage::Host>::query(
+            &mut host,
+            "_meta".to_string(),
+            Vec::new(),
+            None,
+            limit,
+            Some(wit_types::PageToken {
+                cursor: "!!! not base64 !!!".to_string(),
+            }),
+        );
+        assert!(
+            matches!(bad, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
+            "malformed cursor must be bad-input"
+        );
     }
 
     #[test]
