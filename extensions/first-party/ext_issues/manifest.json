@@ -99,7 +99,8 @@
   "allowedEmits": [
     "dev.comtrya.issues.opened",
     "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened"
+    "dev.comtrya.issues.reopened",
+    "dev.comtrya.issues.project-changed"
   ],
   "allowedEventReads": [
     "ext_pull_requests"
