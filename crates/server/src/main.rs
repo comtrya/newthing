@@ -9024,9 +9024,11 @@ mod tests {
 
     #[tokio::test]
     async fn legacy_git_prefix_is_no_longer_routed() {
-        // The `/git/*` route was removed when browse and clone unified under
-        // `/r/<repo>`. A request to the old prefix must fall through to the
-        // global not-found handler.
+        // The dedicated `/git/*` route was removed when browse and clone
+        // unified under `/r/<repo>`. The old prefix now only matches the
+        // catch-all `/*path` OPTIONS route, so a GET/POST clone attempt yields
+        // 405 Method Not Allowed — never a git advertisement and never the git
+        // credential boundary (401). This proves the git handler is gone.
         let addr = spawn_test_server(dev_runtime_no_extensions()).await;
         let response = reqwest::Client::new()
             .get(format!(
@@ -9035,11 +9037,11 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
-        let payload = response.json::<Value>().await.unwrap();
-        assert_eq!(
-            payload["errors"][0]["extensions"]["code"],
-            ErrorCode::NotFound.as_str()
+        assert_eq!(response.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
+        let body = response.text().await.unwrap();
+        assert!(
+            !body.contains("git-upload-pack"),
+            "legacy /git/ prefix must not produce a git advertisement",
         );
     }
 

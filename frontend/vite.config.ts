@@ -18,7 +18,7 @@ const kernelProxy = (): ProxyOptions => ({
 // three canonical Smart HTTP markers are the only paths the kernel owns
 // under this prefix.
 const isGitSmartHttp = (url: string): boolean => {
-  const [path, query = ""] = url.split("?");
+  const [path = "", query = ""] = url.split("?");
   if (path.endsWith("/git-upload-pack") || path.endsWith("/git-receive-pack")) {
     return true;
   }
