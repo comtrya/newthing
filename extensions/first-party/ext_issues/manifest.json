@@ -25,7 +25,7 @@
       }
     ],
     "resourceKinds": [
-      { "name": "issue", "prefix": "iss" }
+      { "name": "issue", "prefix": "iss", "scope": "repository" }
     ],
     "relationshipTypes": [
       {

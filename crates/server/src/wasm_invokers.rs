@@ -351,6 +351,19 @@ pub fn dispatch_ext_issues(
         ));
     }
     let input = parse_payload(payload)?;
+    // Repository-scoped opt-in gate (issue resource kind is repository
+    // scope). Ops that carry the target repo inline are gated here,
+    // before the resource is touched. Ops keyed by an issue id/number are
+    // gated below, once the issue is loaded and its repository is known.
+    let gate_store = store.clone();
+    if info.op_name == "open-issue" || info.op_name == "list-issues" {
+        ensure_repo_enabled(
+            registry,
+            &gate_store,
+            &repository_from_payload(&input, info.op_name)?,
+            "ext_issues",
+        )?;
+    }
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -417,6 +430,20 @@ pub fn dispatch_ext_issues(
                     format!("parse close-issue input: {e}"),
                 )
             })?;
+            // Mutation keyed by issue id: load the issue to learn its
+            // repository, then gate before mutating.
+            let existing = issues
+                .call_get_issue(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("close-issue repo lookup: {e}"),
+                    )
+                })?
+                .map_err(local_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(registry, &gate_store, &existing.repository, "ext_issues")?;
+            }
             let wit_input = CloseIssueInput {
                 id: parsed.id,
                 reason: parsed.reason,
@@ -434,6 +461,20 @@ pub fn dispatch_ext_issues(
         }
         "reopen-issue" => {
             let id = string_payload(&input, "reopen-issue")?;
+            // Mutation keyed by issue id: load to learn the repository,
+            // then gate before mutating.
+            let existing = issues
+                .call_get_issue(&mut wasm_store, &id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("reopen-issue repo lookup: {e}"),
+                    )
+                })?
+                .map_err(local_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(registry, &gate_store, &existing.repository, "ext_issues")?;
+            }
             let result = issues
                 .call_reopen_issue(&mut wasm_store, &id)
                 .map_err(|e| {
@@ -453,7 +494,10 @@ pub fn dispatch_ext_issues(
                 )
             })?;
             match result.map_err(local_error_to_canonical)? {
-                Some(issue) => issue_to_json(&issue),
+                Some(issue) => {
+                    ensure_repo_enabled(registry, &gate_store, &issue.repository, "ext_issues")?;
+                    issue_to_json(&issue)
+                }
                 None => Value::Null,
             }
         }
@@ -496,11 +540,19 @@ pub fn dispatch_ext_issues(
                     )
                 })?;
             match result.map_err(local_error_to_canonical)? {
-                Some(issue) => issue_to_json(&issue),
+                Some(issue) => {
+                    ensure_repo_enabled(registry, &gate_store, &issue.repository, "ext_issues")?;
+                    issue_to_json(&issue)
+                }
                 None => Value::Null,
             }
         }
         "by-refs-issue" => {
+            // Intentionally NOT per-repo gated. A batch of issue refs can
+            // span multiple repositories, so there is no single repo to
+            // gate against. Per the Phase-2 opt-in decision, cross-repo
+            // batch reads are exempt from the gate; opt-in governs
+            // mutations and single-repo reads only.
             let refs = string_vec_payload(&input, "by-refs-issue")?;
             let result = issues
                 .call_by_refs_issue(&mut wasm_store, &refs)
@@ -534,11 +586,17 @@ pub fn dispatch_ext_issues(
                     )
                 })?;
             match result.map_err(local_error_to_canonical)? {
-                Some(issue) => issue_to_json(&issue),
+                Some(issue) => {
+                    ensure_repo_enabled(registry, &gate_store, &issue.repository, "ext_issues")?;
+                    issue_to_json(&issue)
+                }
                 None => Value::Null,
             }
         }
         "state-counts-for-refs-issue" => {
+            // Intentionally NOT per-repo gated: aggregates counts across a
+            // batch of refs that can span multiple repositories. See
+            // `by-refs-issue` for the Phase-2 opt-in exemption rationale.
             let refs = string_vec_payload(&input, "state-counts-for-refs-issue")?;
             let result = issues
                 .call_state_counts_for_refs_issue(&mut wasm_store, &refs)
@@ -584,6 +642,14 @@ pub fn dispatch_ext_epics(
         ));
     }
     let input = parse_payload(payload)?;
+    // NOT per-repo gated: epics are workspace-scoped. An epic resource
+    // carries `workspace` but no `repository` (see `epic_to_json`), and
+    // create/list ops are keyed by `workspace`. There is no repository to
+    // resolve `repository.extensions` against, so the per-repo
+    // opt-in gate does not apply to ext_epics ops despite the manifest
+    // declaring the `epic` kind repository-scoped. Flagged in the Phase-2
+    // report: epics need a workspace-level enablement model, not the
+    // per-repo one, to be gated.
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -723,6 +789,10 @@ pub fn dispatch_ext_epics(
             }
         }
         "by-refs-epic" => {
+            // Not per-repo gated: epics are instance-scoped (an epic can
+            // span repositories), and this batch read accepts refs across
+            // repositories. Opt-in does not apply to instance-scoped
+            // extensions.
             let refs = string_vec_payload(&input, "by-refs-epic")?;
             let result = epics
                 .call_by_refs_epic(&mut wasm_store, &refs)
@@ -822,6 +892,19 @@ pub fn dispatch_ext_pull_requests(
         ));
     }
     let input = parse_payload(payload)?;
+    // Repository-scoped opt-in gate (pull-request resource kind is
+    // repository scope). Ops that carry the target repo inline are gated
+    // here; ops keyed by a pull id are gated below once the pull is
+    // loaded and its repository is known.
+    let gate_store = store.clone();
+    if info.op_name == "create-pull" || info.op_name == "list-pulls" {
+        ensure_repo_enabled(
+            registry,
+            &gate_store,
+            &repository_from_payload(&input, info.op_name)?,
+            "ext_pull_requests",
+        )?;
+    }
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -887,6 +970,25 @@ pub fn dispatch_ext_pull_requests(
                     format!("parse merge-pull input: {e}"),
                 )
             })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before mutating.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("merge-pull repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
             let wit_input = MergePullInput {
                 id: parsed.id,
                 merged_by_ref: parsed.merged_by_ref,
@@ -908,6 +1010,25 @@ pub fn dispatch_ext_pull_requests(
                     format!("parse close-pull input: {e}"),
                 )
             })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before mutating.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("close-pull repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
             let wit_input = ClosePullInput {
                 id: parsed.id,
                 closed_by_ref: parsed.closed_by_ref,
@@ -931,7 +1052,15 @@ pub fn dispatch_ext_pull_requests(
                 )
             })?;
             match result.map_err(pulls_error_to_canonical)? {
-                Some(pull) => pull_request_to_json(&pull),
+                Some(pull) => {
+                    ensure_repo_enabled(
+                        registry,
+                        &gate_store,
+                        &pull.repository,
+                        "ext_pull_requests",
+                    )?;
+                    pull_request_to_json(&pull)
+                }
                 None => Value::Null,
             }
         }
@@ -997,6 +1126,18 @@ pub fn dispatch_ext_checks(
         ));
     }
     let input = parse_payload(payload)?;
+    // Repository-scoped opt-in gate (check-run resource kind is
+    // repository scope). Both ext_checks ops carry the target repo
+    // inline (`record-check`, `list-checks`), so gate them here.
+    let gate_store = store.clone();
+    if info.op_name == "record-check" || info.op_name == "list-checks" {
+        ensure_repo_enabled(
+            registry,
+            &gate_store,
+            &repository_from_payload(&input, info.op_name)?,
+            "ext_checks",
+        )?;
+    }
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -1168,6 +1309,50 @@ pub fn dispatch_ext_workspace_home(
             format!("encode result: {e}"),
         )
     })
+}
+
+/// Reject the call unless the repository at `repository_ref` has opted
+/// into `extension_id` via its `repository.extensions` set.
+/// Repository-scoped ops call this before doing any work that depends on
+/// the per-repo opt-in. Instance-scoped ops never call it.
+///
+/// The ref is trimmed before resolution (op inputs may carry surrounding
+/// whitespace that the extension trims internally). The gate is **fail
+/// closed**: a repository-scoped op that supplies a missing or malformed
+/// repository ref is rejected here at the kernel boundary, rather than
+/// delegating that to each extension's own input validation.
+fn ensure_repo_enabled(
+    registry: &WasmRegistry,
+    store: &crate::ExtensionRuntimeStore,
+    repository_ref: &str,
+    extension_id: &str,
+) -> Result<(), wit_types::Error> {
+    let trimmed = repository_ref.trim();
+    if crate::wasm_registry::repository_id_from_ref(trimmed).is_none() {
+        return Err(wit_types::Error {
+            code: wit_types::ErrorCode::BadInput,
+            message: format!(
+                "repository-scoped op requires a well-formed repository ref, got {repository_ref:?}"
+            ),
+            path: Some("repository".to_string()),
+        });
+    }
+    registry.ensure_extension_enabled_for_repo(store, trimmed, extension_id)
+}
+
+/// Pull the `repository` field out of an op payload object. Used by
+/// repository-scoped ops that carry the target repo inline.
+fn repository_from_payload(input: &Value, op: &str) -> Result<String, wit_types::Error> {
+    input
+        .get("repository")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            wit_error(
+                wit_types::ErrorCode::BadInput,
+                format!("{op} requires payload.repository"),
+            )
+        })
 }
 
 fn parse_payload(payload: &[u8]) -> Result<Value, wit_types::Error> {

@@ -751,7 +751,7 @@ pub fn validate_repository_cue_sources(
         }
     }
 
-    // Reject a push whose `repository.enabledExtensions` names an id that
+    // Reject a push whose `repository.extensions` names an id that
     // is not an installed extension. The CUE schema already constrains the
     // field to `[...string]`; this enforces the semantic constraint the
     // schema can't express (membership in the live installed set), which is
@@ -763,7 +763,7 @@ pub fn validate_repository_cue_sources(
                     severity: "error".to_string(),
                     path: None,
                     message: format!(
-                        "repository.enabledExtensions names {id:?}, which is not an installed extension"
+                        "repository.extensions names {id:?}, which is not an installed extension"
                     ),
                 });
             }
@@ -800,11 +800,11 @@ pub fn validate_repository_cue_sources(
     })
 }
 
-/// Collect the `repository.enabledExtensions` ids declared anywhere in the
+/// Collect the `repository.extensions` ids declared anywhere in the
 /// evaluated instance tree. `evaluated` is the cuengine result's
 /// `instances` map (relative directory path -> evaluated JSON), so a
 /// `repository:` block can appear under any instance; we union the
-/// `enabledExtensions` across all of them. Non-string entries are ignored
+/// `extensions` across all of them. Non-string entries are ignored
 /// (the CUE schema constrains the field to `[...string]`, so a non-string
 /// here would already have failed evaluation).
 fn enabled_extensions_from_evaluated(evaluated: &serde_json::Value) -> BTreeSet<String> {
@@ -815,7 +815,7 @@ fn enabled_extensions_from_evaluated(evaluated: &serde_json::Value) -> BTreeSet<
     for instance in instances.values() {
         let Some(list) = instance
             .get("repository")
-            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(|repo| repo.get("extensions"))
             .and_then(serde_json::Value::as_array)
         else {
             continue;
@@ -1987,7 +1987,7 @@ mod tests {
 
     #[test]
     fn repository_enabled_extensions_accepts_installed_ids() {
-        // A repo declaring `enabledExtensions` whose ids are all installed
+        // A repo declaring `extensions` whose ids are all installed
         // must validate.
         let installed: BTreeSet<String> =
             ["ext_issues".to_string(), "ext_pulls".to_string()].into();
@@ -1999,7 +1999,7 @@ mod tests {
                 source: concat!(
                     "package comtrya\n",
                     "import \"github.com/comtrya/comtrya/schema\"\n",
-                    "repository: schema.#Repository & { enabledExtensions: [\"ext_issues\"] }\n",
+                    "repository: schema.#Repository & { extensions: [\"ext_issues\"] }\n",
                 )
                 .to_string(),
             }],
@@ -2028,7 +2028,7 @@ mod tests {
                 source: concat!(
                     "package comtrya\n",
                     "import \"github.com/comtrya/comtrya/schema\"\n",
-                    "repository: schema.#Repository & { enabledExtensions: [\"ext_nope\"] }\n",
+                    "repository: schema.#Repository & { extensions: [\"ext_nope\"] }\n",
                 )
                 .to_string(),
             }],
@@ -2051,9 +2051,9 @@ mod tests {
     #[test]
     fn repository_without_enabled_extensions_defaults_to_empty() {
         // A repo that declares a `repository:` block but omits
-        // `enabledExtensions` defaults to the empty set — strictly off.
+        // `extensions` defaults to the empty set — strictly off.
         let evaluated = serde_json::json!({
-            ".": { "repository": { "enabledExtensions": [] } }
+            ".": { "repository": { "extensions": [] } }
         });
         assert!(enabled_extensions_from_evaluated(&evaluated).is_empty());
 
@@ -2066,8 +2066,8 @@ mod tests {
     fn enabled_extensions_from_evaluated_unions_across_instances() {
         // `repository:` blocks declared in more than one instance union.
         let evaluated = serde_json::json!({
-            ".": { "repository": { "enabledExtensions": ["ext_issues"] } },
-            "services/api": { "repository": { "enabledExtensions": ["ext_pulls"] } },
+            ".": { "repository": { "extensions": ["ext_issues"] } },
+            "services/api": { "repository": { "extensions": ["ext_pulls"] } },
         });
         let ids = enabled_extensions_from_evaluated(&evaluated);
         assert!(ids.contains("ext_issues"));

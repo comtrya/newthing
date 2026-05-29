@@ -40,6 +40,108 @@ pub struct LoadedExtension {
     pub component: Component,
 }
 
+/// Resolves a repository's per-repo extension opt-in set
+/// (`repository.extensions`) for a `comtrya://` repository ref.
+/// Installed onto the registry after the kernel runtime is assembled.
+pub trait RepoEnablementResolver: Send + Sync {
+    /// The set of extension ids the repository at `repository_ref` has
+    /// opted into. The empty set means "strictly off" — no
+    /// repository-scoped extension features are available.
+    fn enabled_extensions_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String>;
+}
+
+/// Production resolver: maps a repository ref to its on-disk bare git
+/// dir, evaluates the repo's `package comtrya` CUE through the shared
+/// per-commit cache, and reads `repository.extensions`. Depends on
+/// the data dir, the shared CUE evaluation cache, and the collected
+/// extension CUE schemas.
+pub struct CueRepoEnablement {
+    data_dir: std::path::PathBuf,
+    cue_cache: Arc<crate::cue_config::CueConfigCache>,
+    schemas: Vec<crate::cue_config::ExtensionSchema>,
+}
+
+impl CueRepoEnablement {
+    pub fn new(
+        data_dir: std::path::PathBuf,
+        cue_cache: Arc<crate::cue_config::CueConfigCache>,
+        schemas: Vec<crate::cue_config::ExtensionSchema>,
+    ) -> Self {
+        Self {
+            data_dir,
+            cue_cache,
+            schemas,
+        }
+    }
+
+    /// The opt-in set for the repository at `path`. Resolves the bare git
+    /// dir under `repositories/<path>.git`, evaluates the repo's
+    /// `package comtrya` CUE through the shared cache, and reads
+    /// `repository.extensions`. Absent or unreadable config yields
+    /// the empty set (strictly off).
+    fn enabled_extensions_for_path(&self, path: &str) -> std::collections::BTreeSet<String> {
+        let git_dir = self
+            .data_dir
+            .join("repositories")
+            .join(format!("{path}.git"));
+        if !git_dir.is_dir() {
+            return std::collections::BTreeSet::new();
+        }
+        let config =
+            self.cue_cache
+                .evaluate(&git_dir, &crate::repo_config_ref(&git_dir), &self.schemas);
+        config
+            .get("repository")
+            .and_then(|repo| repo.get("extensions"))
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+impl RepoEnablementResolver for CueRepoEnablement {
+    fn enabled_extensions_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String> {
+        let Some(repo_id) = repository_id_from_ref(repository_ref) else {
+            return std::collections::BTreeSet::new();
+        };
+        let Some(path) = store.repository_path_for_id(repo_id) else {
+            return std::collections::BTreeSet::new();
+        };
+        self.enabled_extensions_for_path(&path)
+    }
+}
+
+/// Extract the opaque repository id from a `comtrya://` resource ref.
+/// Accepts `comtrya://repository/<id>` and
+/// `comtrya://workspace/<ws>/repository/<id>`. Returns `None` for any
+/// other shape, including refs with an empty workspace or repository
+/// segment — those are malformed and left for the extension's own input
+/// validation rather than the per-repo gate.
+pub fn repository_id_from_ref(repository_ref: &str) -> Option<&str> {
+    let rest = repository_ref.strip_prefix("comtrya://")?;
+    if let Some(rest) = rest.strip_prefix("workspace/") {
+        let (workspace, id) = rest.split_once("/repository/")?;
+        if workspace.is_empty() || id.is_empty() {
+            return None;
+        }
+        return Some(id);
+    }
+    let id = rest.strip_prefix("repository/")?;
+    if id.is_empty() { None } else { Some(id) }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasmReaction {
     InvokeMutation {
@@ -64,6 +166,13 @@ pub struct WasmRegistry {
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
     pub occ_tokens: SharedOccTokens,
     pub minted_ids: SharedMintedIds,
+    /// Per-repo extension opt-in resolver. Installed after the kernel
+    /// runtime is assembled (it needs the data dir, the shared CUE
+    /// evaluation cache, and the collected extension CUE schemas, none
+    /// of which exist when the registry itself is built). `None` until
+    /// installed — gates treat a missing resolver as "cannot confirm
+    /// enabled" and reject repository-scoped access, failing closed.
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -97,6 +206,7 @@ impl WasmRegistry {
             id_minter,
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -152,6 +262,98 @@ impl WasmRegistry {
 
     pub fn get(&self, id: &str) -> Option<Arc<LoadedExtension>> {
         self.extensions.read().ok()?.get(id).cloned()
+    }
+
+    /// Install the per-repo extension opt-in resolver. Called once after
+    /// the kernel runtime is assembled; until then the enforcement gates
+    /// fail closed for repository-scoped access.
+    pub fn install_repo_enablement(&self, resolver: Arc<dyn RepoEnablementResolver>) {
+        if let Ok(mut slot) = self.repo_enablement.write() {
+            *slot = Some(resolver);
+        }
+    }
+
+    /// The repository at `repository_ref` has opted into the extension
+    /// `extension_id` (its `repository.extensions` set contains
+    /// the id). Resolves the repo's path from `store`, then reads the
+    /// opt-in set through the installed resolver. Fails closed: a missing
+    /// resolver, an unresolvable ref, or an unknown repository yields
+    /// `false`.
+    pub fn repo_has_extension_enabled(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+        extension_id: &str,
+    ) -> bool {
+        let Some(resolver) = self
+            .repo_enablement
+            .read()
+            .ok()
+            .and_then(|slot| slot.clone())
+        else {
+            return false;
+        };
+        resolver
+            .enabled_extensions_for_repo(store, repository_ref)
+            .contains(extension_id)
+    }
+
+    /// Whether `extension_id`'s reactor subscription is gated per-repo.
+    /// True when its manifest declares `reactor.scope: "repository"` (the
+    /// default). An instance-scoped reactor receives every matching event
+    /// regardless of any repo's opt-in.
+    fn reactor_subscription_is_gated(&self, extension_id: &str) -> bool {
+        self.get(extension_id)
+            .map(|ext| ext.manifest.reactor_scope.is_repository())
+            .unwrap_or(false)
+    }
+
+    /// Derive the source repository ref of an event from its `source_uri`
+    /// by resolving the source resource document and reading its
+    /// repository ref. `None` when the source is not a stored resource
+    /// carrying a repository ref (e.g. an instance/kernel-origin event).
+    fn event_source_repository(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        event: &wit_types::Event,
+    ) -> Option<String> {
+        store.repository_ref_for_resource(&event.source_uri)
+    }
+
+    /// Whether `extension_id` contributes a repository-scoped resource
+    /// kind — i.e. whether its ops are subject to the per-repo opt-in
+    /// gate. An extension whose contributions are all instance-scoped
+    /// (or which is unknown) is never gated.
+    fn extension_is_repository_scoped(&self, extension_id: &str) -> bool {
+        self.get(extension_id)
+            .map(|ext| ext.manifest.has_repository_scoped_kinds)
+            .unwrap_or(false)
+    }
+
+    /// Gate entry for a repository-scoped op. Returns `Forbidden` unless
+    /// the repository at `repository_ref` has opted into `extension_id`
+    /// via `repository.extensions`. Ops on an extension with no
+    /// repository-scoped contributions are never gated (returns `Ok`).
+    pub fn ensure_extension_enabled_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+        extension_id: &str,
+    ) -> Result<(), wit_types::Error> {
+        if !self.extension_is_repository_scoped(extension_id) {
+            return Ok(());
+        }
+        if self.repo_has_extension_enabled(store, repository_ref, extension_id) {
+            return Ok(());
+        }
+        Err(wit_types::Error {
+            code: wit_types::ErrorCode::Forbidden,
+            message: format!(
+                "extension '{extension_id}' is not enabled for repository '{repository_ref}'; \
+                 add it to the repository's comtrya CUE repository.extensions"
+            ),
+            path: None,
+        })
     }
 
     pub fn ids(&self) -> Vec<String> {
@@ -256,8 +458,35 @@ impl WasmRegistry {
             }
             return 0;
         }
-        let count = subscribers.len();
+        // Resolve the event's source repository once. The reactor gate
+        // skips a repository-scoped subscriber whose source repo has not
+        // opted into it. Derived from the event's `source_uri` resource
+        // document (its `resource_refs` carry the repository ref); `None`
+        // for instance-origin events (e.g. a kernel principal source) or
+        // sources with no stored repository ref.
+        let source_repository = self.event_source_repository(&store, event);
+        let mut count = 0usize;
         for extension_id in subscribers {
+            if self.reactor_subscription_is_gated(&extension_id) {
+                let dispatch_allowed = match source_repository.as_deref() {
+                    Some(repo_ref) => {
+                        self.repo_has_extension_enabled(&store, repo_ref, &extension_id)
+                    }
+                    // Repository-scoped subscriber but no derivable source
+                    // repository: fail closed and skip.
+                    None => false,
+                };
+                if !dispatch_allowed {
+                    tracing::debug!(
+                        reactor = %extension_id,
+                        event_type = %event.event_type,
+                        source = ?source_repository,
+                        "reactor skipped: extension not enabled for event source repository"
+                    );
+                    continue;
+                }
+            }
+            count += 1;
             match crate::wasm_invokers::reactor_on_event_for_extension(
                 self,
                 store.clone(),
@@ -547,6 +776,8 @@ struct WireManifest {
 #[serde(rename_all = "camelCase")]
 struct WireReactor {
     #[serde(default)]
+    scope: WireScope,
+    #[serde(default)]
     subscribes: Vec<String>,
     #[serde(default)]
     allowed_mutations: Vec<String>,
@@ -566,6 +797,27 @@ struct WireContributes {
 struct WireResourceKind {
     name: String,
     prefix: Option<String>,
+    #[serde(default)]
+    scope: WireScope,
+}
+
+/// Contribution scope as it appears on the wire. Defaults to
+/// `repository` (gated per-repo opt-in) to match the manifest schema.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum WireScope {
+    #[default]
+    Repository,
+    Instance,
+}
+
+impl From<WireScope> for crate::wasm_host::ContributionScope {
+    fn from(scope: WireScope) -> Self {
+        match scope {
+            WireScope::Repository => crate::wasm_host::ContributionScope::Repository,
+            WireScope::Instance => crate::wasm_host::ContributionScope::Instance,
+        }
+    }
 }
 
 fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
@@ -585,12 +837,18 @@ fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {
         reactor_subscribes: wire.reactor.subscribes.clone(),
         reactor_allowed_mutations: wire.reactor.allowed_mutations.clone(),
         reactor_allowed_emits: wire.reactor.allowed_emits.clone(),
+        reactor_scope: wire.reactor.scope.into(),
         contributes_resource_kinds: wire
             .contributes
             .resource_kinds
             .iter()
             .map(|k| k.name.clone())
             .collect(),
+        has_repository_scoped_kinds: wire
+            .contributes
+            .resource_kinds
+            .iter()
+            .any(|k| crate::wasm_host::ContributionScope::from(k.scope).is_repository()),
         host_imports: wire.host_imports.clone(),
     }
 }
@@ -789,6 +1047,47 @@ fn valid_event_segment(segment: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
+/// Test resolver that returns a fixed opt-in set keyed by repository
+/// ref, bypassing the on-disk git/CUE path. Lets dispatch tests exercise
+/// the gate without materialising a bare repo and comtrya CUE per case.
+/// Shared by the in-module tests and the runtime-level tests in `main`.
+#[cfg(test)]
+pub(crate) struct StaticRepoEnablement {
+    enabled: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+}
+
+#[cfg(test)]
+impl StaticRepoEnablement {
+    pub(crate) fn new(
+        entries: impl IntoIterator<Item = (&'static str, Vec<&'static str>)>,
+    ) -> std::sync::Arc<Self> {
+        let enabled = entries
+            .into_iter()
+            .map(|(repo, ids)| {
+                (
+                    repo.to_string(),
+                    ids.into_iter().map(str::to_string).collect(),
+                )
+            })
+            .collect();
+        std::sync::Arc::new(Self { enabled })
+    }
+}
+
+#[cfg(test)]
+impl RepoEnablementResolver for StaticRepoEnablement {
+    fn enabled_extensions_for_repo(
+        &self,
+        _store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String> {
+        self.enabled
+            .get(repository_ref)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -965,6 +1264,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_dispatcher/repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1068,6 +1371,33 @@ mod tests {
             .register_reactor_subscriptions(store.clone())
             .expect("register reactor subscriptions");
 
+        // Seed the pull document the merged event points at, carrying the
+        // source repository ref, and enable ext_pull_requests for that
+        // repo so the repository-scoped reactor gate admits the dispatch.
+        let source_repository = "comtrya://workspace/ws_reactor/repository/repo_reactor";
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_pull_requests".to_string(),
+                collection: "pull_requests".to_string(),
+                id: "pul_reactor_test".to_string(),
+                resource: "comtrya://pull_request/pul_reactor_test".to_string(),
+                resource_refs: vec![
+                    "comtrya://pull_request/pul_reactor_test".to_string(),
+                    source_repository.to_string(),
+                ],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "pul_reactor_test" }),
+            })
+            .expect("seed pull document");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            source_repository,
+            vec!["ext_pull_requests"],
+        )]));
+
         let subscriptions = registry.reactor_subscriptions();
         assert_eq!(
             subscriptions.get("ext_pull_requests"),
@@ -1099,6 +1429,326 @@ mod tests {
             emitter_extension: "ext_pull_requests".to_string(),
         };
         assert_eq!(OpsDispatcher::dispatch_event(&dispatcher, &event, 0), 1);
+    }
+
+    // ---- Phase 2 per-repo extension opt-in enforcement (#137) ----
+
+    #[test]
+    fn repository_id_from_ref_parses_known_shapes_and_rejects_malformed() {
+        assert_eq!(
+            repository_id_from_ref("comtrya://repository/repo_a"),
+            Some("repo_a")
+        );
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace/ws_a/repository/repo_b"),
+            Some("repo_b")
+        );
+        // Malformed: empty segments and non-repository refs return None so
+        // they fall through to the extension's own input validation.
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace//repository/repo_c"),
+            None
+        );
+        assert_eq!(
+            repository_id_from_ref("comtrya://workspace/ws_a/repository/"),
+            None
+        );
+        assert_eq!(repository_id_from_ref("comtrya://repository/"), None);
+        assert_eq!(repository_id_from_ref("comtrya://workspace/ws_a"), None);
+        assert_eq!(repository_id_from_ref("comtrya://pull_request/pul_a"), None);
+        assert_eq!(repository_id_from_ref("not-a-uri"), None);
+    }
+
+    /// End-to-end production resolver: a bare repo whose comtrya CUE
+    /// declares `repository.extensions`, reached through a
+    /// repository document (id -> path), surfaces that opt-in set.
+    #[test]
+    fn cue_repo_enablement_reads_enabled_extensions_from_repo_cue() {
+        let tmp = tempdir_for_test("comtrya-cue-enablement");
+        let data_dir = tmp.join("data");
+        let repositories = data_dir.join("repositories");
+        std::fs::create_dir_all(&repositories).expect("create repositories dir");
+
+        // Author the repo in a workdir, then mirror-clone it bare into the
+        // repositories root at `<path>.git`, matching the production layout.
+        let work = tmp.join("work");
+        std::fs::create_dir_all(&work).expect("create work dir");
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            ["config", "user.email", "cue-enable@comtrya"].as_slice(),
+            ["config", "user.name", "cue-enable"].as_slice(),
+            ["config", "commit.gpgsign", "false"].as_slice(),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&work)
+                    .args(args)
+                    .status()
+                    .expect("run git")
+                    .success()
+            );
+        }
+        std::fs::write(
+            work.join("comtrya.cue"),
+            concat!(
+                "package comtrya\n",
+                "import \"github.com/comtrya/comtrya/schema\"\n",
+                "repository: schema.#Repository & { extensions: [\"ext_issues\"] }\n",
+            ),
+        )
+        .expect("write comtrya.cue");
+        for args in [
+            ["add", "comtrya.cue"].as_slice(),
+            ["commit", "-q", "-m", "seed"].as_slice(),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&work)
+                    .args(args)
+                    .status()
+                    .expect("run git")
+                    .success()
+            );
+        }
+        let git_dir = repositories.join("acme/widget.git");
+        std::fs::create_dir_all(git_dir.parent().unwrap()).expect("create owner dir");
+        assert!(
+            std::process::Command::new("git")
+                .args(["clone", "--bare", "-q"])
+                .arg(&work)
+                .arg(&git_dir)
+                .status()
+                .expect("run git clone --bare")
+                .success()
+        );
+
+        // Repository document maps the opaque id to the on-disk path.
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&data_dir).expect("open store"));
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "core".to_string(),
+                collection: "repositories".to_string(),
+                id: "repo_widget".to_string(),
+                resource: "comtrya://repository/repo_widget".to_string(),
+                resource_refs: vec!["comtrya://repository/repo_widget".to_string()],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "repo_widget", "path": "acme/widget" }),
+            })
+            .expect("seed repository document");
+
+        let resolver = CueRepoEnablement::new(
+            data_dir.clone(),
+            Arc::new(crate::cue_config::CueConfigCache::new()),
+            Vec::new(),
+        );
+        let enabled =
+            resolver.enabled_extensions_for_repo(&store, "comtrya://repository/repo_widget");
+        assert!(
+            enabled.contains("ext_issues"),
+            "expected ext_issues in opt-in set, got {enabled:?}"
+        );
+        assert!(
+            !enabled.contains("ext_checks"),
+            "ext_checks not declared; must be absent, got {enabled:?}"
+        );
+    }
+
+    fn ext_issues_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_issues")
+    }
+
+    /// A repository-scoped op against a repo that has NOT opted into the
+    /// extension is rejected with Forbidden, before any work is done.
+    #[test]
+    fn op_rejected_when_repo_has_not_enabled_extension() {
+        let root = ext_issues_root();
+        if !root.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP op_rejected_when_repo_has_not_enabled_extension: build ext_issues");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_issues");
+        // Resolver installed, but this repo's opt-in set does NOT include
+        // ext_issues (it enables a different extension).
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_gated_off",
+            vec!["ext_pull_requests"],
+        )]));
+        let tmp = tempdir_for_test("comtrya-gate-off");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        let dispatcher = RegistryDispatcher { registry, store };
+
+        let err = dispatcher
+            .dispatch(
+                "ext_issues",
+                "issues.open-issue",
+                &serde_json::to_vec(&serde_json::json!({
+                    "repository": "comtrya://repository/repo_gated_off",
+                    "title": "should be blocked",
+                    "bodyMarkdown": "blocked by per-repo gate",
+                }))
+                .expect("encode payload"),
+                "comtrya://user/usr_gate_test",
+                0,
+            )
+            .expect_err("op must be Forbidden when extension is not enabled for the repo");
+        assert!(matches!(err.code, wit_types::ErrorCode::Forbidden));
+        assert!(
+            err.message.contains("not enabled for repository"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    /// The same op against a repo that HAS opted into the extension
+    /// succeeds.
+    #[test]
+    fn op_allowed_when_repo_has_enabled_extension() {
+        let root = ext_issues_root();
+        if !root.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP op_allowed_when_repo_has_enabled_extension: build ext_issues");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_gated_on/repository/repo_gated_on",
+            vec!["ext_issues"],
+        )]));
+        let tmp = tempdir_for_test("comtrya-gate-on");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        let dispatcher = RegistryDispatcher { registry, store };
+
+        let opened = dispatcher
+            .dispatch(
+                "ext_issues",
+                "issues.open-issue",
+                &serde_json::to_vec(&serde_json::json!({
+                    "repository": "comtrya://workspace/ws_gated_on/repository/repo_gated_on",
+                    "title": "allowed",
+                    "bodyMarkdown": "admitted by per-repo gate",
+                }))
+                .expect("encode payload"),
+                "comtrya://user/usr_gate_test",
+                0,
+            )
+            .expect("op must succeed when extension is enabled for the repo");
+        let value: Value = serde_json::from_slice(&opened).expect("parse opened issue");
+        assert_eq!(value.get("state").and_then(Value::as_str), Some("open"));
+    }
+
+    /// An extension with no repository-scoped contributions is never
+    /// gated: the gate helper returns Ok even with no opt-in installed.
+    #[test]
+    fn instance_scoped_extension_is_never_gated() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_workspace_home");
+        if !root.join("dist/ext_workspace_home.wasm").is_file() {
+            eprintln!("SKIP instance_scoped_extension_is_never_gated: build ext_workspace_home");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_workspace_home");
+        // No resolver installed at all. A repository-scoped extension
+        // would fail closed here; an instance-scoped one must not.
+        let tmp = tempdir_for_test("comtrya-gate-instance");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        assert!(
+            !registry.extension_is_repository_scoped("ext_workspace_home"),
+            "ext_workspace_home has no repository-scoped contributions"
+        );
+        registry
+            .ensure_extension_enabled_for_repo(
+                &store,
+                "comtrya://repository/repo_anything",
+                "ext_workspace_home",
+            )
+            .expect("instance-scoped extension must never be gated");
+    }
+
+    /// A repository-scoped reactor subscriber is skipped when the event's
+    /// source repository has not opted into it (dispatch count is 0).
+    #[test]
+    fn reactor_skipped_for_non_enabled_repo() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        if !root.join("dist/ext_pull_requests.wasm").is_file() {
+            eprintln!("SKIP reactor_skipped_for_non_enabled_repo: build ext_pull_requests");
+            return;
+        }
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_pull_requests");
+        let tmp = tempdir_for_test("comtrya-reactor-gate-off");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+        registry
+            .register_reactor_subscriptions(store.clone())
+            .expect("register reactor subscriptions");
+
+        // Seed the source pull document carrying a repository ref, but do
+        // NOT enable ext_pull_requests for that repo.
+        let source_repository = "comtrya://workspace/ws_skip/repository/repo_skip";
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_pull_requests".to_string(),
+                collection: "pull_requests".to_string(),
+                id: "pul_skip".to_string(),
+                resource: "comtrya://pull_request/pul_skip".to_string(),
+                resource_refs: vec![
+                    "comtrya://pull_request/pul_skip".to_string(),
+                    source_repository.to_string(),
+                ],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "pul_skip" }),
+            })
+            .expect("seed pull document");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            source_repository,
+            // A different extension is enabled, not ext_pull_requests.
+            vec!["ext_issues"],
+        )]));
+
+        let dispatcher = RegistryDispatcher {
+            registry: registry.clone(),
+            store,
+        };
+        let event = wit_types::Event {
+            id: "evt_skip".to_string(),
+            event_type: "dev.comtrya.pull-request.merged".to_string(),
+            payload: serde_json::to_vec(&serde_json::json!({
+                "pullRequestRef": "comtrya://pull_request/pul_skip"
+            }))
+            .expect("encode event payload"),
+            timestamp_ms: 1,
+            source_uri: "comtrya://pull_request/pul_skip".to_string(),
+            emitter_extension: "ext_pull_requests".to_string(),
+        };
+        assert_eq!(
+            OpsDispatcher::dispatch_event(&dispatcher, &event, 0),
+            0,
+            "reactor must be skipped for a repo that has not enabled the extension"
+        );
     }
 
     #[test]
@@ -1325,6 +1975,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch-bad-payload");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1362,6 +2016,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch-missing-limit");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1413,6 +2071,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_host_invoke/repository/repo_host_invoke",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-host-invoke-real-dispatch");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));

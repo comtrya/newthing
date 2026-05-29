@@ -801,7 +801,7 @@ mod tests {
     use super::evaluate_repo_config;
 
     /// A repo whose `comtrya.cue` opts into extensions via
-    /// `repository.enabledExtensions` surfaces that set in the evaluated
+    /// `repository.extensions` surfaces that set in the evaluated
     /// `repository` block — the source the server projects to the repo
     /// query. This is the runtime half of the per-repo opt-in flow
     /// (repo CUE -> evaluate-on-push -> repository block -> query).
@@ -810,7 +810,7 @@ mod tests {
         let (_tmp, git_dir, _oid) = seeded_repo(concat!(
             "package comtrya\n",
             "import \"github.com/comtrya/comtrya/schema\"\n",
-            "repository: schema.#Repository & { enabledExtensions: [\"ext_issues\"] }\n",
+            "repository: schema.#Repository & { extensions: [\"ext_issues\"] }\n",
         ));
         let result = evaluate_repo_config(&git_dir, "main", &[]);
         assert_eq!(
@@ -820,9 +820,9 @@ mod tests {
         );
         let enabled = result
             .get("repository")
-            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(|repo| repo.get("extensions"))
             .and_then(|v| v.as_array())
-            .expect("repository.enabledExtensions present");
+            .expect("repository.extensions present");
         assert_eq!(
             enabled,
             &vec![serde_json::Value::String("ext_issues".into())]
@@ -830,7 +830,7 @@ mod tests {
     }
 
     /// A repo that declares a `repository` block but omits
-    /// `enabledExtensions` gets the schema default — an empty set
+    /// `extensions` gets the schema default — an empty set
     /// (strictly off).
     #[test]
     fn repository_without_enabled_extensions_defaults_to_empty_set() {
@@ -842,12 +842,12 @@ mod tests {
         let result = evaluate_repo_config(&git_dir, "main", &[]);
         let enabled = result
             .get("repository")
-            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(|repo| repo.get("extensions"))
             .and_then(|v| v.as_array())
-            .expect("schema default fills enabledExtensions");
+            .expect("schema default fills extensions");
         assert!(
             enabled.is_empty(),
-            "absent enabledExtensions must default to empty; got: {enabled:?}"
+            "absent extensions must default to empty; got: {enabled:?}"
         );
     }
 

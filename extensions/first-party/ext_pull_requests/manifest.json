@@ -22,7 +22,7 @@
         "snippet": "package comtrya\n\n// Per-Project pull-request policy. Read by ext_pull_requests; the\n// kernel and other extensions do not interpret these fields.\n#Pulls: {\n  autoMerge?:      bool | *false\n  requiredChecks?: [...string]\n  reviewers?:      [...string]\n}\n\n#Project: { pulls?: #Pulls }\n"
       }
     ],
-    "resourceKinds": [{ "name": "pull-request", "prefix": "pul" }],
+    "resourceKinds": [{ "name": "pull-request", "prefix": "pul", "scope": "repository" }],
     "collections": [
       {
         "name": "pull_requests",
@@ -58,6 +58,7 @@
     "ext_issues/issues.by-ref-issue"
   ],
   "reactor": {
+    "scope": "repository",
     "subscribes": ["dev.comtrya.pull-request.merged"],
     "allowedMutations": ["ext_issues/issues.close-issue"],
     "allowedEmits": []

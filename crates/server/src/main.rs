@@ -573,7 +573,7 @@ struct Runtime {
     /// evaluated at most once per `(repo, commit_oid)` per process
     /// lifetime. Replaces the previous "evaluate on every request"
     /// behaviour at `evaluate_repo_config` call sites.
-    cue_config_cache: cue_config::CueConfigCache,
+    cue_config_cache: Arc<cue_config::CueConfigCache>,
     /// Observable state of GitOps config-repo syncing. Updated at startup and
     /// by the background sync loop; surfaced in admin telemetry.
     config_sync_status: Mutex<config_sync::SyncStatus>,
@@ -762,12 +762,24 @@ impl Runtime {
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
             auth_service: Mutex::new(auth_service),
-            cue_config_cache: cue_config::CueConfigCache::new(),
+            cue_config_cache: Arc::new(cue_config::CueConfigCache::new()),
             config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
                 config_sync::sync_interval_seconds_from_env(),
             )),
             admins: std::sync::RwLock::new(admins_seed),
         };
+        // Install the per-repo extension opt-in resolver. It needs the
+        // data dir, the shared CUE evaluation cache, and the collected
+        // extension CUE schemas — all available only now that the runtime
+        // is assembled. Until this point the registry's enforcement gates
+        // fail closed for repository-scoped access.
+        runtime.wasm_registry.install_repo_enablement(Arc::new(
+            wasm_registry::CueRepoEnablement::new(
+                runtime.data_dir.clone(),
+                runtime.cue_config_cache.clone(),
+                runtime.collected_cue_schemas(),
+            ),
+        ));
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))
@@ -5321,7 +5333,7 @@ fn read_default_branch(git_dir: &Path) -> Option<String> {
 /// can't be read. A repo's CUE config — including its authoritative
 /// visibility — lives on this branch, so every config read resolves it
 /// the same way (filter, RepoHome, the workspace list).
-fn repo_config_ref(git_dir: &Path) -> String {
+pub(crate) fn repo_config_ref(git_dir: &Path) -> String {
     read_default_branch(git_dir).unwrap_or_else(|| "main".to_string())
 }
 
@@ -5376,7 +5388,7 @@ fn apply_repository_cue_overrides(
         // strictly-off opt-in is the default, so stamp an explicit empty
         // set rather than leaving the field absent. Keeps the query payload
         // shape stable for the frontend and the phase-2 kernel boundary.
-        repo_obj.insert("enabledExtensions".to_string(), Value::Array(Vec::new()));
+        repo_obj.insert("extensions".to_string(), Value::Array(Vec::new()));
         return;
     };
     if let Some(visibility) = repo_block.get("visibility").and_then(Value::as_str) {
@@ -5398,20 +5410,17 @@ fn apply_repository_cue_overrides(
         repo_obj.insert("bookmarks".to_string(), Value::Array(bookmarks.clone()));
     }
     // The per-repo opt-in set. CUE is the source of truth; absent =>
-    // strictly off (empty set). Projected as `enabledExtensions` so the
+    // strictly off (empty set). Projected as `extensions` so the
     // frontend and the kernel boundary (phase 2) read the same field the
     // commit-keyed CUE cache re-derives on every push to the default
     // branch. Defaulted to `[]` here so a repo whose CUE omits the field
     // still carries an explicit empty set on the query payload.
     let enabled_extensions = repo_block
-        .get("enabledExtensions")
+        .get("extensions")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    repo_obj.insert(
-        "enabledExtensions".to_string(),
-        Value::Array(enabled_extensions),
-    );
+    repo_obj.insert("extensions".to_string(), Value::Array(enabled_extensions));
     if let Some(labels) = repo_block.get("labels").and_then(Value::as_array) {
         // Surface the catalog twice: once as the structured array
         // (consumers that want the CUE shape) and once as a flat
@@ -6215,6 +6224,42 @@ impl ExtensionRuntimeStore {
             .map(|record| record.data)
             .collect::<Vec<_>>();
         Ok(Value::Array(values))
+    }
+
+    /// Resolve a stored repository's canonical `path` from its opaque id
+    /// (the `repo_…` portion of a `comtrya://repository/<id>` ref). Used
+    /// by the per-repo extension opt-in gate to locate the bare git dir
+    /// under `repositories/<path>.git` whose CUE declares
+    /// `repository.extensions`. Returns `None` if no stored
+    /// repository carries that id.
+    pub(crate) fn repository_path_for_id(&self, repository_id: &str) -> Option<String> {
+        self.collection_data("repositories")
+            .ok()?
+            .as_array()?
+            .iter()
+            .find(|repo| repo.get("id").and_then(Value::as_str) == Some(repository_id))
+            .and_then(|repo| repo.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
+    }
+
+    /// Find the repository ref of the stored document whose `resource`
+    /// uri matches `resource_uri`, by scanning its `resource_refs` for a
+    /// `comtrya://…/repository/<id>` entry. Used by the reactor gate to
+    /// derive an event's source repository from the event's `source_uri`
+    /// (which points at a resource document, e.g. a pull request) without
+    /// the kernel knowing any extension's storage layout. Returns `None`
+    /// if no such document exists or it carries no repository ref.
+    pub(crate) fn repository_ref_for_resource(&self, resource_uri: &str) -> Option<String> {
+        self.load_records()
+            .ok()?
+            .into_iter()
+            .find(|record| record.resource == resource_uri)
+            .and_then(|record| {
+                record
+                    .resource_refs
+                    .into_iter()
+                    .find(|r| crate::wasm_registry::repository_id_from_ref(r).is_some())
+            })
     }
 
     fn single_document_data(&self, collection: &str) -> Result<Option<Value>, String> {
@@ -7217,30 +7262,30 @@ mod tests {
         // phase-2 kernel boundary) read the set the CUE cache derived.
         let mut repo_obj = serde_json::Map::new();
         let config = json!({
-            "repository": { "enabledExtensions": ["ext_issues", "ext_pulls"] }
+            "repository": { "extensions": ["ext_issues", "ext_pulls"] }
         });
         apply_repository_cue_overrides(&mut repo_obj, &config);
         assert_eq!(
-            repo_obj.get("enabledExtensions"),
+            repo_obj.get("extensions"),
             Some(&json!(["ext_issues", "ext_pulls"])),
         );
     }
 
     #[test]
     fn cue_overrides_default_enabled_extensions_to_empty_when_absent() {
-        // A repo with a `repository:` block that omits `enabledExtensions`
+        // A repo with a `repository:` block that omits `extensions`
         // gets the strictly-off default: an explicit empty set.
         let mut with_block = serde_json::Map::new();
         apply_repository_cue_overrides(
             &mut with_block,
             &json!({ "repository": { "visibility": "public" } }),
         );
-        assert_eq!(with_block.get("enabledExtensions"), Some(&json!([])));
+        assert_eq!(with_block.get("extensions"), Some(&json!([])));
 
         // A repo with no `repository:` block at all is also strictly off.
         let mut no_block = serde_json::Map::new();
         apply_repository_cue_overrides(&mut no_block, &json!({ "projects": [] }));
-        assert_eq!(no_block.get("enabledExtensions"), Some(&json!([])));
+        assert_eq!(no_block.get("extensions"), Some(&json!([])));
     }
 
     fn issue_event(action: &str) -> String {
@@ -9225,6 +9270,17 @@ mod tests {
         assert_eq!(resolver.status, "platform-loaded");
         assert!(runtime.wasm_registry.get("ext_issues").is_some());
 
+        // Override the CUE-backed resolver with a static opt-in so the
+        // synthetic repo ref (no on-disk git dir) is treated as having
+        // enabled ext_issues. This test exercises dispatch + persistence,
+        // not the gate itself.
+        runtime
+            .wasm_registry
+            .install_repo_enablement(crate::wasm_registry::StaticRepoEnablement::new([(
+                "comtrya://workspace/ws_runtime_loaded_registry/repository/repo_runtime_loaded_registry",
+                vec!["ext_issues"],
+            )]));
+
         let dispatcher = crate::wasm_registry::RegistryDispatcher {
             registry: runtime.wasm_registry.clone(),
             store: Arc::new(runtime.extension_storage.clone()),
@@ -9296,6 +9352,22 @@ mod tests {
             session_ttl_seconds: 300,
         })
         .unwrap();
+        // This test exercises the extension's own input validation, which
+        // runs after the per-repo gate. Enable ext_issues for the
+        // well-formed repo refs it uses so the gate passes and the
+        // extension's BadInput validation is what the assertions observe.
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([
+                (
+                    "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
+                    vec!["ext_issues"],
+                ),
+                (
+                    "comtrya://repository/repo_runtime_validation",
+                    vec!["ext_issues"],
+                ),
+            ]),
+        );
         let dispatcher = crate::wasm_registry::RegistryDispatcher {
             registry: runtime.wasm_registry.clone(),
             store: Arc::new(runtime.extension_storage.clone()),
@@ -9347,7 +9419,13 @@ mod tests {
             blank_repository.code,
             crate::wasm_host::wit_types::ErrorCode::BadInput
         ));
-        assert!(blank_repository.message.contains("requires a repository"));
+        // A blank repository ref is now rejected fail-closed by the kernel's
+        // per-repo gate before the extension's own validation runs.
+        assert!(
+            blank_repository
+                .message
+                .contains("well-formed repository ref")
+        );
 
         let empty_workspace_segment = crate::wasm_host::OpsDispatcher::dispatch(
             &dispatcher,
@@ -9367,10 +9445,13 @@ mod tests {
             empty_workspace_segment.code,
             crate::wasm_host::wit_types::ErrorCode::BadInput
         ));
+        // An empty workspace segment makes the ref unresolvable, so the
+        // fail-closed per-repo gate rejects it before the extension's own
+        // "requires a workspace" validation can run.
         assert!(
             empty_workspace_segment
                 .message
-                .contains("requires a workspace")
+                .contains("well-formed repository ref")
         );
 
         let missing_workspace = crate::wasm_host::OpsDispatcher::dispatch(
@@ -9457,6 +9538,13 @@ mod tests {
     #[tokio::test]
     async fn api_ops_route_ext_issues_without_graphql_aliases() {
         let runtime = dev_runtime();
+        let repository = "comtrya://workspace/ws_api_ops/repository/repo_api_ops";
+        // Enable ext_issues for the synthetic test repo so the per-repo
+        // gate admits the ops this test drives (open/list/by-ref/by-number/
+        // close all resolve to this repo).
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([(repository, vec!["ext_issues"])]),
+        );
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["api:write".to_string()],
@@ -9467,7 +9555,6 @@ mod tests {
             git_state: PureRustGitState::test_default(),
         };
         let headers = bearer_headers(&token);
-        let repository = "comtrya://workspace/ws_api_ops/repository/repo_api_ops";
 
         let (status, created) = call_api_op(
             state.clone(),
@@ -9631,6 +9718,14 @@ mod tests {
     #[tokio::test]
     async fn api_ops_reject_bad_issue_input() {
         let runtime = dev_runtime();
+        // Enable ext_issues for the repo so the gate passes and the
+        // extension's own BadInput (empty title) is what surfaces.
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([(
+                "comtrya://workspace/ws_api_ops/repository/repo_api_ops",
+                vec!["ext_issues"],
+            )]),
+        );
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["api:write".to_string()],
