@@ -1897,7 +1897,11 @@ impl Runtime {
                 status: stored_to_principal(credential.principal),
                 uri: credential.principal_uri,
             },
-            _ => PrincipalContext::invalid(),
+            Ok(None) => PrincipalContext::invalid(),
+            Err(error) => {
+                tracing::error!(%error, "credential lookup failed");
+                PrincipalContext::unavailable()
+            }
         }
     }
 
@@ -1908,7 +1912,14 @@ impl Runtime {
 
         match self.store.lookup_credential(token, now_seconds()) {
             Ok(Some(credential)) => credential.actions.iter().any(|granted| granted == action),
-            _ => false,
+            Ok(None) => false,
+            Err(error) => {
+                // Fail closed on a storage outage: deny the action. The status
+                // path (above) is responsible for surfacing the 503; this
+                // boolean gate only decides allow/deny.
+                tracing::error!(%error, "credential action lookup failed");
+                false
+            }
         }
     }
 
@@ -2355,6 +2366,11 @@ enum PrincipalStatus {
     AdminCredential,
     Credential,
     Invalid,
+    /// The credential store could not be consulted (transient I/O / SQLite
+    /// outage). Distinct from `Invalid` so a storage hiccup surfaces as a
+    /// 503 rather than masquerading as an invalid token (401). Fails closed:
+    /// treated as unauthenticated for every authorization decision.
+    Unavailable,
 }
 
 #[derive(Debug, Clone)]
@@ -2377,6 +2393,13 @@ impl PrincipalContext {
             uri: "comtrya://principal/invalid".to_string(),
         }
     }
+
+    fn unavailable() -> Self {
+        Self {
+            status: PrincipalStatus::Unavailable,
+            uri: "comtrya://principal/unavailable".to_string(),
+        }
+    }
 }
 
 /// Translate the runtime's `PrincipalStatus` to the persistence
@@ -2389,7 +2412,13 @@ fn principal_to_stored(p: PrincipalStatus) -> persistence::StoredPrincipal {
         PrincipalStatus::AdminCredential => persistence::StoredPrincipal::AdminCredential,
         PrincipalStatus::Credential => persistence::StoredPrincipal::Credential,
         PrincipalStatus::Anonymous => persistence::StoredPrincipal::Anonymous,
-        PrincipalStatus::Invalid => persistence::StoredPrincipal::Invalid,
+        // `Unavailable` is a transient runtime status produced when the
+        // credential store can't be read; it is never persisted. Map it to the
+        // persisted `Invalid` so the conversion stays total without inventing a
+        // stored variant for a non-stored state.
+        PrincipalStatus::Invalid | PrincipalStatus::Unavailable => {
+            persistence::StoredPrincipal::Invalid
+        }
     }
 }
 
@@ -2710,6 +2739,15 @@ async fn api_op(
         );
     }
     let principal = state.runtime.principal_context_from_headers(&headers);
+    if matches!(principal.status, PrincipalStatus::Unavailable) {
+        return api_op_json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            None,
+            cors,
+        );
+    }
     if matches!(
         principal.status,
         PrincipalStatus::Anonymous | PrincipalStatus::Invalid
@@ -3070,10 +3108,16 @@ pub(crate) fn graphql_read_guard(
         &format!("graphql:{}", principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
-    if matches!(
-        state.runtime.principal_from_headers(headers),
-        PrincipalStatus::Invalid
-    ) {
+    let principal = state.runtime.principal_from_headers(headers);
+    if matches!(principal, PrincipalStatus::Unavailable) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            cors,
+        )));
+    }
+    if matches!(principal, PrincipalStatus::Invalid) {
         return Err(Box::new(graphql_error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
@@ -3092,6 +3136,14 @@ pub(crate) fn require_authenticated_principal(
     principal: PrincipalStatus,
     cors: HeaderMap,
 ) -> ResponseResult<HeaderMap> {
+    if matches!(principal, PrincipalStatus::Unavailable) {
+        return Err(Box::new(graphql_error_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorCode::StorageUnavailable.as_str(),
+            "credential store is temporarily unavailable",
+            cors,
+        )));
+    }
     if matches!(
         principal,
         PrincipalStatus::Anonymous | PrincipalStatus::Invalid
@@ -4982,7 +5034,9 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
 /// is separate — so it must not over-report scopes a caller does not hold.
 fn viewer_permissions_for(principal: PrincipalStatus) -> Vec<&'static str> {
     match principal {
-        PrincipalStatus::Anonymous | PrincipalStatus::Invalid => Vec::new(),
+        PrincipalStatus::Anonymous
+        | PrincipalStatus::Invalid
+        | PrincipalStatus::Unavailable => Vec::new(),
         PrincipalStatus::Credential => vec![
             "graphql:read",
             "graphql:write",
@@ -8367,6 +8421,45 @@ mod tests {
         assert_eq!(
             payload["errors"][0]["extensions"]["code"],
             ErrorCode::RateLimited.as_str()
+        );
+    }
+
+    #[test]
+    fn credential_store_outage_reports_unavailable_not_invalid() {
+        // A storage outage during credential lookup must surface as a distinct
+        // `Unavailable` status (→ 503), never as `Invalid` (→ 401), so a SQLite
+        // hiccup is not mistaken for a bad token.
+        let runtime = dev_runtime_no_extensions();
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["graphql:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+        let headers = bearer_headers(&token);
+
+        // Sanity: a healthy store resolves the credential.
+        assert!(matches!(
+            runtime.principal_from_headers(&headers),
+            PrincipalStatus::OperatorCredential
+        ));
+
+        // Now break the store and confirm the status flips to Unavailable.
+        runtime
+            .store
+            .drop_credentials_table_for_tests()
+            .expect("drop credentials table");
+        assert!(matches!(
+            runtime.principal_from_headers(&headers),
+            PrincipalStatus::Unavailable
+        ));
+        // The action gate fails closed on the same outage.
+        assert!(!runtime.credential_allows(&headers, "graphql:read"));
+        // require_authenticated_principal surfaces a 503, not a 401.
+        let response =
+            require_authenticated_principal(PrincipalStatus::Unavailable, HeaderMap::new());
+        assert_eq!(
+            response.unwrap_err().status(),
+            StatusCode::SERVICE_UNAVAILABLE
         );
     }
 

@@ -515,6 +515,18 @@ impl PersistentStore {
         Ok(())
     }
 
+    /// Simulate a credential-store outage by dropping the backing table, so a
+    /// subsequent `lookup_credential` returns `Err` instead of `Ok(None)`.
+    #[cfg(test)]
+    pub fn drop_credentials_table_for_tests(&self) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute("DROP TABLE credentials", [])
+            .map_err(|e| format!("drop credentials table failed: {e}"))?;
+        Ok(())
+    }
+
     fn git_pat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredGitPersonalAccessToken> {
         let scopes_json: String = row.get(4)?;
         let scopes = serde_json::from_str(&scopes_json).map_err(|error| {
