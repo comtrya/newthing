@@ -16,6 +16,7 @@
   "allowedEventReads": [],
   "allowedCrossCalls": [],
   "reactor": {
+    "scope": "instance",
     "allowedMutations": [],
     "allowedEmits": []
   }

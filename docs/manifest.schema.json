@@ -76,7 +76,13 @@
             "additionalProperties": false,
             "properties": {
               "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-              "prefix": { "type": "string", "pattern": "^[a-z]{2,8}$" }
+              "prefix": { "type": "string", "pattern": "^[a-z]{2,8}$" },
+              "scope": {
+                "type": "string",
+                "enum": ["repository", "instance"],
+                "default": "repository",
+                "description": "Whether ops on this resource kind are gated per-repository by `repository.enabledExtensions` (\"repository\", the default) or always available (\"instance\")."
+              }
             }
           }
         },
@@ -174,6 +180,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "scope": {
+          "type": "string",
+          "enum": ["repository", "instance"],
+          "default": "repository",
+          "description": "Whether reactor event dispatch to this extension is gated per-repository by `repository.enabledExtensions` (\"repository\", the default — events whose source repository has not enabled this extension are skipped) or always delivered (\"instance\")."
+        },
         "subscribes": {
           "type": "array",
           "items": { "type": "string", "pattern": "^([a-z][a-z0-9-]*|\\*)(\\.([a-z][a-z0-9-]*|\\*))*$" }

@@ -40,6 +40,71 @@ pub struct LoadedExtension {
     pub component: Component,
 }
 
+/// Resolves a repository's per-repo extension opt-in set
+/// (`repository.enabledExtensions`) at dispatch time. Installed onto the
+/// registry after the kernel runtime is assembled, because it depends on
+/// the data dir, the shared CUE evaluation cache, and the collected
+/// extension CUE schemas.
+pub struct RepoEnablement {
+    data_dir: std::path::PathBuf,
+    cue_cache: Arc<crate::cue_config::CueConfigCache>,
+    schemas: Vec<crate::cue_config::ExtensionSchema>,
+}
+
+impl RepoEnablement {
+    pub fn new(
+        data_dir: std::path::PathBuf,
+        cue_cache: Arc<crate::cue_config::CueConfigCache>,
+        schemas: Vec<crate::cue_config::ExtensionSchema>,
+    ) -> Self {
+        Self {
+            data_dir,
+            cue_cache,
+            schemas,
+        }
+    }
+
+    /// The set of extension ids the repository at `path` has opted into.
+    /// Resolves the bare git dir under `repositories/<path>.git`,
+    /// evaluates the repo's `package comtrya` CUE through the shared
+    /// cache, and reads `repository.enabledExtensions`. Absent or
+    /// unreadable config yields the empty set (strictly off).
+    pub fn enabled_extensions_for_path(&self, path: &str) -> std::collections::BTreeSet<String> {
+        let git_dir = self
+            .data_dir
+            .join("repositories")
+            .join(format!("{path}.git"));
+        if !git_dir.is_dir() {
+            return std::collections::BTreeSet::new();
+        }
+        let config =
+            self.cue_cache
+                .evaluate(&git_dir, &crate::repo_config_ref(&git_dir), &self.schemas);
+        config
+            .get("repository")
+            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Extract the opaque repository id from a `comtrya://` resource ref.
+/// Accepts `comtrya://repository/<id>` and
+/// `comtrya://workspace/<ws>/repository/<id>`. Returns `None` for any
+/// other shape.
+pub fn repository_id_from_ref(repository_ref: &str) -> Option<&str> {
+    let rest = repository_ref.strip_prefix("comtrya://")?;
+    if let Some(rest) = rest.strip_prefix("workspace/") {
+        return rest.split_once("/repository/").map(|(_, id)| id);
+    }
+    rest.strip_prefix("repository/")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WasmReaction {
     InvokeMutation {
@@ -64,6 +129,13 @@ pub struct WasmRegistry {
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
     pub occ_tokens: SharedOccTokens,
     pub minted_ids: SharedMintedIds,
+    /// Per-repo extension opt-in resolver. Installed after the kernel
+    /// runtime is assembled (it needs the data dir, the shared CUE
+    /// evaluation cache, and the collected extension CUE schemas, none
+    /// of which exist when the registry itself is built). `None` until
+    /// installed — gates treat a missing resolver as "cannot confirm
+    /// enabled" and reject repository-scoped access, failing closed.
+    pub repo_enablement: Arc<RwLock<Option<Arc<RepoEnablement>>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -97,6 +169,7 @@ impl WasmRegistry {
             id_minter,
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -152,6 +225,104 @@ impl WasmRegistry {
 
     pub fn get(&self, id: &str) -> Option<Arc<LoadedExtension>> {
         self.extensions.read().ok()?.get(id).cloned()
+    }
+
+    /// Install the per-repo extension opt-in resolver. Called once after
+    /// the kernel runtime is assembled; until then the enforcement gates
+    /// fail closed for repository-scoped access.
+    pub fn install_repo_enablement(&self, resolver: Arc<RepoEnablement>) {
+        if let Ok(mut slot) = self.repo_enablement.write() {
+            *slot = Some(resolver);
+        }
+    }
+
+    /// The repository at `repository_ref` has opted into the extension
+    /// `extension_id` (its `repository.enabledExtensions` set contains
+    /// the id). Resolves the repo's path from `store`, then reads the
+    /// opt-in set through the installed resolver. Fails closed: a missing
+    /// resolver, an unresolvable ref, or an unknown repository yields
+    /// `false`.
+    pub fn repo_has_extension_enabled(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+        extension_id: &str,
+    ) -> bool {
+        let Some(repo_id) = repository_id_from_ref(repository_ref) else {
+            return false;
+        };
+        let Some(path) = store.repository_path_for_id(repo_id) else {
+            return false;
+        };
+        let Some(resolver) = self
+            .repo_enablement
+            .read()
+            .ok()
+            .and_then(|slot| slot.clone())
+        else {
+            return false;
+        };
+        resolver
+            .enabled_extensions_for_path(&path)
+            .contains(extension_id)
+    }
+
+    /// Whether `extension_id`'s reactor subscription is gated per-repo.
+    /// True when its manifest declares `reactor.scope: "repository"` (the
+    /// default). An instance-scoped reactor receives every matching event
+    /// regardless of any repo's opt-in.
+    fn reactor_subscription_is_gated(&self, extension_id: &str) -> bool {
+        self.get(extension_id)
+            .map(|ext| ext.manifest.reactor_scope.is_repository())
+            .unwrap_or(false)
+    }
+
+    /// Derive the source repository ref of an event from its `source_uri`
+    /// by resolving the source resource document and reading its
+    /// repository ref. `None` when the source is not a stored resource
+    /// carrying a repository ref (e.g. an instance/kernel-origin event).
+    fn event_source_repository(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        event: &wit_types::Event,
+    ) -> Option<String> {
+        store.repository_ref_for_resource(&event.source_uri)
+    }
+
+    /// Whether `extension_id` contributes a repository-scoped resource
+    /// kind — i.e. whether its ops are subject to the per-repo opt-in
+    /// gate. An extension whose contributions are all instance-scoped
+    /// (or which is unknown) is never gated.
+    fn extension_is_repository_scoped(&self, extension_id: &str) -> bool {
+        self.get(extension_id)
+            .map(|ext| ext.manifest.has_repository_scoped_kinds)
+            .unwrap_or(false)
+    }
+
+    /// Gate entry for a repository-scoped op. Returns `Forbidden` unless
+    /// the repository at `repository_ref` has opted into `extension_id`
+    /// via `repository.enabledExtensions`. Ops on an extension with no
+    /// repository-scoped contributions are never gated (returns `Ok`).
+    pub fn ensure_extension_enabled_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+        extension_id: &str,
+    ) -> Result<(), wit_types::Error> {
+        if !self.extension_is_repository_scoped(extension_id) {
+            return Ok(());
+        }
+        if self.repo_has_extension_enabled(store, repository_ref, extension_id) {
+            return Ok(());
+        }
+        Err(wit_types::Error {
+            code: wit_types::ErrorCode::Forbidden,
+            message: format!(
+                "extension '{extension_id}' is not enabled for repository '{repository_ref}'; \
+                 add it to the repository's comtrya CUE repository.enabledExtensions"
+            ),
+            path: None,
+        })
     }
 
     pub fn ids(&self) -> Vec<String> {
@@ -256,8 +427,35 @@ impl WasmRegistry {
             }
             return 0;
         }
-        let count = subscribers.len();
+        // Resolve the event's source repository once. The reactor gate
+        // skips a repository-scoped subscriber whose source repo has not
+        // opted into it. Derived from the event's `source_uri` resource
+        // document (its `resource_refs` carry the repository ref); `None`
+        // for instance-origin events (e.g. a kernel principal source) or
+        // sources with no stored repository ref.
+        let source_repository = self.event_source_repository(&store, event);
+        let mut count = 0usize;
         for extension_id in subscribers {
+            if self.reactor_subscription_is_gated(&extension_id) {
+                let dispatch_allowed = match source_repository.as_deref() {
+                    Some(repo_ref) => {
+                        self.repo_has_extension_enabled(&store, repo_ref, &extension_id)
+                    }
+                    // Repository-scoped subscriber but no derivable source
+                    // repository: fail closed and skip.
+                    None => false,
+                };
+                if !dispatch_allowed {
+                    tracing::debug!(
+                        reactor = %extension_id,
+                        event_type = %event.event_type,
+                        source = ?source_repository,
+                        "reactor skipped: extension not enabled for event source repository"
+                    );
+                    continue;
+                }
+            }
+            count += 1;
             match crate::wasm_invokers::reactor_on_event_for_extension(
                 self,
                 store.clone(),
@@ -547,6 +745,8 @@ struct WireManifest {
 #[serde(rename_all = "camelCase")]
 struct WireReactor {
     #[serde(default)]
+    scope: WireScope,
+    #[serde(default)]
     subscribes: Vec<String>,
     #[serde(default)]
     allowed_mutations: Vec<String>,
@@ -566,6 +766,27 @@ struct WireContributes {
 struct WireResourceKind {
     name: String,
     prefix: Option<String>,
+    #[serde(default)]
+    scope: WireScope,
+}
+
+/// Contribution scope as it appears on the wire. Defaults to
+/// `repository` (gated per-repo opt-in) to match the manifest schema.
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum WireScope {
+    #[default]
+    Repository,
+    Instance,
+}
+
+impl From<WireScope> for crate::wasm_host::ContributionScope {
+    fn from(scope: WireScope) -> Self {
+        match scope {
+            WireScope::Repository => crate::wasm_host::ContributionScope::Repository,
+            WireScope::Instance => crate::wasm_host::ContributionScope::Instance,
+        }
+    }
 }
 
 fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
@@ -585,12 +806,18 @@ fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {
         reactor_subscribes: wire.reactor.subscribes.clone(),
         reactor_allowed_mutations: wire.reactor.allowed_mutations.clone(),
         reactor_allowed_emits: wire.reactor.allowed_emits.clone(),
+        reactor_scope: wire.reactor.scope.into(),
         contributes_resource_kinds: wire
             .contributes
             .resource_kinds
             .iter()
             .map(|k| k.name.clone())
             .collect(),
+        has_repository_scoped_kinds: wire
+            .contributes
+            .resource_kinds
+            .iter()
+            .any(|k| crate::wasm_host::ContributionScope::from(k.scope).is_repository()),
         host_imports: wire.host_imports.clone(),
     }
 }

@@ -573,7 +573,7 @@ struct Runtime {
     /// evaluated at most once per `(repo, commit_oid)` per process
     /// lifetime. Replaces the previous "evaluate on every request"
     /// behaviour at `evaluate_repo_config` call sites.
-    cue_config_cache: cue_config::CueConfigCache,
+    cue_config_cache: Arc<cue_config::CueConfigCache>,
     /// Observable state of GitOps config-repo syncing. Updated at startup and
     /// by the background sync loop; surfaced in admin telemetry.
     config_sync_status: Mutex<config_sync::SyncStatus>,
@@ -762,12 +762,24 @@ impl Runtime {
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
             auth_service: Mutex::new(auth_service),
-            cue_config_cache: cue_config::CueConfigCache::new(),
+            cue_config_cache: Arc::new(cue_config::CueConfigCache::new()),
             config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
                 config_sync::sync_interval_seconds_from_env(),
             )),
             admins: std::sync::RwLock::new(admins_seed),
         };
+        // Install the per-repo extension opt-in resolver. It needs the
+        // data dir, the shared CUE evaluation cache, and the collected
+        // extension CUE schemas — all available only now that the runtime
+        // is assembled. Until this point the registry's enforcement gates
+        // fail closed for repository-scoped access.
+        runtime.wasm_registry.install_repo_enablement(Arc::new(
+            wasm_registry::RepoEnablement::new(
+                runtime.data_dir.clone(),
+                runtime.cue_config_cache.clone(),
+                runtime.collected_cue_schemas(),
+            ),
+        ));
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))
@@ -5321,7 +5333,7 @@ fn read_default_branch(git_dir: &Path) -> Option<String> {
 /// can't be read. A repo's CUE config — including its authoritative
 /// visibility — lives on this branch, so every config read resolves it
 /// the same way (filter, RepoHome, the workspace list).
-fn repo_config_ref(git_dir: &Path) -> String {
+pub(crate) fn repo_config_ref(git_dir: &Path) -> String {
     read_default_branch(git_dir).unwrap_or_else(|| "main".to_string())
 }
 
@@ -6215,6 +6227,42 @@ impl ExtensionRuntimeStore {
             .map(|record| record.data)
             .collect::<Vec<_>>();
         Ok(Value::Array(values))
+    }
+
+    /// Resolve a stored repository's canonical `path` from its opaque id
+    /// (the `repo_…` portion of a `comtrya://repository/<id>` ref). Used
+    /// by the per-repo extension opt-in gate to locate the bare git dir
+    /// under `repositories/<path>.git` whose CUE declares
+    /// `repository.enabledExtensions`. Returns `None` if no stored
+    /// repository carries that id.
+    pub(crate) fn repository_path_for_id(&self, repository_id: &str) -> Option<String> {
+        self.collection_data("repositories")
+            .ok()?
+            .as_array()?
+            .iter()
+            .find(|repo| repo.get("id").and_then(Value::as_str) == Some(repository_id))
+            .and_then(|repo| repo.get("path").and_then(Value::as_str))
+            .map(str::to_owned)
+    }
+
+    /// Find the repository ref of the stored document whose `resource`
+    /// uri matches `resource_uri`, by scanning its `resource_refs` for a
+    /// `comtrya://…/repository/<id>` entry. Used by the reactor gate to
+    /// derive an event's source repository from the event's `source_uri`
+    /// (which points at a resource document, e.g. a pull request) without
+    /// the kernel knowing any extension's storage layout. Returns `None`
+    /// if no such document exists or it carries no repository ref.
+    pub(crate) fn repository_ref_for_resource(&self, resource_uri: &str) -> Option<String> {
+        self.load_records()
+            .ok()?
+            .into_iter()
+            .find(|record| record.resource == resource_uri)
+            .and_then(|record| {
+                record
+                    .resource_refs
+                    .into_iter()
+                    .find(|r| crate::wasm_registry::repository_id_from_ref(r).is_some())
+            })
     }
 
     fn single_document_data(&self, collection: &str) -> Result<Option<Value>, String> {
