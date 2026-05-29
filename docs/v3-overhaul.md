@@ -52,7 +52,7 @@ The final smoke path is:
 That path builds the server and Vue shell, checks no `.wat` stubs or
 `matches_op` routes remain, verifies every first-party manifest declares
 `platformWitVersion: "0.1.0"` and a real `dist/<id>.wasm`, then exercises
-auth, GraphQL, extension assets, browser-mounted UI, Git clone/fetch,
+auth, GraphQL, extension assets, browser-mounted UI, Git clone/fetch/push,
 issue close via WASM, and the PR-merge reactor.
 
 Focused local checks used during M12:
@@ -66,8 +66,6 @@ rg '#\[allow\(dead_code\)\]' crates extensions
 
 ## Still intentionally unsupported
 
-- Git receive-pack/push remains disabled and returns the registered
-  `UNSUPPORTED` surface.
 - Full OIDC browser callback validation is not implemented in the testbed.
 - Comtrya v1 HTTP APIs are gone.
 - The GraphQL root exposes kernel-owned fields only; extensions are called

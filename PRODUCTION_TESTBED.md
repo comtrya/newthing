@@ -112,15 +112,16 @@ Ready means the runtime is safe to run as a production-style testbed:
 - extension-owned state is persisted in versioned storage
 - Git upload-pack clone/fetch works through the Vue origin with a scoped
   Comtrya credential
+- Git receive-pack push works through the Vue origin with account personal
+  access tokens that include `git:write`
 - smoke validation imports a temporary source repo and verifies clone/fetch,
-  refs, file-tree GraphQL, and extension operations against the imported repo
+  push, refs, file-tree GraphQL, and extension operations against the imported
+  repo
 - smoke validation drives the live Vue page in headless Chrome/Chromium
 - unsupported runtime surfaces are listed from one registry in `/readyz` and
   return `UNSUPPORTED` JSON errors
-- Git receive-pack write surfaces fail closed after authentication
 
 It does **not** mean full Comtrya v1 production completeness. `/readyz` reports
 these unsupported areas until they are replaced with real implementations:
 
 - full OIDC browser callback validation
-- git receive-pack writes

@@ -41,6 +41,7 @@ capacity signals.
 | `metadata/events.jsonl` | Append-only domain events (extension lifecycle, issue/pull lifecycle, etc.). | Grows unbounded — rotation is a deferred sub-item (#11 P2-3). Tail for business-level signals. |
 | `metadata/audit.jsonl` | Append-only audit trail (auth, session issuance). | Same rotation caveat. Inspect after security incidents. |
 | `repositories/` | Bare Git repositories. | Backup target. Per-repo subdirs. |
+| `metadata/comtrya.db` | Users, short-lived credentials, and account Git personal access tokens. | Backup target. Treat PAT hashes as sensitive. |
 | `extensions/` | Per-extension runtime storage. | Backup target. Each extension owns a sub-namespace. |
 | `secrets/` | Reserved for future secret material. | Currently empty; do not delete the dir. |
 
@@ -302,6 +303,14 @@ Sessions are opaque random tokens issued at OIDC callback time.
 There is no shared session-signing secret to rotate. Session
 rotation = wait for `COMTRYA_SESSION_TTL_SECONDS` to expire +
 force re-auth via OIDC.
+
+### Account Git personal access tokens
+
+Git push uses HTTPS Basic authentication with account personal access tokens.
+Users create and revoke these from `/settings`; tokens are stored only as hashes
+in `metadata/comtrya.db`, and the full token is shown once at creation. Operators
+should revoke suspicious tokens through the account settings UI or by replacing
+the runtime database from a known-good backup.
 
 ## Capacity signals
 

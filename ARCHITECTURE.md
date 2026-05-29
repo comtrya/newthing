@@ -139,12 +139,11 @@ records are created through GraphQL and canonical WIT operation routes.
 Repositories are real local bare Git repositories under
 `$COMTRYA_DATA_DIR/repositories/`.
 
-Git clone/fetch works through the Vue origin and Rust host using the pure-Rust
-`comtrya-git-http` Smart HTTP v2 path. Receive-pack/push remains explicitly
-unsupported and returns the registered `UNSUPPORTED` surface until write
-support is implemented.
+Git clone/fetch works through the Vue origin and Rust host using the
+`comtrya-git-http` Smart HTTP v2 path. Git push uses HTTPS receive-pack with
+account personal access tokens that include `git:write`; browser/session
+cookies and bearer credentials are not accepted for push writes.
 
 ## Known unsupported surfaces
 
-- Git receive-pack/push is disabled.
 - Full OIDC browser callback validation is disabled in the testbed.

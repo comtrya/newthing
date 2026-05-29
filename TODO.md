@@ -15,7 +15,8 @@ Comtrya product.
 - Real: GraphQL returns refs, branches, commits, tree entries, blobs, file
   previews, and diffs derived from Git.
 - Real: Git clone/fetch works through the Vue origin using a scoped Comtrya
-  credential.
+  credential, and Git push works over HTTPS with account personal access tokens
+  that include `git:write`.
 - Real: extension UI manifests and assets are served from `/_extensions/...`.
 - Real: the Vue shell discovers installed extensions, validates UI manifests,
   imports versioned entry assets, and mounts slot/route contributions.
@@ -30,7 +31,6 @@ Comtrya product.
 - Real: extension-owned collections and indexes are declared in manifests.
 - Real: `start.sh --reset --oneshot` asserts the structural v3 cutover and runs
   end-to-end smoke through the live stack.
-- Not complete: Git receive-pack/push is explicitly disabled.
 - Not complete: full OIDC browser callback validation is disabled in the
   testbed.
 - Not complete: OCI extension distribution exists as code/contracts, but local
@@ -57,9 +57,9 @@ models.
 
 ## Product backlog
 
-- Implement receive-pack/push:
-  authenticate `git:write`, enforce protected refs, stage packs safely, update
-  refs atomically, append ref update events, and update PR/check derived state.
+- Harden receive-pack/push:
+  enforce protected refs, add explicit object-store transaction coverage, append
+  ref update events, and update PR/check derived state.
 - Expand typed field-level authorization and stable error codes for kernel-owned
   GraphQL fields.
 - Expand repository metadata so language, license, and activity derive from

@@ -430,6 +430,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "comtrya-core",
  "comtrya-git-http",

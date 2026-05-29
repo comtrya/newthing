@@ -1,4 +1,5 @@
 use axum::{
+    body::Body,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
@@ -40,7 +41,10 @@ where
 {
     match suffix {
         "info/refs" => {
-            if query_service != Some("git-upload-pack") {
+            if !matches!(
+                query_service,
+                Some("git-upload-pack") | Some("git-receive-pack")
+            ) {
                 return (StatusCode::BAD_REQUEST, "unsupported service").into_response();
             }
             let repo_dir = match resolve_repo_dir(state.storage(), &segments) {
@@ -50,13 +54,18 @@ where
             if !is_public_repo(&repo_dir) {
                 return (StatusCode::NOT_FOUND, "repo not found").into_response();
             }
-            match select_advertise_mode() {
-                AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &headers).await,
-                AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &headers).await,
+            match query_service {
+                Some("git-receive-pack") => {
+                    advertise_receive_pack_via_git(&state, &segments, &headers).await
+                }
+                _ => match select_advertise_mode() {
+                    AdvertiseMode::Rust => advertise_v2_rust(&state, &segments, &headers).await,
+                    AdvertiseMode::Git => advertise_v2_via_git(&state, &segments, &headers).await,
+                },
             }
         }
         "git-upload-pack" => handle_upload_pack(state, segments, headers, body).await,
-        "git-receive-pack" => receive_pack_blocked().await.into_response(),
+        "git-receive-pack" => handle_receive_pack(state, segments, headers, body).await,
         _ => (StatusCode::NOT_FOUND, "git endpoint not found").into_response(),
     }
 }
@@ -167,13 +176,6 @@ where
     S: GitHttpState,
 {
     handle_upload_pack(state, vec![group, repo], headers, body).await
-}
-
-// POST /.../git-receive-pack (explicitly blocked)
-pub async fn receive_pack_blocked() -> impl IntoResponse {
-    // Receive-pack is intentionally not wired to public dispatch until write auth,
-    // object connectivity validation, pack safety, and ref transactions are reviewed.
-    (StatusCode::FORBIDDEN, "push over HTTP is disabled")
 }
 
 #[cfg(test)]
@@ -477,6 +479,55 @@ where
     }
 }
 
+async fn advertise_receive_pack_via_git<S>(
+    state: &S,
+    segments: &[String],
+    headers: &HeaderMap,
+) -> Response
+where
+    S: GitHttpState,
+{
+    let repo_dir = match resolve_repo_dir(state.storage(), segments) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
+    };
+    if !is_public_repo(&repo_dir) {
+        return (StatusCode::NOT_FOUND, "repo not found").into_response();
+    }
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("receive-pack")
+        .arg("--stateless-rpc")
+        .arg("--advertise-refs")
+        .arg(repo_dir);
+    cmd.stdout(std::process::Stdio::piped());
+    if let Some(v) = headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
+        cmd.env("GIT_PROTOCOL", v);
+    }
+    match cmd.output().await {
+        Ok(output) if output.status.success() => {
+            let mut body = Vec::with_capacity(output.stdout.len() + 64);
+            body.extend_from_slice(&encode_pkt_line(b"# service=git-receive-pack\n"));
+            body.extend_from_slice(PKT_FLUSH);
+            body.extend_from_slice(&output.stdout);
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(
+                    header::CONTENT_TYPE,
+                    "application/x-git-receive-pack-advertisement",
+                )
+                .header(header::CACHE_CONTROL, "no-cache")
+                .body(axum::body::Body::from(body))
+                .expect("response build")
+        }
+        Ok(output) => (
+            StatusCode::BAD_GATEWAY,
+            format!("git receive-pack advertise failed: {}", output.status),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::BAD_GATEWAY, format!("failed to spawn git: {e}")).into_response(),
+    }
+}
+
 pub async fn handle_upload_pack<S>(
     state: S,
     mut segments: Vec<String>,
@@ -623,6 +674,52 @@ where
         },
         _ => (StatusCode::BAD_REQUEST, "unknown command").into_response(),
     }
+}
+
+pub async fn handle_receive_pack<S>(
+    state: S,
+    mut segments: Vec<String>,
+    headers: HeaderMap,
+    body: axum::body::Body,
+) -> Response
+where
+    S: GitHttpState,
+{
+    for s in &mut segments {
+        if let Some(stripped) = s.strip_suffix(".git") {
+            *s = stripped.to_string();
+        }
+    }
+    for s in &segments {
+        if let Err(e) = state.validate_slug(s) {
+            return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
+    }
+
+    let _permit = state.git_semaphore().clone().acquire_owned().await.ok();
+    let max = state.git_max_body();
+    let bytes = match axum::body::to_bytes(body, max).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid request body").into_response(),
+    };
+
+    let start = Instant::now();
+    let fut = proxy_to_git_receive_pack(&state, &segments, &bytes, &headers);
+    let resp = match tokio::time::timeout(
+        std::time::Duration::from_millis(state.git_timeout_ms()),
+        fut,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => {
+            return (StatusCode::REQUEST_TIMEOUT, "git receive-pack timed out").into_response();
+        }
+    };
+    counter!("git_http.receive_pack", "backend" => "git").increment(1);
+    histogram!("git_http.receive_pack_ms", "backend" => "git")
+        .record(start.elapsed().as_millis() as f64);
+    resp
 }
 
 #[derive(Debug, Default, Clone)]
@@ -992,6 +1089,8 @@ where
     if let Some(mut stdin) = child.stdin.take()
         && let Err(e) = stdin.write_all(request_body).await
     {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         return (
             StatusCode::BAD_GATEWAY,
             format!("failed to write to git: {e}"),
@@ -1000,14 +1099,83 @@ where
     }
     let stdout = match child.stdout.take() {
         Some(o) => o,
-        None => return (StatusCode::BAD_GATEWAY, "missing git stdout").into_response(),
+        None => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return (StatusCode::BAD_GATEWAY, "missing git stdout").into_response();
+        }
     };
-    let stream = ReaderStream::new(stdout);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
-        .body(axum::body::Body::from_stream(stream))
+        .body(git_child_body(stdout, child))
         .expect("response build")
+}
+
+async fn proxy_to_git_receive_pack<S>(
+    state: &S,
+    segments: &[String],
+    request_body: &[u8],
+    headers: &HeaderMap,
+) -> Response
+where
+    S: GitHttpState,
+{
+    let repo_dir = match resolve_repo_dir(state.storage(), segments) {
+        Ok(p) => p,
+        Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
+    };
+    if !is_public_repo(&repo_dir) {
+        return (StatusCode::NOT_FOUND, "repo not found").into_response();
+    }
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.arg("receive-pack").arg("--stateless-rpc").arg(repo_dir);
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    if let Some(v) = headers.get("Git-Protocol").and_then(|v| v.to_str().ok()) {
+        cmd.env("GIT_PROTOCOL", v);
+    }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return (StatusCode::BAD_GATEWAY, format!("failed to spawn git: {e}")).into_response();
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take()
+        && let Err(e) = stdin.write_all(request_body).await
+    {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            format!("failed to write to git: {e}"),
+        )
+            .into_response();
+    }
+    let stdout = match child.stdout.take() {
+        Some(o) => o,
+        None => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return (StatusCode::BAD_GATEWAY, "missing git stdout").into_response();
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            header::CONTENT_TYPE,
+            "application/x-git-receive-pack-result",
+        )
+        .body(git_child_body(stdout, child))
+        .expect("response build")
+}
+
+fn git_child_body(stdout: tokio::process::ChildStdout, mut child: tokio::process::Child) -> Body {
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
+    Body::from_stream(ReaderStream::new(stdout))
 }
 
 #[cfg(test)]
@@ -1301,39 +1469,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn receive_pack_is_forbidden() {
-        let resp = receive_pack_blocked().await.into_response();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn dispatch_keeps_receive_pack_disabled() {
-        let (state, _local_dir) = mk_app_state().await.unwrap();
+    async fn dispatch_advertises_receive_pack_for_existing_repo() {
+        let (state, local_dir) = mk_app_state().await.unwrap();
+        let repo = local_dir.path().join("alpha.git");
+        init_bare_repo(&repo).await;
+        std::fs::write(repo.join("git-daemon-export-ok"), b"").unwrap();
         let resp = dispatch(
             state,
-            vec!["alpha".to_string()],
-            "git-receive-pack",
-            None,
-            AxHeaderMap::new(),
-            axum::body::Body::empty(),
-        )
-        .await;
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn dispatch_does_not_advertise_receive_pack() {
-        let (state, _local_dir) = mk_app_state().await.unwrap();
-        let resp = dispatch(
-            state,
-            vec!["alpha".to_string()],
+            vec!["alpha.git".to_string()],
             "info/refs",
             Some("git-receive-pack"),
             AxHeaderMap::new(),
             axum::body::Body::empty(),
         )
         .await;
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&bytes).contains("git-receive-pack"));
     }
 
     #[test]

@@ -36,12 +36,13 @@ type Subscription {
 }
 type Viewer { user: User authenticated: Boolean! permissions(resource: ResourceURN!): [String!]! }
 type Instance { id: ID! name: String! publicURL: String! capabilities: InstanceCapabilities! }
-type InstanceCapabilities { gitHTTPS: Boolean! gitLFS: Boolean! sse: Boolean! graphqlSubscriptions: Boolean! extensionRuntime: Boolean! }
+type InstanceCapabilities { gitHTTPS: Boolean! gitPush: Boolean! gitLFS: Boolean! sse: Boolean! graphqlSubscriptions: Boolean! extensionRuntime: Boolean! }
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceCapabilities {
     pub git_https: bool,
+    pub git_push: bool,
     pub git_lfs: bool,
     pub sse: bool,
     pub graphql_subscriptions: bool,
@@ -52,6 +53,7 @@ impl InstanceCapabilities {
     pub fn v1() -> Self {
         Self {
             git_https: true,
+            git_push: true,
             git_lfs: false,
             sse: true,
             graphql_subscriptions: true,

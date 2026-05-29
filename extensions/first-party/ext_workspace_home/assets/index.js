@@ -2842,21 +2842,18 @@ function io(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/session.ts
-var ao, oo, so = "/auth/oidc/google/login";
-async function co(e = {}) {
-	return ao && ao.expiresAtMs > Date.now() + 5e3 ? ao.token : (oo ||= uo(e).finally(() => {
+var ao, oo;
+async function so(e = {}) {
+	return ao && ao.expiresAtMs > Date.now() + 5e3 ? ao.token : (oo ||= lo(e).finally(() => {
 		oo = void 0;
 	}), oo);
 }
-function lo() {
+function co() {
 	ao = void 0;
 }
-async function uo(e) {
-	let t = e.operatorCode ?? fo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
-	if (!t) {
-		(e.redirectTo ?? po)(e.oidcLoginPath ?? so);
-		return;
-	}
+async function lo(e) {
+	let t = e.operatorCode ?? uo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
+	if (!t) return;
 	let i = await n(`${r}/auth/token-exchange`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
@@ -2883,7 +2880,7 @@ async function uo(e) {
 		expiresAtMs: Date.now() + o
 	}, ao.token;
 }
-function fo() {
+function uo() {
 	try {
 		return {
 			BASE_URL: "/",
@@ -2896,13 +2893,10 @@ function fo() {
 		return;
 	}
 }
-function po(e) {
-	typeof window < "u" && window.location && (window.location.href = e);
-}
 //#endregion
 //#region packages/sdk-core/src/runtime.ts
-async function mo(e, t, n, r, i = {}) {
-	let a = `${i.baseUrl ?? ""}/api/ops/${encodeURIComponent(e)}/${encodeURIComponent(t)}/${encodeURIComponent(n)}`, o = { "content-type": "application/json" }, s = i.token ?? await co();
+async function fo(e, t, n, r, i = {}) {
+	let a = `${i.baseUrl ?? ""}/api/ops/${encodeURIComponent(e)}/${encodeURIComponent(t)}/${encodeURIComponent(n)}`, o = { "content-type": "application/json" }, s = i.token ?? await so();
 	s && (o.authorization = `Bearer ${s}`);
 	try {
 		let e = await fetch(a, {
@@ -2912,7 +2906,7 @@ async function mo(e, t, n, r, i = {}) {
 			signal: i.signal,
 			credentials: "include"
 		});
-		e.status === 401 && lo();
+		e.status === 401 && co();
 		let t = await e.text();
 		if (!e.ok) {
 			let n;
@@ -2921,11 +2915,11 @@ async function mo(e, t, n, r, i = {}) {
 			} catch {
 				n = void 0;
 			}
-			let r = go(e.status), i = typeof n?.message == "string" ? n.message : void 0;
+			let r = mo(e.status), i = typeof n?.message == "string" ? n.message : void 0;
 			return {
 				ok: !1,
 				error: {
-					code: ho(n?.code) ?? r,
+					code: po(n?.code) ?? r,
 					message: i ?? (t || e.statusText),
 					path: n?.path
 				}
@@ -2945,7 +2939,7 @@ async function mo(e, t, n, r, i = {}) {
 		};
 	}
 }
-function ho(e) {
+function po(e) {
 	switch (e) {
 		case "not-found":
 		case "conflict":
@@ -2957,7 +2951,7 @@ function ho(e) {
 		default: return;
 	}
 }
-function go(e) {
+function mo(e) {
 	switch (e) {
 		case 400: return "bad-input";
 		case 401: return "unauthenticated";
@@ -2971,57 +2965,57 @@ function go(e) {
 typeof fetch < "u" && fetch.bind(globalThis);
 //#endregion
 //#region packages/sdk-core/src/relationship-registry.ts
-var _o = Symbol.for("comtrya.relationship-registry");
-vo();
-function vo() {
+var ho = Symbol.for("comtrya.relationship-registry");
+go();
+function go() {
 	let e = globalThis;
-	return e[_o] ??= {
+	return e[ho] ??= {
 		types: /* @__PURE__ */ new Map(),
 		providers: /* @__PURE__ */ new Map(),
 		subscribers: /* @__PURE__ */ new Set()
-	}, e[_o];
+	}, e[ho];
 }
 //#endregion
 //#region packages/sdk-core/src/live-events.ts
-function yo(e) {
+function _o(e) {
 	let t = e.baseUrl ?? "", n = new AbortController();
-	return bo(t, e, n.signal), () => n.abort();
+	return vo(t, e, n.signal), () => n.abort();
 }
-async function bo(e, t, n) {
+async function vo(e, t, n) {
 	try {
-		let r = await xo(e, n, t.token), i = `${e}/events?session=${encodeURIComponent(r)}`, a = await fetch(i, {
+		let r = await yo(e, n, t.token), i = `${e}/events?session=${encodeURIComponent(r)}`, a = await fetch(i, {
 			credentials: "include",
-			headers: So(t.token, { Accept: "text/event-stream" }),
+			headers: bo(t.token, { Accept: "text/event-stream" }),
 			signal: n
 		});
 		if (!a.ok) throw Error(`event stream failed: HTTP ${a.status}`);
-		await Co(a, t, n);
+		await xo(a, t, n);
 	} catch (e) {
 		if (n.aborted) return;
 		t.onError?.(e instanceof Error ? e : Error(String(e)));
 	}
 }
-async function xo(e, t, n) {
+async function yo(e, t, n) {
 	let r = await fetch(`${e}/events/session`, {
 		method: "POST",
 		credentials: "include",
-		headers: So(n, { "Content-Type": "application/json" }),
+		headers: bo(n, { "Content-Type": "application/json" }),
 		body: "{}",
 		signal: t
 	}), i = await r.json();
 	if (!r.ok || !i.session) throw Error(i.errors?.[0]?.message ?? "event stream session failed");
 	return i.session;
 }
-function So(e, t) {
+function bo(e, t) {
 	return e ? {
 		...t,
 		Authorization: `Bearer ${e}`
 	} : t;
 }
-async function Co(e, t, n) {
+async function xo(e, t, n) {
 	let r = e.body?.getReader();
 	if (!r) {
-		wo(await e.text(), t);
+		So(await e.text(), t);
 		return;
 	}
 	let i = new TextDecoder(), a = "";
@@ -3031,53 +3025,53 @@ async function Co(e, t, n) {
 		a += i.decode(e.value, { stream: !0 });
 		let n = a.split("\n\n");
 		a = n.pop() ?? "";
-		for (let e of n) To(e, t);
+		for (let e of n) Co(e, t);
 	}
-	a += i.decode(), wo(a, t);
+	a += i.decode(), So(a, t);
 }
-function wo(e, t) {
-	for (let n of e.split("\n\n")) To(n, t);
+function So(e, t) {
+	for (let n of e.split("\n\n")) Co(n, t);
 }
-function To(e, t) {
+function Co(e, t) {
 	let n = e.split("\n"), r = n.find((e) => e.startsWith("event: "))?.slice(7), i = n.filter((e) => e.startsWith("data: ")).map((e) => e.slice(6)).join("\n");
 	if (i) try {
-		let e = Eo(JSON.parse(i), r);
+		let e = wo(JSON.parse(i), r);
 		if (t.type && e.eventType !== t.type || t.source && e.emitterExtension !== t.source && e.sourceUri !== t.source) return;
 		t.onEvent(e);
 	} catch {}
 }
-function Eo(e, t) {
-	let n = Do(e) ? e : {}, r = Do(n.data) ? n.data : {}, i = $(r.eventType) ?? $(n.type) ?? t ?? "";
+function wo(e, t) {
+	let n = To(e) ? e : {}, r = To(n.data) ? n.data : {}, i = $(r.eventType) ?? $(n.type) ?? t ?? "";
 	return {
 		id: $(r.id) ?? $(n.id) ?? "",
 		eventType: i,
 		payloadB64: $(r.payloadB64) ?? "",
-		timestampMs: Oo(r.timestampMs) ?? ko(Oo(n.time)) ?? Date.now(),
+		timestampMs: Eo(r.timestampMs) ?? Do(Eo(n.time)) ?? Date.now(),
 		sourceUri: $(r.sourceUri) ?? $(n.source) ?? "",
 		emitterExtension: $(r.emitterExtension) ?? $(r.extensionId) ?? $(n.source) ?? "",
 		raw: e
 	};
 }
-function Do(e) {
+function To(e) {
 	return typeof e == "object" && !!e;
 }
 function $(e) {
 	return typeof e == "string" ? e : void 0;
 }
-function Oo(e) {
+function Eo(e) {
 	return typeof e == "number" && Number.isFinite(e) ? e : void 0;
 }
-function ko(e) {
+function Do(e) {
 	return e === void 0 ? void 0 : e * 1e3;
 }
 //#endregion
 //#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
-var Ao = typeof navigator == "object" ? navigator.platform : "";
-/Mac|iPod|iPhone|iPad/.test(Ao);
+var Oo = typeof navigator == "object" ? navigator.platform : "";
+/Mac|iPod|iPhone|iPad/.test(Oo);
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function jo(e) {
-	Mo(e.tagName, e.component);
+function ko(e) {
+	Ao(e.tagName, e.component);
 	let t = /* @__PURE__ */ Ya(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -3085,60 +3079,60 @@ function jo(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(Po(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(Mo(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Mo(e, t) {
+function Ao(e, t) {
 	if (typeof document > "u") return;
-	let n = No(t);
+	let n = jo(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function No(e) {
+function jo(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function Po(e) {
+function Mo(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_workspace_home/ui/src/api.ts
-var Fo = "{\n  viewer {\n    reviewQueue { aggregated items }\n    authoredPulls { aggregated items }\n    failingChecks { aggregated items }\n  }\n}", Io = "{\n  workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } }\n}", Lo = "{ workspace { events } }";
-async function Ro(e) {
-	let t = await e.query(Fo);
+var No = "{\n  viewer {\n    reviewQueue { aggregated items }\n    authoredPulls { aggregated items }\n    failingChecks { aggregated items }\n  }\n}", Po = "{\n  workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } }\n}", Fo = "{ workspace { events } }";
+async function Io(e) {
+	let t = await e.query(No);
 	return {
 		reviewQueue: t.viewer?.reviewQueue?.items ?? [],
 		authoredPulls: t.viewer?.authoredPulls?.items ?? [],
 		failingChecks: t.viewer?.failingChecks?.items ?? []
 	};
 }
-async function zo(e) {
-	return (await e.query(Io)).workspace?.repositories ?? [];
+async function Lo(e) {
+	return (await e.query(Po)).workspace?.repositories ?? [];
 }
-async function Bo(e) {
-	return (await e.query(Lo)).workspace?.events ?? [];
+async function Ro(e) {
+	return (await e.query(Fo)).workspace?.events ?? [];
 }
 //#endregion
 //#region ../extensions/first-party/ext_workspace_home/ui/src/HomeActivity.vue?vue&type=script&setup=true&lang.ts
-var Vo = {
+var zo = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-activity"
-}, Ho = {
+}, Bo = {
 	key: 1,
 	class: "rail-section activity",
 	"data-smoke": "home-activity"
-}, Uo = { class: "summary" }, Wo = { class: "src" }, Go = { class: "t" }, Ko = /* @__PURE__ */ Ln({
+}, Vo = { class: "summary" }, Ho = { class: "src" }, Uo = { class: "t" }, Wo = /* @__PURE__ */ Ln({
 	__name: "HomeActivity",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null }
+		client: { type: Object },
+		comtryaClient: { type: Object }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = sa(() => t.client ?? t.comtryaClient);
@@ -3150,33 +3144,33 @@ var Vo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await Bo(a.value), n.value = "ready";
+				i.value = await Ro(a.value), n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load activity: ${e instanceof Error ? e.message : String(e)}`;
 			}
 		}
-		return (e, t) => n.value === "error" ? (K(), q("article", Vo, k(r.value), 1)) : (K(), q("div", Ho, [t[0] ||= J("div", { class: "rail-strap" }, [
+		return (e, t) => n.value === "error" ? (K(), q("article", zo, k(r.value), 1)) : (K(), q("div", Bo, [t[0] ||= J("div", { class: "rail-strap" }, [
 			J("span", { class: "id" }, "05"),
 			J("h3", null, "Activity"),
 			J("span", { class: "count" }, "live")
 		], -1), (K(!0), q(W, null, cr(i.value, (e) => (K(), q("div", {
 			key: `${e.summary}-${e.time}`,
 			class: "ev"
-		}, [J("span", Uo, [Ii(k(e.summary ?? "(event)") + " ", 1), J("span", Wo, k(e.repositoryPath ?? e.actor ?? ""), 1)]), J("span", Go, k(e.time ?? ""), 1)]))), 128))]));
+		}, [J("span", Vo, [Ii(k(e.summary ?? "(event)") + " ", 1), J("span", Ho, k(e.repositoryPath ?? e.actor ?? ""), 1)]), J("span", Uo, k(e.time ?? ""), 1)]))), 128))]));
 	}
-}), qo = ".rail-section[data-v-5dee0228]{gap:8px;display:grid}.rail-strap[data-v-5dee0228],.ev[data-v-5dee0228]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-5dee0228]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-5dee0228],.count[data-v-5dee0228],.src[data-v-5dee0228],.t[data-v-5dee0228],.extension-placeholder[data-v-5dee0228]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-5dee0228],.count[data-v-5dee0228],.src[data-v-5dee0228],.t[data-v-5dee0228]{color:var(--fg-3,#ffffff85)}.summary[data-v-5dee0228]{min-width:0;font-family:var(--font-serif,system-ui);font-weight:600}", Jo = (e, t) => {
+}), Go = ".rail-section[data-v-5dee0228]{gap:8px;display:grid}.rail-strap[data-v-5dee0228],.ev[data-v-5dee0228]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-5dee0228]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-5dee0228],.count[data-v-5dee0228],.src[data-v-5dee0228],.t[data-v-5dee0228],.extension-placeholder[data-v-5dee0228]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-5dee0228],.count[data-v-5dee0228],.src[data-v-5dee0228],.t[data-v-5dee0228]{color:var(--fg-3,#ffffff85)}.summary[data-v-5dee0228]{min-width:0;font-family:var(--font-serif,system-ui);font-weight:600}", Ko = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Yo = /* @__PURE__ */ Jo(Ko, [["styles", [qo]], ["__scopeId", "data-v-5dee0228"]]), Xo = {
+}, qo = /* @__PURE__ */ Ko(Wo, [["styles", [Go]], ["__scopeId", "data-v-5dee0228"]]), Jo = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-instance"
-}, Zo = {
+}, Yo = {
 	key: 1,
 	class: "instance",
 	"data-smoke": "home-instance"
-}, Qo = { class: "stats" }, $o = { class: "clone" }, es = /* @__PURE__ */ Jo(/* @__PURE__ */ Ln({
+}, Xo = { class: "stats" }, Zo = { class: "clone" }, Qo = /* @__PURE__ */ Ko(/* @__PURE__ */ Ln({
 	__name: "HomeInstance",
 	setup(e) {
 		let t = /* @__PURE__ */ z("idle"), n = /* @__PURE__ */ z(null), r = /* @__PURE__ */ z(0), i = /* @__PURE__ */ z(""), a = sa(() => r.value === 0);
@@ -3189,29 +3183,29 @@ var Vo = {
 				t.value = "error", n.value = `Failed to load instance: ${e instanceof Error ? e.message : String(e)}`;
 			}
 		}
-		return (e, o) => t.value === "error" ? (K(), q("article", Xo, k(n.value), 1)) : (K(), q("section", Zo, [
+		return (e, o) => t.value === "error" ? (K(), q("article", Jo, k(n.value), 1)) : (K(), q("section", Yo, [
 			o[1] ||= J("span", { class: "id" }, "06", -1),
-			J("div", Qo, [J("span", { class: ge(a.value ? "ok" : "err") }, k(a.value ? "READY" : "NOT READY"), 3), J("span", null, [J("strong", null, k(r.value), 1), o[0] ||= Ii(" boundaries", -1)])]),
-			J("code", $o, "git clone " + k(i.value) + "/git/comtrya.git", 1),
+			J("div", Xo, [J("span", { class: ge(a.value ? "ok" : "err") }, k(a.value ? "READY" : "NOT READY"), 3), J("span", null, [J("strong", null, k(r.value), 1), o[0] ||= Ii(" boundaries", -1)])]),
+			J("code", Zo, "git clone " + k(i.value) + "/git/comtrya.git", 1),
 			o[2] ||= J("a", {
 				class: "link",
 				href: "/instance"
 			}, "/instance", -1)
 		]));
 	}
-}), [["styles", [".instance[data-v-08872425]{gap:8px;display:grid}.id[data-v-08872425],.stats[data-v-08872425],.clone[data-v-08872425],.link[data-v-08872425],.extension-placeholder[data-v-08872425]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-08872425],.clone[data-v-08872425],.link[data-v-08872425]{color:var(--fg-3,#ffffff85)}.stats[data-v-08872425]{gap:8px;display:flex}.ok[data-v-08872425]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-08872425]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.err[data-v-08872425]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-08872425]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-08872425"]]), ts = {
+}), [["styles", [".instance[data-v-08872425]{gap:8px;display:grid}.id[data-v-08872425],.stats[data-v-08872425],.clone[data-v-08872425],.link[data-v-08872425],.extension-placeholder[data-v-08872425]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-08872425],.clone[data-v-08872425],.link[data-v-08872425]{color:var(--fg-3,#ffffff85)}.stats[data-v-08872425]{gap:8px;display:flex}.ok[data-v-08872425]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-08872425]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.err[data-v-08872425]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-08872425]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-08872425"]]), $o = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-repositories"
-}, ns = {
+}, es = {
 	key: 1,
 	class: "rail-section",
 	"data-smoke": "home-repositories"
-}, rs = { class: "rail-strap" }, is = { class: "count" }, as = { class: "name" }, os = { class: "prefix" }, ss = { class: "leaf" }, cs = { class: "stats" }, ls = /* @__PURE__ */ Jo(/* @__PURE__ */ Ln({
+}, ts = { class: "rail-strap" }, ns = { class: "count" }, rs = { class: "name" }, is = { class: "prefix" }, as = { class: "leaf" }, os = { class: "stats" }, ss = /* @__PURE__ */ Ko(/* @__PURE__ */ Ln({
 	__name: "HomeRepositories",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null }
+		client: { type: Object },
+		comtryaClient: { type: Object }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = sa(() => t.client ?? t.comtryaClient);
@@ -3223,7 +3217,7 @@ var Vo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await zo(a.value), n.value = "ready";
+				i.value = await Lo(a.value), n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load repositories: ${e instanceof Error ? e.message : String(e)}`;
 			}
@@ -3238,34 +3232,34 @@ var Vo = {
 		function l(e) {
 			return e.checkSummary ? c(e) ? `${e.checkSummary.total ?? 0} ok` : `${e.checkSummary.passed ?? 0}/${e.checkSummary.total ?? 0}` : "-";
 		}
-		return (e, t) => n.value === "error" ? (K(), q("article", ts, k(r.value), 1)) : (K(), q("div", ns, [J("div", rs, [
+		return (e, t) => n.value === "error" ? (K(), q("article", $o, k(r.value), 1)) : (K(), q("div", es, [J("div", ts, [
 			t[0] ||= J("span", { class: "id" }, "04", -1),
 			t[1] ||= J("h3", null, "Repositories", -1),
-			J("span", is, k(i.value.length) + " total", 1)
+			J("span", ns, k(i.value.length) + " total", 1)
 		]), (K(!0), q(W, null, cr(i.value, (e) => (K(), q("div", {
 			key: e.id,
 			class: "repo"
-		}, [J("span", as, [J("span", os, k(s(e)), 1), J("span", ss, k(e.name ?? "(unnamed)"), 1)]), J("span", cs, [
+		}, [J("span", rs, [J("span", is, k(s(e)), 1), J("span", as, k(e.name ?? "(unnamed)"), 1)]), J("span", os, [
 			J("span", null, k(e.openPullRequests ?? 0) + " pr", 1),
 			J("span", { class: ge(c(e) ? "ok" : "warn") }, k(l(e)), 3),
 			J("span", null, k(e.lastCommitAt ?? ""), 1)
 		])]))), 128))]));
 	}
-}), [["styles", [".rail-section[data-v-c3c735c5]{gap:8px;display:grid}.rail-strap[data-v-c3c735c5],.repo[data-v-c3c735c5]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-c3c735c5]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-c3c735c5],.count[data-v-c3c735c5],.stats[data-v-c3c735c5],.prefix[data-v-c3c735c5],.extension-placeholder[data-v-c3c735c5]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-c3c735c5],.count[data-v-c3c735c5],.stats[data-v-c3c735c5],.prefix[data-v-c3c735c5]{color:var(--fg-3,#ffffff85)}.name[data-v-c3c735c5]{min-width:0;font-family:var(--font-serif,system-ui);font-weight:600}.stats[data-v-c3c735c5]{flex-wrap:wrap;gap:8px;display:flex}.ok[data-v-c3c735c5]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-c3c735c5]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-c3c735c5]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-c3c735c5]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-c3c735c5"]]), us = {
+}), [["styles", [".rail-section[data-v-c3c735c5]{gap:8px;display:grid}.rail-strap[data-v-c3c735c5],.repo[data-v-c3c735c5]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.rail-strap h3[data-v-c3c735c5]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-c3c735c5],.count[data-v-c3c735c5],.stats[data-v-c3c735c5],.prefix[data-v-c3c735c5],.extension-placeholder[data-v-c3c735c5]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-c3c735c5],.count[data-v-c3c735c5],.stats[data-v-c3c735c5],.prefix[data-v-c3c735c5]{color:var(--fg-3,#ffffff85)}.name[data-v-c3c735c5]{min-width:0;font-family:var(--font-serif,system-ui);font-weight:600}.stats[data-v-c3c735c5]{flex-wrap:wrap;gap:8px;display:flex}.ok[data-v-c3c735c5]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-c3c735c5]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-c3c735c5]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-c3c735c5]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-c3c735c5"]]), cs = {
 	key: 0,
 	class: "extension-placeholder",
 	"data-smoke": "home-your-work"
-}, ds = {
+}, ls = {
 	key: 1,
 	"data-smoke": "home-your-work"
-}, fs = {
+}, us = {
 	key: 0,
 	class: "section"
-}, ps = { class: "section-strap" }, ms = { class: "meta" }, hs = { class: "idn" }, gs = { class: "title" }, _s = { class: "sub" }, vs = { class: "check ok" }, ys = { class: "section" }, bs = { class: "section-strap" }, xs = { class: "meta" }, Ss = { class: "idn" }, Cs = { class: "title" }, ws = { class: "sub" }, Ts = { class: "t" }, Es = { class: "section" }, Ds = { class: "section-strap" }, Os = { class: "meta" }, ks = { class: "idn" }, As = { class: "title" }, js = { class: "sub" }, Ms = { class: "t" }, Ns = { class: "section" }, Ps = { class: "section-strap" }, Fs = { class: "meta" }, Is = { class: "title" }, Ls = { class: "sub" }, Rs = { class: "t" }, zs = /* @__PURE__ */ Jo(/* @__PURE__ */ Ln({
+}, ds = { class: "section-strap" }, fs = { class: "meta" }, ps = { class: "idn" }, ms = { class: "title" }, hs = { class: "sub" }, gs = { class: "check ok" }, _s = { class: "section" }, vs = { class: "section-strap" }, ys = { class: "meta" }, bs = { class: "idn" }, xs = { class: "title" }, Ss = { class: "sub" }, Cs = { class: "t" }, ws = { class: "section" }, Ts = { class: "section-strap" }, Es = { class: "meta" }, Ds = { class: "idn" }, Os = { class: "title" }, ks = { class: "sub" }, As = { class: "t" }, js = { class: "section" }, Ms = { class: "section-strap" }, Ns = { class: "meta" }, Ps = { class: "title" }, Fs = { class: "sub" }, Is = { class: "t" }, Ls = /* @__PURE__ */ Ko(/* @__PURE__ */ Ln({
 	__name: "HomeYourWork",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null }
+		client: { type: Object },
+		comtryaClient: { type: Object }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = /* @__PURE__ */ z([]), o = /* @__PURE__ */ z([]), s = /* @__PURE__ */ z([]), c = [], l = sa(() => t.client ?? t.comtryaClient);
@@ -3275,7 +3269,7 @@ var Vo = {
 				"dev.comtrya.issues.opened",
 				"dev.comtrya.issues.closed",
 				"dev.comtrya.issues.reopened"
-			]) c.push(yo({
+			]) c.push(_o({
 				type: e,
 				onEvent: () => void p(),
 				onError: () => {}
@@ -3291,7 +3285,7 @@ var Vo = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				let e = await Ro(l.value);
+				let e = await Io(l.value);
 				i.value = e.reviewQueue, a.value = e.authoredPulls, o.value = e.failingChecks, n.value = "ready";
 			} catch (e) {
 				n.value = "error", r.value = `Failed to load your work: ${e instanceof Error ? e.message : String(e)}`;
@@ -3304,7 +3298,7 @@ var Vo = {
 			return e.replace(/^comtrya:\/\/[a-z]+\//, "");
 		}
 		async function p() {
-			let e = await mo("ext_issues", "issues", "list-issues", {
+			let e = await fo("ext_issues", "issues", "list-issues", {
 				repository: WORKSPACE_URI,
 				limit: 1024
 			});
@@ -3333,99 +3327,99 @@ var Vo = {
 		function g(e) {
 			return e.repositoryPath ?? e.repository ?? "";
 		}
-		return (e, t) => n.value === "error" ? (K(), q("article", us, k(r.value), 1)) : (K(), q("div", ds, [
-			s.value.length > 0 ? (K(), q("section", fs, [J("div", ps, [
+		return (e, t) => n.value === "error" ? (K(), q("article", cs, k(r.value), 1)) : (K(), q("div", ls, [
+			s.value.length > 0 ? (K(), q("section", us, [J("div", ds, [
 				t[0] ||= J("span", { class: "id" }, "00", -1),
 				t[1] ||= J("h2", null, "Assigned issues", -1),
-				J("span", ms, k(s.value.length) + " routed", 1)
+				J("span", fs, k(s.value.length) + " routed", 1)
 			]), (K(!0), q(W, null, cr(s.value, (e) => (K(), q("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				J("span", hs, k(d(e)), 1),
-				J("div", null, [J("div", gs, k(e.title ?? "(untitled)"), 1), J("div", _s, [e.author ? (K(), q(W, { key: 0 }, [Ii("→ " + k(e.author), 1)], 64)) : Li("", !0), e.repositoryPath ? (K(), q(W, { key: 1 }, [e.author ? (K(), q(W, { key: 0 }, [Ii(" · ")], 64)) : Li("", !0), Ii("◇ " + k(e.repositoryPath), 1)], 64)) : Li("", !0)])]),
-				J("span", vs, k((e.state ?? "").toLowerCase()), 1),
+				J("span", ps, k(d(e)), 1),
+				J("div", null, [J("div", ms, k(e.title ?? "(untitled)"), 1), J("div", hs, [e.author ? (K(), q(W, { key: 0 }, [Ii("→ " + k(e.author), 1)], 64)) : Li("", !0), e.repositoryPath ? (K(), q(W, { key: 1 }, [e.author ? (K(), q(W, { key: 0 }, [Ii(" · ")], 64)) : Li("", !0), Ii("◇ " + k(e.repositoryPath), 1)], 64)) : Li("", !0)])]),
+				J("span", gs, k((e.state ?? "").toLowerCase()), 1),
 				t[2] ||= J("span", { class: "t" }, null, -1)
 			]))), 128))])) : Li("", !0),
-			J("section", ys, [J("div", bs, [
+			J("section", _s, [J("div", vs, [
 				t[3] ||= J("span", { class: "id" }, "01", -1),
 				t[4] ||= J("h2", null, "Review queue", -1),
-				J("span", xs, k(i.value.length) + " pulls", 1)
+				J("span", ys, k(i.value.length) + " pulls", 1)
 			]), (K(!0), q(W, null, cr(i.value, (e) => (K(), q("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				J("span", Ss, k(d(e)), 1),
-				J("div", null, [J("div", Cs, k(e.title ?? "(untitled)"), 1), J("div", ws, k(e.author ? `@${e.author} · ` : "") + k(g(e)), 1)]),
+				J("span", bs, k(d(e)), 1),
+				J("div", null, [J("div", xs, k(e.title ?? "(untitled)"), 1), J("div", Ss, k(e.author ? `@${e.author} · ` : "") + k(g(e)), 1)]),
 				J("span", { class: ge(["check", h(e)]) }, k(m(e)), 3),
-				J("span", Ts, k(e.updatedAt ?? e.time ?? ""), 1)
+				J("span", Cs, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
-			J("section", Es, [J("div", Ds, [
+			J("section", ws, [J("div", Ts, [
 				t[5] ||= J("span", { class: "id" }, "02", -1),
 				t[6] ||= J("h2", null, "Your pulls", -1),
-				J("span", Os, k(a.value.length) + " authored", 1)
+				J("span", Es, k(a.value.length) + " authored", 1)
 			]), (K(!0), q(W, null, cr(a.value, (e) => (K(), q("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				J("span", ks, k(d(e)), 1),
-				J("div", null, [J("div", As, k(e.title ?? "(untitled)"), 1), J("div", js, k(g(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
+				J("span", Ds, k(d(e)), 1),
+				J("div", null, [J("div", Os, k(e.title ?? "(untitled)"), 1), J("div", ks, k(g(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
 				t[7] ||= J("span", { class: "check ok" }, "ready", -1),
-				J("span", Ms, k(e.updatedAt ?? e.time ?? ""), 1)
+				J("span", As, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
-			J("section", Ns, [J("div", Ps, [
+			J("section", js, [J("div", Ms, [
 				t[8] ||= J("span", { class: "id" }, "03", -1),
 				t[9] ||= J("h2", null, "Failing on your branches", -1),
-				J("span", Fs, k(o.value.length) + " checks", 1)
+				J("span", Ns, k(o.value.length) + " checks", 1)
 			]), (K(!0), q(W, null, cr(o.value, (e) => (K(), q("div", {
 				key: String(e.id ?? e.name),
 				class: "row"
 			}, [
 				t[10] ||= J("span", { class: "idn" }, "!CK", -1),
-				J("div", null, [J("div", Is, k(e.name ?? "(unnamed)"), 1), J("div", Ls, k(g(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
+				J("div", null, [J("div", Ps, k(e.name ?? "(unnamed)"), 1), J("div", Fs, k(g(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
 				t[11] ||= J("span", { class: "check err" }, "failing", -1),
-				J("span", Rs, k(e.updatedAt ?? e.time ?? ""), 1)
+				J("span", Is, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))])
 		]));
 	}
-}), [["styles", [".section[data-v-3816c73b]{gap:8px;display:grid}.section+.section[data-v-3816c73b]{margin-top:16px}.section-strap[data-v-3816c73b],.row[data-v-3816c73b]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-3816c73b]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-3816c73b],.idn[data-v-3816c73b],.sub[data-v-3816c73b],.meta[data-v-3816c73b],.check[data-v-3816c73b],.t[data-v-3816c73b],.extension-placeholder[data-v-3816c73b]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-3816c73b],.idn[data-v-3816c73b],.sub[data-v-3816c73b],.meta[data-v-3816c73b],.t[data-v-3816c73b]{color:var(--fg-3,#ffffff85)}.title[data-v-3816c73b]{font-family:var(--font-serif,system-ui);font-weight:600}.ok[data-v-3816c73b]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-3816c73b]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-3816c73b]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-3816c73b]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.err[data-v-3816c73b]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-3816c73b]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-3816c73b"]]), Bs = "ext_workspace_home", Vs = "comtrya-home-your-work", Hs = "comtrya-home-repositories", Us = "comtrya-home-activity", Ws = "comtrya-home-instance";
-jo({
+}), [["styles", [".section[data-v-3816c73b]{gap:8px;display:grid}.section+.section[data-v-3816c73b]{margin-top:16px}.section-strap[data-v-3816c73b],.row[data-v-3816c73b]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-3816c73b]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.id[data-v-3816c73b],.idn[data-v-3816c73b],.sub[data-v-3816c73b],.meta[data-v-3816c73b],.check[data-v-3816c73b],.t[data-v-3816c73b],.extension-placeholder[data-v-3816c73b]{font-family:var(--font-mono,monospace);font-size:12px}.id[data-v-3816c73b],.idn[data-v-3816c73b],.sub[data-v-3816c73b],.meta[data-v-3816c73b],.t[data-v-3816c73b]{color:var(--fg-3,#ffffff85)}.title[data-v-3816c73b]{font-family:var(--font-serif,system-ui);font-weight:600}.ok[data-v-3816c73b]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-3816c73b]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-3816c73b]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-3816c73b]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.err[data-v-3816c73b]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-3816c73b]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-3816c73b"]]), Rs = "ext_workspace_home", zs = "comtrya-home-your-work", Bs = "comtrya-home-repositories", Vs = "comtrya-home-activity", Hs = "comtrya-home-instance";
+ko({
+	tagName: zs,
+	component: Ls
+}), ko({
+	tagName: Bs,
+	component: ss
+}), ko({
 	tagName: Vs,
-	component: zs
-}), jo({
+	component: qo
+}), ko({
 	tagName: Hs,
-	component: ls
-}), jo({
-	tagName: Us,
-	component: Yo
-}), jo({
-	tagName: Ws,
-	component: es
+	component: Qo
 });
-var Gs = {
-	id: Bs,
+var Us = {
+	id: Rs,
 	setup(e) {
 		e.registerWidget({
 			id: "home-your-work",
-			element: Vs,
+			element: zs,
 			defaultSlot: "home.your-work",
 			defaultPriority: 1e3,
 			requiredPermission: "workspace.read"
 		}), e.registerWidget({
 			id: "home-repositories",
-			element: Hs,
+			element: Bs,
 			defaultSlot: "home.repositories",
 			defaultPriority: 1e3,
 			requiredPermission: "workspace.read"
 		}), e.registerWidget({
 			id: "home-activity",
-			element: Us,
+			element: Vs,
 			defaultSlot: "home.activity",
 			defaultPriority: 1e3,
 			requiredPermission: "events.read"
 		}), e.registerWidget({
 			id: "home-instance",
-			element: Ws,
+			element: Hs,
 			defaultSlot: "home.instance",
 			defaultPriority: 1e3,
 			requiredPermission: "instance.admin"
@@ -3433,4 +3427,4 @@ var Gs = {
 	}
 };
 //#endregion
-export { Gs as default };
+export { Us as default };

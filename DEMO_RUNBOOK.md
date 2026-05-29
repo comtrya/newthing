@@ -73,7 +73,8 @@ A passing `./start.sh --reset --oneshot` should print evidence for:
 - event stream, session reuse, and expired-session fail-closed checks
 - extension manifest and asset checks for all first-party extensions
 - Git no-token, wrong-token, and wrong-scope failures
-- `git ls-remote`, `git clone`, and branch-specific fetch success
+- `git ls-remote`, `git clone`, branch-specific fetch, and PAT-backed `git push`
+  success
 - browser smoke against the live Vue shell
 - `/api/ops` issue close emitting `ext_issues` WASM events
 - pull-request merge reactor closing linked issues through cross-extension WASM
@@ -109,7 +110,9 @@ git --git-dir "$DATA_DIR/repositories/comtrya/comtrya.git" log --oneline --decor
 
 Clone through the Vue origin with a scoped credential by using the token exchange
 flow from `start.sh`, or rerun `./start.sh --reset --oneshot` and rely on its
-clone/fetch smoke assertions.
+clone/fetch smoke assertions. Push through the Vue origin by creating an account
+Git token in `/settings` with `git:write`, then use it as the HTTP Basic
+password for `git push`.
 
 ## Inspect Extension Storage
 
@@ -125,5 +128,4 @@ indexed fields, version, update timestamp, and data payload.
 
 ## Known Unsupported Surfaces
 
-- Receive-pack/push is disabled.
 - Full OIDC browser callback validation is disabled in the testbed.

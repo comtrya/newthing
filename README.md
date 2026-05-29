@@ -7,7 +7,7 @@ production-testbed runtime built from:
 - first-party Component Model extensions in `extensions/first-party`
 - platform WIT in `extensions/wit/comtrya/platform`
 - a Vite/Vue frontend in `frontend`
-- pure-Rust Git upload-pack support in `crates/git-http`
+- Smart HTTP Git support in `crates/git-http`
 
 ## Run the production testbed
 
@@ -58,9 +58,10 @@ The Vue shell owns navigation, auth/session exchange, GraphQL transport, and UI
 extension loading. Browser extension bundles are served from
 `/_extensions/<id>/assets/...` and registered through the Comtrya SDK.
 
-Git clone/fetch uses the pure-Rust Smart HTTP path. Git receive-pack/push and
-full OIDC browser callback validation are intentionally unsupported in the
-production testbed.
+Git clone/fetch uses Smart HTTP with scoped Comtrya credentials. Git push uses
+HTTPS with account personal access tokens created from `/settings`; push tokens
+must include `git:write`. Full OIDC browser callback validation is intentionally
+unsupported in the production testbed.
 
 ## Useful docs
 

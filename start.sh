@@ -407,6 +407,8 @@ assert_extension_browser_surfaces_render() {
   local evidence_file="$1"
   local browser_log="$2"
   local repo_path="$3"
+  local browser_access_token="$4"
+  local page_url="$FRONTEND_URL/r/$repo_path/code"
   local browser_bin
   browser_bin="$(find_headless_browser)" || fail "extension browser smoke requires Chrome/Chromium or COMTRYA_BROWSER_BIN"
 
@@ -420,6 +422,7 @@ assert_extension_browser_surfaces_render() {
   "$browser_bin" \
     --headless=new \
     --disable-gpu \
+    --disable-features=LinkPreview,NoStatePrefetch,Prerender2,Preloading,SpeculationRules \
     --disable-dev-shm-usage \
     --no-default-browser-check \
     --no-first-run \
@@ -448,7 +451,7 @@ assert_extension_browser_surfaces_render() {
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [port, pageUrl, outputFile] = process.argv.slice(1);
+const [port, pageUrl, outputFile, accessToken] = process.argv.slice(1);
 
 // Widgets that must mount somewhere on the repo code surface. Their default
 // slot is irrelevant to the smoke — under the hybrid model the user can
@@ -457,7 +460,7 @@ const expectedWidgets = [
   { tagName: "comtrya-repository-summary", label: "Repository",            origin: "core" },
   { tagName: "comtrya-core-code-browser",  label: "Code · ",               origin: "core" },
   { tagName: "comtrya-issues-list",        label: "Issues",                origin: "extension" },
-  { tagName: "comtrya-pulls-overview",     label: "Repo · pulls overview", origin: "extension" },
+  { tagName: "comtrya-pulls-overview",     label: "Pull requests",          origin: "extension" },
   { tagName: "comtrya-checks-board",       label: "Checks board",          origin: "extension" },
 ];
 
@@ -470,7 +473,14 @@ async function pageTarget() {
     const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) =>
       response.json(),
     );
-    const target = targets.find((candidate) => candidate.type === "page");
+    const pageTargets = targets.filter((candidate) => candidate.type === "page");
+    const target =
+      pageTargets.find((candidate) => candidate.url === "about:blank") ??
+      pageTargets.find((candidate) => candidate.url === pageUrl) ??
+      pageTargets.find((candidate) => candidate.url?.startsWith(pageUrl)) ??
+      pageTargets.find((candidate) => candidate.url?.includes("/r/") && !candidate.url?.includes("/auth/")) ??
+      pageTargets.find((candidate) => !candidate.url?.includes("/auth/")) ??
+      pageTargets[0];
     if (target?.webSocketDebuggerUrl) {
       return target;
     }
@@ -535,6 +545,7 @@ const COLLECT_EXPRESSION = `(() => {
     ""
   ).trim();
   return {
+    url: location.href,
     headings: Array.from(document.querySelectorAll("h1, h2")).map((heading) => heading.textContent?.trim()),
     pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
     slots,
@@ -564,7 +575,23 @@ const cdp = await connect(target);
 try {
   await cdp.send("Runtime.enable");
   await cdp.send("Page.enable");
+  await cdp.send("Network.enable");
+  await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `try { window.localStorage.setItem("comtrya.accessToken", ${JSON.stringify(accessToken)}); } catch (_) {}`,
+  });
+  await cdp.send("Network.setExtraHTTPHeaders", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  await cdp.send("Network.setCookie", {
+    name: "comtrya_session",
+    value: accessToken,
+    url: new URL(pageUrl).origin,
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+  });
   await cdp.send("Page.navigate", { url: pageUrl });
+  await sleep(750);
 
   let lastEvidence = {};
   const deadline = Date.now() + 20000;
@@ -585,6 +612,11 @@ try {
       throw new Error(detail);
     }
     lastEvidence = result.result?.value ?? {};
+    if (lastEvidence.url?.includes("/auth/")) {
+      await cdp.send("Page.navigate", { url: pageUrl });
+      await sleep(750);
+      continue;
+    }
     if (evidenceIsReady(lastEvidence)) {
       fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
       process.exit(0);
@@ -596,7 +628,7 @@ try {
 } finally {
   cdp.close();
 }
-' "$debugging_port" "$FRONTEND_URL/r/$repo_path/code" "$evidence_file"; then
+' "$debugging_port" "$page_url" "$evidence_file" "$browser_access_token"; then
     kill "$browser_pid" >/dev/null 2>&1 || true
     wait "$browser_pid" >/dev/null 2>&1 || true
     printf '\n[comtrya] headless browser repo-code smoke failed with %s\n' "$browser_bin" >&2
@@ -619,6 +651,7 @@ assert_issue_close_browser_smoke() {
   local issue_number="$3"
   local evidence_file="$4"
   local browser_log="$5"
+  local browser_access_token="$6"
   local before_file="$TMP_DIR/issue-close-browser-before.json"
   local after_file="$TMP_DIR/issue-close-browser-after.json"
   local event_file="$TMP_DIR/issue-close-browser-event.json"
@@ -668,7 +701,7 @@ assert_issue_close_browser_smoke() {
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [port, pageUrl, issueId, outputFile] = process.argv.slice(1);
+const [port, pageUrl, issueId, outputFile, accessToken] = process.argv.slice(1);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -677,7 +710,11 @@ async function pageTarget() {
     const targets = await fetch(`http://127.0.0.1:${port}/json`).then((response) =>
       response.json(),
     );
-    const target = targets.find((candidate) => candidate.type === "page");
+    const pages = targets.filter((candidate) => candidate.type === "page");
+    const target =
+      pages.find((candidate) => candidate.url === "about:blank") ??
+      pages.find((candidate) => !candidate.url?.includes("/auth/")) ??
+      pages[0];
     if (target?.webSocketDebuggerUrl) {
       return target;
     }
@@ -781,6 +818,21 @@ const cdp = await connect(target);
 try {
   await cdp.send("Runtime.enable");
   await cdp.send("Page.enable");
+  await cdp.send("Network.enable");
+  await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `try { window.localStorage.setItem("comtrya.accessToken", ${JSON.stringify(accessToken)}); } catch (_) {}`,
+  });
+  await cdp.send("Network.setExtraHTTPHeaders", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  await cdp.send("Network.setCookie", {
+    name: "comtrya_session",
+    value: accessToken,
+    url: new URL(pageUrl).origin,
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+  });
   await cdp.send("Page.navigate", { url: pageUrl });
 
   const beforeClick = await waitFor(
@@ -815,7 +867,7 @@ try {
 } finally {
   cdp.close();
 }
-' "$debugging_port" "$FRONTEND_URL/x/issues/$workspace_id/$issue_number" "$issue_id" "$evidence_file"; then
+' "$debugging_port" "$FRONTEND_URL/x/issues/$workspace_id/$issue_number" "$issue_id" "$evidence_file" "$browser_access_token"; then
     kill "$browser_pid" >/dev/null 2>&1 || true
     wait "$browser_pid" >/dev/null 2>&1 || true
     printf '\n[comtrya] browser issue-close smoke failed with %s\n' "$browser_bin" >&2
@@ -1040,7 +1092,7 @@ expect_contains "frontend shell HTML loads Vue assets" "$TMP_DIR/frontend.html" 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
-  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.repositoryRoot === true && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
+  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.repositoryRoot === true && Array.isArray(json.unsupported) && !json.unsupported.some((surface) => surface.id === "git_receive_pack")'
 
 expect_status "OIDC callback rejects missing state/code through Vue shell" 400 "$TMP_DIR/oidc-callback.json" \
   "$FRONTEND_URL/auth/oidc/prod/callback"
@@ -1049,7 +1101,7 @@ json_assert "OIDC callback rejects missing state/code through Vue shell" "$TMP_D
 
 expect_status "operator code exchange through Vue shell" 200 "$TMP_DIR/token.json" \
   -H "content-type: application/json" \
-  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://workspace\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"checks:read\"]}" \
+  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://workspace\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"git:write\",\"checks:read\"]}" \
   "$FRONTEND_URL/auth/token-exchange"
 
 ACCESS_TOKEN="$(extract_json_string accessToken "$TMP_DIR/token.json")"
@@ -1195,7 +1247,8 @@ if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \
     "$TMP_DIR/frontend-browser.log" \
-    "$SMOKE_REPO_PATH"
+    "$SMOKE_REPO_PATH" \
+    "$ACCESS_TOKEN"
 else
   log "skipping browser repo dashboard smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi
@@ -1269,11 +1322,44 @@ git -C "$GIT_SMOKE_CLONE" rev-parse refs/remotes/origin/ui/repository-intelligen
   >"$TMP_DIR/git-fetch-branch-rev.log" || fail "branch-specific fetch did not create remote ref"
 log "ok - Git clone/fetch through Vue shell"
 
-expect_status "Git receive-pack fails closed through Vue shell" 501 "$TMP_DIR/git-receive-pack.json" \
+expect_status "Git receive-pack rejects bearer credentials through Vue shell" 401 "$TMP_DIR/git-receive-pack.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git/info/refs?service=git-receive-pack"
-json_assert "Git receive-pack fails closed through Vue shell" "$TMP_DIR/git-receive-pack.json" \
-  'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "git_receive_pack" && json.errors[0].message.includes("receive-pack")'
+json_assert "Git receive-pack rejects bearer credentials through Vue shell" "$TMP_DIR/git-receive-pack.json" \
+  'json.errors[0].extensions.code === "UNAUTHENTICATED" && json.errors[0].message.includes("Basic")'
+
+expect_status "create Git personal access token through Vue shell" 201 "$TMP_DIR/git-token.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data '{"name":"smoke push","scopes":["git:read","git:write"],"expiresInDays":1}' \
+  "$FRONTEND_URL/api/account/git-tokens"
+GIT_PUSH_PAT="$(extract_json_string token "$TMP_DIR/git-token.json")"
+if [[ -z "$GIT_PUSH_PAT" ]]; then
+  fail "Git token creation did not return token"
+fi
+GIT_BASIC_AUTH="$(printf 'rawkode:%s' "$GIT_PUSH_PAT" | base64 | tr -d '\n')"
+printf '\npushed through Comtrya\n' >>"$GIT_SMOKE_CLONE/README.md"
+git -C "$GIT_SMOKE_CLONE" add README.md
+git -C "$GIT_SMOKE_CLONE" \
+  -c "user.email=smoke@comtrya.local" \
+  -c "user.name=Comtrya Smoke" \
+  -c "commit.gpgsign=false" \
+  commit --no-gpg-sign -m "smoke git push" >/dev/null
+git -C "$GIT_SMOKE_CLONE" \
+  -c "http.extraHeader=Authorization: Basic $GIT_BASIC_AUTH" \
+  push origin HEAD:refs/heads/smoke/push \
+  >"$TMP_DIR/git-push.log" 2>&1 || {
+  sed -n '1,200p' "$TMP_DIR/git-push.log" >&2 || true
+  fail "git push through Vue shell failed"
+}
+expect_status "GraphQL sees pushed branch through Vue shell" 200 "$TMP_DIR/smoke-push-graphql.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data '{"query":"query($segments: [String!]!) { workspace { repositoryByPath(segments: $segments) { refs branches { name } commits { oid subject } } } }","variables":{"segments":["comtrya","comtrya"]}}' \
+  "$FRONTEND_URL/graphql"
+json_assert "GraphQL sees pushed branch through Vue shell" "$TMP_DIR/smoke-push-graphql.json" \
+  'json.data.workspace.repositoryByPath.refs.some((ref) => ref.name === "refs/heads/smoke/push") && json.data.workspace.repositoryByPath.branches.some((branch) => branch.name === "smoke/push")'
+log "ok - Git push through Vue shell"
 
 expect_status "workspace homepage renders" 200 "$TMP_DIR/home.html" \
   "$FRONTEND_URL/"
@@ -1574,7 +1660,8 @@ if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
     "$WORKSPACE_ID" \
     "$BROWSER_CLOSE_ISSUE_NUMBER" \
     "$TMP_DIR/issue-close-browser-evidence.json" \
-    "$TMP_DIR/issue-close-browser.log"
+    "$TMP_DIR/issue-close-browser.log" \
+    "$ACCESS_TOKEN"
 else
   log "skipping browser issue close smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi

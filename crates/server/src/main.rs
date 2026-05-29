@@ -11,6 +11,7 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use comtrya_core::{
     ClientKind, CorsPolicy, Environment, ErrorCode, ExtensionInstallConfig, ExtensionSource,
     IdPrefix, InstanceCapabilities, InstanceConfig, OciReference, OpaqueId, RepoStorageBackend,
@@ -361,12 +362,14 @@ const GRAPHQL_BODY_LIMIT: usize = 256 * 1024;
 const OPS_BODY_LIMIT: usize = 1024 * 1024;
 const SESSION_BODY_LIMIT: usize = 4 * 1024;
 const GIT_BODY_LIMIT: usize = 16 * 1024 * 1024;
+const ACCOUNT_TOKEN_BODY_LIMIT: usize = 16 * 1024;
 const COMTRYA_SESSION_COOKIE: &str = "comtrya_session";
-const OIDC_BROWSER_ACTIONS: [&str; 5] = [
+const OIDC_BROWSER_ACTIONS: [&str; 6] = [
     "graphql:read",
     "graphql:write",
     "events:read",
     "git:read",
+    "git:write",
     "checks:read",
 ];
 
@@ -394,6 +397,16 @@ fn router(state: AppState) -> Router {
         .route("/auth/oidc/providers", get(oidc_providers))
         .route("/auth/oidc/:provider/login", get(oidc_login))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
+        .route(
+            "/api/account/git-tokens",
+            get(list_git_tokens)
+                .post(create_git_token)
+                .layer(RequestBodyLimitLayer::new(ACCOUNT_TOKEN_BODY_LIMIT)),
+        )
+        .route(
+            "/api/account/git-tokens/:id",
+            axum::routing::delete(revoke_git_token),
+        )
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -1858,6 +1871,82 @@ impl Runtime {
         }
     }
 
+    fn create_git_personal_access_token(
+        &self,
+        owner_principal_uri: &str,
+        name: &str,
+        scopes: Vec<String>,
+        expires_in_days: Option<u64>,
+    ) -> Result<(String, persistence::StoredGitPersonalAccessToken), String> {
+        let token = self.next_secure_token("cpat");
+        let token_hash = secret_hash_hex(&token);
+        let now = now_seconds();
+        let expires_at = expires_in_days.map(|days| now.saturating_add(days * 24 * 60 * 60));
+        let record = persistence::StoredGitPersonalAccessToken {
+            id: self.next_id("pat"),
+            owner_principal_uri: owner_principal_uri.to_string(),
+            name: name.to_string(),
+            token_prefix: token.chars().take(12).collect(),
+            scopes,
+            expires_at,
+            created_at: now,
+            last_used_at: None,
+            revoked_at: None,
+        };
+        self.store
+            .insert_git_personal_access_token(&record, &token_hash)?;
+        let _ = self.append_audit(
+            "dev.comtrya.git_token.created",
+            json!({
+                "token_id": record.id,
+                "owner": owner_principal_uri,
+                "scopes": record.scopes,
+                "expires_at": record.expires_at,
+            }),
+        );
+        Ok((token, record))
+    }
+
+    fn list_git_personal_access_tokens(
+        &self,
+        owner_principal_uri: &str,
+    ) -> Result<Vec<persistence::StoredGitPersonalAccessToken>, String> {
+        self.store
+            .list_git_personal_access_tokens(owner_principal_uri, now_seconds())
+    }
+
+    fn revoke_git_personal_access_token(
+        &self,
+        owner_principal_uri: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        let revoked =
+            self.store
+                .revoke_git_personal_access_token(owner_principal_uri, id, now_seconds())?;
+        if revoked {
+            let _ = self.append_audit(
+                "dev.comtrya.git_token.revoked",
+                json!({"token_id": id, "owner": owner_principal_uri}),
+            );
+        }
+        Ok(revoked)
+    }
+
+    fn git_personal_access_token_allows(&self, token: &str, action: &str) -> bool {
+        let token_hash = secret_hash_hex(token);
+        match self
+            .store
+            .lookup_git_personal_access_token_by_hash(&token_hash, now_seconds())
+        {
+            Ok(Some(record)) => record.scopes.iter().any(|scope| scope == action),
+            Ok(None) => false,
+            Err(error) => {
+                tracing::error!(%error, "git personal access token lookup failed");
+                false
+            }
+        }
+    }
+
     fn issue_session(&self, principal: PrincipalStatus) -> String {
         let token = self.next_secure_token("sess");
         let now = now_seconds();
@@ -1922,8 +2011,18 @@ impl Runtime {
         actions: Vec<String>,
         principal: PrincipalStatus,
     ) -> String {
-        let token = self.next_secure_token("fp");
         let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
+        self.issue_credential_for_principal_uri(resource, actions, principal, principal_uri)
+    }
+
+    fn issue_credential_for_principal_uri(
+        &self,
+        resource: String,
+        actions: Vec<String>,
+        principal: PrincipalStatus,
+        principal_uri: String,
+    ) -> String {
+        let token = self.next_secure_token("fp");
         let now = now_seconds();
         if let Err(error) = self.store.insert_credential(
             &token,
@@ -2061,6 +2160,11 @@ fn token_audit_id(token: &str) -> String {
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
+fn secret_hash_hex(secret: &str) -> String {
+    let digest = sha2::Sha256::digest(secret.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn filter_extension_installations(
     extensions: Value,
     loaded: &BTreeMap<String, ExtensionRuntimeRecord>,
@@ -2180,6 +2284,19 @@ fn auth_token_from_headers(headers: &HeaderMap) -> Option<&str> {
     bearer_token_from_headers(headers).or_else(|| session_cookie_from_headers(headers))
 }
 
+fn basic_password_from_headers(headers: &HeaderMap) -> Option<String> {
+    let encoded = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Basic "))?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(encoded.as_bytes())
+        .ok()?;
+    let decoded = String::from_utf8(decoded).ok()?;
+    let (_username, password) = decoded.split_once(':')?;
+    (!password.is_empty()).then(|| password.to_string())
+}
+
 fn bearer_token_from_headers(headers: &HeaderMap) -> Option<&str> {
     headers
         .get("authorization")
@@ -2249,19 +2366,7 @@ struct UnsupportedSurface {
     message: &'static str,
 }
 
-const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[
-    // OIDC login redirect now ships as a real handler at
-    // `/auth/oidc/:provider/login`. The callback at
-    // `/auth/oidc/:provider/callback` returns 501 directly from its
-    // own handler, so no `UNSUPPORTED_SURFACES` entry is needed for
-    // OIDC. Unknown OIDC sub-paths fall through to the global
-    // `.fallback(not_found_or_unsupported)`.
-    UnsupportedSurface {
-        id: "git_receive_pack",
-        path_prefix: "/git/",
-        message: "git receive-pack writes are not implemented",
-    },
-];
+const UNSUPPORTED_SURFACES: &[UnsupportedSurface] = &[];
 
 async fn healthz(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match state.runtime.check_boundary(&headers, "/healthz") {
@@ -3395,6 +3500,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     "publicURL": state.runtime.config.public_url,
                     "capabilities": {
                         "gitHTTPS": capabilities.git_https,
+                        "gitPush": capabilities.git_push,
                         "gitLFS": capabilities.git_lfs,
                         "sse": capabilities.sse,
                         "graphqlSubscriptions": capabilities.graphql_subscriptions,
@@ -3590,6 +3696,188 @@ async fn token_exchange(
         }),
         cors,
     )
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateGitTokenRequest {
+    name: String,
+    scopes: Vec<String>,
+    expires_in_days: Option<u64>,
+}
+
+fn account_api_principal(
+    state: &AppState,
+    headers: &HeaderMap,
+    route: &str,
+) -> Result<(HeaderMap, PrincipalContext), Box<Response>> {
+    let cors = state.runtime.check_boundary(headers, route)?;
+    let principal = state.runtime.principal_context_from_headers(headers);
+    if matches!(
+        principal.status,
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid
+    ) {
+        let mut response = error_response(
+            StatusCode::UNAUTHORIZED,
+            ErrorCode::Unauthenticated.as_str(),
+            "account Git tokens require an authenticated session",
+        );
+        response.headers_mut().extend(cors);
+        return Err(Box::new(response));
+    }
+    Ok((cors, principal))
+}
+
+async fn list_git_tokens(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/git-tokens")
+    {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    match state
+        .runtime
+        .list_git_personal_access_tokens(&principal.uri)
+    {
+        Ok(tokens) => json_response(
+            StatusCode::OK,
+            json!({ "personalAccessTokens": tokens }),
+            cors,
+        ),
+        Err(error) => {
+            tracing::error!(%error, "list Git personal access tokens failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
+}
+
+async fn create_git_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateGitTokenRequest>,
+) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/git-tokens")
+    {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 80 {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token name must be 1-80 characters",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    if request.scopes.is_empty()
+        || request
+            .scopes
+            .iter()
+            .any(|scope| !matches!(scope.as_str(), "git:read" | "git:write"))
+    {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token scopes must include only git:read and git:write",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    let mut scopes = request.scopes;
+    scopes.sort();
+    scopes.dedup();
+    if scopes
+        .iter()
+        .any(|scope| !state.runtime.credential_allows(&headers, scope))
+    {
+        let mut response = error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "authenticated session cannot mint the requested Git token scopes",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+    let expires_in_days = request.expires_in_days.or(Some(90));
+    if expires_in_days.is_some_and(|days| days == 0 || days > 365) {
+        let mut response = error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "Git token expiry must be between 1 and 365 days",
+        );
+        response.headers_mut().extend(cors);
+        return response;
+    }
+
+    match state.runtime.create_git_personal_access_token(
+        &principal.uri,
+        name,
+        scopes,
+        expires_in_days,
+    ) {
+        Ok((token, record)) => json_response(
+            StatusCode::CREATED,
+            json!({
+                "token": token,
+                "personalAccessToken": record,
+            }),
+            cors,
+        ),
+        Err(error) => {
+            tracing::error!(%error, "create Git personal access token failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
+}
+
+async fn revoke_git_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let (cors, principal) =
+        match account_api_principal(&state, &headers, "/api/account/git-tokens/:id") {
+            Ok(result) => result,
+            Err(response) => return *response,
+        };
+    match state
+        .runtime
+        .revoke_git_personal_access_token(&principal.uri, &id)
+    {
+        Ok(true) => json_response(StatusCode::OK, json!({ "revoked": true }), cors),
+        Ok(false) => {
+            let mut response = error_response(
+                StatusCode::NOT_FOUND,
+                ErrorCode::NotFound.as_str(),
+                "Git token was not found",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+        Err(error) => {
+            tracing::error!(%error, "revoke Git personal access token failed");
+            let mut response = error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "Git token storage failed",
+            );
+            response.headers_mut().extend(cors);
+            response
+        }
+    }
 }
 
 async fn oidc_providers(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -3944,6 +4232,21 @@ async fn oidc_callback(
             return err(status, code, &core_err.message);
         }
     };
+    if let Err(error) = state.runtime.store.upsert_user(
+        login.user.id.as_str(),
+        &login.user.issuer,
+        &login.user.subject,
+        login.user.email.as_deref(),
+        login.user.display_name.as_deref(),
+        &chrono_now_iso(),
+    ) {
+        tracing::error!(%error, "OIDC user persistence failed");
+        return err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::InternalServerError.as_str(),
+            "user persistence failed",
+        );
+    }
 
     // 6. Issue a browser credential. Claims matching a configured admin mint an
     //    AdminCredential (gates /admin surfaces); everyone else gets a plain
@@ -3959,13 +4262,14 @@ async fn oidc_callback(
     } else {
         PrincipalStatus::Credential
     };
-    let token = state.runtime.issue_credential(
+    let token = state.runtime.issue_credential_for_principal_uri(
         "comtrya://workspace".to_string(),
         OIDC_BROWSER_ACTIONS
             .iter()
             .map(|action| action.to_string())
             .collect(),
         principal,
+        format!("comtrya://user/{}", login.user.id.as_str()),
     );
     let cookie = session_cookie_value(
         &token,
@@ -4102,13 +4406,16 @@ async fn git_endpoint(
         Ok(cors) => cors,
         Err(response) => return *response,
     };
+    let basic_password = basic_password_from_headers(&headers);
     let principal = state.runtime.principal_from_headers(&headers);
-    if !matches!(
-        principal,
-        PrincipalStatus::OperatorCredential
-            | PrincipalStatus::AdminCredential
-            | PrincipalStatus::Credential
-    ) {
+    if basic_password.is_none()
+        && !matches!(
+            principal,
+            PrincipalStatus::OperatorCredential
+                | PrincipalStatus::AdminCredential
+                | PrincipalStatus::Credential
+        )
+    {
         let mut response = error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
@@ -4116,7 +4423,7 @@ async fn git_endpoint(
         );
         response.headers_mut().insert(
             "WWW-Authenticate",
-            HeaderValue::from_static("Bearer realm=\"comtrya\""),
+            HeaderValue::from_static("Basic realm=\"comtrya\", Bearer realm=\"comtrya\""),
         );
         return response;
     }
@@ -4127,19 +4434,48 @@ async fn git_endpoint(
             "Git repository was not found",
         );
     }
-    if is_receive_pack(&path, raw_query.as_deref()) {
-        return unsupported_response(
-            unsupported_surface_by_id("git_receive_pack")
-                .expect("git_receive_pack unsupported surface is registered"),
-            cors,
-        );
-    }
-    if !state.runtime.credential_allows(&headers, "git:read") {
-        return error_response(
+    let receive_pack = is_receive_pack(&path, raw_query.as_deref());
+    if receive_pack {
+        if let Some(password) = basic_password.as_deref() {
+            if !state
+                .runtime
+                .git_personal_access_token_allows(password, "git:write")
+            {
+                return error_response(
+                    StatusCode::FORBIDDEN,
+                    ErrorCode::Forbidden.as_str(),
+                    "personal access token scope does not allow Git push",
+                );
+            }
+        } else {
+            let mut response = error_response(
+                StatusCode::UNAUTHORIZED,
+                ErrorCode::Unauthenticated.as_str(),
+                "Git push requires HTTP Basic authentication with a personal access token",
+            );
+            response.headers_mut().insert(
+                "WWW-Authenticate",
+                HeaderValue::from_static("Basic realm=\"comtrya\""),
+            );
+            return response;
+        }
+    } else if !state.runtime.credential_allows(&headers, "git:read")
+        && !basic_password.as_deref().is_some_and(|password| {
+            state
+                .runtime
+                .git_personal_access_token_allows(password, "git:read")
+        })
+    {
+        let mut response = error_response(
             StatusCode::FORBIDDEN,
             ErrorCode::Forbidden.as_str(),
             "credential scope does not allow requested Git operation",
         );
+        response.headers_mut().insert(
+            "WWW-Authenticate",
+            HeaderValue::from_static("Basic realm=\"comtrya\", Bearer realm=\"comtrya\""),
+        );
+        return response;
     }
 
     // Pure-Rust Smart HTTP v2 path via comtrya-git-http.
@@ -4265,10 +4601,6 @@ fn unsupported_surface_for_path(path: &str) -> Option<&'static UnsupportedSurfac
     UNSUPPORTED_SURFACES
         .iter()
         .find(|surface| path.starts_with(surface.path_prefix))
-}
-
-fn unsupported_surface_by_id(id: &str) -> Option<&'static UnsupportedSurface> {
-    UNSUPPORTED_SURFACES.iter().find(|surface| surface.id == id)
 }
 
 fn unsupported_response(surface: &UnsupportedSurface, headers: HeaderMap) -> Response {
@@ -4843,14 +5175,14 @@ fn git_branches(git_dir: &Path) -> Result<Vec<Value>, String> {
         git_dir,
         &[
             "for-each-ref",
-            "--format=%(refname:short)%00%(objectname)",
+            "--format=%(refname:short)%01%(objectname)",
             "refs/heads",
         ],
     )?;
     Ok(output
         .lines()
         .filter_map(|line| {
-            let mut parts = line.split('\0');
+            let mut parts = line.split('\u{1}');
             let name = parts.next()?;
             let commit = parts.next()?;
             let (behind, ahead) = branch_distance(git_dir, name).unwrap_or((0, 0));
@@ -6688,6 +7020,17 @@ mod tests {
         headers
     }
 
+    fn basic_headers(username: &str, password: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Basic {encoded}")).unwrap(),
+        );
+        headers
+    }
+
     fn runtime_with_admins(admins: Vec<comtrya_core::AdminConfig>) -> Arc<Runtime> {
         let mut config = InstanceConfig::minimal_dev();
         config.admins = admins;
@@ -7608,6 +7951,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn account_git_token_api_creates_lists_and_revokes_tokens() {
+        let runtime = dev_runtime_no_extensions();
+        let bearer = runtime.issue_credential_for_principal_uri(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string(), "git:write".to_string()],
+            PrincipalStatus::Credential,
+            "comtrya://user/user_test".to_string(),
+        );
+        let state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = create_git_token(
+            State(state.clone()),
+            bearer_headers(&bearer),
+            Json(CreateGitTokenRequest {
+                name: "Workstation".to_string(),
+                scopes: vec!["git:read".to_string(), "git:write".to_string()],
+                expires_in_days: Some(30),
+            }),
+        )
+        .await;
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let secret = payload["token"].as_str().unwrap();
+        assert!(secret.starts_with("cpat_"));
+        let token_id = payload["personalAccessToken"]["id"].as_str().unwrap();
+
+        let list_response = list_git_tokens(State(state.clone()), bearer_headers(&bearer)).await;
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let body = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(payload["personalAccessTokens"][0]["id"], token_id);
+        assert!(runtime.git_personal_access_token_allows(secret, "git:write"));
+
+        let revoke_response = revoke_git_token(
+            State(state),
+            bearer_headers(&bearer),
+            AxumPath(token_id.to_string()),
+        )
+        .await;
+        assert_eq!(revoke_response.status(), StatusCode::OK);
+        assert!(!runtime.git_personal_access_token_allows(secret, "git:write"));
+    }
+
+    #[tokio::test]
+    async fn account_git_token_api_rejects_scopes_the_session_does_not_have() {
+        let runtime = dev_runtime_no_extensions();
+        let bearer = runtime.issue_credential_for_principal_uri(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::Credential,
+            "comtrya://user/user_test".to_string(),
+        );
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = create_git_token(
+            State(state),
+            bearer_headers(&bearer),
+            Json(CreateGitTokenRequest {
+                name: "Write token".to_string(),
+                scopes: vec!["git:write".to_string()],
+                expires_in_days: Some(30),
+            }),
+        )
+        .await;
+
+        assert_eq!(create_response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn git_endpoint_serves_upload_pack_after_auth() {
         let runtime = dev_runtime_no_extensions();
         import_test_repository(&runtime, "comtrya/comtrya");
@@ -7748,20 +8171,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn git_receive_pack_returns_unsupported_registry_error() {
+    async fn git_receive_pack_requires_basic_pat_with_write_scope() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_state = PureRustGitState::from_runtime(&runtime);
+
+        let bearer_token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["git:read".to_string()],
+            vec!["git:write".to_string()],
             PrincipalStatus::OperatorCredential,
         );
-
-        let response = git_endpoint(
+        let bearer_response = git_endpoint(
             State(AppState {
-                runtime,
-                git_state: PureRustGitState::test_default(),
+                runtime: runtime.clone(),
+                git_state: git_state.clone(),
             }),
-            bearer_headers(&token),
+            bearer_headers(&bearer_token),
+            Method::GET,
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
+            RawQuery(Some("service=git-receive-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(bearer_response.status(), StatusCode::UNAUTHORIZED);
+
+        let (read_only_pat, _) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "read only",
+                vec!["git:read".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        let read_only_response = git_endpoint(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: git_state.clone(),
+            }),
+            basic_headers("rawkode", &read_only_pat),
+            Method::GET,
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
+            RawQuery(Some("service=git-receive-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(read_only_response.status(), StatusCode::FORBIDDEN);
+
+        let (write_pat, _) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "push",
+                vec!["git:read".to_string(), "git:write".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        let response = git_endpoint(
+            State(AppState { runtime, git_state }),
+            basic_headers("rawkode", &write_pat),
             Method::GET,
             AxumPath("comtrya/comtrya.git/info/refs".to_string()),
             RawQuery(Some("service=git-receive-pack".to_string())),
@@ -7769,16 +8235,11 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload = serde_json::from_slice::<Value>(&body).unwrap();
-        assert_eq!(
-            payload["errors"][0]["extensions"]["code"],
-            ErrorCode::Unsupported.as_str()
-        );
-        assert_eq!(
-            payload["errors"][0]["extensions"]["surface"],
-            "git_receive_pack"
+        assert!(
+            String::from_utf8_lossy(&body).contains("git-receive-pack"),
+            "receive-pack advertisement should include service banner"
         );
     }
 

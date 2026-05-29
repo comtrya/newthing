@@ -11,6 +11,7 @@ serde_json = "1"
 [dependencies]
 anyhow = "1"
 axum = "0.7.9"
+base64 = "0.22"
 tower-http = { version = "0.6", default-features = false, features = ["limit", "set-header"] }
 bytes = "1"
 comtrya-core = { path = "../core" }

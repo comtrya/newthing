@@ -205,16 +205,28 @@ const cloneUrl = computed(() => {
 const cloneTool = computed(() =>
   repository.value?.vcs === "jj" ? "jj git clone" : "git clone",
 );
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
 const cloneCommand = computed(() =>
-  cloneUrl.value ? `${cloneTool.value} ${cloneUrl.value}` : "",
+  cloneUrl.value ? `${cloneTool.value} ${shellQuote(cloneUrl.value)}` : "",
 );
+const pushCommand = computed(() => {
+  const branch = repository.value?.defaultBranch ?? "main";
+  return cloneUrl.value
+    ? `git push ${shellQuote(cloneUrl.value)} ${shellQuote(`HEAD:${branch}`)}`
+    : "";
+});
 const cloneCommandTitle = computed(() =>
   repository.value?.vcs === "jj"
     ? "Clones into a jj-on-git colocated repository (vcs declared as jj in this repo's comtrya.cue)."
     : "Clones the repository over git Smart HTTP.",
 );
 const cloneCopied = ref(false);
+const pushCopied = ref(false);
 let cloneCopyTimer: number | undefined;
+let pushCopyTimer: number | undefined;
 
 async function copyClone(): Promise<void> {
   if (!cloneCommand.value) return;
@@ -228,6 +240,20 @@ async function copyClone(): Promise<void> {
   } catch {
     // Clipboard API can fail in non-secure contexts; the chip stays
     // selectable so the user can still copy manually.
+  }
+}
+
+async function copyPush(): Promise<void> {
+  if (!pushCommand.value) return;
+  try {
+    await navigator.clipboard.writeText(pushCommand.value);
+    pushCopied.value = true;
+    if (pushCopyTimer !== undefined) window.clearTimeout(pushCopyTimer);
+    pushCopyTimer = window.setTimeout(() => {
+      pushCopied.value = false;
+    }, 1400);
+  } catch {
+    // The command remains selectable when clipboard access is unavailable.
   }
 }
 
@@ -661,6 +687,23 @@ async function fetchRepositoryIdentity(
         @click="copyClone"
       >
         {{ cloneCopied ? "copied" : "copy" }}
+      </button>
+    </div>
+    <div
+      v-if="pushCommand"
+      class="repo-clone"
+      data-smoke="repo-push"
+    >
+      <code class="repo-clone-cmd" title="Push over HTTPS using a personal access token as your Git password." @click="copyPush">{{ pushCommand }}</code>
+      <RouterLink class="repo-clone-copy" to="/settings">create token</RouterLink>
+      <button
+        type="button"
+        class="repo-clone-copy"
+        :aria-pressed="pushCopied"
+        :title="pushCopied ? 'Copied' : 'Copy push command'"
+        @click="copyPush"
+      >
+        {{ pushCopied ? "copied" : "copy" }}
       </button>
     </div>
     <RepoTabs

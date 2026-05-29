@@ -61,6 +61,6 @@ The acceptance path is:
 ```
 
 That smoke path builds the server and frontend, validates first-party extension
-artifacts, starts the live stack, exercises auth, Git clone/fetch, GraphQL
+artifacts, starts the live stack, exercises auth, Git clone/fetch/push, GraphQL
 kernel fields, extension assets, browser UI, `/api/ops` issue flows, and the
 pull-request merge reactor.
