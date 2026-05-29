@@ -7,7 +7,7 @@
   "publisher": "comtrya-dev",
   "wasmComponent": "dist/ext_issues.wasm",
   "platformWitVersion": "0.1.0",
-  "witWorld": "comtrya:platform/extension@0.1.0",
+  "witWorld": "ext-issues",
   "perExtensionWit": "wit",
   "ui": {
     "manifest": "ui/manifest.json"
