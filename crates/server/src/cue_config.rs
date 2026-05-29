@@ -41,9 +41,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::sync::{Condvar, Mutex};
+
+use tempfile::TempDir;
 
 use cuengine::{ModuleEvalOptions, evaluate_module};
 use serde_json::{Value, json};
@@ -150,8 +151,11 @@ pub fn evaluate_repo_config(
     ref_name: &str,
     extension_schemas: &[ExtensionSchema],
 ) -> Value {
-    let workdir = match materialise_worktree(git_dir, ref_name) {
-        Ok(path) => path,
+    // Hold the TempDir for the whole evaluation: RAII drop removes the
+    // unique tree on every exit path (early-return, panic, normal), so no
+    // manual remove_dir_all is needed and no peer's tree is ever wiped.
+    let worktree = match materialise_worktree(git_dir, ref_name) {
+        Ok(dir) => dir,
         Err(message) => {
             return json!({
                 "projects": [implicit_default_project()],
@@ -161,9 +165,9 @@ pub fn evaluate_repo_config(
             });
         }
     };
+    let workdir = worktree.path();
 
-    if let Err(message) = install_schemas(&workdir, extension_schemas) {
-        let _ = std::fs::remove_dir_all(&workdir);
+    if let Err(message) = install_schemas(workdir, extension_schemas) {
         return json!({
             "projects": [implicit_default_project()],
             "instances": [],
@@ -171,22 +175,20 @@ pub fn evaluate_repo_config(
         });
     }
 
-    let result = run_cuengine(&workdir);
-    let _ = std::fs::remove_dir_all(&workdir);
-    result
+    run_cuengine(workdir)
 }
 
-fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<PathBuf, String> {
+fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<TempDir, String> {
     // Bound concurrent materialisations. Permit drops at end of scope
     // (including `?` early-return paths), releasing capacity.
     let _permit = MATERIALISE_SEMAPHORE.acquire();
 
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    let base = std::env::temp_dir().join(format!("comtrya-cue-{}-{nanos}", std::process::id()));
-    std::fs::create_dir_all(&base).map_err(|e| format!("mkdir {} failed: {e}", base.display()))?;
+    // A guaranteed-unique directory (TempDir picks a random name and creates
+    // it exclusively), so concurrent or rapid sequential evaluations never
+    // collide and never extract into a shared tree.
+    let worktree = TempDir::new_in(std::env::temp_dir())
+        .map_err(|e| format!("create temp worktree failed: {e}"))?;
+    let base = worktree.path();
 
     let archive = Command::new("git")
         .arg("--git-dir")
@@ -204,14 +206,14 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<PathBuf, Strin
     let status = Command::new("tar")
         .arg("-x")
         .arg("-C")
-        .arg(&base)
+        .arg(base)
         .stdin(archive_out)
         .status()
         .map_err(|e| format!("tar spawn failed: {e}"))?;
     if !status.success() {
         return Err(format!("git archive | tar -x exited {status:?}"));
     }
-    Ok(base)
+    Ok(worktree)
 }
 
 fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Result<(), String> {
@@ -590,10 +592,41 @@ mod tests {
         acquire.join().unwrap();
     }
 
-    use super::{CueConfigCache, resolve_ref_oid};
+    use super::{CueConfigCache, materialise_worktree, resolve_ref_oid};
     use std::path::PathBuf;
     use std::process::Command;
     use tempfile::TempDir;
+
+    #[test]
+    fn materialise_worktree_yields_distinct_isolated_trees() {
+        // Regression for #77: two materialisations of the same repo/ref must
+        // land in distinct directories with their own extracted contents, so
+        // a peer's tree is never shared or wiped mid-evaluation.
+        let (_tmp, git_dir, _oid) = seeded_repo("package comtrya\n");
+
+        let first = materialise_worktree(&git_dir, "main").expect("first materialise");
+        let second = materialise_worktree(&git_dir, "main").expect("second materialise");
+
+        assert_ne!(
+            first.path(),
+            second.path(),
+            "concurrent materialisations must not share a directory"
+        );
+        for tree in [&first, &second] {
+            assert!(
+                tree.path().join("comtrya.cue").is_file(),
+                "each tree must hold its own extracted contents"
+            );
+        }
+
+        // Dropping one TempDir removes only its own tree; the peer survives.
+        let surviving = second.path().to_path_buf();
+        drop(first);
+        assert!(
+            surviving.join("comtrya.cue").is_file(),
+            "dropping one worktree must not wipe a peer"
+        );
+    }
 
     /// Build a bare-ish git repo with a single commit on `main` carrying
     /// a minimal `package comtrya` file. Returns `(tempdir, git_dir,

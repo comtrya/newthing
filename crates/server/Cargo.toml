@@ -43,6 +43,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # direct gix dependency. Note: it shells out to the `git` binary for
 # checkout/reset, so a `git` executable must be on PATH at runtime.
 gitsync = { git = "https://github.com/rawkode/gitsync", branch = "main" }
-
-[dev-dependencies]
 tempfile = "3"
