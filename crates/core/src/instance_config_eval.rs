@@ -674,9 +674,8 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
     #[test]
     fn unknown_visibility_value_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let body = format!(
-            "{MINIMAL}\nrepositories: [{{ path: \"a/b\", visibility: \"public\" }}]\n"
-        );
+        let body =
+            format!("{MINIMAL}\nrepositories: [{{ path: \"a/b\", visibility: \"public\" }}]\n");
         let err = eval(dir.path(), &body).unwrap_err();
         assert!(err.message.contains("visibility"), "got: {}", err.message);
     }
@@ -702,7 +701,10 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
 
     #[test]
     fn parse_environment_is_a_closed_parse() {
-        assert!(matches!(parse_environment(None), Ok(Environment::Development)));
+        assert!(matches!(
+            parse_environment(None),
+            Ok(Environment::Development)
+        ));
         assert!(matches!(
             parse_environment(Some("development")),
             Ok(Environment::Development)

@@ -340,7 +340,6 @@ impl ExtensionInstallation {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventOutcome {
     Handled,
@@ -444,7 +443,11 @@ mod tests {
         let manifest = reference_pull_requests();
         manifest.validate().unwrap();
         assert!(manifest.capabilities.graphql);
-        assert!(manifest.capabilities.grants_all_requested(&manifest.capabilities));
+        assert!(
+            manifest
+                .capabilities
+                .grants_all_requested(&manifest.capabilities)
+        );
     }
 
     #[test]

@@ -429,8 +429,7 @@ mod tests {
 
     fn fetcher() -> (TempDir, OciExtensionFetcher) {
         let temp_dir = TempDir::new().unwrap();
-        let fetcher =
-            OciExtensionFetcher::new(temp_dir.path().join("cache"), false, true).unwrap();
+        let fetcher = OciExtensionFetcher::new(temp_dir.path().join("cache"), false, true).unwrap();
         (temp_dir, fetcher)
     }
 

@@ -10058,8 +10058,7 @@ mod tests {
             viewer_permissions_for(PrincipalStatus::AdminCredential).contains(&"instance.admin")
         );
         assert!(
-            viewer_permissions_for(PrincipalStatus::OperatorCredential)
-                .contains(&"instance.admin")
+            viewer_permissions_for(PrincipalStatus::OperatorCredential).contains(&"instance.admin")
         );
     }
 
@@ -10729,8 +10728,12 @@ mod tests {
                 "2026-05-11T00:00:00Z",
             )
         };
-        store.create_document(record("ext_a", "a-original")).unwrap();
-        store.create_document(record("ext_b", "b-original")).unwrap();
+        store
+            .create_document(record("ext_a", "a-original"))
+            .unwrap();
+        store
+            .create_document(record("ext_b", "b-original"))
+            .unwrap();
 
         // ext_b commits at version 1 — must touch ONLY ext_b's record.
         store
@@ -10753,7 +10756,11 @@ mod tests {
                 .expect("record present")
         };
         let a = find("ext_a");
-        assert_eq!(a.data["marker"], json!("a-original"), "other owner untouched");
+        assert_eq!(
+            a.data["marker"],
+            json!("a-original"),
+            "other owner untouched"
+        );
         assert_eq!(a.version, 1, "other owner version unchanged");
         let b = find("ext_b");
         assert_eq!(b.data["marker"], json!("b-updated"));
@@ -10761,13 +10768,8 @@ mod tests {
 
         // A commit for an owner with no such record must not fall through to
         // another owner's record.
-        let missing = store.update_document_if_version(
-            "ext_c",
-            "repositories",
-            "shared-id",
-            None,
-            |_, _| {},
-        );
+        let missing =
+            store.update_document_if_version("ext_c", "repositories", "shared-id", None, |_, _| {});
         assert!(
             missing.is_err_and(|e| e.contains("not found")),
             "commit for non-owner must report not-found, not corrupt another owner"

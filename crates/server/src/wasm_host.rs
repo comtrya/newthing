@@ -2083,10 +2083,7 @@ mod tests {
         assert!(s.starts_with("2023-11-"));
     }
 
-    fn host_with_principal(
-        store: Arc<crate::ExtensionRuntimeStore>,
-        principal: &str,
-    ) -> HostState {
+    fn host_with_principal(store: Arc<crate::ExtensionRuntimeStore>, principal: &str) -> HostState {
         use std::sync::RwLock;
         let mut kinds = std::collections::BTreeMap::new();
         kinds.insert("comment".to_string(), "cmt".to_string());
@@ -2165,8 +2162,9 @@ mod tests {
             "edited".to_string(),
         )
         .expect("author can edit own comment");
-        let deleted = <HostState as wit_comments::Host>::delete(&mut author_host, comment.id.clone())
-            .expect("author can delete own comment");
+        let deleted =
+            <HostState as wit_comments::Host>::delete(&mut author_host, comment.id.clone())
+                .expect("author can delete own comment");
         assert!(matches!(deleted, wit_types::DeleteResult::Deleted));
 
         // Deleting an absent comment is idempotent (WasAbsent), not Forbidden.

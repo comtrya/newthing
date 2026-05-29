@@ -781,18 +781,39 @@ mod tests {
         std::fs::write(work.join("README.md"), b"hello\n").unwrap();
         assert!(git(&["add", "README.md"]));
         assert!(git(&[
-            "-c", "user.email=t@e", "-c", "user.name=t", "-c", "commit.gpgsign=false",
-            "commit", "-q", "--no-gpg-sign", "-m", "init",
+            "-c",
+            "user.email=t@e",
+            "-c",
+            "user.name=t",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "--no-gpg-sign",
+            "-m",
+            "init",
         ]));
         assert!(git(&[
-            "-c", "user.email=t@e", "-c", "user.name=t", "-c", "tag.gpgsign=false",
-            "tag", "-a", "v1", "-m", "release v1",
+            "-c",
+            "user.email=t@e",
+            "-c",
+            "user.name=t",
+            "-c",
+            "tag.gpgsign=false",
+            "tag",
+            "-a",
+            "v1",
+            "-m",
+            "release v1",
         ]));
 
         let tag_oid = rev_parse("v1");
         let commit_oid = rev_parse("v1^{commit}");
         // Sanity: an annotated tag's object id differs from its target commit.
-        assert_ne!(tag_oid, commit_oid, "expected an annotated, not lightweight, tag");
+        assert_ne!(
+            tag_oid, commit_oid,
+            "expected an annotated, not lightweight, tag"
+        );
 
         let mut req = FetchRequest::default();
         req.extend_wants([tag_oid.clone()]);
