@@ -3194,9 +3194,15 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         .unwrap_or_else(|| json!([]));
     // Zero-auth read access is PUBLIC-only: anonymous callers see only public
     // repositories; authenticated principals (OIDC admin / operator) see all.
-    // Every downstream read field (repositoryByPath, repositories, repository)
+    // Visibility is resolved from each repo's `comtrya.cue` (the source of
+    // truth, memoised in the CUE cache) rather than the stored document field,
+    // so flipping `repository.visibility` to "public" in CUE takes effect on
+    // the next read after a push with no stored copy to reconcile. Every
+    // downstream read field (repositoryByPath, repositories, repository)
     // derives from this list, so filtering here covers the whole read surface.
     let repositories_value = if matches!(principal, PrincipalStatus::Anonymous) {
+        let repositories_root = state.runtime.data_dir.join("repositories");
+        let schemas = state.runtime.collected_cue_schemas();
         Value::Array(
             repositories_value
                 .as_array()
@@ -3204,7 +3210,12 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     repos
                         .iter()
                         .filter(|repo| {
-                            repo.get("visibility").and_then(Value::as_str) == Some("PUBLIC")
+                            effective_repository_visibility(
+                                repo,
+                                &repositories_root,
+                                &state.runtime.cue_config_cache,
+                                &schemas,
+                            ) == "PUBLIC"
                         })
                         .cloned()
                         .collect()
@@ -3253,10 +3264,11 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             // Projects panel and ext_docs work for any path-resolved
             // repository.
             let schemas = state.runtime.collected_cue_schemas();
-            let comtrya_config = state
-                .runtime
-                .cue_config_cache
-                .evaluate(&git_dir, "main", &schemas);
+            let comtrya_config = state.runtime.cue_config_cache.evaluate(
+                &git_dir,
+                &repo_config_ref(&git_dir),
+                &schemas,
+            );
             apply_repository_cue_overrides(repo_obj, &comtrya_config);
             annotate_bookmarks_with_resolution(repo_obj, &git_dir);
             repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
@@ -3311,7 +3323,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                     if git_dir.is_dir() {
                         let comtrya_config = state.runtime.cue_config_cache.evaluate(
                             &git_dir,
-                            "main",
+                            &repo_config_ref(&git_dir),
                             &schemas_for_overlay,
                         );
                         apply_repository_cue_overrides(obj, &comtrya_config);
@@ -4677,6 +4689,52 @@ fn read_default_branch(git_dir: &Path) -> Option<String> {
     let ref_line = head.strip_prefix("ref: ")?;
     let branch = ref_line.strip_prefix("refs/heads/")?;
     Some(branch.to_string())
+}
+
+/// The git ref to evaluate a repo's `package comtrya` config against:
+/// its on-disk default branch (HEAD), falling back to `main` when HEAD
+/// can't be read. A repo's CUE config — including its authoritative
+/// visibility — lives on this branch, so every config read resolves it
+/// the same way (filter, RepoHome, the workspace list).
+fn repo_config_ref(git_dir: &Path) -> String {
+    read_default_branch(git_dir).unwrap_or_else(|| "main".to_string())
+}
+
+/// A repository's effective visibility, with the per-repo `comtrya.cue`
+/// `repository.visibility` block as the source of truth and the stored
+/// document value as the fallback. Resolved through the shared
+/// `CueConfigCache`, so the result is memoised per commit and only
+/// re-derived after a push moves the default branch (or on restart) —
+/// there is no separately persisted copy to reconcile.
+///
+/// Returns the uppercase API-contract form (`PUBLIC` / `INTERNAL` /
+/// `PRIVATE`), matching `apply_repository_cue_overrides`.
+fn effective_repository_visibility(
+    repo: &Value,
+    repositories_root: &Path,
+    cache: &cue_config::CueConfigCache,
+    schemas: &[cue_config::ExtensionSchema],
+) -> String {
+    let stored = repo
+        .get("visibility")
+        .and_then(Value::as_str)
+        .unwrap_or("PRIVATE")
+        .to_ascii_uppercase();
+    let Some(path) = repo.get("path").and_then(Value::as_str) else {
+        return stored;
+    };
+    let git_dir = repositories_root.join(format!("{path}.git"));
+    if !git_dir.is_dir() {
+        return stored;
+    }
+    let config = cache.evaluate(&git_dir, &repo_config_ref(&git_dir), schemas);
+    config
+        .get("repository")
+        .and_then(Value::as_object)
+        .and_then(|repo_block| repo_block.get("visibility"))
+        .and_then(Value::as_str)
+        .map(str::to_ascii_uppercase)
+        .unwrap_or(stored)
 }
 
 /// Overlay the repo's CUE `repository` block onto a repo JSON object.
@@ -9606,6 +9664,78 @@ mod tests {
         assert_eq!(summary["groups"], json!(["public", "internal"]));
         assert_eq!(summary["name"], "comtrya");
         assert_eq!(summary["id"], "repo_x");
+    }
+
+    /// A repo whose `comtrya.cue` declares `visibility: "public"` resolves
+    /// to PUBLIC even when the stored document still says PRIVATE — CUE is
+    /// the source of truth for the anonymous read filter. A repo with no
+    /// git dir on disk falls back to its stored value.
+    #[test]
+    fn effective_visibility_prefers_cue_over_stored() {
+        use std::process::Command;
+
+        fn git(args: &[&str], cwd: &std::path::Path) {
+            let status = Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        }
+
+        let root = tempfile::Builder::new()
+            .prefix("comtrya-effective-vis-")
+            .tempdir()
+            .unwrap();
+        let repositories_root = root.path().join("repositories");
+
+        // Seed a working repo whose comtrya.cue marks the repo public, then
+        // clone it bare into the repositories root at owner/name.git — the
+        // on-disk layout effective_repository_visibility expects.
+        let work = root.path().join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        git(&["init", "-q", "-b", "main"], &work);
+        git(&["config", "user.email", "vis-test@comtrya"], &work);
+        git(&["config", "user.name", "vis-test"], &work);
+        git(&["config", "commit.gpgsign", "false"], &work);
+        std::fs::write(
+            work.join("comtrya.cue"),
+            "package comtrya\n\nrepository: {\n\tvisibility: \"public\"\n}\n",
+        )
+        .unwrap();
+        git(&["add", "comtrya.cue"], &work);
+        git(&["commit", "-q", "-m", "seed"], &work);
+
+        let public_git_dir = repositories_root.join("acme/public-repo.git");
+        std::fs::create_dir_all(public_git_dir.parent().unwrap()).unwrap();
+        git(
+            &[
+                "clone",
+                "--bare",
+                "--quiet",
+                work.to_str().unwrap(),
+                public_git_dir.to_str().unwrap(),
+            ],
+            root.path(),
+        );
+
+        let cache = cue_config::CueConfigCache::new();
+
+        // Stored doc says PRIVATE; CUE says public → effective is PUBLIC.
+        let stored_private = json!({ "path": "acme/public-repo", "visibility": "PRIVATE" });
+        assert_eq!(
+            effective_repository_visibility(&stored_private, &repositories_root, &cache, &[]),
+            "PUBLIC",
+            "CUE visibility must override the stored document value",
+        );
+
+        // A repo with no git dir on disk falls back to its stored value.
+        let missing = json!({ "path": "acme/ghost", "visibility": "INTERNAL" });
+        assert_eq!(
+            effective_repository_visibility(&missing, &repositories_root, &cache, &[]),
+            "INTERNAL",
+            "missing git dir must fall back to the stored visibility",
+        );
     }
 
     #[test]
