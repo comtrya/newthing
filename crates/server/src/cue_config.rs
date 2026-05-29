@@ -183,10 +183,15 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<TempDir, Strin
     // (including `?` early-return paths), releasing capacity.
     let _permit = MATERIALISE_SEMAPHORE.acquire();
 
-    // A guaranteed-unique directory (TempDir picks a random name and creates
+    // A guaranteed-unique directory (Builder picks a random name and creates
     // it exclusively), so concurrent or rapid sequential evaluations never
-    // collide and never extract into a shared tree.
-    let worktree = TempDir::new_in(std::env::temp_dir())
+    // collide and never extract into a shared tree. The `comtrya-cue-`
+    // prefix avoids the default `.tmp` dot-prefix: the CUE module walker
+    // skips hidden directories, so a dot-prefixed workdir yields zero
+    // instances.
+    let worktree = tempfile::Builder::new()
+        .prefix("comtrya-cue-")
+        .tempdir_in(std::env::temp_dir())
         .map_err(|e| format!("create temp worktree failed: {e}"))?;
     let base = worktree.path();
 
