@@ -503,7 +503,13 @@ fn scan_stored_issues(
     loop {
         let page = storage::list_all(COLLECTION, 1024, after.as_ref())?;
         for bytes in page.docs {
-            let stored = decode_stored_issue("<list>", &bytes)?;
+            // Skip an undecodable record rather than aborting the whole scan,
+            // matching ext_pull_requests / ext_checks. One corrupt or
+            // schema-skewed doc must not break listing/lookup for the
+            // collection.
+            let Ok(stored) = decode_stored_issue("<list>", &bytes) else {
+                continue;
+            };
             if visit(stored)? {
                 return Ok(());
             }

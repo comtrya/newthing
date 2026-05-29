@@ -132,7 +132,13 @@ fn scan_epics(mut visit: impl FnMut(StoredEpic) -> Result<bool, Error>) -> Resul
     loop {
         let page = storage::list_all(COLLECTION, 1024, after.as_ref())?;
         for bytes in page.docs {
-            if visit(decode("<list>", &bytes)?)? {
+            // Skip an undecodable record rather than aborting the whole scan,
+            // matching ext_pull_requests / ext_checks. One corrupt or
+            // schema-skewed doc must not break listing for the collection.
+            let Ok(stored) = decode("<list>", &bytes) else {
+                continue;
+            };
+            if visit(stored)? {
                 return Ok(());
             }
         }
