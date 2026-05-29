@@ -12,6 +12,7 @@ import {
   useDiagrams,
   type LabelCatalogEntry,
 } from "@comtrya/sdk-vue";
+import { cloneCommand as buildCloneCommand } from "../repo-clone";
 import { applyUserLayoutFor } from "../user-layout";
 import { setActiveLabelCatalog } from "../extension-runtime";
 
@@ -180,33 +181,21 @@ const displayPath = computed(() => repository.value?.path ?? repoPath.value);
 /**
  * Clone command for the repository — absolute URL built from the
  * frontend origin + the kernel's `gitHttpPath` (e.g.
- * `/git/comtrya/dogfood.git`). One of the most-used DX touchpoints
- * in a forge; previously surfaced only inside extension widgets.
+ * `/r/comtrya/dogfood`, the same URL the SPA browses). One of the
+ * most-used DX touchpoints in a forge; previously surfaced only inside
+ * extension widgets. The pure builders live in `../repo-clone` so the
+ * logic is unit-tested independently of this .vue.
  *
  * Click-to-copy uses `navigator.clipboard.writeText()` with a
  * 1.4s "copied" flash so the user gets visual confirmation
  * without needing to lift focus from the header.
  */
-const cloneUrl = computed(() => {
-  const httpPath = repository.value?.gitHttpPath;
-  if (!httpPath) return "";
-  if (typeof window === "undefined") return httpPath;
-  return `${window.location.origin}${httpPath}`;
-});
-/**
- * Clone-tool prefix derived from the repo's declared `vcs`. A
- * `vcs: "jj"` repo on Comtrya is still served via git HTTP (the
- * kernel's Smart HTTP path is the wire), but the local tool
- * `jj git clone <url>` initialises a jj-on-git colocated working
- * copy — that's the user-visible payoff of declaring jj in the
- * repo's CUE. Git-declared (or unset) repos fall back to the
- * conventional `git clone`.
- */
-const cloneTool = computed(() =>
-  repository.value?.vcs === "jj" ? "jj git clone" : "git clone",
-);
 const cloneCommand = computed(() =>
-  cloneUrl.value ? `${cloneTool.value} ${cloneUrl.value}` : "",
+  buildCloneCommand(
+    repository.value?.gitHttpPath,
+    typeof window === "undefined" ? null : window.location.origin,
+    repository.value?.vcs,
+  ),
 );
 const cloneCommandTitle = computed(() =>
   repository.value?.vcs === "jj"

@@ -42,7 +42,10 @@ pub fn allowed_methods_for_route(route: &str) -> Vec<&'static str> {
         route if route.starts_with("/auth/") => vec!["GET", "POST", "OPTIONS"],
         route if route.starts_with("/_extensions/") => vec!["GET", "OPTIONS"],
         route if route.starts_with("/api/ops/") => vec!["POST", "OPTIONS"],
-        route if route.starts_with("/git/") => vec!["GET", "POST", "OPTIONS"],
+        // `/r/<repo>` multiplexes browse (GET) and git smart-HTTP
+        // (GET info/refs, POST upload-pack/receive-pack) under one prefix,
+        // so it accepts the same method set the old `/git/` route did.
+        route if route.starts_with("/r/") => vec!["GET", "POST", "OPTIONS"],
         _ => vec!["OPTIONS"],
     }
 }
