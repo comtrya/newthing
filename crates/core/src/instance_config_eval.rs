@@ -299,7 +299,7 @@ impl WireConfig {
             id: self.instance.id,
             name: self.instance.name,
             public_url: self.instance.public_url,
-            environment: parse_environment(self.instance.environment.as_deref()),
+            environment: parse_environment(self.instance.environment.as_deref())?,
             allowed_origins: self.instance.allowed_origins,
             database,
             oidc_issuers,
@@ -492,10 +492,17 @@ impl WireExtension {
     }
 }
 
-fn parse_environment(value: Option<&str>) -> Environment {
+fn parse_environment(value: Option<&str>) -> CoreResult<Environment> {
+    // Closed parse: a genuinely-absent value defaults to Development, but an
+    // unrecognized (e.g. miscased or misspelled) value is rejected rather than
+    // silently downgraded — a silent downgrade would disable production
+    // hardening for a config that meant to opt into it.
     match value {
-        Some("production") => Environment::Production,
-        _ => Environment::Development,
+        None | Some("development") => Ok(Environment::Development),
+        Some("production") => Ok(Environment::Production),
+        Some(other) => Err(CoreError::config_invalid(format!(
+            "instance environment must be \"development\" or \"production\", got {other:?}"
+        ))),
     }
 }
 
@@ -627,5 +634,23 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
         .unwrap();
         std::fs::write(dir.path().join("readme.md"), "# not cue").unwrap();
         assert!(evaluate_instance_config(dir.path()).is_err());
+    }
+
+    #[test]
+    fn parse_environment_is_a_closed_parse() {
+        assert!(matches!(parse_environment(None), Ok(Environment::Development)));
+        assert!(matches!(
+            parse_environment(Some("development")),
+            Ok(Environment::Development)
+        ));
+        assert!(matches!(
+            parse_environment(Some("production")),
+            Ok(Environment::Production)
+        ));
+        // Miscased / misspelled values must be rejected, never silently
+        // downgraded to Development (which would disable prod hardening).
+        assert!(parse_environment(Some("Production")).is_err());
+        assert!(parse_environment(Some("prod")).is_err());
+        assert!(parse_environment(Some("")).is_err());
     }
 }
