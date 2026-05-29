@@ -81,7 +81,7 @@
                 "type": "string",
                 "enum": ["repository", "instance"],
                 "default": "repository",
-                "description": "Whether ops on this resource kind are gated per-repository by `repository.enabledExtensions` (\"repository\", the default) or always available (\"instance\")."
+                "description": "Whether ops on this resource kind are gated per-repository by `repository.extensions` (\"repository\", the default) or always available (\"instance\")."
               }
             }
           }
@@ -184,7 +184,7 @@
           "type": "string",
           "enum": ["repository", "instance"],
           "default": "repository",
-          "description": "Whether reactor event dispatch to this extension is gated per-repository by `repository.enabledExtensions` (\"repository\", the default — events whose source repository has not enabled this extension are skipped) or always delivered (\"instance\")."
+          "description": "Whether reactor event dispatch to this extension is gated per-repository by `repository.extensions` (\"repository\", the default — events whose source repository has not enabled this extension are skipped) or always delivered (\"instance\")."
         },
         "subscribes": {
           "type": "array",

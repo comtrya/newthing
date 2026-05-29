@@ -41,7 +41,7 @@ pub struct LoadedExtension {
 }
 
 /// Resolves a repository's per-repo extension opt-in set
-/// (`repository.enabledExtensions`) for a `comtrya://` repository ref.
+/// (`repository.extensions`) for a `comtrya://` repository ref.
 /// Installed onto the registry after the kernel runtime is assembled.
 pub trait RepoEnablementResolver: Send + Sync {
     /// The set of extension ids the repository at `repository_ref` has
@@ -56,7 +56,7 @@ pub trait RepoEnablementResolver: Send + Sync {
 
 /// Production resolver: maps a repository ref to its on-disk bare git
 /// dir, evaluates the repo's `package comtrya` CUE through the shared
-/// per-commit cache, and reads `repository.enabledExtensions`. Depends on
+/// per-commit cache, and reads `repository.extensions`. Depends on
 /// the data dir, the shared CUE evaluation cache, and the collected
 /// extension CUE schemas.
 pub struct CueRepoEnablement {
@@ -81,7 +81,7 @@ impl CueRepoEnablement {
     /// The opt-in set for the repository at `path`. Resolves the bare git
     /// dir under `repositories/<path>.git`, evaluates the repo's
     /// `package comtrya` CUE through the shared cache, and reads
-    /// `repository.enabledExtensions`. Absent or unreadable config yields
+    /// `repository.extensions`. Absent or unreadable config yields
     /// the empty set (strictly off).
     fn enabled_extensions_for_path(&self, path: &str) -> std::collections::BTreeSet<String> {
         let git_dir = self
@@ -96,7 +96,7 @@ impl CueRepoEnablement {
                 .evaluate(&git_dir, &crate::repo_config_ref(&git_dir), &self.schemas);
         config
             .get("repository")
-            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(|repo| repo.get("extensions"))
             .and_then(Value::as_array)
             .map(|ids| {
                 ids.iter()
@@ -274,7 +274,7 @@ impl WasmRegistry {
     }
 
     /// The repository at `repository_ref` has opted into the extension
-    /// `extension_id` (its `repository.enabledExtensions` set contains
+    /// `extension_id` (its `repository.extensions` set contains
     /// the id). Resolves the repo's path from `store`, then reads the
     /// opt-in set through the installed resolver. Fails closed: a missing
     /// resolver, an unresolvable ref, or an unknown repository yields
@@ -332,7 +332,7 @@ impl WasmRegistry {
 
     /// Gate entry for a repository-scoped op. Returns `Forbidden` unless
     /// the repository at `repository_ref` has opted into `extension_id`
-    /// via `repository.enabledExtensions`. Ops on an extension with no
+    /// via `repository.extensions`. Ops on an extension with no
     /// repository-scoped contributions are never gated (returns `Ok`).
     pub fn ensure_extension_enabled_for_repo(
         &self,
@@ -350,7 +350,7 @@ impl WasmRegistry {
             code: wit_types::ErrorCode::Forbidden,
             message: format!(
                 "extension '{extension_id}' is not enabled for repository '{repository_ref}'; \
-                 add it to the repository's comtrya CUE repository.enabledExtensions"
+                 add it to the repository's comtrya CUE repository.extensions"
             ),
             path: None,
         })
@@ -1460,7 +1460,7 @@ mod tests {
     }
 
     /// End-to-end production resolver: a bare repo whose comtrya CUE
-    /// declares `repository.enabledExtensions`, reached through a
+    /// declares `repository.extensions`, reached through a
     /// repository document (id -> path), surfaces that opt-in set.
     #[test]
     fn cue_repo_enablement_reads_enabled_extensions_from_repo_cue() {
@@ -1493,7 +1493,7 @@ mod tests {
             concat!(
                 "package comtrya\n",
                 "import \"github.com/comtrya/comtrya/schema\"\n",
-                "repository: schema.#Repository & { enabledExtensions: [\"ext_issues\"] }\n",
+                "repository: schema.#Repository & { extensions: [\"ext_issues\"] }\n",
             ),
         )
         .expect("write comtrya.cue");

@@ -134,7 +134,7 @@ pub struct HostState {
 }
 
 /// Contribution scope: whether a feature is gated per-repository by the
-/// repo's `repository.enabledExtensions` opt-in set (`Repository`, the
+/// repo's `repository.extensions` opt-in set (`Repository`, the
 /// default) or always available regardless of any repo's opt-in
 /// (`Instance`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -166,13 +166,13 @@ pub struct HostManifest {
     /// Event types reactions may emit from `on-event`.
     pub reactor_allowed_emits: Vec<String>,
     /// Whether this extension's reactor dispatch is gated per-repository
-    /// by the source repo's `enabledExtensions` opt-in.
+    /// by the source repo's `extensions` opt-in.
     pub reactor_scope: ContributionScope,
     /// Resource kinds this extension owns / may mint ids for.
     pub contributes_resource_kinds: Vec<String>,
     /// Whether this extension contributes any repository-scoped resource
     /// kind. When true, its repository-context ops are gated by the
-    /// target repo's `enabledExtensions` opt-in.
+    /// target repo's `extensions` opt-in.
     pub has_repository_scoped_kinds: bool,
     /// Host import groups this extension is permitted to call.
     pub host_imports: Vec<String>,

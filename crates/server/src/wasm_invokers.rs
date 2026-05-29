@@ -645,7 +645,7 @@ pub fn dispatch_ext_epics(
     // NOT per-repo gated: epics are workspace-scoped. An epic resource
     // carries `workspace` but no `repository` (see `epic_to_json`), and
     // create/list ops are keyed by `workspace`. There is no repository to
-    // resolve `repository.enabledExtensions` against, so the per-repo
+    // resolve `repository.extensions` against, so the per-repo
     // opt-in gate does not apply to ext_epics ops despite the manifest
     // declaring the `epic` kind repository-scoped. Flagged in the Phase-2
     // report: epics need a workspace-level enablement model, not the
@@ -1308,15 +1308,15 @@ pub fn dispatch_ext_workspace_home(
 }
 
 /// Reject the call unless the repository at `repository_ref` has opted
-/// into `extension_id` via its `repository.enabledExtensions` set.
+/// into `extension_id` via its `repository.extensions` set.
 /// Repository-scoped ops call this before doing any work that depends on
 /// the per-repo opt-in. Instance-scoped ops never call it.
 ///
 /// The ref is trimmed before resolution (op inputs may carry surrounding
-/// whitespace that the extension trims internally). A ref that is not a
-/// well-formed `comtrya://…/repository/<id>` is left for the extension's
-/// own input validation to reject — the gate only fires for well-formed
-/// refs that resolve to a repository which has not opted in.
+/// whitespace that the extension trims internally). The gate is **fail
+/// closed**: a repository-scoped op that supplies a missing or malformed
+/// repository ref is rejected here at the kernel boundary, rather than
+/// delegating that to each extension's own input validation.
 fn ensure_repo_enabled(
     registry: &WasmRegistry,
     store: &crate::ExtensionRuntimeStore,
@@ -1325,7 +1325,13 @@ fn ensure_repo_enabled(
 ) -> Result<(), wit_types::Error> {
     let trimmed = repository_ref.trim();
     if crate::wasm_registry::repository_id_from_ref(trimmed).is_none() {
-        return Ok(());
+        return Err(wit_types::Error {
+            code: wit_types::ErrorCode::BadInput,
+            message: format!(
+                "repository-scoped op requires a well-formed repository ref, got {repository_ref:?}"
+            ),
+            path: Some("repository".to_string()),
+        });
     }
     registry.ensure_extension_enabled_for_repo(store, trimmed, extension_id)
 }
