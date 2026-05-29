@@ -259,21 +259,57 @@ impl OciExtensionFetcher {
             .await
             .with_context(|| format!("Failed to pull OCI image: {image_ref}"))?;
 
-        // When the caller pinned a digest, the manifest digest the registry
-        // resolved must match it exactly. This anchors trust to the requested
-        // immutable hash rather than to whatever a tag currently points at.
-        if let OciReference::Digest(requested) = reference {
-            let resolved = image_data.digest.as_deref().with_context(|| {
-                format!("Registry did not return a manifest digest for {image_ref}")
-            })?;
-            if resolved != requested.as_str() {
+        // When the caller pinned a digest, anchor trust to the manifest bytes WE
+        // hash — not the registry-supplied Docker-Content-Digest header, which a
+        // hostile registry can forge to echo whatever digest was requested. Pull
+        // the raw manifest, recompute its sha256, and require it to equal the pin
+        // before trusting any descriptor inside it.
+        let trusted_layer_digests = if let OciReference::Digest(requested) = reference {
+            let (raw_manifest, _header_digest) = self
+                .client
+                .pull_manifest_raw(
+                    &oci_reference,
+                    &auth,
+                    &[
+                        oci_distribution::manifest::OCI_IMAGE_MEDIA_TYPE,
+                        oci_distribution::manifest::IMAGE_MANIFEST_MEDIA_TYPE,
+                    ],
+                )
+                .await
+                .with_context(|| format!("Failed to pull manifest for {image_ref}"))?;
+            let actual = format!("sha256:{}", compute_sha256(&raw_manifest));
+            if actual != requested.as_str() {
                 anyhow::bail!(
-                    "Digest mismatch for {image_ref}: requested {requested}, registry resolved {resolved}"
+                    "Digest mismatch for {image_ref}: requested {requested}, manifest bytes hash to {actual}"
                 );
             }
-        }
+            let trusted: oci_distribution::manifest::OciImageManifest =
+                serde_json::from_slice(&raw_manifest).with_context(|| {
+                    format!("Pinned manifest for {image_ref} is not a valid OCI image manifest")
+                })?;
+            Some(
+                trusted
+                    .layers
+                    .into_iter()
+                    .map(|layer| layer.digest)
+                    .collect::<std::collections::BTreeSet<String>>(),
+            )
+        } else {
+            None
+        };
 
         let (wasm, content_digest) = Self::select_verified_layer(&image_data, &image_ref)?;
+
+        // For a pinned digest, the layer we verified must be declared by the
+        // trusted (hash-anchored) manifest — closing any window where `pull`
+        // could have used a different, internally-consistent manifest.
+        if let Some(trusted_layer_digests) = &trusted_layer_digests
+            && !trusted_layer_digests.contains(&content_digest)
+        {
+            anyhow::bail!(
+                "Pinned manifest for {image_ref} does not declare the served WASM layer {content_digest}"
+            );
+        }
 
         tracing::debug!(
             "Pulled and verified {} bytes from {} (digest: {})",
