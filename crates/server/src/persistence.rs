@@ -496,6 +496,25 @@ impl PersistentStore {
         Ok(changed > 0)
     }
 
+    /// Test-only: force a PAT's `expires_at` so expiry handling can be
+    /// exercised without sleeping.
+    #[cfg(test)]
+    pub fn force_expire_git_personal_access_token(
+        &self,
+        id: &str,
+        expires_at: u64,
+    ) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE git_personal_access_tokens SET expires_at = ?1 WHERE id = ?2",
+                params![expires_at as i64, id],
+            )
+            .map_err(|e| format!("force expire git PAT failed: {e}"))?;
+        Ok(())
+    }
+
     fn git_pat_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredGitPersonalAccessToken> {
         let scopes_json: String = row.get(4)?;
         let scopes = serde_json::from_str(&scopes_json).map_err(|error| {

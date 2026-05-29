@@ -7265,6 +7265,18 @@ mod tests {
         headers
     }
 
+    fn basic_headers(username: &str, password: &str) -> HeaderMap {
+        use base64::Engine as _;
+        let mut headers = HeaderMap::new();
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
+        headers.insert(
+            "authorization",
+            HeaderValue::from_str(&format!("Basic {encoded}")).unwrap(),
+        );
+        headers
+    }
+
     fn runtime_with_admins(admins: Vec<comtrya_core::AdminConfig>) -> Arc<Runtime> {
         let mut config = InstanceConfig::minimal_dev();
         config.admins = admins;
@@ -8325,13 +8337,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn git_receive_pack_requires_write_scope() {
-        // A read-only credential must be refused for receive-pack (push); the
-        // git:write scope is required before the request reaches the responder.
+    async fn git_receive_pack_rejects_bearer_credentials() {
+        // Push (receive-pack) is PAT-only: even a bearer credential carrying
+        // git:write must be refused, since browser cookies/bearers cannot push.
+        // The client is challenged for HTTP Basic.
         let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["git:read".to_string()],
+            vec!["git:write".to_string()],
             PrincipalStatus::OperatorCredential,
         );
 
@@ -8348,13 +8361,238 @@ mod tests {
         )
         .await;
 
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(
-            payload["errors"][0]["extensions"]["code"],
-            ErrorCode::Forbidden.as_str()
+            response
+                .headers()
+                .get("WWW-Authenticate")
+                .and_then(|v| v.to_str().ok()),
+            Some("Basic realm=\"comtrya\""),
         );
+    }
+
+    #[test]
+    fn git_pat_hash_round_trips_and_rejects_wrong_secret() {
+        let token = "cpat.pat_1_2.0123456789abcdef0123456789abcdef";
+        let hash = git_pat_hash(token).expect("hash");
+        assert!(hash.starts_with("$argon2id$"), "got: {hash}");
+        assert!(git_pat_verify(token, &hash));
+        assert!(!git_pat_verify(
+            "cpat.pat_1_2.deadbeefdeadbeefdeadbeefdeadbeef",
+            &hash
+        ));
+        assert!(!git_pat_verify(token, "not-a-phc-string"));
+    }
+
+    #[test]
+    fn parse_git_pat_token_splits_id_and_secret() {
+        assert_eq!(
+            parse_git_pat_token("cpat.pat_1700000000_7.cpat_0011223344556677"),
+            Some(("pat_1700000000_7", "cpat_0011223344556677")),
+        );
+        assert_eq!(parse_git_pat_token("Bearer sess_abc"), None);
+        assert_eq!(parse_git_pat_token("cpat.onlyid"), None);
+        assert_eq!(parse_git_pat_token("cpat..secret"), None);
+        assert_eq!(parse_git_pat_token("cpat.id."), None);
+    }
+
+    #[test]
+    fn git_pat_scope_maps_to_git_action_and_rejects_revoked_or_expired() {
+        let runtime = dev_runtime_no_extensions();
+
+        // Write-scoped token grants git:write and git:read; a read-only token
+        // does not grant git:write.
+        let (write_token, _) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "push",
+                vec!["git:read".to_string(), "git:write".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        assert!(runtime.git_personal_access_token_allows(&write_token, "git:write"));
+        assert!(runtime.git_personal_access_token_allows(&write_token, "git:read"));
+
+        let (read_token, read_record) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "read",
+                vec!["git:read".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        assert!(runtime.git_personal_access_token_allows(&read_token, "git:read"));
+        assert!(!runtime.git_personal_access_token_allows(&read_token, "git:write"));
+
+        // A revoked token grants nothing.
+        assert!(
+            runtime
+                .revoke_git_personal_access_token("comtrya://user/test", &read_record.id)
+                .unwrap()
+        );
+        assert!(!runtime.git_personal_access_token_allows(&read_token, "git:read"));
+
+        // An already-expired token grants nothing.
+        let (expired_token, expired_record) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "expired",
+                vec!["git:read".to_string(), "git:write".to_string()],
+                Some(1),
+            )
+            .unwrap();
+        runtime
+            .store
+            .force_expire_git_personal_access_token(&expired_record.id, now_seconds() - 1)
+            .unwrap();
+        assert!(!runtime.git_personal_access_token_allows(&expired_token, "git:write"));
+    }
+
+    #[tokio::test]
+    async fn account_git_token_api_creates_lists_and_revokes_tokens() {
+        let runtime = dev_runtime_no_extensions();
+        let bearer = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string(), "git:write".to_string()],
+            PrincipalStatus::Credential,
+        );
+        let state = AppState {
+            runtime: runtime.clone(),
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = create_git_token(
+            State(state.clone()),
+            bearer_headers(&bearer),
+            Json(CreateGitTokenRequest {
+                name: "Workstation".to_string(),
+                scopes: vec!["git:read".to_string(), "git:write".to_string()],
+                expires_in_days: Some(30),
+            }),
+        )
+        .await;
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        let secret = payload["token"].as_str().unwrap();
+        assert!(secret.starts_with("cpat."));
+        let token_id = payload["personalAccessToken"]["id"].as_str().unwrap();
+
+        let list_response = list_git_tokens(State(state.clone()), bearer_headers(&bearer)).await;
+        assert_eq!(list_response.status(), StatusCode::OK);
+        let body = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(payload["personalAccessTokens"][0]["id"], token_id);
+        assert!(runtime.git_personal_access_token_allows(secret, "git:write"));
+
+        let revoke_response = revoke_git_token(
+            State(state),
+            bearer_headers(&bearer),
+            AxumPath(token_id.to_string()),
+        )
+        .await;
+        assert_eq!(revoke_response.status(), StatusCode::OK);
+        assert!(!runtime.git_personal_access_token_allows(secret, "git:write"));
+    }
+
+    #[tokio::test]
+    async fn account_git_token_api_rejects_scopes_the_session_does_not_have() {
+        let runtime = dev_runtime_no_extensions();
+        let bearer = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::Credential,
+        );
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let create_response = create_git_token(
+            State(state),
+            bearer_headers(&bearer),
+            Json(CreateGitTokenRequest {
+                name: "Write token".to_string(),
+                scopes: vec!["git:write".to_string()],
+                expires_in_days: Some(30),
+            }),
+        )
+        .await;
+
+        assert_eq!(create_response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn git_receive_pack_requires_basic_pat_with_write_scope() {
+        let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_state = PureRustGitState::from_runtime(&runtime);
+
+        // A read-only Basic PAT is refused for push.
+        let (read_only_pat, _) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "read only",
+                vec!["git:read".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        let read_only_response = git_endpoint(
+            State(AppState {
+                runtime: runtime.clone(),
+                git_state: git_state.clone(),
+            }),
+            basic_headers("rawkode", &read_only_pat),
+            Method::GET,
+            AxumPath("comtrya/comtrya.git/info/refs".to_string()),
+            RawQuery(Some("service=git-receive-pack".to_string())),
+            Bytes::new(),
+        )
+        .await;
+        assert_eq!(read_only_response.status(), StatusCode::FORBIDDEN);
+
+        // A write-scoped Basic PAT clears the auth gate and reaches the
+        // pure-Rust receive-pack responder, which processes the push and
+        // returns a report-status (200). Push uses POST .../git-receive-pack;
+        // info/refs intentionally does not advertise receive-pack here.
+        let (write_pat, _) = runtime
+            .create_git_personal_access_token(
+                "comtrya://user/test",
+                "push",
+                vec!["git:read".to_string(), "git:write".to_string()],
+                Some(90),
+            )
+            .unwrap();
+        let mut push_body = Vec::new();
+        // A no-op command line (old == new == zero-oid for a fresh ref) plus a
+        // flush is enough to drive the responder past the auth gate and into a
+        // report-status reply.
+        let command = "0000000000000000000000000000000000000000 \
+             0000000000000000000000000000000000000000 \
+             refs/heads/__pat_test__\0report-status\n";
+        let pkt_len = format!("{:04x}", command.len() + 4);
+        push_body.extend_from_slice(pkt_len.as_bytes());
+        push_body.extend_from_slice(command.as_bytes());
+        push_body.extend_from_slice(b"0000");
+        let response = git_endpoint(
+            State(AppState { runtime, git_state }),
+            basic_headers("rawkode", &write_pat),
+            Method::POST,
+            AxumPath("comtrya/comtrya.git/git-receive-pack".to_string()),
+            RawQuery(None),
+            Bytes::from(push_body),
+        )
+        .await;
+
+        // The auth gate granted the write PAT: the response is from the
+        // transport, never a 401/403 from the credential boundary.
+        assert_ne!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_ne!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]
