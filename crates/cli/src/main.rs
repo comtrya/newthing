@@ -1,6 +1,4 @@
-use comtrya_core::{
-    BackupCoordinator, EventOutbox, InstanceCapabilities, InstanceConfig, empty_backup_store,
-};
+use comtrya_core::{InstanceCapabilities, InstanceConfig};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -101,36 +99,6 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
             )
             .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
         }
-        "backup" => {
-            let store = empty_backup_store();
-            let mut coordinator = BackupCoordinator::default();
-            let bundle = coordinator.backup(&store, Vec::new(), 0, "package comtrya", false);
-            writeln!(
-                stdout,
-                "backup signed={} repositories={} secrets={}",
-                bundle.signed,
-                bundle.repository_ids.len(),
-                bundle.secret_names.len()
-            )
-            .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
-        }
-        "restore" => {
-            let store = empty_backup_store();
-            let mut coordinator = BackupCoordinator::default();
-            let bundle = coordinator.backup(&store, Vec::new(), 0, "package comtrya", false);
-            let mut outbox = EventOutbox::default();
-            match coordinator.restore_to_empty(bundle, true, &mut outbox) {
-                Ok(report) => writeln!(
-                    stdout,
-                    "restore repositories={} secrets={} event={}",
-                    report.repository_count, report.secret_count, report.emitted_event_type
-                )
-                .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?,
-                Err(error) => {
-                    return Err(CliError::new(error.to_string(), 1));
-                }
-            }
-        }
         "generate" => generate(&args[1..], stdout)?,
         "help" | "--help" | "-h" => print_help(stdout)?,
         _ => {
@@ -145,16 +113,14 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
 
 fn generate(args: &[String], stdout: &mut dyn Write) -> Result<(), CliError> {
     let mut rest = args;
-    if matches!(
-        rest.first().map(String::as_str),
-        Some("config" | "global-config" | "comtrya.cue")
-    ) {
+    if matches!(rest.first().map(String::as_str), Some("config")) {
         rest = &rest[1..];
     }
 
     let mut dir = PathBuf::from(".");
     let mut force = false;
     let mut stdout_only = false;
+    let mut dir_or_force_set = false;
     let mut i = 0;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -162,11 +128,16 @@ fn generate(args: &[String], stdout: &mut dyn Write) -> Result<(), CliError> {
                 let Some(value) = rest.get(i + 1) else {
                     return Err(CliError::new("generate config --dir requires a value", 2));
                 };
+                if value.starts_with('-') {
+                    return Err(CliError::new("generate config --dir requires a value", 2));
+                }
                 dir = PathBuf::from(value);
+                dir_or_force_set = true;
                 i += 2;
             }
             "--force" | "-f" => {
                 force = true;
+                dir_or_force_set = true;
                 i += 1;
             }
             "--stdout" => {
@@ -187,6 +158,12 @@ fn generate(args: &[String], stdout: &mut dyn Write) -> Result<(), CliError> {
     }
 
     if stdout_only {
+        if dir_or_force_set {
+            return Err(CliError::new(
+                "generate config --stdout cannot be combined with --dir or --force",
+                2,
+            ));
+        }
         write!(stdout, "{GLOBAL_CONFIG_CUE}")
             .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
         return Ok(());
@@ -259,9 +236,7 @@ fn help_text() -> &'static str {
 Commands:\n\
   validate-config       Validate the built-in minimal dev config\n\
   generate [config]     Generate a remote GitOps comtrya.cue config\n\
-  capabilities          Print kernel capability flags\n\
-  backup                Exercise backup scaffolding\n\
-  restore               Exercise restore scaffolding\n"
+  capabilities          Print kernel capability flags\n"
 }
 
 #[cfg(test)]
@@ -300,21 +275,71 @@ mod tests {
 
     #[test]
     fn generate_stdout_prints_comtrya_cue_without_writing_files() {
-        let dir = temp_path("stdout");
         let mut output = Vec::new();
         run(
-            [
-                "generate".to_string(),
-                "config".to_string(),
-                "--dir".to_string(),
-                dir.display().to_string(),
-                "--stdout".to_string(),
-            ],
+            ["generate".to_string(), "--stdout".to_string()],
             &mut output,
         )
         .expect("stdout generate");
         let output = String::from_utf8(output).unwrap();
         assert!(output.starts_with("package comtrya"));
-        assert!(!dir.exists());
+    }
+
+    #[test]
+    fn generate_stdout_rejects_dir() {
+        let error = run(
+            [
+                "generate".to_string(),
+                "config".to_string(),
+                "--dir".to_string(),
+                "./out".to_string(),
+                "--stdout".to_string(),
+            ],
+            &mut Vec::new(),
+        )
+        .expect_err("--dir with --stdout should be rejected");
+        assert_eq!(error.exit_code, 2);
+        assert!(error.message.contains("--stdout"));
+    }
+
+    #[test]
+    fn generate_stdout_rejects_force() {
+        let error = run(
+            [
+                "generate".to_string(),
+                "--force".to_string(),
+                "--stdout".to_string(),
+            ],
+            &mut Vec::new(),
+        )
+        .expect_err("--force with --stdout should be rejected");
+        assert_eq!(error.exit_code, 2);
+    }
+
+    #[test]
+    fn generate_dir_rejects_flag_shaped_value() {
+        let error = run(
+            [
+                "generate".to_string(),
+                "--dir".to_string(),
+                "--force".to_string(),
+            ],
+            &mut Vec::new(),
+        )
+        .expect_err("--dir followed by a flag should be rejected");
+        assert_eq!(error.exit_code, 2);
+        assert!(error.message.contains("--dir requires a value"));
+    }
+
+    #[test]
+    fn generate_rejects_undocumented_subcommand_aliases() {
+        for alias in ["global-config", "comtrya.cue"] {
+            let error = run(
+                ["generate".to_string(), alias.to_string()],
+                &mut Vec::new(),
+            )
+            .expect_err("alias should be rejected as unknown option");
+            assert_eq!(error.exit_code, 2);
+        }
     }
 }
