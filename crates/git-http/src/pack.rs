@@ -504,81 +504,6 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::pkt::{Pkt, decode_pkt_lines};
-
-    #[test]
-    fn encode_obj_header_small_sizes() {
-        // kind=commit(1), size=0 -> 0x10
-        assert_eq!(encode_obj_header(1, 0), vec![0x10]);
-        // size=15 -> lower 4 bits set, no continuation
-        assert_eq!(encode_obj_header(1, 15), vec![0x1f]);
-    }
-
-    #[test]
-    fn encode_obj_header_multibyte() {
-        // size=16 -> continuation in first byte, then 0x01
-        assert_eq!(encode_obj_header(1, 16), vec![0x90, 0x01]);
-        // size spans multiple varint bytes
-        let v = encode_obj_header(3, 0x1fff); // blob, 8191
-        // First byte: kind=3 (0x30) | size low 4 bits (0x0f) | cont (0x80) = 0xbf
-        assert_eq!(v[0], 0xbf);
-        assert!(v.len() >= 2);
-    }
-
-    #[test]
-    fn sideband_pkt_writer_frames_data_and_progress() {
-        let (tx, mut rx) = mpsc::channel::<Bytes>(4);
-        let mut w = SidebandPktWriter::new(tx, true, false);
-        // Send a small chunk; expect one pkt with band=1 and payload 'abc'
-        w.send_chunk(b"abc").unwrap();
-        // Progress line should be band=2 and newline-terminated
-        w.progress_line("Counting objects".to_string()).unwrap();
-        // Drain two messages
-        let first = rx.try_recv().expect("first pkt");
-        let pkts = decode_pkt_lines(&first).unwrap();
-        match &pkts[0] {
-            Pkt::Data(d) => {
-                assert_eq!(d[0], 1);
-                assert_eq!(&d[1..], b"abc");
-            }
-            _ => panic!("expected data pkt"),
-        }
-
-        let second = rx.try_recv().expect("second pkt");
-        let pkts2 = decode_pkt_lines(&second).unwrap();
-        match &pkts2[0] {
-            Pkt::Data(d) => {
-                assert_eq!(d[0], 2);
-                assert!(
-                    std::str::from_utf8(&d[1..])
-                        .unwrap()
-                        .starts_with("Counting objects")
-                );
-            }
-            _ => panic!("expected progress pkt"),
-        }
-    }
-
-    #[test]
-    fn sideband_pkt_writer_respects_no_sideband_or_no_progress() {
-        // No sideband: raw bytes, not pkt-framed
-        let (tx, mut rx) = mpsc::channel::<Bytes>(1);
-        let mut w = SidebandPktWriter::new(tx, false, false);
-        w.send_chunk(b"PACK").unwrap();
-        let raw = rx.try_recv().unwrap();
-        assert_eq!(&raw[..], b"PACK");
-
-        // Suppress progress
-        let (tx2, mut rx2) = mpsc::channel::<Bytes>(1);
-        let mut w2 = SidebandPktWriter::new(tx2, true, true);
-        w2.progress_line("message".to_string()).unwrap();
-        assert!(rx2.try_recv().is_err());
-    }
-}
-
 fn build_and_stream_pack_with_plan(
     repo_dir: PathBuf,
     req: &FetchRequest,
@@ -713,7 +638,81 @@ async fn resolve_want_refs(repo_dir: &PathBuf, req: &mut FetchRequest) -> anyhow
             }
         }
     }
-    // Fix: Actually mutate the request's wants vector via public API
     req.extend_wants(new_wants);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pkt::{Pkt, decode_pkt_lines};
+
+    #[test]
+    fn encode_obj_header_small_sizes() {
+        // kind=commit(1), size=0 -> 0x10
+        assert_eq!(encode_obj_header(1, 0), vec![0x10]);
+        // size=15 -> lower 4 bits set, no continuation
+        assert_eq!(encode_obj_header(1, 15), vec![0x1f]);
+    }
+
+    #[test]
+    fn encode_obj_header_multibyte() {
+        // size=16 -> continuation in first byte, then 0x01
+        assert_eq!(encode_obj_header(1, 16), vec![0x90, 0x01]);
+        // size spans multiple varint bytes
+        let v = encode_obj_header(3, 0x1fff); // blob, 8191
+        // First byte: kind=3 (0x30) | size low 4 bits (0x0f) | cont (0x80) = 0xbf
+        assert_eq!(v[0], 0xbf);
+        assert!(v.len() >= 2);
+    }
+
+    #[test]
+    fn sideband_pkt_writer_frames_data_and_progress() {
+        let (tx, mut rx) = mpsc::channel::<Bytes>(4);
+        let mut w = SidebandPktWriter::new(tx, true, false);
+        // Send a small chunk; expect one pkt with band=1 and payload 'abc'
+        w.send_chunk(b"abc").unwrap();
+        // Progress line should be band=2 and newline-terminated
+        w.progress_line("Counting objects".to_string()).unwrap();
+        // Drain two messages
+        let first = rx.try_recv().expect("first pkt");
+        let pkts = decode_pkt_lines(&first).unwrap();
+        match &pkts[0] {
+            Pkt::Data(d) => {
+                assert_eq!(d[0], 1);
+                assert_eq!(&d[1..], b"abc");
+            }
+            _ => panic!("expected data pkt"),
+        }
+
+        let second = rx.try_recv().expect("second pkt");
+        let pkts2 = decode_pkt_lines(&second).unwrap();
+        match &pkts2[0] {
+            Pkt::Data(d) => {
+                assert_eq!(d[0], 2);
+                assert!(
+                    std::str::from_utf8(&d[1..])
+                        .unwrap()
+                        .starts_with("Counting objects")
+                );
+            }
+            _ => panic!("expected progress pkt"),
+        }
+    }
+
+    #[test]
+    fn sideband_pkt_writer_respects_no_sideband_or_no_progress() {
+        // No sideband: raw bytes, not pkt-framed
+        let (tx, mut rx) = mpsc::channel::<Bytes>(1);
+        let mut w = SidebandPktWriter::new(tx, false, false);
+        w.send_chunk(b"PACK").unwrap();
+        let raw = rx.try_recv().unwrap();
+        assert_eq!(&raw[..], b"PACK");
+
+        // Suppress progress
+        let (tx2, mut rx2) = mpsc::channel::<Bytes>(1);
+        let mut w2 = SidebandPktWriter::new(tx2, true, true);
+        w2.progress_line("message".to_string()).unwrap();
+        assert!(rx2.try_recv().is_err());
+    }
 }
