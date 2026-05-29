@@ -37,7 +37,7 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -257,6 +257,12 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
     // in `cue export` output.
     install_kernel_schema(workdir).map_err(|e| format!("install kernel schema failed: {e}"))?;
 
+    // The canonicalisation is lossy (every non-alphanumeric byte becomes `-`),
+    // so two distinct (extension_id, schema_id) pairs can collapse to one
+    // filename and the second `std::fs::write` would silently truncate the
+    // first. Track produced ids and fail loudly on a collision rather than
+    // dropping a schema snippet from the unified evaluation.
+    let mut seen_ids: HashSet<String> = HashSet::new();
     for schema in extension_schemas {
         // Route through the same canonicalisation the receive-pack
         // validator uses so both writers produce identical
@@ -266,7 +272,14 @@ fn install_schemas(workdir: &Path, extension_schemas: &[ExtensionSchema]) -> Res
             .clone()
             .into_cue_schema_file()
             .map_err(|e| format!("invalid extension schema id: {e}"))?;
-        let path = workdir.join(format!("01-comtrya-ext-{}.cue", canonical.id()));
+        let id = canonical.id().to_string();
+        if !seen_ids.insert(id.clone()) {
+            return Err(format!(
+                "extension schema id collision: canonical id `{id}` is produced by more than one \
+                 (extension, schema) pair (lossy canonicalisation); rename one schema"
+            ));
+        }
+        let path = workdir.join(format!("01-comtrya-ext-{id}.cue"));
         std::fs::write(&path, canonical.contents())
             .map_err(|e| format!("write {} failed: {e}", path.display()))?;
     }
@@ -568,6 +581,54 @@ mod tests {
             "observed peak {} exceeded cap {CAP}",
             observed_peak.load(Ordering::SeqCst)
         );
+    }
+
+    /// Two schemas that canonicalise to the same filename must error rather
+    /// than silently overwriting each other.
+    #[test]
+    fn install_schemas_rejects_canonical_id_collision() {
+        use super::{ExtensionSchema, install_schemas};
+        let workdir = tempfile::tempdir().expect("tempdir");
+        // extension `foo` + schema `a.b` and `foo` + `a-b` both canonicalise to
+        // `foo-a-b`.
+        let schemas = vec![
+            ExtensionSchema {
+                extension_id: "foo".to_string(),
+                schema_id: "a.b".to_string(),
+                snippet: "#A: {}\n".to_string(),
+            },
+            ExtensionSchema {
+                extension_id: "foo".to_string(),
+                schema_id: "a-b".to_string(),
+                snippet: "#B: {}\n".to_string(),
+            },
+        ];
+        let result = install_schemas(workdir.path(), &schemas);
+        let message = result.expect_err("colliding schema ids must error");
+        assert!(
+            message.contains("collision"),
+            "error should mention the collision: {message}"
+        );
+    }
+
+    /// Distinct, non-colliding schemas install without error.
+    #[test]
+    fn install_schemas_accepts_distinct_ids() {
+        use super::{ExtensionSchema, install_schemas};
+        let workdir = tempfile::tempdir().expect("tempdir");
+        let schemas = vec![
+            ExtensionSchema {
+                extension_id: "foo".to_string(),
+                schema_id: "a".to_string(),
+                snippet: "#A: {}\n".to_string(),
+            },
+            ExtensionSchema {
+                extension_id: "bar".to_string(),
+                schema_id: "b".to_string(),
+                snippet: "#B: {}\n".to_string(),
+            },
+        ];
+        install_schemas(workdir.path(), &schemas).expect("distinct ids install");
     }
 
     /// A thread that acquires a permit and panics must release the
