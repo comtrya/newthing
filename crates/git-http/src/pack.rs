@@ -26,6 +26,7 @@ struct PackPlan {
     commits: Vec<gix::hash::ObjectId>,
     trees: Vec<gix::hash::ObjectId>,
     blobs: Vec<gix::hash::ObjectId>,
+    tags: Vec<gix::hash::ObjectId>,
     shallows: Vec<gix::hash::ObjectId>,
 }
 
@@ -341,6 +342,11 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
     let mut seen: HashSet<gix::hash::ObjectId> = HashSet::new();
     let mut direct_blobs: Vec<gix::hash::ObjectId> = Vec::new();
     let mut tree_queue: VecDeque<(gix::hash::ObjectId, u32)> = VecDeque::new();
+    // Tag objects requested directly (annotated tags advertised by ls-refs are
+    // `want`ed by their tag-object id). They must be written into the pack AND
+    // their peeled target enqueued for traversal.
+    let mut tags: Vec<gix::hash::ObjectId> = Vec::new();
+    let mut seen_tag: HashSet<gix::hash::ObjectId> = HashSet::new();
     for w in req.wants() {
         if let Ok(oid) = gix::hash::ObjectId::from_hex(w.as_bytes()) {
             if let Ok(obj) = repo.find_object(oid) {
@@ -348,7 +354,35 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
                     gix::objs::Kind::Commit => want_q.push_back((oid, 0)),
                     gix::objs::Kind::Tree => tree_queue.push_back((oid, 0)),
                     gix::objs::Kind::Blob => direct_blobs.push(oid),
-                    gix::objs::Kind::Tag => (),
+                    gix::objs::Kind::Tag => {
+                        // Peel the (possibly nested) tag chain: include every
+                        // tag object, then enqueue the final non-tag target.
+                        let mut cur = oid;
+                        while seen_tag.insert(cur) {
+                            let tag_obj = match repo.find_object(cur) {
+                                Ok(o) if o.kind == gix::objs::Kind::Tag => o,
+                                _ => break,
+                            };
+                            tags.push(cur);
+                            let tag_ref = gix::objs::TagRef::from_bytes(tag_obj.data.as_ref())?;
+                            let target = tag_ref.target();
+                            match tag_ref.target_kind {
+                                gix::objs::Kind::Tag => cur = target,
+                                gix::objs::Kind::Commit => {
+                                    want_q.push_back((target, 0));
+                                    break;
+                                }
+                                gix::objs::Kind::Tree => {
+                                    tree_queue.push_back((target, 0));
+                                    break;
+                                }
+                                gix::objs::Kind::Blob => {
+                                    direct_blobs.push(target);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 want_q.push_back((oid, 0));
@@ -500,6 +534,7 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
         commits,
         trees: seen_tree.iter().cloned().collect(),
         blobs,
+        tags,
         shallows: shallows.iter().cloned().collect(),
     })
 }
@@ -522,7 +557,8 @@ fn build_and_stream_pack_with_plan(
     header.extend_from_slice(b"PACK");
     header.extend_from_slice(&2u32.to_be_bytes());
     header.extend_from_slice(
-        &((plan.commits.len() + plan.trees.len() + plan.blobs.len()) as u32).to_be_bytes(),
+        &((plan.commits.len() + plan.trees.len() + plan.blobs.len() + plan.tags.len()) as u32)
+            .to_be_bytes(),
     );
     hasher.update(&header);
     out.send_chunk(&header)?;
@@ -556,6 +592,9 @@ fn build_and_stream_pack_with_plan(
     for id in &plan.blobs {
         write_obj(*id)?;
     }
+    for id in &plan.tags {
+        write_obj(*id)?;
+    }
 
     let trailer = hasher.finalize();
     out.send_chunk(trailer.as_slice())?;
@@ -564,8 +603,9 @@ fn build_and_stream_pack_with_plan(
         let _ = out.progress_line("Done".to_string());
     }
 
-    counter!("git_http.pack.objects")
-        .increment((plan.commits.len() + plan.trees.len() + plan.blobs.len()) as u64);
+    counter!("git_http.pack.objects").increment(
+        (plan.commits.len() + plan.trees.len() + plan.blobs.len() + plan.tags.len()) as u64,
+    );
     histogram!("git_http.pack.logical_bytes").record(0.0);
     histogram!("git_http.pack.build_ms").record(start.elapsed().as_millis() as f64);
 
@@ -714,5 +754,60 @@ mod tests {
         let mut w2 = SidebandPktWriter::new(tx2, true, true);
         w2.progress_line("message".to_string()).unwrap();
         assert!(rx2.try_recv().is_err());
+    }
+
+    #[test]
+    fn plan_pack_includes_annotated_tag_and_its_target() {
+        use std::process::Command;
+        let tmp = tempfile::TempDir::new().unwrap();
+        let work = tmp.path();
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .current_dir(work)
+                .args(args)
+                .status()
+                .unwrap()
+                .success()
+        };
+        let rev_parse = |rev: &str| {
+            let out = Command::new("git")
+                .current_dir(work)
+                .args(["rev-parse", rev])
+                .output()
+                .unwrap();
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        assert!(git(&["init", "-q"]));
+        std::fs::write(work.join("README.md"), b"hello\n").unwrap();
+        assert!(git(&["add", "README.md"]));
+        assert!(git(&[
+            "-c", "user.email=t@e", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+            "commit", "-q", "--no-gpg-sign", "-m", "init",
+        ]));
+        assert!(git(&[
+            "-c", "user.email=t@e", "-c", "user.name=t", "-c", "tag.gpgsign=false",
+            "tag", "-a", "v1", "-m", "release v1",
+        ]));
+
+        let tag_oid = rev_parse("v1");
+        let commit_oid = rev_parse("v1^{commit}");
+        // Sanity: an annotated tag's object id differs from its target commit.
+        assert_ne!(tag_oid, commit_oid, "expected an annotated, not lightweight, tag");
+
+        let mut req = FetchRequest::default();
+        req.extend_wants([tag_oid.clone()]);
+        let plan = plan_pack(work.to_path_buf(), &req).unwrap();
+
+        let hexes = |v: &[gix::hash::ObjectId]| v.iter().map(|o| o.to_string()).collect::<Vec<_>>();
+        assert!(
+            hexes(&plan.tags).contains(&tag_oid),
+            "annotated tag object must be written into the pack; got {:?}",
+            plan.tags,
+        );
+        assert!(
+            hexes(&plan.commits).contains(&commit_oid),
+            "tag's target commit must be traversed into the pack; got {:?}",
+            plan.commits,
+        );
     }
 }
