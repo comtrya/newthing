@@ -186,12 +186,17 @@ impl JobQueue {
             .jobs
             .get_mut(lease.job_id.as_str())
             .ok_or_else(|| CoreError::bad_user_input("unknown job"))?;
+        // `u64::MAX` is the sentinel for "ignore lease expiry" — used by
+        // `complete`, which finalizes a held lease and must not be rejected
+        // merely because the deadline has notionally passed.
+        let lease_expired = now_ms != u64::MAX
+            && job
+                .locked_until_ms
+                .is_some_and(|locked_until| locked_until <= now_ms);
         if job.state != JobState::Running
             || job.locked_by.as_deref() != Some(lease.worker.as_str())
             || job.lease_generation != lease.generation
-            || job
-                .locked_until_ms
-                .is_some_and(|locked_until| locked_until <= now_ms)
+            || lease_expired
         {
             return Err(CoreError::conflict("job lease is no longer held by worker"));
         }
@@ -231,6 +236,28 @@ mod tests {
 
         assert!(first.is_some());
         assert!(second.is_none());
+    }
+
+    #[test]
+    fn complete_succeeds_on_a_freshly_claimed_lease() {
+        // Regression: `complete` ignores lease expiry via the u64::MAX
+        // sentinel; it must finalize a held lease rather than always
+        // reporting the lease as lost.
+        let mut queue = JobQueue::default();
+        queue.enqueue("publish", "default", "{}", 0);
+        let (lease, _job) = queue
+            .claim_next("default", "worker-a", 0, 1_000)
+            .expect("claim succeeds");
+
+        queue
+            .complete(&lease, "{\"ok\":true}")
+            .expect("complete on a held lease must succeed");
+
+        let job = queue.get(&lease.job_id).expect("job present");
+        assert_eq!(job.state, JobState::Succeeded);
+        assert_eq!(job.locked_by, None);
+        assert_eq!(job.locked_until_ms, None);
+        assert_eq!(job.payload_json, "{\"ok\":true}");
     }
 
     #[test]
