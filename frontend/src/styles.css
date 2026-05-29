@@ -2543,11 +2543,6 @@ kbd {
   border-radius: 999px;
 }
 
-/* ── Sparkline strokes ─────────────────────────────────────── */
-
-.spark { stroke: var(--fg-3); fill: none; stroke-width: 1.25; }
-.spark-accent { stroke: var(--accent); }
-
 /* ── Window chrome dots (macOS-style) ──────────────────────── */
 
 .win-dots { display: inline-flex; gap: 7px; }

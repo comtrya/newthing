@@ -1,5 +1,5 @@
 use crate::error::{CoreError, CoreResult};
-use crate::events::{CoreEventType, EventActor, EventEnvelope, EventOutbox};
+use crate::events::{CoreEvent, CoreEventType, EventActor, EventEnvelope, EventOutbox};
 use crate::{ResourceRef, Visibility};
 use std::collections::BTreeMap;
 
@@ -51,6 +51,9 @@ impl SecretStore {
         &self,
         grant: &SecretGrant,
         name: &str,
+        secret_resource: &ResourceRef,
+        actor: EventActor,
+        now_ms: u64,
         outbox: &mut EventOutbox,
     ) -> CoreResult<String> {
         if !grant.read.iter().any(|allowed| allowed == name) {
@@ -64,19 +67,17 @@ impl SecretStore {
             .secrets
             .get(name)
             .ok_or_else(|| CoreError::bad_user_input("unknown secret"))?;
-        let source = ResourceRef::parse("comtrya://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
         outbox.append(EventEnvelope::core(
-            CoreEventType::SecretAccessed,
-            source.clone(),
-            Some(name.to_string()),
-            EventActor {
-                kind: "extension".to_string(),
-                uri: "comtrya://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-                display_name: None,
+            CoreEvent {
+                event_type: CoreEventType::SecretAccessed,
+                source: secret_resource.clone(),
+                subject: Some(name.to_string()),
+                actor,
+                visibility: Visibility::Private,
+                resources: vec![secret_resource.clone()],
+                data_json: "{}".to_string(),
             },
-            Visibility::Private,
-            vec![source],
-            "{}",
+            now_ms,
         ));
         Ok(secret.ciphertext.clone())
     }
@@ -98,14 +99,31 @@ mod tests {
         store
             .write(&grant, "github-token", "ciphertext")
             .expect("write grant is present");
+        let secret_resource =
+            ResourceRef::parse("comtrya://secret/sec_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+        let actor = EventActor {
+            kind: "extension".to_string(),
+            uri: "comtrya://extension/ext_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+            display_name: None,
+        };
         assert_eq!(
-            store.read(&grant, "github-token", &mut outbox).unwrap(),
+            store
+                .read(
+                    &grant,
+                    "github-token",
+                    &secret_resource,
+                    actor,
+                    1_700_000_000_000,
+                    &mut outbox
+                )
+                .unwrap(),
             "ciphertext"
         );
         assert_eq!(
             outbox.all()[0].event_type,
             CoreEventType::SecretAccessed.as_str()
         );
+        assert_eq!(outbox.all()[0].time, "2023-11-14T22:13:20.000Z");
     }
 
     #[test]

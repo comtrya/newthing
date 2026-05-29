@@ -176,7 +176,7 @@
       "properties": {
         "subscribes": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "pattern": "^([a-z][a-z0-9-]*|\\*)(\\.([a-z][a-z0-9-]*|\\*))*$" }
         },
         "allowedMutations": {
           "type": "array",

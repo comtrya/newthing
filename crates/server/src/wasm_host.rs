@@ -528,6 +528,43 @@ impl HostState {
             Err(MintError::Internal(reason)) => Err(err(wit_types::ErrorCode::Internal, reason)),
         }
     }
+
+    /// Enforce per-record authorship before a mutation on the shared
+    /// `core`-owned `relations`/`comments` namespace. The coarse host
+    /// import (`relations.write`/`comments.write`) only proves the caller
+    /// may write *some* relation/comment; it does not authorise editing or
+    /// deleting one authored by a different principal. Every relation and
+    /// comment records the creating principal in its `authorRef` data
+    /// field, so we load the target record and require the caller to match
+    /// it. Returns `NotFound` when the record is absent so the caller can
+    /// surface a uniform "no such record" without leaking authorship.
+    fn require_record_author(&self, collection: &str, id: &str) -> Result<(), wit_types::Error> {
+        let records = self
+            .store
+            .load_records()
+            .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
+        let record = records
+            .iter()
+            .find(|r| r.collection == collection && r.id == id)
+            .ok_or_else(|| {
+                err(
+                    wit_types::ErrorCode::NotFound,
+                    format!("{collection} not found: {id}"),
+                )
+            })?;
+        let author = record.data.get("authorRef").and_then(Value::as_str);
+        if author == Some(self.current_principal.as_str()) {
+            Ok(())
+        } else {
+            Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!(
+                    "principal {} is not the author of {collection} {id}",
+                    self.current_principal
+                ),
+            ))
+        }
+    }
 }
 
 impl wit_ids::Host for HostState {
@@ -647,7 +684,7 @@ impl wit_storage::Host for HostState {
             resource: metadata.resource_uri.clone(),
             resource_refs: metadata.resource_refs.clone(),
             visibility: "private".to_string(),
-            indexed_fields: extract_indexed_fields(&json),
+            indexed_fields: crate::indexed_fields(&json),
             version: 1,
             updated_at: self.clock.now_iso(),
             data: json,
@@ -762,6 +799,7 @@ impl wit_storage::Host for HostState {
             )
         })?;
         let commit_result = self.store.update_document_if_version(
+            &self.extension_id,
             &collection,
             &id,
             Some(expected_u64),
@@ -844,21 +882,6 @@ impl wit_storage::Host for HostState {
     }
 }
 
-fn extract_indexed_fields(json: &Value) -> BTreeMap<String, Value> {
-    // Phase 2 stub: index every top-level scalar. The Phase 3 codegen
-    // will read the extension's WIT-declared indexed fields and emit
-    // a per-collection extractor.
-    let mut out = BTreeMap::new();
-    if let Some(obj) = json.as_object() {
-        for (k, v) in obj {
-            if v.is_string() || v.is_number() || v.is_boolean() || v.is_null() {
-                out.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    out
-}
-
 // ---- stubs (relations, comments, events, ops) ----
 //
 // These return `error-code::internal` with a TODO marker. The kernel
@@ -899,6 +922,7 @@ impl wit_relations::Host for HostState {
             "from": source,
             "to": target,
             "kind": kind,
+            "authorRef": self.current_principal,
             "attributes": attributes.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok()),
             "createdAt": created_at,
         });
@@ -929,13 +953,14 @@ impl wit_relations::Host for HostState {
         attributes: Option<Vec<u8>>,
     ) -> Result<wit_relations::Relation, wit_types::Error> {
         self.require_host_import("relations.write")?;
+        self.require_record_author("relations", &id)?;
         let attrs_value: Value = attributes
             .as_deref()
             .and_then(|b| serde_json::from_slice::<Value>(b).ok())
             .unwrap_or(Value::Null);
         let id_for_lookup = id.clone();
         self.store
-            .update_document_atomically("relations", &id, move |doc| {
+            .update_document_atomically("core", "relations", &id, move |doc| {
                 if let Some(obj) = doc.as_object_mut() {
                     obj.insert("attributes".to_string(), attrs_value);
                 }
@@ -954,6 +979,16 @@ impl wit_relations::Host for HostState {
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
         self.require_host_import("relations.write")?;
+        // A missing relation is `WasAbsent` (idempotent delete); a relation
+        // authored by a different principal is `Forbidden`. Only the author
+        // may delete their own relation.
+        match self.require_record_author("relations", &id) {
+            Ok(()) => {}
+            Err(e) if matches!(e.code, wit_types::ErrorCode::NotFound) => {
+                return Ok(wit_types::DeleteResult::WasAbsent);
+            }
+            Err(e) => return Err(e),
+        }
         match self.store.delete_document("core", "relations", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
@@ -1271,6 +1306,7 @@ impl wit_comments::Host for HostState {
         body_markdown: String,
     ) -> Result<wit_comments::Comment, wit_types::Error> {
         self.require_host_import("comments.write")?;
+        self.require_record_author("comments", &id)?;
         if body_markdown.len() > 64 * 1024 {
             return Err(err(wit_types::ErrorCode::BadInput, "body must be <= 64KiB"));
         }
@@ -1278,7 +1314,7 @@ impl wit_comments::Host for HostState {
         let now_for_closure = now.clone();
         let id_for_lookup = id.clone();
         self.store
-            .update_document_atomically("comments", &id, move |doc| {
+            .update_document_atomically("core", "comments", &id, move |doc| {
                 if let Some(obj) = doc.as_object_mut() {
                     obj.insert("bodyMarkdown".to_string(), Value::String(body_markdown));
                     obj.insert(
@@ -1308,6 +1344,16 @@ impl wit_comments::Host for HostState {
 
     fn delete(&mut self, id: wit_types::Id) -> Result<wit_types::DeleteResult, wit_types::Error> {
         self.require_host_import("comments.write")?;
+        // A missing comment is `WasAbsent` (idempotent delete); a comment
+        // authored by a different principal is `Forbidden`. Only the author
+        // may delete their own comment.
+        match self.require_record_author("comments", &id) {
+            Ok(()) => {}
+            Err(e) if matches!(e.code, wit_types::ErrorCode::NotFound) => {
+                return Ok(wit_types::DeleteResult::WasAbsent);
+            }
+            Err(e) => return Err(e),
+        }
         match self.store.delete_document("core", "comments", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
             Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
@@ -1832,9 +1878,12 @@ mod tests {
     fn ops_invoke_requires_canonical_allowed_route_and_threads_principal() {
         use std::sync::{Arc, Mutex, RwLock};
 
+        // (target_extension, op, payload, current_principal, depth)
+        type RecordedCall = (String, String, Vec<u8>, String, u32);
+
         #[derive(Clone, Default)]
         struct RecordingDispatcher {
-            calls: Arc<Mutex<Vec<(String, String, Vec<u8>, String, u32)>>>,
+            calls: Arc<Mutex<Vec<RecordedCall>>>,
         }
 
         impl OpsDispatcher for RecordingDispatcher {
@@ -2032,6 +2081,174 @@ mod tests {
         assert_eq!(s, "1970-01-01T00:00:00Z");
         let s = seconds_to_iso8601(1_700_000_000);
         assert!(s.starts_with("2023-11-"));
+    }
+
+    fn host_with_principal(store: Arc<crate::ExtensionRuntimeStore>, principal: &str) -> HostState {
+        use std::sync::RwLock;
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("comment".to_string(), "cmt".to_string());
+        kinds.insert("relation".to_string(), "rel".to_string());
+        host_state_for_op(HostStateForOp {
+            extension_id: "ext_test".to_string(),
+            extension_principal: "comtrya://extension/ext_test".to_string(),
+            current_principal: principal.to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                host_imports: vec![
+                    "comments.read".to_string(),
+                    "comments.write".to_string(),
+                    "relations.read".to_string(),
+                    "relations.write".to_string(),
+                ],
+                ..HostManifest::default()
+            }),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+        })
+    }
+
+    fn tmp_store(tag: &str) -> Arc<crate::ExtensionRuntimeStore> {
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap())
+    }
+
+    #[test]
+    fn comment_edit_delete_enforce_per_record_author() {
+        let store = tmp_store("comment-author");
+        let author = "comtrya://user/usr_author";
+        let other = "comtrya://user/usr_other";
+
+        let mut author_host = host_with_principal(store.clone(), author);
+        let comment = <HostState as wit_comments::Host>::post(
+            &mut author_host,
+            "comtrya://issue/iss_target".to_string(),
+            None,
+            "hello".to_string(),
+        )
+        .expect("author can post");
+
+        // A different principal holds comments.write but is NOT the author:
+        // edit and delete must be Forbidden, not silently allowed.
+        let mut other_host = host_with_principal(store.clone(), other);
+        let edit_err = <HostState as wit_comments::Host>::edit(
+            &mut other_host,
+            comment.id.clone(),
+            "tampered".to_string(),
+        )
+        .expect_err("non-author edit must be rejected");
+        assert!(matches!(edit_err.code, wit_types::ErrorCode::Forbidden));
+        let delete_err =
+            <HostState as wit_comments::Host>::delete(&mut other_host, comment.id.clone())
+                .expect_err("non-author delete must be rejected");
+        assert!(matches!(delete_err.code, wit_types::ErrorCode::Forbidden));
+
+        // The author can edit and delete their own comment.
+        <HostState as wit_comments::Host>::edit(
+            &mut author_host,
+            comment.id.clone(),
+            "edited".to_string(),
+        )
+        .expect("author can edit own comment");
+        let deleted =
+            <HostState as wit_comments::Host>::delete(&mut author_host, comment.id.clone())
+                .expect("author can delete own comment");
+        assert!(matches!(deleted, wit_types::DeleteResult::Deleted));
+
+        // Deleting an absent comment is idempotent (WasAbsent), not Forbidden.
+        let absent =
+            <HostState as wit_comments::Host>::delete(&mut author_host, comment.id.clone())
+                .expect("absent delete is idempotent");
+        assert!(matches!(absent, wit_types::DeleteResult::WasAbsent));
+    }
+
+    #[test]
+    fn relation_replace_delete_enforce_per_record_author() {
+        let store = tmp_store("relation-author");
+        let author = "comtrya://user/usr_rel_author";
+        let other = "comtrya://user/usr_rel_other";
+
+        let mut author_host = host_with_principal(store.clone(), author);
+        let created = <HostState as wit_relations::Host>::create(
+            &mut author_host,
+            "comtrya://issue/iss_a".to_string(),
+            "comtrya://epic/epc_b".to_string(),
+            "comtrya://relation-kind/tracks".to_string(),
+            None,
+        )
+        .expect("author can create relation");
+        let relation_id = match created {
+            wit_relations::CreateResult::Created(r) => r.id,
+            wit_relations::CreateResult::AlreadyExisted(r) => r.id,
+        };
+
+        let mut other_host = host_with_principal(store.clone(), other);
+        let replace_err = <HostState as wit_relations::Host>::replace_attributes(
+            &mut other_host,
+            relation_id.clone(),
+            Some(b"{\"x\":1}".to_vec()),
+        )
+        .expect_err("non-author replace must be rejected");
+        assert!(matches!(replace_err.code, wit_types::ErrorCode::Forbidden));
+        let delete_err =
+            <HostState as wit_relations::Host>::delete(&mut other_host, relation_id.clone())
+                .expect_err("non-author delete must be rejected");
+        assert!(matches!(delete_err.code, wit_types::ErrorCode::Forbidden));
+
+        // The author can replace attributes and delete their own relation.
+        <HostState as wit_relations::Host>::replace_attributes(
+            &mut author_host,
+            relation_id.clone(),
+            Some(b"{\"x\":2}".to_vec()),
+        )
+        .expect("author can replace own relation attributes");
+        let deleted =
+            <HostState as wit_relations::Host>::delete(&mut author_host, relation_id.clone())
+                .expect("author can delete own relation");
+        assert!(matches!(deleted, wit_types::DeleteResult::Deleted));
+    }
+
+    #[test]
+    fn indexed_fields_are_shared_between_create_and_update_paths() {
+        // A field indexed at create time (`customScalar`) must survive the
+        // first update, instead of vanishing because it was not on a
+        // hardcoded allow-list. The WASM `storage.create` path and the OCC
+        // update path share `crate::indexed_fields`.
+        let store = tmp_store("indexed-shared");
+        let json = serde_json::json!({
+            "id": "iss_shared",
+            "customScalar": "keep-me",
+            "state": "open",
+        });
+        let created = crate::indexed_fields(&json);
+        assert_eq!(
+            created.get("customScalar"),
+            Some(&Value::String("keep-me".to_string())),
+            "create-time index must include every top-level scalar"
+        );
+        // The update path recomputes via the same function, so the field
+        // is still present after a mutation that does not touch it.
+        let mut mutated = json.clone();
+        mutated["state"] = Value::String("closed".to_string());
+        let updated = crate::indexed_fields(&mutated);
+        assert_eq!(
+            updated.get("customScalar"),
+            Some(&Value::String("keep-me".to_string())),
+            "update must preserve fields indexed at create time"
+        );
+        let _ = store;
     }
 }
 

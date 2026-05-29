@@ -37,39 +37,21 @@ export interface RelationshipTargetProvider {
   ): Promise<RelationshipTarget[]> | RelationshipTarget[];
 }
 
-interface RelationshipRegistry {
-  types: Map<string, RelationshipTypeContribution>;
-  providers: Map<string, RelationshipTargetProvider>;
-  subscribers: Set<() => void>;
-}
-
-const REGISTRY_KEY = Symbol.for("comtrya.relationship-registry");
-
-const REGISTRY = sharedRegistry();
-
-function sharedRegistry(): RelationshipRegistry {
-  const root = globalThis as typeof globalThis & {
-    [REGISTRY_KEY]?: RelationshipRegistry;
-  };
-  root[REGISTRY_KEY] ??= {
-    types: new Map(),
-    providers: new Map(),
-    subscribers: new Set(),
-  };
-  return root[REGISTRY_KEY];
-}
+const TYPES = new Map<string, RelationshipTypeContribution>();
+const PROVIDERS = new Map<string, RelationshipTargetProvider>();
+const SUBSCRIBERS = new Set<() => void>();
 
 export function registerRelationshipType(
   contribution: RelationshipTypeContribution,
 ): void {
-  REGISTRY.types.set(contribution.id, contribution);
+  TYPES.set(contribution.id, contribution);
   notify();
 }
 
 export function relationshipTypesForSourceKind(
   kind: string,
 ): RelationshipTypeContribution[] {
-  return [...REGISTRY.types.values()]
+  return [...TYPES.values()]
     .filter((type) => (
       type.sourceKinds.includes(kind) ||
       type.targetKinds.includes(kind)
@@ -82,28 +64,28 @@ export function relationshipTypesForSourceKind(
 export function registerRelationshipTargetProvider(
   provider: RelationshipTargetProvider,
 ): void {
-  REGISTRY.providers.set(provider.resourceKind, provider);
+  PROVIDERS.set(provider.resourceKind, provider);
   notify();
 }
 
 export function relationshipTargetProviderForKind(
   resourceKind: string,
 ): RelationshipTargetProvider | undefined {
-  return REGISTRY.providers.get(resourceKind);
+  return PROVIDERS.get(resourceKind);
 }
 
 export function subscribeRelationshipTypes(callback: () => void): () => void {
-  REGISTRY.subscribers.add(callback);
-  return () => REGISTRY.subscribers.delete(callback);
+  SUBSCRIBERS.add(callback);
+  return () => SUBSCRIBERS.delete(callback);
 }
 
 function notify(): void {
-  for (const subscriber of REGISTRY.subscribers) subscriber();
+  for (const subscriber of SUBSCRIBERS) subscriber();
 }
 
 /** Test-only. */
 export function _resetRelationshipsForTesting(): void {
-  REGISTRY.types.clear();
-  REGISTRY.providers.clear();
-  REGISTRY.subscribers.clear();
+  TYPES.clear();
+  PROVIDERS.clear();
+  SUBSCRIBERS.clear();
 }

@@ -61,7 +61,8 @@
   ],
   "allowedEmits": [
     "dev.comtrya.epic.created",
-    "dev.comtrya.epic.state-changed"
+    "dev.comtrya.epic.state-changed",
+    "dev.comtrya.epic.project-changed"
   ],
   "allowedEventReads": ["ext_issues"],
   "allowedCrossCalls": [

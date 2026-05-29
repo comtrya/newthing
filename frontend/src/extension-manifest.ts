@@ -31,7 +31,5 @@ export function parseManifest(input: unknown): UiManifestV2 {
     throw new Error("permissions must be an array of strings");
   }
   // Slot, route, and card declarations are runtime, not manifest.
-  // `contributes.slots/routes/cards` (if present) is tolerated for
-  // back-compat with not-yet-cleaned manifests but otherwise ignored.
   return m;
 }

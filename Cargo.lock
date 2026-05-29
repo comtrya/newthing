@@ -393,6 +393,7 @@ name = "comtrya-extension-oci"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "comtrya-core",
  "oci-distribution",
  "serde",
  "serde_json",
@@ -457,8 +458,6 @@ name = "comtrya-wit-codegen"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "serde",
- "serde_json",
  "wit-parser 0.235.0",
 ]
 

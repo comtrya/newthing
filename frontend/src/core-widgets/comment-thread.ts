@@ -21,7 +21,7 @@
 import { classifyPrincipal, renderMarkdown } from "@comtrya/sdk-vue";
 import { extensionClient } from "../extension-runtime";
 
-export const CORE_COMMENT_THREAD_ELEMENT = "comtrya-comment-thread";
+const CORE_COMMENT_THREAD_ELEMENT = "comtrya-comment-thread";
 
 interface Comment {
   id: string;

@@ -950,7 +950,9 @@ fn parse_fetch(pkts: &[Pkt]) -> anyhow::Result<FetchRequest> {
     {
         anyhow::bail!("unsupported object-format {fmt}");
     }
-    if req.wants.is_empty() {
+    // ref-in-want is advertised, so a request that carries only `want-ref`
+    // lines (and no raw `want` oids) is valid; the refs are resolved later.
+    if req.wants.is_empty() && req.want_refs.is_empty() {
         anyhow::bail!("no wants provided");
     }
     Ok(req)
@@ -1169,6 +1171,31 @@ mod tests {
         let req = parse_fetch(&pkts).unwrap();
         assert_eq!(req.wants.len(), 1);
         assert_eq!(req.object_format.as_deref(), Some("sha1"));
+    }
+
+    #[test]
+    fn parse_accepts_want_ref_only_request() {
+        // ref-in-want: a request with only `want-ref` (no raw `want` oid) is
+        // advertised as supported and must parse, not be rejected.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&encode_pkt_line(b"command=fetch\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"object-format=sha1\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"want-ref refs/heads/main\n"));
+        buf.extend_from_slice(PKT_FLUSH);
+        let pkts = decode_pkt_lines(&buf).unwrap();
+        let req = parse_fetch(&pkts).expect("want-ref-only request must parse");
+        assert!(req.wants.is_empty());
+        assert_eq!(req.want_refs.len(), 1);
+    }
+
+    #[test]
+    fn parse_rejects_empty_request_with_no_wants_or_want_refs() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&encode_pkt_line(b"command=fetch\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"object-format=sha1\n"));
+        buf.extend_from_slice(PKT_FLUSH);
+        let pkts = decode_pkt_lines(&buf).unwrap();
+        assert!(parse_fetch(&pkts).is_err());
     }
 
     #[test]

@@ -17,8 +17,6 @@
     "@comtrya/sdk-preact": "workspace:*",
     "@comtrya/sdk-vue": "workspace:*",
     "@headlessui/vue": "^1.7.23",
-    "@pierre/diffs": "^1.1.21",
-    "@pierre/trees": "^1.0.0-beta.3",
     "@preact/signals": "^1.0.0",
     "@terrastruct/d2": "^0.1.33",
     "@vitejs/plugin-vue": "latest",

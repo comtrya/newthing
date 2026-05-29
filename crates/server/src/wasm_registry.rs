@@ -16,6 +16,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use serde::Deserialize;
 use serde_json::Value;
 use wasmtime::Engine;
 use wasmtime::component::{Component, Linker};
@@ -112,11 +113,11 @@ impl WasmRegistry {
         let json: Value = serde_json::from_str(&text)
             .map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
         validate_manifest_against_schema(&json, &manifest_path)?;
-        let id = json
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing id", manifest_path.display()))?
-            .to_string();
+        let wire = parse_wire_manifest(&json, &manifest_path)?;
+        let id = wire
+            .id
+            .clone()
+            .ok_or_else(|| format!("{} missing id", manifest_path.display()))?;
         if crate::generated_dispatch::invoker_for_extension(&id).is_none() {
             return Err(format!(
                 "extension {id} declares platformWitVersion but has no typed WASM invoker"
@@ -128,12 +129,12 @@ impl WasmRegistry {
         let component = Component::new(&self.engine, &bytes)
             .map_err(|e| format!("compile {}: {e}", wasm_path.display()))?;
 
-        let host_manifest = parse_host_manifest(&json)?;
+        let host_manifest = host_manifest_from_wire(&wire);
         // Register the extension's declared kinds with the minter,
         // honouring the prefix declared in each `contributes.resourceKinds[]`
-        // entry. (`parse_host_manifest` flattens to the kind name; for
-        // prefix-aware registration we read directly from the JSON.)
-        register_kinds_from_manifest_json(&self.id_minter, &json)?;
+        // entry. The `HostManifest` flattens to kind names; the minter
+        // needs the prefix too, so it reads from the same typed `wire`.
+        register_kinds_from_wire(&self.id_minter, &wire);
 
         let loaded = Arc::new(LoadedExtension {
             id: id.clone(),
@@ -519,64 +520,93 @@ fn validate_manifest_against_schema(manifest: &Value, manifest_path: &Path) -> R
     }
 }
 
-fn parse_host_manifest(json: &Value) -> Result<HostManifest, String> {
-    let strings_at = |ptr: &str| -> Vec<String> {
-        json.pointer(ptr)
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let contributes_resource_kinds = json
-        .pointer("/contributes/resourceKinds")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Ok(HostManifest {
-        allowed_emits: strings_at("/allowedEmits"),
-        allowed_event_reads: strings_at("/allowedEventReads"),
-        allowed_cross_calls: strings_at("/allowedCrossCalls"),
-        reactor_subscribes: strings_at("/reactor/subscribes"),
-        reactor_allowed_mutations: strings_at("/reactor/allowedMutations"),
-        reactor_allowed_emits: strings_at("/reactor/allowedEmits"),
-        contributes_resource_kinds,
-        host_imports: strings_at("/hostImports"),
+/// Typed view of the extension manifest — only the host-enforced
+/// fields. Deserialized once after schema validation so field names
+/// live in one place and typos fail to compile rather than silently
+/// reading `null`. The manifest schema is authoritative for required
+/// fields; everything optional here defaults to empty.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireManifest {
+    id: Option<String>,
+    #[serde(default)]
+    allowed_emits: Vec<String>,
+    #[serde(default)]
+    allowed_event_reads: Vec<String>,
+    #[serde(default)]
+    allowed_cross_calls: Vec<String>,
+    #[serde(default)]
+    reactor: WireReactor,
+    #[serde(default)]
+    contributes: WireContributes,
+    #[serde(default)]
+    host_imports: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireReactor {
+    #[serde(default)]
+    subscribes: Vec<String>,
+    #[serde(default)]
+    allowed_mutations: Vec<String>,
+    #[serde(default)]
+    allowed_emits: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireContributes {
+    #[serde(default)]
+    resource_kinds: Vec<WireResourceKind>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireResourceKind {
+    name: String,
+    prefix: Option<String>,
+}
+
+fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
+    serde_json::from_value(json.clone()).map_err(|e| {
+        format!(
+            "{} has unexpected manifest shape: {e}",
+            manifest_path.display()
+        )
     })
 }
 
-fn register_kinds_from_manifest_json(
-    minter: &Arc<dyn IdMinter + Send + Sync>,
-    manifest_json: &Value,
-) -> Result<(), String> {
-    let Some(kinds) = manifest_json
-        .pointer("/contributes/resourceKinds")
-        .and_then(Value::as_array)
-    else {
-        return Ok(());
-    };
-    for entry in kinds {
-        let Some(name) = entry.get("name").and_then(Value::as_str) else {
-            continue;
-        };
+fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {
+    HostManifest {
+        allowed_emits: wire.allowed_emits.clone(),
+        allowed_event_reads: wire.allowed_event_reads.clone(),
+        allowed_cross_calls: wire.allowed_cross_calls.clone(),
+        reactor_subscribes: wire.reactor.subscribes.clone(),
+        reactor_allowed_mutations: wire.reactor.allowed_mutations.clone(),
+        reactor_allowed_emits: wire.reactor.allowed_emits.clone(),
+        contributes_resource_kinds: wire
+            .contributes
+            .resource_kinds
+            .iter()
+            .map(|k| k.name.clone())
+            .collect(),
+        host_imports: wire.host_imports.clone(),
+    }
+}
+
+fn register_kinds_from_wire(minter: &Arc<dyn IdMinter + Send + Sync>, wire: &WireManifest) {
+    for kind in &wire.contributes.resource_kinds {
         // The manifest schema requires `prefix` on every resourceKinds
         // entry. Fall back to a name-derived default only if absent
         // (defensive — the validated schema rejects entries without
         // `prefix` before we reach this code).
-        let prefix = entry
-            .get("prefix")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| prefix_for_kind(name));
-        minter.register_kind(name, &prefix);
+        let prefix = kind
+            .prefix
+            .clone()
+            .unwrap_or_else(|| prefix_for_kind(&kind.name));
+        minter.register_kind(&kind.name, &prefix);
     }
-    Ok(())
 }
 
 fn prefix_for_kind(kind: &str) -> String {
@@ -634,6 +664,129 @@ pub fn build_host_state(
 pub struct RegistryDispatcher {
     pub registry: WasmRegistry,
     pub store: Arc<crate::ExtensionRuntimeStore>,
+}
+
+impl OpsDispatcher for RegistryDispatcher {
+    fn dispatch(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
+        self.dispatch_with_reactor_depth(target_extension, op, payload, current_principal, depth, 0)
+    }
+
+    fn dispatch_with_reactor_depth(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+        reactor_depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
+        let _ext = self
+            .registry
+            .get(target_extension)
+            .ok_or_else(|| wit_types::Error {
+                code: wit_types::ErrorCode::NotFound,
+                message: format!("extension '{}' not registered", target_extension),
+                path: None,
+            })?;
+        let info = resolve_cross_call_route(target_extension, op)?;
+        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
+            .ok_or_else(|| wit_types::Error {
+                code: wit_types::ErrorCode::Unavailable,
+                message: format!(
+                    "no typed WASM invoker registered for extension '{}'",
+                    info.extension_id
+                ),
+                path: None,
+            })?;
+        invoker(
+            &self.registry,
+            self.store.clone(),
+            current_principal,
+            &info,
+            payload,
+            depth,
+            reactor_depth,
+        )
+    }
+
+    fn dispatch_event(&self, event: &wit_types::Event, depth: u32) -> usize {
+        self.registry
+            .dispatch_reactor_event(self.store.clone(), event, depth)
+    }
+}
+
+fn resolve_cross_call_route(
+    target_extension: &str,
+    op: &str,
+) -> Result<crate::generated_dispatch::DispatchInfo, wit_types::Error> {
+    if !is_canonical_wit_op_route(op) {
+        return Err(wit_types::Error {
+            code: wit_types::ErrorCode::BadInput,
+            message: format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
+            path: Some("op".to_string()),
+        });
+    }
+    if let Some(info) = crate::generated_dispatch::dispatch_wit_route(target_extension, op) {
+        return Ok(info);
+    }
+    Err(wit_types::Error {
+        code: wit_types::ErrorCode::NotFound,
+        message: format!("op '{op}' not found on extension '{target_extension}'"),
+        path: None,
+    })
+}
+
+fn is_canonical_wit_op_route(op: &str) -> bool {
+    let Some((interface, operation)) = op.split_once('.') else {
+        return false;
+    };
+    !interface.is_empty()
+        && !operation.is_empty()
+        && !interface.contains(['.', '/'])
+        && !operation.contains(['.', '/'])
+}
+
+fn validate_event_pattern(pattern: &str) -> Result<(), String> {
+    if pattern.is_empty() {
+        return Err("pattern must not be empty".to_string());
+    }
+    for segment in pattern.split('.') {
+        if segment == "*" {
+            continue;
+        }
+        if !valid_event_segment(segment) {
+            return Err(
+                "segments must be '*' or lowercase kebab names starting with a letter".to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn event_pattern_matches(pattern: &str, event_type: &str) -> bool {
+    let pattern_segments = pattern.split('.').collect::<Vec<_>>();
+    let event_segments = event_type.split('.').collect::<Vec<_>>();
+    pattern_segments.len() == event_segments.len()
+        && pattern_segments
+            .iter()
+            .zip(event_segments)
+            .all(|(pattern, event)| *pattern == "*" || *pattern == event)
+}
+
+fn valid_event_segment(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
 #[cfg(test)]
@@ -725,7 +878,10 @@ mod tests {
     #[test]
     fn parse_host_manifest_handles_missing_optional_fields() {
         let minimal = serde_json::json!({ "id": "ext_minimal" });
-        let manifest = parse_host_manifest(&minimal).expect("parse");
+        let wire = parse_wire_manifest(&minimal, std::path::Path::new("test-manifest.json"))
+            .expect("parse");
+        assert_eq!(wire.id.as_deref(), Some("ext_minimal"));
+        let manifest = host_manifest_from_wire(&wire);
         assert!(manifest.allowed_emits.is_empty());
         assert!(manifest.reactor_subscribes.is_empty());
         assert!(manifest.contributes_resource_kinds.is_empty());
@@ -1303,127 +1459,4 @@ mod tests {
         std::fs::create_dir_all(&path).expect("mkdir tempdir");
         path
     }
-}
-
-impl OpsDispatcher for RegistryDispatcher {
-    fn dispatch(
-        &self,
-        target_extension: &str,
-        op: &str,
-        payload: &[u8],
-        current_principal: &str,
-        depth: u32,
-    ) -> Result<Vec<u8>, wit_types::Error> {
-        self.dispatch_with_reactor_depth(target_extension, op, payload, current_principal, depth, 0)
-    }
-
-    fn dispatch_with_reactor_depth(
-        &self,
-        target_extension: &str,
-        op: &str,
-        payload: &[u8],
-        current_principal: &str,
-        depth: u32,
-        reactor_depth: u32,
-    ) -> Result<Vec<u8>, wit_types::Error> {
-        let _ext = self
-            .registry
-            .get(target_extension)
-            .ok_or_else(|| wit_types::Error {
-                code: wit_types::ErrorCode::NotFound,
-                message: format!("extension '{}' not registered", target_extension),
-                path: None,
-            })?;
-        let info = resolve_cross_call_route(target_extension, op)?;
-        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
-            .ok_or_else(|| wit_types::Error {
-                code: wit_types::ErrorCode::Unavailable,
-                message: format!(
-                    "no typed WASM invoker registered for extension '{}'",
-                    info.extension_id
-                ),
-                path: None,
-            })?;
-        invoker(
-            &self.registry,
-            self.store.clone(),
-            current_principal,
-            &info,
-            payload,
-            depth,
-            reactor_depth,
-        )
-    }
-
-    fn dispatch_event(&self, event: &wit_types::Event, depth: u32) -> usize {
-        self.registry
-            .dispatch_reactor_event(self.store.clone(), event, depth)
-    }
-}
-
-fn resolve_cross_call_route(
-    target_extension: &str,
-    op: &str,
-) -> Result<crate::generated_dispatch::DispatchInfo, wit_types::Error> {
-    if !is_canonical_wit_op_route(op) {
-        return Err(wit_types::Error {
-            code: wit_types::ErrorCode::BadInput,
-            message: format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
-            path: Some("op".to_string()),
-        });
-    }
-    if let Some(info) = crate::generated_dispatch::dispatch_wit_route(target_extension, op) {
-        return Ok(info);
-    }
-    Err(wit_types::Error {
-        code: wit_types::ErrorCode::NotFound,
-        message: format!("op '{op}' not found on extension '{target_extension}'"),
-        path: None,
-    })
-}
-
-fn is_canonical_wit_op_route(op: &str) -> bool {
-    let Some((interface, operation)) = op.split_once('.') else {
-        return false;
-    };
-    !interface.is_empty()
-        && !operation.is_empty()
-        && !interface.contains(['.', '/'])
-        && !operation.contains(['.', '/'])
-}
-
-fn validate_event_pattern(pattern: &str) -> Result<(), String> {
-    if pattern.is_empty() {
-        return Err("pattern must not be empty".to_string());
-    }
-    for segment in pattern.split('.') {
-        if segment == "*" {
-            continue;
-        }
-        if !valid_event_segment(segment) {
-            return Err(
-                "segments must be '*' or lowercase kebab names starting with a letter".to_string(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn event_pattern_matches(pattern: &str, event_type: &str) -> bool {
-    let pattern_segments = pattern.split('.').collect::<Vec<_>>();
-    let event_segments = event_type.split('.').collect::<Vec<_>>();
-    pattern_segments.len() == event_segments.len()
-        && pattern_segments
-            .iter()
-            .zip(event_segments)
-            .all(|(pattern, event)| *pattern == "*" || *pattern == event)
-}
-
-fn valid_event_segment(segment: &str) -> bool {
-    let mut chars = segment.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_lowercase()
-        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }

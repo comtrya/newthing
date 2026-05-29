@@ -242,10 +242,11 @@ applies — these are ordinary bare repos.
 
 ## Restore from backup
 
-The `comtrya backup` and `comtrya restore` CLI commands exist
-(see `crates/cli/src/main.rs`) but currently operate on
-`empty_backup_store()` — an in-memory empty store, NOT the live
-data dir. Real persistent backup is a deferred sub-PR.
+Real persistent backup/restore is a deferred sub-PR; there is no
+shipped `comtrya backup`/`comtrya restore` CLI command. The
+`BackupCoordinator` scaffolding lives in `crates/core` (covered by
+core unit tests) and operates on an in-memory empty store, NOT the
+live data dir.
 
 For now, treat `$COMTRYA_DATA_DIR` itself as the backup unit:
 
@@ -358,7 +359,7 @@ materially change procedures once merged:
 |---|---|---|
 | Graceful shutdown | #32 (open) | SIGTERM will drain in-flight requests instead of aborting. The connection-drain caveat in "Deploy → Subsequent rolling deploys" goes away. |
 | Durable session storage | #4 P1-4 (blocked) | Sessions survive restart; rolling deploys stop forcing re-auth. |
-| Real backup wiring | follow-up (no PR) | `comtrya backup` operates on the live data dir instead of `empty_backup_store()`. |
+| Real backup wiring | follow-up (no PR) | A backup/restore command operates on the live data dir instead of `empty_backup_store()`. |
 | Migration runner | #12 P2-1 (blocked) | Rollback section needs a data-dir compatibility matrix. |
 | SimpleAuthz on WIT path | #40 (open) | Anonymous principals denied at the WIT `has_permission` boundary too (today blocked only at GraphQL/REST). |
 | Per-request tracing spans | follow-up (no PR) | Server log lines gain `principal`/`extension`/`op` structured fields. |

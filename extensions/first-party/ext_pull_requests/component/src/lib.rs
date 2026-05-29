@@ -20,6 +20,7 @@ use bindings::exports::comtrya::platform::reactor::{
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "pull_requests";
+const COUNTER_COLLECTION: &str = "_meta";
 const PULL_MERGED_EVENT: &str = "dev.comtrya.pull-request.merged";
 const CLOSES_RELATION: &str = "comtrya://rel/com.comtrya.pulls/closes";
 const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
@@ -251,26 +252,59 @@ fn scan_pull_requests(
     }
 }
 
-fn next_number(scope: &RepositoryScope) -> Result<u64, Error> {
-    let mut max = 0;
-    scan_pull_requests(|stored| {
-        let workspace_matches = scope
-            .workspace_id
-            .as_deref()
-            .map(|workspace| {
-                stored
-                    .workspace_id
-                    .as_deref()
-                    .map(|stored_workspace| stored_workspace == workspace)
-                    .unwrap_or(true)
-            })
-            .unwrap_or(true);
-        if workspace_matches {
-            max = max.max(stored.number);
+#[derive(Serialize, Deserialize)]
+struct RepoCounter {
+    next: u64,
+}
+
+/// Counter key for the per-scope PR-number sequence. Workspace-scoped
+/// repositories share a single workspace counter; callers without a
+/// workspace fall back to the repository URI.
+fn number_counter_key(repository: &str, scope: &RepositoryScope) -> String {
+    scope
+        .workspace_id
+        .as_ref()
+        .map(|workspace| format!("comtrya://workspace/{workspace}"))
+        .unwrap_or_else(|| repository.to_string())
+}
+
+/// Return the next sequential PR number for `scope_key` and increment the
+/// persisted counter atomically via storage's single-document version
+/// guard (update-begin/update-commit), seeding the counter on first use.
+fn next_number(scope_key: &str) -> Result<u64, Error> {
+    let counter_id = format!("pull-number:{scope_key}");
+    match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
+        Ok(snap) => {
+            let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
+                .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
+            let assigned = counter.next;
+            counter.next = counter.next.saturating_add(1);
+            let bytes = serde_json::to_vec(&counter)
+                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+            storage::update_commit(COUNTER_COLLECTION, &counter_id, &snap.version, &bytes)?;
+            Ok(assigned)
         }
-        Ok(false)
-    })?;
-    Ok(max + 1)
+        Err(Error {
+            code: ErrorCode::NotFound,
+            ..
+        }) => {
+            // First PR for this scope — seed the counter at 2, return 1.
+            let counter = RepoCounter { next: 2 };
+            let bytes = serde_json::to_vec(&counter)
+                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+            storage::create(
+                COUNTER_COLLECTION,
+                &counter_id,
+                &bytes,
+                &storage::DocumentMetadata {
+                    resource_uri: format!("comtrya://_meta/{counter_id}"),
+                    resource_refs: vec![scope_key.to_string()],
+                },
+            )?;
+            Ok(1)
+        }
+        Err(other) => Err(other),
+    }
 }
 
 fn persist_new(stored: &StoredPullRequest) -> Result<(), Error> {
@@ -388,7 +422,7 @@ impl PullsGuest for Component {
         let now = time::now_iso();
         let scope = repository_scope(repository);
         validate_create_repository_scope(repository, &scope)?;
-        let number = next_number(&scope)?;
+        let number = next_number(&number_counter_key(repository, &scope))?;
         let author = match input.author_ref {
             Some(author) => author,
             None => identity::current_principal()?,

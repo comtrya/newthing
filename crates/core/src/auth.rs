@@ -1,20 +1,9 @@
 use crate::config::{InstanceConfig, OidcIssuerConfig};
-use crate::domain::{Principal, ResourceRef, User};
+use crate::domain::{ResourceKind, ResourceRef, User};
 use crate::error::{CoreError, CoreResult, ErrorCode};
-use crate::events::{CoreEventType, EventActor, EventEnvelope, EventOutbox};
+use crate::events::{CoreEvent, CoreEventType, EventActor, EventEnvelope, EventOutbox};
 use crate::ids::{IdPrefix, OpaqueId};
 use std::collections::BTreeMap;
-
-/// Bearer token for a `ScopedCredential` with 128 bits of entropy from
-/// the OS RNG. Format: `fp_{32-hex-chars}`. The `fp` prefix matches
-/// the server's `issue_credential` so on-the-wire shapes line up
-/// across the two issuance paths.
-fn secure_access_token() -> String {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).expect("os rng unavailable");
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!("fp_{hex}")
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenAction {
@@ -76,35 +65,14 @@ pub struct LoginResult {
     pub created: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TokenExchangeRequest {
-    pub grant_type: String,
-    pub subject_token: String,
-    pub subject_token_type: String,
-    pub requested_resource: String,
-    pub requested_actions: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ScopedCredential {
-    pub access_token: String,
-    pub token_type: String,
-    pub expires_at_ms: u64,
-    pub scope: Vec<String>,
-    pub resource: ResourceRef,
-    pub principal: Principal,
-}
-
-impl ScopedCredential {
-    pub fn expired(&self, now_ms: u64) -> bool {
-        now_ms >= self.expires_at_ms
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct AuthService {
     issuers: BTreeMap<String, OidcIssuerConfig>,
     users_by_issuer_subject: BTreeMap<(String, String), User>,
+    /// Resource the kernel attributes auth/identity events to. This is the
+    /// instance's singleton workspace, derived from `InstanceConfig`, not a
+    /// fabricated identifier.
+    instance_resource: ResourceRef,
     pub outbox: EventOutbox,
 }
 
@@ -117,6 +85,8 @@ impl AuthService {
                 .map(|issuer| (issuer.id.clone(), issuer.clone()))
                 .collect(),
             users_by_issuer_subject: BTreeMap::new(),
+            instance_resource: ResourceRef::singleton(ResourceKind::Workspace)
+                .expect("workspace is a singleton resource kind"),
             outbox: EventOutbox::default(),
         }
     }
@@ -134,13 +104,18 @@ impl AuthService {
             .collect();
     }
 
-    pub fn login(&mut self, issuer_id: &str, claims: OidcClaims) -> CoreResult<LoginResult> {
+    pub fn login(
+        &mut self,
+        issuer_id: &str,
+        claims: OidcClaims,
+        now_ms: u64,
+    ) -> CoreResult<LoginResult> {
         let issuer = self
             .issuers
             .get(issuer_id)
             .ok_or_else(|| CoreError::new(ErrorCode::Unauthenticated, "unknown OIDC issuer"))?;
         if issuer.issuer_url != claims.issuer {
-            self.audit_login(false, None);
+            self.audit_login(false, None, now_ms);
             return Err(CoreError::new(
                 ErrorCode::Unauthenticated,
                 "OIDC issuer mismatch",
@@ -151,7 +126,7 @@ impl AuthService {
             claims.email.as_deref(),
             claims.groups.as_slice(),
         ) {
-            self.audit_login(false, None);
+            self.audit_login(false, None, now_ms);
             return Err(CoreError::forbidden(
                 "OIDC JIT provisioning denied by issuer rules",
                 "comtrya://instance/local",
@@ -161,77 +136,36 @@ impl AuthService {
 
         let key = (claims.issuer.clone(), claims.subject.clone());
         let created = !self.users_by_issuer_subject.contains_key(&key);
-        let user = self
-            .users_by_issuer_subject
-            .entry(key)
-            .or_insert_with(|| User {
-                id: OpaqueId::new(IdPrefix::User),
-                issuer: claims.issuer.clone(),
-                subject: claims.subject.clone(),
-                email: claims.email.clone(),
-                display_name: claims.display_name.clone(),
-            })
-            .clone();
-        self.audit_login(true, Some(&user));
+        let user = match self.users_by_issuer_subject.get_mut(&key) {
+            Some(existing) => {
+                // Returning login: refresh mutable claims from the IdP so the
+                // stored email/display name do not drift from the source of
+                // truth.
+                existing.email = claims.email.clone();
+                existing.display_name = claims.display_name.clone();
+                existing.clone()
+            }
+            None => {
+                let user = User {
+                    id: OpaqueId::new(IdPrefix::User),
+                    issuer: claims.issuer.clone(),
+                    subject: claims.subject.clone(),
+                    email: claims.email.clone(),
+                    display_name: claims.display_name.clone(),
+                };
+                self.users_by_issuer_subject.insert(key, user.clone());
+                user
+            }
+        };
+        self.audit_login(true, Some(&user), now_ms);
         if created {
-            self.emit_user_created(&user);
+            self.emit_user_created(&user, now_ms);
         }
         Ok(LoginResult { user, created })
     }
 
-    pub fn exchange_token(
-        &mut self,
-        request: TokenExchangeRequest,
-        principal: Principal,
-        now_ms: u64,
-        allowed_actions: &[TokenAction],
-    ) -> CoreResult<ScopedCredential> {
-        if request.grant_type != "urn:comtrya:grant:oidc-token-exchange" {
-            return Err(CoreError::bad_user_input("unsupported grantType"));
-        }
-        if request.subject_token_type != "urn:ietf:params:oauth:token-type:jwt" {
-            return Err(CoreError::bad_user_input("unsupported subjectTokenType"));
-        }
-        if request.subject_token.trim().is_empty() {
-            return Err(CoreError::new(
-                ErrorCode::Unauthenticated,
-                "subjectToken is required",
-            ));
-        }
-        let resource = ResourceRef::parse(&request.requested_resource)?;
-        let requested_actions = request
-            .requested_actions
-            .iter()
-            .map(|action| TokenAction::parse(action))
-            .collect::<CoreResult<Vec<_>>>()?;
-        for action in &requested_actions {
-            if !allowed_actions.contains(action) {
-                return Err(CoreError::forbidden(
-                    "requested action is not authorized",
-                    resource.canonical(),
-                    action.as_scope(),
-                ));
-            }
-        }
-        let scope = requested_actions
-            .iter()
-            .map(|action| action.as_scope().to_string())
-            .collect::<Vec<_>>();
-        let credential = ScopedCredential {
-            access_token: secure_access_token(),
-            token_type: "Bearer".to_string(),
-            expires_at_ms: now_ms + 300_000,
-            scope,
-            resource: resource.clone(),
-            principal,
-        };
-        self.emit_credential_issued(&resource);
-        Ok(credential)
-    }
-
-    fn audit_login(&mut self, succeeded: bool, user: Option<&User>) {
-        let source =
-            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+    fn audit_login(&mut self, succeeded: bool, user: Option<&User>, now_ms: u64) {
+        let source = self.instance_resource.clone();
         let event_type = if succeeded {
             CoreEventType::AuthLoginSucceeded
         } else {
@@ -245,47 +179,37 @@ impl AuthService {
             display_name: user.and_then(|user| user.display_name.clone()),
         };
         self.outbox.append(EventEnvelope::core(
-            event_type,
-            source.clone(),
-            None,
-            actor,
-            crate::Visibility::Private,
-            vec![source],
-            "{}",
+            CoreEvent {
+                event_type,
+                source: source.clone(),
+                subject: None,
+                actor,
+                visibility: crate::Visibility::Private,
+                resources: vec![source],
+                data_json: "{}".to_string(),
+            },
+            now_ms,
         ));
     }
 
-    fn emit_user_created(&mut self, user: &User) {
-        let source =
-            ResourceRef::parse("comtrya://workspace/ws_01HV0K4XAVE2H6R5M8KJZ8Q1A3").unwrap();
+    fn emit_user_created(&mut self, user: &User, now_ms: u64) {
+        let source = self.instance_resource.clone();
+        let data_json = serde_json::json!({ "userID": user.id.to_string() }).to_string();
         self.outbox.append(EventEnvelope::core(
-            CoreEventType::UserCreated,
-            source.clone(),
-            Some(user.subject.clone()),
-            EventActor {
-                kind: "user".to_string(),
-                uri: format!("comtrya://user/{}", user.id),
-                display_name: user.display_name.clone(),
+            CoreEvent {
+                event_type: CoreEventType::UserCreated,
+                source: source.clone(),
+                subject: Some(user.subject.clone()),
+                actor: EventActor {
+                    kind: "user".to_string(),
+                    uri: format!("comtrya://user/{}", user.id),
+                    display_name: user.display_name.clone(),
+                },
+                visibility: crate::Visibility::Private,
+                resources: vec![source],
+                data_json,
             },
-            crate::Visibility::Private,
-            vec![source],
-            format!("{{\"userID\":\"{}\"}}", user.id),
-        ));
-    }
-
-    fn emit_credential_issued(&mut self, resource: &ResourceRef) {
-        self.outbox.append(EventEnvelope::core(
-            CoreEventType::AuthCredentialIssued,
-            resource.clone(),
-            None,
-            EventActor {
-                kind: "workload".to_string(),
-                uri: "comtrya://workload/token-exchange".to_string(),
-                display_name: None,
-            },
-            crate::Visibility::Private,
-            vec![resource.clone()],
-            "{}",
+            now_ms,
         ));
     }
 }
@@ -310,7 +234,7 @@ mod tests {
         let config = InstanceConfig::minimal_dev();
         let mut auth = AuthService::new(&config);
 
-        let result = auth.login("dev", claims()).unwrap();
+        let result = auth.login("dev", claims(), 1_700_000_000_000).unwrap();
 
         assert!(result.created);
         assert_eq!(auth.users_len(), 1);
@@ -320,6 +244,39 @@ mod tests {
                 .iter()
                 .any(|event| event.event_type == CoreEventType::UserCreated.as_str())
         );
+        // Auth events are attributed to the singleton workspace, not a
+        // fabricated identifier, and stamped with the caller's clock.
+        let created = auth
+            .outbox
+            .all()
+            .iter()
+            .find(|event| event.event_type == CoreEventType::UserCreated.as_str())
+            .unwrap();
+        assert_eq!(created.source.canonical(), "comtrya://workspace");
+        assert_eq!(created.time, "2023-11-14T22:13:20.000Z");
+    }
+
+    #[test]
+    fn returning_login_refreshes_mutable_claims() {
+        let config = InstanceConfig::minimal_dev();
+        let mut auth = AuthService::new(&config);
+
+        let first = auth.login("dev", claims(), 1_000).unwrap();
+        assert!(first.created);
+
+        let mut updated = claims();
+        updated.email = Some("new-address@example.test".to_string());
+        updated.display_name = Some("New Name".to_string());
+        let second = auth.login("dev", updated, 2_000).unwrap();
+
+        assert!(!second.created);
+        assert_eq!(auth.users_len(), 1);
+        assert_eq!(second.user.id, first.user.id);
+        assert_eq!(
+            second.user.email.as_deref(),
+            Some("new-address@example.test")
+        );
+        assert_eq!(second.user.display_name.as_deref(), Some("New Name"));
     }
 
     #[test]
@@ -328,40 +285,10 @@ mod tests {
         config.oidc_issuers[0].allowed_domains = vec!["other.test".to_string()];
         let mut auth = AuthService::new(&config);
 
-        let err = auth.login("dev", claims()).unwrap_err();
+        let err = auth.login("dev", claims(), 0).unwrap_err();
 
         assert_eq!(err.code, ErrorCode::Forbidden);
         assert_eq!(auth.users_len(), 0);
-    }
-
-    #[test]
-    fn workload_token_exchange_returns_short_lived_scoped_credential() {
-        let config = InstanceConfig::minimal_dev();
-        let mut auth = AuthService::new(&config);
-        let credential = auth
-            .exchange_token(
-                TokenExchangeRequest {
-                    grant_type: "urn:comtrya:grant:oidc-token-exchange".to_string(),
-                    subject_token: "jwt".to_string(),
-                    subject_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
-                    requested_resource: "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3"
-                        .to_string(),
-                    requested_actions: vec!["git:read".to_string(), "git:write".to_string()],
-                },
-                Principal::Workload {
-                    issuer: "github-actions".to_string(),
-                    subject: "repo:example".to_string(),
-                },
-                1_000,
-                &[TokenAction::GitRead, TokenAction::GitWrite],
-            )
-            .unwrap();
-
-        assert_eq!(credential.token_type, "Bearer");
-        assert_eq!(credential.expires_at_ms, 301_000);
-        assert!(!credential.expired(300_999));
-        assert!(credential.expired(301_000));
-        assert_eq!(credential.scope, ["git:read", "git:write"]);
     }
 
     #[test]

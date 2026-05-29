@@ -81,7 +81,8 @@ important v3 fields are:
   extensions.
 - `hostImports`: platform imports the component may call.
 - `allowedEmits`: event types the component may append.
-- `allowedEventReads`: event types the component may read.
+- `allowedEventReads`: ids of other extensions whose events this extension may
+  read via `events.read-recent`.
 - `allowedCrossCalls`: cross-extension operation routes allowed through
   `ops.invoke`.
 - `reactor`: subscription, mutation, emit, and recursion policy for event

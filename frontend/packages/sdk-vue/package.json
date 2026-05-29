@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@comtrya/sdk-core": "*",
+    "@terrastruct/d2": "^0.1.33",
+    "mermaid": "^11.15.0",
     "tinykeys": "^3.0.0"
   },
   "peerDependencies": {

@@ -103,7 +103,7 @@ impl PersistentStore {
     /// rejects files that don't follow it (so a stray `notes.sql`
     /// won't silently apply as version 0).
     fn apply_migrations(&self, migrations_dir: &Path) -> Result<(), String> {
-        let conn = self.conn.lock().expect("conn lock poisoned");
+        let mut conn = self.conn.lock().expect("conn lock poisoned");
         conn.execute(
             "CREATE TABLE IF NOT EXISTS schema_migrations (
                 version INTEGER PRIMARY KEY,
@@ -149,15 +149,26 @@ impl PersistentStore {
             }
             let sql = std::fs::read_to_string(&path)
                 .map_err(|e| format!("read {} failed: {e}", path.display()))?;
-            // `execute_batch` runs every statement in one transaction;
-            // failure rolls everything back so we never end up with a
-            // half-applied migration that records `schema_migrations`
-            // but missed half its DDL.
-            conn.execute_batch(&format!(
-                "BEGIN;\n{sql}\nINSERT INTO schema_migrations(version, filename, applied_at) \
-                 VALUES ({version}, '{stem}', strftime('%s','now'));\nCOMMIT;"
-            ))
-            .map_err(|e| format!("apply migration {stem} failed: {e}"))?;
+            // A real rusqlite `Transaction` gives all-or-nothing semantics:
+            // the file's DDL and the `schema_migrations` bookkeeping row
+            // commit together or roll back together, so we never record a
+            // migration whose DDL only partially applied. The filename
+            // stem is bound as a parameter rather than interpolated into
+            // the SQL text, so a stem containing a quote cannot produce
+            // malformed SQL.
+            let tx = conn
+                .transaction()
+                .map_err(|e| format!("begin migration {stem} failed: {e}"))?;
+            tx.execute_batch(&sql)
+                .map_err(|e| format!("apply migration {stem} failed: {e}"))?;
+            tx.execute(
+                "INSERT INTO schema_migrations(version, filename, applied_at) \
+                 VALUES (?1, ?2, strftime('%s','now'))",
+                params![version, stem],
+            )
+            .map_err(|e| format!("record migration {stem} failed: {e}"))?;
+            tx.commit()
+                .map_err(|e| format!("commit migration {stem} failed: {e}"))?;
             tracing::info!(version, filename = %stem, "applied migration");
         }
         Ok(())
@@ -492,6 +503,43 @@ mod tests {
             })
             .unwrap();
         assert_eq!(first_count, second_count);
+    }
+
+    #[test]
+    fn migration_runner_handles_quote_in_filename_stem() {
+        // The bookkeeping INSERT binds the stem as a parameter, so a stem
+        // containing a single quote must apply cleanly instead of producing
+        // malformed SQL that aborts startup.
+        let migrations_src = tempfile::Builder::new()
+            .prefix("comtrya-migrations-quote-")
+            .tempdir()
+            .unwrap();
+        std::fs::write(
+            migrations_src.path().join("0001_o'brien.sql"),
+            "CREATE TABLE quoted_demo (id INTEGER PRIMARY KEY);",
+        )
+        .unwrap();
+        let data = tempfile::Builder::new()
+            .prefix("comtrya-migrations-quote-db-")
+            .tempdir()
+            .unwrap();
+        let store = PersistentStore::open(data.path(), migrations_src.path())
+            .expect("migration with quote in stem applies cleanly");
+        let conn = store.conn.lock().unwrap();
+        let stem: String = conn
+            .query_row(
+                "SELECT filename FROM schema_migrations WHERE version = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(stem, "0001_o'brien");
+        // The DDL committed in the same transaction as the bookkeeping row.
+        let _ = conn
+            .query_row("SELECT COUNT(*) FROM quoted_demo", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap();
     }
 
     #[test]

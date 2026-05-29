@@ -1,5 +1,5 @@
 use crate::error::{CoreError, CoreResult};
-use crate::events::{CoreEventType, EventActor, EventEnvelope, EventOutbox};
+use crate::events::{CoreEvent, CoreEventType, EventActor, EventEnvelope, EventOutbox};
 use crate::{MetadataBackend, MetadataStore, ResourceRef, Visibility};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +57,7 @@ impl BackupCoordinator {
         &self,
         bundle: BackupBundle,
         target_empty: bool,
+        now_ms: u64,
         outbox: &mut EventOutbox,
     ) -> CoreResult<RestoreReport> {
         if !target_empty {
@@ -71,17 +72,20 @@ impl BackupCoordinator {
         }
         let source = ResourceRef::parse("comtrya://workspace").unwrap();
         outbox.append(EventEnvelope::core(
-            CoreEventType::InstanceRestoreCompleted,
-            source.clone(),
-            None,
-            EventActor {
-                kind: "workload".to_string(),
-                uri: "comtrya://workload/comtryactl".to_string(),
-                display_name: Some("comtryactl".to_string()),
+            CoreEvent {
+                event_type: CoreEventType::InstanceRestoreCompleted,
+                source: source.clone(),
+                subject: None,
+                actor: EventActor {
+                    kind: "workload".to_string(),
+                    uri: "comtrya://workload/comtryactl".to_string(),
+                    display_name: Some("comtryactl".to_string()),
+                },
+                visibility: Visibility::Private,
+                resources: vec![source],
+                data_json: "{}".to_string(),
             },
-            Visibility::Private,
-            vec![source],
-            "{}",
+            now_ms,
         ));
         Ok(RestoreReport {
             repository_count: bundle.repository_ids.len(),
@@ -113,13 +117,13 @@ mod tests {
         let mut outbox = EventOutbox::default();
         assert_eq!(
             coordinator
-                .restore_to_empty(bundle.clone(), false, &mut outbox)
+                .restore_to_empty(bundle.clone(), false, 1_700_000_000_000, &mut outbox)
                 .unwrap_err()
                 .code,
             crate::ErrorCode::Conflict
         );
         let report = coordinator
-            .restore_to_empty(bundle, true, &mut outbox)
+            .restore_to_empty(bundle, true, 1_700_000_000_000, &mut outbox)
             .unwrap();
 
         assert_eq!(report.repository_count, 0);
@@ -128,5 +132,6 @@ mod tests {
             report.emitted_event_type,
             CoreEventType::InstanceRestoreCompleted.as_str()
         );
+        assert_eq!(outbox.all()[0].time, "2023-11-14T22:13:20.000Z");
     }
 }

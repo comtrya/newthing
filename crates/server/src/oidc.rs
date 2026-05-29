@@ -301,7 +301,14 @@ impl OidcCodeExchanger for ReqwestCodeExchanger {
 
         let issuer = claims.issuer().as_str().to_string();
         let subject = claims.subject().as_str().to_string();
-        let email = claims.email().map(|e| e.as_str().to_string());
+        // Only trust the email claim when the provider asserts it is verified.
+        // An unverified address must never feed email-based identity matching,
+        // or a user could claim someone else's account by setting an arbitrary
+        // (unverified) email at their IdP.
+        let email = match claims.email_verified() {
+            Some(true) => claims.email().map(|e| e.as_str().to_string()),
+            _ => None,
+        };
         let display_name = claims
             .name()
             .and_then(|n| n.get(None))
