@@ -59,14 +59,16 @@ Typical WIT shape:
 package comtrya:ext-issues@0.1.0;
 
 world ext-issues {
-  import comtrya:platform/storage@0.1.0;
-  import comtrya:platform/events@0.1.0;
-  import comtrya:platform/ids@0.1.0;
-
+  // Inherit every host import + the reactor export from the platform.
+  include comtrya:platform/extension@0.1.0;
   export issues;
-  export reactor;
 }
 ```
+
+The world `include`s `comtrya:platform/extension@0.1.0`, which brings in
+every platform host import and the `reactor` export. The extension only
+adds `export <iface>;` for the product interface(s) it implements; it does
+not list per-interface imports or re-export `reactor`.
 
 Host imports are capability-checked against `manifest.json`.
 
@@ -92,8 +94,8 @@ important v3 fields are:
   makes available to UI surfaces for typed relationship creation.
 - `contributes.collections`: storage collections and indexes
   declarations owned by the extension.
-- `uiManifest`: path to the browser-side UI manifest, when the extension has a
-  UI surface.
+- `ui.manifest`: path to the browser-side UI manifest (nested under the `ui`
+  object), when the extension has a UI surface.
 
 The server validates manifests against `docs/manifest.schema.json` before the
 extension is installed into the runtime.

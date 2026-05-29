@@ -79,13 +79,7 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
         .unwrap_or("validate-config");
 
     match command {
-        "validate-config" => match InstanceConfig::minimal_dev().validate() {
-            Ok(()) => writeln!(stdout, "config valid")
-                .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?,
-            Err(error) => {
-                return Err(CliError::new(error.to_string(), 1));
-            }
-        },
+        "validate-config" => validate_config(&args[1..], stdout)?,
         "capabilities" => {
             let capabilities = InstanceCapabilities::v1();
             writeln!(
@@ -107,6 +101,62 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
                 format!("unknown command: {command}\n\n{}", help_text()),
                 2,
             ));
+        }
+    }
+    Ok(())
+}
+
+/// `validate-config` evaluates and validates a real CUE config directory when
+/// `--dir <path>` is given; without it, validates the built-in minimal dev
+/// config. Evaluating the operator's config is the useful case — it catches a
+/// misconfiguration that the static dev config never could.
+fn validate_config(args: &[String], stdout: &mut dyn Write) -> Result<(), CliError> {
+    let mut dir: Option<PathBuf> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dir" | "-d" => {
+                let Some(value) = args.get(i + 1) else {
+                    return Err(CliError::new("validate-config --dir requires a value", 2));
+                };
+                if value.starts_with('-') {
+                    return Err(CliError::new("validate-config --dir requires a value", 2));
+                }
+                dir = Some(PathBuf::from(value));
+                i += 2;
+            }
+            "--help" | "-h" => {
+                write!(
+                    stdout,
+                    "Usage: comtrya validate-config [--dir <path>]\n\n\
+                     With --dir, evaluates and validates the CUE config in <path>.\n\
+                     Without it, validates the built-in minimal dev config.\n"
+                )
+                .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
+                return Ok(());
+            }
+            other => {
+                return Err(CliError::new(
+                    format!("unknown validate-config option: {other}"),
+                    2,
+                ));
+            }
+        }
+    }
+
+    match dir {
+        Some(dir) => {
+            comtrya_core::evaluate_instance_config(&dir)
+                .map_err(|error| CliError::new(error.to_string(), 1))?;
+            writeln!(stdout, "config valid: {}", dir.display())
+                .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
+        }
+        None => {
+            InstanceConfig::minimal_dev()
+                .validate()
+                .map_err(|error| CliError::new(error.to_string(), 1))?;
+            writeln!(stdout, "config valid")
+                .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
         }
     }
     Ok(())
@@ -235,7 +285,7 @@ fn print_generate_help(stdout: &mut dyn Write) -> Result<(), CliError> {
 fn help_text() -> &'static str {
     "Usage: comtrya <command>\n\n\
 Commands:\n\
-  validate-config       Validate the built-in minimal dev config\n\
+  validate-config [--dir <path>]  Validate a CUE config directory (or the built-in dev config)\n\
   generate [config]     Generate a remote GitOps comtrya.cue config\n\
   capabilities          Print kernel capability flags\n"
 }
@@ -251,6 +301,59 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("comtrya-cli-{name}-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn validate_config_dir_accepts_generated_config() {
+        let dir = temp_path("validate-ok");
+        write_generated_config(&dir, false).expect("generate config");
+        let mut output = Vec::new();
+        run(
+            [
+                "validate-config".to_string(),
+                "--dir".to_string(),
+                dir.to_string_lossy().into_owned(),
+            ],
+            &mut output,
+        )
+        .expect("generated config validates");
+        assert!(String::from_utf8(output).unwrap().contains("config valid"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn validate_config_dir_rejects_invalid_config() {
+        // A directory with malformed CUE must evaluate to an error and exit
+        // non-zero, proving validate-config inspects the real filesystem.
+        let dir = temp_path("validate-bad");
+        std::fs::create_dir_all(dir.join("cue.mod")).unwrap();
+        std::fs::write(dir.join("cue.mod/module.cue"), MODULE_CUE).unwrap();
+        std::fs::write(
+            dir.join("comtrya.cue"),
+            "package comtrya\nthis is : not valid cue {{{\n",
+        )
+        .unwrap();
+        let error = run(
+            [
+                "validate-config".to_string(),
+                "--dir".to_string(),
+                dir.to_string_lossy().into_owned(),
+            ],
+            &mut Vec::new(),
+        )
+        .expect_err("invalid config must fail");
+        assert_eq!(error.exit_code, 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn validate_config_dir_requires_value() {
+        let error = run(
+            ["validate-config".to_string(), "--dir".to_string()],
+            &mut Vec::new(),
+        )
+        .expect_err("--dir without a value should be rejected");
+        assert_eq!(error.exit_code, 2);
     }
 
     #[test]

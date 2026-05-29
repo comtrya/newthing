@@ -484,9 +484,6 @@ impl FetchRequest {
     pub fn wants(&self) -> &[String] {
         &self.wants
     }
-    pub fn push_want(&mut self, oid: String) {
-        self.wants.push(oid);
-    }
     pub fn extend_wants<I: IntoIterator<Item = String>>(&mut self, iter: I) {
         self.wants.extend(iter);
     }
@@ -498,9 +495,6 @@ impl FetchRequest {
     }
     pub fn shallow_requested(&self) -> bool {
         self.deepen.is_some() || self.deepen_since.is_some() || !self.deepen_not.is_empty()
-    }
-    pub fn filter_requested(&self) -> bool {
-        self.filter.is_some()
     }
     pub fn haves(&self) -> &[String] {
         &self.haves

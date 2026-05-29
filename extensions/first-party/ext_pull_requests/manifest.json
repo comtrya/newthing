@@ -43,8 +43,8 @@
   },
   "hostImports": [
     "storage.read", "storage.write",
-    "relations.read", "relations.write",
-    "events.read", "events.write",
+    "relations.read",
+    "events.write",
     "identity", "time", "ids", "ops", "log"
   ],
   "allowedEmits": [

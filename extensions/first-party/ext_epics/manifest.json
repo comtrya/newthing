@@ -66,8 +66,7 @@
   ],
   "allowedEventReads": ["ext_issues"],
   "allowedCrossCalls": [
-    "ext_issues/issues.state-counts-for-refs-issue",
-    "ext_issues/issues.by-ref-issue"
+    "ext_issues/issues.state-counts-for-refs-issue"
   ],
   "reactor": {
     "allowedMutations": [],

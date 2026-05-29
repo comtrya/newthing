@@ -87,9 +87,6 @@
   "hostImports": [
     "storage.read",
     "storage.write",
-    "relations.read",
-    "relations.write",
-    "events.read",
     "events.write",
     "identity",
     "time",
@@ -102,9 +99,7 @@
     "dev.comtrya.issues.reopened",
     "dev.comtrya.issues.project-changed"
   ],
-  "allowedEventReads": [
-    "ext_pull_requests"
-  ],
+  "allowedEventReads": [],
   "allowedCrossCalls": [],
   "reactor": {
     "allowedMutations": [],
