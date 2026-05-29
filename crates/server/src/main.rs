@@ -610,6 +610,32 @@ struct ExtensionAsset {
     etag: String,
 }
 
+/// Typed outcome of repository creation, so the HTTP boundary can map failures
+/// to the right status/code instead of substring-matching a flat string.
+#[derive(Debug)]
+pub(crate) enum CreateRepoError {
+    /// Caller-correctable input (bad path or clone URL). Maps to 400.
+    BadInput(String),
+    /// A repository already exists at the requested path. Maps to 409.
+    Conflict(String),
+    /// Server-side failure (persistence, git on disk, missing workspace). 500.
+    Internal(String),
+}
+
+impl CreateRepoError {
+    fn message(&self) -> &str {
+        match self {
+            Self::BadInput(m) | Self::Conflict(m) | Self::Internal(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for CreateRepoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
 impl Runtime {
     fn start(options: StartupOptions) -> Result<Self, String> {
         // The config repo clones into data_dir/config-repo, so the data dir
@@ -1309,49 +1335,61 @@ impl Runtime {
         &self,
         path: &str,
         clone_from_url: Option<&str>,
-    ) -> Result<Value, String> {
-        let (segments, canonical) = validate_repo_path(path)?;
-        let existing = self.extension_storage.collection_data("repositories")?;
+    ) -> Result<Value, CreateRepoError> {
+        let (segments, canonical) = validate_repo_path(path).map_err(CreateRepoError::BadInput)?;
+        let existing = self
+            .extension_storage
+            .collection_data("repositories")
+            .map_err(CreateRepoError::Internal)?;
         if let Some(array) = existing.as_array()
             && array
                 .iter()
                 .any(|repo| repo.get("path").and_then(Value::as_str) == Some(canonical.as_str()))
         {
-            return Err(format!("repository at path {canonical:?} already exists"));
+            return Err(CreateRepoError::Conflict(format!(
+                "repository at path {canonical:?} already exists"
+            )));
         }
         if let Some(url) = clone_from_url {
-            validate_clone_url(url)?;
+            validate_clone_url(url).map_err(CreateRepoError::BadInput)?;
         }
 
         let repo_id = OpaqueId::new(IdPrefix::Repository);
         let workspace_id = self
             .extension_storage
-            .single_document_data("workspaces")?
+            .single_document_data("workspaces")
+            .map_err(CreateRepoError::Internal)?
             .and_then(|workspace| {
                 workspace
                     .get("id")
                     .and_then(Value::as_str)
                     .map(str::to_owned)
             })
-            .ok_or_else(|| "repository creation requires an initialized workspace".to_string())?;
+            .ok_or_else(|| {
+                CreateRepoError::Internal(
+                    "repository creation requires an initialized workspace".to_string(),
+                )
+            })?;
         // validate_repo_path() above errors on empty input, so segments is
         // non-empty. Explicit destructuring (rather than .expect()) survives
         // future refactors that might detach this code from validate_repo_path
         // — and the PANIC_AUDIT.md tracks the intent.
         let (Some(name), Some(owner)) = (segments.last().cloned(), segments.first().cloned())
         else {
-            return Err(
+            return Err(CreateRepoError::Internal(
                 "internal invariant violated: validate_repo_path produced empty segments"
                     .to_string(),
-            );
+            ));
         };
         let git_http_path = format!("/git/{}.git", canonical);
         let now_iso = chrono_now_iso();
 
         let project_root = self.repository_root();
         let git_dir = match clone_from_url {
-            Some(url) => clone_bare_repository_on_disk(&project_root, &canonical, url)?,
-            None => init_bare_repository_on_disk(&project_root, &canonical)?,
+            Some(url) => clone_bare_repository_on_disk(&project_root, &canonical, url)
+                .map_err(CreateRepoError::Internal)?,
+            None => init_bare_repository_on_disk(&project_root, &canonical)
+                .map_err(CreateRepoError::Internal)?,
         };
         let default_branch = read_default_branch(&git_dir).unwrap_or_else(|| "main".to_string());
         let description = clone_from_url
@@ -1390,7 +1428,7 @@ impl Runtime {
         if let Err(error) = self.extension_storage.create_document(record) {
             // Persistence failed: roll back the on-disk repo so the next attempt is clean.
             let _ = fs::remove_dir_all(&git_dir);
-            return Err(error);
+            return Err(CreateRepoError::Internal(error));
         }
 
         let event_type = if clone_from_url.is_some() {
@@ -1433,7 +1471,9 @@ impl Runtime {
         &self,
         repo: &comtrya_core::RepositoryConfig,
     ) -> Result<(), String> {
-        let created = self.create_repository_document(&repo.path, None)?;
+        let created = self
+            .create_repository_document(&repo.path, None)
+            .map_err(|error| error.to_string())?;
         let id = created
             .get("id")
             .and_then(Value::as_str)
@@ -3128,22 +3168,17 @@ fn create_repository_mutation(state: AppState, headers: HeaderMap, payload: Valu
             }),
             cors,
         ),
-        Err(message) => {
-            let status = if message.contains("already exists") {
-                StatusCode::CONFLICT
-            } else if message.contains("invalid") || message.contains("must contain") {
-                StatusCode::BAD_REQUEST
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+        Err(error) => {
+            let (status, code) = match &error {
+                CreateRepoError::Conflict(_) => (StatusCode::CONFLICT, "CONFLICT"),
+                CreateRepoError::BadInput(_) => {
+                    (StatusCode::BAD_REQUEST, ErrorCode::BadUserInput.as_str())
+                }
+                CreateRepoError::Internal(_) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR")
+                }
             };
-            let code = if status == StatusCode::CONFLICT {
-                "CONFLICT"
-            } else if status == StatusCode::BAD_REQUEST {
-                ErrorCode::BadUserInput.as_str()
-            } else {
-                "INTERNAL_ERROR"
-            };
-            graphql_error_response(status, code, &message, cors)
+            graphql_error_response(status, code, error.message(), cors)
         }
     }
 }
