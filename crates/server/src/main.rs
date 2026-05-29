@@ -5372,6 +5372,11 @@ fn apply_repository_cue_overrides(
     comtrya_config: &Value,
 ) {
     let Some(repo_block) = comtrya_config.get("repository").and_then(Value::as_object) else {
+        // No `repository:` block at all still means a fully-resolved repo:
+        // strictly-off opt-in is the default, so stamp an explicit empty
+        // set rather than leaving the field absent. Keeps the query payload
+        // shape stable for the frontend and the phase-2 kernel boundary.
+        repo_obj.insert("enabledExtensions".to_string(), Value::Array(Vec::new()));
         return;
     };
     if let Some(visibility) = repo_block.get("visibility").and_then(Value::as_str) {
@@ -5392,6 +5397,21 @@ fn apply_repository_cue_overrides(
     if let Some(bookmarks) = repo_block.get("bookmarks").and_then(Value::as_array) {
         repo_obj.insert("bookmarks".to_string(), Value::Array(bookmarks.clone()));
     }
+    // The per-repo opt-in set. CUE is the source of truth; absent =>
+    // strictly off (empty set). Projected as `enabledExtensions` so the
+    // frontend and the kernel boundary (phase 2) read the same field the
+    // commit-keyed CUE cache re-derives on every push to the default
+    // branch. Defaulted to `[]` here so a repo whose CUE omits the field
+    // still carries an explicit empty set on the query payload.
+    let enabled_extensions = repo_block
+        .get("enabledExtensions")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    repo_obj.insert(
+        "enabledExtensions".to_string(),
+        Value::Array(enabled_extensions),
+    );
     if let Some(labels) = repo_block.get("labels").and_then(Value::as_array) {
         // Surface the catalog twice: once as the structured array
         // (consumers that want the CUE shape) and once as a flat
@@ -7188,6 +7208,39 @@ mod tests {
 
     fn issue_route(op: &str) -> String {
         format!("issues.{op}")
+    }
+
+    #[test]
+    fn cue_overrides_project_enabled_extensions_from_repository_block() {
+        // A repo whose CUE `repository:` block opts into extensions must
+        // surface them on the projected repo object so the frontend (and
+        // phase-2 kernel boundary) read the set the CUE cache derived.
+        let mut repo_obj = serde_json::Map::new();
+        let config = json!({
+            "repository": { "enabledExtensions": ["ext_issues", "ext_pulls"] }
+        });
+        apply_repository_cue_overrides(&mut repo_obj, &config);
+        assert_eq!(
+            repo_obj.get("enabledExtensions"),
+            Some(&json!(["ext_issues", "ext_pulls"])),
+        );
+    }
+
+    #[test]
+    fn cue_overrides_default_enabled_extensions_to_empty_when_absent() {
+        // A repo with a `repository:` block that omits `enabledExtensions`
+        // gets the strictly-off default: an explicit empty set.
+        let mut with_block = serde_json::Map::new();
+        apply_repository_cue_overrides(
+            &mut with_block,
+            &json!({ "repository": { "visibility": "public" } }),
+        );
+        assert_eq!(with_block.get("enabledExtensions"), Some(&json!([])));
+
+        // A repo with no `repository:` block at all is also strictly off.
+        let mut no_block = serde_json::Map::new();
+        apply_repository_cue_overrides(&mut no_block, &json!({ "projects": [] }));
+        assert_eq!(no_block.get("enabledExtensions"), Some(&json!([])));
     }
 
     fn issue_event(action: &str) -> String {
