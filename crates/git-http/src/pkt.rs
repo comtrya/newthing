@@ -1,4 +1,4 @@
-//! pkt-line encode/decode and side-band framing for Smart HTTP v2.
+//! pkt-line encode/decode and side-band framing (scaffold).
 
 pub fn encode_pkt_line(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(4 + data.len());

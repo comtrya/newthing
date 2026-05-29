@@ -16,6 +16,11 @@ use tokio_stream::wrappers::ReceiverStream;
 use crate::pkt::{PKT_DELIM, PKT_FLUSH, encode_pkt_line};
 use crate::v2::FetchRequest;
 
+pub struct PackBuildStats {
+    pub objects: usize,
+    pub bytes: u64,
+}
+
 #[derive(Clone)]
 struct PackPlan {
     commits: Vec<gix::hash::ObjectId>,
@@ -40,24 +45,12 @@ pub async fn serve_fetch(
     // Channel to stream pkt-line framed bytes out to the client
     let (tx, rx) = mpsc::channel::<Bytes>(16);
 
-    // Resolve want-ref(s) into object ids and augment wants list. Per protocol
-    // v2 (ref-in-want), an unresolvable want-ref is an error: surface it as an
-    // `ERR` pkt-line rather than silently streaming an empty/partial pack.
+    // Resolve want-ref(s) into object ids and augment wants list
     let mut req_effective = req.clone();
     if !req.want_refs().is_empty()
         && let Err(e) = resolve_want_refs(repo_dir, &mut req_effective).await
     {
         tracing::debug!("resolve_want_refs failed: {}", e);
-        let mut body = Vec::new();
-        body.extend_from_slice(&encode_pkt_line(format!("ERR {e}\n").as_bytes()));
-        body.extend_from_slice(PKT_FLUSH);
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
-            .header(header::CACHE_CONTROL, "no-cache")
-            .header(header::PRAGMA, "no-cache")
-            .body(Body::from(body))
-            .expect("response");
     }
 
     // If client sent haves and did not also send 'done', emit an acknowledgments section.
@@ -677,19 +670,13 @@ async fn resolve_want_refs(repo_dir: &PathBuf, req: &mut FetchRequest) -> anyhow
     let repo = gix::open(repo_dir)?;
     let mut new_wants = Vec::new();
     for r in req.want_refs().iter() {
-        let mut reference = repo
-            .find_reference(r)
-            .map_err(|_| anyhow::anyhow!("unresolvable want-ref {r}"))?;
-        let resolved = if let Some(idref) = reference.try_id() {
-            idref.to_string()
-        } else {
-            reference
-                .peel_to_commit()
-                .map_err(|_| anyhow::anyhow!("unresolvable want-ref {r}"))?
-                .id()
-                .to_string()
-        };
-        new_wants.push(resolved);
+        if let Ok(mut reference) = repo.find_reference(r) {
+            if let Some(idref) = reference.try_id() {
+                new_wants.push(idref.to_string());
+            } else if let Ok(commit) = reference.peel_to_commit() {
+                new_wants.push(commit.id().to_string());
+            }
+        }
     }
     req.extend_wants(new_wants);
     Ok(())
