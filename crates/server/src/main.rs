@@ -4612,6 +4612,37 @@ async fn git_endpoint(
             "Git repository was not found",
         );
     }
+    // Per-principal rate limit. Pushes (receive-pack) and reads (info/refs,
+    // upload-pack) have separate ceilings since a clone fan-out and a push are
+    // very different load profiles. Each request spawns git plumbing under a
+    // small semaphore, so an unbounded client is a resource-exhaustion vector.
+    let receive_pack = is_receive_pack(&path, raw_query.as_deref());
+    let (rate_bucket, rate_ceiling) = if receive_pack {
+        (
+            "git_receive_pack",
+            state.runtime.config.rate_limits.git_receive_pack_per_principal,
+        )
+    } else {
+        (
+            "git_info_refs",
+            state.runtime.config.rate_limits.git_info_refs_per_principal,
+        )
+    };
+    if state
+        .runtime
+        .rate_limit(
+            &format!("{rate_bucket}:{}", principal_fingerprint(&headers)),
+            rate_ceiling,
+        )
+        .is_err()
+    {
+        return error_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            ErrorCode::RateLimited.as_str(),
+            "git rate limit exceeded",
+        );
+    }
+
     // Push (receive-pack) requires the git:write scope; reads (info/refs,
     // upload-pack) require git:read. The pure-Rust receive-pack responder in
     // comtrya-git-http applies per-ref CAS + connectivity checks once
@@ -4621,7 +4652,7 @@ async fn git_endpoint(
     // personal access token carrying git:write. Bearer/cookie sessions cannot
     // push, so a CSRF'd browser cookie can never mutate a repository. Reads
     // accept either a credential with git:read or a Basic PAT with git:read.
-    if is_receive_pack(&path, raw_query.as_deref()) {
+    if receive_pack {
         let Some(password) = basic_password.as_deref() else {
             let mut response = error_response(
                 StatusCode::UNAUTHORIZED,
@@ -8280,6 +8311,63 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("git-upload-pack"));
+    }
+
+    #[tokio::test]
+    async fn git_endpoint_rate_limits_info_refs_per_principal() {
+        // Build a runtime whose git info-refs ceiling is tiny so we can drive
+        // it over the limit without thousands of requests.
+        let mut config = InstanceConfig::minimal_dev();
+        config.rate_limits.git_info_refs_per_principal = 2;
+        let runtime = Arc::new(
+            Runtime::start_with_config(
+                StartupOptions {
+                    data_dir: temp_dir("git-rate-limit"),
+                    extension_dir: test_extension_dir(),
+                    listen: "127.0.0.1:0".parse().unwrap(),
+                    check: false,
+                    tls_terminated: false,
+                    operator_code: Some("testbed-operator-code".to_string()),
+                    session_ttl_seconds: 300,
+                },
+                config,
+                true,
+            )
+            .unwrap(),
+        );
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_state = PureRustGitState::from_runtime(&runtime);
+        let token = runtime.issue_credential(
+            "comtrya://workspace".to_string(),
+            vec!["git:read".to_string()],
+            PrincipalStatus::OperatorCredential,
+        );
+
+        let request = || {
+            git_endpoint(
+                State(AppState {
+                    runtime: runtime.clone(),
+                    git_state: git_state.clone(),
+                }),
+                bearer_headers(&token),
+                Method::GET,
+                AxumPath("comtrya/comtrya.git/info/refs".to_string()),
+                RawQuery(Some("service=git-upload-pack".to_string())),
+                Bytes::new(),
+            )
+        };
+
+        // The ceiling is 2: the first two requests pass, the third trips it.
+        assert_eq!(request().await.status(), StatusCode::OK);
+        assert_eq!(request().await.status(), StatusCode::OK);
+        let limited = request().await;
+        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body = to_bytes(limited.into_body(), usize::MAX).await.unwrap();
+        let payload = serde_json::from_slice::<Value>(&body).unwrap();
+        assert_eq!(
+            payload["errors"][0]["extensions"]["code"],
+            ErrorCode::RateLimited.as_str()
+        );
     }
 
     #[tokio::test]
