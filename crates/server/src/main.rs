@@ -20,6 +20,7 @@ use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::future::IntoFuture;
@@ -3831,13 +3832,21 @@ async fn token_exchange(
             "unsupported production-testbed token exchange grant",
         );
     }
-    if state
+    // Compare the configured operator code with the attacker-supplied subject
+    // token in constant time. Hashing both to a fixed-size digest first means
+    // neither the byte-by-byte content nor the length of the secret leaks
+    // through a timing side channel.
+    let operator_code_matches = state
         .runtime
         .options
         .operator_code
         .as_deref()
-        .is_none_or(|code| code != request.subject_token)
-    {
+        .is_some_and(|code| {
+            let expected = Sha256::digest(code.as_bytes());
+            let presented = Sha256::digest(request.subject_token.as_bytes());
+            expected.ct_eq(presented.as_slice()).into()
+        });
+    if !operator_code_matches {
         return error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
