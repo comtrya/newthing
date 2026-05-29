@@ -774,7 +774,7 @@ impl Runtime {
         // is assembled. Until this point the registry's enforcement gates
         // fail closed for repository-scoped access.
         runtime.wasm_registry.install_repo_enablement(Arc::new(
-            wasm_registry::RepoEnablement::new(
+            wasm_registry::CueRepoEnablement::new(
                 runtime.data_dir.clone(),
                 runtime.cue_config_cache.clone(),
                 runtime.collected_cue_schemas(),
@@ -9273,6 +9273,17 @@ mod tests {
         assert_eq!(resolver.status, "platform-loaded");
         assert!(runtime.wasm_registry.get("ext_issues").is_some());
 
+        // Override the CUE-backed resolver with a static opt-in so the
+        // synthetic repo ref (no on-disk git dir) is treated as having
+        // enabled ext_issues. This test exercises dispatch + persistence,
+        // not the gate itself.
+        runtime
+            .wasm_registry
+            .install_repo_enablement(crate::wasm_registry::StaticRepoEnablement::new([(
+                "comtrya://workspace/ws_runtime_loaded_registry/repository/repo_runtime_loaded_registry",
+                vec!["ext_issues"],
+            )]));
+
         let dispatcher = crate::wasm_registry::RegistryDispatcher {
             registry: runtime.wasm_registry.clone(),
             store: Arc::new(runtime.extension_storage.clone()),
@@ -9344,6 +9355,22 @@ mod tests {
             session_ttl_seconds: 300,
         })
         .unwrap();
+        // This test exercises the extension's own input validation, which
+        // runs after the per-repo gate. Enable ext_issues for the
+        // well-formed repo refs it uses so the gate passes and the
+        // extension's BadInput validation is what the assertions observe.
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([
+                (
+                    "comtrya://workspace/ws_runtime_validation/repository/repo_runtime_validation",
+                    vec!["ext_issues"],
+                ),
+                (
+                    "comtrya://repository/repo_runtime_validation",
+                    vec!["ext_issues"],
+                ),
+            ]),
+        );
         let dispatcher = crate::wasm_registry::RegistryDispatcher {
             registry: runtime.wasm_registry.clone(),
             store: Arc::new(runtime.extension_storage.clone()),
@@ -9505,6 +9532,13 @@ mod tests {
     #[tokio::test]
     async fn api_ops_route_ext_issues_without_graphql_aliases() {
         let runtime = dev_runtime();
+        let repository = "comtrya://workspace/ws_api_ops/repository/repo_api_ops";
+        // Enable ext_issues for the synthetic test repo so the per-repo
+        // gate admits the ops this test drives (open/list/by-ref/by-number/
+        // close all resolve to this repo).
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([(repository, vec!["ext_issues"])]),
+        );
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["api:write".to_string()],
@@ -9515,7 +9549,6 @@ mod tests {
             git_state: PureRustGitState::test_default(),
         };
         let headers = bearer_headers(&token);
-        let repository = "comtrya://workspace/ws_api_ops/repository/repo_api_ops";
 
         let (status, created) = call_api_op(
             state.clone(),
@@ -9679,6 +9712,14 @@ mod tests {
     #[tokio::test]
     async fn api_ops_reject_bad_issue_input() {
         let runtime = dev_runtime();
+        // Enable ext_issues for the repo so the gate passes and the
+        // extension's own BadInput (empty title) is what surfaces.
+        runtime.wasm_registry.install_repo_enablement(
+            crate::wasm_registry::StaticRepoEnablement::new([(
+                "comtrya://workspace/ws_api_ops/repository/repo_api_ops",
+                vec!["ext_issues"],
+            )]),
+        );
         let token = runtime.issue_credential(
             "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
             vec!["api:write".to_string()],

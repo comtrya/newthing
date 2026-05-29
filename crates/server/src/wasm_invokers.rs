@@ -1311,13 +1311,23 @@ pub fn dispatch_ext_workspace_home(
 /// into `extension_id` via its `repository.enabledExtensions` set.
 /// Repository-scoped ops call this before doing any work that depends on
 /// the per-repo opt-in. Instance-scoped ops never call it.
+///
+/// The ref is trimmed before resolution (op inputs may carry surrounding
+/// whitespace that the extension trims internally). A ref that is not a
+/// well-formed `comtrya://…/repository/<id>` is left for the extension's
+/// own input validation to reject — the gate only fires for well-formed
+/// refs that resolve to a repository which has not opted in.
 fn ensure_repo_enabled(
     registry: &WasmRegistry,
     store: &crate::ExtensionRuntimeStore,
     repository_ref: &str,
     extension_id: &str,
 ) -> Result<(), wit_types::Error> {
-    registry.ensure_extension_enabled_for_repo(store, repository_ref, extension_id)
+    let trimmed = repository_ref.trim();
+    if crate::wasm_registry::repository_id_from_ref(trimmed).is_none() {
+        return Ok(());
+    }
+    registry.ensure_extension_enabled_for_repo(store, trimmed, extension_id)
 }
 
 /// Pull the `repository` field out of an op payload object. Used by

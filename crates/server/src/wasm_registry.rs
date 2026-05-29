@@ -41,17 +41,31 @@ pub struct LoadedExtension {
 }
 
 /// Resolves a repository's per-repo extension opt-in set
-/// (`repository.enabledExtensions`) at dispatch time. Installed onto the
-/// registry after the kernel runtime is assembled, because it depends on
+/// (`repository.enabledExtensions`) for a `comtrya://` repository ref.
+/// Installed onto the registry after the kernel runtime is assembled.
+pub trait RepoEnablementResolver: Send + Sync {
+    /// The set of extension ids the repository at `repository_ref` has
+    /// opted into. The empty set means "strictly off" — no
+    /// repository-scoped extension features are available.
+    fn enabled_extensions_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String>;
+}
+
+/// Production resolver: maps a repository ref to its on-disk bare git
+/// dir, evaluates the repo's `package comtrya` CUE through the shared
+/// per-commit cache, and reads `repository.enabledExtensions`. Depends on
 /// the data dir, the shared CUE evaluation cache, and the collected
 /// extension CUE schemas.
-pub struct RepoEnablement {
+pub struct CueRepoEnablement {
     data_dir: std::path::PathBuf,
     cue_cache: Arc<crate::cue_config::CueConfigCache>,
     schemas: Vec<crate::cue_config::ExtensionSchema>,
 }
 
-impl RepoEnablement {
+impl CueRepoEnablement {
     pub fn new(
         data_dir: std::path::PathBuf,
         cue_cache: Arc<crate::cue_config::CueConfigCache>,
@@ -64,12 +78,12 @@ impl RepoEnablement {
         }
     }
 
-    /// The set of extension ids the repository at `path` has opted into.
-    /// Resolves the bare git dir under `repositories/<path>.git`,
-    /// evaluates the repo's `package comtrya` CUE through the shared
-    /// cache, and reads `repository.enabledExtensions`. Absent or
-    /// unreadable config yields the empty set (strictly off).
-    pub fn enabled_extensions_for_path(&self, path: &str) -> std::collections::BTreeSet<String> {
+    /// The opt-in set for the repository at `path`. Resolves the bare git
+    /// dir under `repositories/<path>.git`, evaluates the repo's
+    /// `package comtrya` CUE through the shared cache, and reads
+    /// `repository.enabledExtensions`. Absent or unreadable config yields
+    /// the empty set (strictly off).
+    fn enabled_extensions_for_path(&self, path: &str) -> std::collections::BTreeSet<String> {
         let git_dir = self
             .data_dir
             .join("repositories")
@@ -93,16 +107,39 @@ impl RepoEnablement {
     }
 }
 
+impl RepoEnablementResolver for CueRepoEnablement {
+    fn enabled_extensions_for_repo(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String> {
+        let Some(repo_id) = repository_id_from_ref(repository_ref) else {
+            return std::collections::BTreeSet::new();
+        };
+        let Some(path) = store.repository_path_for_id(repo_id) else {
+            return std::collections::BTreeSet::new();
+        };
+        self.enabled_extensions_for_path(&path)
+    }
+}
+
 /// Extract the opaque repository id from a `comtrya://` resource ref.
 /// Accepts `comtrya://repository/<id>` and
 /// `comtrya://workspace/<ws>/repository/<id>`. Returns `None` for any
-/// other shape.
+/// other shape, including refs with an empty workspace or repository
+/// segment — those are malformed and left for the extension's own input
+/// validation rather than the per-repo gate.
 pub fn repository_id_from_ref(repository_ref: &str) -> Option<&str> {
     let rest = repository_ref.strip_prefix("comtrya://")?;
     if let Some(rest) = rest.strip_prefix("workspace/") {
-        return rest.split_once("/repository/").map(|(_, id)| id);
+        let (workspace, id) = rest.split_once("/repository/")?;
+        if workspace.is_empty() || id.is_empty() {
+            return None;
+        }
+        return Some(id);
     }
-    rest.strip_prefix("repository/")
+    let id = rest.strip_prefix("repository/")?;
+    if id.is_empty() { None } else { Some(id) }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +172,7 @@ pub struct WasmRegistry {
     /// of which exist when the registry itself is built). `None` until
     /// installed — gates treat a missing resolver as "cannot confirm
     /// enabled" and reject repository-scoped access, failing closed.
-    pub repo_enablement: Arc<RwLock<Option<Arc<RepoEnablement>>>>,
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -230,7 +267,7 @@ impl WasmRegistry {
     /// Install the per-repo extension opt-in resolver. Called once after
     /// the kernel runtime is assembled; until then the enforcement gates
     /// fail closed for repository-scoped access.
-    pub fn install_repo_enablement(&self, resolver: Arc<RepoEnablement>) {
+    pub fn install_repo_enablement(&self, resolver: Arc<dyn RepoEnablementResolver>) {
         if let Ok(mut slot) = self.repo_enablement.write() {
             *slot = Some(resolver);
         }
@@ -248,12 +285,6 @@ impl WasmRegistry {
         repository_ref: &str,
         extension_id: &str,
     ) -> bool {
-        let Some(repo_id) = repository_id_from_ref(repository_ref) else {
-            return false;
-        };
-        let Some(path) = store.repository_path_for_id(repo_id) else {
-            return false;
-        };
         let Some(resolver) = self
             .repo_enablement
             .read()
@@ -263,7 +294,7 @@ impl WasmRegistry {
             return false;
         };
         resolver
-            .enabled_extensions_for_path(&path)
+            .enabled_extensions_for_repo(store, repository_ref)
             .contains(extension_id)
     }
 
@@ -1016,6 +1047,47 @@ fn valid_event_segment(segment: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
+/// Test resolver that returns a fixed opt-in set keyed by repository
+/// ref, bypassing the on-disk git/CUE path. Lets dispatch tests exercise
+/// the gate without materialising a bare repo and comtrya CUE per case.
+/// Shared by the in-module tests and the runtime-level tests in `main`.
+#[cfg(test)]
+pub(crate) struct StaticRepoEnablement {
+    enabled: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+}
+
+#[cfg(test)]
+impl StaticRepoEnablement {
+    pub(crate) fn new(
+        entries: impl IntoIterator<Item = (&'static str, Vec<&'static str>)>,
+    ) -> std::sync::Arc<Self> {
+        let enabled = entries
+            .into_iter()
+            .map(|(repo, ids)| {
+                (
+                    repo.to_string(),
+                    ids.into_iter().map(str::to_string).collect(),
+                )
+            })
+            .collect();
+        std::sync::Arc::new(Self { enabled })
+    }
+}
+
+#[cfg(test)]
+impl RepoEnablementResolver for StaticRepoEnablement {
+    fn enabled_extensions_for_repo(
+        &self,
+        _store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+    ) -> std::collections::BTreeSet<String> {
+        self.enabled
+            .get(repository_ref)
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1192,6 +1264,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_dispatcher/repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1294,6 +1370,33 @@ mod tests {
         registry
             .register_reactor_subscriptions(store.clone())
             .expect("register reactor subscriptions");
+
+        // Seed the pull document the merged event points at, carrying the
+        // source repository ref, and enable ext_pull_requests for that
+        // repo so the repository-scoped reactor gate admits the dispatch.
+        let source_repository = "comtrya://workspace/ws_reactor/repository/repo_reactor";
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_pull_requests".to_string(),
+                collection: "pull_requests".to_string(),
+                id: "pul_reactor_test".to_string(),
+                resource: "comtrya://pull_request/pul_reactor_test".to_string(),
+                resource_refs: vec![
+                    "comtrya://pull_request/pul_reactor_test".to_string(),
+                    source_repository.to_string(),
+                ],
+                visibility: "PRIVATE".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "1970-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "pul_reactor_test" }),
+            })
+            .expect("seed pull document");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            source_repository,
+            vec!["ext_pull_requests"],
+        )]));
 
         let subscriptions = registry.reactor_subscriptions();
         assert_eq!(
@@ -1552,6 +1655,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch-bad-payload");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1589,6 +1696,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://repository/repo_dispatcher",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-registry-dispatch-missing-limit");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
@@ -1640,6 +1751,10 @@ mod tests {
         registry
             .register_from_manifest(&root)
             .expect("register ext_issues");
+        registry.install_repo_enablement(StaticRepoEnablement::new([(
+            "comtrya://workspace/ws_host_invoke/repository/repo_host_invoke",
+            vec!["ext_issues"],
+        )]));
         let tmp = tempdir_for_test("comtrya-host-invoke-real-dispatch");
         let store =
             Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
