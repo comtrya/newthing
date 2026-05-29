@@ -706,6 +706,7 @@ pub fn validate_repository_cue_sources(
     files: &[CueFile],
     budget: &CueEvalBudget,
     extension_schemas: &[CueSchemaFile],
+    installed_extension_ids: &BTreeSet<String>,
 ) -> CoreResult<ConfigValidation> {
     let comtrya_files: Vec<&CueFile> = files
         .iter()
@@ -750,6 +751,25 @@ pub fn validate_repository_cue_sources(
         }
     }
 
+    // Reject a push whose `repository.enabledExtensions` names an id that
+    // is not an installed extension. The CUE schema already constrains the
+    // field to `[...string]`; this enforces the semantic constraint the
+    // schema can't express (membership in the live installed set), which is
+    // why it lives in the validator rather than the schema.
+    if diagnostics.is_empty() {
+        for id in enabled_extensions_from_evaluated(&evaluated) {
+            if !installed_extension_ids.contains(&id) {
+                diagnostics.push(ConfigDiagnostic {
+                    severity: "error".to_string(),
+                    path: None,
+                    message: format!(
+                        "repository.enabledExtensions names {id:?}, which is not an installed extension"
+                    ),
+                });
+            }
+        }
+    }
+
     if !diagnostics.is_empty() {
         return Ok(ConfigValidation {
             accepted: false,
@@ -778,6 +798,35 @@ pub fn validate_repository_cue_sources(
         diagnostics: Vec::new(),
         snapshots,
     })
+}
+
+/// Collect the `repository.enabledExtensions` ids declared anywhere in the
+/// evaluated instance tree. `evaluated` is the cuengine result's
+/// `instances` map (relative directory path -> evaluated JSON), so a
+/// `repository:` block can appear under any instance; we union the
+/// `enabledExtensions` across all of them. Non-string entries are ignored
+/// (the CUE schema constrains the field to `[...string]`, so a non-string
+/// here would already have failed evaluation).
+fn enabled_extensions_from_evaluated(evaluated: &serde_json::Value) -> BTreeSet<String> {
+    let mut ids = BTreeSet::new();
+    let Some(instances) = evaluated.as_object() else {
+        return ids;
+    };
+    for instance in instances.values() {
+        let Some(list) = instance
+            .get("repository")
+            .and_then(|repo| repo.get("enabledExtensions"))
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        for entry in list {
+            if let Some(id) = entry.as_str() {
+                ids.insert(id.to_string());
+            }
+        }
+    }
+    ids
 }
 
 /// Typed projection persisted as a config snapshot's `effective_config_json`.
@@ -1495,6 +1544,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1516,6 +1566,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1535,6 +1586,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1555,6 +1607,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1575,6 +1628,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1604,6 +1658,7 @@ mod tests {
                 }],
                 &CueEvalBudget::default(),
                 &[],
+                &BTreeSet::new(),
             )
             .unwrap();
             assert!(
@@ -1637,6 +1692,7 @@ mod tests {
                 }],
                 &CueEvalBudget::default(),
                 &[],
+                &BTreeSet::new(),
             )
             .unwrap();
             assert!(
@@ -1668,6 +1724,7 @@ mod tests {
             }],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1701,6 +1758,7 @@ mod tests {
             }],
             &budget,
             &[],
+            &BTreeSet::new(),
         )
         .unwrap_err();
 
@@ -1717,6 +1775,7 @@ mod tests {
             &files,
             &CueEvalBudget::default(),
             extension_schemas,
+            &BTreeSet::new(),
         )
         .unwrap()
     }
@@ -1899,6 +1958,7 @@ mod tests {
             ],
             &CueEvalBudget::default(),
             &[],
+            &BTreeSet::new(),
         )
         .unwrap();
 
@@ -1923,6 +1983,96 @@ mod tests {
         assert_eq!(parsed["repositoryID"], "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3");
         assert_eq!(parsed["path"], "/");
         assert!(parsed.get("evaluated").is_some());
+    }
+
+    #[test]
+    fn repository_enabled_extensions_accepts_installed_ids() {
+        // A repo declaring `enabledExtensions` whose ids are all installed
+        // must validate.
+        let installed: BTreeSet<String> =
+            ["ext_issues".to_string(), "ext_pulls".to_string()].into();
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "import \"github.com/comtrya/comtrya/schema\"\n",
+                    "repository: schema.#Repository & { enabledExtensions: [\"ext_issues\"] }\n",
+                )
+                .to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+            &installed,
+        )
+        .unwrap();
+        assert!(
+            result.accepted,
+            "installed ids must validate; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn repository_enabled_extensions_rejects_unknown_id() {
+        // An id not in the installed set is rejected with a clear
+        // error diagnostic naming the offending id.
+        let installed: BTreeSet<String> = ["ext_issues".to_string()].into();
+        let result = validate_repository_cue_sources(
+            "repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3",
+            "0123456789abcdef0123456789abcdef01234567",
+            &[CueFile {
+                path: "comtrya.cue".to_string(),
+                source: concat!(
+                    "package comtrya\n",
+                    "import \"github.com/comtrya/comtrya/schema\"\n",
+                    "repository: schema.#Repository & { enabledExtensions: [\"ext_nope\"] }\n",
+                )
+                .to_string(),
+            }],
+            &CueEvalBudget::default(),
+            &[],
+            &installed,
+        )
+        .unwrap();
+        assert!(!result.accepted, "unknown id must reject");
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == "error" && d.message.contains("ext_nope")),
+            "expected an unknown-extension diagnostic; got: {:?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn repository_without_enabled_extensions_defaults_to_empty() {
+        // A repo that declares a `repository:` block but omits
+        // `enabledExtensions` defaults to the empty set — strictly off.
+        let evaluated = serde_json::json!({
+            ".": { "repository": { "enabledExtensions": [] } }
+        });
+        assert!(enabled_extensions_from_evaluated(&evaluated).is_empty());
+
+        // A repo with no `repository:` block at all is also empty.
+        let none = serde_json::json!({ ".": { "projects": {} } });
+        assert!(enabled_extensions_from_evaluated(&none).is_empty());
+    }
+
+    #[test]
+    fn enabled_extensions_from_evaluated_unions_across_instances() {
+        // `repository:` blocks declared in more than one instance union.
+        let evaluated = serde_json::json!({
+            ".": { "repository": { "enabledExtensions": ["ext_issues"] } },
+            "services/api": { "repository": { "enabledExtensions": ["ext_pulls"] } },
+        });
+        let ids = enabled_extensions_from_evaluated(&evaluated);
+        assert!(ids.contains("ext_issues"));
+        assert!(ids.contains("ext_pulls"));
+        assert_eq!(ids.len(), 2);
     }
 
     #[test]
