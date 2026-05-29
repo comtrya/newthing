@@ -318,7 +318,11 @@ mod tests {
             .filter(|event| event.event_type == CoreEventType::AuthLoginFailed.as_str())
             .cloned()
             .collect();
-        assert_eq!(failed.len(), 1, "unknown issuer must produce one failure audit");
+        assert_eq!(
+            failed.len(),
+            1,
+            "unknown issuer must produce one failure audit"
+        );
         assert_eq!(failed[0].time, "1970-01-01T00:00:00.042Z");
         assert_eq!(auth.users_len(), 0);
     }

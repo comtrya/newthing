@@ -20,7 +20,6 @@ use comtrya_git_http::{GitHttpState, RepositoryProvider, v2 as git_v2};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, OpenOptions};
 use std::future::IntoFuture;
@@ -31,6 +30,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use subtle::ConstantTimeEq;
 use tokio::sync::Semaphore;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -3888,16 +3888,17 @@ async fn token_exchange(
     // token in constant time. Hashing both to a fixed-size digest first means
     // neither the byte-by-byte content nor the length of the secret leaks
     // through a timing side channel.
-    let operator_code_matches = state
-        .runtime
-        .options
-        .operator_code
-        .as_deref()
-        .is_some_and(|code| {
-            let expected = Sha256::digest(code.as_bytes());
-            let presented = Sha256::digest(request.subject_token.as_bytes());
-            expected.ct_eq(presented.as_slice()).into()
-        });
+    let operator_code_matches =
+        state
+            .runtime
+            .options
+            .operator_code
+            .as_deref()
+            .is_some_and(|code| {
+                let expected = Sha256::digest(code.as_bytes());
+                let presented = Sha256::digest(request.subject_token.as_bytes());
+                expected.ct_eq(presented.as_slice()).into()
+            });
     if !operator_code_matches {
         return error_response(
             StatusCode::UNAUTHORIZED,
@@ -4672,7 +4673,11 @@ async fn git_endpoint(
     let (rate_bucket, rate_ceiling) = if receive_pack {
         (
             "git_receive_pack",
-            state.runtime.config.rate_limits.git_receive_pack_per_principal,
+            state
+                .runtime
+                .config
+                .rate_limits
+                .git_receive_pack_per_principal,
         )
     } else {
         (
@@ -5034,9 +5039,9 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
 /// is separate — so it must not over-report scopes a caller does not hold.
 fn viewer_permissions_for(principal: PrincipalStatus) -> Vec<&'static str> {
     match principal {
-        PrincipalStatus::Anonymous
-        | PrincipalStatus::Invalid
-        | PrincipalStatus::Unavailable => Vec::new(),
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid | PrincipalStatus::Unavailable => {
+            Vec::new()
+        }
         PrincipalStatus::Credential => vec![
             "graphql:read",
             "graphql:write",

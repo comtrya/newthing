@@ -2040,10 +2040,12 @@ mod tests {
         let filtered = <HostState as wit_storage::Host>::query(
             &mut host,
             "_meta".to_string(),
-            vec![wit_storage::IndexFilter::NullCheck(wit_storage::NullFilter {
-                field: "state".to_string(),
-                is_null: false,
-            })],
+            vec![wit_storage::IndexFilter::NullCheck(
+                wit_storage::NullFilter {
+                    field: "state".to_string(),
+                    is_null: false,
+                },
+            )],
             None,
             10,
             None,
