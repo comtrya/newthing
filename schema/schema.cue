@@ -127,6 +127,15 @@ package schema
 	// kernel owns the catalog so any first-party or extension surface —
 	// issues, pulls, epics, repos, boards — speaks the same vocabulary.
 	labels?: [...#Label]
+
+	// Extensions this repo opts into, by extension id (e.g.
+	// "ext_issues"). Strictly off by default: a repo that omits this
+	// field — or sets it to `[]` — gets NO extension repository
+	// features. The forge rejects a push whose `enabledExtensions`
+	// names an id that is not an installed extension. Instance-context
+	// extension features are unaffected; this gates only the
+	// repository-context features of the named extensions.
+	enabledExtensions: [...string] | *[]
 }
 
 #Bookmark: {
