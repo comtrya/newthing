@@ -290,7 +290,9 @@ mod tests {
     fn state_transition_advances_updated_at() {
         let mut queue = JobQueue::default();
         let job = queue.enqueue("publish", "default", "{}", 0, 1_000);
-        let (lease, _) = queue.claim_next("default", "worker-a", 2_000, 1_000).unwrap();
+        let (lease, _) = queue
+            .claim_next("default", "worker-a", 2_000, 1_000)
+            .unwrap();
 
         assert_eq!(
             queue.get(&job.id).map(|record| record.updated_at.clone()),

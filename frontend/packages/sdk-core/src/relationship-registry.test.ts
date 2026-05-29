@@ -6,10 +6,43 @@ import {
   registerRelationshipType,
   relationshipTargetProviderForKind,
   relationshipTypesForSourceKind,
+  subscribeRelationshipTypes,
 } from "./relationship-registry";
 
 afterEach(() => {
   _resetRelationshipsForTesting();
+});
+
+test("registry state and subscribers survive after dropping the globalThis singleton", () => {
+  // Regression for the registry-strategy unification: the relationship
+  // registry moved from a globalThis-keyed singleton to plain module state,
+  // matching the sibling registries. Registration, lookup, subscriber
+  // notification, and reset must all still work against module state.
+  let notified = 0;
+  const unsubscribe = subscribeRelationshipTypes(() => {
+    notified += 1;
+  });
+
+  registerRelationshipType({
+    id: "ext_issues.blocks",
+    extensionId: "ext_issues",
+    kind: "comtrya://rel/blocks",
+    sourceKinds: ["issue"],
+    targetKinds: ["issue"],
+    outgoingLabel: "blocks",
+    incomingLabel: "blocked by",
+    symmetric: false,
+    order: 10,
+  });
+
+  expect(notified).toBe(1);
+  expect(relationshipTypesForSourceKind("issue").map((type) => type.id)).toEqual([
+    "ext_issues.blocks",
+  ]);
+
+  unsubscribe();
+  _resetRelationshipsForTesting();
+  expect(relationshipTypesForSourceKind("issue")).toEqual([]);
 });
 
 test("relationship types are ordered and matched by either endpoint kind", () => {

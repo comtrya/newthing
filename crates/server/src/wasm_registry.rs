@@ -569,8 +569,12 @@ struct WireResourceKind {
 }
 
 fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
-    serde_json::from_value(json.clone())
-        .map_err(|e| format!("{} has unexpected manifest shape: {e}", manifest_path.display()))
+    serde_json::from_value(json.clone()).map_err(|e| {
+        format!(
+            "{} has unexpected manifest shape: {e}",
+            manifest_path.display()
+        )
+    })
 }
 
 fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {

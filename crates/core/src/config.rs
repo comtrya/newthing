@@ -753,7 +753,8 @@ pub fn validate_repository_cue_sources(
     let snapshots = paths
         .into_iter()
         .map(|path| {
-            let effective_json = effective_config_json(repository_id, commit_oid, &path, &evaluated);
+            let effective_json =
+                effective_config_json(repository_id, commit_oid, &path, &evaluated);
             snapshot(
                 repository_id,
                 commit_oid,

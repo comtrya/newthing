@@ -334,11 +334,8 @@ mod tests {
     #[test]
     fn generate_rejects_undocumented_subcommand_aliases() {
         for alias in ["global-config", "comtrya.cue"] {
-            let error = run(
-                ["generate".to_string(), alias.to_string()],
-                &mut Vec::new(),
-            )
-            .expect_err("alias should be rejected as unknown option");
+            let error = run(["generate".to_string(), alias.to_string()], &mut Vec::new())
+                .expect_err("alias should be rejected as unknown option");
             assert_eq!(error.exit_code, 2);
         }
     }

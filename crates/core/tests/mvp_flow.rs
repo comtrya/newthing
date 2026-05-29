@@ -45,8 +45,11 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
     assert_eq!(created_event.time, "2023-11-14T22:13:20.000Z");
 
     let mut outbox = EventOutbox::default();
-    let repo_resource =
-        ResourceRef::new(ResourceKind::Repository, OpaqueId::new(IdPrefix::Repository)).unwrap();
+    let repo_resource = ResourceRef::new(
+        ResourceKind::Repository,
+        OpaqueId::new(IdPrefix::Repository),
+    )
+    .unwrap();
     outbox.append(EventEnvelope::core(
         CoreEvent {
             event_type: CoreEventType::RepositoryRefUpdated,
