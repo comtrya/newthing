@@ -548,12 +548,11 @@ pub fn dispatch_ext_issues(
             }
         }
         "by-refs-issue" => {
-            // NOT per-repo gated: a batch of issue refs can span multiple
-            // repositories, so there is no single repo to gate against.
-            // Filtering by per-ref enablement would silently drop results
-            // and is out of scope for the op-entry gate. Flagged in the
-            // Phase-2 report; revisit if batch reads need per-result
-            // gating.
+            // Intentionally NOT per-repo gated. A batch of issue refs can
+            // span multiple repositories, so there is no single repo to
+            // gate against. Per the Phase-2 opt-in decision, cross-repo
+            // batch reads are exempt from the gate; opt-in governs
+            // mutations and single-repo reads only.
             let refs = string_vec_payload(&input, "by-refs-issue")?;
             let result = issues
                 .call_by_refs_issue(&mut wasm_store, &refs)
@@ -595,8 +594,9 @@ pub fn dispatch_ext_issues(
             }
         }
         "state-counts-for-refs-issue" => {
-            // NOT per-repo gated: aggregates counts across a batch of refs
-            // that can span multiple repositories. See `by-refs-issue`.
+            // Intentionally NOT per-repo gated: aggregates counts across a
+            // batch of refs that can span multiple repositories. See
+            // `by-refs-issue` for the Phase-2 opt-in exemption rationale.
             let refs = string_vec_payload(&input, "state-counts-for-refs-issue")?;
             let result = issues
                 .call_state_counts_for_refs_issue(&mut wasm_store, &refs)
@@ -789,6 +789,10 @@ pub fn dispatch_ext_epics(
             }
         }
         "by-refs-epic" => {
+            // Not per-repo gated: epics are instance-scoped (an epic can
+            // span repositories), and this batch read accepts refs across
+            // repositories. Opt-in does not apply to instance-scoped
+            // extensions.
             let refs = string_vec_payload(&input, "by-refs-epic")?;
             let result = epics
                 .call_by_refs_epic(&mut wasm_store, &refs)
