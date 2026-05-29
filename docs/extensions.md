@@ -88,8 +88,16 @@ important v3 fields are:
 - `allowedCrossCalls`: cross-extension operation routes allowed through
   `ops.invoke`.
 - `reactor`: subscription, mutation, emit, and recursion policy for event
-  reactions.
+  reactions. `reactor.scope` (`"repository"` default, or `"instance"`)
+  selects whether event dispatch to this extension is gated per-repository
+  by the source repo's `repository.enabledExtensions` opt-in. A
+  repository-scoped reactor is skipped for events whose source repository
+  has not enabled the extension; an instance-scoped reactor always runs.
 - `contributes.resourceKinds`: resource URI kinds owned by the extension.
+  Each entry's `scope` (`"repository"` default, or `"instance"`) selects
+  whether ops on that kind are gated per-repository by the target repo's
+  `repository.enabledExtensions` opt-in. Repository-scoped ops against a
+  repo that has not enabled the extension are rejected with `Forbidden`.
 - `contributes.relationshipTypes`: relation verbs and labels the extension
   makes available to UI surfaces for typed relationship creation.
 - `contributes.collections`: storage collections and indexes
