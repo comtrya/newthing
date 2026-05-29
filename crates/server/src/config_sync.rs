@@ -68,21 +68,34 @@ impl ConfigRepo {
     /// any such failure we discard the checkout and clone it again rather than
     /// wedge startup.
     pub(crate) fn bootstrap_and_load(&self) -> Result<(InstanceConfig, String), String> {
-        let outcome = match self.bootstrap_then_sync() {
-            Ok(outcome) => outcome,
+        let outcome = self.sync_or_reclone(|s| s.bootstrap_then_sync())?;
+        tracing::info!(commit = %outcome.current, changed = outcome.changed, "synced config repo");
+        Ok((self.load()?, outcome.current.to_string()))
+    }
+
+    /// Run a sync attempt and, if it fails, recover by discarding the
+    /// checkout and re-cloning before retrying. A checkout on a durable
+    /// volume can drift, lock, or be force-pushed out from under us
+    /// between calls; the remote is the GitOps source of truth, so we
+    /// re-clone rather than wedge. The error is surfaced only if the
+    /// recovery attempt also fails.
+    fn sync_or_reclone(
+        &self,
+        attempt: impl Fn(&Self) -> Result<gitsync::SyncOutcome, gitsync::errors::GitSyncError>,
+    ) -> Result<gitsync::SyncOutcome, String> {
+        match attempt(self) {
+            Ok(outcome) => Ok(outcome),
             Err(err) => {
                 tracing::warn!(
                     %err,
                     checkout = %self.checkout_dir.display(),
-                    "config repo bootstrap/sync failed; discarding checkout and re-cloning"
+                    "config repo sync failed; discarding checkout and re-cloning"
                 );
                 self.discard_checkout()?;
                 self.bootstrap_then_sync()
-                    .map_err(|err| format!("config repo sync failed after re-clone: {err}"))?
+                    .map_err(|err| format!("config repo sync failed after re-clone: {err}"))
             }
-        };
-        tracing::info!(commit = %outcome.current, changed = outcome.changed, "synced config repo");
-        Ok((self.load()?, outcome.current.to_string()))
+        }
     }
 
     /// Clone the repo if absent (or adopt an existing checkout) and fast-forward
@@ -111,10 +124,7 @@ impl ConfigRepo {
     /// Fast-forward the existing checkout and, when it changed, re-evaluate the
     /// config so the reconciler can apply it (and validation errors surface).
     pub(crate) fn poll(&self) -> Result<SyncPoll, String> {
-        let outcome = self
-            .sync
-            .sync()
-            .map_err(|err| format!("config repo sync failed: {err}"))?;
+        let outcome = self.sync_or_reclone(|s| s.sync.sync())?;
         let commit = outcome.current.to_string();
         if outcome.changed {
             Ok(SyncPoll::Changed {

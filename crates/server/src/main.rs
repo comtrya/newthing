@@ -2346,7 +2346,29 @@ async fn graphql_get(State(state): State<AppState>, headers: HeaderMap) -> Respo
 }
 
 async fn graphql_post(State(state): State<AppState>, headers: HeaderMap, body: String) -> Response {
-    let payload = serde_json::from_str::<Value>(&body).unwrap_or_else(|_| json!({}));
+    // A POST with no body is the well-formed "empty query" case the
+    // GET handler also serves; a body that is present but not valid JSON
+    // is a client bug and must be rejected at the edge rather than
+    // coerced into an empty object that returns 200.
+    let payload = if body.trim().is_empty() {
+        json!({})
+    } else {
+        match serde_json::from_str::<Value>(&body) {
+            Ok(value) => value,
+            Err(err) => {
+                let cors = match graphql_read_guard(&state, &headers) {
+                    Ok(c) => c,
+                    Err(r) => return *r,
+                };
+                return graphql_error_response(
+                    StatusCode::BAD_REQUEST,
+                    ErrorCode::BadUserInput.as_str(),
+                    &format!("request body is not valid JSON: {err}"),
+                    cors,
+                );
+            }
+        }
+    };
     let query = payload.get("query").and_then(Value::as_str).unwrap_or("");
     match extract_root_operation_field(query).as_deref() {
         Some("createRepository") => return create_repository_mutation(state, headers, payload),
@@ -3399,20 +3421,14 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
     // the GraphQL handler, replace with the authenticated subject. Until then,
     // `build_authored_pulls` will always return empty because seed PRs use
     // real-looking author names like "rawkode"/"alice"/"mira".
+    let viewer_permissions = viewer_permissions_for(principal);
     let viewer_stub = json!({
         "id": "viewer",
-        "permissions": vec![
-            "instance.admin",
-            "graphql:read",
-            "graphql:write",
-            "events:read",
-            "git:read",
-            "checks:read",
-        ]
+        "permissions": viewer_permissions.clone(),
     });
     let viewer = json!({
         "authenticated": principal != PrincipalStatus::Anonymous,
-        "permissions": viewer_stub["permissions"].clone(),
+        "permissions": viewer_permissions,
         // limit hardcoded to 10 in v1: the JSON-shaped GraphQL handler doesn't parse
         // field arguments. Real argument parsing arrives with the federated planner.
         "reviewQueue": build_review_queue(&viewer_stub, &pull_requests_for_summary, 10),
@@ -3960,12 +3976,16 @@ async fn oidc_callback(
     // 5. Upsert user. Mutex lock comes AFTER the async exchange and
     //    drops at this statement's semicolon — never held across an
     //    `.await`.
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
     let login_result = state
         .runtime
         .auth_service
         .lock()
         .expect("auth_service lock not poisoned")
-        .login(&issuer.id, claims);
+        .login(&issuer.id, claims, now_ms);
     let login = match login_result {
         Ok(l) => l,
         Err(core_err) => {
@@ -4459,6 +4479,34 @@ pub fn build_repository_summary(repo: &Value, pull_requests: &Value, checks: &Va
 /// Returns pulls in REVIEW/READY where the viewer appears in `reviewers[]`.
 /// When `reviewers` is absent (current seed shape), includes all REVIEW/READY pulls.
 /// v1 fallback — federated planner (V3_PLAN item 9) will provide typed reviewer state.
+/// Derive the `viewer.permissions` set reported at the GraphQL read
+/// surface from the real authenticated principal. Anonymous callers get
+/// an empty set (they hold no granted scopes); authenticated credentials
+/// get the read/write scopes the kernel enforces; only admin/operator
+/// principals carry `instance.admin`. This is the public-boundary view of
+/// authorization — server-side enforcement (adminTelemetry, sync_config)
+/// is separate — so it must not over-report scopes a caller does not hold.
+fn viewer_permissions_for(principal: PrincipalStatus) -> Vec<&'static str> {
+    match principal {
+        PrincipalStatus::Anonymous | PrincipalStatus::Invalid => Vec::new(),
+        PrincipalStatus::Credential => vec![
+            "graphql:read",
+            "graphql:write",
+            "events:read",
+            "git:read",
+            "checks:read",
+        ],
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential => vec![
+            "instance.admin",
+            "graphql:read",
+            "graphql:write",
+            "events:read",
+            "git:read",
+            "checks:read",
+        ],
+    }
+}
+
 pub fn build_review_queue(viewer: &Value, pulls: &Value, limit: usize) -> Value {
     let viewer_id = viewer.get("id").and_then(Value::as_str).unwrap_or("");
     let items: Vec<Value> = pulls
@@ -5383,6 +5431,19 @@ fn validate_storage_collections(
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionRuntimeStore {
     root: PathBuf,
+    /// In-memory parse cache of `documents.jsonl`, refreshed on every
+    /// write through this store. Without it, every `load_records` call
+    /// re-reads and re-`serde_json`-parses the entire document table —
+    /// O(total_documents) per host call, and a single OCC update parses
+    /// the whole file three+ times. The cache makes reads serve the
+    /// already-parsed records and confines the full read+parse to the
+    /// first read after construction. Every mutation routes through
+    /// `write_records_atomically`, which replaces the cache with the
+    /// just-written records, so a stale cache cannot outlive a write made
+    /// via this store. Wrapped in `Arc` so cloned handles (the reactor
+    /// subscription registration clones the store) share one cache and a
+    /// write through any handle is visible to reads through the others.
+    records_cache: Arc<Mutex<Option<Vec<ExtensionDocumentRecord>>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5409,7 +5470,10 @@ impl ExtensionRuntimeStore {
         let root = data_dir.join("extensions/storage");
         fs::create_dir_all(&root)
             .map_err(|error| format!("failed to create extension storage dir: {error}"))?;
-        let store = Self { root };
+        let store = Self {
+            root,
+            records_cache: Arc::new(Mutex::new(None)),
+        };
         store.ensure_schema(storage_collections)?;
         touch(&store.documents_path()).map_err(|error| {
             format!("failed to initialize extension storage documents: {error}")
@@ -5670,6 +5734,19 @@ impl ExtensionRuntimeStore {
     }
 
     pub(crate) fn load_records(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
+        let mut cache = self
+            .records_cache
+            .lock()
+            .map_err(|error| format!("extension store cache lock poisoned: {error}"))?;
+        if let Some(cached) = cache.as_ref() {
+            return Ok(cached.clone());
+        }
+        let records = self.read_records_from_disk()?;
+        *cache = Some(records.clone());
+        Ok(records)
+    }
+
+    fn read_records_from_disk(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
         let path = self.documents_path();
         if !path.is_file() {
             return Ok(Vec::new());
@@ -5706,7 +5783,17 @@ impl ExtensionRuntimeStore {
                 "failed to replace extension document table {}: {error}",
                 path.display()
             )
-        })
+        })?;
+        // Refresh the cache with the just-written records so the next read
+        // is served from memory without re-reading the file. This is the
+        // single write chokepoint for the document table (create, delete,
+        // and OCC update all route through here), so it is also where the
+        // cache invariant is maintained. A poisoned lock leaves the cache
+        // untouched; the next `load_records` will surface the poison.
+        if let Ok(mut cache) = self.records_cache.lock() {
+            *cache = Some(records.to_vec());
+        }
+        Ok(())
     }
 
     pub(crate) fn append_storage_event(&self, event_type: &str, data: Value) -> Result<(), String> {
@@ -5751,27 +5838,23 @@ fn extension_document_record(
     }
 }
 
-fn indexed_fields(data: &Value) -> BTreeMap<String, Value> {
+/// The single source of truth for a document's `indexed_fields`, used by
+/// BOTH the create path (`extension_document_record`, and the WASM
+/// `storage.create` host import) and the update path
+/// (`update_document_if_version`). Indexing every top-level scalar keeps
+/// the index shape stable across a document's lifetime: a field indexed
+/// at create time stays indexed after the first update, instead of
+/// silently vanishing because it was not on a hardcoded allow-list.
+/// On top of the generic scalars we add a few derived keys that callers
+/// query by but that are spelled differently in the stored data
+/// (`repositoryID` <- `repositoryId`, `extensionID` <- `id`, `updatedAt`
+/// <- `updatedAt`/`time`).
+pub(crate) fn indexed_fields(data: &Value) -> BTreeMap<String, Value> {
     let mut fields = BTreeMap::new();
     if let Some(object) = data.as_object() {
-        for key in [
-            "id",
-            "repositoryID",
-            "workspaceID",
-            "path",
-            "slug",
-            "state",
-            "status",
-            "type",
-            "time",
-            "number",
-            "name",
-            "provider",
-            "commitOID",
-            "required",
-        ] {
-            if let Some(value) = object.get(key) {
-                fields.insert(key.to_string(), value.clone());
+        for (key, value) in object {
+            if value.is_string() || value.is_number() || value.is_boolean() || value.is_null() {
+                fields.insert(key.clone(), value.clone());
             }
         }
         if let Some(value) = object.get("repositoryId") {
@@ -9952,6 +10035,32 @@ mod tests {
         ]);
         let result = build_failing_checks(&viewer, &checks, 1);
         assert_eq!(result["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn viewer_permissions_reflect_real_principal() {
+        // Anonymous (and Invalid) callers hold no granted scopes: the
+        // public read surface must not report admin or write permissions.
+        assert!(viewer_permissions_for(PrincipalStatus::Anonymous).is_empty());
+        assert!(viewer_permissions_for(PrincipalStatus::Invalid).is_empty());
+
+        // Authenticated credentials get read/write scopes but NOT admin.
+        let credential = viewer_permissions_for(PrincipalStatus::Credential);
+        assert!(credential.contains(&"graphql:read"));
+        assert!(credential.contains(&"graphql:write"));
+        assert!(
+            !credential.contains(&"instance.admin"),
+            "non-admin principals must never carry instance.admin"
+        );
+
+        // Only admin/operator principals carry instance.admin.
+        assert!(
+            viewer_permissions_for(PrincipalStatus::AdminCredential).contains(&"instance.admin")
+        );
+        assert!(
+            viewer_permissions_for(PrincipalStatus::OperatorCredential)
+                .contains(&"instance.admin")
+        );
     }
 
     #[test]

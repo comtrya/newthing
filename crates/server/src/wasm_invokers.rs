@@ -7,8 +7,12 @@
 //! Cross-extension JSON ABI used by these bridges:
 //!   * records are JSON objects with camelCase field names and required
 //!     fields matching WIT required fields;
-//!   * variants are lower-kebab/lowercase strings matching WIT variant
-//!     case names, not GraphQL enum spellings;
+//!   * issue state variants use lowercase WIT case names
+//!     (`open`/`closed`/`reopened`); epic, pull-request, and check state
+//!     variants use the GraphQL-style `UPPERCASE_SNAKE` spellings the
+//!     `*_to_graphql` serializers emit and the frontend consumes (e.g.
+//!     `IN_PROGRESS`, `MERGED`, `SUCCESS`). Both the serializers and the
+//!     `*_from_json` parsers in this module agree on those spellings;
 //!   * single scalar parameters are encoded as the scalar JSON value;
 //!   * multi-parameter functions are encoded as an object keyed by the
 //!     camelCase WIT parameter names.
@@ -201,7 +205,7 @@ struct ClosePullInputJson {
 #[serde(rename_all = "camelCase")]
 struct RecordCheckInputJson {
     repository: String,
-    #[serde(rename = "commitOID", alias = "commitOid")]
+    #[serde(rename = "commitOID")]
     commit_oid: String,
     name: String,
     state: String,
@@ -1343,9 +1347,7 @@ fn pull_request_to_json(pull: &PullRequest) -> Value {
         "bodyMarkdown": pull.body_markdown,
         "state": pull_state_to_graphql(pull.state),
         "authorRef": pull.author_ref,
-        "head": pull.head_ref,
         "headRef": pull.head_ref,
-        "base": pull.base_ref,
         "baseRef": pull.base_ref,
         "createdAt": pull.created_at,
         "updatedAt": pull.updated_at,
