@@ -83,6 +83,27 @@ describe("shell route paths", () => {
     expect(r.params.repo).toBe("web");
   });
 
+  test("single-segment repo (no group) resolves", () => {
+    // `:groups*` (zero-or-more) — a repo imported with a one-segment
+    // path like `rawkode` has no group prefix. With `:groups+` this
+    // matched nothing and rendered an empty page.
+    const r = router.resolve("/r/rawkode");
+    expect(r.name).toBe("repo-home");
+    expect(r.params.repo).toBe("rawkode");
+    // vue-router omits an empty repeatable param; the router prop
+    // adapter normalizes the absent value to [].
+    expect(r.params.groups ?? []).toEqual([]);
+  });
+
+  test("single-segment repo sub-surfaces resolve", () => {
+    expect(router.resolve("/r/rawkode/code").name).toBe("repo-code");
+    expect(router.resolve("/r/rawkode/issues/board").name).toBe(
+      "repo-issue-board",
+    );
+    expect(router.resolve("/r/rawkode/issues/12").name).toBe("repo-issues");
+    expect(router.resolve("/r/rawkode/p/launch").name).toBe("project-home");
+  });
+
   test("repo root with 3 groups deeply nested", () => {
     const r = router.resolve("/r/acme/team-x/proj-y/web");
     expect(r.name).toBe("repo-home");
