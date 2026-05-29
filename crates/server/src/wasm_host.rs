@@ -762,6 +762,7 @@ impl wit_storage::Host for HostState {
             )
         })?;
         let commit_result = self.store.update_document_if_version(
+            &self.extension_id,
             &collection,
             &id,
             Some(expected_u64),
@@ -935,7 +936,7 @@ impl wit_relations::Host for HostState {
             .unwrap_or(Value::Null);
         let id_for_lookup = id.clone();
         self.store
-            .update_document_atomically("relations", &id, move |doc| {
+            .update_document_atomically("core", "relations", &id, move |doc| {
                 if let Some(obj) = doc.as_object_mut() {
                     obj.insert("attributes".to_string(), attrs_value);
                 }
@@ -1278,7 +1279,7 @@ impl wit_comments::Host for HostState {
         let now_for_closure = now.clone();
         let id_for_lookup = id.clone();
         self.store
-            .update_document_atomically("comments", &id, move |doc| {
+            .update_document_atomically("core", "comments", &id, move |doc| {
                 if let Some(obj) = doc.as_object_mut() {
                     obj.insert("bodyMarkdown".to_string(), Value::String(body_markdown));
                     obj.insert(
@@ -1832,9 +1833,12 @@ mod tests {
     fn ops_invoke_requires_canonical_allowed_route_and_threads_principal() {
         use std::sync::{Arc, Mutex, RwLock};
 
+        // (target_extension, op, payload, current_principal, depth)
+        type RecordedCall = (String, String, Vec<u8>, String, u32);
+
         #[derive(Clone, Default)]
         struct RecordingDispatcher {
-            calls: Arc<Mutex<Vec<(String, String, Vec<u8>, String, u32)>>>,
+            calls: Arc<Mutex<Vec<RecordedCall>>>,
         }
 
         impl OpsDispatcher for RecordingDispatcher {

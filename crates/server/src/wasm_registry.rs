@@ -636,6 +636,129 @@ pub struct RegistryDispatcher {
     pub store: Arc<crate::ExtensionRuntimeStore>,
 }
 
+impl OpsDispatcher for RegistryDispatcher {
+    fn dispatch(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
+        self.dispatch_with_reactor_depth(target_extension, op, payload, current_principal, depth, 0)
+    }
+
+    fn dispatch_with_reactor_depth(
+        &self,
+        target_extension: &str,
+        op: &str,
+        payload: &[u8],
+        current_principal: &str,
+        depth: u32,
+        reactor_depth: u32,
+    ) -> Result<Vec<u8>, wit_types::Error> {
+        let _ext = self
+            .registry
+            .get(target_extension)
+            .ok_or_else(|| wit_types::Error {
+                code: wit_types::ErrorCode::NotFound,
+                message: format!("extension '{}' not registered", target_extension),
+                path: None,
+            })?;
+        let info = resolve_cross_call_route(target_extension, op)?;
+        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
+            .ok_or_else(|| wit_types::Error {
+                code: wit_types::ErrorCode::Unavailable,
+                message: format!(
+                    "no typed WASM invoker registered for extension '{}'",
+                    info.extension_id
+                ),
+                path: None,
+            })?;
+        invoker(
+            &self.registry,
+            self.store.clone(),
+            current_principal,
+            &info,
+            payload,
+            depth,
+            reactor_depth,
+        )
+    }
+
+    fn dispatch_event(&self, event: &wit_types::Event, depth: u32) -> usize {
+        self.registry
+            .dispatch_reactor_event(self.store.clone(), event, depth)
+    }
+}
+
+fn resolve_cross_call_route(
+    target_extension: &str,
+    op: &str,
+) -> Result<crate::generated_dispatch::DispatchInfo, wit_types::Error> {
+    if !is_canonical_wit_op_route(op) {
+        return Err(wit_types::Error {
+            code: wit_types::ErrorCode::BadInput,
+            message: format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
+            path: Some("op".to_string()),
+        });
+    }
+    if let Some(info) = crate::generated_dispatch::dispatch_wit_route(target_extension, op) {
+        return Ok(info);
+    }
+    Err(wit_types::Error {
+        code: wit_types::ErrorCode::NotFound,
+        message: format!("op '{op}' not found on extension '{target_extension}'"),
+        path: None,
+    })
+}
+
+fn is_canonical_wit_op_route(op: &str) -> bool {
+    let Some((interface, operation)) = op.split_once('.') else {
+        return false;
+    };
+    !interface.is_empty()
+        && !operation.is_empty()
+        && !interface.contains(['.', '/'])
+        && !operation.contains(['.', '/'])
+}
+
+fn validate_event_pattern(pattern: &str) -> Result<(), String> {
+    if pattern.is_empty() {
+        return Err("pattern must not be empty".to_string());
+    }
+    for segment in pattern.split('.') {
+        if segment == "*" {
+            continue;
+        }
+        if !valid_event_segment(segment) {
+            return Err(
+                "segments must be '*' or lowercase kebab names starting with a letter".to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn event_pattern_matches(pattern: &str, event_type: &str) -> bool {
+    let pattern_segments = pattern.split('.').collect::<Vec<_>>();
+    let event_segments = event_type.split('.').collect::<Vec<_>>();
+    pattern_segments.len() == event_segments.len()
+        && pattern_segments
+            .iter()
+            .zip(event_segments)
+            .all(|(pattern, event)| *pattern == "*" || *pattern == event)
+}
+
+fn valid_event_segment(segment: &str) -> bool {
+    let mut chars = segment.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_lowercase()
+        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1303,127 +1426,4 @@ mod tests {
         std::fs::create_dir_all(&path).expect("mkdir tempdir");
         path
     }
-}
-
-impl OpsDispatcher for RegistryDispatcher {
-    fn dispatch(
-        &self,
-        target_extension: &str,
-        op: &str,
-        payload: &[u8],
-        current_principal: &str,
-        depth: u32,
-    ) -> Result<Vec<u8>, wit_types::Error> {
-        self.dispatch_with_reactor_depth(target_extension, op, payload, current_principal, depth, 0)
-    }
-
-    fn dispatch_with_reactor_depth(
-        &self,
-        target_extension: &str,
-        op: &str,
-        payload: &[u8],
-        current_principal: &str,
-        depth: u32,
-        reactor_depth: u32,
-    ) -> Result<Vec<u8>, wit_types::Error> {
-        let _ext = self
-            .registry
-            .get(target_extension)
-            .ok_or_else(|| wit_types::Error {
-                code: wit_types::ErrorCode::NotFound,
-                message: format!("extension '{}' not registered", target_extension),
-                path: None,
-            })?;
-        let info = resolve_cross_call_route(target_extension, op)?;
-        let invoker = crate::generated_dispatch::invoker_for_extension(info.extension_id)
-            .ok_or_else(|| wit_types::Error {
-                code: wit_types::ErrorCode::Unavailable,
-                message: format!(
-                    "no typed WASM invoker registered for extension '{}'",
-                    info.extension_id
-                ),
-                path: None,
-            })?;
-        invoker(
-            &self.registry,
-            self.store.clone(),
-            current_principal,
-            &info,
-            payload,
-            depth,
-            reactor_depth,
-        )
-    }
-
-    fn dispatch_event(&self, event: &wit_types::Event, depth: u32) -> usize {
-        self.registry
-            .dispatch_reactor_event(self.store.clone(), event, depth)
-    }
-}
-
-fn resolve_cross_call_route(
-    target_extension: &str,
-    op: &str,
-) -> Result<crate::generated_dispatch::DispatchInfo, wit_types::Error> {
-    if !is_canonical_wit_op_route(op) {
-        return Err(wit_types::Error {
-            code: wit_types::ErrorCode::BadInput,
-            message: format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
-            path: Some("op".to_string()),
-        });
-    }
-    if let Some(info) = crate::generated_dispatch::dispatch_wit_route(target_extension, op) {
-        return Ok(info);
-    }
-    Err(wit_types::Error {
-        code: wit_types::ErrorCode::NotFound,
-        message: format!("op '{op}' not found on extension '{target_extension}'"),
-        path: None,
-    })
-}
-
-fn is_canonical_wit_op_route(op: &str) -> bool {
-    let Some((interface, operation)) = op.split_once('.') else {
-        return false;
-    };
-    !interface.is_empty()
-        && !operation.is_empty()
-        && !interface.contains(['.', '/'])
-        && !operation.contains(['.', '/'])
-}
-
-fn validate_event_pattern(pattern: &str) -> Result<(), String> {
-    if pattern.is_empty() {
-        return Err("pattern must not be empty".to_string());
-    }
-    for segment in pattern.split('.') {
-        if segment == "*" {
-            continue;
-        }
-        if !valid_event_segment(segment) {
-            return Err(
-                "segments must be '*' or lowercase kebab names starting with a letter".to_string(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn event_pattern_matches(pattern: &str, event_type: &str) -> bool {
-    let pattern_segments = pattern.split('.').collect::<Vec<_>>();
-    let event_segments = event_type.split('.').collect::<Vec<_>>();
-    pattern_segments.len() == event_segments.len()
-        && pattern_segments
-            .iter()
-            .zip(event_segments)
-            .all(|(pattern, event)| *pattern == "*" || *pattern == event)
-}
-
-fn valid_event_segment(segment: &str) -> bool {
-    let mut chars = segment.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    first.is_ascii_lowercase()
-        && chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }

@@ -1146,7 +1146,7 @@ impl Runtime {
         let body_owned = body_markdown.to_string();
         let now_for_closure = now_iso.clone();
         self.extension_storage
-            .update_document_atomically("comments", id, move |data| {
+            .update_document_atomically("core", "comments", id, move |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("bodyMarkdown".to_string(), Value::String(body_owned));
                     obj.insert(
@@ -1274,6 +1274,7 @@ impl Runtime {
         });
         // Upsert: try update first; on "not found" fall through to create.
         let update_result = self.extension_storage.update_document_atomically(
+            "core",
             "user_layouts",
             &doc_id,
             |document| {
@@ -1441,7 +1442,7 @@ impl Runtime {
         let visibility = visibility_label(repo.visibility);
         let description = repo.description.clone().unwrap_or_default();
         self.extension_storage
-            .update_document_atomically("repositories", &id, |data| {
+            .update_document_atomically("core", "repositories", &id, |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert(
                         "visibility".to_string(),
@@ -1525,7 +1526,7 @@ impl Runtime {
         let color = color.to_string();
         let description = description.to_string();
         self.extension_storage
-            .update_document_atomically("labels", id, move |data| {
+            .update_document_atomically("core", "labels", id, move |data| {
                 if let Some(obj) = data.as_object_mut() {
                     obj.insert("color".to_string(), Value::String(color));
                     obj.insert("description".to_string(), Value::String(description));
@@ -5575,11 +5576,12 @@ impl ExtensionRuntimeStore {
 
     pub(crate) fn update_document_atomically(
         &self,
+        owner_extension: &str,
         collection: &str,
         id: &str,
         update: impl FnOnce(&mut Value),
     ) -> Result<(), String> {
-        self.update_document_if_version(collection, id, None, |val, _| update(val))
+        self.update_document_if_version(owner_extension, collection, id, None, |val, _| update(val))
     }
 
     /// Atomic compare-and-swap for the OCC protocol. If `expected_version`
@@ -5588,6 +5590,7 @@ impl ExtensionRuntimeStore {
     /// version, persists.
     pub(crate) fn update_document_if_version(
         &self,
+        owner_extension: &str,
         collection: &str,
         id: &str,
         expected_version: Option<u64>,
@@ -5595,11 +5598,18 @@ impl ExtensionRuntimeStore {
     ) -> Result<(), String> {
         let mut records = self.load_records()?;
         let (version, current_version) = {
-            let Some(record) = records
-                .iter_mut()
-                .find(|record| record.collection == collection && record.id == id)
-            else {
-                return Err(format!("extension document not found: {collection}/{id}"));
+            // Scope the compare-and-swap to the owning extension. Two
+            // extensions may legitimately hold the same (collection, id)
+            // (see `create_document`), so a write must only ever touch the
+            // caller's own record — never another owner's.
+            let Some(record) = records.iter_mut().find(|record| {
+                record.owner_extension == owner_extension
+                    && record.collection == collection
+                    && record.id == id
+            }) else {
+                return Err(format!(
+                    "extension document not found: {owner_extension}/{collection}/{id}"
+                ));
             };
             if let Some(expected) = expected_version
                 && record.version != expected
@@ -5620,7 +5630,7 @@ impl ExtensionRuntimeStore {
         let _ = current_version;
         self.append_storage_event(
             "dev.comtrya.extension_storage.document_updated",
-            json!({"collection": collection, "id": id, "version": version}),
+            json!({"ownerExtension": owner_extension, "collection": collection, "id": id, "version": version}),
         )
     }
 
@@ -6953,7 +6963,7 @@ mod tests {
                 .iter()
                 .any(|branch| branch["name"] == "main")
         );
-        assert!(data["commits"].as_array().unwrap().len() >= 1);
+        assert!(!data["commits"].as_array().unwrap().is_empty());
         assert!(
             data["treeEntries"]
                 .as_array()
@@ -10553,6 +10563,70 @@ mod tests {
         assert!(
             csp.contains("frame-ancestors"),
             "asset response must carry a CSP with frame-ancestors; got {csp:?}",
+        );
+    }
+
+    #[test]
+    fn update_document_if_version_is_scoped_to_owning_extension() {
+        // Regression: two extensions may legitimately hold the same
+        // (collection, id). A versioned commit must only ever mutate the
+        // caller's own record, never another owner's.
+        let dir = temp_dir("storage-owner-scope");
+        let store = ExtensionRuntimeStore::open_for_tests(&dir).expect("open store");
+
+        let record = |owner: &str, marker: &str| {
+            extension_document_record(
+                owner,
+                "repositories",
+                "shared-id",
+                "comtrya://repository/shared-id",
+                vec![],
+                json!({ "marker": marker }),
+                "2026-05-11T00:00:00Z",
+            )
+        };
+        store.create_document(record("ext_a", "a-original")).unwrap();
+        store.create_document(record("ext_b", "b-original")).unwrap();
+
+        // ext_b commits at version 1 — must touch ONLY ext_b's record.
+        store
+            .update_document_if_version("ext_b", "repositories", "shared-id", Some(1), |val, _| {
+                if let Some(obj) = val.as_object_mut() {
+                    obj.insert("marker".to_string(), json!("b-updated"));
+                }
+            })
+            .expect("ext_b update succeeds");
+
+        let records = store.load_records().unwrap();
+        let find = |owner: &str| {
+            records
+                .iter()
+                .find(|r| {
+                    r.owner_extension == owner
+                        && r.collection == "repositories"
+                        && r.id == "shared-id"
+                })
+                .expect("record present")
+        };
+        let a = find("ext_a");
+        assert_eq!(a.data["marker"], json!("a-original"), "other owner untouched");
+        assert_eq!(a.version, 1, "other owner version unchanged");
+        let b = find("ext_b");
+        assert_eq!(b.data["marker"], json!("b-updated"));
+        assert_eq!(b.version, 2, "caller version bumped");
+
+        // A commit for an owner with no such record must not fall through to
+        // another owner's record.
+        let missing = store.update_document_if_version(
+            "ext_c",
+            "repositories",
+            "shared-id",
+            None,
+            |_, _| {},
+        );
+        assert!(
+            missing.is_err_and(|e| e.contains("not found")),
+            "commit for non-owner must report not-found, not corrupt another owner"
         );
     }
 }
