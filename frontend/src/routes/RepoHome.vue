@@ -14,6 +14,7 @@ import {
 } from "@comtrya/sdk-vue";
 import { applyUserLayoutFor } from "../user-layout";
 import { setActiveLabelCatalog } from "../extension-runtime";
+import { buildGitCloneCommand, buildGitPushCommand } from "../git-commands";
 
 const props = withDefaults(defineProps<{
   groups: string[];
@@ -205,18 +206,12 @@ const cloneUrl = computed(() => {
 const cloneTool = computed(() =>
   repository.value?.vcs === "jj" ? "jj git clone" : "git clone",
 );
-function shellQuote(value: string): string {
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
 const cloneCommand = computed(() =>
-  cloneUrl.value ? `${cloneTool.value} ${shellQuote(cloneUrl.value)}` : "",
+  buildGitCloneCommand(cloneTool.value, cloneUrl.value),
 );
 const pushCommand = computed(() => {
   const branch = repository.value?.defaultBranch ?? "main";
-  return cloneUrl.value
-    ? `git push ${shellQuote(cloneUrl.value)} ${shellQuote(`HEAD:${branch}`)}`
-    : "";
+  return buildGitPushCommand(cloneUrl.value, branch);
 });
 const cloneCommandTitle = computed(() =>
   repository.value?.vcs === "jj"
