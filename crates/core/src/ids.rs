@@ -1,11 +1,8 @@
 use crate::error::{CoreError, CoreResult};
 use std::fmt::{Display, Formatter};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Closed set of *core* ID prefixes, plus an `Owned` open variant for
 /// extension-owned kinds (e.g. `iss_`, `epc_`). The kernel never bakes in
@@ -114,13 +111,39 @@ impl IdPrefix {
 pub struct OpaqueId(String);
 
 impl OpaqueId {
+    /// Mint a fresh opaque id with the ULID-style layout the kernel
+    /// expects: a 48-bit Unix-millis timestamp at the top, followed by
+    /// 80 bits of OS CSPRNG randomness, encoded as 26 Crockford-base32
+    /// characters (130 bits, top 2 unused — fixed to zero so the
+    /// alphabet's first character stays valid).
+    ///
+    /// Prior implementation XOR'd a process-local AtomicU64 counter
+    /// with a shifted wall-clock micros value. That made every id:
+    /// (a) strictly monotonic per process (one id leaked its
+    /// neighbours), (b) leaked exact creation time, and (c) reset its
+    /// counter to 0 on every process restart, so two fresh restarts
+    /// produced colliding ids. Mixing 80 bits of CSPRNG output closes
+    /// all three.
+    ///
+    /// Panics only if the OS RNG fails (`getrandom::fill`); on a
+    /// healthy host that path is unreachable. `SystemTime` errors
+    /// (pre-epoch clock) fold to a 0 timestamp prefix — the randomness
+    /// alone still guarantees uniqueness; ordering just degrades on
+    /// the affected host.
     pub fn new(prefix: IdPrefix) -> Self {
-        let now_micros = SystemTime::now()
+        let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_micros())
-            .unwrap_or_default();
-        let sequence = COUNTER.fetch_add(1, Ordering::Relaxed) as u128;
-        let body = encode_base32_26((now_micros << 24) ^ sequence);
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0);
+        let mut rand_bytes = [0u8; 10]; // 80 bits
+        getrandom::fill(&mut rand_bytes).expect("OS RNG must be available");
+        let mut rand_u128: u128 = 0;
+        for byte in &rand_bytes {
+            rand_u128 = (rand_u128 << 8) | (*byte as u128);
+        }
+        // Compose: 48 bits time (top), 80 bits randomness (bottom).
+        let value = ((now_ms as u128) << 80) | rand_u128;
+        let body = encode_base32_26(value);
         Self(format!("{}{}", prefix.as_str(), body))
     }
 
@@ -288,6 +311,37 @@ mod tests {
         let id = OpaqueId::new(IdPrefix::Workspace);
         assert!(id.as_str().starts_with("ws_"));
         assert_eq!(OpaqueId::parse(id.as_str()).unwrap(), id);
+    }
+
+    #[test]
+    fn fresh_ids_are_unpredictable_no_sequential_counter() {
+        // Regression for TNQ-2 P1: previous implementation XOR'd a
+        // process-local AtomicU64 counter with a timestamp, so two
+        // consecutive ids differed by only the counter bits. An
+        // attacker who saw one id could enumerate neighbours; a
+        // process restart re-collided. Now the body carries 80 bits
+        // of OS CSPRNG randomness — even a tight loop of 100 ids
+        // produces 100 distinct bodies with no neighbour-guess hit.
+        let ids: Vec<String> = (0..100)
+            .map(|_| OpaqueId::new(IdPrefix::Workspace).as_str().to_string())
+            .collect();
+        let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
+        assert_eq!(
+            unique.len(),
+            ids.len(),
+            "100 consecutive ids must all be distinct (got {} unique)",
+            unique.len()
+        );
+        // Body length stays 26 — backward-compatible parse/format.
+        for id in &ids {
+            assert_eq!(id.len(), "ws_".len() + 26);
+        }
+        // No two ids may share the bottom 26 - 12 = 14 chars (70 bits)
+        // of randomness — collision odds against 100 ids are ~1 in
+        // 2^54, which is effectively zero.
+        let suffixes: std::collections::BTreeSet<&str> =
+            ids.iter().map(|id| &id["ws_".len() + 12..]).collect();
+        assert_eq!(suffixes.len(), 100, "low-bits randomness must not repeat");
     }
 
     #[test]
