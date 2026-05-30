@@ -1789,7 +1789,43 @@ impl wit_events::Host for HostState {
         // same bytes the extension supplied, even when they are not
         // valid JSON.
         let payload_b64 = base64_encode(&payload);
-        let source = source_uri.unwrap_or_else(|| self.extension_principal.clone());
+        // Constrain caller-supplied source_uri to URIs the extension
+        // can vouch for. Without this an extension with `events.write`
+        // could emit events whose `sourceUri` is a kernel principal
+        // (`comtrya://principal/anonymous`,
+        // `comtrya://user/usr_admin`) or another extension
+        // (`comtrya://extension/ext_other`) and consumers reading
+        // the event log would see the attacker's payload as if it
+        // had come from those identities. Default to the extension
+        // principal if no override is given.
+        let source = match source_uri {
+            None => self.extension_principal.clone(),
+            Some(uri) => {
+                let kind =
+                    crate::relationship_types::relation_kind_segment(&uri).ok_or_else(|| {
+                        err(
+                            wit_types::ErrorCode::BadInput,
+                            format!("source_uri {uri:?} must be a comtrya://<kind>/<id> reference"),
+                        )
+                    })?;
+                if !self
+                    .manifest
+                    .contributes_resource_kinds
+                    .iter()
+                    .any(|k| k == kind)
+                {
+                    return Err(err(
+                        wit_types::ErrorCode::Forbidden,
+                        format!(
+                            "source_uri kind '{kind}' not in this extension's \
+                             contributes.resourceKinds; an extension may only \
+                             stamp events with URIs it owns"
+                        ),
+                    ));
+                }
+                uri
+            }
+        };
         let id = self.mint_internal("event")?;
         let timestamp_ms = self.clock.now_millis();
         let event = wit_types::Event {
@@ -2360,6 +2396,102 @@ mod tests {
             matches!(bad, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
             "malformed cursor must be bad-input"
         );
+    }
+
+    #[test]
+    fn events_append_rejects_source_uri_outside_extensions_resource_kinds() {
+        // TNQ-2 P1 security: events::append used to accept ANY
+        // `source_uri` verbatim, letting an extension with
+        // `events.write` stamp an event as if it came from
+        // `comtrya://principal/anonymous`,
+        // `comtrya://user/usr_admin`, or another extension. Now
+        // source_uri must name a kind the extension contributes;
+        // anything else is Forbidden, and an absent override
+        // still defaults to the extension's own principal.
+        use std::sync::RwLock;
+        let store = tmp_store("events-append-source-uri");
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("event".to_string(), "evt".to_string());
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_legit".to_string(),
+            extension_principal: "comtrya://extension/ext_legit".to_string(),
+            current_principal: "comtrya://user/usr_test".to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["issue".to_string()],
+                host_imports: vec!["events.write".to_string(), "ids".to_string()],
+                allowed_emits: vec!["dev.comtrya.test.event".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![],
+            )),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        // Cross-extension impersonation attempt → Forbidden.
+        let forbidden = <HostState as wit_events::Host>::append(
+            &mut host,
+            "dev.comtrya.test.event".to_string(),
+            b"{}".to_vec(),
+            Some("comtrya://extension/ext_other".to_string()),
+        );
+        assert!(
+            matches!(&forbidden, Err(e) if matches!(e.code, wit_types::ErrorCode::Forbidden)),
+            "cross-extension source_uri must be Forbidden, got {forbidden:?}"
+        );
+
+        // User-principal impersonation → Forbidden.
+        let user_forge = <HostState as wit_events::Host>::append(
+            &mut host,
+            "dev.comtrya.test.event".to_string(),
+            b"{}".to_vec(),
+            Some("comtrya://user/usr_admin".to_string()),
+        );
+        assert!(
+            matches!(&user_forge, Err(e) if matches!(e.code, wit_types::ErrorCode::Forbidden)),
+            "user-principal source_uri must be Forbidden, got {user_forge:?}"
+        );
+
+        // Malformed (no `comtrya://<kind>/`) → BadInput.
+        let bad = <HostState as wit_events::Host>::append(
+            &mut host,
+            "dev.comtrya.test.event".to_string(),
+            b"{}".to_vec(),
+            Some("not-a-uri".to_string()),
+        );
+        assert!(
+            matches!(&bad, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
+            "malformed source_uri must be BadInput, got {bad:?}"
+        );
+
+        // Owned kind → accepted; event records the supplied URI.
+        let ok = <HostState as wit_events::Host>::append(
+            &mut host,
+            "dev.comtrya.test.event".to_string(),
+            b"{}".to_vec(),
+            Some("comtrya://issue/iss_my_issue".to_string()),
+        )
+        .expect("source_uri pointing at own contributed kind must be accepted");
+        assert_eq!(ok.source_uri, "comtrya://issue/iss_my_issue");
+
+        // None → defaults to the extension principal.
+        let default_source = <HostState as wit_events::Host>::append(
+            &mut host,
+            "dev.comtrya.test.event".to_string(),
+            b"{}".to_vec(),
+            None,
+        )
+        .expect("absent source_uri defaults to extension principal");
+        assert_eq!(default_source.source_uri, "comtrya://extension/ext_legit");
     }
 
     #[test]
