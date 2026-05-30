@@ -14,60 +14,6 @@ interface ComtryaClient {
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiAssets {
-    pub entry: String,
-    pub entry_integrity: Option<String>,
-    pub styles: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiRoute {
-    pub path: String,
-    pub element: String,
-    pub required_permission: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiSlot {
-    pub slot: String,
-    pub element: String,
-    pub required_permission: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiManifest {
-    pub schema_version: String,
-    pub extension: String,
-    pub assets: UiAssets,
-    pub routes: Vec<UiRoute>,
-    pub slots: Vec<UiSlot>,
-    pub csp_connect_src: Vec<String>,
-}
-
-impl UiManifest {
-    pub fn validate(&self) -> CoreResult<()> {
-        if self.schema_version != "comtrya.ui-extension/v1" {
-            return Err(CoreError::bad_user_input(
-                "unsupported UI extension schemaVersion",
-            ));
-        }
-        if !self.assets.entry.starts_with("/_extensions/") {
-            return Err(CoreError::bad_user_input(
-                "UI extension entry asset must be served by Rust asset API",
-            ));
-        }
-        for route in &self.routes {
-            if route.path.starts_with("/_") {
-                return Err(CoreError::bad_user_input(
-                    "extension UI routes must not use reserved leading-underscore paths",
-                ));
-            }
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetResponse {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
@@ -145,32 +91,6 @@ pub fn stable_etag_token(body: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn installed_ui_extension_manifest_validates_routes_and_assets() {
-        let manifest = UiManifest {
-            schema_version: "comtrya.ui-extension/v1".to_string(),
-            extension: "pull-requests".to_string(),
-            assets: UiAssets {
-                entry: "/_extensions/ext_pull_requests/assets/index.js".to_string(),
-                entry_integrity: Some(stable_etag_token(b"console.log(1)")),
-                styles: vec!["/_extensions/ext_pull_requests/assets/styles.css".to_string()],
-            },
-            routes: vec![UiRoute {
-                path: "/:workspace/:repo/pulls".to_string(),
-                element: "comtrya-pull-request-list".to_string(),
-                required_permission: "pull-requests.read".to_string(),
-            }],
-            slots: vec![UiSlot {
-                slot: "repository.nav".to_string(),
-                element: "comtrya-pull-request-nav".to_string(),
-                required_permission: "pull-requests.read".to_string(),
-            }],
-            csp_connect_src: Vec::new(),
-        };
-
-        manifest.validate().unwrap();
-    }
 
     #[test]
     fn asset_response_includes_csp_cache_validator_and_sri_material() {
