@@ -1092,16 +1092,28 @@ impl wit_relations::Host for HostState {
             &target,
             &kind,
         )?;
-        // Idempotent on (source, target, kind). Stored as documents in
-        // the `relations` collection.
+        // Canonicalise symmetric verbs (smaller URI as `source`) before
+        // the probe and the write, so symmetric idempotency holds across
+        // both write paths — without this a WASM `relates-to(b, a)` would
+        // not dedup against a GraphQL `relates-to(a, b)` (which canonicalises),
+        // and two WASM calls with swapped endpoints would create two records.
+        // The registry is the source of truth for shape symmetry.
+        let (canon_source, canon_target) =
+            if self.relationship_types.is_symmetric_kind(&kind) && source > target {
+                (target.clone(), source.clone())
+            } else {
+                (source.clone(), target.clone())
+            };
+        // Idempotent on (canon_source, canon_target, kind). Stored as
+        // documents in the `relations` collection.
         let records = self
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         if let Some(existing) = records.iter().find(|r| {
             r.collection == "relations" && r.owner_extension == "core"
-                && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
-                && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
+                && r.data.get("source").and_then(Value::as_str) == Some(canon_source.as_str())
+                && r.data.get("target").and_then(Value::as_str) == Some(canon_target.as_str())
                 && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
         }) {
             return Ok(wit_relations::CreateResult::AlreadyExisted(
@@ -1112,10 +1124,10 @@ impl wit_relations::Host for HostState {
         let created_at = self.clock.now_iso();
         let data = serde_json::json!({
             "id": id,
-            "source": source,
-            "target": target,
-            "from": source,
-            "to": target,
+            "source": canon_source,
+            "target": canon_target,
+            "from": canon_source,
+            "to": canon_target,
             "kind": kind,
             "authorRef": self.current_principal,
             "attributes": attributes.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok()),
@@ -1126,10 +1138,10 @@ impl wit_relations::Host for HostState {
             owner_extension: "core".to_string(),
             collection: "relations".to_string(),
             id: id.clone(),
-            resource: source.clone(),
-            resource_refs: vec![source.clone(), target.clone()],
+            resource: canon_source.clone(),
+            resource_refs: vec![canon_source.clone(), canon_target.clone()],
             visibility: "internal".to_string(),
-            indexed_fields: relation_indexed_fields(&source, &target, &kind),
+            indexed_fields: relation_indexed_fields(&canon_source, &canon_target, &kind),
             version: 1,
             updated_at: created_at.clone(),
             data: data.clone(),
@@ -2319,7 +2331,7 @@ mod tests {
             "checks.list-checks".to_string(),
             b"{}".to_vec(),
         )
-        .expect_err("canonical route outside allowedCrossCalls should be rejected");
+        .expect_err("canonical route outside the consumer's bound extension points should be rejected");
         assert!(matches!(forbidden.code, wit_types::ErrorCode::Forbidden));
         assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
 
@@ -2853,6 +2865,124 @@ mod tests {
                  `relations` collection via storage.create"
             ),
         }
+    }
+
+    #[test]
+    fn wasm_relation_create_canonicalises_symmetric_endpoints() {
+        // The GraphQL path canonicalises symmetric verbs (smaller URI as
+        // source); without the same rule on the WASM path, a WASM caller's
+        // `relates-to(b, a)` would not dedup against either a UI-path
+        // `relates-to(a, b)` or a swapped repeat call. The WIT contract
+        // says relations are idempotent on the triple — that contract
+        // must hold on the WASM path too. Registry is the source of
+        // truth for shape symmetry.
+        use std::sync::RwLock;
+        let store = tmp_store("relation-canonicalisation");
+        let registry = Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+            vec![crate::relationship_types::RelationshipShape {
+                kind: "comtrya://rel/relates-to".to_string(),
+                source_kinds: ["issue".to_string()].into_iter().collect(),
+                target_kinds: ["issue".to_string()].into_iter().collect(),
+                symmetric: true,
+                requires_participation: None,
+            }],
+        ));
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("relation".to_string(), "rel".to_string());
+        let make_host = || -> HostState {
+            host_state_for_op(HostStateForOp {
+                extension_id: "ext_test".to_string(),
+                extension_principal: "comtrya://extension/ext_test".to_string(),
+                current_principal: "comtrya://user/usr_canon".to_string(),
+                store: store.clone(),
+                manifest: Arc::new(HostManifest {
+                    host_imports: vec![
+                        "relations.read".to_string(),
+                        "relations.write".to_string(),
+                    ],
+                    ..HostManifest::default()
+                }),
+                extension_point_bindings: Arc::new(
+                    crate::extension_points::ConsumerBindings::default(),
+                ),
+                clock: Arc::new(SystemClock),
+                id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds.clone())),
+                log_sink: Arc::new(TracingLogSink),
+                authz: Arc::new(SimpleAuthz),
+                ops_dispatcher: Arc::new(NoopDispatcher),
+                occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                relationship_types: registry.clone(),
+                repo_enablement: Arc::new(RwLock::new(None)),
+            })
+        };
+
+        // `b` > `a` lexicographically. Calling create(b, a) on a symmetric
+        // kind must canonicalise to (a, b) before the probe and the write.
+        let a = "comtrya://issue/iss_a".to_string();
+        let b = "comtrya://issue/iss_b".to_string();
+        let kind = "comtrya://rel/relates-to".to_string();
+
+        let first = {
+            let mut host = make_host();
+            <HostState as wit_relations::Host>::create(
+                &mut host,
+                b.clone(),
+                a.clone(),
+                kind.clone(),
+                None,
+            )
+            .expect("first create succeeds")
+        };
+        let created_id = match &first {
+            wit_relations::CreateResult::Created(rel) => rel.id.clone(),
+            other => panic!("expected Created, got {other:?}"),
+        };
+
+        // A second call with the *swapped* endpoints (a, b) must hit the
+        // idempotency probe and return AlreadyExisted with the same id.
+        let second = {
+            let mut host = make_host();
+            <HostState as wit_relations::Host>::create(
+                &mut host,
+                a.clone(),
+                b.clone(),
+                kind.clone(),
+                None,
+            )
+            .expect("second create succeeds")
+        };
+        match second {
+            wit_relations::CreateResult::AlreadyExisted(rel) => {
+                assert_eq!(
+                    rel.id, created_id,
+                    "swapped-endpoint repeat must return the original relation id"
+                );
+                assert_eq!(rel.source, a, "stored source must be the canonical (smaller) URI");
+                assert_eq!(rel.target, b, "stored target must be the canonical (larger) URI");
+            }
+            other => panic!(
+                "swapped-endpoint repeat must return AlreadyExisted, got {other:?}"
+            ),
+        }
+
+        // And one more call in the *original* (already-canonical) order
+        // must also hit AlreadyExisted — three calls, one record.
+        let third = {
+            let mut host = make_host();
+            <HostState as wit_relations::Host>::create(
+                &mut host,
+                a.clone(),
+                b.clone(),
+                kind.clone(),
+                None,
+            )
+            .expect("third create succeeds")
+        };
+        assert!(
+            matches!(third, wit_relations::CreateResult::AlreadyExisted(_)),
+            "third call must also return AlreadyExisted, got {third:?}"
+        );
     }
 
     #[test]

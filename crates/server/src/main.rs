@@ -10706,6 +10706,38 @@ mod tests {
         .await;
     }
 
+    #[test]
+    fn create_relation_rejects_undeclared_shape_past_auth_guard() {
+        // The anonymous-rejection test above stops at the auth guard, so
+        // it can't catch a regression that disables the shape gate inside
+        // `Runtime::create_relation`. This test exercises the gate
+        // directly: with the live first-party registry loaded (so some
+        // shapes are declared), an undeclared verb URI must be rejected.
+        // Equivalent to an authenticated principal that POSTs
+        // `relations.create` with a shape no extension admits.
+        let runtime = dev_runtime();
+        let iss_a = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let iss_b = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let from = format!("comtrya://issue/{}", iss_a.as_str());
+        let to = format!("comtrya://issue/{}", iss_b.as_str());
+        let result = runtime.create_relation(
+            &from,
+            &to,
+            // No declared shape carries this kind, so the verdict is
+            // `Undeclared` regardless of endpoint kinds — the gate must
+            // surface the "no loaded extension declares" message, not
+            // proceed to write.
+            "comtrya://rel/example.com/forged-verb",
+            None,
+        );
+        let err = result
+            .expect_err("undeclared relationship verb must be rejected past the auth guard");
+        assert!(
+            err.contains("no loaded extension declares a relationship type"),
+            "expected the shape-gate Forbidden message, got {err:?}"
+        );
+    }
+
     #[tokio::test]
     async fn graphql_relations_delete_rejects_anonymous() {
         assert_mutation_rejects_anonymous(
