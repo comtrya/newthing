@@ -6868,6 +6868,17 @@ fn relationship_types_from_manifest(
                 declaration.id
             ));
         }
+        // `requiresParticipation` gates on the SOURCE resource's repository.
+        // A symmetric type admits either orientation, so "source" would be
+        // caller-chosen and the gate orientation-bypassable. Forbid the
+        // combination at load (fail closed) rather than enforce an
+        // ill-defined rule.
+        if declaration.symmetric && declaration.requires_participation.is_some() {
+            return Err(format!(
+                "{id} contributes.relationshipTypes '{}' cannot set requiresParticipation on a symmetric type",
+                declaration.id
+            ));
+        }
         parsed.push(declaration);
     }
     parsed.sort_by(|left, right| {
@@ -10336,6 +10347,58 @@ mod tests {
         assert!(
             result.is_ok(),
             "legacy contributes block must not fail validation: {result:?}"
+        );
+    }
+
+    #[test]
+    fn relationship_type_rejects_symmetric_with_participation() {
+        // A symmetric type admits either orientation, so participation —
+        // which gates on the source's repo — would be orientation-bypassable.
+        // The combination must be rejected at load.
+        let manifest = serde_json::json!({
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_test.sym-gated",
+                    "kind": "comtrya://rel/relates-to",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "relates to",
+                    "incomingLabel": "relates to",
+                    "symmetric": true,
+                    "requiresParticipation": "ext_test"
+                }]
+            }
+        });
+        let result = relationship_types_from_manifest("ext_test", &manifest);
+        let err = result.expect_err("symmetric + requiresParticipation must be rejected");
+        assert!(
+            err.contains("requiresParticipation") && err.contains("symmetric"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn relationship_type_accepts_asymmetric_participation() {
+        // The asymmetric case ext_epics actually ships must validate.
+        let manifest = serde_json::json!({
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_test.issue-part-of-epic",
+                    "kind": "comtrya://rel/part-of",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "part of epic",
+                    "incomingLabel": "contains issue",
+                    "requiresParticipation": "ext_test"
+                }]
+            }
+        });
+        let parsed =
+            relationship_types_from_manifest("ext_test", &manifest).expect("asymmetric is valid");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(
+            parsed[0].requires_participation.as_deref(),
+            Some("ext_test")
         );
     }
 

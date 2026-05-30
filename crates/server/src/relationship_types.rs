@@ -91,20 +91,29 @@ impl RelationshipTypeRegistry {
         Self { shapes }
     }
 
-    /// Evaluate a proposed edge against the declared shapes. Returns the
-    /// first admitting shape's verdict, carrying any participation
-    /// requirement so the write path can enforce it after the shape check.
+    /// Evaluate a proposed edge against the declared shapes. Fail closed:
+    /// if no shape admits the edge, `Undeclared`. Otherwise the verdict is
+    /// **most restrictive** across every admitting shape — if any admitting
+    /// shape declares `requiresParticipation`, that requirement wins, so a
+    /// permissive shape cannot shadow a participation-gated one regardless
+    /// of aggregation order. (Distinct participation extensions on
+    /// overlapping shapes are not expressible in practice — each extension
+    /// owns its resource kinds — so the first such requirement is used.)
     pub fn evaluate(&self, kind: &str, source_kind: &str, target_kind: &str) -> RelationVerdict {
-        let Some(shape) = self
-            .shapes
-            .iter()
-            .find(|shape| shape.admits(kind, source_kind, target_kind))
-        else {
-            return RelationVerdict::Undeclared;
-        };
-        match &shape.requires_participation {
-            Some(ext) => RelationVerdict::RequiresParticipation(ext.clone()),
-            None => RelationVerdict::Allowed,
+        let mut admitted = false;
+        for shape in &self.shapes {
+            if !shape.admits(kind, source_kind, target_kind) {
+                continue;
+            }
+            admitted = true;
+            if let Some(ext) = &shape.requires_participation {
+                return RelationVerdict::RequiresParticipation(ext.clone());
+            }
+        }
+        if admitted {
+            RelationVerdict::Allowed
+        } else {
+            RelationVerdict::Undeclared
         }
     }
 }
@@ -259,6 +268,31 @@ mod tests {
         );
         // Both are still "permitted" at the shape level.
         assert!(permits(&registry, "comtrya://rel/part-of", "issue", "epic"));
+    }
+
+    #[test]
+    fn participation_is_most_restrictive_regardless_of_order() {
+        // A permissive shape must not shadow a participation-gated shape that
+        // admits the same triple, whatever order they aggregate in.
+        let gated = RelationshipShape {
+            kind: "comtrya://rel/part-of".to_string(),
+            source_kinds: ["issue".to_string()].into_iter().collect(),
+            target_kinds: ["epic".to_string()].into_iter().collect(),
+            symmetric: false,
+            requires_participation: Some("ext_epics".to_string()),
+        };
+        let permissive = shape("comtrya://rel/part-of", &["issue"], &["epic"], false);
+        for shapes in [
+            vec![permissive.clone(), gated.clone()],
+            vec![gated.clone(), permissive.clone()],
+        ] {
+            let registry = RelationshipTypeRegistry::new(shapes);
+            assert_eq!(
+                registry.evaluate("comtrya://rel/part-of", "issue", "epic"),
+                RelationVerdict::RequiresParticipation("ext_epics".to_string()),
+                "a permissive shape must not shadow the gated one"
+            );
+        }
     }
 
     #[test]
