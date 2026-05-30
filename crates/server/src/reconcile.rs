@@ -103,19 +103,41 @@ pub(crate) fn reconcile_labels(runtime: &Runtime, config: &InstanceConfig) {
 /// Strict GitOps repository reconcile: create repositories declared in config
 /// that don't exist, and delete repositories that exist but are absent from
 /// config (this destroys their git history — the config repo is authoritative).
+///
+/// **Fail-closed on invalid declared paths.** Previously, an entry whose
+/// `validate_repo_path` failed was warned-and-skipped, which meant that
+/// entry was never added to the desired set — and the second pass would
+/// then delete any matching on-disk repo because the path was "absent
+/// from config." An operator typo (e.g. `org/proj` → `org//proj`) silently
+/// destroyed git history. Now any per-entry validation failure aborts
+/// the reconcile before any delete runs; the operator sees the error in
+/// the sync log and the on-disk state is left untouched until the typo
+/// is fixed.
 pub(crate) fn reconcile_repositories(runtime: &Runtime, config: &InstanceConfig) {
-    // Desired set keyed by canonical path. Invalid declared paths are skipped
-    // with a warning rather than aborting the whole reconcile.
     let mut desired: BTreeMap<String, &RepositoryConfig> = BTreeMap::new();
+    let mut validation_errors: Vec<(String, String)> = Vec::new();
     for repo in &config.repositories {
         match crate::validate_repo_path(&repo.path) {
             Ok((_, canonical)) => {
                 desired.insert(canonical, repo);
             }
             Err(error) => {
-                tracing::warn!(path = %repo.path, %error, "reconcile: invalid declared repository path");
+                validation_errors.push((repo.path.clone(), error));
             }
         }
+    }
+    if !validation_errors.is_empty() {
+        for (path, error) in &validation_errors {
+            tracing::error!(
+                %path,
+                %error,
+                "reconcile: invalid declared repository path; aborting reconcile to avoid destructive delete of matching on-disk repo"
+            );
+        }
+        // Hard abort — no creates, NO DELETES. A malformed entry must
+        // not turn into a silent `git rm -rf` against the on-disk repo
+        // whose canonical path the typo'd entry was meant to declare.
+        return;
     }
 
     let actual = runtime.repository_docs();
