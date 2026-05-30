@@ -370,22 +370,21 @@ fn is_hex_color(value: &str) -> bool {
     hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// Visibility ceilings for instance-declared resources. Only the visibility
+/// allowlist is enforced today; broader ceiling fields (descendants policy,
+/// per-publisher allowlists, per-backend allowlists, group/publisher ceilings)
+/// were declared on this struct but never actually consulted anywhere. They
+/// were deleted to satisfy the no-dead-code rule. Reintroduce a field here
+/// only at the same time as the code that enforces it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ceilings {
     pub repository: RepositoryCeilings,
     pub workspace: WorkspaceCeilings,
-    pub group: GroupCeilings,
-    pub publishers: PublisherCeilings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepositoryCeilings {
     pub allowed_visibility: Vec<Visibility>,
-    pub allow_public_descendants: bool,
-    pub protected_refs_must_validate_config: bool,
-    pub allowed_publishers: Vec<String>,
-    pub allowed_storage_backends: Vec<String>,
-    pub cue_eval_budget: CueEvalBudget,
 }
 
 impl Default for RepositoryCeilings {
@@ -396,11 +395,6 @@ impl Default for RepositoryCeilings {
                 Visibility::Internal,
                 Visibility::Public,
             ],
-            allow_public_descendants: false,
-            protected_refs_must_validate_config: true,
-            allowed_publishers: Vec::new(),
-            allowed_storage_backends: Vec::new(),
-            cue_eval_budget: CueEvalBudget::default(),
         }
     }
 }
@@ -408,8 +402,6 @@ impl Default for RepositoryCeilings {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceCeilings {
     pub allowed_visibility: Vec<Visibility>,
-    pub allow_public_descendants: bool,
-    pub allowed_storage_backends: Vec<String>,
 }
 
 impl Default for WorkspaceCeilings {
@@ -420,46 +412,6 @@ impl Default for WorkspaceCeilings {
                 Visibility::Internal,
                 Visibility::Public,
             ],
-            allow_public_descendants: false,
-            allowed_storage_backends: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GroupCeilings {
-    pub allowed_visibility: Vec<Visibility>,
-    pub allow_public_descendants: bool,
-}
-
-impl Default for GroupCeilings {
-    fn default() -> Self {
-        Self {
-            allowed_visibility: vec![
-                Visibility::Private,
-                Visibility::Internal,
-                Visibility::Public,
-            ],
-            allow_public_descendants: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublisherCeilings {
-    pub allowed_extensions: Vec<String>,
-    pub allowed_event_types: Vec<String>,
-    pub allow_private_events: bool,
-    pub require_explicit_routes: bool,
-}
-
-impl Default for PublisherCeilings {
-    fn default() -> Self {
-        Self {
-            allowed_extensions: Vec::new(),
-            allowed_event_types: Vec::new(),
-            allow_private_events: false,
-            require_explicit_routes: true,
         }
     }
 }
