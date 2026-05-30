@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod authz;
 pub mod backup;
 pub mod clock;
 pub mod config;
@@ -17,7 +16,6 @@ pub mod persistence;
 pub mod secrets;
 
 pub use auth::*;
-pub use authz::*;
 pub use backup::*;
 pub use config::*;
 pub use domain::*;
