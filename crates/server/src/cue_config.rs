@@ -535,6 +535,16 @@ impl CueConfigCache {
             .insert(key, value.clone());
         value
     }
+
+    /// Forget every cached evaluation under `git_dir`. Called from
+    /// `Runtime::delete_repository` (and from the reconcile loop after a
+    /// successful delete) so a deleted repo's entries don't leak forever
+    /// and the next create-with-the-same-path doesn't surface stale
+    /// pre-delete config.
+    pub fn forget_repository(&self, git_dir: &Path) {
+        let mut guard = self.inner.lock().expect("poisoned");
+        guard.retain(|(cached_dir, _), _| cached_dir != git_dir);
+    }
 }
 
 /// `git --git-dir=... rev-parse <ref>^{commit}` → 40-char hex, or

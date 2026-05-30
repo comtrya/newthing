@@ -1800,6 +1800,11 @@ impl Runtime {
             fs::remove_dir_all(&git_dir)
                 .map_err(|error| format!("failed to remove {}: {error}", git_dir.display()))?;
         }
+        // Forget cached CUE evaluations under this git_dir so a
+        // subsequent create-with-the-same-path doesn't surface stale
+        // pre-delete config (and so the cache doesn't leak entries
+        // for repos that no longer exist on disk).
+        self.cue_config_cache.forget_repository(&git_dir);
         let _ = self.append_event(
             "dev.comtrya.repository.deleted",
             json!({ "path": path, "id": id }),
