@@ -41,6 +41,7 @@ mod extension_points;
 mod oidc;
 mod persistence;
 mod reconcile;
+mod relationship_types;
 mod route_scope;
 mod wasm_host;
 mod wasm_invokers;
@@ -795,6 +796,14 @@ impl Runtime {
             .wasm_registry
             .resolve_extension_point_bindings()
             .map_err(|error| format!("failed to resolve extension point bindings: {error}"))?;
+        // Aggregate every extension's declared relationship shapes into the
+        // kernel-global registry the relation write paths consult. Done
+        // after all extensions are registered so a shape whose endpoint
+        // kinds span extensions resolves regardless of load order. Until
+        // this runs the registry is empty and relation writes fail closed.
+        runtime
+            .wasm_registry
+            .install_relationship_types(aggregate_relationship_types(&runtime.extension_runtime));
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))
@@ -891,6 +900,38 @@ impl Runtime {
         }
     }
 
+    /// Reject a relation write whose `(verb, source-kind, target-kind)`
+    /// triple no loaded extension declares in its
+    /// `contributes.relationshipTypes`. Mirrors the WASM-path gate in
+    /// `wit_relations::Host::create`; both consult the same aggregated
+    /// shape registry so the GraphQL/UI path and extension-initiated
+    /// writes enforce one rule.
+    fn require_declared_relationship(
+        &self,
+        from: &str,
+        to: &str,
+        verb_uri: &str,
+    ) -> Result<(), String> {
+        use crate::relationship_types::relation_kind_segment;
+        let (Some(source_kind), Some(target_kind)) =
+            (relation_kind_segment(from), relation_kind_segment(to))
+        else {
+            return Err(format!(
+                "relation endpoints must be comtrya:// references, got {from:?} -> {to:?}"
+            ));
+        };
+        if self
+            .wasm_registry
+            .relationship_types()
+            .permits(verb_uri, source_kind, target_kind)
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "no loaded extension declares a relationship type '{verb_uri}' from '{source_kind}' to '{target_kind}'"
+        ))
+    }
+
     fn create_relation(
         &self,
         from: &str,
@@ -924,6 +965,12 @@ impl Runtime {
         if from == to {
             return Err("relation `from` and `to` must differ".to_string());
         }
+        // The edge's (kind, source-kind, target-kind) triple must match a
+        // relationship shape some loaded extension declares. Without this,
+        // any authenticated principal could POST an arbitrary
+        // `relations.create` with undeclared kinds or endpoint kinds no
+        // relationship type admits. Fail closed.
+        self.require_declared_relationship(from, to, verb_uri)?;
         // NOTE (deferred): the dedup check below is racy across concurrent
         // creates because load_records → check → write_records_atomically
         // isn't a single transaction. In production-testbed (single
@@ -6718,6 +6765,26 @@ fn cue_schemas_from_manifest(
         parsed.push(declaration);
     }
     Ok(parsed)
+}
+
+/// Fold every loaded extension's declared `relationshipTypes` into the
+/// kernel-global [`RelationshipTypeRegistry`] the relation write paths
+/// consult. Each declaration becomes one shape keyed on its verb `kind`
+/// and the resource kinds it connects.
+fn aggregate_relationship_types(
+    records: &BTreeMap<String, ExtensionRuntimeRecord>,
+) -> relationship_types::RelationshipTypeRegistry {
+    let shapes = records
+        .values()
+        .flat_map(|record| &record.relationship_types)
+        .map(|decl| relationship_types::RelationshipShape {
+            kind: decl.kind.clone(),
+            source_kinds: decl.source_kinds.iter().cloned().collect(),
+            target_kinds: decl.target_kinds.iter().cloned().collect(),
+            symmetric: decl.symmetric,
+        })
+        .collect();
+    relationship_types::RelationshipTypeRegistry::new(shapes)
 }
 
 fn relationship_types_from_manifest(

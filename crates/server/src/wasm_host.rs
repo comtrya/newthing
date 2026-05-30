@@ -119,6 +119,11 @@ pub struct HostState {
     /// Held in-process for the lifetime of the kernel; on restart all
     /// outstanding tokens become invalid (callers re-read).
     pub occ_tokens: SharedOccTokens,
+    /// Kernel-global declared relationship shapes. Consulted by
+    /// `wit_relations::Host::create` so an extension-initiated relation
+    /// write must match a declared `(kind, source-kind, target-kind)`
+    /// shape. Empty permits nothing, failing closed.
+    pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
     /// Cross-extension op dispatcher (kernel-supplied).
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     /// Current synchronous depth of `ops.invoke` chains. Incremented
@@ -421,6 +426,37 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
         message: message.into(),
         path: None,
     }
+}
+
+/// Reject a relation write whose `(kind, source-kind, target-kind)` triple
+/// no loaded extension declares. Shared by both write paths' gate so the
+/// rule and its error message are identical regardless of caller.
+fn require_declared_relationship(
+    registry: &crate::relationship_types::RelationshipTypeRegistry,
+    source: &str,
+    target: &str,
+    kind: &str,
+) -> Result<(), wit_types::Error> {
+    use crate::relationship_types::relation_kind_segment;
+    let (Some(source_kind), Some(target_kind)) =
+        (relation_kind_segment(source), relation_kind_segment(target))
+    else {
+        return Err(err(
+            wit_types::ErrorCode::BadInput,
+            format!(
+                "relation endpoints must be comtrya:// references, got {source:?} -> {target:?}"
+            ),
+        ));
+    };
+    if registry.permits(kind, source_kind, target_kind) {
+        return Ok(());
+    }
+    Err(err(
+        wit_types::ErrorCode::Forbidden,
+        format!(
+            "no loaded extension declares a relationship type '{kind}' from '{source_kind}' to '{target_kind}'"
+        ),
+    ))
 }
 
 // ---- types (no methods; bindgen emits an empty Host trait) ----
@@ -967,6 +1003,13 @@ impl wit_relations::Host for HostState {
         attributes: Option<Vec<u8>>,
     ) -> Result<wit_relations::CreateResult, wit_types::Error> {
         self.require_host_import("relations.write")?;
+        // The edge's (kind, source-kind, target-kind) triple must match a
+        // relationship shape some loaded extension declares in its
+        // manifest. Fails closed: an undeclared shape is `Forbidden`. The
+        // coarse `relations.write` import above only proves the caller may
+        // write *some* relation; this proves the *shape* is one the
+        // platform admits.
+        require_declared_relationship(&self.relationship_types, &source, &target, &kind)?;
         // Idempotent on (source, target, kind). Stored as documents in
         // the `relations` collection.
         let records = self
@@ -1796,6 +1839,7 @@ pub struct HostStateForOp {
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     pub occ_tokens: SharedOccTokens,
     pub minted_ids: SharedMintedIds,
+    pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
 }
 
 pub fn host_state_for_op(input: HostStateForOp) -> HostState {
@@ -1811,6 +1855,7 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
         clock: input.clock,
         id_minter: input.id_minter,
         occ_tokens: input.occ_tokens,
+        relationship_types: input.relationship_types,
         ops_dispatcher: input.ops_dispatcher,
         ops_invoke_depth: 0,
         reactor_depth: 0,
@@ -1947,6 +1992,9 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         });
         let result = <HostState as wit_storage::Host>::create(
             &mut host,
@@ -2165,6 +2213,9 @@ mod tests {
             ops_dispatcher: Arc::new(dispatcher.clone()),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         });
 
         let bad = <HostState as wit_ops::Host>::invoke(
@@ -2276,6 +2327,9 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         });
 
         let forbidden = <HostState as wit_ops::Host>::invoke(
@@ -2320,6 +2374,9 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         });
 
         let storage = <HostState as wit_storage::Host>::get(
@@ -2390,6 +2447,16 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            // Permit the synthetic `tracks` shape the relation-author test
+            // creates, so the shape gate does not mask the author check.
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![crate::relationship_types::RelationshipShape {
+                    kind: "comtrya://relation-kind/tracks".to_string(),
+                    source_kinds: ["issue".to_string()].into_iter().collect(),
+                    target_kinds: ["epic".to_string()].into_iter().collect(),
+                    symmetric: false,
+                }],
+            )),
         })
     }
 
@@ -2499,6 +2566,30 @@ mod tests {
             <HostState as wit_relations::Host>::delete(&mut author_host, relation_id.clone())
                 .expect("author can delete own relation");
         assert!(matches!(deleted, wit_types::DeleteResult::Deleted));
+    }
+
+    #[test]
+    fn relation_create_rejects_undeclared_shape() {
+        // The shape gate fails closed: `host_with_principal`'s registry
+        // only declares the synthetic `tracks` shape, so a `blocks` edge —
+        // which no declared shape admits — must be `Forbidden`, even though
+        // the caller holds `relations.write`.
+        let store = tmp_store("relation-shape-gate");
+        let mut host = host_with_principal(store, "comtrya://user/usr_shape");
+        let result = <HostState as wit_relations::Host>::create(
+            &mut host,
+            "comtrya://issue/iss_a".to_string(),
+            "comtrya://epic/epc_b".to_string(),
+            "comtrya://rel/blocks".to_string(),
+            None,
+        );
+        match result {
+            Err(e) => assert!(
+                matches!(e.code, wit_types::ErrorCode::Forbidden),
+                "expected Forbidden, got {e:?}"
+            ),
+            Ok(_) => panic!("undeclared relationship shape must be rejected"),
+        }
     }
 
     #[test]
@@ -2713,6 +2804,9 @@ mod m1_ext_issues_smoke {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         })
     }
 

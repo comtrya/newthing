@@ -186,6 +186,15 @@ pub struct WasmRegistry {
     /// installed — gates treat a missing resolver as "cannot confirm
     /// enabled" and reject repository-scoped access, failing closed.
     pub repo_enablement: Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
+    /// Kernel-global set of manifest-declared relationship shapes,
+    /// aggregated across every loaded extension. Consulted on the relation
+    /// write path so an edge's `(kind, source-kind, target-kind)` triple
+    /// must match a declared `contributes.relationshipTypes` shape.
+    /// Installed after every extension is registered (a shape's endpoint
+    /// kinds may be owned by an extension that loads later). Empty until
+    /// then — both write paths read an empty registry as "permit nothing",
+    /// failing closed.
+    pub relationship_types: Arc<RwLock<Arc<crate::relationship_types::RelationshipTypeRegistry>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -221,6 +230,9 @@ impl WasmRegistry {
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
             repo_enablement: Arc::new(RwLock::new(None)),
+            relationship_types: Arc::new(RwLock::new(Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ))),
         })
     }
 
@@ -480,6 +492,31 @@ impl WasmRegistry {
             .read()
             .ok()
             .and_then(|slot| slot.get(consumer).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Install the aggregated relationship-shape registry. Called once
+    /// after every extension is registered and its declared
+    /// `contributes.relationshipTypes` have been collected, so a shape
+    /// whose endpoint kinds span extensions resolves regardless of load
+    /// order. Mirrors `install_repo_enablement`.
+    pub fn install_relationship_types(
+        &self,
+        registry: crate::relationship_types::RelationshipTypeRegistry,
+    ) {
+        if let Ok(mut slot) = self.relationship_types.write() {
+            *slot = Arc::new(registry);
+        }
+    }
+
+    /// A cheap snapshot of the installed relationship-shape registry. An
+    /// uninstalled registry is empty and permits no relation writes,
+    /// failing closed.
+    pub fn relationship_types(&self) -> Arc<crate::relationship_types::RelationshipTypeRegistry> {
+        self.relationship_types
+            .read()
+            .ok()
+            .map(|slot| slot.clone())
             .unwrap_or_default()
     }
 
@@ -1126,6 +1163,7 @@ pub fn build_host_state(
         ops_dispatcher: dispatcher,
         occ_tokens: registry.occ_tokens.clone(),
         minted_ids: registry.minted_ids.clone(),
+        relationship_types: registry.relationship_types(),
     });
     state.ops_invoke_depth = parent_depth;
     Ok((state, ext))
@@ -1701,6 +1739,20 @@ mod tests {
         registry
             .resolve_extension_point_bindings()
             .expect("resolve bindings");
+        // Mirror the kernel's relation-shape install: link-issue creates a
+        // `part-of` issue->epic edge through the relations host, which now
+        // requires a declared shape. ext_epics' manifest declares exactly
+        // this; install it so the write-path gate admits the link.
+        registry.install_relationship_types(
+            crate::relationship_types::RelationshipTypeRegistry::new(vec![
+                crate::relationship_types::RelationshipShape {
+                    kind: "comtrya://rel/part-of".to_string(),
+                    source_kinds: ["issue".to_string()].into_iter().collect(),
+                    target_kinds: ["epic".to_string()].into_iter().collect(),
+                    symmetric: false,
+                },
+            ]),
+        );
 
         let repo = "comtrya://workspace/ws_link/repository/repo_link";
         let other_repo = "comtrya://workspace/ws_link/repository/repo_no_epics";
@@ -2760,6 +2812,9 @@ mod tests {
             ops_dispatcher: dispatcher,
             occ_tokens: registry.occ_tokens.clone(),
             minted_ids: registry.minted_ids.clone(),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
         });
 
         let opened_bytes = <HostState as crate::wasm_host::wit_ops::Host>::invoke(
