@@ -121,7 +121,12 @@
               "outgoingLabel": { "type": "string", "minLength": 1 },
               "incomingLabel": { "type": "string", "minLength": 1 },
               "symmetric": { "type": "boolean" },
-              "order": { "type": "integer" }
+              "order": { "type": "integer" },
+              "requiresParticipation": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "description": "Extension id whose per-repo opt-in is required to create an edge of this type: the source resource's repository must list this extension in its repository.extensions. Enforced on the relation write path after the shape check."
+              }
             }
           }
         },

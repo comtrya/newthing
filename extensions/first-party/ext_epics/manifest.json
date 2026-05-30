@@ -31,7 +31,8 @@
         "targetKinds": ["epic"],
         "outgoingLabel": "part of epic",
         "incomingLabel": "contains issue",
-        "order": 100
+        "order": 100,
+        "requiresParticipation": "ext_epics"
       },
       {
         "id": "ext_epics.epic-part-of-epic",

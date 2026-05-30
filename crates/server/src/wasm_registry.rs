@@ -59,6 +59,25 @@ pub trait RepoEnablementResolver: Send + Sync {
     ) -> std::collections::BTreeSet<String>;
 }
 
+/// Whether `repository_ref` has opted into `extension_id`, read through an
+/// optionally-installed resolver slot. Fails closed: a missing resolver or
+/// an unknown repository yields `false`. Shared by `WasmRegistry` and the
+/// relation write-path participation gate in `HostState`, which carries
+/// the same resolver slot.
+pub fn repo_enabled_via_resolver(
+    resolver_slot: &Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
+    store: &crate::ExtensionRuntimeStore,
+    repository_ref: &str,
+    extension_id: &str,
+) -> bool {
+    let Some(resolver) = resolver_slot.read().ok().and_then(|slot| slot.clone()) else {
+        return false;
+    };
+    resolver
+        .enabled_extensions_for_repo(store, repository_ref)
+        .contains(extension_id)
+}
+
 /// Production resolver: maps a repository ref to its on-disk bare git
 /// dir, evaluates the repo's `package comtrya` CUE through the shared
 /// per-commit cache, and reads `repository.extensions`. Depends on
@@ -343,17 +362,7 @@ impl WasmRegistry {
         repository_ref: &str,
         extension_id: &str,
     ) -> bool {
-        let Some(resolver) = self
-            .repo_enablement
-            .read()
-            .ok()
-            .and_then(|slot| slot.clone())
-        else {
-            return false;
-        };
-        resolver
-            .enabled_extensions_for_repo(store, repository_ref)
-            .contains(extension_id)
+        repo_enabled_via_resolver(&self.repo_enablement, store, repository_ref, extension_id)
     }
 
     /// Whether `extension_id`'s reactor subscription is gated per-repo.
@@ -1134,6 +1143,7 @@ pub fn build_host_state(
         occ_tokens: registry.occ_tokens.clone(),
         minted_ids: registry.minted_ids.clone(),
         relationship_types: registry.relationship_types(),
+        repo_enablement: registry.repo_enablement.clone(),
     });
     state.ops_invoke_depth = parent_depth;
     Ok((state, ext))
@@ -2592,6 +2602,7 @@ mod tests {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let opened_bytes = <HostState as crate::wasm_host::wit_ops::Host>::invoke(

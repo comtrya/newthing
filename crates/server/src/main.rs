@@ -912,7 +912,7 @@ impl Runtime {
         to: &str,
         verb_uri: &str,
     ) -> Result<(), String> {
-        use crate::relationship_types::relation_kind_segment;
+        use crate::relationship_types::{RelationVerdict, relation_kind_segment};
         let (Some(source_kind), Some(target_kind)) =
             (relation_kind_segment(from), relation_kind_segment(to))
         else {
@@ -920,16 +920,38 @@ impl Runtime {
                 "relation endpoints must be comtrya:// references, got {from:?} -> {to:?}"
             ));
         };
-        if self
+        match self
             .wasm_registry
             .relationship_types()
-            .permits(verb_uri, source_kind, target_kind)
+            .evaluate(verb_uri, source_kind, target_kind)
         {
-            return Ok(());
+            RelationVerdict::Allowed => Ok(()),
+            RelationVerdict::Undeclared => Err(format!(
+                "no loaded extension declares a relationship type '{verb_uri}' from '{source_kind}' to '{target_kind}'"
+            )),
+            RelationVerdict::RequiresParticipation(ext) => {
+                let repo = self
+                    .extension_storage
+                    .repository_ref_for_resource(from)
+                    .ok_or_else(|| {
+                        format!(
+                            "cannot resolve a repository for '{from}' to enforce '{ext}' participation"
+                        )
+                    })?;
+                if self.wasm_registry.repo_has_extension_enabled(
+                    &self.extension_storage,
+                    &repo,
+                    &ext,
+                ) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "repository '{repo}' has not enabled '{ext}'; add it to the repository's \
+                         comtrya CUE repository.extensions to create this relationship"
+                    ))
+                }
+            }
         }
-        Err(format!(
-            "no loaded extension declares a relationship type '{verb_uri}' from '{source_kind}' to '{target_kind}'"
-        ))
     }
 
     fn create_relation(
@@ -6024,6 +6046,14 @@ struct RelationshipTypeDeclaration {
     symmetric: bool,
     #[serde(default)]
     order: i32,
+    /// Optional per-repo participation requirement. When set, an edge of
+    /// this type may be created only if the source resource's repository
+    /// has opted into the named extension (via `repository.extensions`).
+    /// Restores the issue→epic participation rule the removed
+    /// `epics.link-issue` op enforced, now declared on the relationship
+    /// type and enforced generically on the relation write path.
+    #[serde(default)]
+    requires_participation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -6782,6 +6812,7 @@ fn aggregate_relationship_types(
             source_kinds: decl.source_kinds.iter().cloned().collect(),
             target_kinds: decl.target_kinds.iter().cloned().collect(),
             symmetric: decl.symmetric,
+            requires_participation: decl.requires_participation.clone(),
         })
         .collect();
     relationship_types::RelationshipTypeRegistry::new(shapes)

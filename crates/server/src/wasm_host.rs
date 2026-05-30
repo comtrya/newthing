@@ -124,6 +124,12 @@ pub struct HostState {
     /// write must match a declared `(kind, source-kind, target-kind)`
     /// shape. Empty permits nothing, failing closed.
     pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
+    /// Per-repo extension opt-in resolver slot, shared with the registry.
+    /// Used by `wit_relations::Host::create` to enforce a relationship
+    /// type's `requiresParticipation`: the source resource's repository
+    /// must have opted into the named extension. `None`/uninstalled fails
+    /// closed (participation-gated edges rejected).
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
     /// Cross-extension op dispatcher (kernel-supplied).
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     /// Current synchronous depth of `ops.invoke` chains. Incremented
@@ -429,15 +435,19 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
 }
 
 /// Reject a relation write whose `(kind, source-kind, target-kind)` triple
-/// no loaded extension declares. Shared by both write paths' gate so the
-/// rule and its error message are identical regardless of caller.
+/// no loaded extension declares, and enforce any declared
+/// `requiresParticipation` on the source resource's repository. Mirrors
+/// the GraphQL-path gate in `Runtime::require_declared_relationship` so
+/// both write paths apply one rule and one error vocabulary.
 fn require_declared_relationship(
     registry: &crate::relationship_types::RelationshipTypeRegistry,
+    repo_enablement: &Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
+    store: &ExtensionRuntimeStore,
     source: &str,
     target: &str,
     kind: &str,
 ) -> Result<(), wit_types::Error> {
-    use crate::relationship_types::relation_kind_segment;
+    use crate::relationship_types::{RelationVerdict, relation_kind_segment};
     let (Some(source_kind), Some(target_kind)) =
         (relation_kind_segment(source), relation_kind_segment(target))
     else {
@@ -448,15 +458,37 @@ fn require_declared_relationship(
             ),
         ));
     };
-    if registry.permits(kind, source_kind, target_kind) {
-        return Ok(());
+    match registry.evaluate(kind, source_kind, target_kind) {
+        RelationVerdict::Allowed => Ok(()),
+        RelationVerdict::Undeclared => Err(err(
+            wit_types::ErrorCode::Forbidden,
+            format!(
+                "no loaded extension declares a relationship type '{kind}' from '{source_kind}' to '{target_kind}'"
+            ),
+        )),
+        RelationVerdict::RequiresParticipation(ext) => {
+            let repo = store.repository_ref_for_resource(source).ok_or_else(|| {
+                err(
+                    wit_types::ErrorCode::Forbidden,
+                    format!(
+                        "cannot resolve a repository for '{source}' to enforce '{ext}' participation"
+                    ),
+                )
+            })?;
+            if crate::wasm_registry::repo_enabled_via_resolver(repo_enablement, store, &repo, &ext)
+            {
+                Ok(())
+            } else {
+                Err(err(
+                    wit_types::ErrorCode::Forbidden,
+                    format!(
+                        "repository '{repo}' has not enabled '{ext}'; add it to the repository's \
+                         comtrya CUE repository.extensions to create this relationship"
+                    ),
+                ))
+            }
+        }
     }
-    Err(err(
-        wit_types::ErrorCode::Forbidden,
-        format!(
-            "no loaded extension declares a relationship type '{kind}' from '{source_kind}' to '{target_kind}'"
-        ),
-    ))
 }
 
 // ---- types (no methods; bindgen emits an empty Host trait) ----
@@ -1009,7 +1041,14 @@ impl wit_relations::Host for HostState {
         // coarse `relations.write` import above only proves the caller may
         // write *some* relation; this proves the *shape* is one the
         // platform admits.
-        require_declared_relationship(&self.relationship_types, &source, &target, &kind)?;
+        require_declared_relationship(
+            &self.relationship_types,
+            &self.repo_enablement,
+            &self.store,
+            &source,
+            &target,
+            &kind,
+        )?;
         // Idempotent on (source, target, kind). Stored as documents in
         // the `relations` collection.
         let records = self
@@ -1840,6 +1879,7 @@ pub struct HostStateForOp {
     pub occ_tokens: SharedOccTokens,
     pub minted_ids: SharedMintedIds,
     pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
 }
 
 pub fn host_state_for_op(input: HostStateForOp) -> HostState {
@@ -1856,6 +1896,7 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
         id_minter: input.id_minter,
         occ_tokens: input.occ_tokens,
         relationship_types: input.relationship_types,
+        repo_enablement: input.repo_enablement,
         ops_dispatcher: input.ops_dispatcher,
         ops_invoke_depth: 0,
         reactor_depth: 0,
@@ -1995,6 +2036,7 @@ mod tests {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
         let result = <HostState as wit_storage::Host>::create(
             &mut host,
@@ -2216,6 +2258,7 @@ mod tests {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let bad = <HostState as wit_ops::Host>::invoke(
@@ -2330,6 +2373,7 @@ mod tests {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let forbidden = <HostState as wit_ops::Host>::invoke(
@@ -2377,6 +2421,7 @@ mod tests {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let storage = <HostState as wit_storage::Host>::get(
@@ -2455,8 +2500,10 @@ mod tests {
                     source_kinds: ["issue".to_string()].into_iter().collect(),
                     target_kinds: ["epic".to_string()].into_iter().collect(),
                     symmetric: false,
+                    requires_participation: None,
                 }],
             )),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -2590,6 +2637,103 @@ mod tests {
             ),
             Ok(_) => panic!("undeclared relationship shape must be rejected"),
         }
+    }
+
+    #[test]
+    fn relation_create_enforces_participation_requirement() {
+        // A declared shape carrying `requiresParticipation: ext_epics` may
+        // be created only when the source issue's repository has opted into
+        // ext_epics. This restores, generically, the gate the removed
+        // `epics.link-issue` op enforced — now on the relation write path.
+        let store = tmp_store("relation-participation");
+        let repo_ref = "comtrya://workspace/ws_p/repository/repo_p";
+        let issue_uri = "comtrya://issue/iss_p";
+        let epic_uri = "comtrya://epic/epc_p";
+        // Seed the issue so the kernel can resolve its repository.
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_issues".to_string(),
+                collection: "issues".to_string(),
+                id: "iss_p".to_string(),
+                resource: issue_uri.to_string(),
+                resource_refs: vec![issue_uri.to_string(), repo_ref.to_string()],
+                visibility: "internal".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "iss_p" }),
+            })
+            .expect("seed issue record");
+
+        let registry = Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+            vec![crate::relationship_types::RelationshipShape {
+                kind: "comtrya://rel/part-of".to_string(),
+                source_kinds: ["issue".to_string()].into_iter().collect(),
+                target_kinds: ["epic".to_string()].into_iter().collect(),
+                symmetric: false,
+                requires_participation: Some("ext_epics".to_string()),
+            }],
+        ));
+
+        let make_host = |enabled: Vec<&'static str>| -> HostState {
+            use std::sync::RwLock;
+            let slot: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>> =
+                Arc::new(RwLock::new(Some(
+                    crate::wasm_registry::StaticRepoEnablement::new([(repo_ref, enabled)]),
+                )));
+            let mut kinds = std::collections::BTreeMap::new();
+            kinds.insert("relation".to_string(), "rel".to_string());
+            host_state_for_op(HostStateForOp {
+                extension_id: "ext_epics".to_string(),
+                extension_principal: "comtrya://extension/ext_epics".to_string(),
+                current_principal: "comtrya://user/usr_p".to_string(),
+                store: store.clone(),
+                manifest: Arc::new(HostManifest {
+                    host_imports: vec!["relations.write".to_string()],
+                    ..HostManifest::default()
+                }),
+                extension_point_bindings: Arc::new(
+                    crate::extension_points::ConsumerBindings::default(),
+                ),
+                clock: Arc::new(SystemClock),
+                id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+                log_sink: Arc::new(TracingLogSink),
+                authz: Arc::new(SimpleAuthz),
+                ops_dispatcher: Arc::new(NoopDispatcher),
+                occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                relationship_types: registry.clone(),
+                repo_enablement: slot,
+            })
+        };
+
+        // Repo has NOT opted into ext_epics → Forbidden.
+        let mut denied = make_host(vec![]);
+        let err = <HostState as wit_relations::Host>::create(
+            &mut denied,
+            issue_uri.to_string(),
+            epic_uri.to_string(),
+            "comtrya://rel/part-of".to_string(),
+            None,
+        )
+        .expect_err("link must be denied when repo has not enabled ext_epics");
+        assert!(
+            matches!(err.code, wit_types::ErrorCode::Forbidden),
+            "got {err:?}"
+        );
+
+        // Repo HAS opted in → the link is created.
+        let mut allowed = make_host(vec!["ext_epics"]);
+        let created = <HostState as wit_relations::Host>::create(
+            &mut allowed,
+            issue_uri.to_string(),
+            epic_uri.to_string(),
+            "comtrya://rel/part-of".to_string(),
+            None,
+        )
+        .expect("link allowed when repo participates");
+        assert!(matches!(created, wit_relations::CreateResult::Created(_)));
     }
 
     #[test]
@@ -2807,6 +2951,7 @@ mod m1_ext_issues_smoke {
             relationship_types: Arc::new(
                 crate::relationship_types::RelationshipTypeRegistry::default(),
             ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 

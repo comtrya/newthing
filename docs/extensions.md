@@ -124,7 +124,14 @@ important v3 fields are:
   `derive`, or an instance route with a `derive` fails the load. Ops not
   listed are not gated in the pre-invoke phase.
 - `contributes.relationshipTypes`: relation verbs and labels the extension
-  makes available to UI surfaces for typed relationship creation.
+  makes available for typed relationship creation. Each entry's
+  `(kind, sourceKinds, targetKinds)` shape is **load-bearing on the relation
+  write path**: the kernel rejects any `relations.create` whose endpoints and
+  verb match no declared shape. An entry may also set
+  `requiresParticipation: "<extension-id>"`, which gates creation of that edge
+  on the source resource's repository having opted into the named extension
+  (via `repository.extensions`) — the kernel resolves the repo and checks the
+  opt-in itself.
 - `contributes.collections`: storage collections and indexes
   declarations owned by the extension.
 - `ui.manifest`: path to the browser-side UI manifest (nested under the `ui`
