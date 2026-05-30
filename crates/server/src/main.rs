@@ -2680,7 +2680,7 @@ impl PrincipalContext {
     fn anonymous() -> Self {
         Self {
             status: PrincipalStatus::Anonymous,
-            uri: "comtrya://principal/anonymous".to_string(),
+            uri: crate::wasm_host::ANONYMOUS_PRINCIPAL.to_string(),
         }
     }
 
@@ -4129,17 +4129,54 @@ fn event_stream_response(
         );
     }
 
+    // Visibility filter. Without it, every authenticated principal sees
+    // every workspace event including PRIVATE repo/PR/comment activity
+    // for repos they cannot read (issue: /events SSE cross-tenant leak).
+    // Admin/operator credentials retain full visibility for ops/audit
+    // tooling. Audit events (`dev.comtrya.auth.*` / `dev.comtrya.oidc.*`)
+    // are never served on this stream — they're for the audit log only
+    // and would expose login activity / OIDC subject identifiers to any
+    // authenticated reader.
+    let is_admin = matches!(
+        principal,
+        PrincipalStatus::OperatorCredential | PrincipalStatus::AdminCredential
+    );
     let frames = state
         .runtime
         .read_events()
         .into_iter()
-        .enumerate()
-        .map(|(idx, event)| {
+        .filter(|event| {
+            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+            if event_type.starts_with("dev.comtrya.auth.")
+                || event_type.starts_with("dev.comtrya.oidc.")
+            {
+                return false;
+            }
+            if !is_admin {
+                let visibility = event
+                    .get("visibility")
+                    .and_then(Value::as_str)
+                    .unwrap_or("PRIVATE");
+                if visibility != "PUBLIC" {
+                    return false;
+                }
+            }
+            true
+        })
+        .filter_map(|event| {
             let event_type = event
                 .get("type")
                 .and_then(Value::as_str)
-                .unwrap_or("dev.comtrya.event");
-            format!("id: {idx}\nevent: {event_type}\ndata: {event}\n\n")
+                .unwrap_or("dev.comtrya.event")
+                .to_string();
+            // Use the event's stable `evt_…` id, not the per-request
+            // iteration index. Last-Event-ID reconnect was meaningless
+            // before — the index shifted every time the log grew or
+            // earlier entries were filtered out.
+            let event_id = event.get("id").and_then(Value::as_str)?.to_string();
+            Some(format!(
+                "id: {event_id}\nevent: {event_type}\ndata: {event}\n\n"
+            ))
         })
         .collect::<String>();
     text_response(StatusCode::OK, "text/event-stream", frames, cors)

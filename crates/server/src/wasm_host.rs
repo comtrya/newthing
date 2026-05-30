@@ -328,11 +328,8 @@ impl LogSink for TracingLogSink {
 }
 
 /// Canonical URI for the anonymous (unauthenticated) principal.
-///
-/// FIXME: `main.rs::PrincipalContext::anonymous()` still inlines the
-/// same literal — dedup when refactoring that constructor (deferred
-/// here to avoid touching main.rs, which is in the open-PR conflict
-/// zone for #25/#26/#29/#32).
+/// `PrincipalContext::anonymous` in main.rs references this constant
+/// so the canonical URI has a single source of truth.
 pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 
 /// Collections the kernel owns. Extensions must not create records in
