@@ -338,12 +338,19 @@ pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 /// Collections the kernel owns. Extensions must not create records in
 /// these via the generic `storage.*` host imports — the kernel writes
 /// them through dedicated paths that enforce shape/authorization
-/// (e.g. `relations.create` runs the relationship-type shape gate).
+/// (e.g. `relations.create` runs the relationship-type shape gate,
+/// `comments.create` stamps the authenticated principal as `authorRef`).
 /// Without this gate an extension holding only `storage.write` could
-/// mint an id and call `storage.create(collection: "relations", ...)`
-/// to inject an edge with an undeclared kind, bypassing the gate the
-/// `relations.create` path enforces.
-pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] = &["relations"];
+/// mint an id and inject an attacker-controlled record into a
+/// kernel-owned collection — e.g. a `comments` record with an arbitrary
+/// `authorRef` that surfaces in `Runtime::thread_for_target` as if the
+/// kernel had authored it, enabling impersonation. The collection
+/// names are matched exactly (case-sensitive); kernel read paths also
+/// iterate with exact equality, so a non-matching name (`Relations`,
+/// `relations-archive`, …) does not shadow these collections on either
+/// side and remains safe.
+pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] =
+    &["relations", "comments", "repositories", "labels"];
 
 fn is_kernel_owned_collection(collection: &str) -> bool {
     KERNEL_OWNED_COLLECTIONS.contains(&collection)
@@ -1111,7 +1118,8 @@ impl wit_relations::Host for HostState {
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         if let Some(existing) = records.iter().find(|r| {
-            r.collection == "relations" && r.owner_extension == "core"
+            r.collection == "relations"
+                && r.owner_extension == "core"
                 && r.data.get("source").and_then(Value::as_str) == Some(canon_source.as_str())
                 && r.data.get("target").and_then(Value::as_str) == Some(canon_target.as_str())
                 && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
@@ -1179,7 +1187,9 @@ impl wit_relations::Host for HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         let record = records
             .iter()
-            .find(|r| r.collection == "relations" && r.owner_extension == "core" && r.id == id_for_lookup)
+            .find(|r| {
+                r.collection == "relations" && r.owner_extension == "core" && r.id == id_for_lookup
+            })
             .ok_or_else(|| err(wit_types::ErrorCode::NotFound, "relation gone after update"))?;
         Ok(record_to_relation(record))
     }
@@ -1218,7 +1228,8 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations" && r.owner_extension == "core"
+                r.collection == "relations"
+                    && r.owner_extension == "core"
                     && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                     && kind_filter
                         .as_deref()
@@ -1249,7 +1260,8 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations" && r.owner_extension == "core"
+                r.collection == "relations"
+                    && r.owner_extension == "core"
                     && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
                         .as_deref()
@@ -1281,7 +1293,8 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations" && r.owner_extension == "core"
+                r.collection == "relations"
+                    && r.owner_extension == "core"
                     && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                     && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
@@ -2331,7 +2344,9 @@ mod tests {
             "checks.list-checks".to_string(),
             b"{}".to_vec(),
         )
-        .expect_err("canonical route outside the consumer's bound extension points should be rejected");
+        .expect_err(
+            "canonical route outside the consumer's bound extension points should be rejected",
+        );
         assert!(matches!(forbidden.code, wit_types::ErrorCode::Forbidden));
         assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
 
@@ -2792,6 +2807,84 @@ mod tests {
     }
 
     #[test]
+    fn storage_create_rejects_kernel_owned_comments_collection() {
+        // `comments` is kernel-owned: `Runtime::create_comment` stamps the
+        // authenticated principal as `authorRef`. If an extension with
+        // just `storage.write` could `storage.create(collection:
+        // "comments", id, data: { target, authorRef: <attacker>,
+        // bodyMarkdown: "I am someone else" })`, the kernel's
+        // `thread_for_target` (an unfiltered `collection_data("comments")`
+        // before this PR) would surface it as a genuine comment with the
+        // attacker-chosen authorRef — a direct impersonation primitive.
+        // The kernel-owned collection gate must reject this at the
+        // storage host import boundary, mirroring the `relations` case.
+        use std::sync::RwLock;
+        let store = tmp_store("kernel-owned-comments");
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("comment".to_string(), "cmt".to_string());
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_attacker".to_string(),
+            extension_principal: "comtrya://extension/ext_attacker".to_string(),
+            current_principal: "comtrya://user/usr_attacker".to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["comment".to_string()],
+                host_imports: vec!["storage.write".to_string(), "ids".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![],
+            )),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        let minted_id = <HostState as wit_ids::Host>::mint(&mut host, "comment".to_string())
+            .expect("mint succeeds with ids host import");
+
+        let payload = serde_json::json!({
+            "id": &minted_id,
+            "target": "comtrya://issue/iss_victim",
+            "authorRef": "comtrya://user/usr_innocent_victim",
+            "bodyMarkdown": "I would never say this",
+        });
+        let result = <HostState as wit_storage::Host>::create(
+            &mut host,
+            "comments".to_string(),
+            minted_id,
+            serde_json::to_vec(&payload).unwrap(),
+            wit_storage::DocumentMetadata {
+                resource_uri: "comtrya://comment/forged".to_string(),
+                resource_refs: vec![],
+            },
+        );
+        match result {
+            Err(e) => {
+                assert!(
+                    matches!(e.code, wit_types::ErrorCode::Forbidden),
+                    "expected Forbidden for kernel-owned `comments` collection, got {e:?}"
+                );
+                assert!(
+                    e.message.contains("kernel-owned"),
+                    "error message should explain the gate: got {:?}",
+                    e.message
+                );
+            }
+            Ok(()) => panic!(
+                "extension must not be able to inject a comment with an \
+                 attacker-controlled authorRef via storage.create"
+            ),
+        }
+    }
+
+    #[test]
     fn storage_create_rejects_kernel_owned_relations_collection() {
         // The relationship-type shape gate guards `relations.create`. An
         // extension holding only `storage.write` must not be able to mint
@@ -2821,9 +2914,9 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
-            relationship_types: Arc::new(
-                crate::relationship_types::RelationshipTypeRegistry::new(vec![]),
-            ),
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![],
+            )),
             repo_enablement: Arc::new(RwLock::new(None)),
         });
 
@@ -2896,10 +2989,7 @@ mod tests {
                 current_principal: "comtrya://user/usr_canon".to_string(),
                 store: store.clone(),
                 manifest: Arc::new(HostManifest {
-                    host_imports: vec![
-                        "relations.read".to_string(),
-                        "relations.write".to_string(),
-                    ],
+                    host_imports: vec!["relations.read".to_string(), "relations.write".to_string()],
                     ..HostManifest::default()
                 }),
                 extension_point_bindings: Arc::new(
@@ -2958,12 +3048,16 @@ mod tests {
                     rel.id, created_id,
                     "swapped-endpoint repeat must return the original relation id"
                 );
-                assert_eq!(rel.source, a, "stored source must be the canonical (smaller) URI");
-                assert_eq!(rel.target, b, "stored target must be the canonical (larger) URI");
+                assert_eq!(
+                    rel.source, a,
+                    "stored source must be the canonical (smaller) URI"
+                );
+                assert_eq!(
+                    rel.target, b,
+                    "stored target must be the canonical (larger) URI"
+                );
             }
-            other => panic!(
-                "swapped-endpoint repeat must return AlreadyExisted, got {other:?}"
-            ),
+            other => panic!("swapped-endpoint repeat must return AlreadyExisted, got {other:?}"),
         }
 
         // And one more call in the *original* (already-canonical) order
