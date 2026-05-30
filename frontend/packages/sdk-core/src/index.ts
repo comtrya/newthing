@@ -13,7 +13,7 @@
  * for their respective component models.
  */
 
-export type { OpResult } from "./runtime";
+export type { OpResult, OpError, OpErrorCode } from "./runtime";
 export { invokeOp, type InvokeOpOptions } from "./runtime";
 export {
   registerWidget,

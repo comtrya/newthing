@@ -14,16 +14,15 @@
 
 import { clearSessionToken, getSessionToken } from "./session";
 
+export interface OpError {
+  code: OpErrorCode;
+  message: string;
+  path?: string;
+}
+
 export type OpResult<T> =
   | { ok: true; value: T }
-  | {
-      ok: false;
-      error: {
-        code: OpErrorCode;
-        message: string;
-        path?: string;
-      };
-    };
+  | { ok: false; error: OpError };
 
 export type OpErrorCode =
   | "not-found"
