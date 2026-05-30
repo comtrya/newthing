@@ -963,12 +963,18 @@ impl Runtime {
         }
     }
 
+    /// `created_by` is the authenticated principal URI as derived from the
+    /// caller's session and is recorded on the new edge so per-record
+    /// ownership checks (`delete_relation`) have an authoritative author.
+    /// Must never be taken from the request body for the same impersonation
+    /// reason as `create_comment`.
     fn create_relation(
         &self,
         from: &str,
         to: &str,
         verb_uri: &str,
         attributes: Option<&Value>,
+        created_by: &str,
     ) -> Result<Value, String> {
         // Adversarial-input caps.
         const MAX_URI_LEN: usize = 2048;
@@ -1030,6 +1036,12 @@ impl Runtime {
 
         let rel_id = OpaqueId::new(IdPrefix::Relation);
         let now_iso = chrono_now_iso();
+        // `authorRef` (not `createdBy`) is the single field both the WASM
+        // host import (wit_relations::Host::create) and this GraphQL path
+        // record under. The owner-check predicate read by
+        // `wit_relations::replace_attributes` / `delete` (see
+        // `require_record_author` in wasm_host.rs) looks up `authorRef`, so
+        // keeping the kernel name avoids a second schema for the same fact.
         let data = json!({
             "id": rel_id.as_str(),
             "kind": verb_uri,
@@ -1039,6 +1051,7 @@ impl Runtime {
             "to": canon_to,
             "attributes": attributes.cloned().unwrap_or_else(|| json!({})),
             "createdAt": now_iso,
+            "authorRef": created_by,
         });
         let rel_ref = format!("comtrya://relation/{}", rel_id.as_str());
         let record = extension_document_record(
@@ -1065,8 +1078,21 @@ impl Runtime {
         Ok(data)
     }
 
-    fn delete_relation(&self, id: &str) -> Result<bool, String> {
-        let relations = self.extension_storage.kernel_collection_data("relations")?;
+    /// Delete a relation, enforcing the per-record creator rule: only the
+    /// principal who created the edge (or an admin/operator) may delete it.
+    /// Relations that pre-date the `createdBy` field have an empty stored
+    /// author — those are treated as admin-only deletions on purpose, so a
+    /// stale unsigned edge cannot be retroactively claimed.
+    fn delete_relation(
+        &self,
+        id: &str,
+        caller_uri: &str,
+        caller_status: PrincipalStatus,
+    ) -> Result<DeleteRelationOutcome, DeleteRelationError> {
+        let relations = self
+            .extension_storage
+            .kernel_collection_data("relations")
+            .map_err(DeleteRelationError::Internal)?;
         let target = relations.as_array().and_then(|array| {
             array
                 .iter()
@@ -1074,10 +1100,24 @@ impl Runtime {
                 .cloned()
         });
         let Some(target) = target else {
-            return Ok(false);
+            return Ok(DeleteRelationOutcome::NotFound);
         };
+        // `authorRef` is the kernel-wide author field — the WASM host import
+        // writes it on extension-created relations, and the GraphQL
+        // `create_relation` writes it on user-created ones. Both paths agree
+        // on the field name so the ownership check matches either creator.
+        let created_by = target
+            .get("authorRef")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !principal_can_modify_authored_record(caller_uri, caller_status, created_by) {
+            return Err(DeleteRelationError::Forbidden(format!(
+                "relation {id:?} can only be deleted by its creator"
+            )));
+        }
         self.extension_storage
-            .delete_document("core", "relations", id)?;
+            .delete_document("core", "relations", id)
+            .map_err(DeleteRelationError::Internal)?;
         let _ = self.append_event(
             "dev.comtrya.relation.deleted",
             json!({
@@ -1087,7 +1127,7 @@ impl Runtime {
                 "to": target.get("to"),
             }),
         );
-        Ok(true)
+        Ok(DeleteRelationOutcome::Deleted)
     }
 
     /// Relations whose `from` endpoint is `ref_uri`. For symmetric verbs,
@@ -1175,6 +1215,12 @@ impl Runtime {
     }
 
     // ── Comments (core-owned, nested-threaded) ─────────────────────────
+    /// `author_ref` must be the authenticated principal's URI as derived from the
+    /// caller's session, never a client-supplied value: the recorded author is
+    /// the access-control predicate `update_comment` / `delete_comment` enforce
+    /// on edit and delete, so accepting it from the request payload would let
+    /// any authenticated caller impersonate any other user. The handler
+    /// (`comments_create_mutation`) is the single trusted call site.
     fn create_comment(
         &self,
         target: &str,
@@ -1279,7 +1325,20 @@ impl Runtime {
         Ok(data)
     }
 
-    fn update_comment(&self, id: &str, body_markdown: &str) -> Result<Value, UpdateCommentError> {
+    /// Edit a comment, enforcing the per-record author rule: only the
+    /// authenticated principal whose URI matches the stored `authorRef` may
+    /// edit. Admin/operator credentials bypass the per-record check so a
+    /// moderator can correct or strike content; everyone else is rejected
+    /// with `Forbidden` (mapped to 403 by the handler). Authorization happens
+    /// before the OCC write so a forbidden update can never bump the
+    /// version or rewrite the body.
+    fn update_comment(
+        &self,
+        id: &str,
+        body_markdown: &str,
+        caller_uri: &str,
+        caller_status: PrincipalStatus,
+    ) -> Result<Value, UpdateCommentError> {
         const MAX_BODY_BYTES: usize = 64 * 1024;
         if body_markdown.is_empty() {
             return Err(UpdateCommentError::BadInput(
@@ -1289,6 +1348,26 @@ impl Runtime {
         if body_markdown.len() > MAX_BODY_BYTES {
             return Err(UpdateCommentError::BadInput(format!(
                 "comment body must be at most {MAX_BODY_BYTES} bytes"
+            )));
+        }
+        let existing = self
+            .extension_storage
+            .kernel_collection_data("comments")
+            .map_err(UpdateCommentError::Internal)?;
+        let existing_author = existing
+            .as_array()
+            .and_then(|arr| {
+                arr.iter()
+                    .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
+            })
+            .ok_or_else(|| UpdateCommentError::NotFound(format!("comment {id:?} not found")))?
+            .get("authorRef")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if !principal_can_modify_authored_record(caller_uri, caller_status, &existing_author) {
+            return Err(UpdateCommentError::Forbidden(format!(
+                "comment {id:?} can only be edited by its author"
             )));
         }
         let now_iso = chrono_now_iso();
@@ -1326,22 +1405,42 @@ impl Runtime {
         Ok(updated)
     }
 
-    fn delete_comment(&self, id: &str) -> Result<bool, String> {
-        let comments = self.extension_storage.kernel_collection_data("comments")?;
-        let exists = comments
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .any(|c| c.get("id").and_then(Value::as_str) == Some(id))
-            })
-            .unwrap_or(false);
-        if !exists {
-            return Ok(false);
+    /// Delete a comment, enforcing the per-record author rule (same predicate
+    /// as `update_comment`). Returns `Ok(DeleteCommentOutcome::NotFound)`
+    /// when no comment exists for that id so the GraphQL handler can render
+    /// the canonical "already gone" success shape, and
+    /// `Err(Forbidden)` when the caller is not the author or admin.
+    fn delete_comment(
+        &self,
+        id: &str,
+        caller_uri: &str,
+        caller_status: PrincipalStatus,
+    ) -> Result<DeleteCommentOutcome, DeleteCommentError> {
+        let comments = self
+            .extension_storage
+            .kernel_collection_data("comments")
+            .map_err(DeleteCommentError::Internal)?;
+        let existing = comments.as_array().and_then(|arr| {
+            arr.iter()
+                .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
+        });
+        let Some(record) = existing else {
+            return Ok(DeleteCommentOutcome::NotFound);
+        };
+        let existing_author = record
+            .get("authorRef")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !principal_can_modify_authored_record(caller_uri, caller_status, existing_author) {
+            return Err(DeleteCommentError::Forbidden(format!(
+                "comment {id:?} can only be deleted by its author"
+            )));
         }
         self.extension_storage
-            .delete_document("core", "comments", id)?;
+            .delete_document("core", "comments", id)
+            .map_err(DeleteCommentError::Internal)?;
         let _ = self.append_event("dev.comtrya.comment.deleted", json!({ "commentID": id }));
-        Ok(true)
+        Ok(DeleteCommentOutcome::Deleted)
     }
 
     fn thread_for_target(&self, target: &str) -> Result<Vec<Value>, String> {
@@ -3097,10 +3196,13 @@ fn comments_create_mutation(state: AppState, headers: HeaderMap, payload: Value)
     let parent = payload
         .pointer("/variables/input/parent")
         .and_then(Value::as_str);
-    let author_ref = payload
-        .pointer("/variables/input/authorRef")
-        .and_then(Value::as_str)
-        .unwrap_or("comtrya://user/usr_00000000000000000000000000");
+    // Author is the authenticated principal — derived from the credential the
+    // guard above already validated, never taken from `input.authorRef`.
+    // Trusting client-supplied authorRef would let any signed-in caller
+    // impersonate any other user; the recorded value is what the per-record
+    // owner checks on edit/delete compare against.
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    let author_ref = principal.uri.as_str();
     if target.is_empty() || body.is_empty() {
         return graphql_error_response(
             StatusCode::BAD_REQUEST,
@@ -3148,7 +3250,11 @@ fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value)
             cors,
         );
     }
-    match state.runtime.update_comment(id, body) {
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    match state
+        .runtime
+        .update_comment(id, body, &principal.uri, principal.status)
+    {
         Ok(comment) => json_response(
             StatusCode::OK,
             json!({ "data": { "comments": { "update": comment } } }),
@@ -3160,6 +3266,12 @@ fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value)
         Err(UpdateCommentError::BadInput(message)) => graphql_error_response(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+        Err(UpdateCommentError::Forbidden(message)) => graphql_error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
             &message,
             cors,
         ),
@@ -3189,15 +3301,28 @@ fn comments_delete_mutation(state: AppState, headers: HeaderMap, payload: Value)
             cors,
         );
     }
-    match state.runtime.delete_comment(id) {
-        Ok(deleted) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "comments": { "delete": deleted } } }),
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    match state
+        .runtime
+        .delete_comment(id, &principal.uri, principal.status)
+    {
+        Ok(outcome) => {
+            let deleted = matches!(outcome, DeleteCommentOutcome::Deleted);
+            json_response(
+                StatusCode::OK,
+                json!({ "data": { "comments": { "delete": deleted } } }),
+                cors,
+            )
+        }
+        Err(DeleteCommentError::Forbidden(message)) => graphql_error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            &message,
             cors,
         ),
-        Err(message) => graphql_error_response(
+        Err(DeleteCommentError::Internal(message)) => graphql_error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
+            ErrorCode::InternalServerError.as_str(),
             &message,
             cors,
         ),
@@ -3312,7 +3437,11 @@ fn relations_create_mutation(state: AppState, headers: HeaderMap, payload: Value
             cors,
         );
     }
-    match state.runtime.create_relation(from, to, kind, attributes) {
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    match state
+        .runtime
+        .create_relation(from, to, kind, attributes, &principal.uri)
+    {
         Ok(relation) => json_response(
             StatusCode::OK,
             json!({
@@ -3346,15 +3475,28 @@ fn relations_delete_mutation(state: AppState, headers: HeaderMap, payload: Value
             cors,
         );
     }
-    match state.runtime.delete_relation(id) {
-        Ok(deleted) => json_response(
-            StatusCode::OK,
-            json!({ "data": { "relations": { "delete": deleted } } }),
+    let principal = state.runtime.principal_context_from_headers(&headers);
+    match state
+        .runtime
+        .delete_relation(id, &principal.uri, principal.status)
+    {
+        Ok(outcome) => {
+            let deleted = matches!(outcome, DeleteRelationOutcome::Deleted);
+            json_response(
+                StatusCode::OK,
+                json!({ "data": { "relations": { "delete": deleted } } }),
+                cors,
+            )
+        }
+        Err(DeleteRelationError::Forbidden(message)) => graphql_error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            &message,
             cors,
         ),
-        Err(message) => graphql_error_response(
+        Err(DeleteRelationError::Internal(message)) => graphql_error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
-            "INTERNAL_ERROR",
+            ErrorCode::InternalServerError.as_str(),
             &message,
             cors,
         ),
@@ -6260,6 +6402,9 @@ pub(crate) enum UpdateCommentError {
     BadInput(String),
     /// No comment with that id exists.
     NotFound(String),
+    /// Caller is authenticated but is not the comment's author, and does not
+    /// hold an instance-admin credential that overrides per-record ownership.
+    Forbidden(String),
     /// Storage I/O, schema, or post-write read failure.
     Internal(String),
 }
@@ -6267,7 +6412,9 @@ pub(crate) enum UpdateCommentError {
 impl std::fmt::Display for UpdateCommentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadInput(m) | Self::NotFound(m) | Self::Internal(m) => f.write_str(m),
+            Self::BadInput(m) | Self::NotFound(m) | Self::Forbidden(m) | Self::Internal(m) => {
+                f.write_str(m)
+            }
         }
     }
 }
@@ -6284,6 +6431,75 @@ impl From<StorageUpdateError> for UpdateCommentError {
             StorageUpdateError::Internal(message) => Self::Internal(message),
         }
     }
+}
+
+/// Result of `Runtime::delete_comment` for the success path. Splitting "the
+/// record was deleted" from "no record existed for that id" keeps the GraphQL
+/// handler's response shape decision (idempotent delete returns `false`, not
+/// 404) from leaking into the runtime layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeleteCommentOutcome {
+    Deleted,
+    NotFound,
+}
+
+/// Error variants distinguished by the handler so it can return 403 Forbidden
+/// for ownership failures vs. 500 for storage I/O — string-matching the
+/// underlying message would not survive an error-text refactor.
+#[derive(Debug, Clone)]
+pub(crate) enum DeleteCommentError {
+    Forbidden(String),
+    Internal(String),
+}
+
+impl std::fmt::Display for DeleteCommentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forbidden(m) | Self::Internal(m) => f.write_str(m),
+        }
+    }
+}
+
+/// Mirror of [`DeleteCommentOutcome`] for the relation path. Same rationale:
+/// idempotent delete returns `false`, not 404.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeleteRelationOutcome {
+    Deleted,
+    NotFound,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum DeleteRelationError {
+    Forbidden(String),
+    Internal(String),
+}
+
+impl std::fmt::Display for DeleteRelationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forbidden(m) | Self::Internal(m) => f.write_str(m),
+        }
+    }
+}
+
+/// Per-record ownership predicate for kernel-owned authored records (comments
+/// today; relations once they carry `createdBy`). An admin/operator credential
+/// passes unconditionally because the GraphQL surface treats `instance.admin`
+/// as a moderator-level override; otherwise the caller's principal URI must
+/// equal the stored author URI byte-for-byte. Anonymous and Invalid callers
+/// are rejected at the guard before they reach this predicate.
+pub(crate) fn principal_can_modify_authored_record(
+    caller_uri: &str,
+    caller_status: PrincipalStatus,
+    record_author: &str,
+) -> bool {
+    if matches!(
+        caller_status,
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return true;
+    }
+    !caller_uri.is_empty() && caller_uri == record_author
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -9556,7 +9772,12 @@ mod tests {
         // variant must be returned when the id doesn't exist so the
         // handler matches on the variant instead of parsing strings.
         let runtime = dev_runtime();
-        let result = runtime.update_comment("cmt_does_not_exist", "edited");
+        let result = runtime.update_comment(
+            "cmt_does_not_exist",
+            "edited",
+            "comtrya://principal/test",
+            PrincipalStatus::AdminCredential,
+        );
         assert!(
             matches!(result, Err(UpdateCommentError::NotFound(_))),
             "expected UpdateCommentError::NotFound, got {result:?}"
@@ -9566,10 +9787,105 @@ mod tests {
     #[test]
     fn update_comment_returns_typed_bad_input_for_empty_body() {
         let runtime = dev_runtime();
-        let result = runtime.update_comment("cmt_any", "");
+        let result = runtime.update_comment(
+            "cmt_any",
+            "",
+            "comtrya://principal/test",
+            PrincipalStatus::AdminCredential,
+        );
         assert!(
             matches!(result, Err(UpdateCommentError::BadInput(_))),
             "expected UpdateCommentError::BadInput for empty body, got {result:?}"
+        );
+    }
+
+    /// Per-record author rule on comments edit: a non-admin authenticated
+    /// caller whose principal URI doesn't match the stored `authorRef` must
+    /// be rejected with `Forbidden`, regardless of how broad their granted
+    /// permissions are. The earlier "any authenticated principal" check
+    /// would have allowed this edit silently.
+    #[test]
+    fn update_comment_rejects_non_author_with_forbidden() {
+        let runtime = dev_runtime();
+        let alice = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let bob = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let target = format!(
+            "comtrya://issue/{}",
+            OpaqueId::new(IdPrefix::Owned("iss_".to_string())).as_str()
+        );
+        let created = runtime
+            .create_comment(&target, None, "hi", &alice)
+            .expect("create comment");
+        let id = created.get("id").and_then(Value::as_str).unwrap();
+        let result =
+            runtime.update_comment(id, "rewritten by bob", &bob, PrincipalStatus::Credential);
+        assert!(
+            matches!(result, Err(UpdateCommentError::Forbidden(_))),
+            "expected UpdateCommentError::Forbidden, got {result:?}"
+        );
+    }
+
+    /// The author rule is bypassed for admin/operator credentials so a
+    /// moderator can correct content. The recorded `authorRef` is unrelated
+    /// to the moderator's URI, so a successful edit proves the bypass.
+    #[test]
+    fn update_comment_allows_admin_override_of_author_check() {
+        let runtime = dev_runtime();
+        let alice = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let admin = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let target = format!(
+            "comtrya://issue/{}",
+            OpaqueId::new(IdPrefix::Owned("iss_".to_string())).as_str()
+        );
+        let created = runtime
+            .create_comment(&target, None, "v1", &alice)
+            .expect("create comment");
+        let id = created.get("id").and_then(Value::as_str).unwrap();
+        let result =
+            runtime.update_comment(id, "moderated", &admin, PrincipalStatus::AdminCredential);
+        assert!(
+            result.is_ok(),
+            "expected admin update to succeed, got {result:?}"
+        );
+    }
+
+    /// Per-record author rule on comments delete: same predicate as edit,
+    /// non-author is `Forbidden`.
+    #[test]
+    fn delete_comment_rejects_non_author_with_forbidden() {
+        let runtime = dev_runtime();
+        let alice = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let bob = format!(
+            "comtrya://user/{}",
+            OpaqueId::new(IdPrefix::Owned("usr_".to_string())).as_str()
+        );
+        let target = format!(
+            "comtrya://issue/{}",
+            OpaqueId::new(IdPrefix::Owned("iss_".to_string())).as_str()
+        );
+        let created = runtime
+            .create_comment(&target, None, "hi", &alice)
+            .expect("create comment");
+        let id = created.get("id").and_then(Value::as_str).unwrap();
+        let result = runtime.delete_comment(id, &bob, PrincipalStatus::Credential);
+        assert!(
+            matches!(result, Err(DeleteCommentError::Forbidden(_))),
+            "expected DeleteCommentError::Forbidden, got {result:?}"
         );
     }
 
@@ -10953,6 +11269,7 @@ mod tests {
             // proceed to write.
             "comtrya://rel/example.com/forged-verb",
             None,
+            "comtrya://principal/test",
         );
         let err =
             result.expect_err("undeclared relationship verb must be rejected past the auth guard");
@@ -10993,7 +11310,7 @@ mod tests {
         let kind = "comtrya://rel/relates-to";
 
         let first = runtime
-            .create_relation(&larger, &smaller, kind, None)
+            .create_relation(&larger, &smaller, kind, None, "comtrya://principal/test")
             .expect("first create succeeds");
         let first_id = first
             .get("id")
@@ -11018,7 +11335,7 @@ mod tests {
         );
 
         let second = runtime
-            .create_relation(&smaller, &larger, kind, None)
+            .create_relation(&smaller, &larger, kind, None, "comtrya://principal/test")
             .expect("second create succeeds");
         assert_eq!(
             second.get("id").and_then(|v| v.as_str()),
@@ -11056,7 +11373,7 @@ mod tests {
 
         // Seed a legitimate kernel-owned relation via the real path.
         let legit = runtime
-            .create_relation(&smaller, &larger, kind, None)
+            .create_relation(&smaller, &larger, kind, None, "comtrya://principal/test")
             .expect("legitimate create succeeds");
         let legit_id = legit
             .get("id")
