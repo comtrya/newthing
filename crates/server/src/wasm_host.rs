@@ -349,8 +349,13 @@ pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 /// iterate with exact equality, so a non-matching name (`Relations`,
 /// `relations-archive`, …) does not shadow these collections on either
 /// side and remains safe.
-pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] =
-    &["relations", "comments", "repositories", "labels", "workspaces"];
+pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] = &[
+    "relations",
+    "comments",
+    "repositories",
+    "labels",
+    "workspaces",
+];
 
 fn is_kernel_owned_collection(collection: &str) -> bool {
     KERNEL_OWNED_COLLECTIONS.contains(&collection)
@@ -3036,9 +3041,7 @@ mod tests {
                     e.message
                 );
             }
-            Ok(()) => panic!(
-                "extension must not be able to inject a workspace via storage.create"
-            ),
+            Ok(()) => panic!("extension must not be able to inject a workspace via storage.create"),
         }
     }
 
