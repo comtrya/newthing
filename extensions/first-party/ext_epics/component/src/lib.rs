@@ -183,6 +183,18 @@ fn read_by_ref(ref_uri: &str) -> Result<Option<StoredEpic>, Error> {
     read_stored(&id)
 }
 
+/// Canonicalise an issue ref into its `comtrya://issue/<id>` form. The
+/// `issues-in-epic` read path filters `part-of` sources by the
+/// `comtrya://issue/` prefix, so a link must carry that exact shape.
+fn issue_uri_from_ref(ref_uri: &str) -> Result<String, Error> {
+    let trimmed = ref_uri.trim();
+    trimmed
+        .strip_prefix("comtrya://issue/")
+        .filter(|id| !id.is_empty())
+        .map(|_| trimmed.to_string())
+        .ok_or_else(|| err(ErrorCode::BadInput, "issue ref must be comtrya://issue/<id>"))
+}
+
 fn member_uris(epic_ref: &str, kind: &str) -> Result<Vec<String>, Error> {
     let prefix = format!("comtrya://{kind}/");
     let page = relations::incoming(epic_ref, Some(PART_OF), 1024, None)?;
@@ -458,6 +470,19 @@ impl EpicsGuest for Component {
 
     fn children_of_epic(ref_: String) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "epic")
+    }
+
+    fn link_issue(issue_ref: String, epic_ref: String) -> Result<Vec<String>, Error> {
+        let issue_uri = issue_uri_from_ref(&issue_ref)?;
+        let epic = read_by_ref(&epic_ref)?
+            .ok_or_else(|| err(ErrorCode::NotFound, format!("epic not found: {epic_ref}")))?;
+        let epic_uri = epic_uri(&epic.id);
+        // Idempotent on the triple: a duplicate link returns the existing
+        // relation rather than conflicting (see relations.wit). The
+        // `issues-in-epic` read consumes `incoming(epic, part-of)` filtered
+        // to `comtrya://issue/` sources, so source = issue, target = epic.
+        let _ = relations::create(&issue_uri, &epic_uri, PART_OF, None)?;
+        member_uris(&epic_uri, "issue")
     }
 }
 

@@ -402,6 +402,36 @@ impl WasmRegistry {
         })
     }
 
+    /// Raw per-repo participation gate, independent of whether
+    /// `extension_id` contributes a repository-scoped resource kind.
+    ///
+    /// Unlike [`ensure_extension_enabled_for_repo`], this does NOT exempt
+    /// instance-scoped extensions: it asserts the repository at
+    /// `repository_ref` has listed `extension_id` in its
+    /// `repository.extensions` set. Used to gate cross-extension
+    /// integration boundaries where an instance-scoped extension acts on a
+    /// repository's resource — e.g. linking a repo's issue onto an epic
+    /// requires that repo to have opted into the instance-scoped
+    /// `ext_epics`, which the repository-scoped gate would wave through.
+    pub fn ensure_repo_participates(
+        &self,
+        store: &crate::ExtensionRuntimeStore,
+        repository_ref: &str,
+        extension_id: &str,
+    ) -> Result<(), wit_types::Error> {
+        if self.repo_has_extension_enabled(store, repository_ref, extension_id) {
+            return Ok(());
+        }
+        Err(wit_types::Error {
+            code: wit_types::ErrorCode::Forbidden,
+            message: format!(
+                "extension '{extension_id}' is not enabled for repository '{repository_ref}'; \
+                 add it to the repository's comtrya CUE repository.extensions"
+            ),
+            path: None,
+        })
+    }
+
     pub fn ids(&self) -> Vec<String> {
         self.extensions
             .read()
