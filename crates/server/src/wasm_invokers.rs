@@ -66,7 +66,8 @@ mod ext_issues_bindings {
 
 use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
-    CloseIssueInput, Issue, IssueState, IssueStateCounts, OpenIssueInput,
+    AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueState,
+    IssueStateCounts, OpenIssueInput,
 };
 
 mod ext_epics_bindings {
@@ -78,7 +79,8 @@ mod ext_epics_bindings {
 
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
-    ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
+    AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
+    EpicProgress, EpicState,
 };
 
 mod ext_pull_requests_bindings {
@@ -147,6 +149,14 @@ struct CloseIssueInputJson {
     id: String,
     reason: Option<String>,
     closed_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssignProjectInputJson {
+    id: String,
+    #[serde(default)]
+    project_name: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -459,6 +469,42 @@ pub fn dispatch_ext_issues(
                 })?;
             issue_to_json(&result.map_err(local_error_to_canonical)?)
         }
+        "assign-project" => {
+            let parsed: AssignProjectInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse assign-project input: {e}"),
+                )
+            })?;
+            // Mutation keyed by issue id: load the issue to learn its
+            // repository, then gate before mutating — same shape as
+            // close-issue / reopen-issue.
+            let existing = issues
+                .call_get_issue(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("assign-project repo lookup: {e}"),
+                    )
+                })?
+                .map_err(local_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(registry, &gate_store, &existing.repository, "ext_issues")?;
+            }
+            let wit_input = IssuesAssignProjectInput {
+                id: parsed.id,
+                project_name: parsed.project_name,
+            };
+            let result = issues
+                .call_assign_project(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("assign-project call: {e}"),
+                    )
+                })?;
+            issue_to_json(&result.map_err(local_error_to_canonical)?)
+        }
         "reopen-issue" => {
             let id = string_payload(&input, "reopen-issue")?;
             // Mutation keyed by issue id: load to learn the repository,
@@ -728,6 +774,31 @@ pub fn dispatch_ext_epics(
                     wit_error(
                         wit_types::ErrorCode::Internal,
                         format!("change-state-epic call: {e}"),
+                    )
+                })?;
+            epic_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "assign-project" => {
+            let parsed: AssignProjectInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse assign-project input: {e}"),
+                )
+            })?;
+            let wit_input = EpicsAssignProjectInput {
+                id: parsed.id,
+                project_name: parsed.project_name,
+            };
+            // Epics are workspace-scoped, not repository-scoped, so
+            // no `ensure_repo_enabled` gate — same shape as
+            // change-state-epic above. The `epic` resourceKind has
+            // `scope: "instance"`.
+            let result = epics
+                .call_assign_project(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("assign-project call: {e}"),
                     )
                 })?;
             epic_to_json(&result.map_err(epic_error_to_canonical)?)
