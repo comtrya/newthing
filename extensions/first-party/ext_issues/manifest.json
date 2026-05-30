@@ -101,6 +101,10 @@
   ],
   "allowedEventReads": [],
   "allowedCrossCalls": [],
+  "dispatchRoutes": [
+    { "op": "issues.open-issue", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.list-issues", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+  ],
   "reactor": {
     "allowedMutations": [],
     "allowedEmits": []

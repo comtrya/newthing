@@ -40,6 +40,7 @@ mod cue_config;
 mod oidc;
 mod persistence;
 mod reconcile;
+mod route_scope;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;

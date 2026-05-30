@@ -57,6 +57,10 @@
     "ext_issues/issues.close-issue",
     "ext_issues/issues.by-ref-issue"
   ],
+  "dispatchRoutes": [
+    { "op": "pulls.create-pull", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+  ],
   "reactor": {
     "scope": "repository",
     "subscribes": ["dev.comtrya.pull-request.merged"],

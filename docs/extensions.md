@@ -98,6 +98,19 @@ important v3 fields are:
   whether ops on that kind are gated per-repository by the target repo's
   `repository.extensions` opt-in. Repository-scoped ops against a
   repo that has not enabled the extension are rejected with `Forbidden`.
+- `dispatchRoutes`: per-op kernel dispatch scope. Each entry names a
+  canonical `<interface>.<op>` and declares whether that op is gated by
+  the per-repository opt-in (`"scope": "repository"`) or always available
+  (`"scope": "instance"`). A repository-scoped route carries a typed
+  `derive` telling the kernel how to find the repository to gate against;
+  today `{"strategy": "payloadField", "field": "<name>"}` reads the
+  repository URI from a named payload field, before the component runs.
+  The kernel builds a typed route table from these entries at load and
+  applies one generic pre-invoke gate to every extension — no
+  per-extension dispatch special-casing. Every `op` must be a real WIT
+  export; a route that names no export, a repository route with no
+  `derive`, or an instance route with a `derive` fails the load. Ops not
+  listed are not gated in the pre-invoke phase.
 - `contributes.relationshipTypes`: relation verbs and labels the extension
   makes available to UI surfaces for typed relationship creation.
 - `contributes.collections`: storage collections and indexes

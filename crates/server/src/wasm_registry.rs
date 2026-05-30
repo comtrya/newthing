@@ -37,6 +37,7 @@ pub struct LoadedExtension {
     pub id: String,
     pub principal: String,
     pub manifest: Arc<HostManifest>,
+    pub route_table: Arc<crate::route_scope::RouteTable>,
     pub component: Component,
 }
 
@@ -240,6 +241,21 @@ impl WasmRegistry {
             .map_err(|e| format!("compile {}: {e}", wasm_path.display()))?;
 
         let host_manifest = host_manifest_from_wire(&wire);
+        // Build the typed per-op dispatch route table from the manifest,
+        // then verify every declared route matches a real WIT export so a
+        // typo'd or stale `dispatchRoutes` entry fails at load, not at
+        // dispatch.
+        let route_table = route_table_from_wire(&id, &wire.dispatch_routes)?;
+        // The descriptor is the canonical `<interface>.<op>` op route, which
+        // is exactly what `dispatch_wit_route` keys on; a descriptor that
+        // names no generated WIT export is a stale or typo'd manifest entry.
+        for descriptor in route_table.op_descriptors() {
+            if crate::generated_dispatch::dispatch_wit_route(&id, descriptor).is_none() {
+                return Err(format!(
+                    "{id} dispatchRoute '{descriptor}' does not match any WIT export"
+                ));
+            }
+        }
         // Register the extension's declared kinds with the minter,
         // honouring the prefix declared in each `contributes.resourceKinds[]`
         // entry. The `HostManifest` flattens to kind names; the minter
@@ -250,6 +266,7 @@ impl WasmRegistry {
             id: id.clone(),
             principal: format!("comtrya://extension/{}", id),
             manifest: Arc::new(host_manifest),
+            route_table: Arc::new(route_table),
             component,
         });
         let mut exts = self
@@ -770,6 +787,8 @@ struct WireManifest {
     contributes: WireContributes,
     #[serde(default)]
     host_imports: Vec<String>,
+    #[serde(default)]
+    dispatch_routes: Vec<WireDispatchRoute>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -818,6 +837,63 @@ impl From<WireScope> for crate::wasm_host::ContributionScope {
             WireScope::Instance => crate::wasm_host::ContributionScope::Instance,
         }
     }
+}
+
+/// A per-op dispatch-route declaration on the wire. `op` is the canonical
+/// `"<interface>.<op>"` descriptor; `scope` is `"instance"` or
+/// `"repository"`, and a repository-scoped route carries a typed
+/// `derive` describing how the kernel finds the repository to gate.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireDispatchRoute {
+    op: String,
+    #[serde(default)]
+    scope: WireScope,
+    #[serde(default)]
+    derive: Option<WireRepoDerivation>,
+}
+
+/// Typed repository-derivation on the wire — a tagged object, never a
+/// bare string. Today only `payloadField` is supported (the pre-invoke
+/// gate phase); other strategies land with the post-invoke phase.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "strategy", rename_all = "camelCase")]
+enum WireRepoDerivation {
+    #[serde(rename_all = "camelCase")]
+    PayloadField { field: String },
+}
+
+/// Translate the wire dispatch-route declarations into a typed
+/// [`RouteTable`]. Fails closed: a repository-scoped route without a
+/// supported `derive` is a manifest error, surfaced at load.
+fn route_table_from_wire(
+    extension_id: &str,
+    routes: &[WireDispatchRoute],
+) -> Result<crate::route_scope::RouteTable, String> {
+    use crate::route_scope::{DispatchRoute, DispatchScope, RepoDerivation};
+    let mut entries = Vec::with_capacity(routes.len());
+    for route in routes {
+        let scope = match (route.scope, route.derive.as_ref()) {
+            (WireScope::Instance, None) => DispatchScope::Instance,
+            (WireScope::Instance, Some(_)) => {
+                return Err(format!(
+                    "{extension_id} dispatchRoute '{}' is instance-scoped but declares a repository derivation",
+                    route.op
+                ));
+            }
+            (WireScope::Repository, Some(WireRepoDerivation::PayloadField { field })) => {
+                DispatchScope::Repository(RepoDerivation::PayloadField(field.clone()))
+            }
+            (WireScope::Repository, None) => {
+                return Err(format!(
+                    "{extension_id} dispatchRoute '{}' is repository-scoped but declares no derive",
+                    route.op
+                ));
+            }
+        };
+        entries.push((route.op.clone(), DispatchRoute { scope }));
+    }
+    Ok(crate::route_scope::RouteTable::from_entries(entries))
 }
 
 fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
@@ -1092,6 +1168,61 @@ impl RepoEnablementResolver for StaticRepoEnablement {
 mod tests {
     use super::*;
 
+    fn wire_route(json: serde_json::Value) -> WireDispatchRoute {
+        serde_json::from_value(json).expect("parse WireDispatchRoute")
+    }
+
+    #[test]
+    fn route_table_parses_repository_payload_field() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.open-issue",
+            "scope": "repository",
+            "derive": { "strategy": "payloadField", "field": "repository" }
+        }))];
+        let table = route_table_from_wire("ext_issues", &routes).expect("build table");
+        let route = table.get("issues", "open-issue").expect("route present");
+        assert_eq!(
+            route.scope,
+            crate::route_scope::DispatchScope::Repository(
+                crate::route_scope::RepoDerivation::PayloadField("repository".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn route_table_parses_instance_scope() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.by-refs-issue",
+            "scope": "instance"
+        }))];
+        let table = route_table_from_wire("ext_issues", &routes).expect("build table");
+        assert_eq!(
+            table.get("issues", "by-refs-issue").expect("route present").scope,
+            crate::route_scope::DispatchScope::Instance
+        );
+    }
+
+    #[test]
+    fn route_table_rejects_repository_route_without_derive() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.open-issue",
+            "scope": "repository"
+        }))];
+        let err = route_table_from_wire("ext_issues", &routes).expect_err("must fail closed");
+        assert!(err.contains("no derive"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn route_table_rejects_instance_route_with_derive() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.by-refs-issue",
+            "scope": "instance",
+            "derive": { "strategy": "payloadField", "field": "repository" }
+        }))];
+        let err = route_table_from_wire("ext_issues", &routes).expect_err("must fail closed");
+        assert!(err.contains("instance-scoped"), "unexpected: {err}");
+    }
+
     #[test]
     fn registry_loads_ext_issues_from_manifest() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1172,6 +1303,49 @@ mod tests {
         let json: Value = serde_json::from_str(&text).expect("parse manifest");
         validate_manifest_against_schema(&json, &path)
             .expect("ext_issues manifest must validate against the schema");
+    }
+
+    #[test]
+    fn manifest_schema_rejects_payload_field_derive_without_field() {
+        // The schema and the Rust `WireRepoDerivation::PayloadField { field }`
+        // must agree: a payloadField derive without `field` is invalid. If
+        // the schema accepted it, it would pass validation and then fail
+        // deserialization — the gap this guards.
+        let bad = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "dispatchRoutes": [
+                { "op": "issues.open-issue", "scope": "repository",
+                  "derive": { "strategy": "payloadField" } }
+            ]
+        });
+        let err = validate_manifest_against_schema(
+            &bad,
+            std::path::Path::new("test://no-field.json"),
+        )
+        .expect_err("schema must reject a payloadField derive with no field");
+        assert!(err.contains("schema validation"), "error: {err}");
+    }
+
+    #[test]
+    fn manifest_schema_accepts_well_formed_dispatch_route() {
+        let ok = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "dispatchRoutes": [
+                { "op": "issues.open-issue", "scope": "repository",
+                  "derive": { "strategy": "payloadField", "field": "repository" } },
+                { "op": "issues.by-refs-issue", "scope": "instance" }
+            ]
+        });
+        validate_manifest_against_schema(&ok, std::path::Path::new("test://ok.json"))
+            .expect("well-formed dispatchRoutes must validate");
     }
 
     #[test]
@@ -1563,6 +1737,65 @@ mod tests {
             .join("../../extensions/first-party/ext_issues")
     }
 
+    /// A `dispatchRoutes` entry naming an op that is not a real WIT export
+    /// fails the load — the manifest's route table is cross-checked
+    /// against the generated WIT routes at registration.
+    #[test]
+    fn register_rejects_dispatch_route_for_unknown_wit_op() {
+        let src = ext_issues_root();
+        if !src.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP register_rejects_dispatch_route_for_unknown_wit_op: build ext_issues");
+            return;
+        }
+        // Copy the real extension into a tempdir, then inject a bogus
+        // dispatch route into the manifest.
+        let tmp = tempdir_for_test("comtrya-bogus-route");
+        let dst = tmp.join("ext_issues");
+        copy_dir_recursive(&src, &dst).expect("copy ext_issues");
+        let manifest_path = dst.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["dispatchRoutes"] = serde_json::json!([
+            { "op": "issues.no-such-op", "scope": "instance" }
+        ]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+
+        let registry = WasmRegistry::new().expect("build registry");
+        let err = registry
+            .register_from_manifest(&dst)
+            .expect_err("registration must fail for an unknown WIT op");
+        assert!(
+            err.contains("does not match any WIT export"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            // Skip symlinks (e.g. wit/deps/platform); registration only
+            // needs the manifest and the dist/ wasm, both regular files.
+            if file_type.is_symlink() {
+                continue;
+            }
+            let from = entry.path();
+            let to = dst.join(entry.file_name());
+            if file_type.is_dir() {
+                copy_dir_recursive(&from, &to)?;
+            } else {
+                std::fs::copy(&from, &to)?;
+            }
+        }
+        Ok(())
+    }
+
     /// A repository-scoped op against a repo that has NOT opted into the
     /// extension is rejected with Forbidden, before any work is done.
     #[test]
@@ -1854,6 +2087,7 @@ mod tests {
             id: original.id.clone(),
             principal: original.principal.clone(),
             manifest: Arc::new(manifest),
+            route_table: original.route_table.clone(),
             component: original.component.clone(),
         });
         registry

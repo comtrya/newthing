@@ -176,6 +176,45 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" },
       "description": "<target-extension>/<op-name> strings this extension may invoke via ops.invoke."
     },
+    "dispatchRoutes": {
+      "type": "array",
+      "description": "Per-op kernel dispatch scope. Each entry declares whether an op is gated by the per-repository opt-in (repository.extensions) and, when it is, how the kernel derives the repository to gate against. Ops absent from this list are not gated in the pre-invoke phase. Every op listed must be a real WIT export, verified at load.",
+      "items": {
+        "type": "object",
+        "required": ["op", "scope"],
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$",
+            "description": "Canonical <interface>.<op> descriptor of the op this route governs."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["repository", "instance"],
+            "description": "\"repository\" gates the op by the target repo's opt-in; \"instance\" never gates it."
+          },
+          "derive": {
+            "type": "object",
+            "description": "How the kernel derives the repository to gate against. Required for a repository-scoped route; forbidden for an instance-scoped one.",
+            "required": ["strategy", "field"],
+            "additionalProperties": false,
+            "properties": {
+              "strategy": {
+                "type": "string",
+                "enum": ["payloadField"],
+                "description": "\"payloadField\": the repository URI is a named field on the op payload, known before invoke."
+              },
+              "field": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9]*$",
+                "description": "For strategy \"payloadField\": the payload field carrying the repository URI."
+              }
+            }
+          }
+        }
+      }
+    },
     "reactor": {
       "type": "object",
       "additionalProperties": false,
