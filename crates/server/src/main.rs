@@ -1478,7 +1478,7 @@ impl Runtime {
         let repo_id = OpaqueId::new(IdPrefix::Repository);
         let workspace_id = self
             .extension_storage
-            .single_document_data("workspaces")
+            .kernel_single_document_data("workspaces")
             .map_err(CreateRepoError::Internal)?
             .and_then(|workspace| {
                 workspace
@@ -1702,7 +1702,7 @@ impl Runtime {
     fn runtime_payload(&self) -> Result<Value, String> {
         let workspace = self
             .extension_storage
-            .single_document_data("workspaces")?
+            .kernel_single_document_data("workspaces")?
             .ok_or_else(|| "runtime storage did not contain a workspace".to_string())?;
         let repository_documents = self
             .extension_storage
@@ -6380,11 +6380,16 @@ impl ExtensionRuntimeStore {
             })
     }
 
-    fn single_document_data(&self, collection: &str) -> Result<Option<Value>, String> {
+    /// Same as [`single_document_data`] but scoped to kernel-owned
+    /// records (`owner_extension == "core"`). The kernel uses this when
+    /// reading its own singleton collections (e.g. `workspaces`) so
+    /// attacker-controlled records that share a collection name cannot
+    /// shadow the kernel's record under storage iteration order.
+    fn kernel_single_document_data(&self, collection: &str) -> Result<Option<Value>, String> {
         Ok(self
             .load_records()?
             .into_iter()
-            .find(|record| record.collection == collection)
+            .find(|record| record.collection == collection && record.owner_extension == "core")
             .map(|record| record.data))
     }
 
@@ -9347,7 +9352,7 @@ mod tests {
         assert_eq!(
             runtime
                 .extension_storage
-                .single_document_data("workspaces")
+                .kernel_single_document_data("workspaces")
                 .unwrap()
                 .unwrap()["name"],
             "Default"

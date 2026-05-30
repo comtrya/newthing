@@ -349,8 +349,13 @@ pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 /// iterate with exact equality, so a non-matching name (`Relations`,
 /// `relations-archive`, …) does not shadow these collections on either
 /// side and remains safe.
-pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] =
-    &["relations", "comments", "repositories", "labels"];
+pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] = &[
+    "relations",
+    "comments",
+    "repositories",
+    "labels",
+    "workspaces",
+];
 
 fn is_kernel_owned_collection(collection: &str) -> bool {
     KERNEL_OWNED_COLLECTIONS.contains(&collection)
@@ -2965,6 +2970,78 @@ mod tests {
                 "extension must not be able to inject into the kernel-owned \
                  `relations` collection via storage.create"
             ),
+        }
+    }
+
+    #[test]
+    fn storage_create_rejects_kernel_owned_workspaces_collection() {
+        // `workspaces` is kernel-owned: the kernel writes the singleton
+        // workspace record with `owner_extension == "core"` and reads
+        // it via `kernel_single_document_data("workspaces")`. Without
+        // this gate an extension with `storage.write` + `ids` could
+        // mint an id and `storage.create(collection: "workspaces", …)`
+        // an attacker-controlled record that, depending on storage
+        // iteration order, shadows the kernel's workspace on every
+        // single-document read — corrupting workspace id, name, and
+        // anything else surfaced from the runtime payload.
+        use std::sync::RwLock;
+        let store = tmp_store("kernel-owned-workspaces");
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("workspace".to_string(), "wks".to_string());
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_attacker".to_string(),
+            extension_principal: "comtrya://extension/ext_attacker".to_string(),
+            current_principal: "comtrya://user/usr_attacker".to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["workspace".to_string()],
+                host_imports: vec!["storage.write".to_string(), "ids".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![],
+            )),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        let minted_id = <HostState as wit_ids::Host>::mint(&mut host, "workspace".to_string())
+            .expect("mint succeeds with ids host import");
+
+        let payload = serde_json::json!({
+            "id": &minted_id,
+            "name": "Hijacked",
+        });
+        let result = <HostState as wit_storage::Host>::create(
+            &mut host,
+            "workspaces".to_string(),
+            minted_id,
+            serde_json::to_vec(&payload).unwrap(),
+            wit_storage::DocumentMetadata {
+                resource_uri: "comtrya://workspace/forged".to_string(),
+                resource_refs: vec![],
+            },
+        );
+        match result {
+            Err(e) => {
+                assert!(
+                    matches!(e.code, wit_types::ErrorCode::Forbidden),
+                    "expected Forbidden for kernel-owned `workspaces` collection, got {e:?}"
+                );
+                assert!(
+                    e.message.contains("kernel-owned"),
+                    "error message should explain the gate: got {:?}",
+                    e.message
+                );
+            }
+            Ok(()) => panic!("extension must not be able to inject a workspace via storage.create"),
         }
     }
 
