@@ -7307,27 +7307,90 @@ fn stable_slug(value: &str) -> String {
     slug.trim_matches('_').to_string()
 }
 
+/// Typed wire shape for `manifest.json` as the server-side loader needs it.
+/// This is the single `#[derive(Deserialize)]` parse — every previously
+/// duplicated `.pointer("/foo/bar")` walk reads from this struct instead.
+///
+/// Fields the kernel does not yet consume (e.g. dispatchRoutes, host_imports,
+/// reactor) are intentionally absent here: `wasm_registry::parse_wire_manifest`
+/// owns the registry-side view, and the two parsers stay narrow on purpose.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendManifest {
+    schema_version: String,
+    id: String,
+    name: String,
+    wasm_component: String,
+    platform_wit_version: Option<String>,
+    route_prefix: Option<String>,
+    runtime: BackendManifestRuntime,
+    ui: BackendManifestUi,
+    #[serde(default)]
+    contributes: BackendManifestContributes,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendManifestRuntime {
+    output_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendManifestUi {
+    manifest: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BackendManifestContributes {
+    #[serde(default)]
+    collections: Vec<StorageCollectionDeclarationWire>,
+    #[serde(default)]
+    cue_schemas: Vec<CueSchemaDeclaration>,
+    #[serde(default)]
+    relationship_types: Vec<RelationshipTypeDeclaration>,
+}
+
+/// Wire-side `contributes.collections[]` shape. We accept the extra
+/// optional `demoSeed` field so the parse succeeds, then reject it
+/// explicitly — the bootstrap contract was removed and a manifest still
+/// carrying it is a soft error we surface with a clear message.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StorageCollectionDeclarationWire {
+    name: String,
+    owner_extension: String,
+    #[serde(default)]
+    indexes: Vec<StorageIndexDeclaration>,
+    #[serde(default)]
+    demo_seed: Option<Value>,
+}
+
+impl BackendManifest {
+    fn parse(manifest_path: &Path, source: &str) -> Result<Self, String> {
+        serde_json::from_str(source)
+            .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))
+    }
+}
+
 fn validate_extension_manifest_pair(
     id: &str,
     root: &Path,
-    manifest: &Value,
+    manifest: &BackendManifest,
 ) -> Result<PathBuf, String> {
-    if manifest.get("schemaVersion").and_then(Value::as_str) != Some("comtrya.extension/v1") {
+    if manifest.schema_version != "comtrya.extension/v1" {
         return Err(format!(
             "{id} backend manifest has unsupported schemaVersion"
         ));
     }
-    if manifest.get("id").and_then(Value::as_str) != Some(id) {
+    if manifest.id != id {
         return Err(format!("{id} backend manifest id does not match directory"));
     }
-    let name = manifest
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{id} backend manifest missing name"))?;
-    let ui_manifest_rel = manifest
-        .pointer("/ui/manifest")
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("{id} backend manifest missing ui.manifest"))?;
+    let ui_manifest_rel = manifest.ui.manifest.as_str();
+    if ui_manifest_rel.is_empty() {
+        return Err(format!("{id} backend manifest missing ui.manifest"));
+    }
     if ui_manifest_rel.starts_with('/') || ui_manifest_rel.contains("..") {
         return Err(format!(
             "{id} UI manifest path must stay within extension root"
@@ -7345,7 +7408,7 @@ fn validate_extension_manifest_pair(
             "{id} UI manifest id does not match backend manifest"
         ));
     }
-    if ui_manifest.extension != name {
+    if ui_manifest.extension != manifest.name {
         return Err(format!(
             "{id} UI manifest extension name does not match backend manifest"
         ));
@@ -7380,61 +7443,46 @@ fn validate_extension_manifest_pair(
 
 fn storage_collections_from_manifest(
     id: &str,
-    manifest: &Value,
+    manifest: &BackendManifest,
 ) -> Result<Vec<StorageCollectionDeclaration>, String> {
-    let Some(collections) = manifest
-        .pointer("/contributes/collections")
-        .and_then(Value::as_array)
-    else {
-        return Ok(Vec::new());
-    };
-    let mut parsed = Vec::new();
-    for collection in collections {
-        if collection.get("demoSeed").is_some() {
+    let mut parsed = Vec::with_capacity(manifest.contributes.collections.len());
+    for collection in &manifest.contributes.collections {
+        if collection.demo_seed.is_some() {
             return Err(format!(
                 "{id} contributes.collections entry uses removed demoSeed bootstrap contract"
             ));
         }
-        let declaration =
-            serde_json::from_value::<StorageCollectionDeclaration>(collection.clone())
-                .map_err(|error| format!("{id} contributes.collections entry invalid: {error}"))?;
-        if declaration.owner_extension != id {
+        if collection.owner_extension != id {
             return Err(format!(
                 "{id} contributes.collections '{}' ownerExtension must be {id}, got {}",
-                declaration.name, declaration.owner_extension
+                collection.name, collection.owner_extension
             ));
         }
-        parsed.push(declaration);
+        parsed.push(StorageCollectionDeclaration {
+            name: collection.name.clone(),
+            owner_extension: collection.owner_extension.clone(),
+            indexes: collection.indexes.clone(),
+        });
     }
     Ok(parsed)
 }
 
 fn cue_schemas_from_manifest(
     id: &str,
-    manifest: &Value,
+    manifest: &BackendManifest,
 ) -> Result<Vec<CueSchemaDeclaration>, String> {
-    let Some(schemas) = manifest
-        .pointer("/contributes/cueSchemas")
-        .and_then(Value::as_array)
-    else {
-        return Ok(Vec::new());
-    };
-    let mut parsed = Vec::new();
-    for entry in schemas {
-        let declaration = serde_json::from_value::<CueSchemaDeclaration>(entry.clone())
-            .map_err(|error| format!("{id} contributes.cueSchemas entry invalid: {error}"))?;
-        if declaration.id.is_empty() {
+    for entry in &manifest.contributes.cue_schemas {
+        if entry.id.is_empty() {
             return Err(format!("{id} contributes.cueSchemas entry has empty id"));
         }
-        if declaration.snippet.is_empty() {
+        if entry.snippet.is_empty() {
             return Err(format!(
                 "{id} contributes.cueSchemas entry '{}' has empty snippet",
-                declaration.id
+                entry.id
             ));
         }
-        parsed.push(declaration);
     }
-    Ok(parsed)
+    Ok(manifest.contributes.cue_schemas.clone())
 }
 
 /// Fold every loaded extension's declared `relationshipTypes` into the
@@ -7460,22 +7508,13 @@ fn aggregate_relationship_types(
 
 fn relationship_types_from_manifest(
     id: &str,
-    manifest: &Value,
+    manifest: &BackendManifest,
 ) -> Result<Vec<RelationshipTypeDeclaration>, String> {
-    let Some(types) = manifest
-        .pointer("/contributes/relationshipTypes")
-        .and_then(Value::as_array)
-    else {
-        return Ok(Vec::new());
-    };
     let mut seen = BTreeSet::new();
-    let mut parsed = Vec::new();
+    let mut parsed = Vec::with_capacity(manifest.contributes.relationship_types.len());
     let expected_prefix = format!("{id}.");
-    for entry in types {
-        let declaration = serde_json::from_value::<RelationshipTypeDeclaration>(entry.clone())
-            .map_err(|error| {
-                format!("{id} contributes.relationshipTypes entry invalid: {error}")
-            })?;
+    for declaration in &manifest.contributes.relationship_types {
+        let declaration = declaration.clone();
         if !declaration.id.starts_with(&expected_prefix) {
             return Err(format!(
                 "{id} contributes.relationshipTypes id '{}' must start with '{expected_prefix}'",
@@ -7724,16 +7763,9 @@ fn load_extension_packages(
         let manifest_path = root.join("manifest.json");
         let manifest_source = fs::read_to_string(&manifest_path)
             .map_err(|error| format!("failed to read {}: {error}", manifest_path.display()))?;
-        let manifest = serde_json::from_str::<Value>(&manifest_source)
-            .map_err(|error| format!("failed to parse {}: {error}", manifest_path.display()))?;
-        let id = manifest
-            .get("id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing id", manifest_path.display()))?;
-        let name = manifest
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing name", manifest_path.display()))?;
+        let manifest = BackendManifest::parse(&manifest_path, &manifest_source)?;
+        let id = manifest.id.as_str();
+        let name = manifest.name.as_str();
         if package.configured_id != id && package.configured_id != name {
             return Err(format!(
                 "extension config id {} does not match package id {} or name {} at {}",
@@ -7744,19 +7776,7 @@ fn load_extension_packages(
             ));
         }
         let ui_manifest = validate_extension_manifest_pair(id, &root, &manifest)?;
-        let output_type = manifest
-            .pointer("/runtime/outputType")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing runtime.outputType", manifest_path.display()))?;
-        let route_prefix = manifest
-            .get("routePrefix")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let platform_wit_version = manifest
-            .get("platformWitVersion")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        if platform_wit_version.is_none() {
+        if manifest.platform_wit_version.is_none() {
             return Err(format!(
                 "{} missing platformWitVersion; first-party extensions must declare platformWitVersion",
                 manifest_path.display()
@@ -7769,18 +7789,15 @@ fn load_extension_packages(
                 id
             ));
         }
-        let component_name = manifest
-            .get("wasmComponent")
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("{} missing wasmComponent", manifest_path.display()))?;
         let expected_component = format!("dist/{id}.wasm");
-        if component_name != expected_component {
+        if manifest.wasm_component != expected_component {
             return Err(format!(
-                "{} wasmComponent must be {expected_component}, got {component_name}",
-                manifest_path.display()
+                "{} wasmComponent must be {expected_component}, got {}",
+                manifest_path.display(),
+                manifest.wasm_component
             ));
         }
-        let platform_wasm = root.join(component_name);
+        let platform_wasm = root.join(&manifest.wasm_component);
         if !platform_wasm.is_file() {
             return Err(format!(
                 "{} declares platformWitVersion but {} is missing",
@@ -7792,13 +7809,17 @@ fn load_extension_packages(
         let relationship_types = relationship_types_from_manifest(id, &manifest)?;
         let cue_schemas = cue_schemas_from_manifest(id, &manifest)?;
         registry.register_from_manifest(&root)?;
+        let extension_id = manifest.id.clone();
+        let component = manifest.wasm_component.clone();
+        let output_type = manifest.runtime.output_type.clone();
+        let route_prefix = manifest.route_prefix.clone();
         if loaded
             .insert(
-                id.to_string(),
+                extension_id.clone(),
                 ExtensionRuntimeRecord {
-                    id: id.to_string(),
-                    component: component_name.to_string(),
-                    output_type: output_type.to_string(),
+                    id: extension_id,
+                    component,
+                    output_type,
                     status: String::from("platform-loaded"),
                     relationship_types,
                     storage_collections,
@@ -11185,25 +11206,102 @@ mod tests {
         );
     }
 
+    /// Every real first-party manifest must parse cleanly into the typed
+    /// `BackendManifest` — this guards against the manifest schema and the
+    /// kernel-side wire struct silently drifting apart.
+    #[test]
+    fn backend_manifest_parses_every_first_party_manifest() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .expect("repo root from CARGO_MANIFEST_DIR")
+            .to_path_buf();
+        let extensions_dir = repo_root.join("extensions/first-party");
+        let entries = fs::read_dir(&extensions_dir)
+            .expect("read extensions/first-party")
+            .filter_map(Result::ok);
+        let mut parsed_count = 0usize;
+        for entry in entries {
+            let manifest_path = entry.path().join("manifest.json");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let source = fs::read_to_string(&manifest_path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", manifest_path.display()));
+            BackendManifest::parse(&manifest_path, &source).unwrap_or_else(|e| {
+                panic!(
+                    "{} fails BackendManifest parse: {e}",
+                    manifest_path.display()
+                )
+            });
+            parsed_count += 1;
+        }
+        assert!(
+            parsed_count > 0,
+            "no first-party manifests parsed — looked under {}",
+            extensions_dir.display()
+        );
+    }
+
+    /// A leftover `demoSeed` on a collection contribution is a real schema
+    /// error the kernel must surface at load — not silently accept and run.
+    #[test]
+    fn storage_collections_reject_demo_seed_field() {
+        let raw = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_test",
+            "name": "ext_test",
+            "wasmComponent": "dist/ext_test.wasm",
+            "ui": { "manifest": "ui/manifest.json" },
+            "runtime": { "outputType": "comtrya.test/summary.v1" },
+            "contributes": {
+                "collections": [{
+                    "name": "items",
+                    "ownerExtension": "ext_test",
+                    "demoSeed": { "rows": [] }
+                }]
+            }
+        });
+        let manifest: BackendManifest =
+            serde_json::from_value(raw).expect("test manifest parses into BackendManifest");
+        let err = storage_collections_from_manifest("ext_test", &manifest)
+            .expect_err("demoSeed must be rejected");
+        assert!(err.contains("demoSeed"), "unexpected error: {err}");
+    }
+
+    /// Build a minimally-valid `BackendManifest` with the given `relationshipTypes`,
+    /// so per-test fixtures only spell out the field under exercise.
+    fn manifest_with_relationship_types(id: &str, types: Value) -> BackendManifest {
+        let raw = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": id,
+            "name": id,
+            "wasmComponent": format!("dist/{id}.wasm"),
+            "ui": { "manifest": "ui/manifest.json" },
+            "runtime": { "outputType": format!("comtrya.{id}/summary.v1") },
+            "contributes": { "relationshipTypes": types }
+        });
+        serde_json::from_value(raw).expect("test manifest is a valid BackendManifest")
+    }
+
     #[test]
     fn relationship_type_rejects_symmetric_with_participation() {
         // A symmetric type admits either orientation, so participation —
         // which gates on the source's repo — would be orientation-bypassable.
         // The combination must be rejected at load.
-        let manifest = serde_json::json!({
-            "contributes": {
-                "relationshipTypes": [{
-                    "id": "ext_test.sym-gated",
-                    "kind": "comtrya://rel/relates-to",
-                    "sourceKinds": ["issue"],
-                    "targetKinds": ["epic"],
-                    "outgoingLabel": "relates to",
-                    "incomingLabel": "relates to",
-                    "symmetric": true,
-                    "requiresParticipation": "ext_test"
-                }]
-            }
-        });
+        let manifest = manifest_with_relationship_types(
+            "ext_test",
+            serde_json::json!([{
+                "id": "ext_test.sym-gated",
+                "kind": "comtrya://rel/relates-to",
+                "sourceKinds": ["issue"],
+                "targetKinds": ["epic"],
+                "outgoingLabel": "relates to",
+                "incomingLabel": "relates to",
+                "symmetric": true,
+                "requiresParticipation": "ext_test"
+            }]),
+        );
         let result = relationship_types_from_manifest("ext_test", &manifest);
         let err = result.expect_err("symmetric + requiresParticipation must be rejected");
         assert!(
@@ -11215,19 +11313,18 @@ mod tests {
     #[test]
     fn relationship_type_accepts_asymmetric_participation() {
         // The asymmetric case ext_epics actually ships must validate.
-        let manifest = serde_json::json!({
-            "contributes": {
-                "relationshipTypes": [{
-                    "id": "ext_test.issue-part-of-epic",
-                    "kind": "comtrya://rel/part-of",
-                    "sourceKinds": ["issue"],
-                    "targetKinds": ["epic"],
-                    "outgoingLabel": "part of epic",
-                    "incomingLabel": "contains issue",
-                    "requiresParticipation": "ext_test"
-                }]
-            }
-        });
+        let manifest = manifest_with_relationship_types(
+            "ext_test",
+            serde_json::json!([{
+                "id": "ext_test.issue-part-of-epic",
+                "kind": "comtrya://rel/part-of",
+                "sourceKinds": ["issue"],
+                "targetKinds": ["epic"],
+                "outgoingLabel": "part of epic",
+                "incomingLabel": "contains issue",
+                "requiresParticipation": "ext_test"
+            }]),
+        );
         let parsed =
             relationship_types_from_manifest("ext_test", &manifest).expect("asymmetric is valid");
         assert_eq!(parsed.len(), 1);
