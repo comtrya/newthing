@@ -460,6 +460,27 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
     }
 }
 
+/// Parse an optional JSON attributes blob from a WASM extension. Returns
+/// `Ok(None)` for an absent input and `Ok(Some(Value))` for valid JSON.
+/// A malformed payload becomes `BadInput("invalid attributes JSON: …")`
+/// instead of being silently dropped (issue: relations.create /
+/// replace_attributes used to swallow parse errors via `.ok()` and
+/// stamped `Null` in their place, so a buggy extension would write an
+/// attribute-less relation with no signal that the payload was rejected).
+fn parse_optional_attributes_json(bytes: Option<&[u8]>) -> Result<Option<Value>, wit_types::Error> {
+    let Some(bytes) = bytes else {
+        return Ok(None);
+    };
+    serde_json::from_slice::<Value>(bytes)
+        .map(Some)
+        .map_err(|e| {
+            err(
+                wit_types::ErrorCode::BadInput,
+                format!("invalid attributes JSON: {e}"),
+            )
+        })
+}
+
 /// Map the typed `StorageCreateError` to the WIT error-code vocabulary.
 /// `AlreadyExists` becomes `Conflict`; everything else is `Internal`.
 fn storage_create_error_to_wit_error(error: crate::StorageCreateError) -> wit_types::Error {
@@ -1178,7 +1199,7 @@ impl wit_relations::Host for HostState {
             "to": canon_target,
             "kind": kind,
             "authorRef": self.current_principal,
-            "attributes": attributes.as_deref().and_then(|b| serde_json::from_slice::<Value>(b).ok()),
+            "attributes": parse_optional_attributes_json(attributes.as_deref())?,
             "createdAt": created_at,
         });
         let record = crate::ExtensionDocumentRecord {
@@ -1209,10 +1230,8 @@ impl wit_relations::Host for HostState {
     ) -> Result<wit_relations::Relation, wit_types::Error> {
         self.require_host_import("relations.write")?;
         self.require_record_author("relations", &id)?;
-        let attrs_value: Value = attributes
-            .as_deref()
-            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
-            .unwrap_or(Value::Null);
+        let attrs_value: Value =
+            parse_optional_attributes_json(attributes.as_deref())?.unwrap_or(Value::Null);
         let id_for_lookup = id.clone();
         self.store
             .update_document_atomically("core", "relations", &id, move |doc| {
