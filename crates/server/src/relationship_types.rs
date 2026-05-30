@@ -116,6 +116,16 @@ impl RelationshipTypeRegistry {
             RelationVerdict::Undeclared
         }
     }
+
+    /// `true` iff any declared shape for `kind` is symmetric. Used to
+    /// decide whether to canonicalise endpoints before writing a relation
+    /// so symmetric edges have a single canonical form on both write
+    /// paths (GraphQL and WASM) and idempotency holds across them.
+    pub fn is_symmetric_kind(&self, kind: &str) -> bool {
+        self.shapes
+            .iter()
+            .any(|shape| shape.kind == kind && shape.symmetric)
+    }
 }
 
 /// Extract the resource-kind segment from a `comtrya://<kind>/<id>` (or

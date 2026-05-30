@@ -880,20 +880,29 @@ impl Runtime {
         }
     }
 
-    /// Look up the verb's symmetry rule, falling back to asymmetric for
-    /// extension-minted verbs the kernel doesn't know.
-    fn verb_is_symmetric(verb_uri: &str) -> bool {
-        CORE_VERBS
-            .iter()
-            .find(|v| v.uri == verb_uri)
-            .map(|v| v.symmetric)
-            .unwrap_or(false)
+    /// Look up the verb's symmetry from the relationship-type registry —
+    /// the single source of truth declared by extension manifests. Any
+    /// verb the registry does not know is treated as asymmetric; the
+    /// write-side `require_declared_relationship` already rejects
+    /// undeclared verbs before reaching canonicalisation, and the
+    /// read-side iterators (outgoing/incoming/between) fall back to
+    /// asymmetric for verbs whose extension has been unloaded since the
+    /// record was stored.
+    fn verb_is_symmetric(&self, verb_uri: &str) -> bool {
+        self.wasm_registry
+            .relationship_types()
+            .is_symmetric_kind(verb_uri)
     }
 
     /// Canonical direction for symmetric verbs: lex-smaller URI as `from`.
     /// Asymmetric verbs pass through unchanged.
-    fn canonicalize_relation_endpoints(from: &str, to: &str, verb_uri: &str) -> (String, String) {
-        if Self::verb_is_symmetric(verb_uri) && from > to {
+    fn canonicalize_relation_endpoints(
+        &self,
+        from: &str,
+        to: &str,
+        verb_uri: &str,
+    ) -> (String, String) {
+        if self.verb_is_symmetric(verb_uri) && from > to {
             (to.to_string(), from.to_string())
         } else {
             (from.to_string(), to.to_string())
@@ -1000,10 +1009,13 @@ impl Runtime {
         // proper fix moves the (from,to,kind) uniqueness invariant into
         // the storage layer behind the write lock.
 
-        let (canon_from, canon_to) = Self::canonicalize_relation_endpoints(from, to, verb_uri);
+        let (canon_from, canon_to) = self.canonicalize_relation_endpoints(from, to, verb_uri);
 
         // Idempotency: return any existing relation matching (canon_from, canon_to, verb).
-        let existing = self.extension_storage.collection_data("relations")?;
+        // Scoped to kernel-owned records so an attacker-injected collection="relations"
+        // record (defense-in-depth against the storage-bypass plugged in wasm_host) cannot
+        // shadow the probe and be returned to the caller as the "existing" relation.
+        let existing = self.extension_storage.kernel_collection_data("relations")?;
         if let Some(array) = existing.as_array() {
             for rel in array {
                 let same_from =
@@ -1054,7 +1066,7 @@ impl Runtime {
     }
 
     fn delete_relation(&self, id: &str) -> Result<bool, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self.extension_storage.kernel_collection_data("relations")?;
         let target = relations.as_array().and_then(|array| {
             array
                 .iter()
@@ -1086,7 +1098,7 @@ impl Runtime {
         ref_uri: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self.extension_storage.kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -1098,7 +1110,7 @@ impl Runtime {
                 }
                 let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
-                let symmetric = Self::verb_is_symmetric(verb);
+                let symmetric = self.verb_is_symmetric(verb);
                 if from == ref_uri || (symmetric && to == ref_uri) {
                     out.push(rel.clone());
                 }
@@ -1112,7 +1124,7 @@ impl Runtime {
         ref_uri: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self.extension_storage.kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -1124,7 +1136,7 @@ impl Runtime {
                 }
                 let from = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let to = rel.get("to").and_then(Value::as_str).unwrap_or("");
-                let symmetric = Self::verb_is_symmetric(verb);
+                let symmetric = self.verb_is_symmetric(verb);
                 if to == ref_uri || (symmetric && from == ref_uri) {
                     out.push(rel.clone());
                 }
@@ -1139,7 +1151,7 @@ impl Runtime {
         to: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self.extension_storage.kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -1151,7 +1163,7 @@ impl Runtime {
                 }
                 let rfrom = rel.get("from").and_then(Value::as_str).unwrap_or("");
                 let rto = rel.get("to").and_then(Value::as_str).unwrap_or("");
-                let symmetric = Self::verb_is_symmetric(verb);
+                let symmetric = self.verb_is_symmetric(verb);
                 let matches_forward = rfrom == from && rto == to;
                 let matches_reverse = symmetric && rfrom == to && rto == from;
                 if matches_forward || matches_reverse {
@@ -1201,7 +1213,7 @@ impl Runtime {
                 .as_str();
             let parent_doc = self
                 .extension_storage
-                .collection_data("comments")?
+                .kernel_collection_data("comments")?
                 .as_array()
                 .and_then(|arr| {
                     arr.iter()
@@ -1293,7 +1305,7 @@ impl Runtime {
             })?;
         let updated = self
             .extension_storage
-            .collection_data("comments")?
+            .kernel_collection_data("comments")?
             .as_array()
             .and_then(|arr| {
                 arr.iter()
@@ -1309,7 +1321,7 @@ impl Runtime {
     }
 
     fn delete_comment(&self, id: &str) -> Result<bool, String> {
-        let comments = self.extension_storage.collection_data("comments")?;
+        let comments = self.extension_storage.kernel_collection_data("comments")?;
         let exists = comments
             .as_array()
             .map(|arr| {
@@ -1327,7 +1339,7 @@ impl Runtime {
     }
 
     fn thread_for_target(&self, target: &str) -> Result<Vec<Value>, String> {
-        let comments = self.extension_storage.collection_data("comments")?;
+        let comments = self.extension_storage.kernel_collection_data("comments")?;
         let mut out: Vec<Value> = comments
             .as_array()
             .map(|arr| {
@@ -1448,7 +1460,7 @@ impl Runtime {
         let (segments, canonical) = validate_repo_path(path).map_err(CreateRepoError::BadInput)?;
         let existing = self
             .extension_storage
-            .collection_data("repositories")
+            .kernel_collection_data("repositories")
             .map_err(CreateRepoError::Internal)?;
         if let Some(array) = existing.as_array()
             && array
@@ -1561,7 +1573,7 @@ impl Runtime {
     /// reconciler to diff declared vs actual.
     fn repository_docs(&self) -> Vec<(String, String)> {
         self.extension_storage
-            .collection_data("repositories")
+            .kernel_collection_data("repositories")
             .ok()
             .and_then(|value| value.as_array().cloned())
             .unwrap_or_default()
@@ -1623,7 +1635,7 @@ impl Runtime {
     /// is `None` for a global (inheritable) label.
     fn label_docs(&self) -> Vec<(Option<String>, String, String, String, String)> {
         self.extension_storage
-            .collection_data("labels")
+            .kernel_collection_data("labels")
             .ok()
             .and_then(|value| value.as_array().cloned())
             .unwrap_or_default()
@@ -1692,7 +1704,9 @@ impl Runtime {
             .extension_storage
             .single_document_data("workspaces")?
             .ok_or_else(|| "runtime storage did not contain a workspace".to_string())?;
-        let repository_documents = self.extension_storage.collection_data("repositories")?;
+        let repository_documents = self
+            .extension_storage
+            .kernel_collection_data("repositories")?;
         let pull_requests = self.extension_storage.collection_data("pull_requests")?;
         let checks = self.extension_storage.collection_data("check_runs")?;
         let extensions = filter_extension_installations(
@@ -1726,7 +1740,7 @@ impl Runtime {
         let readiness = self.readiness();
         let repositories = self
             .extension_storage
-            .collection_data("repositories")
+            .kernel_collection_data("repositories")
             .unwrap_or_else(|_| json!([]));
         let repository_count = repositories.as_array().map(Vec::len).unwrap_or(0);
         let extension_count = self.extension_runtime.len();
@@ -3827,7 +3841,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 "labels": state
                     .runtime
                     .extension_storage
-                    .collection_data("labels")
+                    .kernel_collection_data("labels")
                     .unwrap_or_else(|_| json!([])),
                 "extensionInstallations": inject_route_prefix(
                     runtime_data.get("extensions").cloned().unwrap_or_else(|| json!([])),
@@ -5294,38 +5308,6 @@ const FIRST_PARTY_EXTENSIONS: &[&str] = &[
     "ext_docs",
 ];
 
-/// Core verb vocabulary. Extensions can mint additional verbs in their own
-/// namespace (`comtrya://rel/<reverse-dns>/<verb>`); the kernel doesn't gate
-/// on those and treats them as asymmetric by default.
-#[derive(Debug, Clone, Copy)]
-struct CoreVerb {
-    uri: &'static str,
-    symmetric: bool,
-}
-
-const CORE_VERBS: &[CoreVerb] = &[
-    CoreVerb {
-        uri: "comtrya://rel/part-of",
-        symmetric: false,
-    },
-    CoreVerb {
-        uri: "comtrya://rel/blocks",
-        symmetric: false,
-    },
-    CoreVerb {
-        uri: "comtrya://rel/relates-to",
-        symmetric: true,
-    },
-    CoreVerb {
-        uri: "comtrya://rel/duplicates",
-        symmetric: false,
-    },
-    CoreVerb {
-        uri: "comtrya://rel/mentions",
-        symmetric: false,
-    },
-];
-
 /// A verb URI is well-formed when it starts with `comtrya://rel/` and the
 /// remainder is one or more `/`-separated segments where each segment
 /// contains only lowercase ASCII, digits, dots, dashes, or underscores.
@@ -6347,6 +6329,21 @@ impl ExtensionRuntimeStore {
         Ok(Value::Array(values))
     }
 
+    /// Same as [`collection_data`] but scoped to kernel-owned records
+    /// (`owner_extension == "core"`). The kernel uses this when iterating
+    /// its own collections (e.g. `relations`) so attacker-controlled
+    /// records that share a collection name cannot influence kernel
+    /// idempotency probes or post-write lookups.
+    fn kernel_collection_data(&self, collection: &str) -> Result<Value, String> {
+        let values = self
+            .query_documents_by_index(collection, &[])?
+            .into_iter()
+            .filter(|record| record.owner_extension == "core")
+            .map(|record| record.data)
+            .collect::<Vec<_>>();
+        Ok(Value::Array(values))
+    }
+
     /// Resolve a stored repository's canonical `path` from its opaque id
     /// (the `repo_…` portion of a `comtrya://repository/<id>` ref). Used
     /// by the per-repo extension opt-in gate to locate the bare git dir
@@ -6354,7 +6351,7 @@ impl ExtensionRuntimeStore {
     /// `repository.extensions`. Returns `None` if no stored
     /// repository carries that id.
     pub(crate) fn repository_path_for_id(&self, repository_id: &str) -> Option<String> {
-        self.collection_data("repositories")
+        self.kernel_collection_data("repositories")
             .ok()?
             .as_array()?
             .iter()
@@ -9341,7 +9338,7 @@ mod tests {
         assert!(
             runtime
                 .extension_storage
-                .collection_data("repositories")
+                .kernel_collection_data("repositories")
                 .unwrap()
                 .as_array()
                 .unwrap()
@@ -10676,6 +10673,215 @@ mod tests {
             json!({ "input": { "from": "a", "to": "b", "kind": "k" } }),
         )
         .await;
+    }
+
+    #[test]
+    fn create_relation_rejects_undeclared_shape_past_auth_guard() {
+        // The anonymous-rejection test above stops at the auth guard, so
+        // it can't catch a regression that disables the shape gate inside
+        // `Runtime::create_relation`. This test exercises the gate
+        // directly: with the live first-party registry loaded (so some
+        // shapes are declared), an undeclared verb URI must be rejected.
+        // Equivalent to an authenticated principal that POSTs
+        // `relations.create` with a shape no extension admits.
+        let runtime = dev_runtime();
+        let iss_a = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let iss_b = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let from = format!("comtrya://issue/{}", iss_a.as_str());
+        let to = format!("comtrya://issue/{}", iss_b.as_str());
+        let result = runtime.create_relation(
+            &from,
+            &to,
+            // No declared shape carries this kind, so the verdict is
+            // `Undeclared` regardless of endpoint kinds — the gate must
+            // surface the "no loaded extension declares" message, not
+            // proceed to write.
+            "comtrya://rel/example.com/forged-verb",
+            None,
+        );
+        let err =
+            result.expect_err("undeclared relationship verb must be rejected past the auth guard");
+        assert!(
+            err.contains("no loaded extension declares a relationship type"),
+            "expected the shape-gate Forbidden message, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn create_relation_canonicalises_symmetric_endpoints_via_registry() {
+        // Mirror of `wasm_relation_create_canonicalises_symmetric_endpoints`
+        // on the GraphQL/kernel path. The registry is the single source of
+        // truth for shape symmetry; before this both paths agreed only for
+        // verbs the kernel hardcoded in `CORE_VERBS`. Now the GraphQL path
+        // also consults the registry, so an extension-declared symmetric
+        // verb (like ext_issues' `relates-to`, which carries
+        // `symmetric: true` in its manifest) canonicalises on both write
+        // paths and idempotency holds across them.
+        let runtime = dev_runtime();
+        let a = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let b = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        // Sort so `from` is the lexicographically larger URI; with a
+        // symmetric verb the canonicaliser must swap them and the second
+        // call (with the already-canonical order) must hit the
+        // idempotency probe and return the same id.
+        let (smaller, larger) = if a.as_str() < b.as_str() {
+            (
+                format!("comtrya://issue/{}", a.as_str()),
+                format!("comtrya://issue/{}", b.as_str()),
+            )
+        } else {
+            (
+                format!("comtrya://issue/{}", b.as_str()),
+                format!("comtrya://issue/{}", a.as_str()),
+            )
+        };
+        let kind = "comtrya://rel/relates-to";
+
+        let first = runtime
+            .create_relation(&larger, &smaller, kind, None)
+            .expect("first create succeeds");
+        let first_id = first
+            .get("id")
+            .and_then(|v| v.as_str())
+            .expect("created relation has id")
+            .to_string();
+        let stored_source = first
+            .get("source")
+            .and_then(|v| v.as_str())
+            .expect("created relation has source");
+        let stored_target = first
+            .get("target")
+            .and_then(|v| v.as_str())
+            .expect("created relation has target");
+        assert_eq!(
+            stored_source, smaller,
+            "stored `source` must be the canonical (smaller) URI"
+        );
+        assert_eq!(
+            stored_target, larger,
+            "stored `target` must be the canonical (larger) URI"
+        );
+
+        let second = runtime
+            .create_relation(&smaller, &larger, kind, None)
+            .expect("second create succeeds");
+        assert_eq!(
+            second.get("id").and_then(|v| v.as_str()),
+            Some(first_id.as_str()),
+            "swapped-endpoint repeat must return the original relation id"
+        );
+    }
+
+    #[test]
+    fn runtime_relation_queries_ignore_non_core_records_with_relations_collection_name() {
+        // Mirror of `relation_queries_ignore_non_core_records_with_relations_collection_name`
+        // on the GraphQL/runtime path. The kernel `kernel_collection_data`
+        // filter on the four `relations` read sites in main.rs
+        // (idempotency probe / delete / outgoing / incoming / between)
+        // is security-critical defense in depth: even if a non-core
+        // record with `collection == "relations"` ever reached the
+        // store, the kernel must not surface it as a real relation. A
+        // future change that drops the filter (or accidentally uses
+        // `collection_data` again) must be caught by this regression.
+        let runtime = dev_runtime();
+        let a = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let b = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let (smaller, larger) = if a.as_str() < b.as_str() {
+            (
+                format!("comtrya://issue/{}", a.as_str()),
+                format!("comtrya://issue/{}", b.as_str()),
+            )
+        } else {
+            (
+                format!("comtrya://issue/{}", b.as_str()),
+                format!("comtrya://issue/{}", a.as_str()),
+            )
+        };
+        let kind = "comtrya://rel/relates-to";
+
+        // Seed a legitimate kernel-owned relation via the real path.
+        let legit = runtime
+            .create_relation(&smaller, &larger, kind, None)
+            .expect("legitimate create succeeds");
+        let legit_id = legit
+            .get("id")
+            .and_then(|v| v.as_str())
+            .expect("legitimate relation has id")
+            .to_string();
+
+        // Force a poisoned non-core record into the store directly,
+        // bypassing the storage gate that would normally block this.
+        // Different id from the legit one so this isn't a dedup collision.
+        let forged_id = "rel_forged_in_extension";
+        let forged_data = serde_json::json!({
+            "id": forged_id,
+            "kind": kind,
+            "source": smaller,
+            "target": larger,
+            "from": smaller,
+            "to": larger,
+            "attributes": {},
+            "createdAt": "2026-01-01T00:00:00Z",
+        });
+        runtime
+            .extension_storage
+            .create_document(ExtensionDocumentRecord {
+                schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_attacker".to_string(),
+                collection: "relations".to_string(),
+                id: forged_id.to_string(),
+                resource: format!("comtrya://relation/{forged_id}"),
+                resource_refs: vec![smaller.clone(), larger.clone()],
+                visibility: "internal".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                data: forged_data,
+            })
+            .expect("seed poisoned record via extension_storage");
+
+        // Each of the three relation queries must surface only the
+        // legitimate (kernel-owned) relation. If the kernel_collection_data
+        // filter is dropped or bypassed, the forged record would also
+        // be returned and these assertions would fail with two items.
+        let outgoing = runtime
+            .relations_outgoing(&smaller, Some(kind))
+            .expect("relations_outgoing succeeds");
+        assert_eq!(
+            outgoing.len(),
+            1,
+            "non-core record must be filtered from `outgoing`: {outgoing:?}"
+        );
+        assert_eq!(
+            outgoing[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
+
+        let incoming = runtime
+            .relations_incoming(&larger, Some(kind))
+            .expect("relations_incoming succeeds");
+        assert_eq!(
+            incoming.len(),
+            1,
+            "non-core record must be filtered from `incoming`: {incoming:?}"
+        );
+        assert_eq!(
+            incoming[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
+
+        let between = runtime
+            .relations_between(&smaller, &larger, Some(kind))
+            .expect("relations_between succeeds");
+        assert_eq!(
+            between.len(),
+            1,
+            "non-core record must be filtered from `between`: {between:?}"
+        );
+        assert_eq!(
+            between[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
     }
 
     #[tokio::test]
