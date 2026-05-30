@@ -79,16 +79,6 @@ interface epics {
   progress-epic: func(ref: uri) -> result<epic-progress, error>;
   issues-in-epic: func(ref: uri) -> result<list<uri>, error>;
   children-of-epic: func(ref: uri) -> result<list<uri>, error>;
-
-  // 0.1.3 — link an existing issue into an epic by creating the
-  // `comtrya://rel/part-of` relation the `issues-in-epic` read path
-  // consumes (source = the issue URI, target = the epic URI). Idempotent
-  // on the triple. The kernel gates this on the issue's repository: the
-  // repo must have opted into ext_issues (repository-scoped) AND ext_epics
-  // (instance-scoped participation) via `repository.extensions`, so a repo
-  // that has not enabled epics cannot have its issues placed on an epic.
-  // Returns the epic's updated issue members.
-  link-issue: func(issue-ref: uri, epic-ref: uri) -> result<list<uri>, error>;
 }
 
 world ext-epics {

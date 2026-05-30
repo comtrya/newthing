@@ -3,9 +3,11 @@
 Status: **Revised after 5-critic adversarial review** (security, soundness,
 abstraction/coupling, project-conventions, feasibility). Section 11 records
 every confirmed finding and its resolution.
-Tracking: follow-up to #137 (per-repo opt-in) and #139 (kernel enforcement);
-the gated issue↔epic link (#141) becomes the first *consumer* of the
-extension-point mechanism, not the mechanism itself.
+Tracking: follow-up to #137 (per-repo opt-in) and #139 (kernel enforcement).
+The issue↔epic link (#141) was originally planned as a bespoke `link-issue`
+op gated in dispatch; the #142 continuation found that path dead on the real
+UI flow and replaced it with generic relationship-type enforcement on the
+relation write path (see §8 Slice 3 and `relationship_types.rs`).
 
 ## 1. Problem
 
@@ -273,10 +275,17 @@ ABSENT, Chrome MCP ABSENT**. Therefore:
   first-party manifests' cross-call declarations. Unit-tested with mock
   manifests. *Host compiles; first-party wasm unaffected (manifests are kernel
   data).*
-- **Slice 3 (needs cargo-component): resource-state validation + epics↔issues
-  link consumer.** The stashed `link-issue` component impl + dispatch arm,
-  reframed onto the binding table; optional transition fast-fail. Requires wasm
-  regen → done where the toolchain exists.
+- **Slice 3 (superseded): epics↔issues link consumer.** Originally a bespoke
+  `epics.link-issue` op + dispatch-arm participation gate. Adversarial review
+  (#142 continuation) found this dead on the real path: the UI links an issue
+  to an epic via the generic `relations.create` mutation, which never invoked
+  `link-issue`, so its gate guarded a door no caller walked through while
+  `relations.create` itself applied no kind authorisation at all. The op was
+  removed (wasm regen) and replaced by a generic, kernel-side enforcement that
+  makes manifest-declared `relationshipTypes` load-bearing on **both** relation
+  write paths — see `relationship_types.rs`. The per-repo participation rule
+  returns as an opt-in, per-relationship-type owner-authorisation hook rather
+  than an extension-specific dispatch arm.
 - **Slice 4 (codeable here with bun; needs Chrome MCP to merge): UI
   instance/repo routes + slots.** Can be designed, written, and typechecked in
   this environment, but stays **unmerged** until browser-verified per the UI

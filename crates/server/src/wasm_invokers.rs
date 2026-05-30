@@ -178,13 +178,6 @@ struct ChangeStateEpicInputJson {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LinkIssueInputJson {
-    issue_ref: String,
-    epic_ref: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct CreatePullInputJson {
     repository: String,
     title: String,
@@ -656,12 +649,6 @@ pub fn dispatch_ext_epics(
     // declaring the `epic` kind repository-scoped. Flagged in the Phase-2
     // report: epics need a workspace-level enablement model, not the
     // per-repo one, to be gated.
-    //
-    // The exception is `link-issue`: it places a repository-scoped issue
-    // onto an instance-scoped epic, so it IS gated — on the issue's
-    // repository — below. `gate_store` is retained for that gate because
-    // `store` itself is moved into `build_host_state`.
-    let gate_store = store.clone();
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -860,50 +847,6 @@ pub fn dispatch_ext_epics(
                     wit_error(
                         wit_types::ErrorCode::Internal,
                         format!("children-of-epic call: {e}"),
-                    )
-                })?;
-            Value::Array(
-                result
-                    .map_err(epic_error_to_canonical)?
-                    .into_iter()
-                    .map(Value::String)
-                    .collect(),
-            )
-        }
-        "link-issue" => {
-            let parsed: LinkIssueInputJson = serde_json::from_value(input).map_err(|e| {
-                wit_error(
-                    wit_types::ErrorCode::BadInput,
-                    format!("parse link-issue input: {e}"),
-                )
-            })?;
-            // Integration-boundary gate. Linking a repository-scoped issue
-            // onto an instance-scoped epic is permitted only when the
-            // issue's OWN repository has opted into both ext_issues
-            // (repository-scoped — its home extension) and ext_epics
-            // (instance-scoped participation). The repository is resolved
-            // from the stored issue resource, never from caller-asserted
-            // input, so a caller cannot point the gate at a repo it does
-            // not own.
-            let issue_repo = gate_store
-                .repository_ref_for_resource(&parsed.issue_ref)
-                .ok_or_else(|| {
-                    wit_error(
-                        wit_types::ErrorCode::NotFound,
-                        format!(
-                            "issue '{}' has no resolvable repository; cannot gate link-issue",
-                            parsed.issue_ref
-                        ),
-                    )
-                })?;
-            ensure_repo_enabled(registry, &gate_store, &issue_repo, "ext_issues")?;
-            registry.ensure_repo_participates(&gate_store, &issue_repo, "ext_epics")?;
-            let result = epics
-                .call_link_issue(&mut wasm_store, &parsed.issue_ref, &parsed.epic_ref)
-                .map_err(|e| {
-                    wit_error(
-                        wit_types::ErrorCode::Internal,
-                        format!("link-issue call: {e}"),
                     )
                 })?;
             Value::Array(
