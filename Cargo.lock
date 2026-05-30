@@ -403,6 +403,7 @@ name = "comtrya-core"
 version = "0.1.0"
 dependencies = [
  "cuengine",
+ "getrandom 0.3.4",
  "serde",
  "serde_json",
  "tempfile",
