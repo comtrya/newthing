@@ -1265,30 +1265,21 @@ impl wit_relations::Host for HostState {
         source: wit_types::Uri,
         kind_filter: Option<wit_types::Uri>,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
         self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        let relations: Vec<wit_relations::Relation> = records
-            .iter()
-            .filter(|r| {
-                r.collection == "relations"
-                    && r.owner_extension == "core"
-                    && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
-                    && kind_filter
-                        .as_deref()
-                        .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
-                        .unwrap_or(true)
-            })
-            .take(limit.min(1024) as usize)
-            .map(record_to_relation)
-            .collect();
-        Ok(wit_relations::RelationPage {
-            relations,
-            next_page: None,
+        paginate_relations(records, limit, after, |r| {
+            r.collection == "relations"
+                && r.owner_extension == "core"
+                && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
+                && kind_filter
+                    .as_deref()
+                    .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
+                    .unwrap_or(true)
         })
     }
 
@@ -1297,30 +1288,21 @@ impl wit_relations::Host for HostState {
         target: wit_types::Uri,
         kind_filter: Option<wit_types::Uri>,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
         self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        let relations: Vec<wit_relations::Relation> = records
-            .iter()
-            .filter(|r| {
-                r.collection == "relations"
-                    && r.owner_extension == "core"
-                    && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
-                    && kind_filter
-                        .as_deref()
-                        .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
-                        .unwrap_or(true)
-            })
-            .take(limit.min(1024) as usize)
-            .map(record_to_relation)
-            .collect();
-        Ok(wit_relations::RelationPage {
-            relations,
-            next_page: None,
+        paginate_relations(records, limit, after, |r| {
+            r.collection == "relations"
+                && r.owner_extension == "core"
+                && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
+                && kind_filter
+                    .as_deref()
+                    .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
+                    .unwrap_or(true)
         })
     }
 
@@ -1330,33 +1312,75 @@ impl wit_relations::Host for HostState {
         target: wit_types::Uri,
         kind_filter: Option<wit_types::Uri>,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_relations::RelationPage, wit_types::Error> {
         self.require_host_import("relations.read")?;
         let records = self
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        let relations: Vec<wit_relations::Relation> = records
-            .iter()
-            .filter(|r| {
-                r.collection == "relations"
-                    && r.owner_extension == "core"
-                    && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
-                    && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
-                    && kind_filter
-                        .as_deref()
-                        .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
-                        .unwrap_or(true)
-            })
-            .take(limit.min(1024) as usize)
-            .map(record_to_relation)
-            .collect();
-        Ok(wit_relations::RelationPage {
-            relations,
-            next_page: None,
+        paginate_relations(records, limit, after, |r| {
+            r.collection == "relations"
+                && r.owner_extension == "core"
+                && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
+                && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
+                && kind_filter
+                    .as_deref()
+                    .map(|k| r.data.get("kind").and_then(Value::as_str) == Some(k))
+                    .unwrap_or(true)
         })
     }
+}
+
+/// Deterministic, id-ordered pagination for the relations host calls.
+/// Records matching `filter` are sorted by id, the `after` cursor (if
+/// any) is decoded and the first record strictly after it is used as
+/// the page start, `limit` items are returned, and `next_page` is
+/// emitted iff more records remain. Mirrors `storage::query` so the
+/// WIT pagination contract reads the same across every host import
+/// that returns a `*-page` shape (issue: WIT pagination cursor
+/// silently ignored).
+fn paginate_relations<F>(
+    records: Vec<crate::ExtensionDocumentRecord>,
+    limit: u32,
+    after: Option<wit_types::PageToken>,
+    filter: F,
+) -> Result<wit_relations::RelationPage, wit_types::Error>
+where
+    F: Fn(&crate::ExtensionDocumentRecord) -> bool,
+{
+    if limit == 0 || limit > 1024 {
+        return Err(err(
+            wit_types::ErrorCode::BadInput,
+            "limit must be 1..=1024",
+        ));
+    }
+    let mut matching: Vec<crate::ExtensionDocumentRecord> =
+        records.into_iter().filter(filter).collect();
+    matching.sort_by(|a, b| a.id.cmp(&b.id));
+    let after_id = match after {
+        Some(token) => Some(decode_doc_cursor(&token.cursor)?),
+        None => None,
+    };
+    let start = match after_id {
+        Some(ref cursor) => matching.partition_point(|r| &r.id <= cursor),
+        None => 0,
+    };
+    let remaining = &matching[start..];
+    let take = (limit as usize).min(remaining.len());
+    let relations: Vec<wit_relations::Relation> =
+        remaining[..take].iter().map(record_to_relation).collect();
+    let next_page = if remaining.len() > take {
+        remaining.get(take - 1).map(|last| wit_types::PageToken {
+            cursor: encode_doc_cursor(&last.id),
+        })
+    } else {
+        None
+    };
+    Ok(wit_relations::RelationPage {
+        relations,
+        next_page,
+    })
 }
 
 /// Opaque page cursor for `storage.query`/`list-all`: the last record id of
@@ -1497,7 +1521,7 @@ impl wit_comments::Host for HostState {
         &mut self,
         target: wit_types::Uri,
         limit: u32,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_comments::CommentPage, wit_types::Error> {
         self.require_host_import("comments.read")?;
         if limit == 0 || limit > 256 {
@@ -1507,19 +1531,40 @@ impl wit_comments::Host for HostState {
             .store
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        let mut comments: Vec<wit_comments::Comment> = records
-            .iter()
+        // Deterministic id-ordered pagination matching `storage::query`.
+        // Previously sorted by `created_at`, which is not unique and
+        // not collated with the cursor — that broke the WIT
+        // pagination contract.
+        let mut matching: Vec<crate::ExtensionDocumentRecord> = records
+            .into_iter()
             .filter(|r| {
                 r.collection == "comments"
-                    && r.data.get("target").and_then(Value::as_str) == Some(&target)
+                    && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
             })
-            .map(record_to_comment)
             .collect();
-        comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-        comments.truncate(limit as usize);
+        matching.sort_by(|a, b| a.id.cmp(&b.id));
+        let after_id = match after {
+            Some(token) => Some(decode_doc_cursor(&token.cursor)?),
+            None => None,
+        };
+        let start = match after_id {
+            Some(ref cursor) => matching.partition_point(|r| &r.id <= cursor),
+            None => 0,
+        };
+        let remaining = &matching[start..];
+        let take = (limit as usize).min(remaining.len());
+        let comments: Vec<wit_comments::Comment> =
+            remaining[..take].iter().map(record_to_comment).collect();
+        let next_page = if remaining.len() > take {
+            remaining.get(take - 1).map(|last| wit_types::PageToken {
+                cursor: encode_doc_cursor(&last.id),
+            })
+        } else {
+            None
+        };
         Ok(wit_comments::CommentPage {
             comments,
-            next_page: None,
+            next_page,
         })
     }
 
@@ -1749,12 +1794,16 @@ impl wit_events::Host for HostState {
         limit: u32,
         type_filter: Option<String>,
         source_extension_filter: Option<wit_types::ExtensionId>,
-        _after: Option<wit_types::PageToken>,
+        after: Option<wit_types::PageToken>,
     ) -> Result<wit_events::EventPage, wit_types::Error> {
         self.require_host_import("events.read")?;
         if limit == 0 || limit > 256 {
             return Err(err(wit_types::ErrorCode::BadInput, "limit must be 1..=256"));
         }
+        let after_id = match after {
+            Some(token) => Some(decode_doc_cursor(&token.cursor)?),
+            None => None,
+        };
         let path = self.store.events_path();
         if !path.is_file() {
             return Ok(wit_events::EventPage {
@@ -1764,7 +1813,11 @@ impl wit_events::Host for HostState {
         }
         let source = std::fs::read_to_string(&path)
             .map_err(|e| err(wit_types::ErrorCode::Internal, e.to_string()))?;
-        let mut events: Vec<wit_types::Event> = source
+        // Collect all VISIBLE matching events newest-first. Pagination
+        // then walks the cursor forward through that filtered set —
+        // any subsequent call passes the previous page's last id back
+        // as `after`, and we resume strictly past it.
+        let matching: Vec<wit_types::Event> = source
             .lines()
             .rev()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -1826,14 +1879,31 @@ impl wit_events::Host for HostState {
                     emitter_extension: emitter,
                 })
             })
-            .take(limit as usize)
             .collect();
-        // Already reversed (newest-first) by iter().rev() over the JSONL.
-        events.shrink_to_fit();
-        Ok(wit_events::EventPage {
-            events,
-            next_page: None,
-        })
+        // Resume strictly after the cursor. The collection is already
+        // newest-first (reverse of file order), and event ids are
+        // ULID-like (lexicographically time-monotonic), so the
+        // cursor's id, the newest id seen by the caller, comes
+        // before every older id in the descending ordering.
+        let start = match after_id {
+            Some(ref cursor) => matching
+                .iter()
+                .position(|e| &e.id == cursor)
+                .map(|i| i + 1)
+                .unwrap_or(matching.len()),
+            None => 0,
+        };
+        let remaining = &matching[start..];
+        let take = (limit as usize).min(remaining.len());
+        let events: Vec<wit_types::Event> = remaining[..take].to_vec();
+        let next_page = if remaining.len() > take {
+            remaining.get(take - 1).map(|last| wit_types::PageToken {
+                cursor: encode_doc_cursor(&last.id),
+            })
+        } else {
+            None
+        };
+        Ok(wit_events::EventPage { events, next_page })
     }
 }
 
@@ -2251,6 +2321,103 @@ mod tests {
             &mut host,
             "_meta".to_string(),
             Vec::new(),
+            None,
+            limit,
+            Some(wit_types::PageToken {
+                cursor: "!!! not base64 !!!".to_string(),
+            }),
+        );
+        assert!(
+            matches!(bad, Err(e) if matches!(e.code, wit_types::ErrorCode::BadInput)),
+            "malformed cursor must be bad-input"
+        );
+    }
+
+    #[test]
+    fn relations_outgoing_paginates_with_cursor() {
+        // TNQ round-3 P1: relations::outgoing/incoming/between accepted
+        // `after: Option<PageToken>` but bound it as `_after` and always
+        // returned `next_page: None`, silently truncating any source
+        // with more than `limit` edges. This test seeds 25 outgoing
+        // edges sharing a single source and walks them in pages of 10
+        // — every edge must be visited exactly once and the cursor
+        // must terminate cleanly.
+        let store = tmp_store("relations-paginate");
+        let mut host = host_with_principal(store.clone(), "comtrya://user/usr_rel_p");
+        host.manifest = Arc::new(HostManifest {
+            host_imports: vec!["relations.read".to_string()],
+            ..HostManifest::default()
+        });
+
+        let source_uri = "comtrya://issue/iss_source".to_string();
+        let total = 25usize;
+        let mut expected_ids: Vec<String> = (0..total).map(|i| format!("rel_{i:03}")).collect();
+        for id in &expected_ids {
+            store
+                .create_document(crate::ExtensionDocumentRecord {
+                    schema_version: "comtrya.extension-document/v1".to_string(),
+                    owner_extension: "core".to_string(),
+                    collection: "relations".to_string(),
+                    id: id.clone(),
+                    resource: format!("comtrya://relation/{id}"),
+                    resource_refs: vec![source_uri.clone()],
+                    visibility: "PUBLIC".to_string(),
+                    indexed_fields: std::collections::BTreeMap::new(),
+                    version: 1,
+                    updated_at: "2026-05-30T00:00:00Z".to_string(),
+                    data: serde_json::json!({
+                        "id": id,
+                        "source": source_uri,
+                        "target": format!("comtrya://target/t_{id}"),
+                        "from": source_uri,
+                        "to": format!("comtrya://target/t_{id}"),
+                        "kind": "comtrya://rel/tracks",
+                    }),
+                })
+                .expect("seed relation");
+        }
+
+        let limit = 10u32;
+        let mut seen: Vec<String> = Vec::new();
+        let mut after: Option<wit_types::PageToken> = None;
+        let mut pages = 0;
+        loop {
+            pages += 1;
+            assert!(pages <= total + 1, "pagination did not terminate");
+            let page = <HostState as wit_relations::Host>::outgoing(
+                &mut host,
+                source_uri.clone(),
+                None,
+                limit,
+                after.clone(),
+            )
+            .expect("page");
+            for rel in &page.relations {
+                seen.push(rel.id.clone());
+            }
+            match page.next_page {
+                Some(token) => {
+                    assert_eq!(
+                        page.relations.len(),
+                        limit as usize,
+                        "a page with a cursor must be full"
+                    );
+                    after = Some(token);
+                }
+                None => break,
+            }
+        }
+        expected_ids.sort();
+        seen.sort();
+        assert_eq!(
+            seen, expected_ids,
+            "every outgoing relation must be visited exactly once across pages"
+        );
+
+        // Malformed cursor → bad-input so callers restart cleanly.
+        let bad = <HostState as wit_relations::Host>::outgoing(
+            &mut host,
+            source_uri.clone(),
             None,
             limit,
             Some(wit_types::PageToken {
