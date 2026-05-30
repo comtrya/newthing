@@ -105,7 +105,7 @@ where
         .expect("response build")
 }
 
-pub async fn handle_upload_pack<S>(
+async fn handle_upload_pack<S>(
     state: S,
     mut segments: Vec<String>,
     headers: HeaderMap,
@@ -370,7 +370,7 @@ where
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct FetchRequest {
+pub(crate) struct FetchRequest {
     object_format: Option<String>,
     wants: Vec<String>,
     want_refs: Vec<String>,
@@ -389,64 +389,64 @@ pub struct FetchRequest {
 }
 
 impl FetchRequest {
-    pub fn wants(&self) -> &[String] {
+    pub(crate) fn wants(&self) -> &[String] {
         &self.wants
     }
-    pub fn extend_wants<I: IntoIterator<Item = String>>(&mut self, iter: I) {
+    pub(crate) fn extend_wants<I: IntoIterator<Item = String>>(&mut self, iter: I) {
         self.wants.extend(iter);
     }
-    pub fn side_band_64k(&self) -> bool {
+    pub(crate) fn side_band_64k(&self) -> bool {
         self.side_band_64k
     }
-    pub fn has_haves(&self) -> bool {
+    pub(crate) fn has_haves(&self) -> bool {
         !self.haves.is_empty()
     }
-    pub fn shallow_requested(&self) -> bool {
+    pub(crate) fn shallow_requested(&self) -> bool {
         self.deepen.is_some() || self.deepen_since.is_some() || !self.deepen_not.is_empty()
     }
-    pub fn haves(&self) -> &[String] {
+    pub(crate) fn haves(&self) -> &[String] {
         &self.haves
     }
-    pub fn no_progress(&self) -> bool {
+    pub(crate) fn no_progress(&self) -> bool {
         self.no_progress
     }
-    pub fn thin_pack(&self) -> bool {
+    pub(crate) fn thin_pack(&self) -> bool {
         self.thin_pack
     }
-    pub fn ofs_delta(&self) -> bool {
+    pub(crate) fn ofs_delta(&self) -> bool {
         self.ofs_delta
     }
-    pub fn want_refs(&self) -> &[String] {
+    pub(crate) fn want_refs(&self) -> &[String] {
         &self.want_refs
     }
-    pub fn client_shallows(&self) -> &[String] {
+    pub(crate) fn client_shallows(&self) -> &[String] {
         &self.client_shallows
     }
-    pub fn done(&self) -> bool {
+    pub(crate) fn done(&self) -> bool {
         self.done
     }
-    pub fn deepen(&self) -> Option<u32> {
+    pub(crate) fn deepen(&self) -> Option<u32> {
         self.deepen
     }
-    pub fn deepen_since(&self) -> Option<i64> {
+    pub(crate) fn deepen_since(&self) -> Option<i64> {
         self.deepen_since
     }
-    pub fn deepen_not(&self) -> &[String] {
+    pub(crate) fn deepen_not(&self) -> &[String] {
         &self.deepen_not
     }
-    pub fn filter_blob_none(&self) -> bool {
+    pub(crate) fn filter_blob_none(&self) -> bool {
         match self.filter.as_deref() {
             Some(s) => s.trim() == "blob:none",
             None => false,
         }
     }
-    pub fn filter_tree_depth(&self) -> Option<u32> {
+    pub(crate) fn filter_tree_depth(&self) -> Option<u32> {
         match self.filter.as_deref() {
             Some(s) if s.starts_with("tree:") => s[5..].parse::<u32>().ok(),
             _ => None,
         }
     }
-    pub fn filter_blob_limit(&self) -> Option<usize> {
+    pub(crate) fn filter_blob_limit(&self) -> Option<usize> {
         match self.filter.as_deref() {
             Some(s) if s.starts_with("blob:limit=") => {
                 let v = &s[11..];

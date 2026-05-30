@@ -27,35 +27,35 @@ pub(crate) const RECEIVE_ZERO_OID: &str = ZERO_OID;
 
 /// A single parsed ref-update command from a receive-pack request.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReceivePackCommand {
-    pub old_oid: String,
-    pub new_oid: String,
-    pub ref_name: String,
+pub(crate) struct ReceivePackCommand {
+    pub(crate) old_oid: String,
+    pub(crate) new_oid: String,
+    pub(crate) ref_name: String,
 }
 
 /// The full set of ref-update commands plus the negotiated capabilities and
 /// the byte length of the trailing packfile section.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReceivePackCommandSet {
-    pub commands: Vec<ReceivePackCommand>,
-    pub capabilities: ReceivePackCapabilities,
-    pub pack_bytes: usize,
+pub(crate) struct ReceivePackCommandSet {
+    pub(crate) commands: Vec<ReceivePackCommand>,
+    pub(crate) capabilities: ReceivePackCapabilities,
+    pub(crate) pack_bytes: usize,
 }
 
 /// Capabilities advertised by the client on the first command line.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ReceivePackCapabilities {
-    pub report_status: bool,
-    pub report_status_v2: bool,
-    pub object_format: Option<String>,
-    pub agent: Option<String>,
+pub(crate) struct ReceivePackCapabilities {
+    pub(crate) report_status: bool,
+    pub(crate) report_status_v2: bool,
+    pub(crate) object_format: Option<String>,
+    pub(crate) agent: Option<String>,
 }
 
 /// Parse the pkt-line command list of a receive-pack request.
 ///
 /// Parsing stops at the first flush packet (`0000`); the trailing raw packfile
 /// is not consumed, only measured (`pack_bytes`).
-pub fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
+pub(crate) fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
     let mut offset = 0usize;
     let mut commands = Vec::new();
     let mut capabilities = ReceivePackCapabilities::default();
@@ -181,14 +181,14 @@ pub(crate) fn validate_receive_pack_ref(ref_name: &str) -> anyhow::Result<()> {
 /// The classification of a single ref-update command independent of any
 /// repository state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandKind {
+pub(crate) enum CommandKind {
     Create,
     Delete,
     Update,
 }
 
 /// Classify a command by its old/new oids.
-pub fn classify_command(command: &ReceivePackCommand) -> CommandKind {
+pub(crate) fn classify_command(command: &ReceivePackCommand) -> CommandKind {
     let old_zero = command.old_oid == RECEIVE_ZERO_OID;
     let new_zero = command.new_oid == RECEIVE_ZERO_OID;
     match (old_zero, new_zero) {
@@ -201,7 +201,7 @@ pub fn classify_command(command: &ReceivePackCommand) -> CommandKind {
 /// The observed state of a ref in the repository at the time the precondition
 /// is evaluated.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RefState {
+pub(crate) enum RefState {
     /// The ref does not currently exist.
     Absent,
     /// The ref currently points at this oid (hex).
@@ -211,7 +211,7 @@ pub enum RefState {
 /// The decision for a single command after evaluating its precondition against
 /// the observed ref state and (for updates) the fast-forward relationship.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommandDecision {
+pub(crate) enum CommandDecision {
     /// The update is accepted and should be staged into the ref transaction.
     Accept,
     /// The update is rejected; carries the `report-status` reason string.
@@ -224,7 +224,7 @@ pub enum CommandDecision {
 /// convenient (e.g. `false`) for creates and deletes. `force` reserves the
 /// fast-forward override that a future `+`-prefixed / per-command force flag
 /// will wire in; today no force flag is parsed, so callers pass `false`.
-pub fn decide_command(
+pub(crate) fn decide_command(
     command: &ReceivePackCommand,
     state: &RefState,
     is_fast_forward: bool,
@@ -266,7 +266,7 @@ struct EvaluatedCommand {
 }
 
 /// POST /.../git-receive-pack — accept a push and apply ref updates.
-pub async fn handle_receive_pack<S>(
+pub(crate) async fn handle_receive_pack<S>(
     state: S,
     mut segments: Vec<String>,
     _headers: HeaderMap,
