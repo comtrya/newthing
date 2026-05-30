@@ -195,28 +195,58 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<TempDir, Strin
         .map_err(|e| format!("create temp worktree failed: {e}"))?;
     let base = worktree.path();
 
-    let archive = Command::new("git")
+    let mut archive = Command::new("git")
         .arg("--git-dir")
         .arg(git_dir)
         .arg("archive")
         .arg("--format=tar")
         .arg(ref_name)
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("git archive spawn failed: {e}"))?;
 
     let archive_out = archive
         .stdout
+        .take()
         .ok_or_else(|| "git archive stdout missing".to_string())?;
-    let status = Command::new("tar")
+    let tar_status = Command::new("tar")
         .arg("-x")
         .arg("-C")
         .arg(base)
         .stdin(archive_out)
         .status()
         .map_err(|e| format!("tar spawn failed: {e}"))?;
-    if !status.success() {
-        return Err(format!("git archive | tar -x exited {status:?}"));
+
+    // Reap the `git archive` child whether or not tar succeeded — never
+    // leak the process. If it failed (e.g. unknown ref), surface its
+    // stderr; tar would otherwise see EOF on the pipe and exit 0,
+    // silently producing an empty workdir.
+    let archive_status = archive
+        .wait()
+        .map_err(|e| format!("git archive wait failed: {e}"))?;
+    let archive_stderr = archive
+        .stderr
+        .take()
+        .map(|mut stderr| {
+            use std::io::Read;
+            let mut buf = String::new();
+            let _ = stderr.read_to_string(&mut buf);
+            buf
+        })
+        .unwrap_or_default();
+
+    if !tar_status.success() {
+        return Err(format!(
+            "tar -x exited {tar_status:?} (git archive: {})",
+            archive_stderr.trim()
+        ));
+    }
+    if !archive_status.success() {
+        return Err(format!(
+            "git archive exited {archive_status:?}: {}",
+            archive_stderr.trim()
+        ));
     }
     Ok(worktree)
 }
