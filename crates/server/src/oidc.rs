@@ -176,7 +176,12 @@ pub(crate) trait OidcMetadataProvider: Send + Sync {
 /// so the trait method stays at one argument plus `&self`, and so
 /// adding a new field (e.g. `groups_claim_path` later) doesn't churn
 /// the signature.
-#[derive(Debug)]
+///
+/// Deliberately does NOT derive `Debug`: this struct holds
+/// `client_secret`, `code`, and `redirect_url`, and a stray
+/// `format!("{request:?}")` (or `tracing::debug!(?request)`) would
+/// emit them into application logs. Write a custom `Debug` impl that
+/// redacts secrets if one is ever needed.
 pub(crate) struct OidcCodeExchangeRequest {
     pub metadata: CoreProviderMetadata,
     pub client_id: String,
