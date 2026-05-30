@@ -16,6 +16,7 @@ import { invokeOp, registerCard, registerWidget } from "@comtrya/sdk-core";
 import type {
   CardContribution,
   InvokeOpOptions,
+  OpError,
   OpResult,
   WidgetContribution,
 } from "@comtrya/sdk-core";
@@ -53,7 +54,7 @@ function requireBindings(): PreactBindings {
 
 export interface UseOpSignal<T> {
   data: { value: T | undefined };
-  error: { value: unknown | undefined };
+  error: { value: OpError | undefined };
   pending: { value: boolean };
   run: (input?: unknown) => Promise<OpResult<T>>;
 }
@@ -66,7 +67,7 @@ export function useOp<T = unknown>(
 ): UseOpSignal<T> {
   const { signal } = requireBindings();
   const data = signal<T | undefined>(undefined);
-  const error = signal<unknown | undefined>(undefined);
+  const error = signal<OpError | undefined>(undefined);
   const pending = signal(false);
   const run = async (input?: unknown): Promise<OpResult<T>> => {
     pending.value = true;
