@@ -794,9 +794,7 @@ impl Runtime {
         runtime
             .wasm_registry
             .resolve_extension_point_bindings()
-            .map_err(|error| {
-                format!("failed to resolve extension point bindings: {error}")
-            })?;
+            .map_err(|error| format!("failed to resolve extension point bindings: {error}"))?;
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))

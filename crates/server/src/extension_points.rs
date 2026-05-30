@@ -211,7 +211,12 @@ mod tests {
     #[test]
     fn resolves_consumer_to_provider_ops() {
         let decls = vec![
-            provider("ext_issues", "issue-membership", 1, &["issues.state-counts-for-refs-issue"]),
+            provider(
+                "ext_issues",
+                "issue-membership",
+                1,
+                &["issues.state-counts-for-refs-issue"],
+            ),
             consumer("ext_epics", "ext_issues", "issue-membership", 1),
         ];
         let bindings = resolve_bindings(&decls).expect("resolve");
@@ -235,7 +240,12 @@ mod tests {
     #[test]
     fn version_mismatch_fails_closed() {
         let decls = vec![
-            provider("ext_issues", "issue-membership", 2, &["issues.state-counts-for-refs-issue"]),
+            provider(
+                "ext_issues",
+                "issue-membership",
+                2,
+                &["issues.state-counts-for-refs-issue"],
+            ),
             consumer("ext_epics", "ext_issues", "issue-membership", 1),
         ];
         let err = resolve_bindings(&decls).expect_err("must fail: v1 != v2");
@@ -248,7 +258,12 @@ mod tests {
         // ops. ext_epics required ext_issues' point; the superset from
         // ext_evil must not leak into ext_epics' bindings.
         let decls = vec![
-            provider("ext_issues", "issue-membership", 1, &["issues.state-counts-for-refs-issue"]),
+            provider(
+                "ext_issues",
+                "issue-membership",
+                1,
+                &["issues.state-counts-for-refs-issue"],
+            ),
             provider(
                 "ext_evil",
                 "issue-membership",
@@ -270,8 +285,16 @@ mod tests {
         let decls = vec![ExtensionPointDecls {
             id: "ext_issues".to_string(),
             provides: vec![
-                ProvidedPoint { id: "p".to_string(), version: 1, ops: vec!["i.a".to_string()] },
-                ProvidedPoint { id: "p".to_string(), version: 1, ops: vec!["i.b".to_string()] },
+                ProvidedPoint {
+                    id: "p".to_string(),
+                    version: 1,
+                    ops: vec!["i.a".to_string()],
+                },
+                ProvidedPoint {
+                    id: "p".to_string(),
+                    version: 1,
+                    ops: vec!["i.b".to_string()],
+                },
             ],
             requires: vec![],
         }];
@@ -287,8 +310,16 @@ mod tests {
                 id: "ext_epics".to_string(),
                 provides: vec![],
                 requires: vec![
-                    RequiredPoint { provider: "ext_issues".into(), point: "p".into(), version: 1 },
-                    RequiredPoint { provider: "ext_issues".into(), point: "p".into(), version: 1 },
+                    RequiredPoint {
+                        provider: "ext_issues".into(),
+                        point: "p".into(),
+                        version: 1,
+                    },
+                    RequiredPoint {
+                        provider: "ext_issues".into(),
+                        point: "p".into(),
+                        version: 1,
+                    },
                 ],
             },
         ];
@@ -302,13 +333,29 @@ mod tests {
         let decls = vec![
             ExtensionPointDecls {
                 id: "ext_a".to_string(),
-                provides: vec![ProvidedPoint { id: "pa".into(), version: 1, ops: vec!["a.op".into()] }],
-                requires: vec![RequiredPoint { provider: "ext_b".into(), point: "pb".into(), version: 1 }],
+                provides: vec![ProvidedPoint {
+                    id: "pa".into(),
+                    version: 1,
+                    ops: vec!["a.op".into()],
+                }],
+                requires: vec![RequiredPoint {
+                    provider: "ext_b".into(),
+                    point: "pb".into(),
+                    version: 1,
+                }],
             },
             ExtensionPointDecls {
                 id: "ext_b".to_string(),
-                provides: vec![ProvidedPoint { id: "pb".into(), version: 1, ops: vec!["b.op".into()] }],
-                requires: vec![RequiredPoint { provider: "ext_a".into(), point: "pa".into(), version: 1 }],
+                provides: vec![ProvidedPoint {
+                    id: "pb".into(),
+                    version: 1,
+                    ops: vec!["b.op".into()],
+                }],
+                requires: vec![RequiredPoint {
+                    provider: "ext_a".into(),
+                    point: "pa".into(),
+                    version: 1,
+                }],
             },
         ];
         let err = resolve_bindings(&decls).expect_err("cycle");

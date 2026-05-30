@@ -1939,9 +1939,7 @@ mod tests {
                 host_imports: vec!["storage.write".to_string()],
                 ..HostManifest::default()
             }),
-            extension_point_bindings: Arc::new(
-                crate::extension_points::ConsumerBindings::default(),
-            ),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -2270,9 +2268,7 @@ mod tests {
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
-            extension_point_bindings: Arc::new(
-                crate::extension_points::ConsumerBindings::default(),
-            ),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
@@ -2386,9 +2382,7 @@ mod tests {
                 ],
                 ..HostManifest::default()
             }),
-            extension_point_bindings: Arc::new(
-                crate::extension_points::ConsumerBindings::default(),
-            ),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -2711,9 +2705,7 @@ mod m1_ext_issues_smoke {
             current_principal: "comtrya://user/usr_test".to_string(),
             store: store_arc,
             manifest,
-            extension_point_bindings: Arc::new(
-                crate::extension_points::ConsumerBindings::default(),
-            ),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
             log_sink: Arc::new(TracingLogSink),

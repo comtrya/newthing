@@ -118,6 +118,9 @@ mod tests {
         ]);
         let mut descriptors: Vec<&str> = table.op_descriptors().collect();
         descriptors.sort_unstable();
-        assert_eq!(descriptors, vec!["issues.by-refs-issue", "issues.open-issue"]);
+        assert_eq!(
+            descriptors,
+            vec!["issues.by-refs-issue", "issues.open-issue"]
+        );
     }
 }

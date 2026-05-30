@@ -1345,7 +1345,10 @@ mod tests {
         }))];
         let table = route_table_from_wire("ext_issues", &routes).expect("build table");
         assert_eq!(
-            table.get("issues", "by-refs-issue").expect("route present").scope,
+            table
+                .get("issues", "by-refs-issue")
+                .expect("route present")
+                .scope,
             crate::route_scope::DispatchScope::Instance
         );
     }
@@ -1470,11 +1473,9 @@ mod tests {
                   "derive": { "strategy": "payloadField" } }
             ]
         });
-        let err = validate_manifest_against_schema(
-            &bad,
-            std::path::Path::new("test://no-field.json"),
-        )
-        .expect_err("schema must reject a payloadField derive with no field");
+        let err =
+            validate_manifest_against_schema(&bad, std::path::Path::new("test://no-field.json"))
+                .expect_err("schema must reject a payloadField derive with no field");
         assert!(err.contains("schema validation"), "error: {err}");
     }
 
@@ -1849,7 +1850,6 @@ mod tests {
         assert!(matches!(denied.code, wit_types::ErrorCode::Forbidden));
     }
 
-
     #[test]
     fn registry_registers_and_routes_wasm_reactor_subscriptions() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2140,7 +2140,9 @@ mod tests {
         for id in ["ext_issues", "ext_epics", "ext_pull_requests"] {
             let root = first_party_root(id);
             if !root.join(format!("dist/{id}.wasm")).is_file() {
-                eprintln!("SKIP first_party_extension_points_resolve_expected_bindings: build {id}");
+                eprintln!(
+                    "SKIP first_party_extension_points_resolve_expected_bindings: build {id}"
+                );
                 return;
             }
             registry
@@ -2167,9 +2169,11 @@ mod tests {
 
         // A provider that requires nothing has no binding entry, and so
         // permits no cross-calls at all.
-        assert!(!registry
-            .consumer_bindings("ext_issues")
-            .permits("ext_epics", "epics.get-epic"));
+        assert!(
+            !registry
+                .consumer_bindings("ext_issues")
+                .permits("ext_epics", "epics.get-epic")
+        );
     }
 
     /// An unresolved `requiresExtensionPoints` aborts the load (fail
