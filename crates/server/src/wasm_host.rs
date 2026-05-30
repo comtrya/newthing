@@ -1601,19 +1601,38 @@ impl wit_comments::Host for HostState {
         if body_markdown.len() > 64 * 1024 {
             return Err(err(wit_types::ErrorCode::BadInput, "body must be <= 64KiB"));
         }
-        // Parent-cycle / non-existent-parent check.
+        // Parent existence + scope check. The lookup mirrors the
+        // defense-in-depth `owner_extension == "core"` filter that
+        // `comments::thread` and `comments::edit` apply (no
+        // attacker-injected record with the same id can satisfy
+        // it), AND verifies the parent belongs to the same target —
+        // without that, a posted comment could thread itself under
+        // an unrelated thread's parent, letting an extension stitch
+        // its reply into a conversation the post's `target` never
+        // belonged to.
         if let Some(parent_id) = &parent {
             let records = self
                 .store
                 .load_records()
                 .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-            if !records
-                .iter()
-                .any(|r| r.collection == "comments" && r.id == *parent_id)
-            {
+            let parent_record = records.iter().find(|r| {
+                r.collection == "comments" && r.owner_extension == "core" && r.id == *parent_id
+            });
+            let Some(parent_record) = parent_record else {
                 return Err(err(
                     wit_types::ErrorCode::BadInput,
                     "parent comment does not exist",
+                ));
+            };
+            let parent_target = parent_record
+                .data
+                .get("target")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if parent_target != target {
+                return Err(err(
+                    wit_types::ErrorCode::BadInput,
+                    "parent comment belongs to a different target",
                 ));
             }
         }
