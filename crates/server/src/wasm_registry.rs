@@ -38,6 +38,10 @@ pub struct LoadedExtension {
     pub principal: String,
     pub manifest: Arc<HostManifest>,
     pub route_table: Arc<crate::route_scope::RouteTable>,
+    /// Extension points this extension exposes for others to invoke.
+    pub provides: Arc<Vec<crate::extension_points::ProvidedPoint>>,
+    /// Extension points this extension depends on from others.
+    pub requires: Arc<Vec<crate::extension_points::RequiredPoint>>,
     pub component: Component,
 }
 
@@ -161,6 +165,14 @@ pub struct WasmRegistry {
     pub linker: Arc<Linker<HostState>>,
     pub extensions: Arc<RwLock<BTreeMap<String, Arc<LoadedExtension>>>>,
     pub reactor_subscriptions: Arc<RwLock<BTreeMap<String, Vec<String>>>>,
+    /// Resolved per-consumer synchronous cross-call authorisations, keyed
+    /// by consumer extension id. Populated by
+    /// `resolve_extension_point_bindings` after every extension is
+    /// registered (a consumer's providers may load in any order). Empty
+    /// until then — `HostState::invoke` reads a missing entry as "no
+    /// cross-calls permitted", failing closed.
+    pub extension_point_bindings:
+        Arc<RwLock<BTreeMap<String, Arc<crate::extension_points::ConsumerBindings>>>>,
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -201,6 +213,7 @@ impl WasmRegistry {
             linker: Arc::new(linker),
             extensions: Arc::new(RwLock::new(BTreeMap::new())),
             reactor_subscriptions: Arc::new(RwLock::new(BTreeMap::new())),
+            extension_point_bindings: Arc::new(RwLock::new(BTreeMap::new())),
             authz: Arc::new(SimpleAuthz),
             clock: Arc::new(SystemClock),
             log_sink: Arc::new(TracingLogSink),
@@ -256,6 +269,20 @@ impl WasmRegistry {
                 ));
             }
         }
+        // Likewise cross-check that every op a `providesExtensionPoints`
+        // entry exposes is a real WIT export of this provider, so a typo in
+        // a point's `ops` fails the load rather than surfacing as a
+        // NotFound when a consumer eventually invokes it.
+        for point in &wire.provides_extension_points {
+            for op in &point.ops {
+                if crate::generated_dispatch::dispatch_wit_route(&id, op).is_none() {
+                    return Err(format!(
+                        "{id} extension point '{}' v{} exposes op '{op}' which is not a WIT export",
+                        point.id, point.version
+                    ));
+                }
+            }
+        }
         // Register the extension's declared kinds with the minter,
         // honouring the prefix declared in each `contributes.resourceKinds[]`
         // entry. The `HostManifest` flattens to kind names; the minter
@@ -267,6 +294,8 @@ impl WasmRegistry {
             principal: format!("comtrya://extension/{}", id),
             manifest: Arc::new(host_manifest),
             route_table: Arc::new(route_table),
+            provides: Arc::new(provided_points_from_wire(&wire)),
+            requires: Arc::new(required_points_from_wire(&wire)),
             component,
         });
         let mut exts = self
@@ -377,6 +406,50 @@ impl WasmRegistry {
         self.extensions
             .read()
             .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Resolve every consumer's `requiresExtensionPoints` against the
+    /// `providesExtensionPoints` of all registered extensions, building the
+    /// immutable per-consumer cross-call binding table. Call once after all
+    /// extensions are registered (providers may load in any order). Fails
+    /// closed: any unresolved requirement, duplicate declaration, or
+    /// requirement cycle aborts the load.
+    pub fn resolve_extension_point_bindings(&self) -> Result<(), String> {
+        let decls: Vec<crate::extension_points::ExtensionPointDecls> = self
+            .extensions
+            .read()
+            .map_err(|e| format!("registry read lock: {e}"))?
+            .values()
+            .map(|ext| crate::extension_points::ExtensionPointDecls {
+                id: ext.id.clone(),
+                provides: (*ext.provides).clone(),
+                requires: (*ext.requires).clone(),
+            })
+            .collect();
+        let resolved = crate::extension_points::resolve_bindings(&decls)?;
+        let mut slot = self
+            .extension_point_bindings
+            .write()
+            .map_err(|e| format!("binding table write lock: {e}"))?;
+        *slot = resolved
+            .into_iter()
+            .map(|(consumer, bindings)| (consumer, Arc::new(bindings)))
+            .collect();
+        Ok(())
+    }
+
+    /// The resolved synchronous cross-call bindings for `consumer`. A
+    /// consumer with no resolved bindings (none declared, or resolution
+    /// has not run) gets an empty set that permits no cross-calls.
+    pub fn consumer_bindings(
+        &self,
+        consumer: &str,
+    ) -> Arc<crate::extension_points::ConsumerBindings> {
+        self.extension_point_bindings
+            .read()
+            .ok()
+            .and_then(|slot| slot.get(consumer).cloned())
             .unwrap_or_default()
     }
 
@@ -780,7 +853,9 @@ struct WireManifest {
     #[serde(default)]
     allowed_event_reads: Vec<String>,
     #[serde(default)]
-    allowed_cross_calls: Vec<String>,
+    provides_extension_points: Vec<WireProvidedPoint>,
+    #[serde(default)]
+    requires_extension_points: Vec<WireRequiredPoint>,
     #[serde(default)]
     reactor: WireReactor,
     #[serde(default)]
@@ -837,6 +912,27 @@ impl From<WireScope> for crate::wasm_host::ContributionScope {
             WireScope::Instance => crate::wasm_host::ContributionScope::Instance,
         }
     }
+}
+
+/// A `providesExtensionPoints` entry on the wire: a named, versioned set
+/// of ops the extension exposes for other extensions to synchronously
+/// invoke.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireProvidedPoint {
+    id: String,
+    version: u32,
+    ops: Vec<String>,
+}
+
+/// A `requiresExtensionPoints` entry on the wire: an exact provider point
+/// + version this extension depends on.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireRequiredPoint {
+    provider: String,
+    point: String,
+    version: u32,
 }
 
 /// A per-op dispatch-route declaration on the wire. `op` is the canonical
@@ -905,11 +1001,32 @@ fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifes
     })
 }
 
+fn provided_points_from_wire(wire: &WireManifest) -> Vec<crate::extension_points::ProvidedPoint> {
+    wire.provides_extension_points
+        .iter()
+        .map(|p| crate::extension_points::ProvidedPoint {
+            id: p.id.clone(),
+            version: p.version,
+            ops: p.ops.clone(),
+        })
+        .collect()
+}
+
+fn required_points_from_wire(wire: &WireManifest) -> Vec<crate::extension_points::RequiredPoint> {
+    wire.requires_extension_points
+        .iter()
+        .map(|r| crate::extension_points::RequiredPoint {
+            provider: r.provider.clone(),
+            point: r.point.clone(),
+            version: r.version,
+        })
+        .collect()
+}
+
 fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {
     HostManifest {
         allowed_emits: wire.allowed_emits.clone(),
         allowed_event_reads: wire.allowed_event_reads.clone(),
-        allowed_cross_calls: wire.allowed_cross_calls.clone(),
         reactor_subscribes: wire.reactor.subscribes.clone(),
         reactor_allowed_mutations: wire.reactor.allowed_mutations.clone(),
         reactor_allowed_emits: wire.reactor.allowed_emits.clone(),
@@ -971,6 +1088,7 @@ pub fn build_host_state(
         current_principal: current_principal.to_string(),
         store,
         manifest: ext.manifest.clone(),
+        extension_point_bindings: registry.consumer_bindings(&ext.id),
         clock: registry.clock.clone(),
         id_minter: registry.id_minter.clone(),
         log_sink: registry.log_sink.clone(),
@@ -1796,6 +1914,94 @@ mod tests {
         Ok(())
     }
 
+    fn first_party_root(id: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party")
+            .join(id)
+    }
+
+    /// The real first-party manifests resolve into the expected cross-call
+    /// bindings: ext_epics→ext_issues (issue-membership) and
+    /// ext_pull_requests→ext_issues (issue-linkage). Exercises the full
+    /// load + two-pass resolution path against the shipped wasm + manifests.
+    #[test]
+    fn first_party_extension_points_resolve_expected_bindings() {
+        let registry = WasmRegistry::new().expect("build registry");
+        for id in ["ext_issues", "ext_epics", "ext_pull_requests"] {
+            let root = first_party_root(id);
+            if !root.join(format!("dist/{id}.wasm")).is_file() {
+                eprintln!("SKIP first_party_extension_points_resolve_expected_bindings: build {id}");
+                return;
+            }
+            registry
+                .register_from_manifest(&root)
+                .unwrap_or_else(|e| panic!("register {id}: {e}"));
+        }
+        registry
+            .resolve_extension_point_bindings()
+            .expect("first-party requirements must resolve");
+
+        let epics = registry.consumer_bindings("ext_epics");
+        assert!(
+            epics.permits("ext_issues", "issues.state-counts-for-refs-issue"),
+            "ext_epics must reach the issue-membership op"
+        );
+        assert!(
+            !epics.permits("ext_issues", "issues.close-issue"),
+            "ext_epics must NOT reach an op outside its required point"
+        );
+
+        let pulls = registry.consumer_bindings("ext_pull_requests");
+        assert!(pulls.permits("ext_issues", "issues.close-issue"));
+        assert!(pulls.permits("ext_issues", "issues.by-ref-issue"));
+
+        // A provider that requires nothing has no binding entry, and so
+        // permits no cross-calls at all.
+        assert!(!registry
+            .consumer_bindings("ext_issues")
+            .permits("ext_epics", "epics.get-epic"));
+    }
+
+    /// An unresolved `requiresExtensionPoints` aborts the load (fail
+    /// closed) rather than silently leaving the consumer unable to call.
+    #[test]
+    fn resolve_extension_point_bindings_fails_closed_on_unknown_provider() {
+        let src = first_party_root("ext_epics");
+        if !src.join("dist/ext_epics.wasm").is_file() {
+            eprintln!("SKIP resolve_extension_point_bindings_fails_closed: build ext_epics");
+            return;
+        }
+        // Copy ext_epics and point its requirement at a provider we do not
+        // load, so resolution cannot satisfy it.
+        let tmp = tempdir_for_test("comtrya-unresolved");
+        let dst = tmp.join("ext_epics");
+        copy_dir_recursive(&src, &dst).expect("copy ext_epics");
+        let manifest_path = dst.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["requiresExtensionPoints"] = serde_json::json!([
+            { "provider": "ext_absent", "point": "nope", "version": 1 }
+        ]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&dst)
+            .expect("register (load succeeds; resolution is the gate)");
+        let err = registry
+            .resolve_extension_point_bindings()
+            .expect_err("unresolved requirement must fail the resolution pass");
+        assert!(
+            err.contains("no loaded extension provides"),
+            "unexpected error: {err}"
+        );
+    }
+
     /// A repository-scoped op against a repo that has NOT opted into the
     /// extension is rejected with Forbidden, before any work is done.
     #[test]
@@ -2088,6 +2294,8 @@ mod tests {
             principal: original.principal.clone(),
             manifest: Arc::new(manifest),
             route_table: original.route_table.clone(),
+            provides: original.provides.clone(),
+            requires: original.requires.clone(),
             component: original.component.clone(),
         });
         registry
@@ -2322,13 +2530,15 @@ mod tests {
             current_principal: "comtrya://user/usr_real_invoke_test".to_string(),
             store: store.clone(),
             manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec![
-                    "ext_issues/issues.open-issue".to_string(),
-                    "ext_issues/issues.close-issue".to_string(),
-                ],
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([
+                    ("ext_issues", "issues.open-issue"),
+                    ("ext_issues", "issues.close-issue"),
+                ]),
+            ),
             clock: registry.clock.clone(),
             id_minter: registry.id_minter.clone(),
             log_sink: registry.log_sink.clone(),

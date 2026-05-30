@@ -104,6 +104,10 @@ pub struct HostState {
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     /// Manifest-declared permissions, parsed at extension load time.
     pub manifest: Arc<HostManifest>,
+    /// Resolved synchronous cross-call authorisations for this extension
+    /// (as consumer): the `(provider, op)` pairs `ops.invoke` may reach,
+    /// derived from `requiresExtensionPoints` at load. Empty permits none.
+    pub extension_point_bindings: Arc<crate::extension_points::ConsumerBindings>,
     /// Diagnostic sink for `log.emit`. Defaults to the kernel's
     /// `tracing` subscriber.
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -157,8 +161,6 @@ pub struct HostManifest {
     pub allowed_emits: Vec<String>,
     /// Extension ids whose events this extension may `read-recent`.
     pub allowed_event_reads: Vec<String>,
-    /// `<target>/<op>` strings this extension may `ops.invoke`.
-    pub allowed_cross_calls: Vec<String>,
     /// Event patterns this extension's reactor may subscribe to.
     pub reactor_subscribes: Vec<String>,
     /// `<target>/<op>` strings reactions may invoke from `on-event`.
@@ -1706,16 +1708,16 @@ impl wit_ops::Host for HostState {
                 format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
             ));
         }
-        let route = format!("{}/{}", target_extension, op);
         if !self
-            .manifest
-            .allowed_cross_calls
-            .iter()
-            .any(|r| r == &route)
+            .extension_point_bindings
+            .permits(&target_extension, &op)
         {
             return Err(err(
                 wit_types::ErrorCode::Forbidden,
-                format!("cross-call '{}' not in allowed-cross-calls", route),
+                format!(
+                    "cross-call '{target_extension}/{op}' is not authorised by any resolved extension point; \
+                     declare a requiresExtensionPoints entry whose provider point includes this op"
+                ),
             ));
         }
         let depth = self.ops_invoke_depth + 1;
@@ -1786,6 +1788,7 @@ pub struct HostStateForOp {
     pub current_principal: String,
     pub store: Arc<ExtensionRuntimeStore>,
     pub manifest: Arc<HostManifest>,
+    pub extension_point_bindings: Arc<crate::extension_points::ConsumerBindings>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -1803,6 +1806,7 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
         store: input.store,
         authz: input.authz,
         manifest: input.manifest,
+        extension_point_bindings: input.extension_point_bindings,
         log_sink: input.log_sink,
         clock: input.clock,
         id_minter: input.id_minter,
@@ -1935,6 +1939,9 @@ mod tests {
                 host_imports: vec!["storage.write".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::default(),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -2144,10 +2151,15 @@ mod tests {
             current_principal: "comtrya://user/usr_ops_test".to_string(),
             store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
             manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([(
+                    "ext_issues",
+                    "issues.close-issue",
+                )]),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
@@ -2234,6 +2246,53 @@ mod tests {
     }
 
     #[test]
+    fn ops_invoke_forbidden_when_bindings_empty() {
+        use std::sync::{Arc, RwLock};
+
+        // `ops` host import IS declared, so this exercises the cross-call
+        // binding gate specifically (not the host-import gate): with no
+        // resolved extension-point bindings, every ops.invoke is Forbidden.
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-empty-bindings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_epics".to_string(),
+            extension_principal: "comtrya://extension/ext_epics".to_string(),
+            current_principal: "comtrya://user/usr_empty_bindings".to_string(),
+            store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
+            manifest: Arc::new(HostManifest {
+                host_imports: vec!["ops".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::default(),
+            ),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+        });
+
+        let forbidden = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.state-counts-for-refs-issue".to_string(),
+            b"[]".to_vec(),
+        )
+        .expect_err("ops.invoke must be Forbidden with no resolved bindings");
+        assert!(matches!(forbidden.code, wit_types::ErrorCode::Forbidden));
+    }
+
+    #[test]
     fn host_imports_gate_linked_interfaces() {
         use std::sync::{Arc, RwLock};
 
@@ -2251,10 +2310,13 @@ mod tests {
             extension_principal: "comtrya://extension/ext_issues".to_string(),
             current_principal: "comtrya://user/usr_imports_test".to_string(),
             store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
-            manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
-                ..HostManifest::default()
-            }),
+            manifest: Arc::new(HostManifest::default()),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([(
+                    "ext_issues",
+                    "issues.close-issue",
+                )]),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
@@ -2324,6 +2386,9 @@ mod tests {
                 ],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::default(),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -2618,7 +2683,6 @@ mod m1_ext_issues_smoke {
                 "dev.comtrya.issues.reopened".into(),
             ],
             allowed_event_reads: vec![],
-            allowed_cross_calls: vec![],
             reactor_subscribes: vec![],
             reactor_allowed_mutations: vec![],
             reactor_allowed_emits: vec![],
@@ -2647,6 +2711,9 @@ mod m1_ext_issues_smoke {
             current_principal: "comtrya://user/usr_test".to_string(),
             store: store_arc,
             manifest,
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::default(),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
             log_sink: Arc::new(TracingLogSink),

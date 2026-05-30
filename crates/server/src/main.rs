@@ -37,6 +37,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 mod config_sync;
 mod cue_config;
+mod extension_points;
 mod oidc;
 mod persistence;
 mod reconcile;
@@ -785,6 +786,17 @@ impl Runtime {
                 runtime.collected_cue_schemas(),
             ),
         ));
+        // Resolve cross-call bindings once, after every extension is
+        // registered (a consumer's providers may load in any order) and
+        // before the server accepts any request. This ordering is a load
+        // invariant: until it runs, `consumer_bindings` returns empty and
+        // every cross-call fails closed.
+        runtime
+            .wasm_registry
+            .resolve_extension_point_bindings()
+            .map_err(|error| {
+                format!("failed to resolve extension point bindings: {error}")
+            })?;
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))

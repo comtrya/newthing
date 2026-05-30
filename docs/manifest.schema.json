@@ -171,10 +171,38 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
       "description": "Extension ids whose events this extension may read via events.read-recent."
     },
-    "allowedCrossCalls": {
+    "providesExtensionPoints": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" },
-      "description": "<target-extension>/<op-name> strings this extension may invoke via ops.invoke."
+      "description": "Named, versioned sets of ops this extension exposes for other extensions to synchronously invoke via ops.invoke. A consumer authorises a cross-call by requiring an exact (provider, point, version).",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "ops"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "version": { "type": "integer", "minimum": 1 },
+          "ops": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$" },
+            "description": "Canonical <interface>.<op> descriptors included in this point."
+          }
+        }
+      }
+    },
+    "requiresExtensionPoints": {
+      "type": "array",
+      "description": "Exact provider extension points this extension depends on. Each is resolved at load against the provider's providesExtensionPoints with an exact integer version match; an unresolved requirement fails the load.",
+      "items": {
+        "type": "object",
+        "required": ["provider", "point", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "point": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      }
     },
     "dispatchRoutes": {
       "type": "array",

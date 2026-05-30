@@ -85,8 +85,20 @@ important v3 fields are:
 - `allowedEmits`: event types the component may append.
 - `allowedEventReads`: ids of other extensions whose events this extension may
   read via `events.read-recent`.
-- `allowedCrossCalls`: cross-extension operation routes allowed through
-  `ops.invoke`.
+- `providesExtensionPoints`: named, versioned sets of ops this extension
+  exposes for others to call synchronously via `ops.invoke`. Each point is
+  `{id, version, ops}` where `ops` are canonical `<interface>.<op>`
+  descriptors. A point is the unit another extension binds to.
+- `requiresExtensionPoints`: exact `{provider, point, version}` entries this
+  extension depends on. At load the kernel resolves every requirement against
+  the providers' `providesExtensionPoints` with an exact integer version
+  match and builds an immutable per-consumer binding table; a synchronous
+  `ops.invoke` is authorised only when a resolved binding includes the
+  `(provider, op)` pair. Resolution is fail-closed: an unresolved
+  requirement, a duplicate declaration, or a requirement cycle aborts the
+  load. (This replaces the former flat `allowedCrossCalls` allowlist.
+  Reactor mutations are a separate, asynchronous path — see
+  `reactor.allowedMutations` — and are not modelled as extension points.)
 - `reactor`: subscription, mutation, emit, and recursion policy for event
   reactions. `reactor.scope` (`"repository"` default, or `"instance"`)
   selects whether event dispatch to this extension is gated per-repository

@@ -42,7 +42,6 @@
   ],
   "allowedEmits": [],
   "allowedEventReads": [],
-  "allowedCrossCalls": [],
   "dispatchRoutes": [
     { "op": "checks.record-check", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
     { "op": "checks.list-checks", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }

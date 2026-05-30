@@ -65,8 +65,8 @@
     "dev.comtrya.epic.project-changed"
   ],
   "allowedEventReads": ["ext_issues"],
-  "allowedCrossCalls": [
-    "ext_issues/issues.state-counts-for-refs-issue"
+  "requiresExtensionPoints": [
+    { "provider": "ext_issues", "point": "issue-membership", "version": 1 }
   ],
   "reactor": {
     "allowedMutations": [],
