@@ -63,7 +63,7 @@ interface CheckRow {
   conclusion?: string;
   required?: boolean;
   repositoryId?: string;
-  commitOid?: string | null;
+  commitOID?: string | null;
   updatedAt?: string | null;
 }
 
@@ -413,7 +413,7 @@ function pullRepoLabel(pull: PullRow): string {
               <span class="title">{{ check.name || "(unnamed)" }}</span>
               <span class="meta">
                 <code class="repo">{{ check.repositoryId ? repoPathById[check.repositoryId] || "—" : "—" }}</code>
-                <code v-if="check.commitOid" class="oid">{{ check.commitOid.slice(0, 7) }}</code>
+                <code v-if="check.commitOID" class="oid">{{ check.commitOID.slice(0, 7) }}</code>
                 <span class="state state-bad">{{ (check.state ?? "").toLowerCase() }}</span>
               </span>
             </div>

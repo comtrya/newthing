@@ -1,10 +1,11 @@
 //! Typed WASM invokers selected by the generated extension-id table.
 //!
 //! `RegistryDispatcher` owns routing, manifest checks, and registry lookup.
-//! This module owns per-extension typed ABI bridges until M5 moves the
-//! boilerplate into codegen for every migrated component.
+//! This module owns per-extension typed host→extension bridges until M5
+//! moves the boilerplate into codegen for every migrated component.
 //!
-//! Cross-extension JSON ABI used by these bridges:
+//! Host↔extension JSON ABI used by these bridges (the `&[u8]` payload and
+//! the `Vec<u8>` result on `ExtensionInvokerFn`):
 //!   * records are JSON objects with camelCase field names and required
 //!     fields matching WIT required fields;
 //!   * issue state variants use lowercase WIT case names
@@ -1617,7 +1618,6 @@ fn check_run_to_json(check: &CheckRun) -> Value {
         "workspaceId": workspace_id,
         "repositoryId": repository_id,
         "commitOID": check.commit_oid,
-        "commitOid": check.commit_oid,
         "name": check.name,
         "state": check_state_to_graphql(check.state),
         "conclusion": check.conclusion,
