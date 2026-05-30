@@ -1,9 +1,18 @@
-//! Git Smart HTTP (protocol v2) server scaffolding.
+//! Git Smart HTTP (protocol v2) server.
 //!
-//! This module will implement read-only Smart HTTP (upload-pack) end-to-end in Rust.
-//! For now, handlers return 501 until filled in incrementally.
+//! Implements a pure-Rust read/write Smart HTTP v2 surface on top of `gix`:
+//! the `info/refs` capability advertisement, the `ls-refs` and `fetch`
+//! upload-pack commands (including `ref-in-want`, shallow/deepen, and a
+//! limited set of object filters), and a `receive-pack` push handler that
+//! ingests the client packfile, verifies object connectivity, and applies
+//! ref updates atomically through a single `gix` reference transaction.
+//!
+//! All HTTP entry points dispatch through [`v2::dispatch`]; the per-suffix
+//! routes (`info/refs`, `git-upload-pack`, `git-receive-pack`) are
+//! distinguished there. The crate exposes no per-route axum handlers — the
+//! embedding server is expected to call [`v2::dispatch`] from its own
+//! catch-all route.
 
-pub mod negotiation;
 pub mod pack;
 pub mod pkt;
 pub mod receive;
