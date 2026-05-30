@@ -355,6 +355,9 @@ pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] = &[
     "repositories",
     "labels",
     "workspaces",
+    "extension_installations",
+    "activity_events",
+    "user_layouts",
 ];
 
 fn is_kernel_owned_collection(collection: &str) -> bool {
@@ -3056,6 +3059,84 @@ mod tests {
                 );
             }
             Ok(()) => panic!("extension must not be able to inject a workspace via storage.create"),
+        }
+    }
+
+    #[test]
+    fn storage_create_rejects_kernel_owned_extension_installations_collection() {
+        // `extension_installations` is kernel-owned: the kernel writes
+        // installation records with `owner_extension == "core"` so the
+        // shell's extension-management surface and the runtime payload
+        // both see the authoritative list. If `storage.write` + `ids`
+        // could mint an id and inject a record under another
+        // `owner_extension`, kernel iterations of
+        // `extension_installations` (filtered to "core" via
+        // `kernel_collection_data`) drop the polluted record on read —
+        // but the storage host import must still reject the write so
+        // the gate matches the rest of the kernel-owned set and
+        // attacker garbage never lands on disk.
+        use std::sync::RwLock;
+        let store = tmp_store("kernel-owned-extension-installations");
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("extension".to_string(), "ext".to_string());
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_attacker".to_string(),
+            extension_principal: "comtrya://extension/ext_attacker".to_string(),
+            current_principal: "comtrya://user/usr_attacker".to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["extension".to_string()],
+                host_imports: vec!["storage.write".to_string(), "ids".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![],
+            )),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        let minted_id = <HostState as wit_ids::Host>::mint(&mut host, "extension".to_string())
+            .expect("mint succeeds with ids host import");
+
+        let payload = serde_json::json!({
+            "id": &minted_id,
+            "extensionID": &minted_id,
+            "name": "hijacked",
+            "status": "ENABLED",
+        });
+        let result = <HostState as wit_storage::Host>::create(
+            &mut host,
+            "extension_installations".to_string(),
+            minted_id,
+            serde_json::to_vec(&payload).unwrap(),
+            wit_storage::DocumentMetadata {
+                resource_uri: "comtrya://extension/forged".to_string(),
+                resource_refs: vec![],
+            },
+        );
+        match result {
+            Err(e) => {
+                assert!(
+                    matches!(e.code, wit_types::ErrorCode::Forbidden),
+                    "expected Forbidden for kernel-owned `extension_installations`, got {e:?}"
+                );
+                assert!(
+                    e.message.contains("kernel-owned"),
+                    "error message should explain the gate: got {:?}",
+                    e.message
+                );
+            }
+            Ok(()) => panic!(
+                "extension must not be able to inject an installation record via storage.create"
+            ),
         }
     }
 
