@@ -30,9 +30,6 @@ impl OciReference {
             OciReference::Digest(d) => d.as_str(),
         }
     }
-    pub fn is_digest(&self) -> bool {
-        matches!(self, OciReference::Digest(_))
-    }
 }
 
 /// A configured extension instance.

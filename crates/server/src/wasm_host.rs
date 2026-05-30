@@ -1535,7 +1535,14 @@ impl wit_comments::Host for HostState {
         let mut matching: Vec<crate::ExtensionDocumentRecord> = records
             .into_iter()
             .filter(|r| {
+                // Defense-in-depth: `comments` is a kernel-owned collection,
+                // so legitimate records always carry `owner_extension == "core"`.
+                // The storage write gate already blocks attacker writes, but
+                // mirroring the same owner filter the relation queries apply
+                // closes any read-path that might surface a non-core record
+                // if the gate were ever bypassed in the future.
                 r.collection == "comments"
+                    && r.owner_extension == "core"
                     && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
             })
             .collect();
@@ -1657,7 +1664,13 @@ impl wit_comments::Host for HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         let record = records
             .iter()
-            .find(|r| r.collection == "comments" && r.id == id_for_lookup)
+            .find(|r| {
+                // Defense-in-depth `owner_extension == "core"` filter:
+                // matches the relation queries so a non-core record with
+                // the same id/collection cannot be returned even if the
+                // kernel-owned write gate were ever bypassed.
+                r.collection == "comments" && r.owner_extension == "core" && r.id == id_for_lookup
+            })
             .ok_or_else(|| {
                 err(
                     wit_types::ErrorCode::NotFound,
