@@ -1,7 +1,7 @@
+use crate::EventOutbox;
 use crate::config::ConfigSnapshot;
 use crate::domain::{Group, Project, Repository, Team, User, Workspace};
 use crate::error::{CoreError, CoreResult};
-use crate::{EventOutbox, JobQueue};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +45,6 @@ pub struct MetadataStore {
     pub projects: BTreeMap<String, Project>,
     pub config_snapshots: Vec<ConfigSnapshot>,
     pub events: EventOutbox,
-    pub jobs: JobQueue,
     pub audit_events: Vec<String>,
     pub secrets_metadata: BTreeMap<String, String>,
 }
@@ -67,7 +66,6 @@ impl MetadataStore {
             projects: BTreeMap::new(),
             config_snapshots: Vec::new(),
             events: EventOutbox::default(),
-            jobs: JobQueue::default(),
             audit_events: Vec::new(),
             secrets_metadata: BTreeMap::new(),
         }
@@ -92,7 +90,7 @@ impl MetadataStore {
 
     pub fn parity_fingerprint(&self) -> String {
         format!(
-            "users:{};teams:{};workspaces:{};groups:{};repos:{};projects:{};events:{};jobs:{}",
+            "users:{};teams:{};workspaces:{};groups:{};repos:{};projects:{};events:{}",
             self.users.len(),
             self.teams.len(),
             self.workspaces.len(),
@@ -100,12 +98,7 @@ impl MetadataStore {
             self.repositories.len(),
             self.projects.len(),
             self.events.all().len(),
-            self.jobs_count(),
         )
-    }
-
-    fn jobs_count(&self) -> usize {
-        self.jobs.len()
     }
 }
 
@@ -142,23 +135,5 @@ mod tests {
         let postgres = MetadataStore::new(MetadataBackend::Postgres);
 
         assert_eq!(sqlite.parity_fingerprint(), postgres.parity_fingerprint());
-    }
-
-    #[test]
-    fn parity_fingerprint_reflects_true_job_count() {
-        // Regression for #79: the fingerprint must distinguish stores with
-        // different job counts; a constant `jobs:0` would hide divergence.
-        let empty = MetadataStore::new(MetadataBackend::Sqlite);
-        let mut with_jobs = MetadataStore::new(MetadataBackend::Sqlite);
-        with_jobs.jobs.enqueue("kind", "default", "{}", 0, 0);
-        with_jobs.jobs.enqueue("kind", "default", "{}", 0, 0);
-
-        assert!(empty.parity_fingerprint().contains("jobs:0"));
-        assert!(with_jobs.parity_fingerprint().contains("jobs:2"));
-        assert_ne!(
-            empty.parity_fingerprint(),
-            with_jobs.parity_fingerprint(),
-            "fingerprint must diverge when job counts differ"
-        );
     }
 }

@@ -11,7 +11,6 @@ pub mod graphql;
 pub mod http;
 pub mod ids;
 pub mod instance_config_eval;
-pub mod jobs;
 pub mod persistence;
 pub mod secrets;
 
@@ -27,6 +26,5 @@ pub use graphql::*;
 pub use http::*;
 pub use ids::*;
 pub use instance_config_eval::*;
-pub use jobs::*;
 pub use persistence::*;
 pub use secrets::*;
