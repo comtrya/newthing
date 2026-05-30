@@ -308,21 +308,6 @@ ABSENT, Chrome MCP ABSENT**. Therefore:
   source endpoint would otherwise be caller-chosen). (Closed by adversarial
   review of the relationship-type slice.)
 
-### Known follow-up (pre-existing, out of scope for the relationship-type slice)
-
-- Symmetric-verb canonicalization is inconsistent: `canonicalize_relation_endpoints`
-  keys symmetry off the hardcoded `CORE_VERBS` table, while the relationship-type
-  registry's `admits` keys off each shape's declared `symmetric` flag. An
-  extension-declared symmetric verb outside `CORE_VERBS` is therefore admitted in
-  both orientations but never canonicalized, so the two orientations persist as
-  distinct un-dedupable edges. Separately, the WASM `relations` host write path
-  does not canonicalize endpoints at all, diverging from the GraphQL path for
-  core symmetric verbs. Both predate this work and are data-dedup consistency
-  issues, not authorisation holes (the symmetric+participation combination that
-  would make them security-relevant is now rejected at load). Fix: drive
-  `verb_is_symmetric` from the registry and share one canonicalization helper
-  across both write paths.
-
 ## 10. Tests (WASM-free unless noted)
 
 Route table parse + each derivation; pre-invoke vs `LoadedSingle` gating
