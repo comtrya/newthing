@@ -463,6 +463,19 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
     }
 }
 
+/// Map the typed `StorageCreateError` to the WIT error-code vocabulary.
+/// `AlreadyExists` becomes `Conflict`; everything else is `Internal`.
+fn storage_create_error_to_wit_error(error: crate::StorageCreateError) -> wit_types::Error {
+    match error {
+        error @ crate::StorageCreateError::AlreadyExists { .. } => {
+            err(wit_types::ErrorCode::Conflict, error.to_string())
+        }
+        crate::StorageCreateError::Internal(message) => {
+            err(wit_types::ErrorCode::Internal, message)
+        }
+    }
+}
+
 /// Map the typed `StorageUpdateError` to the WIT error-code vocabulary
 /// the host exposes to WASM extensions. Keeps the variant-to-code
 /// mapping in one place so every storage-mutation host call agrees on
@@ -849,13 +862,9 @@ impl wit_storage::Host for HostState {
             updated_at: self.clock.now_iso(),
             data: json,
         };
-        self.store.create_document(record).map_err(|e| {
-            if e.contains("already exists") {
-                err(wit_types::ErrorCode::Conflict, e)
-            } else {
-                err(wit_types::ErrorCode::Internal, e)
-            }
-        })?;
+        self.store
+            .create_document(record)
+            .map_err(storage_create_error_to_wit_error)?;
         // Consume the mint — successful storage.create transfers
         // ownership from "minted but un-persisted" to "persisted".
         if !exempt_collection
@@ -1004,8 +1013,12 @@ impl wit_storage::Host for HostState {
             .delete_document(&self.extension_id, &collection, &id)
         {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
-            Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
-            Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
+            Err(crate::StorageDeleteError::NotFound { .. }) => {
+                Ok(wit_types::DeleteResult::WasAbsent)
+            }
+            Err(crate::StorageDeleteError::Internal(message)) => {
+                Err(err(wit_types::ErrorCode::Internal, message))
+            }
         }
     }
 
@@ -1186,7 +1199,7 @@ impl wit_relations::Host for HostState {
         };
         self.store
             .create_document(record.clone())
-            .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
+            .map_err(storage_create_error_to_wit_error)?;
         Ok(wit_relations::CreateResult::Created(record_to_relation(
             &record,
         )))
@@ -1238,8 +1251,12 @@ impl wit_relations::Host for HostState {
         }
         match self.store.delete_document("core", "relations", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
-            Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
-            Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
+            Err(crate::StorageDeleteError::NotFound { .. }) => {
+                Ok(wit_types::DeleteResult::WasAbsent)
+            }
+            Err(crate::StorageDeleteError::Internal(message)) => {
+                Err(err(wit_types::ErrorCode::Internal, message))
+            }
         }
     }
 
@@ -1563,7 +1580,7 @@ impl wit_comments::Host for HostState {
         };
         self.store
             .create_document(record.clone())
-            .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
+            .map_err(storage_create_error_to_wit_error)?;
         Ok(record_to_comment(&record))
     }
 
@@ -1623,8 +1640,12 @@ impl wit_comments::Host for HostState {
         }
         match self.store.delete_document("core", "comments", &id) {
             Ok(()) => Ok(wit_types::DeleteResult::Deleted),
-            Err(e) if e.contains("not found") => Ok(wit_types::DeleteResult::WasAbsent),
-            Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
+            Err(crate::StorageDeleteError::NotFound { .. }) => {
+                Ok(wit_types::DeleteResult::WasAbsent)
+            }
+            Err(crate::StorageDeleteError::Internal(message)) => {
+                Err(err(wit_types::ErrorCode::Internal, message))
+            }
         }
     }
 }
