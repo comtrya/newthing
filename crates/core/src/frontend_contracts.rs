@@ -104,7 +104,7 @@ pub fn extension_asset_response(
     headers.insert("Content-Type".to_string(), content_type.to_string());
     headers.insert(
         "ETag".to_string(),
-        format!("\"{}\"", stable_integrity(body)),
+        format!("\"{}\"", stable_etag_token(body)),
     );
     headers.insert(
         "Content-Security-Policy".to_string(),
@@ -123,13 +123,23 @@ pub fn extension_asset_response(
     })
 }
 
-pub fn stable_integrity(body: &[u8]) -> String {
+/// A 64-bit FNV-1a token used as an opaque cache-busting ETag value.
+/// This is NOT a cryptographic digest — it is not collision-resistant
+/// and must not be used as a content-integrity check. The prefix is
+/// `fnv1a64-` so any consumer that grew dependent on `sha256-` will
+/// loudly fail at the boundary instead of trusting weak entropy
+/// (issue: stable_integrity mislabelled FNV-1a as `sha256-`).
+///
+/// Real content integrity (extension UI bundle entry assets, etc.)
+/// goes through `crates/server/src/main.rs::asset_integrity`, which
+/// computes a real `Sha256::digest`.
+pub fn stable_etag_token(body: &[u8]) -> String {
     let mut hash: u64 = 0xcbf29ce484222325;
     for byte in body {
         hash ^= *byte as u64;
         hash = hash.wrapping_mul(0x100000001b3);
     }
-    format!("sha256-{hash:016x}")
+    format!("fnv1a64-{hash:016x}")
 }
 
 #[cfg(test)]
@@ -143,7 +153,7 @@ mod tests {
             extension: "pull-requests".to_string(),
             assets: UiAssets {
                 entry: "/_extensions/ext_pull_requests/assets/index.js".to_string(),
-                entry_integrity: Some(stable_integrity(b"console.log(1)")),
+                entry_integrity: Some(stable_etag_token(b"console.log(1)")),
                 styles: vec!["/_extensions/ext_pull_requests/assets/styles.css".to_string()],
             },
             routes: vec![UiRoute {
@@ -184,8 +194,8 @@ mod tests {
         assert!(csp.contains("object-src 'none'"));
         assert!(!csp.contains("unsafe-inline"));
         assert_eq!(
-            stable_integrity(&response.body),
-            stable_integrity(b"console.log(1)")
+            stable_etag_token(&response.body),
+            stable_etag_token(b"console.log(1)")
         );
     }
 

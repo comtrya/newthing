@@ -418,6 +418,24 @@ impl OciExtensionFetcher {
                 )
             })?;
 
+        // Post-pull size cap. `check_wasm_layer_size` rejects an
+        // oversized advertised descriptor BEFORE the pull; this
+        // catches the case where a hostile registry streams more
+        // bytes than the descriptor claimed (the digest check above
+        // would already detect this for digest-pinned refs, but a
+        // tag-pinned ref reaches here with only the digest of what
+        // was actually streamed). Belt-and-suspenders so an
+        // attacker-served oversized layer never propagates beyond
+        // this function — issue: no bound on actual streamed layer
+        // bytes during download.
+        if wasm_layer.data.len() as u64 > Self::MAX_WASM_LAYER_BYTES {
+            anyhow::bail!(
+                "OCI image {image_ref} streamed {} bytes, exceeding the {}-byte cap",
+                wasm_layer.data.len(),
+                Self::MAX_WASM_LAYER_BYTES
+            );
+        }
+
         Ok((wasm_layer.data, expected_digest))
     }
 

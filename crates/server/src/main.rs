@@ -1599,6 +1599,35 @@ impl Runtime {
         path: &str,
         clone_from_url: Option<&str>,
     ) -> Result<Value, CreateRepoError> {
+        if let Some(url) = clone_from_url {
+            validate_clone_url(url).map_err(CreateRepoError::BadInput)?;
+        }
+        self.create_repository_document_inner(path, clone_from_url)
+    }
+
+    /// Test-only entry point: load a local repo via `file://` without
+    /// going through the production scheme validator. Production code
+    /// MUST call `create_repository_document` so `file://` and `git://`
+    /// stay rejected (issue: server-side local-filesystem disclosure /
+    /// SSRF against internal git daemons).
+    #[cfg(test)]
+    fn create_repository_document_via_file_for_tests(
+        &self,
+        path: &str,
+        clone_from_url: &str,
+    ) -> Result<Value, CreateRepoError> {
+        assert!(
+            clone_from_url.starts_with("file://"),
+            "test-only entry takes file:// URLs; got {clone_from_url:?}"
+        );
+        self.create_repository_document_inner(path, Some(clone_from_url))
+    }
+
+    fn create_repository_document_inner(
+        &self,
+        path: &str,
+        clone_from_url: Option<&str>,
+    ) -> Result<Value, CreateRepoError> {
         let (segments, canonical) = validate_repo_path(path).map_err(CreateRepoError::BadInput)?;
         let existing = self
             .extension_storage
@@ -1612,9 +1641,6 @@ impl Runtime {
             return Err(CreateRepoError::Conflict(format!(
                 "repository at path {canonical:?} already exists"
             )));
-        }
-        if let Some(url) = clone_from_url {
-            validate_clone_url(url).map_err(CreateRepoError::BadInput)?;
         }
 
         let repo_id = OpaqueId::new(IdPrefix::Repository);
@@ -5597,8 +5623,18 @@ fn clone_bare_repository_on_disk(
     Ok(git_dir)
 }
 
+/// Validate a clone URL supplied to `createRepository`. Rejects
+/// `file://` (server-side local-filesystem disclosure) and `git://`
+/// (unauthenticated, plaintext, used almost exclusively as an SSRF
+/// vector against internal git daemons). Production must use https://
+/// against a remote forge; http:// stays accepted for self-hosted
+/// dev/internal forges that haven't enabled TLS.
+///
+/// Test fixtures bypass this by going through the in-test entry
+/// `create_repository_document_via_clone_for_tests`, which calls
+/// `clone_bare_repository_on_disk` directly with a `file://` source.
 fn validate_clone_url(url: &str) -> Result<(), String> {
-    const ALLOWED_SCHEMES: &[&str] = &["http://", "https://", "git://", "file://"];
+    const ALLOWED_SCHEMES: &[&str] = &["http://", "https://"];
     if !ALLOWED_SCHEMES.iter().any(|scheme| url.starts_with(scheme)) {
         return Err(format!(
             "clone URL must start with one of {ALLOWED_SCHEMES:?}; got {url:?}"
@@ -8033,7 +8069,7 @@ mod tests {
         let source = test_source_repository("source-repository");
         let url = format!("file://{}", source.display());
         runtime
-            .create_repository_document(path, Some(&url))
+            .create_repository_document_via_file_for_tests(path, &url)
             .unwrap()
     }
 
@@ -11265,6 +11301,43 @@ mod tests {
             json!({ "input": { "path": "x/anonymous-poke" } }),
         )
         .await;
+    }
+
+    #[test]
+    fn validate_clone_url_rejects_file_and_git_schemes() {
+        // TNQ round-3 P1: file:// is a server-side local-filesystem
+        // disclosure primitive (git clone --bare file:///etc/...
+        // happily reads any path the kernel can read), and git:// is
+        // unauthenticated + plaintext and almost exclusively used as
+        // an SSRF vector against internal git daemons. Neither has
+        // any legitimate cross-host use today; production must use
+        // https:// (or http:// against a self-hosted forge).
+        for url in &[
+            "file:///etc/passwd",
+            "file:///var/lib/comtrya/data/repositories/private.git",
+            "git://localhost/internal.git",
+            "git://172.31.0.1/internal.git",
+        ] {
+            let result = validate_clone_url(url);
+            assert!(
+                result.is_err(),
+                "expected {url:?} to be rejected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_clone_url_accepts_http_and_https() {
+        for url in &[
+            "https://github.com/comtrya/comtrya.git",
+            "http://forge.internal/mirror.git",
+        ] {
+            let result = validate_clone_url(url);
+            assert!(
+                result.is_ok(),
+                "expected {url:?} to be accepted, got {result:?}"
+            );
+        }
     }
 
     // The dispatch table uses dotted-field GraphQL identifiers
