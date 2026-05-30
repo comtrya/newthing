@@ -75,7 +75,6 @@ fn state_from_str(state: &str) -> CheckState {
         "RUNNING" => CheckState::Running,
         "SUCCESS" => CheckState::Succeeded,
         "FAILURE" => CheckState::Failed,
-        "ACTION_REQUIRED" => CheckState::Failed,
         "SKIPPED" => CheckState::Skipped,
         _ => CheckState::Pending,
     }
