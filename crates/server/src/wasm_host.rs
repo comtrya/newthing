@@ -460,6 +460,25 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
     }
 }
 
+/// Map the typed `StorageUpdateError` to the WIT error-code vocabulary
+/// the host exposes to WASM extensions. Keeps the variant-to-code
+/// mapping in one place so every storage-mutation host call agrees on
+/// what NotFound, VersionConflict, and Internal mean across the
+/// boundary.
+fn storage_update_error_to_wit_error(error: crate::StorageUpdateError) -> wit_types::Error {
+    match error {
+        error @ crate::StorageUpdateError::NotFound { .. } => {
+            err(wit_types::ErrorCode::NotFound, error.to_string())
+        }
+        error @ crate::StorageUpdateError::VersionConflict { .. } => {
+            err(wit_types::ErrorCode::Conflict, error.to_string())
+        }
+        crate::StorageUpdateError::Internal(message) => {
+            err(wit_types::ErrorCode::Internal, message)
+        }
+    }
+}
+
 /// Reject a relation write whose `(kind, source-kind, target-kind)` triple
 /// no loaded extension declares, and enforce any declared
 /// `requiresParticipation` on the source resource's repository. Mirrors
@@ -962,12 +981,7 @@ impl wit_storage::Host for HostState {
         if let Ok(mut tokens) = self.occ_tokens.write() {
             tokens.remove(&token_key);
         }
-        match commit_result {
-            Ok(()) => Ok(()),
-            Err(e) if e.contains("version conflict") => Err(err(wit_types::ErrorCode::Conflict, e)),
-            Err(e) if e.contains("not found") => Err(err(wit_types::ErrorCode::NotFound, e)),
-            Err(e) => Err(err(wit_types::ErrorCode::Internal, e)),
-        }
+        commit_result.map_err(storage_update_error_to_wit_error)
     }
 
     fn delete(
@@ -1193,7 +1207,7 @@ impl wit_relations::Host for HostState {
                     obj.insert("attributes".to_string(), attrs_value);
                 }
             })
-            .map_err(|e| err(wit_types::ErrorCode::NotFound, e))?;
+            .map_err(storage_update_error_to_wit_error)?;
         let records = self
             .store
             .load_records()
@@ -1574,7 +1588,7 @@ impl wit_comments::Host for HostState {
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                 }
             })
-            .map_err(|e| err(wit_types::ErrorCode::NotFound, e))?;
+            .map_err(storage_update_error_to_wit_error)?;
         let records = self
             .store
             .load_records()
