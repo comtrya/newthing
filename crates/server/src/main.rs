@@ -3985,6 +3985,40 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .collect(),
     );
 
+    // Viewer-visible repository IDs from the already-visibility-filtered
+    // `repositories_value` (anonymous callers see PUBLIC-only,
+    // authenticated callers see the full v1 set). The same set gates
+    // BOTH workspace.events AND the viewer.{reviewQueue,authoredPulls,
+    // failingChecks} aggregates — previously the viewer aggregates fed
+    // off the unfiltered runtime payload, leaking PRs/checks for
+    // PRIVATE repos to anonymous callers (issue: graphql_response
+    // leaks all PRs/checks to anonymous via viewer aggregates).
+    let visible_repo_ids: Vec<String> = repositories_value
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+    let intersect_by_repo = |items: &Value| -> Value {
+        let Some(arr) = items.as_array() else {
+            return items.clone();
+        };
+        Value::Array(
+            arr.iter()
+                .filter(|item| {
+                    item.get("repositoryID")
+                        .and_then(Value::as_str)
+                        .map(|id| visible_repo_ids.iter().any(|v| v == id))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect(),
+        )
+    };
+    let visible_pulls = intersect_by_repo(&pull_requests_for_summary);
+    let visible_checks = intersect_by_repo(&checks_for_summary);
+
     // Build the workspace object enriched with the repositoryByPath resolver result,
     // the enriched repositories list, and workspace.events filtered to viewer-accessible repos.
     let workspace = {
@@ -3996,20 +4030,11 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             obj.insert("repositoryByPath".to_string(), repository_by_path);
             obj.insert("repositories".to_string(), enriched_repositories);
 
-            // Compute viewer-visible repository IDs: v1 = all repos in workspace.
-            // TODO: restrict to per-viewer access when auth is real (V3_PLAN federated planner).
-            let all_repo_ids: Vec<String> = repositories_value
-                .as_array()
-                .map(Vec::as_slice)
-                .unwrap_or(&[])
-                .iter()
-                .filter_map(|r| r.get("id").and_then(|v| v.as_str()).map(String::from))
-                .collect();
             let activity_events = runtime_data
                 .get("activity")
                 .cloned()
                 .unwrap_or_else(|| json!([]));
-            let filtered_events = filter_events_for_viewer(&activity_events, &all_repo_ids);
+            let filtered_events = filter_events_for_viewer(&activity_events, &visible_repo_ids);
             // workspace.events: scoped, filtered activity feed (scope fixed to WORKSPACE in v1).
             obj.insert(
                 "events".to_string(),
@@ -4035,9 +4060,12 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         "permissions": viewer_permissions,
         // limit hardcoded to 10 in v1: the JSON-shaped GraphQL handler doesn't parse
         // field arguments. Real argument parsing arrives with the federated planner.
-        "reviewQueue": build_review_queue(&viewer_stub, &pull_requests_for_summary, 10),
-        "authoredPulls": build_authored_pulls(&viewer_stub, &pull_requests_for_summary, 10),
-        "failingChecks": build_failing_checks(&viewer_stub, &checks_for_summary, 10),
+        // The aggregates feed off `visible_pulls`/`visible_checks` so a
+        // PR or check whose repository the viewer cannot read never
+        // surfaces in viewer.* — closes the anonymous read leak.
+        "reviewQueue": build_review_queue(&viewer_stub, &visible_pulls, 10),
+        "authoredPulls": build_authored_pulls(&viewer_stub, &visible_pulls, 10),
+        "failingChecks": build_failing_checks(&viewer_stub, &visible_checks, 10),
     });
 
     json_response(
