@@ -11,9 +11,6 @@ export interface UiManifestV2 {
 export function parseManifest(input: unknown): UiManifestV2 {
   if (!input || typeof input !== "object") throw new Error("manifest must be an object");
   const raw = input as Record<string, unknown>;
-  if (raw.schemaVersion === "comtrya.ui-extension/v1") {
-    throw new Error("v1 manifest is deprecated — migrate to comtrya.ui-extension/v2");
-  }
   if (raw.schemaVersion !== "comtrya.ui-extension/v2") {
     throw new Error(`unsupported manifest schemaVersion: ${String(raw.schemaVersion)}`);
   }
