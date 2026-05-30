@@ -357,6 +357,21 @@ mod tests {
     }
 
     #[test]
+    fn validate_config_dir_rejects_flag_shaped_value() {
+        let error = run(
+            [
+                "validate-config".to_string(),
+                "--dir".to_string(),
+                "--help".to_string(),
+            ],
+            &mut Vec::new(),
+        )
+        .expect_err("--dir followed by a flag should be rejected");
+        assert_eq!(error.exit_code, 2);
+        assert!(error.message.contains("--dir requires a value"));
+    }
+
+    #[test]
     fn generate_config_writes_valid_gitops_config_directory() {
         let dir = temp_path("config");
         write_generated_config(&dir, false).expect("generate config");
