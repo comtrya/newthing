@@ -124,7 +124,7 @@ pub fn render_ts_client(ops: &[OpSpec]) -> String {
     out.push_str(
         "// Re-run `cargo run -p comtrya-wit-codegen -- <ext_id> <wit_dir> <out_dir>` to refresh.\n",
     );
-    out.push_str("// Requires the @comtrya/sdk runtime (`invokeOp`, `OpResult`).\n\n");
+    out.push_str("// Requires the @comtrya/sdk-core runtime (`invokeOp`, `OpResult`).\n\n");
     out.push_str("import { invokeOp, type OpResult } from \"@comtrya/sdk-core\";\n\n");
 
     // Group ops by interface name to produce one namespace per interface.

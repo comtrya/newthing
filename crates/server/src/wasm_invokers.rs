@@ -1643,7 +1643,6 @@ fn check_state_from_json(state: &str) -> Result<CheckState, wit_types::Error> {
         "RUNNING" => Ok(CheckState::Running),
         "SUCCESS" => Ok(CheckState::Succeeded),
         "FAILURE" => Ok(CheckState::Failed),
-        "ACTION_REQUIRED" => Ok(CheckState::Failed),
         "SKIPPED" => Ok(CheckState::Skipped),
         other => Err(wit_error(
             wit_types::ErrorCode::BadInput,

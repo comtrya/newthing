@@ -73,7 +73,6 @@ pub struct StoredGitPersonalAccessToken {
 
 pub struct PersistentStore {
     conn: Mutex<Connection>,
-    #[allow(dead_code)]
     db_path: PathBuf,
 }
 
