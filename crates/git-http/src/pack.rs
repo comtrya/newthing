@@ -163,12 +163,15 @@ pub async fn serve_fetch(
             let line = format!("shallow {}\n", oid);
             let _ = tx.send(Bytes::from(encode_pkt_line(line.as_bytes()))).await;
         }
-        // Commits that were previously shallow on the client but are no longer shallow
+        // Commits that were previously shallow on the client but are no longer shallow.
+        // `client_shallows` is validated to `ObjectId` at parse time (see v2.rs),
+        // so emitting `oid.to_string()` here yields canonical hex with no risk of
+        // injecting newlines / NULs into the wire framing.
         use std::collections::HashSet as HS;
-        let new_set: HS<String> = plan.shallows.iter().map(|o| o.to_string()).collect();
-        for s in req_effective.client_shallows() {
-            if !new_set.contains(s) {
-                let line = format!("unshallow {}\n", s);
+        let new_set: HS<gix::hash::ObjectId> = plan.shallows.iter().copied().collect();
+        for oid in req_effective.client_shallows() {
+            if !new_set.contains(oid) {
+                let line = format!("unshallow {}\n", oid);
                 let _ = tx.send(Bytes::from(encode_pkt_line(line.as_bytes()))).await;
             }
         }
