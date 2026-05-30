@@ -1003,7 +1003,12 @@ impl Runtime {
         let (canon_from, canon_to) = Self::canonicalize_relation_endpoints(from, to, verb_uri);
 
         // Idempotency: return any existing relation matching (canon_from, canon_to, verb).
-        let existing = self.extension_storage.collection_data("relations")?;
+        // Scoped to kernel-owned records so an attacker-injected collection="relations"
+        // record (defense-in-depth against the storage-bypass plugged in wasm_host) cannot
+        // shadow the probe and be returned to the caller as the "existing" relation.
+        let existing = self
+            .extension_storage
+            .kernel_collection_data("relations")?;
         if let Some(array) = existing.as_array() {
             for rel in array {
                 let same_from =
@@ -1054,7 +1059,9 @@ impl Runtime {
     }
 
     fn delete_relation(&self, id: &str) -> Result<bool, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self
+            .extension_storage
+            .kernel_collection_data("relations")?;
         let target = relations.as_array().and_then(|array| {
             array
                 .iter()
@@ -1086,7 +1093,9 @@ impl Runtime {
         ref_uri: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self
+            .extension_storage
+            .kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -1112,7 +1121,9 @@ impl Runtime {
         ref_uri: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self
+            .extension_storage
+            .kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -1139,7 +1150,9 @@ impl Runtime {
         to: &str,
         kind_filter: Option<&str>,
     ) -> Result<Vec<Value>, String> {
-        let relations = self.extension_storage.collection_data("relations")?;
+        let relations = self
+            .extension_storage
+            .kernel_collection_data("relations")?;
         let mut out = Vec::new();
         if let Some(array) = relations.as_array() {
             for rel in array {
@@ -6342,6 +6355,21 @@ impl ExtensionRuntimeStore {
         let values = self
             .query_documents_by_index(collection, &[])?
             .into_iter()
+            .map(|record| record.data)
+            .collect::<Vec<_>>();
+        Ok(Value::Array(values))
+    }
+
+    /// Same as [`collection_data`] but scoped to kernel-owned records
+    /// (`owner_extension == "core"`). The kernel uses this when iterating
+    /// its own collections (e.g. `relations`) so attacker-controlled
+    /// records that share a collection name cannot influence kernel
+    /// idempotency probes or post-write lookups.
+    fn kernel_collection_data(&self, collection: &str) -> Result<Value, String> {
+        let values = self
+            .query_documents_by_index(collection, &[])?
+            .into_iter()
+            .filter(|record| record.owner_extension == "core")
             .map(|record| record.data)
             .collect::<Vec<_>>();
         Ok(Value::Array(values))

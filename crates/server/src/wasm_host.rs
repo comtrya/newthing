@@ -335,6 +335,20 @@ impl LogSink for TracingLogSink {
 /// zone for #25/#26/#29/#32).
 pub(crate) const ANONYMOUS_PRINCIPAL: &str = "comtrya://principal/anonymous";
 
+/// Collections the kernel owns. Extensions must not create records in
+/// these via the generic `storage.*` host imports — the kernel writes
+/// them through dedicated paths that enforce shape/authorization
+/// (e.g. `relations.create` runs the relationship-type shape gate).
+/// Without this gate an extension holding only `storage.write` could
+/// mint an id and call `storage.create(collection: "relations", ...)`
+/// to inject an edge with an undeclared kind, bypassing the gate the
+/// `relations.create` path enforces.
+pub(crate) const KERNEL_OWNED_COLLECTIONS: &[&str] = &["relations"];
+
+fn is_kernel_owned_collection(collection: &str) -> bool {
+    KERNEL_OWNED_COLLECTIONS.contains(&collection)
+}
+
 /// Default authz layer for the kernel: deny anonymous principals on
 /// any non-`.read` permission, allow everyone else through.
 ///
@@ -739,6 +753,17 @@ impl wit_storage::Host for HostState {
         metadata: wit_storage::DocumentMetadata,
     ) -> Result<(), wit_types::Error> {
         self.require_host_import("storage.write")?;
+        if is_kernel_owned_collection(&collection) {
+            return Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!(
+                    "collection '{collection}' is kernel-owned; \
+                     extensions must use the dedicated host imports \
+                     (e.g. `relations.create`) that run the kernel's \
+                     shape/authorization gates instead of `storage.create`"
+                ),
+            ));
+        }
         // Enforce the WIT contract: the id MUST have been minted via
         // ids.mint for this extension. The `_meta` collection is the
         // one exception — counter rows there use a synthetic key
@@ -826,6 +851,12 @@ impl wit_storage::Host for HostState {
         id: wit_types::Id,
     ) -> Result<wit_storage::DocSnapshot, wit_types::Error> {
         self.require_host_import("storage.write")?;
+        if is_kernel_owned_collection(&collection) {
+            return Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!("collection '{collection}' is kernel-owned"),
+            ));
+        }
         let snap = self.get(collection.clone(), id.clone())?;
         let snap = snap.ok_or_else(|| {
             err(
@@ -852,6 +883,12 @@ impl wit_storage::Host for HostState {
         data: Vec<u8>,
     ) -> Result<(), wit_types::Error> {
         self.require_host_import("storage.write")?;
+        if is_kernel_owned_collection(&collection) {
+            return Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!("collection '{collection}' is kernel-owned"),
+            ));
+        }
         let json: Value = serde_json::from_slice(&data).map_err(|e| {
             err(
                 wit_types::ErrorCode::BadInput,
@@ -919,6 +956,12 @@ impl wit_storage::Host for HostState {
         id: wit_types::Id,
     ) -> Result<wit_types::DeleteResult, wit_types::Error> {
         self.require_host_import("storage.write")?;
+        if is_kernel_owned_collection(&collection) {
+            return Err(err(
+                wit_types::ErrorCode::Forbidden,
+                format!("collection '{collection}' is kernel-owned"),
+            ));
+        }
         match self
             .store
             .delete_document(&self.extension_id, &collection, &id)
@@ -1056,7 +1099,7 @@ impl wit_relations::Host for HostState {
             .load_records()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         if let Some(existing) = records.iter().find(|r| {
-            r.collection == "relations"
+            r.collection == "relations" && r.owner_extension == "core"
                 && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                 && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                 && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
@@ -1124,7 +1167,7 @@ impl wit_relations::Host for HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         let record = records
             .iter()
-            .find(|r| r.collection == "relations" && r.id == id_for_lookup)
+            .find(|r| r.collection == "relations" && r.owner_extension == "core" && r.id == id_for_lookup)
             .ok_or_else(|| err(wit_types::ErrorCode::NotFound, "relation gone after update"))?;
         Ok(record_to_relation(record))
     }
@@ -1163,7 +1206,7 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations"
+                r.collection == "relations" && r.owner_extension == "core"
                     && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                     && kind_filter
                         .as_deref()
@@ -1194,7 +1237,7 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations"
+                r.collection == "relations" && r.owner_extension == "core"
                     && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
                         .as_deref()
@@ -1226,7 +1269,7 @@ impl wit_relations::Host for HostState {
         let relations: Vec<wit_relations::Relation> = records
             .iter()
             .filter(|r| {
-                r.collection == "relations"
+                r.collection == "relations" && r.owner_extension == "core"
                     && r.data.get("source").and_then(Value::as_str) == Some(source.as_str())
                     && r.data.get("target").and_then(Value::as_str) == Some(target.as_str())
                     && kind_filter
@@ -2734,6 +2777,165 @@ mod tests {
         )
         .expect("link allowed when repo participates");
         assert!(matches!(created, wit_relations::CreateResult::Created(_)));
+    }
+
+    #[test]
+    fn storage_create_rejects_kernel_owned_relations_collection() {
+        // The relationship-type shape gate guards `relations.create`. An
+        // extension holding only `storage.write` must not be able to mint
+        // an id and then call `storage.create(collection: "relations",
+        // ...)` to inject an edge with an undeclared kind, which would
+        // bypass the gate. Kernel-owned collection names are rejected at
+        // the storage host import boundary.
+        use std::sync::RwLock;
+        let store = tmp_store("kernel-owned-collection");
+        let mut kinds = std::collections::BTreeMap::new();
+        kinds.insert("relation".to_string(), "rel".to_string());
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_attacker".to_string(),
+            extension_principal: "comtrya://extension/ext_attacker".to_string(),
+            current_principal: "comtrya://user/usr_attacker".to_string(),
+            store,
+            manifest: Arc::new(HostManifest {
+                contributes_resource_kinds: vec!["relation".to_string()],
+                host_imports: vec!["storage.write".to_string(), "ids".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::new(vec![]),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        let minted_id = <HostState as wit_ids::Host>::mint(&mut host, "relation".to_string())
+            .expect("mint succeeds with ids.mint host import");
+
+        let payload = serde_json::json!({
+            "id": &minted_id,
+            "kind": "comtrya://rel/blocks",
+            "source": "comtrya://issue/iss_a",
+            "target": "comtrya://issue/iss_b",
+            "from": "comtrya://issue/iss_a",
+            "to": "comtrya://issue/iss_b",
+        });
+        let result = <HostState as wit_storage::Host>::create(
+            &mut host,
+            "relations".to_string(),
+            minted_id,
+            serde_json::to_vec(&payload).unwrap(),
+            wit_storage::DocumentMetadata {
+                resource_uri: "comtrya://relation/forged".to_string(),
+                resource_refs: vec![],
+            },
+        );
+        match result {
+            Err(e) => {
+                assert!(
+                    matches!(e.code, wit_types::ErrorCode::Forbidden),
+                    "expected Forbidden for kernel-owned collection, got {e:?}"
+                );
+                assert!(
+                    e.message.contains("kernel-owned"),
+                    "error message should explain the gate: got {:?}",
+                    e.message
+                );
+            }
+            Ok(()) => panic!(
+                "extension must not be able to inject into the kernel-owned \
+                 `relations` collection via storage.create"
+            ),
+        }
+    }
+
+    #[test]
+    fn relation_queries_ignore_non_core_records_with_relations_collection_name() {
+        // Defense in depth: if a record with `collection == "relations"`
+        // and a non-`core` owner ever reaches the store (e.g. through a
+        // future regression in the storage gate or a direct persistence
+        // path), the relation queries must NOT surface it. The kernel
+        // owns the `relations` namespace; only records authored by
+        // `owner_extension == "core"` count as relations.
+        let store = tmp_store("relation-owner-filter");
+        // Forge a poisoned record directly via the persistent store,
+        // bypassing the storage gate to simulate the defense scenario.
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_attacker".to_string(),
+                collection: "relations".to_string(),
+                id: "rel_forged".to_string(),
+                resource: "comtrya://relation/rel_forged".to_string(),
+                resource_refs: vec![
+                    "comtrya://issue/iss_a".to_string(),
+                    "comtrya://issue/iss_b".to_string(),
+                ],
+                visibility: "private".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({
+                    "id": "rel_forged",
+                    "kind": "comtrya://rel/blocks",
+                    "source": "comtrya://issue/iss_a",
+                    "target": "comtrya://issue/iss_b",
+                    "from": "comtrya://issue/iss_a",
+                    "to": "comtrya://issue/iss_b",
+                }),
+            })
+            .expect("seed poisoned record");
+
+        let mut host = host_with_principal(store, "comtrya://user/usr_probe");
+
+        let outgoing = <HostState as wit_relations::Host>::outgoing(
+            &mut host,
+            "comtrya://issue/iss_a".to_string(),
+            None,
+            10,
+            None,
+        )
+        .expect("outgoing query succeeds");
+        assert!(
+            outgoing.relations.is_empty(),
+            "poisoned non-core record must not surface in `outgoing`: {:?}",
+            outgoing.relations
+        );
+
+        let incoming = <HostState as wit_relations::Host>::incoming(
+            &mut host,
+            "comtrya://issue/iss_b".to_string(),
+            None,
+            10,
+            None,
+        )
+        .expect("incoming query succeeds");
+        assert!(
+            incoming.relations.is_empty(),
+            "poisoned non-core record must not surface in `incoming`: {:?}",
+            incoming.relations
+        );
+
+        let between = <HostState as wit_relations::Host>::between(
+            &mut host,
+            "comtrya://issue/iss_a".to_string(),
+            "comtrya://issue/iss_b".to_string(),
+            None,
+            10,
+            None,
+        )
+        .expect("between query succeeds");
+        assert!(
+            between.relations.is_empty(),
+            "poisoned non-core record must not surface in `between`: {:?}",
+            between.relations
+        );
     }
 
     #[test]
