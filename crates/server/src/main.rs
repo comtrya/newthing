@@ -1279,15 +1279,17 @@ impl Runtime {
         Ok(data)
     }
 
-    fn update_comment(&self, id: &str, body_markdown: &str) -> Result<Value, String> {
+    fn update_comment(&self, id: &str, body_markdown: &str) -> Result<Value, UpdateCommentError> {
         const MAX_BODY_BYTES: usize = 64 * 1024;
         if body_markdown.is_empty() {
-            return Err("comment body must not be empty".to_string());
+            return Err(UpdateCommentError::BadInput(
+                "comment body must not be empty".to_string(),
+            ));
         }
         if body_markdown.len() > MAX_BODY_BYTES {
-            return Err(format!(
+            return Err(UpdateCommentError::BadInput(format!(
                 "comment body must be at most {MAX_BODY_BYTES} bytes"
-            ));
+            )));
         }
         let now_iso = chrono_now_iso();
         let body_owned = body_markdown.to_string();
@@ -1302,17 +1304,21 @@ impl Runtime {
                     );
                     obj.insert("updatedAt".to_string(), Value::String(now_for_closure));
                 }
-            })?;
+            })
+            .map_err(UpdateCommentError::from)?;
         let updated = self
             .extension_storage
-            .kernel_collection_data("comments")?
+            .kernel_collection_data("comments")
+            .map_err(UpdateCommentError::Internal)?
             .as_array()
             .and_then(|arr| {
                 arr.iter()
                     .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
                     .cloned()
             })
-            .ok_or_else(|| format!("updated comment {id:?} disappeared"))?;
+            .ok_or_else(|| {
+                UpdateCommentError::Internal(format!("updated comment {id:?} disappeared"))
+            })?;
         let _ = self.append_event(
             "dev.comtrya.comment.edited",
             json!({ "commentID": id, "editedAt": now_iso }),
@@ -1431,9 +1437,9 @@ impl Runtime {
                 }
             },
         );
-        if let Err(message) = update_result {
-            if !message.contains("not found") {
-                return Err(message);
+        if let Err(error) = update_result {
+            if !matches!(error, StorageUpdateError::NotFound { .. }) {
+                return Err(error.to_string());
             }
             let record = extension_document_record(
                 "core",
@@ -1612,6 +1618,7 @@ impl Runtime {
                     obj.insert("description".to_string(), Value::String(description));
                 }
             })
+            .map_err(|e| e.to_string())
     }
 
     /// Delete a repository: remove its document and its on-disk bare repo.
@@ -1693,6 +1700,7 @@ impl Runtime {
                     obj.insert("description".to_string(), Value::String(description));
                 }
             })
+            .map_err(|e| e.to_string())
     }
 
     fn delete_label(&self, id: &str) -> Result<(), String> {
@@ -3138,19 +3146,21 @@ fn comments_update_mutation(state: AppState, headers: HeaderMap, payload: Value)
             json!({ "data": { "comments": { "update": comment } } }),
             cors,
         ),
-        Err(message) => {
-            let status = if message.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            let code = if status == StatusCode::NOT_FOUND {
-                "NOT_FOUND"
-            } else {
-                ErrorCode::BadUserInput.as_str()
-            };
-            graphql_error_response(status, code, &message, cors)
+        Err(UpdateCommentError::NotFound(message)) => {
+            graphql_error_response(StatusCode::NOT_FOUND, "NOT_FOUND", &message, cors)
         }
+        Err(UpdateCommentError::BadInput(message)) => graphql_error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &message,
+            cors,
+        ),
+        Err(UpdateCommentError::Internal(message)) => graphql_error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::InternalServerError.as_str(),
+            &message,
+            cors,
+        ),
     }
 }
 
@@ -6177,6 +6187,81 @@ pub(crate) struct ExtensionRuntimeStore {
     records_cache: Arc<Mutex<Option<Vec<ExtensionDocumentRecord>>>>,
 }
 
+/// Typed outcome of a storage compare-and-swap. The wire layer maps
+/// `NotFound` and `VersionConflict` to distinct HTTP statuses and WIT
+/// error codes; without this enum each caller substring-matched the
+/// error message ("not found" / "version conflict") to derive the
+/// status, which was the typed-boundary violation issue #84 closed.
+#[derive(Debug, Clone)]
+pub(crate) enum StorageUpdateError {
+    /// No record matching (owner_extension, collection, id) exists.
+    NotFound {
+        owner_extension: String,
+        collection: String,
+        id: String,
+    },
+    /// `expected_version` was supplied but did not match the current
+    /// record version.
+    VersionConflict { expected: u64, current: u64 },
+    /// Underlying I/O, schema, or event-log failure. The string is a
+    /// human-readable diagnostic, never wire-parsed.
+    Internal(String),
+}
+
+impl std::fmt::Display for StorageUpdateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound {
+                owner_extension,
+                collection,
+                id,
+            } => write!(
+                f,
+                "extension document not found: {owner_extension}/{collection}/{id}"
+            ),
+            Self::VersionConflict { expected, current } => {
+                write!(f, "version conflict: expected {expected} current {current}")
+            }
+            Self::Internal(message) => f.write_str(message),
+        }
+    }
+}
+
+/// Typed outcome of `Runtime::update_comment`. The GraphQL handler maps
+/// `BadInput` → 400, `NotFound` → 404, `Internal` → 500 by variant
+/// instead of substring-matching the underlying String (issue #84).
+#[derive(Debug, Clone)]
+pub(crate) enum UpdateCommentError {
+    /// Caller-correctable input (empty body, body too large).
+    BadInput(String),
+    /// No comment with that id exists.
+    NotFound(String),
+    /// Storage I/O, schema, or post-write read failure.
+    Internal(String),
+}
+
+impl std::fmt::Display for UpdateCommentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::BadInput(m) | Self::NotFound(m) | Self::Internal(m) => f.write_str(m),
+        }
+    }
+}
+
+impl From<StorageUpdateError> for UpdateCommentError {
+    fn from(error: StorageUpdateError) -> Self {
+        match error {
+            StorageUpdateError::NotFound { .. } => Self::NotFound(error.to_string()),
+            // The only OCC version that should ever conflict on a
+            // GraphQL `comments.update` is one the editor is racing
+            // against, and the handler treats that as a bad input
+            // collision (the same shape as an out-of-date local edit).
+            StorageUpdateError::VersionConflict { .. } => Self::BadInput(error.to_string()),
+            StorageUpdateError::Internal(message) => Self::Internal(message),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ExtensionDocumentRecord {
@@ -6461,14 +6546,16 @@ impl ExtensionRuntimeStore {
         collection: &str,
         id: &str,
         update: impl FnOnce(&mut Value),
-    ) -> Result<(), String> {
+    ) -> Result<(), StorageUpdateError> {
         self.update_document_if_version(owner_extension, collection, id, None, |val, _| update(val))
     }
 
     /// Atomic compare-and-swap for the OCC protocol. If `expected_version`
     /// is `Some(v)` and the current record's version is not `v`, returns
-    /// `Err("version conflict ...")`. Otherwise applies `update`, bumps
-    /// version, persists.
+    /// `Err(StorageUpdateError::VersionConflict { .. })`. If no record
+    /// exists for `(owner_extension, collection, id)`, returns
+    /// `Err(StorageUpdateError::NotFound { .. })`. Otherwise applies
+    /// `update`, bumps version, persists.
     pub(crate) fn update_document_if_version(
         &self,
         owner_extension: &str,
@@ -6476,8 +6563,8 @@ impl ExtensionRuntimeStore {
         id: &str,
         expected_version: Option<u64>,
         update: impl FnOnce(&mut Value, u64),
-    ) -> Result<(), String> {
-        let mut records = self.load_records()?;
+    ) -> Result<(), StorageUpdateError> {
+        let mut records = self.load_records().map_err(StorageUpdateError::Internal)?;
         let (version, current_version) = {
             // Scope the compare-and-swap to the owning extension. Two
             // extensions may legitimately hold the same (collection, id)
@@ -6488,17 +6575,19 @@ impl ExtensionRuntimeStore {
                     && record.collection == collection
                     && record.id == id
             }) else {
-                return Err(format!(
-                    "extension document not found: {owner_extension}/{collection}/{id}"
-                ));
+                return Err(StorageUpdateError::NotFound {
+                    owner_extension: owner_extension.to_string(),
+                    collection: collection.to_string(),
+                    id: id.to_string(),
+                });
             };
             if let Some(expected) = expected_version
                 && record.version != expected
             {
-                return Err(format!(
-                    "version conflict: expected {} current {}",
-                    expected, record.version
-                ));
+                return Err(StorageUpdateError::VersionConflict {
+                    expected,
+                    current: record.version,
+                });
             }
             let current = record.version;
             update(&mut record.data, current);
@@ -6507,12 +6596,14 @@ impl ExtensionRuntimeStore {
             record.updated_at = now_iso_timestamp();
             (record.version, current)
         };
-        self.write_records_atomically(&records)?;
+        self.write_records_atomically(&records)
+            .map_err(StorageUpdateError::Internal)?;
         let _ = current_version;
         self.append_storage_event(
             "dev.comtrya.extension_storage.document_updated",
             json!({"ownerExtension": owner_extension, "collection": collection, "id": id, "version": version}),
         )
+        .map_err(StorageUpdateError::Internal)
     }
 
     pub(crate) fn load_records(&self) -> Result<Vec<ExtensionDocumentRecord>, String> {
@@ -9386,6 +9477,31 @@ mod tests {
             .query_documents_by_index("check_runs", &[("name", json!("runtime mutation"))])
             .unwrap();
         assert_eq!(check_docs.len(), 1);
+    }
+
+    #[test]
+    fn update_comment_returns_typed_not_found_for_unknown_id() {
+        // Issue #84: the GraphQL `comments.update` handler used to
+        // substring-match the storage error message ("not found") to
+        // pick 404 vs 400. The typed `UpdateCommentError::NotFound`
+        // variant must be returned when the id doesn't exist so the
+        // handler matches on the variant instead of parsing strings.
+        let runtime = dev_runtime();
+        let result = runtime.update_comment("cmt_does_not_exist", "edited");
+        assert!(
+            matches!(result, Err(UpdateCommentError::NotFound(_))),
+            "expected UpdateCommentError::NotFound, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn update_comment_returns_typed_bad_input_for_empty_body() {
+        let runtime = dev_runtime();
+        let result = runtime.update_comment("cmt_any", "");
+        assert!(
+            matches!(result, Err(UpdateCommentError::BadInput(_))),
+            "expected UpdateCommentError::BadInput for empty body, got {result:?}"
+        );
     }
 
     #[test]
@@ -12571,8 +12687,8 @@ mod tests {
         let missing =
             store.update_document_if_version("ext_c", "repositories", "shared-id", None, |_, _| {});
         assert!(
-            missing.is_err_and(|e| e.contains("not found")),
-            "commit for non-owner must report not-found, not corrupt another owner"
+            matches!(missing, Err(StorageUpdateError::NotFound { .. })),
+            "commit for non-owner must report NotFound, not corrupt another owner; got {missing:?}"
         );
     }
 }
