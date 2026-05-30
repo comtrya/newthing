@@ -375,7 +375,7 @@ pub(crate) struct FetchRequest {
     wants: Vec<String>,
     want_refs: Vec<String>,
     haves: Vec<String>,
-    client_shallows: Vec<String>,
+    client_shallows: Vec<gix::hash::ObjectId>,
     thin_pack: bool,
     ofs_delta: bool,
     side_band_64k: bool,
@@ -419,7 +419,7 @@ impl FetchRequest {
     pub(crate) fn want_refs(&self) -> &[String] {
         &self.want_refs
     }
-    pub(crate) fn client_shallows(&self) -> &[String] {
+    pub(crate) fn client_shallows(&self) -> &[gix::hash::ObjectId] {
         &self.client_shallows
     }
     pub(crate) fn done(&self) -> bool {
@@ -497,7 +497,17 @@ fn parse_fetch(pkts: &[Pkt]) -> anyhow::Result<FetchRequest> {
             continue;
         }
         if let Some(rest) = s.strip_prefix("shallow ") {
-            req.client_shallows.push(rest.to_string());
+            // Validate the oid at parse time. Unlike `have`, which is
+            // re-parsed via `ObjectId::from_hex` in pack.rs before use,
+            // `shallow <oid>` lines were previously stored as raw strings
+            // and echoed verbatim into the on-wire pkt-line as
+            // `unshallow {}`. trim_end_matches('\n') only strips a single
+            // trailing newline, so embedded NL/CR/NUL would have survived
+            // into the wire framing. Reject the request on any parse
+            // failure to prevent wire-framing injection / DoS.
+            let oid = gix::hash::ObjectId::from_hex(rest.as_bytes())
+                .with_context(|| format!("invalid shallow oid: {rest}"))?;
+            req.client_shallows.push(oid);
             continue;
         }
         if s == "thin-pack" {
@@ -750,6 +760,42 @@ mod tests {
         buf.extend_from_slice(PKT_FLUSH);
         let pkts = decode_pkt_lines(&buf).unwrap();
         assert!(parse_fetch(&pkts).is_err());
+    }
+
+    #[test]
+    fn parse_fetch_rejects_bad_shallow_oid() {
+        // Wire-framing injection attempt: a `shallow` line whose payload
+        // contains a non-hex character must be rejected at parse time.
+        // Previously the raw bytes were echoed into the `unshallow {}\n`
+        // pkt-line, mixing attacker bytes into the on-wire framing.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&encode_pkt_line(b"command=fetch\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"object-format=sha1\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"shallow not-a-hex-oid\n"));
+        buf.extend_from_slice(PKT_FLUSH);
+        let pkts = decode_pkt_lines(&buf).unwrap();
+        assert!(parse_fetch(&pkts).is_err());
+    }
+
+    #[test]
+    fn parse_fetch_accepts_valid_shallow_oid() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&encode_pkt_line(b"command=fetch\n"));
+        buf.extend_from_slice(&encode_pkt_line(b"object-format=sha1\n"));
+        buf.extend_from_slice(&encode_pkt_line(
+            b"want 0123456789abcdef0123456789abcdef01234567\n",
+        ));
+        buf.extend_from_slice(&encode_pkt_line(
+            b"shallow 89abcdef0123456789abcdef0123456789abcdef\n",
+        ));
+        buf.extend_from_slice(PKT_FLUSH);
+        let pkts = decode_pkt_lines(&buf).unwrap();
+        let req = parse_fetch(&pkts).unwrap();
+        assert_eq!(req.client_shallows().len(), 1);
+        assert_eq!(
+            req.client_shallows()[0].to_string(),
+            "89abcdef0123456789abcdef0123456789abcdef"
+        );
     }
 
     #[test]
