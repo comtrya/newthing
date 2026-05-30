@@ -73,13 +73,19 @@ fn main() {
 
 fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result<(), CliError> {
     let args = args.into_iter().collect::<Vec<_>>();
-    let command = args
-        .first()
-        .map(String::as_str)
-        .unwrap_or("validate-config");
+    // No-args invocation: print help and exit 0 instead of crashing
+    // through the default `validate-config` arm's `&args[1..]`, which
+    // would panic on a 0-length slice (range start 1 out of range).
+    // The previous silent-validate-config default was surprising UX
+    // anyway: a bare `comtrya` should describe itself, not run a
+    // hidden subcommand.
+    let Some(command) = args.first().map(String::as_str) else {
+        return print_help(stdout);
+    };
+    let rest = &args[1..];
 
     match command {
-        "validate-config" => validate_config(&args[1..], stdout)?,
+        "validate-config" => validate_config(rest, stdout)?,
         "capabilities" => {
             let capabilities = InstanceCapabilities::v1();
             writeln!(
@@ -94,7 +100,7 @@ fn run(args: impl IntoIterator<Item = String>, stdout: &mut dyn Write) -> Result
             )
             .map_err(|error| CliError::new(format!("failed to write stdout: {error}"), 1))?;
         }
-        "generate" => generate(&args[1..], stdout)?,
+        "generate" => generate(rest, stdout)?,
         "help" | "--help" | "-h" => print_help(stdout)?,
         _ => {
             return Err(CliError::new(
@@ -301,6 +307,26 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("comtrya-cli-{name}-{}-{nanos}", std::process::id()))
+    }
+
+    #[test]
+    fn no_args_prints_help_does_not_panic() {
+        // Regression: TNQ-2 P0 — running `comtrya` with no arguments
+        // used to take the default `validate-config` arm and panic on
+        // `&args[1..]` with `range start index 1 out of range for
+        // slice of length 0` (process exit 101). The fix returns the
+        // help text and exits 0 instead.
+        let mut output = Vec::new();
+        let result = run(std::iter::empty::<String>(), &mut output);
+        assert!(
+            result.is_ok(),
+            "bare `comtrya` invocation must not panic or error; got {result:?}"
+        );
+        let text = String::from_utf8(output).unwrap();
+        assert!(
+            text.contains("Usage:") || text.contains("comtrya"),
+            "expected help text, got: {text:?}"
+        );
     }
 
     #[test]
