@@ -2189,6 +2189,36 @@ impl Runtime {
         self.principal_context_from_headers(headers).status
     }
 
+    /// Stable rate-limit bucket key derived from the resolved principal
+    /// — NOT from the raw `Authorization: Bearer …` header value. An
+    /// attacker iterating random bearer tokens lands in the same
+    /// forwarded-addr (or `anon`) bucket as any other unauthenticated
+    /// caller, so the per-principal ceiling on
+    /// `/auth/token-exchange` (the bootstrap admin-secret throttle),
+    /// GraphQL writes, API ops, and git smart-HTTP cannot be evaded
+    /// by spreading attempts across forged tokens.
+    ///
+    /// Authenticated callers (`Credential`, `AdminCredential`,
+    /// `OperatorCredential`) key off the hashed validated principal
+    /// URI so two sessions of the same user share one bucket.
+    /// `Invalid`, `Anonymous`, and `Unavailable` all fall back to the
+    /// forwarded-addr fingerprint so a storage outage (or a guess
+    /// against the bearer/session vocabulary) cannot quietly switch
+    /// the caller into an unlimited regime.
+    pub(crate) fn principal_fingerprint(&self, headers: &HeaderMap) -> String {
+        let ctx = self.principal_context_from_headers(headers);
+        match ctx.status {
+            PrincipalStatus::Credential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::OperatorCredential => {
+                format!("uri:{}", token_audit_id(&ctx.uri))
+            }
+            PrincipalStatus::Anonymous
+            | PrincipalStatus::Invalid
+            | PrincipalStatus::Unavailable => unauthenticated_fingerprint(headers),
+        }
+    }
+
     pub(crate) fn principal_context_from_headers(&self, headers: &HeaderMap) -> PrincipalContext {
         let Some(token) = auth_token_from_headers(headers) else {
             return PrincipalContext::anonymous();
@@ -2544,18 +2574,16 @@ fn forwarded_addr_fingerprint(headers: &HeaderMap) -> Option<String> {
     Some(token_audit_id(raw))
 }
 
-/// Stable per-principal fingerprint for rate-limit bucket keys. Keyed off
-/// the bearer/session token (hashed) when authenticated, falling back to a
-/// hashed forwarded client address for anonymous callers, and finally a
-/// shared `anon` bucket when neither signal is present.
-fn principal_fingerprint(headers: &HeaderMap) -> String {
-    if let Some(token) = auth_token_from_headers(headers) {
-        return format!("tok:{}", token_audit_id(token));
-    }
+/// Forwarded-addr (or `anon`) rate-limit fingerprint used for any
+/// caller whose credential cannot be validated. Splits the
+/// header-vs-validated decision out of [`Runtime::principal_fingerprint`]
+/// so the latter is a single match on the resolved principal.
+fn unauthenticated_fingerprint(headers: &HeaderMap) -> String {
     if let Some(addr) = forwarded_addr_fingerprint(headers) {
-        return format!("ip:{addr}");
+        format!("ip:{addr}")
+    } else {
+        "anon".to_string()
     }
-    "anon".to_string()
 }
 
 /// Git PAT wire format: `cpat.<id>.<secret>`. `<id>` is the (non-secret)
@@ -3027,7 +3055,7 @@ async fn api_op(
     if state
         .runtime
         .rate_limit(
-            &format!("api_ops:{}", principal_fingerprint(&headers)),
+            &format!("api_ops:{}", state.runtime.principal_fingerprint(&headers)),
             state.runtime.config.rate_limits.graphql_per_principal,
         )
         .is_err()
@@ -3418,7 +3446,7 @@ fn cors_or_response(state: &AppState, headers: &HeaderMap) -> ResponseResult<Hea
 pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
     state.runtime.rate_limit(
-        &format!("graphql:{}", principal_fingerprint(headers)),
+        &format!("graphql:{}", state.runtime.principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
     let principal = state.runtime.principal_from_headers(headers);
@@ -3435,7 +3463,7 @@ pub(crate) fn graphql_read_guard(
 ) -> ResponseResult<HeaderMap> {
     let cors = cors_or_response(state, headers)?;
     state.runtime.rate_limit(
-        &format!("graphql:{}", principal_fingerprint(headers)),
+        &format!("graphql:{}", state.runtime.principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
     )?;
     let principal = state.runtime.principal_from_headers(headers);
@@ -4276,7 +4304,10 @@ async fn token_exchange(
     // not get unlimited online brute-force attempts. Anonymous callers key
     // on forwarded address (or a shared `anon` bucket as a last resort).
     if let Err(response) = state.runtime.rate_limit(
-        &format!("token_exchange:{}", principal_fingerprint(&headers)),
+        &format!(
+            "token_exchange:{}",
+            state.runtime.principal_fingerprint(&headers)
+        ),
         state
             .runtime
             .config
@@ -5129,7 +5160,10 @@ async fn git_smart_http(
     if state
         .runtime
         .rate_limit(
-            &format!("{rate_bucket}:{}", principal_fingerprint(&headers)),
+            &format!(
+                "{rate_bucket}:{}",
+                state.runtime.principal_fingerprint(&headers)
+            ),
             rate_ceiling,
         )
         .is_err()
