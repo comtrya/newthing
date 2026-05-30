@@ -99,6 +99,18 @@
               "incomingLabel"
             ],
             "additionalProperties": false,
+            "allOf": [
+              {
+                "$comment": "requiresParticipation gates on the source endpoint, which is ill-defined for a symmetric type; the kernel loader also rejects this combination.",
+                "if": {
+                  "properties": { "symmetric": { "const": true } },
+                  "required": ["symmetric"]
+                },
+                "then": {
+                  "properties": { "requiresParticipation": false }
+                }
+              }
+            ],
             "properties": {
               "id": {
                 "type": "string",

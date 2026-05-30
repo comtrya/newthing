@@ -282,9 +282,15 @@ mod tests {
             requires_participation: Some("ext_epics".to_string()),
         };
         let permissive = shape("comtrya://rel/part-of", &["issue"], &["epic"], false);
+        // A symmetric permissive shape declared epic->issue still admits the
+        // issue->epic query via the swap branch — it must not shadow the gate
+        // through that orientation seam either.
+        let permissive_symmetric = shape("comtrya://rel/part-of", &["epic"], &["issue"], true);
         for shapes in [
             vec![permissive.clone(), gated.clone()],
             vec![gated.clone(), permissive.clone()],
+            vec![permissive_symmetric.clone(), gated.clone()],
+            vec![gated.clone(), permissive_symmetric.clone()],
         ] {
             let registry = RelationshipTypeRegistry::new(shapes);
             assert_eq!(

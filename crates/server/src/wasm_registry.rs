@@ -1516,6 +1516,48 @@ mod tests {
     }
 
     #[test]
+    fn manifest_schema_rejects_symmetric_relationship_participation() {
+        // The schema mirrors the loader: requiresParticipation gates on the
+        // source endpoint and is ill-defined for a symmetric type, so the
+        // combination must fail schema validation.
+        let bad = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_issues.sym-gated",
+                    "kind": "comtrya://rel/relates-to",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "relates to",
+                    "incomingLabel": "relates to",
+                    "symmetric": true,
+                    "requiresParticipation": "ext_issues"
+                }]
+            }
+        });
+        let err =
+            validate_manifest_against_schema(&bad, std::path::Path::new("test://sym-gated.json"))
+                .expect_err("schema must reject symmetric + requiresParticipation");
+        assert!(err.contains("schema validation"), "error: {err}");
+    }
+
+    #[test]
+    fn manifest_schema_accepts_real_ext_epics_manifest() {
+        // ext_epics ships an asymmetric participation-gated relationship type
+        // (issue -> epic part-of, requiresParticipation: ext_epics).
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_epics/manifest.json");
+        let text = std::fs::read_to_string(&path).expect("read manifest");
+        let json: Value = serde_json::from_str(&text).expect("parse manifest");
+        validate_manifest_against_schema(&json, &path)
+            .expect("ext_epics manifest must validate against the schema");
+    }
+
+    #[test]
     fn reactor_allowed_mutations_accept_bare_same_extension_op() {
         // Regression for #80: the WIT contract allows a reactor mutation to
         // name one of the extension's OWN ops with no `<target>/` prefix.
