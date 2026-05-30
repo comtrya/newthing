@@ -1,4 +1,9 @@
-//! Packfile assembly and streaming via gix (pure-Rust backend).
+//! Packfile assembly and streaming for Smart HTTP v2 `fetch`.
+//!
+//! Builds an in-process pack plan from the client's wants/haves/filters,
+//! emits the protocol-v2 acknowledgments and shallow-info sections when
+//! appropriate, then streams a sideband-64k framed packfile produced
+//! directly from the on-disk object database via `gix`.
 
 use axum::body::Body;
 use axum::http::{HeaderMap, StatusCode, header};
@@ -15,11 +20,6 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::pkt::{PKT_DELIM, PKT_FLUSH, encode_pkt_line};
 use crate::v2::FetchRequest;
-
-pub struct PackBuildStats {
-    pub objects: usize,
-    pub bytes: u64,
-}
 
 #[derive(Clone)]
 struct PackPlan {
@@ -45,12 +45,24 @@ pub async fn serve_fetch(
     // Channel to stream pkt-line framed bytes out to the client
     let (tx, rx) = mpsc::channel::<Bytes>(16);
 
-    // Resolve want-ref(s) into object ids and augment wants list
+    // Resolve want-ref(s) into object ids and augment wants list. An
+    // unresolvable want-ref is a hard error: returning an empty pack would
+    // silently look like a successful no-op clone to the client.
     let mut req_effective = req.clone();
     if !req.want_refs().is_empty()
         && let Err(e) = resolve_want_refs(repo_dir, &mut req_effective).await
     {
-        tracing::debug!("resolve_want_refs failed: {}", e);
+        tracing::warn!("resolve_want_refs failed: {}", e);
+        let mut body = Vec::new();
+        body.extend_from_slice(&encode_pkt_line(format!("ERR {e}\n").as_bytes()));
+        body.extend_from_slice(PKT_FLUSH);
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .header(header::PRAGMA, "no-cache")
+            .body(Body::from(body))
+            .expect("response");
     }
 
     // If client sent haves and did not also send 'done', emit an acknowledgments section.
@@ -666,17 +678,31 @@ async fn emit_acknowledgments(
     Ok(true)
 }
 
+/// Resolve every `want-ref` advertised on the request into a concrete object
+/// id and merge those ids into the wants list. Any want-ref that cannot be
+/// resolved is reported by name so the caller can surface a protocol-level
+/// error: an unresolvable want-ref must never silently degrade into an empty
+/// pack.
 async fn resolve_want_refs(repo_dir: &PathBuf, req: &mut FetchRequest) -> anyhow::Result<()> {
     let repo = gix::open(repo_dir)?;
     let mut new_wants = Vec::new();
+    let mut unresolved = Vec::new();
     for r in req.want_refs().iter() {
-        if let Ok(mut reference) = repo.find_reference(r) {
-            if let Some(idref) = reference.try_id() {
-                new_wants.push(idref.to_string());
-            } else if let Ok(commit) = reference.peel_to_commit() {
-                new_wants.push(commit.id().to_string());
+        match repo.find_reference(r) {
+            Ok(mut reference) => {
+                if let Some(idref) = reference.try_id() {
+                    new_wants.push(idref.to_string());
+                } else if let Ok(commit) = reference.peel_to_commit() {
+                    new_wants.push(commit.id().to_string());
+                } else {
+                    unresolved.push(r.clone());
+                }
             }
+            Err(_) => unresolved.push(r.clone()),
         }
+    }
+    if !unresolved.is_empty() {
+        anyhow::bail!("unknown want-ref(s): {}", unresolved.join(", "));
     }
     req.extend_wants(new_wants);
     Ok(())

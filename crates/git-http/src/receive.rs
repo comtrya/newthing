@@ -748,6 +748,57 @@ mod tests {
     const B: &str = "2222222222222222222222222222222222222222";
 
     #[test]
+    fn parse_receive_pack_command_set_groundwork() {
+        let new_oid = "1111111111111111111111111111111111111111";
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} {new_oid} refs/heads/main\0report-status report-status-v2 object-format=sha1 agent=git/2.53.0\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        req.extend_from_slice(b"PACK...");
+
+        let parsed = parse_receive_pack_command_set(&req).unwrap();
+        assert_eq!(parsed.commands.len(), 1);
+        assert_eq!(parsed.commands[0].old_oid, RECEIVE_ZERO_OID);
+        assert_eq!(parsed.commands[0].new_oid, new_oid);
+        assert_eq!(parsed.commands[0].ref_name, "refs/heads/main");
+        assert!(parsed.capabilities.report_status);
+        assert!(parsed.capabilities.report_status_v2);
+        assert_eq!(parsed.capabilities.object_format.as_deref(), Some("sha1"));
+        assert_eq!(parsed.capabilities.agent.as_deref(), Some("git/2.53.0"));
+        assert_eq!(parsed.pack_bytes, b"PACK...".len());
+    }
+
+    #[test]
+    fn parse_receive_pack_rejects_unsupported_object_format() {
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/main\0report-status object-format=sha256\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        assert!(parse_receive_pack_command_set(&req).is_err());
+    }
+
+    #[test]
+    fn parse_receive_pack_rejects_invalid_ref_names() {
+        let mut req = Vec::new();
+        req.extend_from_slice(&encode_pkt_line(
+            format!(
+                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/../main\0report-status\n"
+            )
+            .as_bytes(),
+        ));
+        req.extend_from_slice(PKT_FLUSH);
+        assert!(parse_receive_pack_command_set(&req).is_err());
+    }
+
+    #[test]
     fn classify_create_delete_update() {
         assert_eq!(
             classify_command(&cmd(RECEIVE_ZERO_OID, A, "refs/heads/x")),

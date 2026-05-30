@@ -1,20 +1,14 @@
 use axum::{
-    extract::{Path, Query, State},
+    body::Body,
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use metrics::{counter, histogram};
-use serde::Deserialize;
 use std::time::Instant;
 
 use crate::pkt::{PKT_FLUSH, Pkt, decode_pkt_lines, encode_pkt_line};
 use crate::repo::{is_public_repo, resolve_repo_dir};
 use crate::{GitHttpState, pack};
-
-#[derive(Debug, Deserialize)]
-pub struct ServiceQuery {
-    pub service: Option<String>,
-}
 
 /// Dispatch a parsed Smart HTTP request to the appropriate handler.
 /// Suffix is the trailing portion of the request path, one of:
@@ -26,7 +20,7 @@ pub async fn dispatch<S>(
     suffix: &str,
     query_service: Option<&str>,
     headers: HeaderMap,
-    body: axum::body::Body,
+    body: Body,
 ) -> Response
 where
     S: GitHttpState,
@@ -36,6 +30,7 @@ where
             if query_service != Some("git-upload-pack") {
                 return (StatusCode::BAD_REQUEST, "unsupported service").into_response();
             }
+            let start = Instant::now();
             let repo_dir = match resolve_repo_dir(state.storage(), &segments) {
                 Ok(p) => p,
                 Err(_) => return (StatusCode::NOT_FOUND, "repo not found").into_response(),
@@ -43,7 +38,11 @@ where
             if !is_public_repo(&repo_dir) {
                 return (StatusCode::NOT_FOUND, "repo not found").into_response();
             }
-            advertise_v2_rust(&state, &segments, &headers).await
+            let resp = advertise_v2_rust(&state, &segments, &headers).await;
+            let scope = if segments.len() == 1 { "root" } else { "group" };
+            counter!("git_http.info_refs", "scope" => scope).increment(1);
+            histogram!("git_http.info_refs_ms").record(start.elapsed().as_millis() as f64);
+            resp
         }
         "git-upload-pack" => handle_upload_pack(state, segments, headers, body).await,
         "git-receive-pack" => {
@@ -51,97 +50,6 @@ where
         }
         _ => (StatusCode::NOT_FOUND, "git endpoint not found").into_response(),
     }
-}
-
-// GET /:repo(.git)?/info/refs?service=git-upload-pack
-pub async fn info_refs_root<S>(
-    State(state): State<S>,
-    Path(repo): Path<String>,
-    Query(q): Query<ServiceQuery>,
-) -> Response
-where
-    S: GitHttpState,
-{
-    let start = Instant::now();
-    if q.service.as_deref() != Some("git-upload-pack") {
-        return (StatusCode::BAD_REQUEST, "unsupported service").into_response();
-    }
-    // Gating: repo must be public
-    let segments = vec![repo];
-    let repo_dir = match resolve_repo_dir(state.storage(), &segments) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!("resolve_repo_dir failed: {}", e);
-            return (StatusCode::NOT_FOUND, "repo not found").into_response();
-        }
-    };
-    if !is_public_repo(&repo_dir) {
-        tracing::debug!("repo not public: {}", repo_dir.display());
-        return (StatusCode::NOT_FOUND, "repo not found").into_response();
-    }
-
-    let resp = advertise_v2_rust(&state, &segments, &HeaderMap::new()).await;
-    counter!("git_http.info_refs", "scope" => "root").increment(1);
-    histogram!("git_http.info_refs_ms").record(start.elapsed().as_millis() as f64);
-    resp
-}
-
-// GET /:group/:repo(.git)?/info/refs?service=git-upload-pack
-pub async fn info_refs_group<S>(
-    State(state): State<S>,
-    Path((group, repo)): Path<(String, String)>,
-    Query(q): Query<ServiceQuery>,
-) -> Response
-where
-    S: GitHttpState,
-{
-    let start = Instant::now();
-    if q.service.as_deref() != Some("git-upload-pack") {
-        return (StatusCode::BAD_REQUEST, "unsupported service").into_response();
-    }
-    let segments = vec![group, repo];
-    let repo_dir = match resolve_repo_dir(state.storage(), &segments) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::debug!("resolve_repo_dir failed: {}", e);
-            return (StatusCode::NOT_FOUND, "repo not found").into_response();
-        }
-    };
-    if !is_public_repo(&repo_dir) {
-        tracing::debug!("repo not public: {}", repo_dir.display());
-        return (StatusCode::NOT_FOUND, "repo not found").into_response();
-    }
-
-    let resp = advertise_v2_rust(&state, &segments, &HeaderMap::new()).await;
-    counter!("git_http.info_refs", "scope" => "group").increment(1);
-    histogram!("git_http.info_refs_ms").record(start.elapsed().as_millis() as f64);
-    resp
-}
-
-// POST /:repo(.git)?/git-upload-pack
-pub async fn upload_pack_root<S>(
-    State(state): State<S>,
-    Path(repo): Path<String>,
-    headers: HeaderMap,
-    body: axum::body::Body,
-) -> Response
-where
-    S: GitHttpState,
-{
-    handle_upload_pack(state, vec![repo], headers, body).await
-}
-
-// POST /:group/:repo(.git)?/git-upload-pack
-pub async fn upload_pack_group<S>(
-    State(state): State<S>,
-    Path((group, repo)): Path<(String, String)>,
-    headers: HeaderMap,
-    body: axum::body::Body,
-) -> Response
-where
-    S: GitHttpState,
-{
-    handle_upload_pack(state, vec![group, repo], headers, body).await
 }
 
 async fn advertise_v2_rust<S>(state: &S, segments: &[String], _headers: &HeaderMap) -> Response
@@ -193,7 +101,7 @@ where
             "application/x-git-upload-pack-advertisement",
         )
         .header(header::CACHE_CONTROL, "no-cache")
-        .body(axum::body::Body::from(body))
+        .body(Body::from(body))
         .expect("response build")
 }
 
@@ -201,7 +109,7 @@ pub async fn handle_upload_pack<S>(
     state: S,
     mut segments: Vec<String>,
     headers: HeaderMap,
-    body: axum::body::Body,
+    body: Body,
 ) -> Response
 where
     S: GitHttpState,
@@ -457,7 +365,7 @@ where
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
         .header(header::CACHE_CONTROL, "no-cache")
-        .body(axum::body::Body::from(body))
+        .body(Body::from(body))
         .expect("response build")
 }
 
@@ -650,7 +558,6 @@ fn parse_fetch(pkts: &[Pkt]) -> anyhow::Result<FetchRequest> {
 mod tests {
     use super::*;
     use anyhow::Result as AnyResult;
-    use axum::extract::{Path as AxPath, Query as AxQuery, State as AxState};
     use axum::http::HeaderMap as AxHeaderMap;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
@@ -658,7 +565,6 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use crate::pkt::encode_pkt_line;
-    use crate::receive::{RECEIVE_ZERO_OID, parse_receive_pack_command_set};
     use crate::repo::RepositoryProvider;
 
     #[derive(Clone)]
@@ -914,12 +820,13 @@ mod tests {
     #[tokio::test]
     async fn info_refs_requires_service_param() {
         let (state, _local_dir) = mk_app_state().await.unwrap();
-        let resp = info_refs_root(
-            AxState(state),
-            AxPath("alpha".to_string()),
-            AxQuery(ServiceQuery {
-                service: Some("not-upload-pack".to_string()),
-            }),
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "info/refs",
+            Some("not-upload-pack"),
+            AxHeaderMap::new(),
+            Body::empty(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -930,22 +837,24 @@ mod tests {
         let (state, local_dir) = mk_app_state().await.unwrap();
         let repo = local_dir.path().join("alpha.git");
         init_bare_repo(&repo).await;
-        let resp_404 = info_refs_root(
-            AxState(state.clone()),
-            AxPath("alpha".to_string()),
-            AxQuery(ServiceQuery {
-                service: Some("git-upload-pack".to_string()),
-            }),
+        let resp_404 = dispatch(
+            state.clone(),
+            vec!["alpha".to_string()],
+            "info/refs",
+            Some("git-upload-pack"),
+            AxHeaderMap::new(),
+            Body::empty(),
         )
         .await;
         assert_eq!(resp_404.status(), StatusCode::NOT_FOUND);
         std::fs::write(repo.join("git-daemon-export-ok"), b"").unwrap();
-        let resp = info_refs_root(
-            AxState(state),
-            AxPath("alpha".to_string()),
-            AxQuery(ServiceQuery {
-                service: Some("git-upload-pack".to_string()),
-            }),
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "info/refs",
+            Some("git-upload-pack"),
+            AxHeaderMap::new(),
+            Body::empty(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -975,7 +884,7 @@ mod tests {
             "git-receive-pack",
             None,
             AxHeaderMap::new(),
-            axum::body::Body::from(body),
+            Body::from(body),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -990,61 +899,10 @@ mod tests {
             "info/refs",
             Some("git-receive-pack"),
             AxHeaderMap::new(),
-            axum::body::Body::empty(),
+            Body::empty(),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-    }
-
-    #[test]
-    fn parse_receive_pack_command_set_groundwork() {
-        let new_oid = "1111111111111111111111111111111111111111";
-        let mut req = Vec::new();
-        req.extend_from_slice(&encode_pkt_line(
-            format!(
-                "{RECEIVE_ZERO_OID} {new_oid} refs/heads/main\0report-status report-status-v2 object-format=sha1 agent=git/2.53.0\n"
-            )
-            .as_bytes(),
-        ));
-        req.extend_from_slice(PKT_FLUSH);
-        req.extend_from_slice(b"PACK...");
-
-        let parsed = parse_receive_pack_command_set(&req).unwrap();
-        assert_eq!(parsed.commands.len(), 1);
-        assert_eq!(parsed.commands[0].old_oid, RECEIVE_ZERO_OID);
-        assert_eq!(parsed.commands[0].new_oid, new_oid);
-        assert_eq!(parsed.commands[0].ref_name, "refs/heads/main");
-        assert!(parsed.capabilities.report_status);
-        assert!(parsed.capabilities.report_status_v2);
-        assert_eq!(parsed.capabilities.object_format.as_deref(), Some("sha1"));
-        assert_eq!(parsed.capabilities.agent.as_deref(), Some("git/2.53.0"));
-        assert_eq!(parsed.pack_bytes, b"PACK...".len());
-    }
-
-    #[test]
-    fn parse_receive_pack_rejects_unsupported_object_format() {
-        let mut req = Vec::new();
-        req.extend_from_slice(&encode_pkt_line(
-            format!(
-                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/main\0report-status object-format=sha256\n"
-            )
-            .as_bytes(),
-        ));
-        req.extend_from_slice(PKT_FLUSH);
-        assert!(parse_receive_pack_command_set(&req).is_err());
-    }
-
-    #[test]
-    fn parse_receive_pack_rejects_invalid_ref_names() {
-        let mut req = Vec::new();
-        req.extend_from_slice(&encode_pkt_line(
-            format!(
-                "{RECEIVE_ZERO_OID} 1111111111111111111111111111111111111111 refs/heads/../main\0report-status\n"
-            )
-            .as_bytes(),
-        ));
-        req.extend_from_slice(PKT_FLUSH);
-        assert!(parse_receive_pack_command_set(&req).is_err());
     }
 
     #[tokio::test]
@@ -1062,12 +920,13 @@ mod tests {
         req.extend_from_slice(&encode_pkt_line(b"symrefs\n"));
         req.extend_from_slice(PKT_FLUSH);
 
-        let headers = AxHeaderMap::new();
-        let resp = upload_pack_root(
-            AxState(state),
-            AxPath("alpha".to_string()),
-            headers,
-            axum::body::Body::from(req),
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "git-upload-pack",
+            None,
+            AxHeaderMap::new(),
+            Body::from(req),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1092,12 +951,13 @@ mod tests {
         let mut req = Vec::new();
         req.extend_from_slice(&encode_pkt_line(b"command=unknown\n"));
         req.extend_from_slice(PKT_FLUSH);
-        let headers = AxHeaderMap::new();
-        let resp = upload_pack_root(
-            AxState(state),
-            AxPath("alpha".to_string()),
-            headers,
-            axum::body::Body::from(req),
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "git-upload-pack",
+            None,
+            AxHeaderMap::new(),
+            Body::from(req),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -1117,12 +977,13 @@ mod tests {
             b"want 0123456789abcdef0123456789abcdef01234567\n",
         ));
         req.extend_from_slice(PKT_FLUSH);
-        let headers = AxHeaderMap::new();
-        let resp = upload_pack_root(
-            AxState(state),
-            AxPath("alpha".to_string()),
-            headers,
-            axum::body::Body::from(req),
+        let resp = dispatch(
+            state,
+            vec!["alpha".to_string()],
+            "git-upload-pack",
+            None,
+            AxHeaderMap::new(),
+            Body::from(req),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);

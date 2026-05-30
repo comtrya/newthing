@@ -1,4 +1,7 @@
-//! pkt-line encode/decode and side-band framing (scaffold).
+//! pkt-line encode/decode primitives shared by the upload-pack and
+//! receive-pack handlers. Side-band framing lives in [`crate::pack`];
+//! this module only deals with the underlying length-prefixed packets
+//! and the two reserved control packets (flush `0000`, delim `0001`).
 
 pub fn encode_pkt_line(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(4 + data.len());

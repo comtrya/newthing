@@ -435,7 +435,6 @@ dependencies = [
  "gix 0.73.0",
  "metrics",
  "rand 0.8.6",
- "serde",
  "sha1",
  "tempfile",
  "tokio",
