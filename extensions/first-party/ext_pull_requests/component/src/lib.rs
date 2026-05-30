@@ -268,43 +268,80 @@ fn number_counter_key(repository: &str, scope: &RepositoryScope) -> String {
         .unwrap_or_else(|| repository.to_string())
 }
 
+/// Maximum number of CAS retries on a counter update before giving up.
+/// `update-commit` returns `conflict` if another writer raced ahead since
+/// our `update-begin`; we re-read and retry up to this bound. Eight
+/// attempts cover any practical PR-create burst without unbounded looping.
+const COUNTER_RETRY_LIMIT: u32 = 8;
+
 /// Return the next sequential PR number for `scope_key` and increment the
 /// persisted counter atomically via storage's single-document version
 /// guard (update-begin/update-commit), seeding the counter on first use.
+///
+/// The CAS loop retries up to `COUNTER_RETRY_LIMIT` times on `conflict`
+/// (another PR-create raced us between begin and commit) and on the
+/// first-use seed race (two creators hit `NotFound`, the second sees
+/// `conflict` from `storage::create` and re-enters the update path).
 fn next_number(scope_key: &str) -> Result<u64, Error> {
     let counter_id = format!("pull-number:{scope_key}");
-    match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
-        Ok(snap) => {
-            let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
-                .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
-            let assigned = counter.next;
-            counter.next = counter.next.saturating_add(1);
-            let bytes = serde_json::to_vec(&counter)
-                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
-            storage::update_commit(COUNTER_COLLECTION, &counter_id, &snap.version, &bytes)?;
-            Ok(assigned)
+    for _ in 0..COUNTER_RETRY_LIMIT {
+        match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
+            Ok(snap) => {
+                let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
+                    .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
+                let assigned = counter.next;
+                counter.next = counter.next.saturating_add(1);
+                let bytes = serde_json::to_vec(&counter)
+                    .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+                match storage::update_commit(
+                    COUNTER_COLLECTION,
+                    &counter_id,
+                    &snap.version,
+                    &bytes,
+                ) {
+                    Ok(()) => return Ok(assigned),
+                    Err(Error {
+                        code: ErrorCode::Conflict,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                }
+            }
+            Err(Error {
+                code: ErrorCode::NotFound,
+                ..
+            }) => {
+                // First PR for this scope — seed the counter at 2, return 1.
+                let counter = RepoCounter { next: 2 };
+                let bytes = serde_json::to_vec(&counter)
+                    .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
+                match storage::create(
+                    COUNTER_COLLECTION,
+                    &counter_id,
+                    &bytes,
+                    &storage::DocumentMetadata {
+                        resource_uri: format!("comtrya://_meta/{counter_id}"),
+                        resource_refs: vec![scope_key.to_string()],
+                    },
+                ) {
+                    Ok(()) => return Ok(1),
+                    // Another writer seeded the counter between our
+                    // update-begin NotFound and our create. Fall through
+                    // to the next iteration which will hit the Ok branch.
+                    Err(Error {
+                        code: ErrorCode::Conflict,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                }
+            }
+            Err(other) => return Err(other),
         }
-        Err(Error {
-            code: ErrorCode::NotFound,
-            ..
-        }) => {
-            // First PR for this scope — seed the counter at 2, return 1.
-            let counter = RepoCounter { next: 2 };
-            let bytes = serde_json::to_vec(&counter)
-                .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
-            storage::create(
-                COUNTER_COLLECTION,
-                &counter_id,
-                &bytes,
-                &storage::DocumentMetadata {
-                    resource_uri: format!("comtrya://_meta/{counter_id}"),
-                    resource_refs: vec![scope_key.to_string()],
-                },
-            )?;
-            Ok(1)
-        }
-        Err(other) => Err(other),
     }
+    Err(err(
+        ErrorCode::Unavailable,
+        format!("pull-number counter for {scope_key} contended past retry limit"),
+    ))
 }
 
 fn persist_new(stored: &StoredPullRequest) -> Result<(), Error> {
