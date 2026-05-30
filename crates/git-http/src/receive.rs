@@ -55,7 +55,9 @@ pub(crate) struct ReceivePackCapabilities {
 ///
 /// Parsing stops at the first flush packet (`0000`); the trailing raw packfile
 /// is not consumed, only measured (`pack_bytes`).
-pub(crate) fn parse_receive_pack_command_set(bytes: &[u8]) -> anyhow::Result<ReceivePackCommandSet> {
+pub(crate) fn parse_receive_pack_command_set(
+    bytes: &[u8],
+) -> anyhow::Result<ReceivePackCommandSet> {
     let mut offset = 0usize;
     let mut commands = Vec::new();
     let mut capabilities = ReceivePackCapabilities::default();
