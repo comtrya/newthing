@@ -1063,7 +1063,9 @@ impl Runtime {
             data.clone(),
             &now_iso,
         );
-        self.extension_storage.create_document(record)?;
+        self.extension_storage
+            .create_document(record)
+            .map_err(|e| e.to_string())?;
 
         let _ = self.append_event(
             "dev.comtrya.relation.created",
@@ -1126,7 +1128,7 @@ impl Runtime {
         }
         self.extension_storage
             .delete_document("core", "relations", id)
-            .map_err(DeleteRelationError::Internal)?;
+            .map_err(|e| DeleteRelationError::Internal(e.to_string()))?;
         let _ = self.append_event(
             "dev.comtrya.relation.deleted",
             json!({
@@ -1315,7 +1317,9 @@ impl Runtime {
             data.clone(),
             &now_iso,
         );
-        self.extension_storage.create_document(record)?;
+        self.extension_storage
+            .create_document(record)
+            .map_err(|e| e.to_string())?;
         // Include a short body preview so ActivityStream can show
         // "commented · <preview>" without having to round-trip back
         // to the comment store. Cap at 200 chars so the event
@@ -1470,7 +1474,7 @@ impl Runtime {
         }
         self.extension_storage
             .delete_document("core", "comments", id)
-            .map_err(DeleteCommentError::Internal)?;
+            .map_err(|e| DeleteCommentError::Internal(e.to_string()))?;
         let _ = self.append_event(
             "dev.comtrya.comment.deleted",
             json!({ "commentID": id, "actorUri": caller_uri }),
@@ -1586,7 +1590,9 @@ impl Runtime {
                 data.clone(),
                 &now_iso,
             );
-            self.extension_storage.create_document(record)?;
+            self.extension_storage
+                .create_document(record)
+                .map_err(|e| e.to_string())?;
         }
         Ok(json!({
             "repositoryId": repository_id,
@@ -1717,7 +1723,7 @@ impl Runtime {
         if let Err(error) = self.extension_storage.create_document(record) {
             // Persistence failed: roll back the on-disk repo so the next attempt is clean.
             let _ = fs::remove_dir_all(&git_dir);
-            return Err(CreateRepoError::Internal(error));
+            return Err(CreateRepoError::Internal(error.to_string()));
         }
 
         let event_type = if clone_from_url.is_some() {
@@ -1787,7 +1793,8 @@ impl Runtime {
     /// Strict GitOps — this destroys git history for repos absent from config.
     fn delete_repository(&self, path: &str, id: &str) -> Result<(), String> {
         self.extension_storage
-            .delete_document("core", "repositories", id)?;
+            .delete_document("core", "repositories", id)
+            .map_err(|e| e.to_string())?;
         let git_dir = self.repository_root().join(format!("{path}.git"));
         if git_dir.exists() {
             fs::remove_dir_all(&git_dir)
@@ -1849,7 +1856,9 @@ impl Runtime {
             data,
             &now_iso,
         );
-        self.extension_storage.create_document(record)
+        self.extension_storage
+            .create_document(record)
+            .map_err(|e| e.to_string())
     }
 
     fn update_label(&self, id: &str, color: &str, description: &str) -> Result<(), String> {
@@ -1866,7 +1875,9 @@ impl Runtime {
     }
 
     fn delete_label(&self, id: &str) -> Result<(), String> {
-        self.extension_storage.delete_document("core", "labels", id)
+        self.extension_storage
+            .delete_document("core", "labels", id)
+            .map_err(|e| e.to_string())
     }
 
     fn runtime_payload(&self) -> Result<Value, String> {
@@ -6464,6 +6475,76 @@ impl std::fmt::Display for StorageUpdateError {
     }
 }
 
+/// Typed outcome of `ExtensionRuntimeStore::create_document`. The WASM
+/// host maps `AlreadyExists` to `wit_types::ErrorCode::Conflict` and
+/// `Internal` to `wit_types::ErrorCode::Internal` by variant — without
+/// this enum the host substring-matched `"already exists"` on the
+/// String error, which was the typed-boundary violation surfaced by
+/// the round-3 review.
+#[derive(Debug, Clone)]
+pub(crate) enum StorageCreateError {
+    /// A record with the same `(owner_extension, collection, id)` triple
+    /// already exists. The host returns `Conflict` to extensions; other
+    /// callers can convert via `.to_string()` for legacy `String` error
+    /// paths.
+    AlreadyExists {
+        owner_extension: String,
+        collection: String,
+        id: String,
+    },
+    /// Underlying I/O, schema, or event-log failure.
+    Internal(String),
+}
+
+impl std::fmt::Display for StorageCreateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyExists {
+                owner_extension,
+                collection,
+                id,
+            } => write!(
+                f,
+                "extension document already exists: {owner_extension}/{collection}/{id}"
+            ),
+            Self::Internal(message) => f.write_str(message),
+        }
+    }
+}
+
+/// Typed outcome of `ExtensionRuntimeStore::delete_document`. The WASM
+/// host returns `wit_types::DeleteResult::WasAbsent` for `NotFound`
+/// and `wit_types::ErrorCode::Internal` for storage failures — without
+/// this enum the host substring-matched `"not found"` on the String
+/// error.
+#[derive(Debug, Clone)]
+pub(crate) enum StorageDeleteError {
+    /// No record matching `(owner_extension, collection, id)` exists.
+    NotFound {
+        owner_extension: String,
+        collection: String,
+        id: String,
+    },
+    /// Underlying I/O or event-log failure.
+    Internal(String),
+}
+
+impl std::fmt::Display for StorageDeleteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound {
+                owner_extension,
+                collection,
+                id,
+            } => write!(
+                f,
+                "extension document not found: {owner_extension}/{collection}/{id}"
+            ),
+            Self::Internal(message) => f.write_str(message),
+        }
+    }
+}
+
 /// Typed outcome of `Runtime::update_comment`. The GraphQL handler maps
 /// `BadInput` → 400, `NotFound` → 404, `Internal` → 500 by variant
 /// instead of substring-matching the underlying String (issue #84).
@@ -6686,7 +6767,8 @@ impl ExtensionRuntimeStore {
                     "members": 0
                 }),
                 &now,
-            ))?;
+            ))
+            .map_err(|e| e.to_string())?;
         }
 
         let existing = self.load_records()?;
@@ -6715,7 +6797,8 @@ impl ExtensionRuntimeStore {
                     "manifest": format!("/_extensions/{}/manifest.json", record.id),
                 }),
                 &now,
-            ))?;
+            ))
+            .map_err(|e| e.to_string())?;
         }
 
         Ok(())
@@ -6846,8 +6929,11 @@ impl ExtensionRuntimeStore {
             .collect())
     }
 
-    pub(crate) fn create_document(&self, record: ExtensionDocumentRecord) -> Result<(), String> {
-        let mut records = self.load_records()?;
+    pub(crate) fn create_document(
+        &self,
+        record: ExtensionDocumentRecord,
+    ) -> Result<(), StorageCreateError> {
+        let mut records = self.load_records().map_err(StorageCreateError::Internal)?;
         // Dedup scoped to (owner_extension, collection, id). Two
         // different extensions can hold the same logical id in the
         // same collection name — their views are isolated by
@@ -6858,13 +6944,15 @@ impl ExtensionRuntimeStore {
                 && existing.collection == record.collection
                 && existing.id == record.id
         }) {
-            return Err(format!(
-                "extension document already exists: {}/{}/{}",
-                record.owner_extension, record.collection, record.id
-            ));
+            return Err(StorageCreateError::AlreadyExists {
+                owner_extension: record.owner_extension,
+                collection: record.collection,
+                id: record.id,
+            });
         }
         records.push(record);
         self.write_records_atomically(&records)
+            .map_err(StorageCreateError::Internal)
     }
 
     pub(crate) fn delete_document(
@@ -6872,8 +6960,8 @@ impl ExtensionRuntimeStore {
         owner_extension: &str,
         collection: &str,
         id: &str,
-    ) -> Result<(), String> {
-        let mut records = self.load_records()?;
+    ) -> Result<(), StorageDeleteError> {
+        let mut records = self.load_records().map_err(StorageDeleteError::Internal)?;
         let before = records.len();
         records.retain(|record| {
             !(record.owner_extension == owner_extension
@@ -6881,11 +6969,14 @@ impl ExtensionRuntimeStore {
                 && record.id == id)
         });
         if records.len() == before {
-            return Err(format!(
-                "extension document not found: {owner_extension}/{collection}/{id}"
-            ));
+            return Err(StorageDeleteError::NotFound {
+                owner_extension: owner_extension.to_string(),
+                collection: collection.to_string(),
+                id: id.to_string(),
+            });
         }
-        self.write_records_atomically(&records)?;
+        self.write_records_atomically(&records)
+            .map_err(StorageDeleteError::Internal)?;
         self.append_storage_event(
             "dev.comtrya.extension_storage.document_deleted",
             json!({
@@ -6894,6 +6985,7 @@ impl ExtensionRuntimeStore {
                 "id": id,
             }),
         )
+        .map_err(StorageDeleteError::Internal)
     }
 
     pub(crate) fn update_document_atomically(
