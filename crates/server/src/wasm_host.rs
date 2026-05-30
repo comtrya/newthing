@@ -937,6 +937,28 @@ impl wit_storage::Host for HostState {
             .occ_tokens
             .write()
             .map_err(|e| err(wit_types::ErrorCode::Internal, e.to_string()))?;
+        // Bound the per-extension occ_tokens entries the same way
+        // `MAX_PENDING_MINTS_PER_EXTENSION` (line 776) bounds minted
+        // ids — a hostile or buggy extension that loops `update_begin`
+        // without ever calling `update_commit` would otherwise grow
+        // the process-global `occ_tokens` map without bound. Steady-
+        // state is near-zero: every begin is consumed by the next
+        // commit.
+        const MAX_PENDING_OCC_TOKENS_PER_EXTENSION: usize = 10_000;
+        let pending = tokens
+            .keys()
+            .filter(|(ext, _, _)| ext == &self.extension_id)
+            .count();
+        if pending >= MAX_PENDING_OCC_TOKENS_PER_EXTENSION {
+            return Err(err(
+                wit_types::ErrorCode::Unavailable,
+                format!(
+                    "extension {} has {pending} pending update-begin tokens (cap {}); \
+                     call storage.update-commit on existing tokens before opening more",
+                    self.extension_id, MAX_PENDING_OCC_TOKENS_PER_EXTENSION
+                ),
+            ));
+        }
         tokens.insert(
             (self.extension_id.clone(), collection, id),
             snap.version.clone(),
