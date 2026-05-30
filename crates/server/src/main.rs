@@ -1111,6 +1111,15 @@ impl Runtime {
             .and_then(Value::as_str)
             .unwrap_or("");
         if !principal_can_modify_authored_record(caller_uri, caller_status, created_by) {
+            let _ = self.append_event(
+                "dev.comtrya.relation.access_denied",
+                json!({
+                    "relationID": id,
+                    "actorUri": caller_uri,
+                    "action": "delete",
+                    "authorRef": created_by,
+                }),
+            );
             return Err(DeleteRelationError::Forbidden(format!(
                 "relation {id:?} can only be deleted by its creator"
             )));
@@ -1122,6 +1131,7 @@ impl Runtime {
             "dev.comtrya.relation.deleted",
             json!({
                 "relationID": id,
+                "actorUri": caller_uri,
                 "kind": target.get("kind"),
                 "from": target.get("from"),
                 "to": target.get("to"),
@@ -1366,6 +1376,15 @@ impl Runtime {
             .unwrap_or("")
             .to_string();
         if !principal_can_modify_authored_record(caller_uri, caller_status, &existing_author) {
+            let _ = self.append_event(
+                "dev.comtrya.comment.access_denied",
+                json!({
+                    "commentID": id,
+                    "actorUri": caller_uri,
+                    "action": "edit",
+                    "authorRef": existing_author,
+                }),
+            );
             return Err(UpdateCommentError::Forbidden(format!(
                 "comment {id:?} can only be edited by its author"
             )));
@@ -1400,7 +1419,11 @@ impl Runtime {
             })?;
         let _ = self.append_event(
             "dev.comtrya.comment.edited",
-            json!({ "commentID": id, "editedAt": now_iso }),
+            json!({
+                "commentID": id,
+                "actorUri": caller_uri,
+                "editedAt": now_iso,
+            }),
         );
         Ok(updated)
     }
@@ -1432,6 +1455,15 @@ impl Runtime {
             .and_then(Value::as_str)
             .unwrap_or("");
         if !principal_can_modify_authored_record(caller_uri, caller_status, existing_author) {
+            let _ = self.append_event(
+                "dev.comtrya.comment.access_denied",
+                json!({
+                    "commentID": id,
+                    "actorUri": caller_uri,
+                    "action": "delete",
+                    "authorRef": existing_author,
+                }),
+            );
             return Err(DeleteCommentError::Forbidden(format!(
                 "comment {id:?} can only be deleted by its author"
             )));
@@ -1439,7 +1471,10 @@ impl Runtime {
         self.extension_storage
             .delete_document("core", "comments", id)
             .map_err(DeleteCommentError::Internal)?;
-        let _ = self.append_event("dev.comtrya.comment.deleted", json!({ "commentID": id }));
+        let _ = self.append_event(
+            "dev.comtrya.comment.deleted",
+            json!({ "commentID": id, "actorUri": caller_uri }),
+        );
         Ok(DeleteCommentOutcome::Deleted)
     }
 
