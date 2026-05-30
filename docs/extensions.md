@@ -85,8 +85,20 @@ important v3 fields are:
 - `allowedEmits`: event types the component may append.
 - `allowedEventReads`: ids of other extensions whose events this extension may
   read via `events.read-recent`.
-- `allowedCrossCalls`: cross-extension operation routes allowed through
-  `ops.invoke`.
+- `providesExtensionPoints`: named, versioned sets of ops this extension
+  exposes for others to call synchronously via `ops.invoke`. Each point is
+  `{id, version, ops}` where `ops` are canonical `<interface>.<op>`
+  descriptors. A point is the unit another extension binds to.
+- `requiresExtensionPoints`: exact `{provider, point, version}` entries this
+  extension depends on. At load the kernel resolves every requirement against
+  the providers' `providesExtensionPoints` with an exact integer version
+  match and builds an immutable per-consumer binding table; a synchronous
+  `ops.invoke` is authorised only when a resolved binding includes the
+  `(provider, op)` pair. Resolution is fail-closed: an unresolved
+  requirement, a duplicate declaration, or a requirement cycle aborts the
+  load. (This replaces the former flat `allowedCrossCalls` allowlist.
+  Reactor mutations are a separate, asynchronous path — see
+  `reactor.allowedMutations` — and are not modelled as extension points.)
 - `reactor`: subscription, mutation, emit, and recursion policy for event
   reactions. `reactor.scope` (`"repository"` default, or `"instance"`)
   selects whether event dispatch to this extension is gated per-repository
@@ -98,8 +110,28 @@ important v3 fields are:
   whether ops on that kind are gated per-repository by the target repo's
   `repository.extensions` opt-in. Repository-scoped ops against a
   repo that has not enabled the extension are rejected with `Forbidden`.
+- `dispatchRoutes`: per-op kernel dispatch scope. Each entry names a
+  canonical `<interface>.<op>` and declares whether that op is gated by
+  the per-repository opt-in (`"scope": "repository"`) or always available
+  (`"scope": "instance"`). A repository-scoped route carries a typed
+  `derive` telling the kernel how to find the repository to gate against;
+  today `{"strategy": "payloadField", "field": "<name>"}` reads the
+  repository URI from a named payload field, before the component runs.
+  The kernel builds a typed route table from these entries at load and
+  applies one generic pre-invoke gate to every extension — no
+  per-extension dispatch special-casing. Every `op` must be a real WIT
+  export; a route that names no export, a repository route with no
+  `derive`, or an instance route with a `derive` fails the load. Ops not
+  listed are not gated in the pre-invoke phase.
 - `contributes.relationshipTypes`: relation verbs and labels the extension
-  makes available to UI surfaces for typed relationship creation.
+  makes available for typed relationship creation. Each entry's
+  `(kind, sourceKinds, targetKinds)` shape is **load-bearing on the relation
+  write path**: the kernel rejects any `relations.create` whose endpoints and
+  verb match no declared shape. An entry may also set
+  `requiresParticipation: "<extension-id>"`, which gates creation of that edge
+  on the source resource's repository having opted into the named extension
+  (via `repository.extensions`) — the kernel resolves the repo and checks the
+  opt-in itself.
 - `contributes.collections`: storage collections and indexes
   declarations owned by the extension.
 - `ui.manifest`: path to the browser-side UI manifest (nested under the `ui`

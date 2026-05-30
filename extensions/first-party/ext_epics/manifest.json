@@ -31,7 +31,8 @@
         "targetKinds": ["epic"],
         "outgoingLabel": "part of epic",
         "incomingLabel": "contains issue",
-        "order": 100
+        "order": 100,
+        "requiresParticipation": "ext_epics"
       },
       {
         "id": "ext_epics.epic-part-of-epic",
@@ -65,8 +66,8 @@
     "dev.comtrya.epic.project-changed"
   ],
   "allowedEventReads": ["ext_issues"],
-  "allowedCrossCalls": [
-    "ext_issues/issues.state-counts-for-refs-issue"
+  "requiresExtensionPoints": [
+    { "provider": "ext_issues", "point": "issue-membership", "version": 1 }
   ],
   "reactor": {
     "allowedMutations": [],

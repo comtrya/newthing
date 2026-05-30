@@ -53,9 +53,12 @@
     "dev.comtrya.pull-request.closed"
   ],
   "allowedEventReads": [],
-  "allowedCrossCalls": [
-    "ext_issues/issues.close-issue",
-    "ext_issues/issues.by-ref-issue"
+  "requiresExtensionPoints": [
+    { "provider": "ext_issues", "point": "issue-linkage", "version": 1 }
+  ],
+  "dispatchRoutes": [
+    { "op": "pulls.create-pull", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "scope": "repository",

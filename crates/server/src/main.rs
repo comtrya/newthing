@@ -37,9 +37,12 @@ use tower_http::set_header::SetResponseHeaderLayer;
 
 mod config_sync;
 mod cue_config;
+mod extension_points;
 mod oidc;
 mod persistence;
 mod reconcile;
+mod relationship_types;
+mod route_scope;
 mod wasm_host;
 mod wasm_invokers;
 mod wasm_registry;
@@ -784,6 +787,23 @@ impl Runtime {
                 runtime.collected_cue_schemas(),
             ),
         ));
+        // Resolve cross-call bindings once, after every extension is
+        // registered (a consumer's providers may load in any order) and
+        // before the server accepts any request. This ordering is a load
+        // invariant: until it runs, `consumer_bindings` returns empty and
+        // every cross-call fails closed.
+        runtime
+            .wasm_registry
+            .resolve_extension_point_bindings()
+            .map_err(|error| format!("failed to resolve extension point bindings: {error}"))?;
+        // Aggregate every extension's declared relationship shapes into the
+        // kernel-global registry the relation write paths consult. Done
+        // after all extensions are registered so a shape whose endpoint
+        // kinds span extensions resolves regardless of load order. Until
+        // this runs the registry is empty and relation writes fail closed.
+        runtime
+            .wasm_registry
+            .install_relationship_types(aggregate_relationship_types(&runtime.extension_runtime));
         runtime
             .wasm_registry
             .register_reactor_subscriptions(Arc::new(runtime.extension_storage.clone()))
@@ -880,6 +900,60 @@ impl Runtime {
         }
     }
 
+    /// Reject a relation write whose `(verb, source-kind, target-kind)`
+    /// triple no loaded extension declares in its
+    /// `contributes.relationshipTypes`. Mirrors the WASM-path gate in
+    /// `wit_relations::Host::create`; both consult the same aggregated
+    /// shape registry so the GraphQL/UI path and extension-initiated
+    /// writes enforce one rule.
+    fn require_declared_relationship(
+        &self,
+        from: &str,
+        to: &str,
+        verb_uri: &str,
+    ) -> Result<(), String> {
+        use crate::relationship_types::{RelationVerdict, relation_kind_segment};
+        let (Some(source_kind), Some(target_kind)) =
+            (relation_kind_segment(from), relation_kind_segment(to))
+        else {
+            return Err(format!(
+                "relation endpoints must be comtrya:// references, got {from:?} -> {to:?}"
+            ));
+        };
+        match self
+            .wasm_registry
+            .relationship_types()
+            .evaluate(verb_uri, source_kind, target_kind)
+        {
+            RelationVerdict::Allowed => Ok(()),
+            RelationVerdict::Undeclared => Err(format!(
+                "no loaded extension declares a relationship type '{verb_uri}' from '{source_kind}' to '{target_kind}'"
+            )),
+            RelationVerdict::RequiresParticipation(ext) => {
+                let repo = self
+                    .extension_storage
+                    .repository_ref_for_resource(from)
+                    .ok_or_else(|| {
+                        format!(
+                            "cannot resolve a repository for '{from}' to enforce '{ext}' participation"
+                        )
+                    })?;
+                if self.wasm_registry.repo_has_extension_enabled(
+                    &self.extension_storage,
+                    &repo,
+                    &ext,
+                ) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "repository '{repo}' has not enabled '{ext}'; add it to the repository's \
+                         comtrya CUE repository.extensions to create this relationship"
+                    ))
+                }
+            }
+        }
+    }
+
     fn create_relation(
         &self,
         from: &str,
@@ -913,6 +987,12 @@ impl Runtime {
         if from == to {
             return Err("relation `from` and `to` must differ".to_string());
         }
+        // The edge's (kind, source-kind, target-kind) triple must match a
+        // relationship shape some loaded extension declares. Without this,
+        // any authenticated principal could POST an arbitrary
+        // `relations.create` with undeclared kinds or endpoint kinds no
+        // relationship type admits. Fail closed.
+        self.require_declared_relationship(from, to, verb_uri)?;
         // NOTE (deferred): the dedup check below is racy across concurrent
         // creates because load_records → check → write_records_atomically
         // isn't a single transaction. In production-testbed (single
@@ -5966,6 +6046,14 @@ struct RelationshipTypeDeclaration {
     symmetric: bool,
     #[serde(default)]
     order: i32,
+    /// Optional per-repo participation requirement. When set, an edge of
+    /// this type may be created only if the source resource's repository
+    /// has opted into the named extension (via `repository.extensions`).
+    /// Restores the issue→epic participation rule the removed
+    /// `epics.link-issue` op enforced, now declared on the relationship
+    /// type and enforced generically on the relation write path.
+    #[serde(default)]
+    requires_participation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -6709,6 +6797,27 @@ fn cue_schemas_from_manifest(
     Ok(parsed)
 }
 
+/// Fold every loaded extension's declared `relationshipTypes` into the
+/// kernel-global [`RelationshipTypeRegistry`] the relation write paths
+/// consult. Each declaration becomes one shape keyed on its verb `kind`
+/// and the resource kinds it connects.
+fn aggregate_relationship_types(
+    records: &BTreeMap<String, ExtensionRuntimeRecord>,
+) -> relationship_types::RelationshipTypeRegistry {
+    let shapes = records
+        .values()
+        .flat_map(|record| &record.relationship_types)
+        .map(|decl| relationship_types::RelationshipShape {
+            kind: decl.kind.clone(),
+            source_kinds: decl.source_kinds.iter().cloned().collect(),
+            target_kinds: decl.target_kinds.iter().cloned().collect(),
+            symmetric: decl.symmetric,
+            requires_participation: decl.requires_participation.clone(),
+        })
+        .collect();
+    relationship_types::RelationshipTypeRegistry::new(shapes)
+}
+
 fn relationship_types_from_manifest(
     id: &str,
     manifest: &Value,
@@ -6756,6 +6865,17 @@ fn relationship_types_from_manifest(
         {
             return Err(format!(
                 "{id} contributes.relationshipTypes '{}' must declare non-empty labels",
+                declaration.id
+            ));
+        }
+        // `requiresParticipation` gates on the SOURCE resource's repository.
+        // A symmetric type admits either orientation, so "source" would be
+        // caller-chosen and the gate orientation-bypassable. Forbid the
+        // combination at load (fail closed) rather than enforce an
+        // ill-defined rule.
+        if declaration.symmetric && declaration.requires_participation.is_some() {
+            return Err(format!(
+                "{id} contributes.relationshipTypes '{}' cannot set requiresParticipation on a symmetric type",
                 declaration.id
             ));
         }
@@ -10227,6 +10347,58 @@ mod tests {
         assert!(
             result.is_ok(),
             "legacy contributes block must not fail validation: {result:?}"
+        );
+    }
+
+    #[test]
+    fn relationship_type_rejects_symmetric_with_participation() {
+        // A symmetric type admits either orientation, so participation —
+        // which gates on the source's repo — would be orientation-bypassable.
+        // The combination must be rejected at load.
+        let manifest = serde_json::json!({
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_test.sym-gated",
+                    "kind": "comtrya://rel/relates-to",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "relates to",
+                    "incomingLabel": "relates to",
+                    "symmetric": true,
+                    "requiresParticipation": "ext_test"
+                }]
+            }
+        });
+        let result = relationship_types_from_manifest("ext_test", &manifest);
+        let err = result.expect_err("symmetric + requiresParticipation must be rejected");
+        assert!(
+            err.contains("requiresParticipation") && err.contains("symmetric"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn relationship_type_accepts_asymmetric_participation() {
+        // The asymmetric case ext_epics actually ships must validate.
+        let manifest = serde_json::json!({
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_test.issue-part-of-epic",
+                    "kind": "comtrya://rel/part-of",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "part of epic",
+                    "incomingLabel": "contains issue",
+                    "requiresParticipation": "ext_test"
+                }]
+            }
+        });
+        let parsed =
+            relationship_types_from_manifest("ext_test", &manifest).expect("asymmetric is valid");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(
+            parsed[0].requires_participation.as_deref(),
+            Some("ext_test")
         );
     }
 

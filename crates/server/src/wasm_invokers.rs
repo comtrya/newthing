@@ -351,19 +351,18 @@ pub fn dispatch_ext_issues(
         ));
     }
     let input = parse_payload(payload)?;
-    // Repository-scoped opt-in gate (issue resource kind is repository
-    // scope). Ops that carry the target repo inline are gated here,
+    // Repository-scoped opt-in gate. Ops that carry the target repo inline
+    // (open-issue, list-issues) are gated here from the typed route table,
     // before the resource is touched. Ops keyed by an issue id/number are
     // gated below, once the issue is loaded and its repository is known.
     let gate_store = store.clone();
-    if info.op_name == "open-issue" || info.op_name == "list-issues" {
-        ensure_repo_enabled(
-            registry,
-            &gate_store,
-            &repository_from_payload(&input, info.op_name)?,
-            "ext_issues",
-        )?;
-    }
+    gate_route_pre_invoke(
+        registry,
+        &gate_store,
+        registry_route_table(registry, info)?.as_ref(),
+        info,
+        &input,
+    )?;
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -892,19 +891,18 @@ pub fn dispatch_ext_pull_requests(
         ));
     }
     let input = parse_payload(payload)?;
-    // Repository-scoped opt-in gate (pull-request resource kind is
-    // repository scope). Ops that carry the target repo inline are gated
-    // here; ops keyed by a pull id are gated below once the pull is
-    // loaded and its repository is known.
+    // Repository-scoped opt-in gate. Ops carrying the target repo inline
+    // (create-pull, list-pulls) are gated here from the typed route table;
+    // ops keyed by a pull id are gated below once the pull is loaded and
+    // its repository is known.
     let gate_store = store.clone();
-    if info.op_name == "create-pull" || info.op_name == "list-pulls" {
-        ensure_repo_enabled(
-            registry,
-            &gate_store,
-            &repository_from_payload(&input, info.op_name)?,
-            "ext_pull_requests",
-        )?;
-    }
+    gate_route_pre_invoke(
+        registry,
+        &gate_store,
+        registry_route_table(registry, info)?.as_ref(),
+        info,
+        &input,
+    )?;
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -1126,18 +1124,17 @@ pub fn dispatch_ext_checks(
         ));
     }
     let input = parse_payload(payload)?;
-    // Repository-scoped opt-in gate (check-run resource kind is
-    // repository scope). Both ext_checks ops carry the target repo
-    // inline (`record-check`, `list-checks`), so gate them here.
+    // Repository-scoped opt-in gate. Both ext_checks ops carry the target
+    // repo inline (record-check, list-checks); the typed route table gates
+    // them here before the component runs.
     let gate_store = store.clone();
-    if info.op_name == "record-check" || info.op_name == "list-checks" {
-        ensure_repo_enabled(
-            registry,
-            &gate_store,
-            &repository_from_payload(&input, info.op_name)?,
-            "ext_checks",
-        )?;
-    }
+    gate_route_pre_invoke(
+        registry,
+        &gate_store,
+        registry_route_table(registry, info)?.as_ref(),
+        info,
+        &input,
+    )?;
     let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
         registry: registry.clone(),
         store: store.clone(),
@@ -1340,19 +1337,62 @@ fn ensure_repo_enabled(
     registry.ensure_extension_enabled_for_repo(store, trimmed, extension_id)
 }
 
-/// Pull the `repository` field out of an op payload object. Used by
-/// repository-scoped ops that carry the target repo inline.
-fn repository_from_payload(input: &Value, op: &str) -> Result<String, wit_types::Error> {
-    input
-        .get("repository")
-        .and_then(Value::as_str)
-        .map(str::to_string)
+/// The typed dispatch route table for the extension this op targets.
+/// Errors if the extension is not loaded — the same failure the typed
+/// invoker would hit instantiating it.
+fn registry_route_table(
+    registry: &WasmRegistry,
+    info: &crate::generated_dispatch::DispatchInfo,
+) -> Result<Arc<crate::route_scope::RouteTable>, wit_types::Error> {
+    registry
+        .get(info.extension_id)
+        .map(|ext| ext.route_table.clone())
         .ok_or_else(|| {
             wit_error(
-                wit_types::ErrorCode::BadInput,
-                format!("{op} requires payload.repository"),
+                wit_types::ErrorCode::Internal,
+                format!("unknown extension: {}", info.extension_id),
             )
         })
+}
+
+/// Generic pre-invoke repository gate, driven by the extension's typed
+/// [`RouteTable`] instead of per-`dispatch_ext_*` `if op == "..."` checks
+/// with a hardcoded extension id.
+///
+/// For a route declared `repository`-scoped with a `PayloadField`
+/// derivation, this derives the repository from that field on the op
+/// payload and applies the per-repo opt-in gate before the component is
+/// instantiated. Instance-scoped routes, and ops absent from the table
+/// (gated in the post-invoke phase or genuinely ungated), are a no-op.
+///
+/// The extension id comes from the dispatch route, never a literal — the
+/// gate is the same code for every extension.
+fn gate_route_pre_invoke(
+    registry: &WasmRegistry,
+    store: &crate::ExtensionRuntimeStore,
+    route_table: &crate::route_scope::RouteTable,
+    info: &crate::generated_dispatch::DispatchInfo,
+    input: &Value,
+) -> Result<(), wit_types::Error> {
+    use crate::route_scope::{DispatchScope, RepoDerivation};
+    let Some(route) = route_table.get(info.interface_name, info.op_name) else {
+        return Ok(());
+    };
+    match &route.scope {
+        DispatchScope::Instance => Ok(()),
+        DispatchScope::Repository(RepoDerivation::PayloadField(field)) => {
+            let repository = input
+                .get(field.as_str())
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("{} requires payload.{field}", info.op_name),
+                    )
+                })?;
+            ensure_repo_enabled(registry, store, repository, info.extension_id)
+        }
+    }
 }
 
 fn parse_payload(payload: &[u8]) -> Result<Value, wit_types::Error> {

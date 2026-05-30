@@ -104,6 +104,10 @@ pub struct HostState {
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     /// Manifest-declared permissions, parsed at extension load time.
     pub manifest: Arc<HostManifest>,
+    /// Resolved synchronous cross-call authorisations for this extension
+    /// (as consumer): the `(provider, op)` pairs `ops.invoke` may reach,
+    /// derived from `requiresExtensionPoints` at load. Empty permits none.
+    pub extension_point_bindings: Arc<crate::extension_points::ConsumerBindings>,
     /// Diagnostic sink for `log.emit`. Defaults to the kernel's
     /// `tracing` subscriber.
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -115,6 +119,17 @@ pub struct HostState {
     /// Held in-process for the lifetime of the kernel; on restart all
     /// outstanding tokens become invalid (callers re-read).
     pub occ_tokens: SharedOccTokens,
+    /// Kernel-global declared relationship shapes. Consulted by
+    /// `wit_relations::Host::create` so an extension-initiated relation
+    /// write must match a declared `(kind, source-kind, target-kind)`
+    /// shape. Empty permits nothing, failing closed.
+    pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
+    /// Per-repo extension opt-in resolver slot, shared with the registry.
+    /// Used by `wit_relations::Host::create` to enforce a relationship
+    /// type's `requiresParticipation`: the source resource's repository
+    /// must have opted into the named extension. `None`/uninstalled fails
+    /// closed (participation-gated edges rejected).
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
     /// Cross-extension op dispatcher (kernel-supplied).
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     /// Current synchronous depth of `ops.invoke` chains. Incremented
@@ -157,8 +172,6 @@ pub struct HostManifest {
     pub allowed_emits: Vec<String>,
     /// Extension ids whose events this extension may `read-recent`.
     pub allowed_event_reads: Vec<String>,
-    /// `<target>/<op>` strings this extension may `ops.invoke`.
-    pub allowed_cross_calls: Vec<String>,
     /// Event patterns this extension's reactor may subscribe to.
     pub reactor_subscribes: Vec<String>,
     /// `<target>/<op>` strings reactions may invoke from `on-event`.
@@ -418,6 +431,63 @@ fn err(code: wit_types::ErrorCode, message: impl Into<String>) -> wit_types::Err
         code,
         message: message.into(),
         path: None,
+    }
+}
+
+/// Reject a relation write whose `(kind, source-kind, target-kind)` triple
+/// no loaded extension declares, and enforce any declared
+/// `requiresParticipation` on the source resource's repository. Mirrors
+/// the GraphQL-path gate in `Runtime::require_declared_relationship` so
+/// both write paths apply one rule and one error vocabulary.
+fn require_declared_relationship(
+    registry: &crate::relationship_types::RelationshipTypeRegistry,
+    repo_enablement: &Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
+    store: &ExtensionRuntimeStore,
+    source: &str,
+    target: &str,
+    kind: &str,
+) -> Result<(), wit_types::Error> {
+    use crate::relationship_types::{RelationVerdict, relation_kind_segment};
+    let (Some(source_kind), Some(target_kind)) =
+        (relation_kind_segment(source), relation_kind_segment(target))
+    else {
+        return Err(err(
+            wit_types::ErrorCode::BadInput,
+            format!(
+                "relation endpoints must be comtrya:// references, got {source:?} -> {target:?}"
+            ),
+        ));
+    };
+    match registry.evaluate(kind, source_kind, target_kind) {
+        RelationVerdict::Allowed => Ok(()),
+        RelationVerdict::Undeclared => Err(err(
+            wit_types::ErrorCode::Forbidden,
+            format!(
+                "no loaded extension declares a relationship type '{kind}' from '{source_kind}' to '{target_kind}'"
+            ),
+        )),
+        RelationVerdict::RequiresParticipation(ext) => {
+            let repo = store.repository_ref_for_resource(source).ok_or_else(|| {
+                err(
+                    wit_types::ErrorCode::Forbidden,
+                    format!(
+                        "cannot resolve a repository for '{source}' to enforce '{ext}' participation"
+                    ),
+                )
+            })?;
+            if crate::wasm_registry::repo_enabled_via_resolver(repo_enablement, store, &repo, &ext)
+            {
+                Ok(())
+            } else {
+                Err(err(
+                    wit_types::ErrorCode::Forbidden,
+                    format!(
+                        "repository '{repo}' has not enabled '{ext}'; add it to the repository's \
+                         comtrya CUE repository.extensions to create this relationship"
+                    ),
+                ))
+            }
+        }
     }
 }
 
@@ -965,6 +1035,20 @@ impl wit_relations::Host for HostState {
         attributes: Option<Vec<u8>>,
     ) -> Result<wit_relations::CreateResult, wit_types::Error> {
         self.require_host_import("relations.write")?;
+        // The edge's (kind, source-kind, target-kind) triple must match a
+        // relationship shape some loaded extension declares in its
+        // manifest. Fails closed: an undeclared shape is `Forbidden`. The
+        // coarse `relations.write` import above only proves the caller may
+        // write *some* relation; this proves the *shape* is one the
+        // platform admits.
+        require_declared_relationship(
+            &self.relationship_types,
+            &self.repo_enablement,
+            &self.store,
+            &source,
+            &target,
+            &kind,
+        )?;
         // Idempotent on (source, target, kind). Stored as documents in
         // the `relations` collection.
         let records = self
@@ -1706,16 +1790,16 @@ impl wit_ops::Host for HostState {
                 format!("ops.invoke op must be canonical '<interface>.<op>', got '{op}'"),
             ));
         }
-        let route = format!("{}/{}", target_extension, op);
         if !self
-            .manifest
-            .allowed_cross_calls
-            .iter()
-            .any(|r| r == &route)
+            .extension_point_bindings
+            .permits(&target_extension, &op)
         {
             return Err(err(
                 wit_types::ErrorCode::Forbidden,
-                format!("cross-call '{}' not in allowed-cross-calls", route),
+                format!(
+                    "cross-call '{target_extension}/{op}' is not authorised by any resolved extension point; \
+                     declare a requiresExtensionPoints entry whose provider point includes this op"
+                ),
             ));
         }
         let depth = self.ops_invoke_depth + 1;
@@ -1786,6 +1870,7 @@ pub struct HostStateForOp {
     pub current_principal: String,
     pub store: Arc<ExtensionRuntimeStore>,
     pub manifest: Arc<HostManifest>,
+    pub extension_point_bindings: Arc<crate::extension_points::ConsumerBindings>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub id_minter: Arc<dyn IdMinter + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -1793,6 +1878,8 @@ pub struct HostStateForOp {
     pub ops_dispatcher: Arc<dyn OpsDispatcher>,
     pub occ_tokens: SharedOccTokens,
     pub minted_ids: SharedMintedIds,
+    pub relationship_types: Arc<crate::relationship_types::RelationshipTypeRegistry>,
+    pub repo_enablement: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>>,
 }
 
 pub fn host_state_for_op(input: HostStateForOp) -> HostState {
@@ -1803,10 +1890,13 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
         store: input.store,
         authz: input.authz,
         manifest: input.manifest,
+        extension_point_bindings: input.extension_point_bindings,
         log_sink: input.log_sink,
         clock: input.clock,
         id_minter: input.id_minter,
         occ_tokens: input.occ_tokens,
+        relationship_types: input.relationship_types,
+        repo_enablement: input.repo_enablement,
         ops_dispatcher: input.ops_dispatcher,
         ops_invoke_depth: 0,
         reactor_depth: 0,
@@ -1935,6 +2025,7 @@ mod tests {
                 host_imports: vec!["storage.write".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -1942,6 +2033,10 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
         let result = <HostState as wit_storage::Host>::create(
             &mut host,
@@ -2144,10 +2239,15 @@ mod tests {
             current_principal: "comtrya://user/usr_ops_test".to_string(),
             store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
             manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([(
+                    "ext_issues",
+                    "issues.close-issue",
+                )]),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
@@ -2155,6 +2255,10 @@ mod tests {
             ops_dispatcher: Arc::new(dispatcher.clone()),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let bad = <HostState as wit_ops::Host>::invoke(
@@ -2234,6 +2338,55 @@ mod tests {
     }
 
     #[test]
+    fn ops_invoke_forbidden_when_bindings_empty() {
+        use std::sync::{Arc, RwLock};
+
+        // `ops` host import IS declared, so this exercises the cross-call
+        // binding gate specifically (not the host-import gate): with no
+        // resolved extension-point bindings, every ops.invoke is Forbidden.
+        let tmp_root = std::env::temp_dir().join(format!(
+            "comtrya-empty-bindings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tmp_root).unwrap();
+        let mut host = host_state_for_op(HostStateForOp {
+            extension_id: "ext_epics".to_string(),
+            extension_principal: "comtrya://extension/ext_epics".to_string(),
+            current_principal: "comtrya://user/usr_empty_bindings".to_string(),
+            store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
+            manifest: Arc::new(HostManifest {
+                host_imports: vec!["ops".to_string()],
+                ..HostManifest::default()
+            }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
+            clock: Arc::new(SystemClock),
+            id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
+            log_sink: Arc::new(TracingLogSink),
+            authz: Arc::new(SimpleAuthz),
+            ops_dispatcher: Arc::new(NoopDispatcher),
+            occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
+            minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
+        });
+
+        let forbidden = <HostState as wit_ops::Host>::invoke(
+            &mut host,
+            "ext_issues".to_string(),
+            "issues.state-counts-for-refs-issue".to_string(),
+            b"[]".to_vec(),
+        )
+        .expect_err("ops.invoke must be Forbidden with no resolved bindings");
+        assert!(matches!(forbidden.code, wit_types::ErrorCode::Forbidden));
+    }
+
+    #[test]
     fn host_imports_gate_linked_interfaces() {
         use std::sync::{Arc, RwLock};
 
@@ -2251,10 +2404,13 @@ mod tests {
             extension_principal: "comtrya://extension/ext_issues".to_string(),
             current_principal: "comtrya://user/usr_imports_test".to_string(),
             store: Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp_root).unwrap()),
-            manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec!["ext_issues/issues.close-issue".to_string()],
-                ..HostManifest::default()
-            }),
+            manifest: Arc::new(HostManifest::default()),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([(
+                    "ext_issues",
+                    "issues.close-issue",
+                )]),
+            ),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(BTreeMap::new())),
             log_sink: Arc::new(TracingLogSink),
@@ -2262,6 +2418,10 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let storage = <HostState as wit_storage::Host>::get(
@@ -2324,6 +2484,7 @@ mod tests {
                 ],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
             log_sink: Arc::new(TracingLogSink),
@@ -2331,6 +2492,18 @@ mod tests {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            // Permit the synthetic `tracks` shape the relation-author test
+            // creates, so the shape gate does not mask the author check.
+            relationship_types: Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+                vec![crate::relationship_types::RelationshipShape {
+                    kind: "comtrya://relation-kind/tracks".to_string(),
+                    source_kinds: ["issue".to_string()].into_iter().collect(),
+                    target_kinds: ["epic".to_string()].into_iter().collect(),
+                    symmetric: false,
+                    requires_participation: None,
+                }],
+            )),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -2440,6 +2613,127 @@ mod tests {
             <HostState as wit_relations::Host>::delete(&mut author_host, relation_id.clone())
                 .expect("author can delete own relation");
         assert!(matches!(deleted, wit_types::DeleteResult::Deleted));
+    }
+
+    #[test]
+    fn relation_create_rejects_undeclared_shape() {
+        // The shape gate fails closed: `host_with_principal`'s registry
+        // only declares the synthetic `tracks` shape, so a `blocks` edge —
+        // which no declared shape admits — must be `Forbidden`, even though
+        // the caller holds `relations.write`.
+        let store = tmp_store("relation-shape-gate");
+        let mut host = host_with_principal(store, "comtrya://user/usr_shape");
+        let result = <HostState as wit_relations::Host>::create(
+            &mut host,
+            "comtrya://issue/iss_a".to_string(),
+            "comtrya://epic/epc_b".to_string(),
+            "comtrya://rel/blocks".to_string(),
+            None,
+        );
+        match result {
+            Err(e) => assert!(
+                matches!(e.code, wit_types::ErrorCode::Forbidden),
+                "expected Forbidden, got {e:?}"
+            ),
+            Ok(_) => panic!("undeclared relationship shape must be rejected"),
+        }
+    }
+
+    #[test]
+    fn relation_create_enforces_participation_requirement() {
+        // A declared shape carrying `requiresParticipation: ext_epics` may
+        // be created only when the source issue's repository has opted into
+        // ext_epics. This restores, generically, the gate the removed
+        // `epics.link-issue` op enforced — now on the relation write path.
+        let store = tmp_store("relation-participation");
+        let repo_ref = "comtrya://workspace/ws_p/repository/repo_p";
+        let issue_uri = "comtrya://issue/iss_p";
+        let epic_uri = "comtrya://epic/epc_p";
+        // Seed the issue so the kernel can resolve its repository.
+        store
+            .create_document(crate::ExtensionDocumentRecord {
+                schema_version: crate::EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_issues".to_string(),
+                collection: "issues".to_string(),
+                id: "iss_p".to_string(),
+                resource: issue_uri.to_string(),
+                resource_refs: vec![issue_uri.to_string(), repo_ref.to_string()],
+                visibility: "internal".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                data: serde_json::json!({ "id": "iss_p" }),
+            })
+            .expect("seed issue record");
+
+        let registry = Arc::new(crate::relationship_types::RelationshipTypeRegistry::new(
+            vec![crate::relationship_types::RelationshipShape {
+                kind: "comtrya://rel/part-of".to_string(),
+                source_kinds: ["issue".to_string()].into_iter().collect(),
+                target_kinds: ["epic".to_string()].into_iter().collect(),
+                symmetric: false,
+                requires_participation: Some("ext_epics".to_string()),
+            }],
+        ));
+
+        let make_host = |enabled: Vec<&'static str>| -> HostState {
+            use std::sync::RwLock;
+            let slot: Arc<RwLock<Option<Arc<dyn crate::wasm_registry::RepoEnablementResolver>>>> =
+                Arc::new(RwLock::new(Some(
+                    crate::wasm_registry::StaticRepoEnablement::new([(repo_ref, enabled)]),
+                )));
+            let mut kinds = std::collections::BTreeMap::new();
+            kinds.insert("relation".to_string(), "rel".to_string());
+            host_state_for_op(HostStateForOp {
+                extension_id: "ext_epics".to_string(),
+                extension_principal: "comtrya://extension/ext_epics".to_string(),
+                current_principal: "comtrya://user/usr_p".to_string(),
+                store: store.clone(),
+                manifest: Arc::new(HostManifest {
+                    host_imports: vec!["relations.write".to_string()],
+                    ..HostManifest::default()
+                }),
+                extension_point_bindings: Arc::new(
+                    crate::extension_points::ConsumerBindings::default(),
+                ),
+                clock: Arc::new(SystemClock),
+                id_minter: Arc::new(UlidMinter::with_kernel_kinds(kinds)),
+                log_sink: Arc::new(TracingLogSink),
+                authz: Arc::new(SimpleAuthz),
+                ops_dispatcher: Arc::new(NoopDispatcher),
+                occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+                relationship_types: registry.clone(),
+                repo_enablement: slot,
+            })
+        };
+
+        // Repo has NOT opted into ext_epics → Forbidden.
+        let mut denied = make_host(vec![]);
+        let err = <HostState as wit_relations::Host>::create(
+            &mut denied,
+            issue_uri.to_string(),
+            epic_uri.to_string(),
+            "comtrya://rel/part-of".to_string(),
+            None,
+        )
+        .expect_err("link must be denied when repo has not enabled ext_epics");
+        assert!(
+            matches!(err.code, wit_types::ErrorCode::Forbidden),
+            "got {err:?}"
+        );
+
+        // Repo HAS opted in → the link is created.
+        let mut allowed = make_host(vec!["ext_epics"]);
+        let created = <HostState as wit_relations::Host>::create(
+            &mut allowed,
+            issue_uri.to_string(),
+            epic_uri.to_string(),
+            "comtrya://rel/part-of".to_string(),
+            None,
+        )
+        .expect("link allowed when repo participates");
+        assert!(matches!(created, wit_relations::CreateResult::Created(_)));
     }
 
     #[test]
@@ -2618,7 +2912,6 @@ mod m1_ext_issues_smoke {
                 "dev.comtrya.issues.reopened".into(),
             ],
             allowed_event_reads: vec![],
-            allowed_cross_calls: vec![],
             reactor_subscribes: vec![],
             reactor_allowed_mutations: vec![],
             reactor_allowed_emits: vec![],
@@ -2647,6 +2940,7 @@ mod m1_ext_issues_smoke {
             current_principal: "comtrya://user/usr_test".to_string(),
             store: store_arc,
             manifest,
+            extension_point_bindings: Arc::new(crate::extension_points::ConsumerBindings::default()),
             clock: Arc::new(SystemClock),
             id_minter: Arc::new(UlidMinter::with_kernel_kinds(kind_prefixes)),
             log_sink: Arc::new(TracingLogSink),
@@ -2654,6 +2948,10 @@ mod m1_ext_issues_smoke {
             ops_dispatcher: Arc::new(NoopDispatcher),
             occ_tokens: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(std::collections::BTreeMap::new())),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         })
     }
 

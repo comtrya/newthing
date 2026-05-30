@@ -100,7 +100,22 @@
     "dev.comtrya.issues.project-changed"
   ],
   "allowedEventReads": [],
-  "allowedCrossCalls": [],
+  "providesExtensionPoints": [
+    {
+      "id": "issue-membership",
+      "version": 1,
+      "ops": ["issues.state-counts-for-refs-issue"]
+    },
+    {
+      "id": "issue-linkage",
+      "version": 1,
+      "ops": ["issues.by-ref-issue", "issues.close-issue"]
+    }
+  ],
+  "dispatchRoutes": [
+    { "op": "issues.open-issue", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.list-issues", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+  ],
   "reactor": {
     "allowedMutations": [],
     "allowedEmits": []

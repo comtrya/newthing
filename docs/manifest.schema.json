@@ -99,6 +99,18 @@
               "incomingLabel"
             ],
             "additionalProperties": false,
+            "allOf": [
+              {
+                "$comment": "requiresParticipation gates on the source endpoint, which is ill-defined for a symmetric type; the kernel loader also rejects this combination.",
+                "if": {
+                  "properties": { "symmetric": { "const": true } },
+                  "required": ["symmetric"]
+                },
+                "then": {
+                  "properties": { "requiresParticipation": false }
+                }
+              }
+            ],
             "properties": {
               "id": {
                 "type": "string",
@@ -121,7 +133,12 @@
               "outgoingLabel": { "type": "string", "minLength": 1 },
               "incomingLabel": { "type": "string", "minLength": 1 },
               "symmetric": { "type": "boolean" },
-              "order": { "type": "integer" }
+              "order": { "type": "integer" },
+              "requiresParticipation": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "description": "Extension id whose per-repo opt-in is required to create an edge of this type: the source resource's repository must list this extension in its repository.extensions. Enforced on the relation write path after the shape check."
+              }
             }
           }
         },
@@ -171,10 +188,77 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*$" },
       "description": "Extension ids whose events this extension may read via events.read-recent."
     },
-    "allowedCrossCalls": {
+    "providesExtensionPoints": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*/[a-z][a-z0-9.-]*$" },
-      "description": "<target-extension>/<op-name> strings this extension may invoke via ops.invoke."
+      "description": "Named, versioned sets of ops this extension exposes for other extensions to synchronously invoke via ops.invoke. A consumer authorises a cross-call by requiring an exact (provider, point, version).",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "ops"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "version": { "type": "integer", "minimum": 1 },
+          "ops": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$" },
+            "description": "Canonical <interface>.<op> descriptors included in this point."
+          }
+        }
+      }
+    },
+    "requiresExtensionPoints": {
+      "type": "array",
+      "description": "Exact provider extension points this extension depends on. Each is resolved at load against the provider's providesExtensionPoints with an exact integer version match; an unresolved requirement fails the load.",
+      "items": {
+        "type": "object",
+        "required": ["provider", "point", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "point": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "version": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "dispatchRoutes": {
+      "type": "array",
+      "description": "Per-op kernel dispatch scope. Each entry declares whether an op is gated by the per-repository opt-in (repository.extensions) and, when it is, how the kernel derives the repository to gate against. Ops absent from this list are not gated in the pre-invoke phase. Every op listed must be a real WIT export, verified at load.",
+      "items": {
+        "type": "object",
+        "required": ["op", "scope"],
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$",
+            "description": "Canonical <interface>.<op> descriptor of the op this route governs."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["repository", "instance"],
+            "description": "\"repository\" gates the op by the target repo's opt-in; \"instance\" never gates it."
+          },
+          "derive": {
+            "type": "object",
+            "description": "How the kernel derives the repository to gate against. Required for a repository-scoped route; forbidden for an instance-scoped one.",
+            "required": ["strategy", "field"],
+            "additionalProperties": false,
+            "properties": {
+              "strategy": {
+                "type": "string",
+                "enum": ["payloadField"],
+                "description": "\"payloadField\": the repository URI is a named field on the op payload, known before invoke."
+              },
+              "field": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9]*$",
+                "description": "For strategy \"payloadField\": the payload field carrying the repository URI."
+              }
+            }
+          }
+        }
+      }
     },
     "reactor": {
       "type": "object",

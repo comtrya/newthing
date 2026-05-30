@@ -37,6 +37,11 @@ pub struct LoadedExtension {
     pub id: String,
     pub principal: String,
     pub manifest: Arc<HostManifest>,
+    pub route_table: Arc<crate::route_scope::RouteTable>,
+    /// Extension points this extension exposes for others to invoke.
+    pub provides: Arc<Vec<crate::extension_points::ProvidedPoint>>,
+    /// Extension points this extension depends on from others.
+    pub requires: Arc<Vec<crate::extension_points::RequiredPoint>>,
     pub component: Component,
 }
 
@@ -52,6 +57,25 @@ pub trait RepoEnablementResolver: Send + Sync {
         store: &crate::ExtensionRuntimeStore,
         repository_ref: &str,
     ) -> std::collections::BTreeSet<String>;
+}
+
+/// Whether `repository_ref` has opted into `extension_id`, read through an
+/// optionally-installed resolver slot. Fails closed: a missing resolver or
+/// an unknown repository yields `false`. Shared by `WasmRegistry` and the
+/// relation write-path participation gate in `HostState`, which carries
+/// the same resolver slot.
+pub fn repo_enabled_via_resolver(
+    resolver_slot: &Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
+    store: &crate::ExtensionRuntimeStore,
+    repository_ref: &str,
+    extension_id: &str,
+) -> bool {
+    let Some(resolver) = resolver_slot.read().ok().and_then(|slot| slot.clone()) else {
+        return false;
+    };
+    resolver
+        .enabled_extensions_for_repo(store, repository_ref)
+        .contains(extension_id)
 }
 
 /// Production resolver: maps a repository ref to its on-disk bare git
@@ -160,6 +184,14 @@ pub struct WasmRegistry {
     pub linker: Arc<Linker<HostState>>,
     pub extensions: Arc<RwLock<BTreeMap<String, Arc<LoadedExtension>>>>,
     pub reactor_subscriptions: Arc<RwLock<BTreeMap<String, Vec<String>>>>,
+    /// Resolved per-consumer synchronous cross-call authorisations, keyed
+    /// by consumer extension id. Populated by
+    /// `resolve_extension_point_bindings` after every extension is
+    /// registered (a consumer's providers may load in any order). Empty
+    /// until then — `HostState::invoke` reads a missing entry as "no
+    /// cross-calls permitted", failing closed.
+    pub extension_point_bindings:
+        Arc<RwLock<BTreeMap<String, Arc<crate::extension_points::ConsumerBindings>>>>,
     pub authz: Arc<dyn AuthzLayer + Send + Sync>,
     pub clock: Arc<dyn Clock + Send + Sync>,
     pub log_sink: Arc<dyn LogSink + Send + Sync>,
@@ -173,6 +205,15 @@ pub struct WasmRegistry {
     /// installed — gates treat a missing resolver as "cannot confirm
     /// enabled" and reject repository-scoped access, failing closed.
     pub repo_enablement: Arc<RwLock<Option<Arc<dyn RepoEnablementResolver>>>>,
+    /// Kernel-global set of manifest-declared relationship shapes,
+    /// aggregated across every loaded extension. Consulted on the relation
+    /// write path so an edge's `(kind, source-kind, target-kind)` triple
+    /// must match a declared `contributes.relationshipTypes` shape.
+    /// Installed after every extension is registered (a shape's endpoint
+    /// kinds may be owned by an extension that loads later). Empty until
+    /// then — both write paths read an empty registry as "permit nothing",
+    /// failing closed.
+    pub relationship_types: Arc<RwLock<Arc<crate::relationship_types::RelationshipTypeRegistry>>>,
 }
 
 impl std::fmt::Debug for WasmRegistry {
@@ -200,6 +241,7 @@ impl WasmRegistry {
             linker: Arc::new(linker),
             extensions: Arc::new(RwLock::new(BTreeMap::new())),
             reactor_subscriptions: Arc::new(RwLock::new(BTreeMap::new())),
+            extension_point_bindings: Arc::new(RwLock::new(BTreeMap::new())),
             authz: Arc::new(SimpleAuthz),
             clock: Arc::new(SystemClock),
             log_sink: Arc::new(TracingLogSink),
@@ -207,6 +249,9 @@ impl WasmRegistry {
             occ_tokens: Arc::new(RwLock::new(BTreeMap::new())),
             minted_ids: Arc::new(RwLock::new(BTreeMap::new())),
             repo_enablement: Arc::new(RwLock::new(None)),
+            relationship_types: Arc::new(RwLock::new(Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ))),
         })
     }
 
@@ -240,6 +285,35 @@ impl WasmRegistry {
             .map_err(|e| format!("compile {}: {e}", wasm_path.display()))?;
 
         let host_manifest = host_manifest_from_wire(&wire);
+        // Build the typed per-op dispatch route table from the manifest,
+        // then verify every declared route matches a real WIT export so a
+        // typo'd or stale `dispatchRoutes` entry fails at load, not at
+        // dispatch.
+        let route_table = route_table_from_wire(&id, &wire.dispatch_routes)?;
+        // The descriptor is the canonical `<interface>.<op>` op route, which
+        // is exactly what `dispatch_wit_route` keys on; a descriptor that
+        // names no generated WIT export is a stale or typo'd manifest entry.
+        for descriptor in route_table.op_descriptors() {
+            if crate::generated_dispatch::dispatch_wit_route(&id, descriptor).is_none() {
+                return Err(format!(
+                    "{id} dispatchRoute '{descriptor}' does not match any WIT export"
+                ));
+            }
+        }
+        // Likewise cross-check that every op a `providesExtensionPoints`
+        // entry exposes is a real WIT export of this provider, so a typo in
+        // a point's `ops` fails the load rather than surfacing as a
+        // NotFound when a consumer eventually invokes it.
+        for point in &wire.provides_extension_points {
+            for op in &point.ops {
+                if crate::generated_dispatch::dispatch_wit_route(&id, op).is_none() {
+                    return Err(format!(
+                        "{id} extension point '{}' v{} exposes op '{op}' which is not a WIT export",
+                        point.id, point.version
+                    ));
+                }
+            }
+        }
         // Register the extension's declared kinds with the minter,
         // honouring the prefix declared in each `contributes.resourceKinds[]`
         // entry. The `HostManifest` flattens to kind names; the minter
@@ -250,6 +324,9 @@ impl WasmRegistry {
             id: id.clone(),
             principal: format!("comtrya://extension/{}", id),
             manifest: Arc::new(host_manifest),
+            route_table: Arc::new(route_table),
+            provides: Arc::new(provided_points_from_wire(&wire)),
+            requires: Arc::new(required_points_from_wire(&wire)),
             component,
         });
         let mut exts = self
@@ -285,17 +362,7 @@ impl WasmRegistry {
         repository_ref: &str,
         extension_id: &str,
     ) -> bool {
-        let Some(resolver) = self
-            .repo_enablement
-            .read()
-            .ok()
-            .and_then(|slot| slot.clone())
-        else {
-            return false;
-        };
-        resolver
-            .enabled_extensions_for_repo(store, repository_ref)
-            .contains(extension_id)
+        repo_enabled_via_resolver(&self.repo_enablement, store, repository_ref, extension_id)
     }
 
     /// Whether `extension_id`'s reactor subscription is gated per-repo.
@@ -360,6 +427,75 @@ impl WasmRegistry {
         self.extensions
             .read()
             .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Resolve every consumer's `requiresExtensionPoints` against the
+    /// `providesExtensionPoints` of all registered extensions, building the
+    /// immutable per-consumer cross-call binding table. Call once after all
+    /// extensions are registered (providers may load in any order). Fails
+    /// closed: any unresolved requirement, duplicate declaration, or
+    /// requirement cycle aborts the load.
+    pub fn resolve_extension_point_bindings(&self) -> Result<(), String> {
+        let decls: Vec<crate::extension_points::ExtensionPointDecls> = self
+            .extensions
+            .read()
+            .map_err(|e| format!("registry read lock: {e}"))?
+            .values()
+            .map(|ext| crate::extension_points::ExtensionPointDecls {
+                id: ext.id.clone(),
+                provides: (*ext.provides).clone(),
+                requires: (*ext.requires).clone(),
+            })
+            .collect();
+        let resolved = crate::extension_points::resolve_bindings(&decls)?;
+        let mut slot = self
+            .extension_point_bindings
+            .write()
+            .map_err(|e| format!("binding table write lock: {e}"))?;
+        *slot = resolved
+            .into_iter()
+            .map(|(consumer, bindings)| (consumer, Arc::new(bindings)))
+            .collect();
+        Ok(())
+    }
+
+    /// The resolved synchronous cross-call bindings for `consumer`. A
+    /// consumer with no resolved bindings (none declared, or resolution
+    /// has not run) gets an empty set that permits no cross-calls.
+    pub fn consumer_bindings(
+        &self,
+        consumer: &str,
+    ) -> Arc<crate::extension_points::ConsumerBindings> {
+        self.extension_point_bindings
+            .read()
+            .ok()
+            .and_then(|slot| slot.get(consumer).cloned())
+            .unwrap_or_default()
+    }
+
+    /// Install the aggregated relationship-shape registry. Called once
+    /// after every extension is registered and its declared
+    /// `contributes.relationshipTypes` have been collected, so a shape
+    /// whose endpoint kinds span extensions resolves regardless of load
+    /// order. Mirrors `install_repo_enablement`.
+    pub fn install_relationship_types(
+        &self,
+        registry: crate::relationship_types::RelationshipTypeRegistry,
+    ) {
+        if let Ok(mut slot) = self.relationship_types.write() {
+            *slot = Arc::new(registry);
+        }
+    }
+
+    /// A cheap snapshot of the installed relationship-shape registry. An
+    /// uninstalled registry is empty and permits no relation writes,
+    /// failing closed.
+    pub fn relationship_types(&self) -> Arc<crate::relationship_types::RelationshipTypeRegistry> {
+        self.relationship_types
+            .read()
+            .ok()
+            .map(|slot| slot.clone())
             .unwrap_or_default()
     }
 
@@ -763,13 +899,17 @@ struct WireManifest {
     #[serde(default)]
     allowed_event_reads: Vec<String>,
     #[serde(default)]
-    allowed_cross_calls: Vec<String>,
+    provides_extension_points: Vec<WireProvidedPoint>,
+    #[serde(default)]
+    requires_extension_points: Vec<WireRequiredPoint>,
     #[serde(default)]
     reactor: WireReactor,
     #[serde(default)]
     contributes: WireContributes,
     #[serde(default)]
     host_imports: Vec<String>,
+    #[serde(default)]
+    dispatch_routes: Vec<WireDispatchRoute>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -820,6 +960,84 @@ impl From<WireScope> for crate::wasm_host::ContributionScope {
     }
 }
 
+/// A `providesExtensionPoints` entry on the wire: a named, versioned set
+/// of ops the extension exposes for other extensions to synchronously
+/// invoke.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireProvidedPoint {
+    id: String,
+    version: u32,
+    ops: Vec<String>,
+}
+
+/// A `requiresExtensionPoints` entry on the wire: an exact provider point
+/// + version this extension depends on.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireRequiredPoint {
+    provider: String,
+    point: String,
+    version: u32,
+}
+
+/// A per-op dispatch-route declaration on the wire. `op` is the canonical
+/// `"<interface>.<op>"` descriptor; `scope` is `"instance"` or
+/// `"repository"`, and a repository-scoped route carries a typed
+/// `derive` describing how the kernel finds the repository to gate.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WireDispatchRoute {
+    op: String,
+    #[serde(default)]
+    scope: WireScope,
+    #[serde(default)]
+    derive: Option<WireRepoDerivation>,
+}
+
+/// Typed repository-derivation on the wire — a tagged object, never a
+/// bare string. Today only `payloadField` is supported (the pre-invoke
+/// gate phase); other strategies land with the post-invoke phase.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "strategy", rename_all = "camelCase")]
+enum WireRepoDerivation {
+    #[serde(rename_all = "camelCase")]
+    PayloadField { field: String },
+}
+
+/// Translate the wire dispatch-route declarations into a typed
+/// [`RouteTable`]. Fails closed: a repository-scoped route without a
+/// supported `derive` is a manifest error, surfaced at load.
+fn route_table_from_wire(
+    extension_id: &str,
+    routes: &[WireDispatchRoute],
+) -> Result<crate::route_scope::RouteTable, String> {
+    use crate::route_scope::{DispatchRoute, DispatchScope, RepoDerivation};
+    let mut entries = Vec::with_capacity(routes.len());
+    for route in routes {
+        let scope = match (route.scope, route.derive.as_ref()) {
+            (WireScope::Instance, None) => DispatchScope::Instance,
+            (WireScope::Instance, Some(_)) => {
+                return Err(format!(
+                    "{extension_id} dispatchRoute '{}' is instance-scoped but declares a repository derivation",
+                    route.op
+                ));
+            }
+            (WireScope::Repository, Some(WireRepoDerivation::PayloadField { field })) => {
+                DispatchScope::Repository(RepoDerivation::PayloadField(field.clone()))
+            }
+            (WireScope::Repository, None) => {
+                return Err(format!(
+                    "{extension_id} dispatchRoute '{}' is repository-scoped but declares no derive",
+                    route.op
+                ));
+            }
+        };
+        entries.push((route.op.clone(), DispatchRoute { scope }));
+    }
+    Ok(crate::route_scope::RouteTable::from_entries(entries))
+}
+
 fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifest, String> {
     serde_json::from_value(json.clone()).map_err(|e| {
         format!(
@@ -829,11 +1047,32 @@ fn parse_wire_manifest(json: &Value, manifest_path: &Path) -> Result<WireManifes
     })
 }
 
+fn provided_points_from_wire(wire: &WireManifest) -> Vec<crate::extension_points::ProvidedPoint> {
+    wire.provides_extension_points
+        .iter()
+        .map(|p| crate::extension_points::ProvidedPoint {
+            id: p.id.clone(),
+            version: p.version,
+            ops: p.ops.clone(),
+        })
+        .collect()
+}
+
+fn required_points_from_wire(wire: &WireManifest) -> Vec<crate::extension_points::RequiredPoint> {
+    wire.requires_extension_points
+        .iter()
+        .map(|r| crate::extension_points::RequiredPoint {
+            provider: r.provider.clone(),
+            point: r.point.clone(),
+            version: r.version,
+        })
+        .collect()
+}
+
 fn host_manifest_from_wire(wire: &WireManifest) -> HostManifest {
     HostManifest {
         allowed_emits: wire.allowed_emits.clone(),
         allowed_event_reads: wire.allowed_event_reads.clone(),
-        allowed_cross_calls: wire.allowed_cross_calls.clone(),
         reactor_subscribes: wire.reactor.subscribes.clone(),
         reactor_allowed_mutations: wire.reactor.allowed_mutations.clone(),
         reactor_allowed_emits: wire.reactor.allowed_emits.clone(),
@@ -895,6 +1134,7 @@ pub fn build_host_state(
         current_principal: current_principal.to_string(),
         store,
         manifest: ext.manifest.clone(),
+        extension_point_bindings: registry.consumer_bindings(&ext.id),
         clock: registry.clock.clone(),
         id_minter: registry.id_minter.clone(),
         log_sink: registry.log_sink.clone(),
@@ -902,6 +1142,8 @@ pub fn build_host_state(
         ops_dispatcher: dispatcher,
         occ_tokens: registry.occ_tokens.clone(),
         minted_ids: registry.minted_ids.clone(),
+        relationship_types: registry.relationship_types(),
+        repo_enablement: registry.repo_enablement.clone(),
     });
     state.ops_invoke_depth = parent_depth;
     Ok((state, ext))
@@ -1092,6 +1334,64 @@ impl RepoEnablementResolver for StaticRepoEnablement {
 mod tests {
     use super::*;
 
+    fn wire_route(json: serde_json::Value) -> WireDispatchRoute {
+        serde_json::from_value(json).expect("parse WireDispatchRoute")
+    }
+
+    #[test]
+    fn route_table_parses_repository_payload_field() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.open-issue",
+            "scope": "repository",
+            "derive": { "strategy": "payloadField", "field": "repository" }
+        }))];
+        let table = route_table_from_wire("ext_issues", &routes).expect("build table");
+        let route = table.get("issues", "open-issue").expect("route present");
+        assert_eq!(
+            route.scope,
+            crate::route_scope::DispatchScope::Repository(
+                crate::route_scope::RepoDerivation::PayloadField("repository".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn route_table_parses_instance_scope() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.by-refs-issue",
+            "scope": "instance"
+        }))];
+        let table = route_table_from_wire("ext_issues", &routes).expect("build table");
+        assert_eq!(
+            table
+                .get("issues", "by-refs-issue")
+                .expect("route present")
+                .scope,
+            crate::route_scope::DispatchScope::Instance
+        );
+    }
+
+    #[test]
+    fn route_table_rejects_repository_route_without_derive() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.open-issue",
+            "scope": "repository"
+        }))];
+        let err = route_table_from_wire("ext_issues", &routes).expect_err("must fail closed");
+        assert!(err.contains("no derive"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn route_table_rejects_instance_route_with_derive() {
+        let routes = vec![wire_route(serde_json::json!({
+            "op": "issues.by-refs-issue",
+            "scope": "instance",
+            "derive": { "strategy": "payloadField", "field": "repository" }
+        }))];
+        let err = route_table_from_wire("ext_issues", &routes).expect_err("must fail closed");
+        assert!(err.contains("instance-scoped"), "unexpected: {err}");
+    }
+
     #[test]
     fn registry_loads_ext_issues_from_manifest() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1172,6 +1472,89 @@ mod tests {
         let json: Value = serde_json::from_str(&text).expect("parse manifest");
         validate_manifest_against_schema(&json, &path)
             .expect("ext_issues manifest must validate against the schema");
+    }
+
+    #[test]
+    fn manifest_schema_rejects_payload_field_derive_without_field() {
+        // The schema and the Rust `WireRepoDerivation::PayloadField { field }`
+        // must agree: a payloadField derive without `field` is invalid. If
+        // the schema accepted it, it would pass validation and then fail
+        // deserialization — the gap this guards.
+        let bad = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "dispatchRoutes": [
+                { "op": "issues.open-issue", "scope": "repository",
+                  "derive": { "strategy": "payloadField" } }
+            ]
+        });
+        let err =
+            validate_manifest_against_schema(&bad, std::path::Path::new("test://no-field.json"))
+                .expect_err("schema must reject a payloadField derive with no field");
+        assert!(err.contains("schema validation"), "error: {err}");
+    }
+
+    #[test]
+    fn manifest_schema_accepts_well_formed_dispatch_route() {
+        let ok = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "dispatchRoutes": [
+                { "op": "issues.open-issue", "scope": "repository",
+                  "derive": { "strategy": "payloadField", "field": "repository" } },
+                { "op": "issues.by-refs-issue", "scope": "instance" }
+            ]
+        });
+        validate_manifest_against_schema(&ok, std::path::Path::new("test://ok.json"))
+            .expect("well-formed dispatchRoutes must validate");
+    }
+
+    #[test]
+    fn manifest_schema_rejects_symmetric_relationship_participation() {
+        // The schema mirrors the loader: requiresParticipation gates on the
+        // source endpoint and is ill-defined for a symmetric type, so the
+        // combination must fail schema validation.
+        let bad = serde_json::json!({
+            "schemaVersion": "comtrya.extension/v1",
+            "id": "ext_issues",
+            "name": "x",
+            "version": "0.1.0",
+            "publisher": "x",
+            "contributes": {
+                "relationshipTypes": [{
+                    "id": "ext_issues.sym-gated",
+                    "kind": "comtrya://rel/relates-to",
+                    "sourceKinds": ["issue"],
+                    "targetKinds": ["epic"],
+                    "outgoingLabel": "relates to",
+                    "incomingLabel": "relates to",
+                    "symmetric": true,
+                    "requiresParticipation": "ext_issues"
+                }]
+            }
+        });
+        let err =
+            validate_manifest_against_schema(&bad, std::path::Path::new("test://sym-gated.json"))
+                .expect_err("schema must reject symmetric + requiresParticipation");
+        assert!(err.contains("schema validation"), "error: {err}");
+    }
+
+    #[test]
+    fn manifest_schema_accepts_real_ext_epics_manifest() {
+        // ext_epics ships an asymmetric participation-gated relationship type
+        // (issue -> epic part-of, requiresParticipation: ext_epics).
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_epics/manifest.json");
+        let text = std::fs::read_to_string(&path).expect("read manifest");
+        let json: Value = serde_json::from_str(&text).expect("parse manifest");
+        validate_manifest_against_schema(&json, &path)
+            .expect("ext_epics manifest must validate against the schema");
     }
 
     #[test]
@@ -1563,6 +1946,157 @@ mod tests {
             .join("../../extensions/first-party/ext_issues")
     }
 
+    /// A `dispatchRoutes` entry naming an op that is not a real WIT export
+    /// fails the load — the manifest's route table is cross-checked
+    /// against the generated WIT routes at registration.
+    #[test]
+    fn register_rejects_dispatch_route_for_unknown_wit_op() {
+        let src = ext_issues_root();
+        if !src.join("dist/ext_issues.wasm").is_file() {
+            eprintln!("SKIP register_rejects_dispatch_route_for_unknown_wit_op: build ext_issues");
+            return;
+        }
+        // Copy the real extension into a tempdir, then inject a bogus
+        // dispatch route into the manifest.
+        let tmp = tempdir_for_test("comtrya-bogus-route");
+        let dst = tmp.join("ext_issues");
+        copy_dir_recursive(&src, &dst).expect("copy ext_issues");
+        let manifest_path = dst.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["dispatchRoutes"] = serde_json::json!([
+            { "op": "issues.no-such-op", "scope": "instance" }
+        ]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+
+        let registry = WasmRegistry::new().expect("build registry");
+        let err = registry
+            .register_from_manifest(&dst)
+            .expect_err("registration must fail for an unknown WIT op");
+        assert!(
+            err.contains("does not match any WIT export"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            // Skip symlinks (e.g. wit/deps/platform); registration only
+            // needs the manifest and the dist/ wasm, both regular files.
+            if file_type.is_symlink() {
+                continue;
+            }
+            let from = entry.path();
+            let to = dst.join(entry.file_name());
+            if file_type.is_dir() {
+                copy_dir_recursive(&from, &to)?;
+            } else {
+                std::fs::copy(&from, &to)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn first_party_root(id: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party")
+            .join(id)
+    }
+
+    /// The real first-party manifests resolve into the expected cross-call
+    /// bindings: ext_epics→ext_issues (issue-membership) and
+    /// ext_pull_requests→ext_issues (issue-linkage). Exercises the full
+    /// load + two-pass resolution path against the shipped wasm + manifests.
+    #[test]
+    fn first_party_extension_points_resolve_expected_bindings() {
+        let registry = WasmRegistry::new().expect("build registry");
+        for id in ["ext_issues", "ext_epics", "ext_pull_requests"] {
+            let root = first_party_root(id);
+            if !root.join(format!("dist/{id}.wasm")).is_file() {
+                eprintln!(
+                    "SKIP first_party_extension_points_resolve_expected_bindings: build {id}"
+                );
+                return;
+            }
+            registry
+                .register_from_manifest(&root)
+                .unwrap_or_else(|e| panic!("register {id}: {e}"));
+        }
+        registry
+            .resolve_extension_point_bindings()
+            .expect("first-party requirements must resolve");
+
+        let epics = registry.consumer_bindings("ext_epics");
+        assert!(
+            epics.permits("ext_issues", "issues.state-counts-for-refs-issue"),
+            "ext_epics must reach the issue-membership op"
+        );
+        assert!(
+            !epics.permits("ext_issues", "issues.close-issue"),
+            "ext_epics must NOT reach an op outside its required point"
+        );
+
+        let pulls = registry.consumer_bindings("ext_pull_requests");
+        assert!(pulls.permits("ext_issues", "issues.close-issue"));
+        assert!(pulls.permits("ext_issues", "issues.by-ref-issue"));
+
+        // A provider that requires nothing has no binding entry, and so
+        // permits no cross-calls at all.
+        assert!(
+            !registry
+                .consumer_bindings("ext_issues")
+                .permits("ext_epics", "epics.get-epic")
+        );
+    }
+
+    /// An unresolved `requiresExtensionPoints` aborts the load (fail
+    /// closed) rather than silently leaving the consumer unable to call.
+    #[test]
+    fn resolve_extension_point_bindings_fails_closed_on_unknown_provider() {
+        let src = first_party_root("ext_epics");
+        if !src.join("dist/ext_epics.wasm").is_file() {
+            eprintln!("SKIP resolve_extension_point_bindings_fails_closed: build ext_epics");
+            return;
+        }
+        // Copy ext_epics and point its requirement at a provider we do not
+        // load, so resolution cannot satisfy it.
+        let tmp = tempdir_for_test("comtrya-unresolved");
+        let dst = tmp.join("ext_epics");
+        copy_dir_recursive(&src, &dst).expect("copy ext_epics");
+        let manifest_path = dst.join("manifest.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&manifest_path).expect("read manifest"))
+                .expect("parse manifest");
+        manifest["requiresExtensionPoints"] = serde_json::json!([
+            { "provider": "ext_absent", "point": "nope", "version": 1 }
+        ]);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("encode manifest"),
+        )
+        .expect("write manifest");
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&dst)
+            .expect("register (load succeeds; resolution is the gate)");
+        let err = registry
+            .resolve_extension_point_bindings()
+            .expect_err("unresolved requirement must fail the resolution pass");
+        assert!(
+            err.contains("no loaded extension provides"),
+            "unexpected error: {err}"
+        );
+    }
+
     /// A repository-scoped op against a repo that has NOT opted into the
     /// extension is rejected with Forbidden, before any work is done.
     #[test]
@@ -1854,6 +2388,9 @@ mod tests {
             id: original.id.clone(),
             principal: original.principal.clone(),
             manifest: Arc::new(manifest),
+            route_table: original.route_table.clone(),
+            provides: original.provides.clone(),
+            requires: original.requires.clone(),
             component: original.component.clone(),
         });
         registry
@@ -2088,13 +2625,15 @@ mod tests {
             current_principal: "comtrya://user/usr_real_invoke_test".to_string(),
             store: store.clone(),
             manifest: Arc::new(HostManifest {
-                allowed_cross_calls: vec![
-                    "ext_issues/issues.open-issue".to_string(),
-                    "ext_issues/issues.close-issue".to_string(),
-                ],
                 host_imports: vec!["ops".to_string()],
                 ..HostManifest::default()
             }),
+            extension_point_bindings: Arc::new(
+                crate::extension_points::ConsumerBindings::from_pairs([
+                    ("ext_issues", "issues.open-issue"),
+                    ("ext_issues", "issues.close-issue"),
+                ]),
+            ),
             clock: registry.clock.clone(),
             id_minter: registry.id_minter.clone(),
             log_sink: registry.log_sink.clone(),
@@ -2102,6 +2641,10 @@ mod tests {
             ops_dispatcher: dispatcher,
             occ_tokens: registry.occ_tokens.clone(),
             minted_ids: registry.minted_ids.clone(),
+            relationship_types: Arc::new(
+                crate::relationship_types::RelationshipTypeRegistry::default(),
+            ),
+            repo_enablement: Arc::new(RwLock::new(None)),
         });
 
         let opened_bytes = <HostState as crate::wasm_host::wit_ops::Host>::invoke(
