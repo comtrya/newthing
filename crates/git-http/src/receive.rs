@@ -394,7 +394,13 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
         }
     };
 
-    // Connectivity check for every non-null new oid.
+    // Connectivity check for every non-null new oid. Share a single
+    // visited-set across all commands in this push so each object is
+    // validated at most once even when commands push overlapping
+    // histories (issue: connectivity check re-walks full history and
+    // re-validates every tree on every push — DoS surface).
+    let mut visited: std::collections::HashSet<gix::hash::ObjectId> =
+        std::collections::HashSet::new();
     for command in &parsed.commands {
         if command.new_oid == RECEIVE_ZERO_OID {
             continue;
@@ -410,7 +416,7 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
                 ));
             }
         };
-        if let Err(e) = verify_connectivity(&repo, oid) {
+        if let Err(e) = verify_connectivity(&repo, oid, &mut visited) {
             cleanup_keep(keep_path.as_deref());
             return Ok(report_status(
                 ReportOutcome::UnpackError(format!("missing necessary objects: {e}")),
@@ -572,23 +578,49 @@ fn apply_ref_updates(repo: &gix::Repository, evaluated: &[EvaluatedCommand]) -> 
 }
 
 /// Verify that every object reachable from `tip` (commits, their trees, and the
-/// blobs/subtrees within) is present in the object database.
-fn verify_connectivity(repo: &gix::Repository, tip: gix::hash::ObjectId) -> anyhow::Result<()> {
+/// blobs/subtrees within) is present in the object database. `visited` is
+/// threaded across all commands in a single push so each object is checked
+/// at most once — without it, `verify_tree` re-recursed every tree of every
+/// reachable commit on every push, an O(commits × trees) DoS surface where
+/// a malicious push of a long-history repo could pin the server.
+fn verify_connectivity(
+    repo: &gix::Repository,
+    tip: gix::hash::ObjectId,
+    visited: &mut std::collections::HashSet<gix::hash::ObjectId>,
+) -> anyhow::Result<()> {
+    if !visited.insert(tip) {
+        return Ok(());
+    }
     if !repo.has_object(tip) {
         anyhow::bail!("tip object {tip} is missing");
     }
     let walk = repo.rev_walk([tip]).all()?;
     for info in walk {
         let info = info?;
+        if !visited.insert(info.id) {
+            // Commit already validated by an earlier command's walk —
+            // its ancestors and tree are by induction already known-good.
+            continue;
+        }
         let commit = repo.find_object(info.id)?.try_into_commit()?;
         let tree_id = commit.tree_id()?;
-        verify_tree(repo, tree_id.detach())?;
+        verify_tree(repo, tree_id.detach(), visited)?;
     }
     Ok(())
 }
 
 /// Recursively verify that a tree and all objects it references exist.
-fn verify_tree(repo: &gix::Repository, tree_id: gix::hash::ObjectId) -> anyhow::Result<()> {
+/// Records every visited tree/blob oid in `visited` so a tree referenced
+/// from multiple commits (the common case — most files don't change
+/// between commits) is descended exactly once across the whole push.
+fn verify_tree(
+    repo: &gix::Repository,
+    tree_id: gix::hash::ObjectId,
+    visited: &mut std::collections::HashSet<gix::hash::ObjectId>,
+) -> anyhow::Result<()> {
+    if !visited.insert(tree_id) {
+        return Ok(());
+    }
     if !repo.has_object(tree_id) {
         anyhow::bail!("tree object {tree_id} is missing");
     }
@@ -597,8 +629,8 @@ fn verify_tree(repo: &gix::Repository, tree_id: gix::hash::ObjectId) -> anyhow::
         let entry = entry?;
         let oid = entry.oid().to_owned();
         if entry.mode().is_tree() {
-            verify_tree(repo, oid)?;
-        } else if !repo.has_object(oid) {
+            verify_tree(repo, oid, visited)?;
+        } else if visited.insert(oid) && !repo.has_object(oid) {
             anyhow::bail!("object {oid} is missing");
         }
     }
