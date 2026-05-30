@@ -1390,7 +1390,9 @@ impl Runtime {
 
     fn get_user_layout(&self, principal_uri: &str, repository_id: &str) -> Result<Value, String> {
         let doc_id = Self::user_layout_document_id(principal_uri, repository_id);
-        let collection = self.extension_storage.collection_data("user_layouts")?;
+        let collection = self
+            .extension_storage
+            .kernel_collection_data("user_layouts")?;
         let entries = collection
             .as_array()
             .and_then(|arr| {
@@ -1715,14 +1717,20 @@ impl Runtime {
         let repository_documents = self
             .extension_storage
             .kernel_collection_data("repositories")?;
-        let pull_requests = self.extension_storage.collection_data("pull_requests")?;
-        let checks = self.extension_storage.collection_data("check_runs")?;
+        let pull_requests = self
+            .extension_storage
+            .extension_collection_data("pull_requests")?;
+        let checks = self
+            .extension_storage
+            .extension_collection_data("check_runs")?;
         let extensions = filter_extension_installations(
             self.extension_storage
-                .collection_data("extension_installations")?,
+                .kernel_collection_data("extension_installations")?,
             &self.extension_runtime,
         );
-        let activity = self.extension_storage.collection_data("activity_events")?;
+        let activity = self
+            .extension_storage
+            .kernel_collection_data("activity_events")?;
         Ok(json!({
             "generatedBy": "comtrya-runtime/v1",
             "workspace": workspace,
@@ -6122,6 +6130,13 @@ fn core_storage_collections() -> Vec<StorageCollectionDeclaration> {
             "labels",
             vec![storage_index("by_scope_name", &["scope", "name"], false)],
         ),
+        storage_collection(
+            "core",
+            "user_layouts",
+            // Indexed only by document id (`<principalUri>:<repositoryId>`),
+            // which `Runtime::get_user_layout` looks up directly.
+            vec![],
+        ),
     ]
 }
 
@@ -6172,6 +6187,15 @@ fn validate_storage_collections(
 #[derive(Debug, Clone)]
 pub(crate) struct ExtensionRuntimeStore {
     root: PathBuf,
+    /// `collection_name → owner_extension` per the manifest schema. The
+    /// kernel uses this to filter iterations of extension-owned
+    /// collections (e.g. `pull_requests`) to records authored by the
+    /// legitimate owner, so a third-party extension writing into the same
+    /// collection name (under its own `owner_extension` scope) cannot
+    /// pollute kernel aggregate views. Populated once at `open()` from
+    /// `core_storage_collections()` + every loaded extension's
+    /// `contributes.collections[].ownerExtension`.
+    collection_owners: BTreeMap<String, String>,
     /// In-memory parse cache of `documents.jsonl`, refreshed on every
     /// write through this store. Without it, every `load_records` call
     /// re-reads and re-`serde_json`-parses the entire document table —
@@ -6286,8 +6310,13 @@ impl ExtensionRuntimeStore {
         let root = data_dir.join("extensions/storage");
         fs::create_dir_all(&root)
             .map_err(|error| format!("failed to create extension storage dir: {error}"))?;
+        let collection_owners = storage_collections
+            .iter()
+            .map(|c| (c.name.clone(), c.owner_extension.clone()))
+            .collect();
         let store = Self {
             root,
+            collection_owners,
             records_cache: Arc::new(Mutex::new(None)),
         };
         store.ensure_schema(storage_collections)?;
@@ -6405,20 +6434,55 @@ impl ExtensionRuntimeStore {
         Ok(())
     }
 
-    fn collection_data(&self, collection: &str) -> Result<Value, String> {
+    /// Read all records for an extension-owned `collection`, filtered to
+    /// the legitimate owner per the manifest-declared
+    /// `contributes.collections[].ownerExtension`. The kernel uses this
+    /// when iterating extension-owned collections (e.g. `pull_requests`)
+    /// so that records a third-party extension writes into the same
+    /// collection name under its own `owner_extension` scope cannot
+    /// pollute kernel aggregate views (issue #145).
+    ///
+    /// Returns an empty array if no installed extension declares the
+    /// collection — the kernel surfaces extension-owned slices of the
+    /// runtime payload unconditionally, and a runtime without the owning
+    /// extension simply has no legitimate records of that collection.
+    /// Records authored by other extensions (cross-tenant writers) are
+    /// filtered out even when the collection IS declared.
+    ///
+    /// Panics in debug builds and returns an error in release if the
+    /// caller asks for a kernel-owned collection (`owner_extension ==
+    /// "core"`); those must go through [`kernel_collection_data`] so the
+    /// kernel-owned write gate stays explicit at every read site.
+    fn extension_collection_data(&self, collection: &str) -> Result<Value, String> {
+        let Some(owner) = self.collection_owners.get(collection) else {
+            return Ok(Value::Array(Vec::new()));
+        };
+        debug_assert_ne!(
+            owner, "core",
+            "extension_collection_data called for kernel-owned collection `{collection}`; \
+             use kernel_collection_data instead"
+        );
+        if owner == "core" {
+            return Err(format!(
+                "collection `{collection}` is kernel-owned; \
+                 use kernel_collection_data instead of extension_collection_data"
+            ));
+        }
         let values = self
             .query_documents_by_index(collection, &[])?
             .into_iter()
+            .filter(|record| record.owner_extension == owner.as_str())
             .map(|record| record.data)
             .collect::<Vec<_>>();
         Ok(Value::Array(values))
     }
 
-    /// Same as [`collection_data`] but scoped to kernel-owned records
-    /// (`owner_extension == "core"`). The kernel uses this when iterating
-    /// its own collections (e.g. `relations`) so attacker-controlled
-    /// records that share a collection name cannot influence kernel
-    /// idempotency probes or post-write lookups.
+    /// Same as [`extension_collection_data`] but scoped to kernel-owned
+    /// records (`owner_extension == "core"`). The kernel uses this when
+    /// iterating its own collections (e.g. `relations`, `workspaces`,
+    /// `extension_installations`) so attacker-controlled records that
+    /// share a collection name cannot influence kernel idempotency probes,
+    /// post-write lookups, or aggregate views.
     fn kernel_collection_data(&self, collection: &str) -> Result<Value, String> {
         let values = self
             .query_documents_by_index(collection, &[])?
@@ -9451,7 +9515,7 @@ mod tests {
         assert_eq!(
             runtime
                 .extension_storage
-                .collection_data("extension_installations")
+                .kernel_collection_data("extension_installations")
                 .unwrap()
                 .as_array()
                 .unwrap()
@@ -9538,6 +9602,76 @@ mod tests {
             checks
                 .iter()
                 .any(|check| check["conclusion"] == "FAILURE" && check["duration"] == "99s")
+        );
+    }
+
+    #[test]
+    fn runtime_payload_ignores_cross_tenant_writes_into_extension_owned_collections() {
+        // `pull_requests` and `check_runs` are extension-owned (by
+        // ext_pull_requests / ext_checks respectively). The storage write
+        // gate only blocks writes into kernel-owned collection names —
+        // an extension can still write into ANOTHER extension's
+        // collection under its own `owner_extension`. Without the
+        // manifest-derived owner filter on the kernel read path, those
+        // attacker-authored rows would surface in the runtime payload
+        // alongside the legitimate ones. The filter must drop them.
+        let runtime = dev_runtime();
+        // Legitimate record (owner == declared owner).
+        runtime
+            .extension_storage
+            .create_document(extension_document_record(
+                "ext_pull_requests",
+                "pull_requests",
+                "pul_legit",
+                "comtrya://pull-request/pul_legit",
+                vec!["comtrya://repository/repo_test".to_string()],
+                json!({
+                    "id": "pul_legit",
+                    "repositoryID": "repo_test",
+                    "number": 1,
+                    "state": "OPEN",
+                    "title": "real PR",
+                }),
+                "2026-05-11T00:00:00Z",
+            ))
+            .unwrap();
+        // Cross-tenant write: another extension forges a `pull_requests`
+        // row under its own owner_extension. The storage gate allows it
+        // because `pull_requests` is not kernel-owned.
+        runtime
+            .extension_storage
+            .create_document(extension_document_record(
+                "ext_attacker",
+                "pull_requests",
+                "pul_forged",
+                "comtrya://pull-request/pul_forged",
+                vec!["comtrya://repository/repo_test".to_string()],
+                json!({
+                    "id": "pul_forged",
+                    "repositoryID": "repo_test",
+                    "number": 9999,
+                    "state": "OPEN",
+                    "title": "forged PR",
+                }),
+                "2026-05-11T00:00:00Z",
+            ))
+            .unwrap();
+
+        let payload = runtime.runtime_payload().unwrap();
+        let pulls = payload["pullRequests"]
+            .as_array()
+            .expect("pullRequests array");
+        let ids: Vec<&str> = pulls
+            .iter()
+            .filter_map(|p| p.get("id").and_then(Value::as_str))
+            .collect();
+        assert!(
+            ids.contains(&"pul_legit"),
+            "legitimate ext_pull_requests record must surface, got ids {ids:?}"
+        );
+        assert!(
+            !ids.contains(&"pul_forged"),
+            "cross-tenant forged record must NOT surface, got ids {ids:?}"
         );
     }
 
