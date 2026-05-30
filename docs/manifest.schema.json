@@ -272,14 +272,17 @@
         },
         "subscribes": {
           "type": "array",
+          "description": "Event-type patterns this extension's reactor wishes to receive. Each pattern is a dot-separated sequence of segments where every segment is either a literal lowercase kebab name starting with a letter or the wildcard '*' (matching one segment). Wildcards are per-segment only — there is no recursive '**'. Unlike `allowedEmits`, which lists concrete event types, subscriptions allow per-segment wildcards.",
           "items": { "type": "string", "pattern": "^([a-z][a-z0-9-]*|\\*)(\\.([a-z][a-z0-9-]*|\\*))*$" }
         },
         "allowedMutations": {
           "type": "array",
+          "description": "Cross-extension or same-extension ops this reactor is permitted to invoke as a side effect of a reaction. Use the bare `<interface>.<op>` form for the extension's own ops, or `<target-extension-id>/<interface>.<op>` for an op on another extension.",
           "items": { "type": "string", "pattern": "^(?:[a-z][a-z0-9_]*/)?[a-z][a-z0-9.-]*$" }
         },
         "allowedEmits": {
           "type": "array",
+          "description": "Event types this reactor may emit as a side effect of a reaction. Concrete event types only — no wildcards.",
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*[a-z0-9]$" }
         }
       }
