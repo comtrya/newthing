@@ -10772,6 +10772,118 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_relation_queries_ignore_non_core_records_with_relations_collection_name() {
+        // Mirror of `relation_queries_ignore_non_core_records_with_relations_collection_name`
+        // on the GraphQL/runtime path. The kernel `kernel_collection_data`
+        // filter on the four `relations` read sites in main.rs
+        // (idempotency probe / delete / outgoing / incoming / between)
+        // is security-critical defense in depth: even if a non-core
+        // record with `collection == "relations"` ever reached the
+        // store, the kernel must not surface it as a real relation. A
+        // future change that drops the filter (or accidentally uses
+        // `collection_data` again) must be caught by this regression.
+        let runtime = dev_runtime();
+        let a = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let b = OpaqueId::new(IdPrefix::Owned("iss_".to_string()));
+        let (smaller, larger) = if a.as_str() < b.as_str() {
+            (
+                format!("comtrya://issue/{}", a.as_str()),
+                format!("comtrya://issue/{}", b.as_str()),
+            )
+        } else {
+            (
+                format!("comtrya://issue/{}", b.as_str()),
+                format!("comtrya://issue/{}", a.as_str()),
+            )
+        };
+        let kind = "comtrya://rel/relates-to";
+
+        // Seed a legitimate kernel-owned relation via the real path.
+        let legit = runtime
+            .create_relation(&smaller, &larger, kind, None)
+            .expect("legitimate create succeeds");
+        let legit_id = legit
+            .get("id")
+            .and_then(|v| v.as_str())
+            .expect("legitimate relation has id")
+            .to_string();
+
+        // Force a poisoned non-core record into the store directly,
+        // bypassing the storage gate that would normally block this.
+        // Different id from the legit one so this isn't a dedup collision.
+        let forged_id = "rel_forged_in_extension";
+        let forged_data = serde_json::json!({
+            "id": forged_id,
+            "kind": kind,
+            "source": smaller,
+            "target": larger,
+            "from": smaller,
+            "to": larger,
+            "attributes": {},
+            "createdAt": "2026-01-01T00:00:00Z",
+        });
+        runtime
+            .extension_storage
+            .create_document(ExtensionDocumentRecord {
+                schema_version: EXTENSION_STORAGE_SCHEMA_VERSION.to_string(),
+                owner_extension: "ext_attacker".to_string(),
+                collection: "relations".to_string(),
+                id: forged_id.to_string(),
+                resource: format!("comtrya://relation/{forged_id}"),
+                resource_refs: vec![smaller.clone(), larger.clone()],
+                visibility: "internal".to_string(),
+                indexed_fields: std::collections::BTreeMap::new(),
+                version: 1,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                data: forged_data,
+            })
+            .expect("seed poisoned record via extension_storage");
+
+        // Each of the three relation queries must surface only the
+        // legitimate (kernel-owned) relation. If the kernel_collection_data
+        // filter is dropped or bypassed, the forged record would also
+        // be returned and these assertions would fail with two items.
+        let outgoing = runtime
+            .relations_outgoing(&smaller, Some(kind))
+            .expect("relations_outgoing succeeds");
+        assert_eq!(
+            outgoing.len(),
+            1,
+            "non-core record must be filtered from `outgoing`: {outgoing:?}"
+        );
+        assert_eq!(
+            outgoing[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
+
+        let incoming = runtime
+            .relations_incoming(&larger, Some(kind))
+            .expect("relations_incoming succeeds");
+        assert_eq!(
+            incoming.len(),
+            1,
+            "non-core record must be filtered from `incoming`: {incoming:?}"
+        );
+        assert_eq!(
+            incoming[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
+
+        let between = runtime
+            .relations_between(&smaller, &larger, Some(kind))
+            .expect("relations_between succeeds");
+        assert_eq!(
+            between.len(),
+            1,
+            "non-core record must be filtered from `between`: {between:?}"
+        );
+        assert_eq!(
+            between[0].get("id").and_then(|v| v.as_str()),
+            Some(legit_id.as_str())
+        );
+    }
+
     #[tokio::test]
     async fn graphql_relations_delete_rejects_anonymous() {
         assert_mutation_rejects_anonymous(

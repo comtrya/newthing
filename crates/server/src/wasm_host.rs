@@ -652,6 +652,14 @@ impl HostState {
     /// field, so we load the target record and require the caller to match
     /// it. Returns `NotFound` when the record is absent so the caller can
     /// surface a uniform "no such record" without leaking authorship.
+    ///
+    /// The lookup is scoped to `owner_extension == "core"` — every call
+    /// site addresses a kernel-owned collection (relations, comments).
+    /// Defense in depth against the same storage-gate bypass class
+    /// `KERNEL_OWNED_COLLECTIONS` closes: even if a non-core record with
+    /// the same `(collection, id)` and an `authorRef` matching the
+    /// caller somehow reached the store, it must not satisfy the author
+    /// check for the kernel's record.
     fn require_record_author(&self, collection: &str, id: &str) -> Result<(), wit_types::Error> {
         let records = self
             .store
@@ -659,7 +667,7 @@ impl HostState {
             .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
         let record = records
             .iter()
-            .find(|r| r.collection == collection && r.id == id)
+            .find(|r| r.collection == collection && r.id == id && r.owner_extension == "core")
             .ok_or_else(|| {
                 err(
                     wit_types::ErrorCode::NotFound,
