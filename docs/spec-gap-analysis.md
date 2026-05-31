@@ -28,7 +28,7 @@ Spec wants `admin/`, `repos/<name>.git/`, `extensions/blobs|manifests`, `state/<
 - Web UI (browse) — Vue/Vite SPA (`frontend/`), not server-rendered `maud`/`askama`. 🟡 richer/different.
 - WASM host — `crates/server/src/wasm_host.rs` (`wasmtime 43`, component-model). ✅
 - Extension dispatch — generated dispatch + `/api/ops` (`wasm_invokers`, `wasm_registry`). ✅
-- GraphQL gateway — **kernel-owned GraphQL only**, no federation. ❌ (see A7)
+- GraphQL gateway — kernel-owned GraphQL only **today**; SP6 rebuilds Apollo Federation v2 per the spec. 🟡 (see A7)
 - First-party extensions — `ext_issues/epics/pull_requests/checks/docs/workspace_home`. ✅ **ahead** of the spec's Issues→PRs→Epics.
 
 ### A4 Configuration model
@@ -43,15 +43,15 @@ Spec: TOML **admin repo** (identities, teams, repo catalog, permission grants, a
 
 ### A6 WASM extension contract (WIT world)
 Spec sketch (db/git-read/http-types/registration + init/handle-route/handle-hook/run-job/render-slot/graphql-resolve).
-`comtrya` WIT (`extensions/wit/comtrya/platform/*.wit`): `storage`, `events`, `reactor`, `ops`, `relations`, `comments`, `ids`, `identity`, `time`, `log`. **🟡 conceptually aligned but a different surface** — storage is the kernel JSONL store (not raw libSQL `db` resources), reactions are the `reactor`/`on-event` model (not `handle-hook`), and there is **no `graphql-resolve` export** (consistent with kernel-only GraphQL). No `register-route`/`render-slot`/`run-job` host imports.
+`comtrya` WIT (`extensions/wit/comtrya/platform/*.wit`): `storage`, `events`, `reactor`, `ops`, `relations`, `comments`, `ids`, `identity`, `time`, `log`. **🟡 conceptually aligned but a different surface** — storage is the kernel JSONL store (not raw libSQL `db` resources), reactions are the `reactor`/`on-event` model (not `handle-hook`), and there is **no `graphql-resolve` export today** (current shape; SP6 adds it). No `register-route`/`render-slot`/`run-job` host imports.
 
-### A7 GraphQL federation — **direct conflict**
+### A7 GraphQL federation — **SP6 build (decided)**
 Spec: every extension emits Fed-v2 subgraph SDL; host composes (`graphql-composition`) and plans (Hive Router) a supergraph; custom WASM executor runs the plan into `graphql-resolve`.
-`comtrya`: `GOAL.md`/`SPEC.md` state **"GraphQL is reserved for kernel-owned fields"**; extensions are reached via WIT ops at `/api/ops`. The `ExtensionHost` + `GraphqlComposer` SDL-composition path was **deleted** in the quality sweep (recoverable from git history on `chore/thermo-nuclear-quality-review`).
-**❌ The spec and the current code are opposite.**
-**Decision taken: rebuild federation per the spec.** Consequences:
-- `GOAL.md`/`SPEC.md` must be rewritten (kernel-only-GraphQL is no longer the north star).
-- The deleted composition scaffolding should be restored/rebuilt, plus `graphql-composition` (Grafbase) + Hive Router query-planner adopted, plus a `graphql-resolve` WIT export added and a custom plan executor written. This is the SP6 build (largest single piece) and warrants its own spec→plan→build cycle and a build-time spike (planner-as-crate, plan-IR-drives-executor, join-spec dialect compatibility).
+`comtrya` today: extensions are reached via WIT ops at `/api/ops`; kernel-owned GraphQL fields cover auth/identity/instance-config. The `ExtensionHost` + `GraphqlComposer` SDL-composition path was **deleted** in an earlier quality sweep (recoverable from git history on `chore/thermo-nuclear-quality-review`, but the spec is the source of truth — not the recovered shape).
+**Decision taken (TNQ-3 escalation): rebuild federation per the spec.** This is the SP6 north-star direction; current kernel-owned GraphQL is the interim shape, not the goal. Consequences:
+- `GOAL.md` updated to reference the SP6 north star alongside the current kernel-owned-GraphQL allowance for kernel-mandatory fields.
+- `docs/v3-decisions.md` reframed: kernel-owned GraphQL is CURRENT, SP6 federation is the north star.
+- The deleted composition scaffolding does **not** need to be restored. SP6 rebuilds against the spec: `graphql-composition` (Grafbase) + Hive Router query-planner, `graphql-resolve` WIT export, custom plan executor. This is the largest single piece and warrants its own spec→plan→build cycle and a build-time spike (planner-as-crate, plan-IR-drives-executor, join-spec dialect compatibility).
 - No `apollo-federation`/`harmonizer` at runtime (per spec).
 
 ### A8 WASM runtime policy

@@ -15,4 +15,6 @@ The v3 cutover now uses one current extension path:
 Do not restore removed transition routes, old GraphQL aliases, resolver stubs,
 WAT components, or shell fallback implementations. If a removed behavior is
 needed again, design a current WIT operation or kernel-owned GraphQL field with
-tests and smoke coverage.
+tests and smoke coverage — or land it through the SP6 Apollo Federation v2
+rebuild once that work begins (see `docs/v3-decisions.md` and
+`docs/spec-gap-analysis.md` §A7 for the north-star direction).
