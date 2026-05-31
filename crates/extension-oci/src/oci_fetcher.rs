@@ -6,8 +6,9 @@
 use crate::cache::{CacheMetadata, ExtensionCache, compute_sha256};
 use anyhow::{Context, Result};
 use comtrya_core::extensions::OciReference;
+use futures_util::StreamExt;
 use oci_distribution::Reference;
-use oci_distribution::client::{Client, ClientConfig, ClientProtocol, ImageData};
+use oci_distribution::client::{Client, ClientConfig, ClientProtocol};
 use oci_distribution::manifest::WASM_LAYER_MEDIA_TYPE;
 use oci_distribution::secrets::RegistryAuth;
 use std::path::PathBuf;
@@ -302,35 +303,15 @@ impl OciExtensionFetcher {
         // manifest, so this runs before the layer bytes hit memory.
         Self::check_wasm_layer_size(&manifest, &image_ref)?;
 
-        let trusted_layer_digests = match reference {
-            OciReference::Digest(_) => Some(
-                manifest
-                    .layers
-                    .iter()
-                    .map(|layer| layer.digest.clone())
-                    .collect::<std::collections::BTreeSet<String>>(),
-            ),
-            OciReference::Tag(_) => None,
-        };
+        // Select the single WASM layer descriptor from the digest-anchored
+        // manifest. The pull then streams ONLY that descriptor, bounded by
+        // the cap — never invoking the unbounded `Client::pull` path that
+        // would otherwise read the full layer into a Vec with no cap.
+        let wasm_descriptor = Self::select_wasm_descriptor(&manifest, &image_ref)?;
 
-        let image_data = self
-            .client
-            .pull(&oci_reference, &auth, vec![WASM_LAYER_MEDIA_TYPE])
-            .await
-            .with_context(|| format!("Failed to pull OCI image: {image_ref}"))?;
-
-        let (wasm, content_digest) = Self::select_verified_layer(image_data, &image_ref)?;
-
-        // For a pinned digest, the layer we verified must be declared by the
-        // trusted (hash-anchored) manifest — closing any window where `pull`
-        // could have used a different, internally-consistent manifest.
-        if let Some(trusted_layer_digests) = &trusted_layer_digests
-            && !trusted_layer_digests.contains(&content_digest)
-        {
-            anyhow::bail!(
-                "Pinned manifest for {image_ref} does not declare the served WASM layer {content_digest}"
-            );
-        }
+        let (wasm, content_digest) =
+            Self::stream_layer_with_cap(&self.client, &oci_reference, wasm_descriptor, &image_ref)
+                .await?;
 
         tracing::debug!(
             "Pulled and verified {} bytes from {} (digest: {})",
@@ -343,6 +324,75 @@ impl OciExtensionFetcher {
             wasm,
             content_digest,
         })
+    }
+
+    /// Stream a single WASM layer with a hard per-layer byte cap. Bails as
+    /// soon as the cumulative streamed length exceeds `MAX_WASM_LAYER_BYTES`
+    /// so a hostile registry cannot OOM the host by streaming more bytes
+    /// than the descriptor advertised. Verifies the streamed bytes hash
+    /// equals the descriptor digest before returning.
+    async fn stream_layer_with_cap(
+        client: &Client,
+        oci_reference: &Reference,
+        descriptor: &oci_distribution::manifest::OciDescriptor,
+        image_ref: &str,
+    ) -> Result<(Vec<u8>, String)> {
+        let mut stream = client
+            .pull_blob_stream(oci_reference, descriptor)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to open layer stream for {image_ref} ({})",
+                    descriptor.digest
+                )
+            })?;
+        // Pre-allocate up to the advertised descriptor size (capped) so a
+        // truthful registry causes one allocation and a hostile one cannot
+        // trick us into reserving more than the cap.
+        let initial = (descriptor.size as u64).min(Self::MAX_WASM_LAYER_BYTES) as usize;
+        let mut buf: Vec<u8> = Vec::with_capacity(initial);
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.with_context(|| {
+                format!(
+                    "OCI layer stream failed for {image_ref} ({})",
+                    descriptor.digest
+                )
+            })?;
+            if buf.len() as u64 + chunk.len() as u64 > Self::MAX_WASM_LAYER_BYTES {
+                anyhow::bail!(
+                    "OCI image {image_ref} streamed more than the {}-byte cap (layer {})",
+                    Self::MAX_WASM_LAYER_BYTES,
+                    descriptor.digest
+                );
+            }
+            buf.extend_from_slice(&chunk);
+        }
+        let actual = format!("sha256:{}", compute_sha256(&buf));
+        if actual != descriptor.digest {
+            anyhow::bail!(
+                "OCI image {image_ref} layer bytes hash to {actual} but descriptor declares {}",
+                descriptor.digest
+            );
+        }
+        Ok((buf, actual))
+    }
+
+    fn select_wasm_descriptor<'a>(
+        manifest: &'a oci_distribution::manifest::OciImageManifest,
+        image_ref: &str,
+    ) -> Result<&'a oci_distribution::manifest::OciDescriptor> {
+        let wasm_descriptors: Vec<&oci_distribution::manifest::OciDescriptor> = manifest
+            .layers
+            .iter()
+            .filter(|descriptor| descriptor.media_type == WASM_LAYER_MEDIA_TYPE)
+            .collect();
+        match wasm_descriptors.len() {
+            0 => anyhow::bail!(
+                "OCI image {image_ref} has no layer with media type {WASM_LAYER_MEDIA_TYPE}"
+            ),
+            1 => Ok(wasm_descriptors[0]),
+            n => anyhow::bail!("OCI image {image_ref} has {n} WASM layers; expected exactly one"),
+        }
     }
 
     /// Select the single WASM layer by media type and verify its bytes against
@@ -372,71 +422,6 @@ impl OciExtensionFetcher {
             }
         }
         Ok(())
-    }
-
-    fn select_verified_layer(image_data: ImageData, image_ref: &str) -> Result<(Vec<u8>, String)> {
-        let manifest = image_data
-            .manifest
-            .as_ref()
-            .with_context(|| format!("OCI image has no manifest: {image_ref}"))?;
-
-        // Digests of layer descriptors that carry the expected WASM media type.
-        let wasm_descriptor_digests: Vec<&str> = manifest
-            .layers
-            .iter()
-            .filter(|descriptor| descriptor.media_type == WASM_LAYER_MEDIA_TYPE)
-            .map(|descriptor| descriptor.digest.as_str())
-            .collect();
-
-        if wasm_descriptor_digests.is_empty() {
-            anyhow::bail!(
-                "OCI image {image_ref} has no layer with media type {WASM_LAYER_MEDIA_TYPE}"
-            );
-        }
-        if wasm_descriptor_digests.len() > 1 {
-            anyhow::bail!(
-                "OCI image {image_ref} has {} WASM layers; expected exactly one",
-                wasm_descriptor_digests.len()
-            );
-        }
-        let expected_digest = wasm_descriptor_digests[0].to_string();
-
-        // Find the downloaded layer whose bytes hash to the expected descriptor
-        // digest. This is the integrity check: it proves the bytes match the
-        // manifest, defending against a registry that streams tampered content.
-        // Move the layer's bytes out (no clone) to avoid doubling peak memory.
-        let wasm_layer = image_data
-            .layers
-            .into_iter()
-            .find(|layer| {
-                layer.media_type == WASM_LAYER_MEDIA_TYPE
-                    && layer.sha256_digest() == expected_digest
-            })
-            .with_context(|| {
-                format!(
-                    "OCI image {image_ref} layer bytes do not match manifest descriptor digest {expected_digest}"
-                )
-            })?;
-
-        // Post-pull size cap. `check_wasm_layer_size` rejects an
-        // oversized advertised descriptor BEFORE the pull; this
-        // catches the case where a hostile registry streams more
-        // bytes than the descriptor claimed (the digest check above
-        // would already detect this for digest-pinned refs, but a
-        // tag-pinned ref reaches here with only the digest of what
-        // was actually streamed). Belt-and-suspenders so an
-        // attacker-served oversized layer never propagates beyond
-        // this function — issue: no bound on actual streamed layer
-        // bytes during download.
-        if wasm_layer.data.len() as u64 > Self::MAX_WASM_LAYER_BYTES {
-            anyhow::bail!(
-                "OCI image {image_ref} streamed {} bytes, exceeding the {}-byte cap",
-                wasm_layer.data.len(),
-                Self::MAX_WASM_LAYER_BYTES
-            );
-        }
-
-        Ok((wasm_layer.data, expected_digest))
     }
 
     /// Validate that data is a WASM core module or component binary.
@@ -484,7 +469,6 @@ impl OciExtensionFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oci_distribution::client::{Config, ImageLayer};
     use oci_distribution::manifest::{OciDescriptor, OciImageManifest};
     use tempfile::TempDir;
 
@@ -498,24 +482,6 @@ mod tests {
     const CORE_MODULE: &[u8] = b"\0asm\x01\x00\x00\x00";
     /// Minimal valid WASM component header (version 0x0d, layer 0x01).
     const COMPONENT: &[u8] = b"\0asm\x0d\x00\x01\x00";
-
-    fn image_with_wasm(bytes: &[u8], descriptor_digest: String) -> ImageData {
-        let layer = ImageLayer::new(bytes.to_vec(), WASM_LAYER_MEDIA_TYPE.to_string(), None);
-        let manifest = OciImageManifest {
-            layers: vec![OciDescriptor {
-                media_type: WASM_LAYER_MEDIA_TYPE.to_string(),
-                digest: descriptor_digest,
-                ..OciDescriptor::default()
-            }],
-            ..OciImageManifest::default()
-        };
-        ImageData {
-            layers: vec![layer],
-            digest: Some("sha256:manifestdigest".to_string()),
-            config: Config::new(Vec::new(), String::new(), None),
-            manifest: Some(manifest),
-        }
-    }
 
     fn manifest_with_wasm_layer_size(size: i64) -> OciImageManifest {
         OciImageManifest {
@@ -605,48 +571,54 @@ mod tests {
     }
 
     #[test]
-    fn test_select_verified_layer_accepts_matching_digest() {
-        let descriptor_digest = ImageLayer::new(
-            CORE_MODULE.to_vec(),
-            WASM_LAYER_MEDIA_TYPE.to_string(),
-            None,
-        )
-        .sha256_digest();
-        let image = image_with_wasm(CORE_MODULE, descriptor_digest.clone());
-
-        let (bytes, digest) =
-            OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1").unwrap();
-        assert_eq!(bytes, CORE_MODULE);
-        assert_eq!(digest, descriptor_digest);
+    fn select_wasm_descriptor_picks_the_one_wasm_layer() {
+        let wasm_digest = format!("sha256:{}", "a".repeat(64));
+        let manifest = OciImageManifest {
+            layers: vec![OciDescriptor {
+                media_type: WASM_LAYER_MEDIA_TYPE.to_string(),
+                digest: wasm_digest.clone(),
+                size: 1024,
+                ..OciDescriptor::default()
+            }],
+            ..OciImageManifest::default()
+        };
+        let descriptor =
+            OciExtensionFetcher::select_wasm_descriptor(&manifest, "ghcr.io/x:v1").unwrap();
+        assert_eq!(descriptor.digest, wasm_digest);
     }
 
     #[test]
-    fn test_select_verified_layer_rejects_digest_mismatch() {
-        // Manifest advertises a digest that does NOT match the layer bytes,
-        // simulating a registry serving tampered content under a valid manifest.
-        let bogus_digest = format!("sha256:{}", "b".repeat(64));
-        let image = image_with_wasm(CORE_MODULE, bogus_digest);
-
-        let result = OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1");
+    fn select_wasm_descriptor_rejects_missing_wasm_layer() {
+        let manifest = OciImageManifest::default();
+        let result = OciExtensionFetcher::select_wasm_descriptor(&manifest, "ghcr.io/x:v1");
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("do not match manifest descriptor digest")
+                .contains("no layer with media type")
         );
     }
 
     #[test]
-    fn test_select_verified_layer_rejects_missing_wasm_layer() {
-        let image = ImageData {
-            layers: Vec::new(),
-            digest: Some("sha256:manifestdigest".to_string()),
-            config: Config::new(Vec::new(), String::new(), None),
-            manifest: Some(OciImageManifest::default()),
+    fn select_wasm_descriptor_rejects_multiple_wasm_layers() {
+        let descriptor = || OciDescriptor {
+            media_type: WASM_LAYER_MEDIA_TYPE.to_string(),
+            digest: format!("sha256:{}", "a".repeat(64)),
+            ..OciDescriptor::default()
         };
-        let result = OciExtensionFetcher::select_verified_layer(image, "ghcr.io/x:v1");
+        let manifest = OciImageManifest {
+            layers: vec![descriptor(), descriptor()],
+            ..OciImageManifest::default()
+        };
+        let result = OciExtensionFetcher::select_wasm_descriptor(&manifest, "ghcr.io/x:v1");
         assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("expected exactly one")
+        );
     }
 
     #[tokio::test]
