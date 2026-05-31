@@ -31,6 +31,9 @@ pub(crate) struct ReceivePackCommand {
     pub(crate) old_oid: String,
     pub(crate) new_oid: String,
     pub(crate) ref_name: String,
+    /// Whether the client sent a force (`+`) flag on this command.
+    /// When true, non-fast-forward updates are allowed (closes #125).
+    pub(crate) force: bool,
 }
 
 /// The full set of ref-update commands plus the negotiated capabilities and
@@ -135,7 +138,15 @@ fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand>
     let mut parts = line.split(' ');
     let old_oid = parts.next().unwrap_or_default();
     let new_oid = parts.next().unwrap_or_default();
-    let ref_name = parts.next().unwrap_or_default();
+    let ref_raw = parts.next().unwrap_or_default();
+    // A leading `+` on the ref name is the per-command force flag (closes #125).
+    // git-push emits `old new +refs/heads/main` for `git push --force-with-lease`
+    // and `git push -f`. Strip the flag before validation and ref storage.
+    let (force, ref_name) = if let Some(stripped) = ref_raw.strip_prefix('+') {
+        (true, stripped)
+    } else {
+        (false, ref_raw)
+    };
     if parts.next().is_some()
         || !receive_pack_is_sha1_hex(old_oid)
         || !receive_pack_is_sha1_hex(new_oid)
@@ -147,6 +158,7 @@ fn parse_receive_pack_command(data: &[u8]) -> anyhow::Result<ReceivePackCommand>
         old_oid: old_oid.to_string(),
         new_oid: new_oid.to_string(),
         ref_name: ref_name.to_string(),
+        force,
     })
 }
 
@@ -509,8 +521,9 @@ fn evaluate_against_repo(repo: &gix::Repository, command: &ReceivePackCommand) -
         false
     };
 
-    // No force flag is parsed today; non-fast-forward updates are rejected.
-    decide_command(command, &state, is_ff, false)
+    // Pass the per-command force flag to decide_command so non-fast-forward
+    // updates are allowed when the client sent `+refs/heads/branch`.
+    decide_command(command, &state, is_ff, command.force)
 }
 
 /// Returns true if `old` is an ancestor of `new` (i.e. updating `old -> new` is
@@ -809,6 +822,16 @@ mod tests {
             old_oid: old.to_string(),
             new_oid: new.to_string(),
             ref_name: name.to_string(),
+            force: false,
+        }
+    }
+
+    fn force_cmd(old: &str, new: &str, name: &str) -> ReceivePackCommand {
+        ReceivePackCommand {
+            old_oid: old.to_string(),
+            new_oid: new.to_string(),
+            ref_name: name.to_string(),
+            force: true,
         }
     }
 
@@ -1191,6 +1214,49 @@ mod tests {
         assert_eq!(
             current_ref(&fx.bare, "refs/heads/main").as_deref(),
             Some(c1.as_str())
+        );
+    }
+
+    #[test]
+    fn push_force_flag_allows_non_fast_forward() {
+        // Verify that a `+refs/heads/main`-prefixed command allows a non-fast-
+        // forward update that would otherwise be rejected (closes #125).
+        let fx = init_fixture();
+        let c1 = commit(&fx.work, "a.txt", "1\n", "c1");
+        git(&["branch", "-M", "main"], &fx.work);
+        git(
+            &["remote", "add", "origin", &fx.bare.to_string_lossy()],
+            &fx.work,
+        );
+        git(&["push", "origin", "main"], &fx.work);
+
+        // Create a divergent (orphan) commit.
+        git(&["checkout", "--orphan", "alt"], &fx.work);
+        git(&["rm", "-rf", "."], &fx.work);
+        let alt = commit(&fx.work, "b.txt", "x\n", "alt");
+
+        let pack = build_pack(&fx.work, &alt, &[]);
+        // Use `+refs/heads/main` to signal force-push.
+        let body = build_request(
+            &[(c1.clone(), alt.clone(), "+refs/heads/main".to_string())],
+            &pack,
+        );
+        let (out, applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("unpack ok\n"), "report: {text}");
+        assert!(
+            text.contains("ok refs/heads/main\n"),
+            "force push should succeed; report: {text}"
+        );
+        // Applied updates must include the forced ref.
+        assert_eq!(applied.len(), 1, "one update expected");
+        assert_eq!(applied[0].ref_name, "refs/heads/main");
+        assert_eq!(applied[0].old_oid, c1);
+        assert_eq!(applied[0].new_oid, alt);
+        // Ref updated to the forced commit.
+        assert_eq!(
+            current_ref(&fx.bare, "refs/heads/main").as_deref(),
+            Some(alt.as_str())
         );
     }
 
