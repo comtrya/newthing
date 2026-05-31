@@ -673,6 +673,16 @@ impl IssuesGuest for Component {
     fn close_issue(input: CloseIssueInput) -> Result<Issue, Error> {
         let snap = storage::update_begin(COLLECTION, &input.id)?;
         let mut stored = decode_stored_issue(&input.id, &snap.data)?;
+        // Idempotent on already-closed. Duplicate calls (admin
+        // re-merge of a CLOSES_RELATION PR, reactor replay, double-
+        // click) would otherwise overwrite closed_at/closed_by_ref/
+        // state_reason and emit another `issues.closed` event,
+        // bursting SSE consumers and double-counting downstream.
+        // Matches the close_pull / merge_pull short-circuit in
+        // ext_pull_requests.
+        if stored.state == state_to_str(IssueState::Closed) {
+            return Ok(stored.to_wit());
+        }
         let now = time::now_iso();
         // Caller can override the recorded actor via input.closed-by-ref;
         // otherwise the request principal is used.
@@ -700,6 +710,13 @@ impl IssuesGuest for Component {
     fn reopen_issue(id: String) -> Result<Issue, Error> {
         let snap = storage::update_begin(COLLECTION, &id)?;
         let mut stored = decode_stored_issue(&id, &snap.data)?;
+        // Idempotent on already-open (either state="open" from
+        // never-closed or state="reopened" from a prior reopen).
+        // Without this guard, a no-op reopen would re-emit
+        // `issues.reopened` and burst consumers.
+        if stored.state != state_to_str(IssueState::Closed) {
+            return Ok(stored.to_wit());
+        }
         let now = time::now_iso();
         stored.state = state_to_str(IssueState::Open).to_string();
         stored.updated_at = now;
