@@ -894,9 +894,10 @@ pub fn dispatch_ext_epics(
             epic_progress_to_json(&result.map_err(epic_error_to_canonical)?)
         }
         "issues-in-epic" => {
-            let ref_uri = string_payload(&input, "issues-in-epic")?;
+            let ref_uri = string_field(&input, "ref", "issues-in-epic")?;
+            let limit = u32_field(&input, "limit", "issues-in-epic")?;
             let result = epics
-                .call_issues_in_epic(&mut wasm_store, &ref_uri)
+                .call_issues_in_epic(&mut wasm_store, &ref_uri, limit)
                 .map_err(|e| {
                     wit_error(
                         wit_types::ErrorCode::Internal,
@@ -912,9 +913,10 @@ pub fn dispatch_ext_epics(
             )
         }
         "children-of-epic" => {
-            let ref_uri = string_payload(&input, "children-of-epic")?;
+            let ref_uri = string_field(&input, "ref", "children-of-epic")?;
+            let limit = u32_field(&input, "limit", "children-of-epic")?;
             let result = epics
-                .call_children_of_epic(&mut wasm_store, &ref_uri)
+                .call_children_of_epic(&mut wasm_store, &ref_uri, limit)
                 .map_err(|e| {
                     wit_error(
                         wit_types::ErrorCode::Internal,
@@ -1507,6 +1509,19 @@ fn string_vec_payload(input: &Value, op: &str) -> Result<Vec<String>, wit_types:
             })
         })
         .collect()
+}
+
+fn string_field(input: &Value, field: &str, op: &str) -> Result<String, wit_types::Error> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            wit_error(
+                wit_types::ErrorCode::BadInput,
+                format!("{op} requires payload.{field}"),
+            )
+        })
 }
 
 fn u32_field(input: &Value, field: &str, op: &str) -> Result<u32, wit_types::Error> {

@@ -77,8 +77,13 @@ interface epics {
   by-ref-epic: func(ref: uri) -> result<option<epic>, error>;
   by-refs-epic: func(refs: list<uri>) -> result<list<option<epic>>, error>;
   progress-epic: func(ref: uri) -> result<epic-progress, error>;
-  issues-in-epic: func(ref: uri) -> result<list<uri>, error>;
-  children-of-epic: func(ref: uri) -> result<list<uri>, error>;
+  /// Issues that are members of this epic. Capped server-side at
+  /// `min(limit, 1024)`; silently truncated beyond that. Per the
+  /// per-extension list-op convention (see `docs/wit-platform-design.md`).
+  issues-in-epic: func(ref: uri, %limit: u32) -> result<list<uri>, error>;
+  /// Child epics nested under this epic. Same `min(limit, 1024)`
+  /// truncation contract as `issues-in-epic`.
+  children-of-epic: func(ref: uri, %limit: u32) -> result<list<uri>, error>;
 }
 
 world ext-epics {

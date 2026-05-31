@@ -3691,8 +3691,11 @@ async function Gs(e, t) {
 async function Ks(e, t) {
 	return Bs(await zs.progressEpic(t), "epicProgress");
 }
-async function qs(e, t) {
-	return Bs(await zs.issuesInEpic(t), "issuesInEpic");
+async function qs(e, t, n = 1024) {
+	return Bs(await zs.issuesInEpic({
+		ref: t,
+		limit: n
+	}), "issuesInEpic");
 }
 async function Js(e, t, n) {
 	return Us(Bs(await zs.changeStateEpic({

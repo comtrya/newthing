@@ -192,7 +192,8 @@ entry in each language SDK; authors never call `invoke` raw.
 | `log` is best-effort, no error | Logging never blocks or fails a reaction; extension authors cannot accidentally swallow real errors into log retries. |
 | Reactor depth cap of 8 | Same limit as today's Rust-resident reactor dispatcher; breaches emit a kernel diagnostic event. |
 | Synchronous `ops.invoke` cap of 32 | Prevents stack overflow from cross-call cycles; independent of reactor recursion. |
-| Required `limit` on `query` / `list-all` | Avoids unbounded result sets crossing the WASM linear-memory boundary; cursor pagination is the only safe path forward. |
+| Required `limit` on `query` / `list-all` | Avoids unbounded result sets crossing the WASM linear-memory boundary; cursor pagination is the only safe path forward for the platform interfaces. |
+| Per-extension list ops: bare `limit: u32` is allowed, server-side capped at 1024 | Per-extension WITs return scoped collections (issues for a workspace, checks for a repo, PRs for a repo). Cursor pagination would force every consumer to drive a loop for trivially-small result sets. The convention is: every per-extension list op MUST accept `%limit: u32` (clamped to ≤ 1024 in the component impl) AND MUST silently truncate beyond the cap. Callers that genuinely need >1024 entries must either page the underlying storage themselves or use a platform-level `storage.query`/`storage.list-all`. The exceptions (epics' `issues-in-epic` / `children-of-epic`) lack a `%limit` param today and are tracked for a follow-up signature change. |
 
 ## Things the WIT does *not* say
 
@@ -277,7 +278,11 @@ Before Phase 2 starts:
        allowlists) are enforceable at host imports
 - [x] OCC is enforced at the type level (version token in
        `update-commit`)
-- [x] Pagination is required on every list-returning function
+- [x] Pagination is required on every list-returning function in the
+       **platform** interfaces (`storage`, `relations`, `comments`,
+       `events`). Per-extension WIT list ops MAY use a bare
+       `%limit: u32` parameter capped server-side at 1024 — see the
+       "Per-extension list ops" row in the decisions table above
 - [x] `result<>` wraps every fallible call, including `on-event` and
        `has-permission`
 - [x] Architectural decisions documented in this file

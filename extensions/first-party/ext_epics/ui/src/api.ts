@@ -90,8 +90,9 @@ export async function epicProgress(
 export async function issuesInEpic(
   _client: ComtryaGraphQLClient,
   ref: string,
+  limit: number = 1024,
 ): Promise<string[]> {
-  const result = await extEpicsXEpics.issuesInEpic(ref);
+  const result = await extEpicsXEpics.issuesInEpic({ ref, limit });
   return opValue<string[]>(result, "issuesInEpic");
 }
 
