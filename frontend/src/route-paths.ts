@@ -11,6 +11,8 @@ export const shellRoutePaths = {
   adminOverview: "/admin",
   adminAccess: "/admin/access",
   adminStorage: "/admin/storage",
+  accountOverview: "/account",
+  accountGitTokens: "/account/git-tokens",
   repoHome: "/r/:groups*/:repo",
   repoCode: "/r/:groups*/:repo/code",
   repoConfig: "/r/:groups*/:repo/config",

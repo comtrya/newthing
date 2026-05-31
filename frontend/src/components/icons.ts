@@ -44,6 +44,8 @@ export type IconKey =
   | "settings"
   | "terminal"
   | "filter"
+  | "user"
+  | "copy"
   | "ds";
 
 export const Ic: Record<IconKey, string> = {
@@ -117,4 +119,8 @@ export const Ic: Record<IconKey, string> = {
     '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11l-4 5v4l-3-1.5V9z"/></svg>',
   ds:
     '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4l5.5-2 5.5 2-5.5 2zM2.5 8l5.5 2 5.5-2M2.5 12l5.5 2 5.5-2"/></svg>',
+  user:
+    '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="5.5" r="2.5"/><path d="M3 13c0-2.5 2.2-4 5-4s5 1.5 5 4"/></svg>',
+  copy:
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="8" height="8" rx="1"/><path d="M3 11V4a1 1 0 0 1 1-1h7"/></svg>',
 };

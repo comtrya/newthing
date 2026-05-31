@@ -1,5 +1,6 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from "vue-router";
 import { createRouter, createWebHistory } from "vue-router";
+import AccountGitTokens from "./routes/AccountGitTokens.vue";
 import AdminAccess from "./routes/AdminAccess.vue";
 import AdminOverview from "./routes/AdminOverview.vue";
 import AdminStorage from "./routes/AdminStorage.vue";
@@ -81,6 +82,18 @@ export const shellRoutes: RouteRecordRaw[] = [
     path: shellRoutePaths.adminStorage,
     name: "admin-storage",
     component: AdminStorage,
+  },
+  {
+    // `/account` redirects to git-tokens until other account surfaces
+    // (SSH keys, sessions, profile) ship per #219.
+    path: shellRoutePaths.accountOverview,
+    name: "account-overview",
+    redirect: shellRoutePaths.accountGitTokens,
+  },
+  {
+    path: shellRoutePaths.accountGitTokens,
+    name: "account-git-tokens",
+    component: AccountGitTokens,
   },
   {
     // The project route is more specific than repoHome and must
