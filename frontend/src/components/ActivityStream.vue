@@ -55,6 +55,13 @@ const focusedIndex = ref(0);
 let unsubscribe: (() => void) | undefined;
 let highlightTimers: number[] = [];
 
+// Pre-format all filtered items once so the template doesn't call
+// formatItem() 6 times per row — once per property access (tone, href x2,
+// iconLabel, verb, subject). Closes #113.
+const formattedFiltered = computed(() =>
+  filtered.value.map((item) => ({ item, fmt: formatItem(item) }))
+);
+
 const filtered = computed(() => {
   const wantedProject = props.projectName;
   const wantedRepo = props.repositoryId;
@@ -374,24 +381,24 @@ function relativeTime(ms: number): string {
 
     <ol v-else class="stream-list">
       <li
-        v-for="(item, index) in filtered"
+        v-for="({ item, fmt }, index) in formattedFiltered"
         :key="item.id"
         :class="[
           'stream-row',
-          `tone-${formatItem(item).tone}`,
+          `tone-${fmt.tone}`,
           { focused: index === focusedIndex, fresh: item.isNew },
         ]"
         @mouseenter="focusedIndex = index"
       >
         <component
-          :is="formatItem(item).href ? RouterLink : 'div'"
-          :to="formatItem(item).href ?? undefined"
+          :is="fmt.href ? RouterLink : 'div'"
+          :to="fmt.href ?? undefined"
           class="stream-link"
         >
-          <span class="icon" :aria-hidden="true">{{ formatItem(item).iconLabel }}</span>
+          <span class="icon" :aria-hidden="true">{{ fmt.iconLabel }}</span>
           <span class="row-body">
-            <span class="verb">{{ formatItem(item).verb }}</span>
-            <span class="subject">{{ formatItem(item).subject }}</span>
+            <span class="verb">{{ fmt.verb }}</span>
+            <span class="subject">{{ fmt.subject }}</span>
           </span>
           <span class="row-meta">
             <code>{{ item.emitter || "core" }}</code>
