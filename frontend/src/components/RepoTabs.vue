@@ -141,9 +141,15 @@ function isActive(tab: Tab): boolean {
 </script>
 
 <template>
+  <!--
+    Navigation links — NOT ARIA tabs. Each link changes the URL/route.
+    Using role=tablist/tab would imply arrow-key navigation and an
+    aria-controls/tabpanel association that doesn't exist here.
+    aria-current="page" is the correct landmark for a "current link
+    in a nav" per ARIA 1.2 §6.6.4 and the APG navigation pattern.
+  -->
   <nav
     class="repo-tabs"
-    role="tablist"
     aria-label="Repository sub-surfaces"
     data-smoke="repo-tabs"
   >
@@ -153,8 +159,7 @@ function isActive(tab: Tab): boolean {
       :to="tab.to"
       class="repo-tab"
       :class="{ active: isActive(tab) }"
-      :aria-selected="isActive(tab)"
-      role="tab"
+      :aria-current="isActive(tab) ? 'page' : undefined"
     >
       <span class="repo-tab-label">{{ tab.label }}</span>
       <span
