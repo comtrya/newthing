@@ -183,10 +183,14 @@ fn read_by_ref(ref_uri: &str) -> Result<Option<StoredEpic>, Error> {
     read_stored(&id)
 }
 
-fn member_uris(epic_ref: &str, kind: &str) -> Result<Vec<String>, Error> {
+fn member_uris(epic_ref: &str, kind: &str, limit: u32) -> Result<Vec<String>, Error> {
     let prefix = format!("comtrya://{kind}/");
-    let page = relations::incoming(epic_ref, Some(PART_OF), 1024, None)?;
-    Ok(page
+    // Per the per-extension list-op convention documented in
+    // `docs/wit-platform-design.md`, server-side clamp at 1024 and
+    // silently truncate. The relations probe still pages 1024 max, so
+    // any caller asking for >1024 gets exactly the first 1024 matches.
+    let cap = limit.min(1024) as usize;
+    Ok(relations::incoming(epic_ref, Some(PART_OF), 1024, None)?
         .relations
         .into_iter()
         .filter_map(|relation| {
@@ -196,6 +200,7 @@ fn member_uris(epic_ref: &str, kind: &str) -> Result<Vec<String>, Error> {
                 None
             }
         })
+        .take(cap)
         .collect())
 }
 
@@ -424,9 +429,11 @@ impl EpicsGuest for Component {
     }
 
     fn progress_epic(ref_: String) -> Result<EpicProgress, Error> {
-        let issue_uris = member_uris(&ref_, "issue")?;
+        // Internal aggregation: use the maximum per-call cap so progress
+        // for large epics reflects the most members the contract admits.
+        let issue_uris = member_uris(&ref_, "issue", 1024)?;
         let (issues_open, issues_closed) = issue_state_counts(&issue_uris)?;
-        let child_uris = member_uris(&ref_, "epic")?;
+        let child_uris = member_uris(&ref_, "epic", 1024)?;
         let child_epics = Self::by_refs_epic(child_uris)?;
         let mut child_epics_open = 0;
         let mut child_epics_closed = 0;
@@ -452,12 +459,12 @@ impl EpicsGuest for Component {
         })
     }
 
-    fn issues_in_epic(ref_: String) -> Result<Vec<String>, Error> {
-        member_uris(&ref_, "issue")
+    fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
+        member_uris(&ref_, "issue", limit)
     }
 
-    fn children_of_epic(ref_: String) -> Result<Vec<String>, Error> {
-        member_uris(&ref_, "epic")
+    fn children_of_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
+        member_uris(&ref_, "epic", limit)
     }
 }
 
