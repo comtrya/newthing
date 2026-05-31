@@ -59,6 +59,13 @@ const footerItems: RailItem[] = [
     matches: (p) => p.startsWith("/admin"),
   },
   {
+    id: "account",
+    to: "/account/git-tokens",
+    icon: "user",
+    label: "Account",
+    matches: (p) => p.startsWith("/account"),
+  },
+  {
     id: "settings",
     to: "/settings",
     icon: "settings",
