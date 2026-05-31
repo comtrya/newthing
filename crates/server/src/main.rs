@@ -410,6 +410,16 @@ fn router(state: AppState) -> Router {
             "/api/account/git-tokens/:id",
             axum::routing::delete(revoke_git_token),
         )
+        .route(
+            "/api/account/ssh-keys",
+            get(list_ssh_keys)
+                .post(add_ssh_key)
+                .layer(RequestBodyLimitLayer::new(ACCOUNT_TOKEN_BODY_LIMIT)),
+        )
+        .route(
+            "/api/account/ssh-keys/:id",
+            axum::routing::delete(remove_ssh_key),
+        )
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -2487,6 +2497,104 @@ impl Runtime {
         }
         record.scopes.iter().any(|scope| scope == action)
     }
+
+    // ── SSH public key runtime ──────────────────────────────────────────────
+
+    fn list_ssh_public_keys(
+        &self,
+        owner_principal_uri: &str,
+    ) -> Result<Vec<persistence::StoredSshPublicKey>, String> {
+        self.store.list_ssh_public_keys(owner_principal_uri)
+    }
+
+    fn add_ssh_public_key(
+        &self,
+        owner_principal_uri: &str,
+        name: &str,
+        public_key_str: &str,
+    ) -> Result<persistence::StoredSshPublicKey, SshKeyError> {
+        // Parse + validate: accept ed25519, ecdsa, rsa, sk-* types.
+        // We validate by splitting on whitespace and checking the type
+        // prefix, then compute the fingerprint from the decoded key bytes.
+        let parts: Vec<&str> = public_key_str.split_whitespace().collect();
+        if parts.len() < 2 {
+            return Err(SshKeyError::InvalidKey(
+                "public key must be in the form '<type> <base64>'".to_string(),
+            ));
+        }
+        let key_type = parts[0];
+        let valid_types = [
+            "ssh-ed25519",
+            "ssh-rsa",
+            "ecdsa-sha2-nistp256",
+            "ecdsa-sha2-nistp384",
+            "ecdsa-sha2-nistp521",
+            "sk-ssh-ed25519@openssh.com",
+            "sk-ecdsa-sha2-nistp256@openssh.com",
+        ];
+        if !valid_types.contains(&key_type) {
+            return Err(SshKeyError::InvalidKey(format!(
+                "unsupported key type '{key_type}'"
+            )));
+        }
+        use base64::Engine as _;
+        let key_bytes = match base64::engine::general_purpose::STANDARD.decode(parts[1]) {
+            Ok(b) => b,
+            Err(_) => {
+                return Err(SshKeyError::InvalidKey(
+                    "key material is not valid base64".to_string(),
+                ));
+            }
+        };
+        // SHA-256 fingerprint: standard OpenSSH fingerprint format.
+        use sha2::Digest;
+        let digest = sha2::Sha256::digest(&key_bytes);
+        let b64 = base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest);
+        let fingerprint = format!("SHA256:{b64}");
+        let id = self.next_id("sshk");
+        let record = persistence::StoredSshPublicKey {
+            id,
+            owner_principal_uri: owner_principal_uri.to_string(),
+            name: name.to_string(),
+            public_key: public_key_str.trim().to_string(),
+            key_type: key_type.to_string(),
+            fingerprint,
+            created_at: now_seconds(),
+            last_used_at: None,
+            removed_at: None,
+        };
+        self.store.insert_ssh_public_key(&record).map_err(|e| {
+            if e.contains("UNIQUE constraint failed") {
+                SshKeyError::DuplicateFingerprint
+            } else {
+                SshKeyError::Storage(e)
+            }
+        })?;
+        let _ = self.append_audit(
+            "dev.comtrya.ssh_key.added",
+            json!({
+                "key_id": record.id,
+                "fingerprint": record.fingerprint,
+                "owner": owner_principal_uri,
+            }),
+        );
+        Ok(record)
+    }
+
+    fn remove_ssh_public_key(&self, owner_principal_uri: &str, id: &str) -> Result<bool, String> {
+        let removed = self
+            .store
+            .remove_ssh_public_key(owner_principal_uri, id, now_seconds())?;
+        if removed {
+            let _ = self.append_audit(
+                "dev.comtrya.ssh_key.removed",
+                json!({"key_id": id, "owner": owner_principal_uri}),
+            );
+        }
+        Ok(removed)
+    }
+
+    // ── end SSH public key runtime ─────────────────────────────────────────
 
     /// Monotonic, sortable identifier for non-secret use (event IDs,
     /// principal URI fragments). Format: `{prefix}_{unix_seconds}_{counter}`.
@@ -4764,6 +4872,111 @@ async fn revoke_git_token(
     }
 }
 
+// ── SSH public key API ─────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddSshKeyRequest {
+    name: String,
+    public_key: String,
+}
+
+async fn list_ssh_keys(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/ssh-keys") {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    match state.runtime.list_ssh_public_keys(&principal.uri) {
+        Ok(keys) => json_response(StatusCode::OK, json!({ "sshPublicKeys": keys }), cors),
+        Err(error) => {
+            tracing::error!(%error, "list SSH public keys failed");
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "SSH key storage failed",
+                cors,
+            )
+        }
+    }
+}
+
+async fn add_ssh_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<AddSshKeyRequest>,
+) -> Response {
+    let (cors, principal) = match account_api_principal(&state, &headers, "/api/account/ssh-keys") {
+        Ok(result) => result,
+        Err(response) => return *response,
+    };
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 80 {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "SSH key name must be 1–80 characters",
+            cors,
+        );
+    }
+    match state
+        .runtime
+        .add_ssh_public_key(&principal.uri, name, &request.public_key)
+    {
+        Ok(record) => json_response(StatusCode::CREATED, json!({ "sshPublicKey": record }), cors),
+        Err(SshKeyError::InvalidKey(msg)) => error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            &msg,
+            cors,
+        ),
+        Err(SshKeyError::DuplicateFingerprint) => error_response(
+            StatusCode::CONFLICT,
+            ErrorCode::Conflict.as_str(),
+            "a key with this fingerprint already exists on your account",
+            cors,
+        ),
+        Err(SshKeyError::Storage(error)) => {
+            tracing::error!(%error, "add SSH public key failed");
+            error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                "SSH key storage failed",
+                cors,
+            )
+        }
+    }
+}
+
+async fn remove_ssh_key(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(id): AxumPath<String>,
+) -> Response {
+    let (cors, principal) =
+        match account_api_principal(&state, &headers, "/api/account/ssh-keys/:id") {
+            Ok(result) => result,
+            Err(response) => return *response,
+        };
+    match state.runtime.remove_ssh_public_key(&principal.uri, &id) {
+        Ok(true) => json_response(StatusCode::OK, json!({ "removed": true }), cors),
+        Ok(false) => error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "SSH key was not found",
+            cors,
+        ),
+        Err(error) => {
+            tracing::error!(%error, "remove SSH public key failed");
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "SSH key storage failed",
+                cors,
+            )
+        }
+    }
+}
+
 async fn oidc_providers(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let cors = match state
         .runtime
@@ -6841,6 +7054,13 @@ impl std::fmt::Display for StorageUpdateError {
 /// this enum the host substring-matched `"already exists"` on the
 /// String error, which was the typed-boundary violation surfaced by
 /// the round-3 review.
+#[derive(Debug, Clone)]
+enum SshKeyError {
+    InvalidKey(String),
+    DuplicateFingerprint,
+    Storage(String),
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum StorageCreateError {
     /// A record with the same `(owner_extension, collection, id)` triple
