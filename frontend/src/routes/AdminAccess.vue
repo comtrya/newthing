@@ -5,7 +5,7 @@ import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
 import { formatUnixTime, useAdminTelemetry } from "../admin-telemetry";
 
-const { telemetry, loading, error, refresh, syncNow, configSync } = useAdminTelemetry();
+const { telemetry, loading, error, refresh, syncNow, refreshOidcIssuer, configSync } = useAdminTelemetry();
 
 const accessStats = computed(() => {
   const data = telemetry.value;
@@ -137,6 +137,17 @@ const accessStats = computed(() => {
                   <span>subjects</span>
                   <strong>{{ issuer.allowedSubjects.length || 0 }}</strong>
                 </div>
+              </div>
+              <div class="issuer-actions">
+                <button
+                  class="btn btn-sm"
+                  type="button"
+                  :disabled="loading"
+                  :title="`Flush OIDC discovery cache for ${issuer.id}. Forces a fresh HTTP discovery on the next login.`"
+                  @click="refreshOidcIssuer(issuer.id)"
+                >
+                  <Icon name="retry" /><span>Refresh discovery</span>
+                </button>
               </div>
             </div>
           </div>
