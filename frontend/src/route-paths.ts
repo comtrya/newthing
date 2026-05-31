@@ -13,6 +13,7 @@ export const shellRoutePaths = {
   adminStorage: "/admin/storage",
   accountOverview: "/account",
   accountGitTokens: "/account/git-tokens",
+  accountSshKeys: "/account/ssh-keys",
   repoHome: "/r/:groups*/:repo",
   repoCode: "/r/:groups*/:repo/code",
   repoConfig: "/r/:groups*/:repo/config",

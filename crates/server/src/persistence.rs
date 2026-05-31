@@ -71,6 +71,23 @@ pub struct StoredGitPersonalAccessToken {
     pub revoked_at: Option<u64>,
 }
 
+/// A user-uploaded SSH public key stored in the kernel database.
+/// Only the public material is persisted; fingerprints are computed from the
+/// key bytes at add time and used as the dedup key per principal.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredSshPublicKey {
+    pub id: String,
+    pub owner_principal_uri: String,
+    pub name: String,
+    pub public_key: String,
+    pub key_type: String,
+    pub fingerprint: String,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+    pub removed_at: Option<u64>,
+}
+
 pub struct PersistentStore {
     conn: Mutex<Connection>,
     db_path: PathBuf,
@@ -549,6 +566,90 @@ impl PersistentStore {
             created_at: created_at as u64,
             last_used_at: last_used_at.map(|v| v as u64),
             revoked_at: revoked_at.map(|v| v as u64),
+        })
+    }
+
+    // ── SSH public key storage ──────────────────────────────────────────────
+
+    pub fn insert_ssh_public_key(&self, record: &StoredSshPublicKey) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "INSERT INTO ssh_public_keys(
+                   id, owner_principal_uri, name, public_key, key_type, fingerprint,
+                   created_at, last_used_at, removed_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    record.id,
+                    record.owner_principal_uri,
+                    record.name,
+                    record.public_key,
+                    record.key_type,
+                    record.fingerprint,
+                    record.created_at as i64,
+                    record.last_used_at.map(|v| v as i64),
+                    record.removed_at.map(|v| v as i64),
+                ],
+            )
+            .map_err(|e| format!("insert ssh public key failed: {e}"))?;
+        Ok(())
+    }
+
+    pub fn list_ssh_public_keys(
+        &self,
+        owner_principal_uri: &str,
+    ) -> Result<Vec<StoredSshPublicKey>, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, owner_principal_uri, name, public_key, key_type, fingerprint, \
+                        created_at, last_used_at, removed_at \
+                 FROM ssh_public_keys \
+                 WHERE owner_principal_uri = ?1 AND removed_at IS NULL \
+                 ORDER BY created_at DESC, id DESC",
+            )
+            .map_err(|e| format!("prepare list ssh keys failed: {e}"))?;
+        let rows = stmt
+            .query_map(params![owner_principal_uri], Self::ssh_key_from_row)
+            .map_err(|e| format!("query ssh keys failed: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("read ssh key row failed: {e}"))
+    }
+
+    pub fn remove_ssh_public_key(
+        &self,
+        owner_principal_uri: &str,
+        id: &str,
+        now: u64,
+    ) -> Result<bool, String> {
+        let rows = self
+            .conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE ssh_public_keys SET removed_at = ?1 \
+                 WHERE id = ?2 AND owner_principal_uri = ?3 AND removed_at IS NULL",
+                params![now as i64, id, owner_principal_uri],
+            )
+            .map_err(|e| format!("remove ssh key failed: {e}"))?;
+        Ok(rows > 0)
+    }
+
+    fn ssh_key_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredSshPublicKey> {
+        let created_at: i64 = row.get(6)?;
+        let last_used_at: Option<i64> = row.get(7)?;
+        let removed_at: Option<i64> = row.get(8)?;
+        Ok(StoredSshPublicKey {
+            id: row.get(0)?,
+            owner_principal_uri: row.get(1)?,
+            name: row.get(2)?,
+            public_key: row.get(3)?,
+            key_type: row.get(4)?,
+            fingerprint: row.get(5)?,
+            created_at: created_at as u64,
+            last_used_at: last_used_at.map(|v| v as u64),
+            removed_at: removed_at.map(|v| v as u64),
         })
     }
 
