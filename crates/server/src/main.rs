@@ -1804,19 +1804,25 @@ impl Runtime {
     /// Delete a repository: remove its document and its on-disk bare repo.
     /// Strict GitOps — this destroys git history for repos absent from config.
     fn delete_repository(&self, path: &str, id: &str) -> Result<(), String> {
-        self.extension_storage
-            .delete_document("core", "repositories", id)
-            .map_err(|e| e.to_string())?;
+        // Disk-first, then document. This is the safer ordering for
+        // crash recovery: if the process dies between the two steps,
+        // the document still exists (the repo appears in the reconciler's
+        // desired set as an orphan), which is observable and correctable.
+        // The opposite ordering (document-first, then disk) leaks a git
+        // directory that the kernel can never find again — the store
+        // record is gone but the bytes remain on disk forever. Fixes #221.
         let git_dir = self.repository_root().join(format!("{path}.git"));
         if git_dir.exists() {
             fs::remove_dir_all(&git_dir)
                 .map_err(|error| format!("failed to remove {}: {error}", git_dir.display()))?;
         }
-        // Forget cached CUE evaluations under this git_dir so a
-        // subsequent create-with-the-same-path doesn't surface stale
-        // pre-delete config (and so the cache doesn't leak entries
-        // for repos that no longer exist on disk).
+        // Forget cached CUE evaluations BEFORE removing the document so
+        // a subsequent create-with-the-same-path starts clean. After this
+        // point the disk is gone; the document removal is the final step.
         self.cue_config_cache.forget_repository(&git_dir);
+        self.extension_storage
+            .delete_document("core", "repositories", id)
+            .map_err(|e| e.to_string())?;
         let _ = self.append_event(
             "dev.comtrya.repository.deleted",
             json!({ "path": path, "id": id }),
