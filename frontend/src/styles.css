@@ -927,6 +927,12 @@ kbd {
   transform: translateY(-1px);
 }
 
+.shell-app .home-onboard-card:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
 .shell-app .home-onboard-card.primary {
   border-color: var(--accent-line);
   background: var(--accent-soft);
