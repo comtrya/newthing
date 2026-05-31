@@ -405,6 +405,17 @@ impl OidcDiscoveryCache {
             map.retain(|id, _| live_issuer_ids.contains(id.as_str()));
         }
     }
+
+    /// Remove a single issuer's cached discovery metadata. The next call
+    /// to `get_or_fetch` for that issuer will trigger a fresh HTTP discovery
+    /// round-trip. Returns `true` if the issuer was in the cache (and was
+    /// removed), `false` if it was not cached (no-op but still successful).
+    pub fn flush_issuer(&self, issuer_id: &str) -> bool {
+        match self.inner.write() {
+            Ok(mut map) => map.remove(issuer_id).is_some(),
+            Err(_) => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -505,5 +516,37 @@ mod tests {
             serde_json::from_str(r#"{"groups": "maintainer", "roles": "admin"}"#).unwrap();
 
         assert_eq!(claims.comtrya_groups(), vec!["maintainer", "admin"]);
+    }
+
+    #[test]
+    fn flush_issuer_returns_false_when_issuer_not_cached() {
+        // with_reqwest() constructs a cache backed by an empty RwLock;
+        // no real HTTP is performed during construction or in flush_issuer.
+        let cache = OidcDiscoveryCache::with_reqwest();
+        assert!(
+            !cache.flush_issuer("nonexistent-issuer"),
+            "flush of uncached issuer should return false"
+        );
+    }
+
+    #[test]
+    fn flush_issuer_is_idempotent_on_empty_cache() {
+        let cache = OidcDiscoveryCache::with_reqwest();
+        // Repeated flushes of the same id on an empty cache all return false.
+        assert!(!cache.flush_issuer("issuer-a"));
+        assert!(!cache.flush_issuer("issuer-a"));
+    }
+
+    #[test]
+    fn evict_stale_does_not_remove_live_issuers() {
+        let cache = OidcDiscoveryCache::with_reqwest();
+        // An empty cache evicted with an arbitrary live set is a no-op.
+        let live: std::collections::BTreeSet<String> =
+            ["issuer-a".to_string(), "issuer-b".to_string()]
+                .into_iter()
+                .collect();
+        cache.evict_stale(&live);
+        // After eviction the cache is still empty; flush on a live id returns false.
+        assert!(!cache.flush_issuer("issuer-a"));
     }
 }

@@ -134,6 +134,30 @@ export function useAdminTelemetry() {
     }
   }
 
+  /**
+   * Flush the OIDC discovery cache for a single issuer. The next login
+   * attempt via that issuer will trigger a fresh HTTP discovery round-trip.
+   * Calls the REST admin endpoint rather than GraphQL (write → RPC path).
+   */
+  async function refreshOidcIssuer(issuerId: string): Promise<void> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const res = await fetch(`/api/admin/oidc-issuers/${encodeURIComponent(issuerId)}/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error((body as { message?: string }).message ?? res.statusText);
+      }
+      await refresh();
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught);
+      loading.value = false;
+    }
+  }
+
   onMounted(() => {
     void refresh();
   });
@@ -144,6 +168,7 @@ export function useAdminTelemetry() {
     error,
     refresh,
     syncNow,
+    refreshOidcIssuer,
     ready: computed(() => telemetry.value?.readiness.ready ?? false),
     configSync: computed(() => telemetry.value?.configSync ?? null),
   };

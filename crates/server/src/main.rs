@@ -420,6 +420,12 @@ fn router(state: AppState) -> Router {
             "/api/account/ssh-keys/:id",
             axum::routing::delete(remove_ssh_key),
         )
+        // Admin action endpoints — all gate on AdminCredential | OperatorCredential.
+        .route(
+            "/api/admin/oidc-issuers/:id/refresh",
+            post(admin_refresh_oidc_issuer),
+        )
+        .route("/api/admin/config-sync/resync", post(admin_config_resync))
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -4981,6 +4987,106 @@ async fn remove_ssh_key(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 "SSH key storage failed",
+                cors,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Admin action endpoints
+// ---------------------------------------------------------------------------
+
+/// Flush the OIDC discovery cache for a specific issuer, forcing a fresh
+/// HTTP discovery round-trip on the next login attempt. Useful after
+/// rotating the issuer's JWKS or changing its metadata without restarting
+/// the server.
+///
+/// `POST /api/admin/oidc-issuers/:id/refresh`
+/// Requires: AdminCredential | OperatorCredential
+async fn admin_refresh_oidc_issuer(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(issuer_id): AxumPath<String>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/api/admin/*") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "admin action requires an admin or operator credential",
+            cors,
+        );
+    }
+    let was_cached = state.runtime.oidc_discovery.flush_issuer(&issuer_id);
+    json_response(
+        StatusCode::OK,
+        json!({
+            "issuerId": issuer_id,
+            "wasCached": was_cached,
+            "message": if was_cached {
+                "OIDC discovery cache flushed. The next login attempt will trigger a fresh discovery."
+            } else {
+                "Issuer was not cached. No action needed."
+            }
+        }),
+        cors,
+    )
+}
+
+/// Trigger an immediate config-sync pull. REST alias for the GraphQL
+/// `syncConfig` mutation — useful from the admin UI and operator scripts
+/// without needing a GraphQL client.
+///
+/// `POST /api/admin/config-sync/resync`
+/// Requires: AdminCredential | OperatorCredential
+async fn admin_config_resync(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/api/admin/*") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "admin action requires an admin or operator credential",
+            cors,
+        );
+    }
+    let Some(repo) = config_sync::ConfigRepo::from_env(&state.runtime.data_dir) else {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            ErrorCode::BadUserInput.as_str(),
+            "instance has no configured config repo (COMTRYA_CONFIG_REPO_URL is unset)",
+            cors,
+        );
+    };
+    match repo.poll() {
+        Ok(config_sync::SyncPoll::Unchanged { commit }) => json_response(
+            StatusCode::OK,
+            json!({"synced": true, "changed": false, "commit": commit}),
+            cors,
+        ),
+        Ok(config_sync::SyncPoll::Changed { commit, .. }) => json_response(
+            StatusCode::OK,
+            json!({"synced": true, "changed": true, "commit": commit}),
+            cors,
+        ),
+        Err(e) => {
+            tracing::warn!("admin config resync failed: {}", e);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                &format!("config sync failed: {e}"),
                 cors,
             )
         }
@@ -14347,6 +14453,31 @@ mod tests {
             sse_frame(&without_id).is_none(),
             "events missing stable id cannot participate in Last-Event-ID reconnect"
         );
+    }
+
+    #[tokio::test]
+    async fn admin_refresh_oidc_issuer_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_refresh_oidc_issuer(
+            State(state),
+            HeaderMap::new(),
+            AxumPath("test-issuer".to_string()),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_config_resync_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_config_resync(State(state), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
