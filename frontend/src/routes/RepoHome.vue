@@ -899,17 +899,16 @@ async function fetchRepositoryIdentity(
       </p>
     </section>
 
-    <!-- /r/:path/code → repository-backed code surface plus repo-scoped widgets. -->
-    <section v-else-if="view === 'code'" class="repo-code">
+    <!-- /r/:path/code → dedicated code-browser surface.
+         Renders ONLY the repository.code slot (core:repository-code)
+         — no sidebar, no docs/summary/extension widgets. Extension
+         widgets that contributed to repository.main or repository.sidebar
+         do NOT appear here. The slot isolation means the code route
+         is purely about browsing files. -->
+    <section v-else-if="view === 'code'" class="repo-code repo-code--fullwidth" data-smoke="repo-code">
       <SlotMount
-        name="repository.main"
-        label="Main"
-        :element-context="repoContext"
-        smoke-prefix="repo-code"
-      />
-      <SlotMount
-        name="repository.sidebar"
-        label="Sidebar"
+        name="repository.code"
+        label="Code browser"
         :element-context="repoContext"
         smoke-prefix="repo-code"
       />

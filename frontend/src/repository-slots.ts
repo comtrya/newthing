@@ -22,12 +22,15 @@ export function registerRepositoryShellSlots(): void {
     defaultSlot: "repository.main",
     defaultPriority: 0,
   });
+  // The code browser gets its own slot so the /code route can render
+  // it exclusively (no summary, no docs, no sidebar). The overview
+  // route renders repository.main (summary + extension widgets).
   registerWidget({
     id: "core:repository-code",
     extensionId: "core",
     element: CORE_CODE_BROWSER_ELEMENT,
-    defaultSlot: "repository.main",
-    defaultPriority: 10,
+    defaultSlot: "repository.code",
+    defaultPriority: 0,
   });
 }
 
