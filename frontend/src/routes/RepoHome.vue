@@ -96,6 +96,8 @@ interface RepositoryIdentity {
   updated?: string | null;
   openPullRequests?: number | null;
   gitHttpPath?: string | null;
+  /** Per-repo extension opt-in set from comtrya.cue `repository.extensions`. */
+  extensions?: string[] | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
   commits?: RepositoryCommit[] | null;
@@ -142,6 +144,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       updated
       openPullRequests
       gitHttpPath
+      extensions
       blobs {
         path
         preview
@@ -573,9 +576,12 @@ watch(
       );
       await applyUserLayoutFor(identity.repository?.id ?? null);
       if (identity.repository && identity.workspaceId) {
-        void refreshOpenIssues();
-        void refreshFailingChecks();
-        setupIssueListeners();
+        const exts = identity.repository.extensions ?? [];
+        if (exts.includes("issues")) {
+          void refreshOpenIssues();
+          setupIssueListeners();
+        }
+        if (exts.includes("checks")) void refreshFailingChecks();
       } else {
         teardownIssueListeners();
         openIssues.value = 0;
@@ -655,6 +661,7 @@ async function fetchRepositoryIdentity(
     <RepoTabs
       :segments="repoSegments"
       :repository-id="repository?.id ?? null"
+      :enabled-extensions="repository?.extensions ?? null"
       :open-issues="openIssues"
       :open-pulls="repository?.openPullRequests ?? 0"
       :failing-checks="failingChecks"
