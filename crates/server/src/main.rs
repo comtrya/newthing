@@ -3300,6 +3300,39 @@ async fn api_op(
     } else {
         body.to_vec()
     };
+
+    // Phase 2 of the per-repo extension opt-in gate (#137). If the op
+    // payload carries a `repository` field (top-level JSON), resolve it to
+    // a repository document and verify the extension is in that repo's
+    // `extensions` opt-in set. Repository-context ops that target a repo
+    // which has not opted in are rejected with 403.
+    //
+    // This is a best-effort check: ops that don't carry a `repository` key
+    // (instance-scoped ops, ops with a different field name) are not gated.
+    // A full solution requires the WIT manifest to declare which ops are
+    // repository-scoped and which field carries the repository ref; that's
+    // deferred until SP6 / tarpc write path (#203).
+    if let Ok(parsed) = serde_json::from_slice::<Value>(&payload)
+        && let Some(repo_ref) = parsed.get("repository").and_then(Value::as_str)
+        && !repo_ref.is_empty()
+        && !state.runtime.wasm_registry.repo_has_extension_enabled(
+            &state.runtime.extension_storage,
+            repo_ref,
+            &extension,
+        )
+    {
+        return api_op_json_error(
+            StatusCode::FORBIDDEN,
+            "extension_not_enabled",
+            &format!(
+                "extension '{extension}' is not enabled for this repository. \
+                 Add it to `repository.extensions` in the repo's comtrya.cue."
+            ),
+            None,
+            cors,
+        );
+    }
+
     let dispatcher = crate::wasm_registry::RegistryDispatcher {
         registry: state.runtime.wasm_registry.clone(),
         store: Arc::new(state.runtime.extension_storage.clone()),
@@ -11921,6 +11954,52 @@ mod tests {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{payload}");
         assert_eq!(payload["code"], "bad-input");
         assert!(payload["message"].as_str().unwrap().contains("title"));
+    }
+
+    #[tokio::test]
+    async fn api_ops_rejects_when_extension_not_enabled_for_repo() {
+        // Phase 2 kernel boundary: an op targeting a repository that hasn't
+        // opted into the extension must be rejected with 403 (#137).
+        let runtime = dev_runtime();
+        // Do NOT install repo enablement — the extension is not enabled.
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_gate_test".to_string(),
+                vec!["api:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
+        let state = AppState {
+            runtime,
+            git_state: PureRustGitState::test_default(),
+        };
+
+        let (status, payload) = call_api_op(
+            state,
+            bearer_headers(&token),
+            "ext_issues",
+            "issues",
+            "open-issue",
+            json!({
+                "repository": "comtrya://workspace/ws_no_ext/repository/repo_no_ext",
+                "title": "should be blocked",
+                "bodyMarkdown": "",
+            }),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::FORBIDDEN, "{payload}");
+        assert_eq!(
+            payload["code"], "extension_not_enabled",
+            "gate must produce extension_not_enabled code; got {payload}"
+        );
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap_or("")
+                .contains("ext_issues"),
+            "error message should name the extension; got {payload}"
+        );
     }
 
     #[test]
