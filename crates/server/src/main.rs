@@ -3368,6 +3368,21 @@ fn api_op_json_error(
     json_response(status, body, headers)
 }
 
+/// Extract the first field name from the root selection set of a GraphQL
+/// document. Used to route the operation to the correct handler.
+///
+/// **Note on dotted field names:** Comtrya uses non-standard dotted field
+/// names like `relations.create` which are not valid GraphQL identifiers
+/// (dots are not allowed). `graphql-parser` correctly rejects them, so this
+/// function uses a hand-rolled scanner that explicitly supports dots. The
+/// `query_requests_field` helper below uses `graphql-parser` for the
+/// commitDiff feature check, where all field names are standard GraphQL.
+/// See #87 for the planned migration to a custom dialect AST.
+///
+/// Returns the **actual field name** (i.e. resolves one alias level: for
+/// `alias: syncConfig { ... }` returns `"syncConfig"`, not `"alias"`).
+/// The return value may contain a `.` for dotted kernel fields like
+/// `"relations.create"`.
 fn extract_root_operation_field(query: &str) -> Option<String> {
     // Skip a leading `mutation` / `query` / `subscription` keyword and
     // any operation name + variable list, then the first `{`, then
@@ -3454,6 +3469,58 @@ fn extract_root_operation_field(query: &str) -> Option<String> {
         }
     }
     if ident.is_empty() { None } else { Some(ident) }
+}
+
+/// Return `true` when the parsed GraphQL document contains at least one
+/// field selection whose name (not alias) matches `field_name` at any
+/// depth in the selection tree.
+///
+/// Used to decide whether to populate optional computed fields (e.g.
+/// `commitDiff`) in the JSON-shim response builder without resorting to
+/// substring scanning of the raw query string (closes #87 second clause).
+fn query_requests_field(query: &str, field_name: &str) -> bool {
+    use graphql_parser::query::{Definition, OperationDefinition, Selection, SelectionSet};
+
+    fn walk<'a>(ss: &SelectionSet<'a, &'a str>, field_name: &str) -> bool {
+        for item in &ss.items {
+            match item {
+                Selection::Field(f) => {
+                    if f.name == field_name {
+                        return true;
+                    }
+                    if walk(&f.selection_set, field_name) {
+                        return true;
+                    }
+                }
+                Selection::InlineFragment(frag) => {
+                    if walk(&frag.selection_set, field_name) {
+                        return true;
+                    }
+                }
+                Selection::FragmentSpread(_) => {}
+            }
+        }
+        false
+    }
+
+    let Ok(doc) = graphql_parser::parse_query::<&str>(query) else {
+        return false;
+    };
+    for def in &doc.definitions {
+        let ss = match def {
+            Definition::Operation(op) => match op {
+                OperationDefinition::Query(q) => &q.selection_set,
+                OperationDefinition::Mutation(m) => &m.selection_set,
+                OperationDefinition::Subscription(s) => &s.selection_set,
+                OperationDefinition::SelectionSet(ss) => ss,
+            },
+            Definition::Fragment(frag) => &frag.selection_set,
+        };
+        if walk(ss, field_name) {
+            return true;
+        }
+    }
+    false
 }
 
 fn comments_thread_query(state: AppState, headers: HeaderMap, payload: Value) -> Response {
@@ -4163,16 +4230,17 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
 
             // CommitDetail.vue asks for `commitDiff(oid: $oid)` on
-            // repositoryByPath. The JSON-shim shaper builds responses
-            // by checking the query for field names; populate the
-            // field only when the query asks for it AND the caller
-            // supplied an oid variable.
+            // repositoryByPath. Populate the field only when the
+            // parsed query actually requests it AND the caller supplied
+            // an oid variable. Uses the AST (not substring scan) so a
+            // string literal containing "commitDiff" doesn't trigger
+            // a spurious diff load (closes #87 second clause).
             let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
             let oid_var = payload
                 .get("variables")
                 .and_then(|v| v.get("oid"))
                 .and_then(Value::as_str);
-            if query_str.contains("commitDiff")
+            if query_requests_field(query_str, "commitDiff")
                 && let Some(oid) = oid_var
             {
                 repo_obj.insert("commitDiff".to_string(), commit_diff_payload(&git_dir, oid));
