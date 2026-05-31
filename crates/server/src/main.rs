@@ -1045,32 +1045,9 @@ impl Runtime {
         // `relations.create` with undeclared kinds or endpoint kinds no
         // relationship type admits. Fail closed.
         self.require_declared_relationship(from, to, verb_uri)?;
-        // NOTE (deferred): the dedup check below is racy across concurrent
-        // creates because load_records → check → write_records_atomically
-        // isn't a single transaction. In production-testbed (single
-        // operator, low concurrency) duplicates are very unlikely; a
-        // proper fix moves the (from,to,kind) uniqueness invariant into
-        // the storage layer behind the write lock.
-
         let (canon_from, canon_to) = self.canonicalize_relation_endpoints(from, to, verb_uri);
 
-        // Idempotency: return any existing relation matching (canon_from, canon_to, verb).
-        // Scoped to kernel-owned records so an attacker-injected collection="relations"
-        // record (defense-in-depth against the storage-bypass plugged in wasm_host) cannot
-        // shadow the probe and be returned to the caller as the "existing" relation.
-        let existing = self.extension_storage.kernel_collection_data("relations")?;
-        if let Some(array) = existing.as_array() {
-            for rel in array {
-                let same_from =
-                    rel.get("from").and_then(Value::as_str) == Some(canon_from.as_str());
-                let same_to = rel.get("to").and_then(Value::as_str) == Some(canon_to.as_str());
-                let same_kind = rel.get("kind").and_then(Value::as_str) == Some(verb_uri);
-                if same_from && same_to && same_kind {
-                    return Ok(rel.clone());
-                }
-            }
-        }
-
+        // Build the candidate record before the critical section.
         let rel_id = OpaqueId::new(IdPrefix::Relation);
         let now_iso = chrono_now_iso();
         // `authorRef` (not `createdBy`) is the single field both the WASM
@@ -1100,9 +1077,21 @@ impl Runtime {
             data.clone(),
             &now_iso,
         );
-        self.extension_storage
-            .create_document(record)
+
+        // Atomic probe-then-insert closes the TOCTOU window that the
+        // previous load_records → dedup-check → create_document sequence
+        // left open: two concurrent creates could both observe no-existing
+        // edge and each write a duplicate (closes #122 P3 [server/concurrency]).
+        // create_relation_if_absent holds records_cache across probe + write.
+        use RelationCreateOutcome::{AlreadyExisted, Created};
+        let outcome = self
+            .extension_storage
+            .create_relation_if_absent(&canon_from, &canon_to, verb_uri, record)
             .map_err(|e| e.to_string())?;
+        let data = match outcome {
+            AlreadyExisted(existing) => return Ok(existing.data),
+            Created(written) => written.data,
+        };
 
         let _ = self.append_event(
             "dev.comtrya.relation.created",
