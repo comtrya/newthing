@@ -368,27 +368,31 @@ fn is_kernel_owned_collection(collection: &str) -> bool {
 /// convention (every first-party extension uses `<resource>.read` for
 /// reads, `<resource>.write` etc for mutations). Third-party
 /// extensions that declare semantically-read perms with a different
-/// suffix (`events.list`, `data.fetch`) will be denied for anonymous
-/// principals — workaround: use `.read`. Real per-resource authz
-/// arrives with the SpiceDB integration (separate sub-PR).
+/// suffix (`events.list`, `data.fetch`) will be denied — workaround:
+/// use `.read`. Real per-resource authz arrives with the SpiceDB
+/// integration (separate sub-PR).
 ///
-/// Authenticated principals still receive `Some(true)` for every
-/// permission. This layer ONLY closes the anonymous mutation hole
-/// the previous DefaultAuthz left wide open. Real authenticated-
-/// principal authz is a follow-up.
+/// **Fail-closed for non-read permissions for every principal, including
+/// authenticated ones.** Previously authenticated principals received
+/// `Some(true)` for every permission — a third-party extension that
+/// gated a destructive op on `identity.has_permission("foo.write")`
+/// had a no-op gate for any logged-in user. The kernel itself does
+/// not consult this layer (it uses explicit ownership / scope checks
+/// elsewhere), so the change is safe for first-party extensions; it
+/// closes the trust hole for any third party that mistakenly relied
+/// on the permissive default.
 pub struct SimpleAuthz;
 
 impl AuthzLayer for SimpleAuthz {
-    fn has_permission(&self, principal: &str, permission: &str) -> Option<bool> {
-        if principal == ANONYMOUS_PRINCIPAL {
-            // Allow-list the `.read` suffix. `rsplit('.').next()` on
-            // "storage.read" yields Some("read"); on "" yields
-            // Some(""); on "write" (single segment) yields
-            // Some("write") — all correctly handled as "not read".
-            let last_segment = permission.rsplit('.').next().unwrap_or("");
-            return Some(last_segment == "read");
-        }
-        Some(true)
+    fn has_permission(&self, _principal: &str, permission: &str) -> Option<bool> {
+        // Allow-list the `.read` suffix. `rsplit('.').next()` on
+        // "storage.read" yields Some("read"); on "" yields Some("");
+        // on "write" (single segment) yields Some("write") — all
+        // correctly handled as "not read". Every other permission
+        // fails closed for every principal until real per-resource
+        // authz lands.
+        let last_segment = permission.rsplit('.').next().unwrap_or("");
+        Some(last_segment == "read")
     }
 }
 
@@ -2232,16 +2236,20 @@ mod authz_tests {
         }
     }
 
-    /// Authenticated principals still get permissive allow for every
-    /// permission — this layer ONLY closes the anonymous mutation
-    /// hole. Real per-resource authz (SpiceDB) is a separate sub-PR.
+    /// Authenticated principals fail closed on non-`.read` permissions.
+    /// Previously this layer returned `Some(true)` for every permission
+    /// for any logged-in user — a third-party extension that gated a
+    /// destructive op on `identity.has_permission("foo.write")` had a
+    /// no-op gate. Now the gate denies by default; real per-resource
+    /// authz (SpiceDB) is a separate sub-PR.
     #[test]
-    fn authenticated_principal_still_permissive() {
+    fn authenticated_principal_fails_closed_on_non_read() {
         let authz = SimpleAuthz;
         let user = "comtrya://user/usr_01XYZ";
-        assert_eq!(authz.has_permission(user, "storage.write"), Some(true));
+        assert_eq!(authz.has_permission(user, "storage.write"), Some(false));
         assert_eq!(authz.has_permission(user, "storage.read"), Some(true));
-        assert_eq!(authz.has_permission(user, "events.write"), Some(true));
+        assert_eq!(authz.has_permission(user, "events.write"), Some(false));
+        assert_eq!(authz.has_permission(user, "ext_issues.blocks"), Some(false));
     }
 
     /// Struct-level unit test: empty permission string is treated as
