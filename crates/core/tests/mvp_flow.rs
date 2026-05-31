@@ -29,15 +29,13 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
         )
         .unwrap();
     assert!(login.created);
+    let auth_events = auth.take_outbox();
     assert!(
-        auth.outbox
-            .all()
+        auth_events
             .iter()
             .any(|event| event.event_type == CoreEventType::AuthLoginSucceeded.as_str())
     );
-    let created_event = auth
-        .outbox
-        .all()
+    let created_event = auth_events
         .iter()
         .find(|event| event.event_type == CoreEventType::UserCreated.as_str())
         .expect("user-created event is emitted on first login");

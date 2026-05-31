@@ -2475,6 +2475,36 @@ impl Runtime {
         self.append_event_internal(event_type, data)
     }
 
+    /// Persist an `EventEnvelope` drained from `AuthService::take_outbox`.
+    /// Auth-grade events (`dev.comtrya.auth.*` / `dev.comtrya.user.*`)
+    /// land in the audit log so they never appear on the public SSE
+    /// stream; the SSE filter already strips `dev.comtrya.auth.*` /
+    /// `dev.comtrya.oidc.*` from the events file, and routing these to
+    /// the audit sink keeps the contract symmetric — sensitive identity
+    /// events are audit-only, full stop.
+    pub(crate) fn forward_auth_event(
+        &self,
+        event: &comtrya_core::events::EventEnvelope,
+    ) -> std::io::Result<()> {
+        let payload: serde_json::Value =
+            serde_json::from_str(&event.data_json).unwrap_or(Value::Null);
+        self.append_audit(
+            &event.event_type,
+            json!({
+                "id": event.id.as_str(),
+                "time": event.time,
+                "subject": event.subject,
+                "actor": {
+                    "kind": event.actor.kind,
+                    "uri": event.actor.uri,
+                    "displayName": event.actor.display_name,
+                },
+                "source": event.source.canonical(),
+                "data": payload,
+            }),
+        )
+    }
+
     fn append_event_internal(&self, event_type: &str, data: Value) -> std::io::Result<()> {
         append_jsonl(
             &self.events_path,
@@ -4921,12 +4951,32 @@ async fn oidc_callback(
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_millis() as u64)
         .unwrap_or(0);
-    let login_result = state
-        .runtime
-        .auth_service
-        .lock()
-        .expect("auth_service lock not poisoned")
-        .login(&issuer.id, claims, now_ms);
+    let (login_result, auth_events) = {
+        let mut auth = state
+            .runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock not poisoned");
+        let result = auth.login(&issuer.id, claims, now_ms);
+        // Drain the AuthService outbox under the same lock so audit
+        // events from this exact login land before any concurrent
+        // login can buffer over them. Forwarded below to the audit /
+        // event sinks the runtime owns.
+        let drained = auth.take_outbox();
+        (result, drained)
+    };
+    for event in auth_events {
+        if let Err(error) = state.runtime.forward_auth_event(&event) {
+            // Audit log writes are best-effort: if the sink is
+            // unavailable, the user-visible login flow must still
+            // complete. Log loudly so the gap is observable.
+            tracing::warn!(
+                event_type = %event.event_type,
+                %error,
+                "failed to persist AuthService outbox event",
+            );
+        }
+    }
     let login = match login_result {
         Ok(l) => l,
         Err(core_err) => {
