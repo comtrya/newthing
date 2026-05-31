@@ -123,6 +123,36 @@ pub async fn serve_fetch(
         }
     }
 
+    // Protocol v2 §7: emit the `wanted-refs` section when the client sent
+    // `want-ref` lines. The section lists each resolved ref name and its
+    // OID so the client can update its remote-tracking branches without a
+    // separate ls-refs round-trip. Must appear after acknowledgments and
+    // before the packfile section. Fixes #224.
+    if !req.want_refs().is_empty() {
+        let _ = tx
+            .send(Bytes::from(encode_pkt_line(b"wanted-refs\n")))
+            .await;
+        // Resolve each want-ref to its OID for the response.
+        // We already resolved them into req_effective.wants above; map
+        // the original refname back to the OID by re-opening the repo.
+        let repo_for_refs = gix::open(repo_dir);
+        if let Ok(repo) = repo_for_refs {
+            for refname in req.want_refs() {
+                if let Ok(mut reference) = repo.find_reference(refname) {
+                    let oid = reference
+                        .try_id()
+                        .map(|id| id.to_string())
+                        .or_else(|| reference.peel_to_commit().ok().map(|c| c.id().to_string()));
+                    if let Some(oid) = oid {
+                        let line = format!("{oid} {refname}\n");
+                        let _ = tx.send(Bytes::from(encode_pkt_line(line.as_bytes()))).await;
+                    }
+                }
+            }
+        }
+        let _ = tx.send(Bytes::from_static(PKT_DELIM)).await;
+    }
+
     // Compute traversal plan (objects + shallow boundaries)
     // This is now executed for all cases including when ack_ready is true
     let repo_path_for_plan = repo_dir.clone();
