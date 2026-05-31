@@ -1,6 +1,13 @@
-// Typed client for `/api/account/*` routes. Today only Git PATs are
-// covered; SSH keys and session management land alongside the SSH
-// transport (#219, #207 tarpc).
+// Typed client for `/api/account/*` routes.
+
+import { getSessionToken } from "@comtrya/sdk-core";
+
+/** Build Authorization header for account API calls, falling back to
+ *  cookie-only when no session token is available. */
+async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const token = await getSessionToken();
+  return token ? { Authorization: `Bearer ${token}`, ...extra } : extra;
+}
 
 export interface GitPersonalAccessToken {
   id: string;
@@ -43,7 +50,7 @@ export async function listGitPersonalAccessTokens(): Promise<GitPersonalAccessTo
   const response = await fetch(BASE, {
     method: "GET",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: await authHeaders({ Accept: "application/json" }),
   });
   const body = await readJson<{ personalAccessTokens: GitPersonalAccessToken[] }>(
     response,
@@ -58,7 +65,7 @@ export async function createGitPersonalAccessToken(
   const response = await fetch(BASE, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: await authHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
     body: JSON.stringify({
       name: input.name,
       scopes: input.scopes,
@@ -76,7 +83,7 @@ export async function revokeGitPersonalAccessToken(id: string): Promise<boolean>
   const response = await fetch(`${BASE}/${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: await authHeaders({ Accept: "application/json" }),
   });
   const body = await readJson<{ revoked: boolean }>(
     response,

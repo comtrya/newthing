@@ -3,6 +3,12 @@ import { onMounted, ref } from "vue";
 import AccountNav from "../components/AccountNav.vue";
 import Chip from "../components/Chip.vue";
 import Icon from "../components/Icon.vue";
+import { getSessionToken } from "@comtrya/sdk-core";
+
+async function accountAuthHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const token = await getSessionToken();
+  return token ? { Authorization: `Bearer ${token}`, ...extra } : extra;
+}
 
 interface SshPublicKey {
   id: string;
@@ -34,7 +40,7 @@ async function refresh(): Promise<void> {
   try {
     const response = await fetch("/api/account/ssh-keys", {
       credentials: "include",
-      headers: { Accept: "application/json" },
+      headers: await accountAuthHeaders({ Accept: "application/json" }),
     });
     const body = (await response.json()) as { sshPublicKeys?: SshPublicKey[]; errors?: Array<{ message?: string }> };
     if (!response.ok || body.errors?.length) {
@@ -58,7 +64,7 @@ async function submit(): Promise<void> {
     const response = await fetch("/api/account/ssh-keys", {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: await accountAuthHeaders({ "Content-Type": "application/json", Accept: "application/json" }),
       body: JSON.stringify({ name, publicKey }),
     });
     const body = (await response.json()) as { sshPublicKey?: SshPublicKey; errors?: Array<{ message?: string }> };
@@ -92,7 +98,7 @@ async function confirmRemove(): Promise<void> {
     const response = await fetch(`/api/account/ssh-keys/${encodeURIComponent(target.id)}`, {
       method: "DELETE",
       credentials: "include",
-      headers: { Accept: "application/json" },
+      headers: await accountAuthHeaders({ Accept: "application/json" }),
     });
     const body = (await response.json().catch(() => null)) as { removed?: boolean; errors?: Array<{ message?: string }> } | null;
     if (!response.ok || body?.errors?.length) {
