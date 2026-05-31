@@ -141,3 +141,36 @@ describe("RepoTabs extension filtering", () => {
     expect(ids).toContain("issues");
   });
 });
+
+// ---------------------------------------------------------------------------
+// ARIA semantics — navigation links, not ARIA tabs
+// ---------------------------------------------------------------------------
+
+// Mirrors the ARIA attribute logic from the RepoTabs.vue template.
+// The component uses aria-current="page" on the active link rather than
+// role=tab/aria-selected, which would imply arrow-key navigation and a
+// tabpanel association that doesn't exist.
+
+function ariaCurrent(isActive: boolean): string | undefined {
+  return isActive ? "page" : undefined;
+}
+
+describe("RepoTabs ARIA semantics", () => {
+  test("active link gets aria-current=page", () => {
+    expect(ariaCurrent(true)).toBe("page");
+  });
+
+  test("inactive link gets no aria-current attribute", () => {
+    expect(ariaCurrent(false)).toBeUndefined();
+  });
+
+  test("aria-current is undefined (not false) for inactive links", () => {
+    // Vue omits the attribute entirely when the binding is undefined,
+    // but includes it as 'aria-current="false"' if we bind false.
+    // We must return undefined, not false, to match the Vue template.
+    const result = ariaCurrent(false);
+    expect(result).not.toBe("false");
+    expect(result).not.toBe(false);
+    expect(result).toBeUndefined();
+  });
+});
