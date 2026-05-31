@@ -237,13 +237,21 @@ impl OciExtensionFetcher {
     /// A digest joined with `:` would parse as a tag and silently bypass digest
     /// enforcement, so the distinction must be made here at the boundary.
     fn build_reference(registry: &str, image: &str, reference: &OciReference) -> Reference {
-        let repository = format!("{registry}/{image}");
+        // `oci_distribution::Reference::{with_tag, with_digest}` store
+        // `registry` and `repository` as independent fields and the
+        // client builds manifest/blob URLs as
+        // `{scheme}://{resolve_registry()}/v2/{repository()}/manifests/{...}`.
+        // Passing `format!("{registry}/{image}")` as the repository
+        // here produces `ghcr.io/v2/ghcr.io/<image>/manifests/<ref>` —
+        // every real pull 404s. Pass `image` directly so the URL is
+        // `ghcr.io/v2/<image>/manifests/<ref>`, matching the OCI
+        // distribution spec.
         match reference {
             OciReference::Tag(tag) => {
-                Reference::with_tag(registry.to_string(), repository, tag.clone())
+                Reference::with_tag(registry.to_string(), image.to_string(), tag.clone())
             }
             OciReference::Digest(digest) => {
-                Reference::with_digest(registry.to_string(), repository, digest.clone())
+                Reference::with_digest(registry.to_string(), image.to_string(), digest.clone())
             }
         }
     }
@@ -554,7 +562,16 @@ mod tests {
         );
         assert_eq!(reference.tag(), Some("v1.0.0"));
         assert_eq!(reference.digest(), None);
-        assert!(reference.whole().ends_with(":v1.0.0"));
+        // Anchor every field of the typed reference so a regression that
+        // duplicates the registry into the repository (the previous
+        // shape — `repository = format!("{registry}/{image}")`) is caught
+        // up front, not in production. Suffix-only asserts let the
+        // malformed `"ghcr.io/ghcr.io/comtrya/ext:v1.0.0"` pass silently
+        // — that's exactly the failure mode the project's
+        // "tests are evidence, not intent" rule warns about.
+        assert_eq!(reference.registry(), "ghcr.io");
+        assert_eq!(reference.repository(), "comtrya/ext");
+        assert_eq!(reference.whole(), "ghcr.io/comtrya/ext:v1.0.0");
     }
 
     #[test]
@@ -567,7 +584,10 @@ mod tests {
         );
         assert_eq!(reference.digest(), Some(digest.as_str()));
         assert_eq!(reference.tag(), None);
-        assert!(reference.whole().contains(&format!("@{digest}")));
+        // Same regression guard as the tag case.
+        assert_eq!(reference.registry(), "ghcr.io");
+        assert_eq!(reference.repository(), "comtrya/ext");
+        assert_eq!(reference.whole(), format!("ghcr.io/comtrya/ext@{digest}"));
     }
 
     #[test]
