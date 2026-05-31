@@ -7072,11 +7072,16 @@ fn storage_index(name: &str, fields: &[&str], unique: bool) -> StorageIndexDecla
 fn validate_storage_collections(
     storage_collections: &[StorageCollectionDeclaration],
 ) -> Result<(), String> {
-    // Only reject the (owner, name) pair being declared twice by the same
-    // extension. Cross-extension name sharing (e.g. "_meta" in ext_issues and
-    // ext_pull_requests) is allowed for now — fixing the collection_owners
-    // BTreeMap to be a multi-map is tracked in #153.
     let mut seen_pairs: BTreeSet<(String, String)> = BTreeSet::new();
+    // Reject duplicate collection names across ALL owners. The
+    // collection_owners BTreeMap is keyed by name; last-write-wins means
+    // a hostile extension declaring the same name as a first-party
+    // collection (e.g. "pull_requests") would shadow the legitimate
+    // extension, causing extension_collection_data to use the wrong
+    // owner as a filter and return an empty result set (see #153).
+    // First-party extensions that previously shared "_meta" have been
+    // renamed to ext_issues_meta and ext_pull_requests_meta.
+    let mut seen_names: BTreeSet<String> = BTreeSet::new();
     for collection in storage_collections {
         if collection.name.is_empty() {
             return Err("storage collection name must not be empty".to_string());
@@ -7091,6 +7096,15 @@ fn validate_storage_collections(
             return Err(format!(
                 "duplicate storage collection declaration: {}/{}",
                 collection.owner_extension, collection.name
+            ));
+        }
+        if !seen_names.insert(collection.name.clone()) {
+            return Err(format!(
+                "storage collection name '{}' is claimed by more than one extension; \
+                 collection names must be globally unique to prevent the collection_owners \
+                 BTreeMap last-write-wins collision (closes #153). \
+                 If this is an internal counter collection, rename it to include the extension id.",
+                collection.name
             ));
         }
     }

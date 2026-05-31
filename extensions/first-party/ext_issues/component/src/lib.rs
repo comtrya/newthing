@@ -146,7 +146,9 @@ fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     }
 }
 
-const COUNTER_COLLECTION: &str = "_meta";
+// Renamed from "_meta" (was shared with ext_pull_requests, causing a
+// collection_owners BTreeMap last-write-wins collision — see #153).
+const COUNTER_COLLECTION: &str = "ext_issues_meta";
 
 #[derive(Serialize, Deserialize)]
 struct RepoCounter {
@@ -271,7 +273,7 @@ fn next_issue_number(scope_key: &str) -> Result<u64, Error> {
                     &counter_id,
                     &bytes,
                     &storage::DocumentMetadata {
-                        resource_uri: format!("comtrya://_meta/{}", counter_id),
+                        resource_uri: format!("comtrya://ext_issues_meta/{}", counter_id),
                         resource_refs: vec![scope_key.to_string()],
                     },
                 ) {

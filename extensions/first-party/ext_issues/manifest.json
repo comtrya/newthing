@@ -76,7 +76,7 @@
         ]
       },
       {
-        "name": "_meta",
+        "name": "ext_issues_meta",
         "ownerExtension": "ext_issues",
         "indexes": [
           { "name": "by_id", "fields": ["id"], "unique": true }

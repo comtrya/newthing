@@ -20,7 +20,9 @@ use bindings::exports::comtrya::platform::reactor::{
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "pull_requests";
-const COUNTER_COLLECTION: &str = "_meta";
+// Renamed from "_meta" (was shared with ext_issues, causing a
+// collection_owners BTreeMap last-write-wins collision — see #153).
+const COUNTER_COLLECTION: &str = "ext_pull_requests_meta";
 const PULL_MERGED_EVENT: &str = "dev.comtrya.pull-request.merged";
 const CLOSES_RELATION: &str = "comtrya://rel/com.comtrya.pulls/closes";
 const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
@@ -323,7 +325,7 @@ fn next_number(scope_key: &str) -> Result<u64, Error> {
                     &counter_id,
                     &bytes,
                     &storage::DocumentMetadata {
-                        resource_uri: format!("comtrya://_meta/{counter_id}"),
+                        resource_uri: format!("comtrya://ext_pull_requests_meta/{counter_id}"),
                         resource_refs: vec![scope_key.to_string()],
                     },
                 ) {
