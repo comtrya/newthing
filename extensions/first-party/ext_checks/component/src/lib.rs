@@ -111,16 +111,25 @@ fn repository_scope(repository: &str) -> RepositoryScope {
 }
 
 fn validate_record_repository_scope(scope: &RepositoryScope) -> Result<(), Error> {
-    if scope
+    // Require BOTH workspace_id and repository_id, matching pulls/issues. A
+    // repository-only scope (workspace_id=None) lets a check with no
+    // workspace anchor through, which then matches any workspace-scoped
+    // list-checks filter via the fall-through at the tail of
+    // `repository_matches` — that was the TNQ-3 cross-tenant leak.
+    let workspace_ok = scope
+        .workspace_id
+        .as_deref()
+        .is_some_and(|id| !id.trim().is_empty());
+    let repository_ok = scope
         .repository_id
         .as_deref()
-        .is_some_and(|repository_id| !repository_id.trim().is_empty())
-    {
+        .is_some_and(|id| !id.trim().is_empty());
+    if workspace_ok && repository_ok {
         return Ok(());
     }
     Err(err(
         ErrorCode::BadInput,
-        "checks.record requires a repository-scoped check run",
+        "checks.record requires a workspace-scoped repository (comtrya://workspace/<ws>/repository/<repo>)",
     ))
 }
 
@@ -133,13 +142,12 @@ fn repository_matches(stored: &StoredCheck, repository: &str) -> bool {
     }
     let scope = repository_scope(repository);
     if let Some(workspace) = scope.workspace_id.as_deref() {
-        if stored
-            .workspace_id
-            .as_deref()
-            .map(|stored_workspace| stored_workspace != workspace)
-            .unwrap_or(false)
-        {
-            return false;
+        // A workspace-scoped filter must not match a check that has no
+        // workspace anchor at all. Treating `stored.workspace_id == None`
+        // as "compatible with any workspace" is the cross-tenant leak.
+        match stored.workspace_id.as_deref() {
+            Some(stored_workspace) if stored_workspace == workspace => {}
+            _ => return false,
         }
     }
     if let Some(repository) = scope.repository_id.as_deref() {
