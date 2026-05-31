@@ -2129,10 +2129,14 @@ impl Runtime {
 
     fn check_boundary(&self, headers: &HeaderMap, route: &str) -> ResponseResult<HeaderMap> {
         if self.config.environment == Environment::Production && !self.options.tls_terminated {
+            // CORS-less by design: this guard rejects every request in this
+            // environment, including the cross-origin one we'd otherwise be
+            // computing headers for. No allowed origin → no CORS to attach.
             return Err(Box::new(error_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::ConfigInvalid.as_str(),
                 "production requires COMTRYA_TLS_TERMINATED=true behind a TLS terminator",
+                HeaderMap::new(),
             )));
         }
 
@@ -2142,10 +2146,15 @@ impl Runtime {
                 allowed_origins: self.config.allowed_origins.clone(),
             };
             let cors_headers = cors.check(origin, route).map_err(|error| {
+                // The origin is not in the allow-list; there is no CORS
+                // header set we are willing to mint. Returning an empty
+                // header map is correct here — the browser will surface
+                // a CORS failure, which is exactly the truth.
                 Box::new(error_response(
                     StatusCode::FORBIDDEN,
                     error.code.as_str(),
                     &error.message,
+                    HeaderMap::new(),
                 ))
             })?;
             for (name, value) in cors_headers {
@@ -2164,7 +2173,10 @@ impl Runtime {
         Ok(out)
     }
 
-    fn rate_limit(&self, bucket: &str, ceiling: u32) -> ResponseResult<()> {
+    fn rate_limit(&self, bucket: &str, ceiling: u32, cors: HeaderMap) -> ResponseResult<()> {
+        // `cors` is the route's `check_boundary` result. Threading it here so
+        // a propagated `?` from `graphql_guard` / `graphql_read_guard` does
+        // not lose cross-origin headers on 429 / 500 responses.
         let minute = now_seconds() / 60;
         let count = self.store.tally_rate(bucket, minute).map_err(|error| {
             tracing::error!(%error, %bucket, "rate-limit tally failed");
@@ -2172,6 +2184,7 @@ impl Runtime {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 "rate-limit storage failed",
+                cors.clone(),
             ))
         })?;
         if count > ceiling {
@@ -2179,6 +2192,7 @@ impl Runtime {
                 StatusCode::TOO_MANY_REQUESTS,
                 ErrorCode::RateLimited.as_str(),
                 "rate limit exceeded",
+                cors,
             )))
         } else {
             Ok(())
@@ -2273,13 +2287,16 @@ impl Runtime {
         token
     }
 
-    fn consume_session(&self, token: &str) -> ResponseResult<PrincipalStatus> {
+    fn consume_session(&self, token: &str, cors: HeaderMap) -> ResponseResult<PrincipalStatus> {
+        // `cors` is the route's `check_boundary` result so a propagated
+        // session-take failure does not drop cross-origin headers.
         match self.store.take_session(token, now_seconds()) {
             Ok(Some(stored)) => Ok(stored_to_principal(stored)),
             Ok(None) => Err(Box::new(error_response(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
                 "event session is expired, already used, or unknown",
+                cors,
             ))),
             Err(error) => {
                 tracing::error!(%error, "session take failed");
@@ -2287,6 +2304,7 @@ impl Runtime {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     ErrorCode::InternalServerError.as_str(),
                     "session storage failed",
+                    cors,
                 )))
             }
         }
@@ -3057,6 +3075,7 @@ async fn api_op(
         .rate_limit(
             &format!("api_ops:{}", state.runtime.principal_fingerprint(&headers)),
             state.runtime.config.rate_limits.graphql_per_principal,
+            cors.clone(),
         )
         .is_err()
     {
@@ -3448,6 +3467,7 @@ pub(crate) fn graphql_guard(state: &AppState, headers: &HeaderMap) -> ResponseRe
     state.runtime.rate_limit(
         &format!("graphql:{}", state.runtime.principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
+        cors.clone(),
     )?;
     let principal = state.runtime.principal_from_headers(headers);
     require_authenticated_principal(principal, cors)
@@ -3465,6 +3485,7 @@ pub(crate) fn graphql_read_guard(
     state.runtime.rate_limit(
         &format!("graphql:{}", state.runtime.principal_fingerprint(headers)),
         state.runtime.config.rate_limits.graphql_per_principal,
+        cors.clone(),
     )?;
     let principal = state.runtime.principal_from_headers(headers);
     if matches!(principal, PrincipalStatus::Unavailable) {
@@ -3864,6 +3885,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::StorageUnavailable.as_str(),
                 &error,
+                cors,
             );
         }
     };
@@ -4170,7 +4192,7 @@ fn event_stream_response(
         Err(response) => return *response,
     };
     let principal = if let Some(session) = session {
-        match state.runtime.consume_session(&session) {
+        match state.runtime.consume_session(&session, cors.clone()) {
             Ok(principal) => principal,
             Err(response) => return *response,
         }
@@ -4187,6 +4209,7 @@ fn event_stream_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
             "event stream requires a bearer token or single-use session",
+            cors,
         );
     }
 
@@ -4267,6 +4290,7 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
             "session issuance requires a valid bearer token",
+            cors,
         );
     }
     let token = state.runtime.issue_session(principal);
@@ -4313,10 +4337,9 @@ async fn token_exchange(
             .config
             .rate_limits
             .token_exchange_per_principal,
+        cors.clone(),
     ) {
-        let mut response = *response;
-        response.headers_mut().extend(cors);
-        return response;
+        return *response;
     }
     if request.grant_type != "urn:comtrya:grant:operator-code"
         || request.subject_token_type != "urn:comtrya:token-type:operator-code"
@@ -4325,6 +4348,7 @@ async fn token_exchange(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
             "unsupported production-testbed token exchange grant",
+            cors,
         );
     }
     // Compare the configured operator code with the attacker-supplied subject
@@ -4347,14 +4371,25 @@ async fn token_exchange(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
             "subject token did not validate against the configured operator code",
+            cors,
         );
     }
     if let Err(error) = ResourceRef::parse(&request.requested_resource) {
-        return error_response(StatusCode::BAD_REQUEST, error.code.as_str(), &error.message);
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            error.code.as_str(),
+            &error.message,
+            cors,
+        );
     }
     for action in &request.requested_actions {
         if let Err(error) = TokenAction::parse(action) {
-            return error_response(StatusCode::BAD_REQUEST, error.code.as_str(), &error.message);
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                error.code.as_str(),
+                &error.message,
+                cors.clone(),
+            );
         }
     }
     let token = state.runtime.issue_credential(
@@ -4397,13 +4432,12 @@ fn account_api_principal(
         principal.status,
         PrincipalStatus::Anonymous | PrincipalStatus::Invalid
     ) {
-        let mut response = error_response(
+        return Err(Box::new(error_response(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
             "account Git tokens require an authenticated session",
-        );
-        response.headers_mut().extend(cors);
-        return Err(Box::new(response));
+            cors,
+        )));
     }
     Ok((cors, principal))
 }
@@ -4425,13 +4459,12 @@ async fn list_git_tokens(State(state): State<AppState>, headers: HeaderMap) -> R
         ),
         Err(error) => {
             tracing::error!(%error, "list Git personal access tokens failed");
-            let mut response = error_response(
+            error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 "Git token storage failed",
-            );
-            response.headers_mut().extend(cors);
-            response
+                cors,
+            )
         }
     }
 }
@@ -4448,13 +4481,12 @@ async fn create_git_token(
     };
     let name = request.name.trim();
     if name.is_empty() || name.len() > 80 {
-        let mut response = error_response(
+        return error_response(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
             "Git token name must be 1-80 characters",
+            cors,
         );
-        response.headers_mut().extend(cors);
-        return response;
     }
     if request.scopes.is_empty()
         || request
@@ -4462,13 +4494,12 @@ async fn create_git_token(
             .iter()
             .any(|scope| !matches!(scope.as_str(), "git:read" | "git:write"))
     {
-        let mut response = error_response(
+        return error_response(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
             "Git token scopes must include only git:read and git:write",
+            cors,
         );
-        response.headers_mut().extend(cors);
-        return response;
     }
     let mut scopes = request.scopes;
     scopes.sort();
@@ -4478,23 +4509,21 @@ async fn create_git_token(
         .iter()
         .any(|scope| !state.runtime.credential_allows(&headers, scope))
     {
-        let mut response = error_response(
+        return error_response(
             StatusCode::FORBIDDEN,
             ErrorCode::Forbidden.as_str(),
             "authenticated session cannot mint the requested Git token scopes",
+            cors,
         );
-        response.headers_mut().extend(cors);
-        return response;
     }
     let expires_in_days = request.expires_in_days.or(Some(90));
     if expires_in_days.is_some_and(|days| days == 0 || days > 365) {
-        let mut response = error_response(
+        return error_response(
             StatusCode::BAD_REQUEST,
             ErrorCode::BadUserInput.as_str(),
             "Git token expiry must be between 1 and 365 days",
+            cors,
         );
-        response.headers_mut().extend(cors);
-        return response;
     }
 
     match state.runtime.create_git_personal_access_token(
@@ -4513,13 +4542,12 @@ async fn create_git_token(
         ),
         Err(error) => {
             tracing::error!(%error, "create Git personal access token failed");
-            let mut response = error_response(
+            error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 "Git token storage failed",
-            );
-            response.headers_mut().extend(cors);
-            response
+                cors,
+            )
         }
     }
 }
@@ -4539,24 +4567,20 @@ async fn revoke_git_token(
         .revoke_git_personal_access_token(&principal.uri, &id)
     {
         Ok(true) => json_response(StatusCode::OK, json!({ "revoked": true }), cors),
-        Ok(false) => {
-            let mut response = error_response(
-                StatusCode::NOT_FOUND,
-                ErrorCode::NotFound.as_str(),
-                "Git token was not found",
-            );
-            response.headers_mut().extend(cors);
-            response
-        }
+        Ok(false) => error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "Git token was not found",
+            cors,
+        ),
         Err(error) => {
             tracing::error!(%error, "revoke Git personal access token failed");
-            let mut response = error_response(
+            error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 "Git token storage failed",
-            );
-            response.headers_mut().extend(cors);
-            response
+                cors,
+            )
         }
     }
 }
@@ -4995,11 +5019,13 @@ async fn extension_manifest(
             StatusCode::NOT_FOUND,
             ErrorCode::NotFound.as_str(),
             "extension manifest was not found",
+            cors,
         ),
         Err(error) => error_response(
             StatusCode::SERVICE_UNAVAILABLE,
             ErrorCode::StorageUnavailable.as_str(),
             &error,
+            cors,
         ),
     }
 }
@@ -5021,6 +5047,7 @@ async fn extension_asset(
                 StatusCode::NOT_FOUND,
                 ErrorCode::NotFound.as_str(),
                 "extension asset was not found",
+                cors,
             );
         }
         Err(error) => {
@@ -5028,6 +5055,7 @@ async fn extension_asset(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::StorageUnavailable.as_str(),
                 &error,
+                cors,
             );
         }
     };
@@ -5123,6 +5151,7 @@ async fn git_smart_http(
             StatusCode::UNAUTHORIZED,
             ErrorCode::Unauthenticated.as_str(),
             "Git smart HTTP requires a valid Comtrya credential or personal access token",
+            cors.clone(),
         );
         response.headers_mut().insert(
             "WWW-Authenticate",
@@ -5135,6 +5164,7 @@ async fn git_smart_http(
             StatusCode::NOT_FOUND,
             ErrorCode::NotFound.as_str(),
             "Git repository was not found",
+            cors,
         );
     }
     // Per-principal rate limit. Pushes (receive-pack) and reads (info/refs,
@@ -5165,6 +5195,7 @@ async fn git_smart_http(
                 state.runtime.principal_fingerprint(&headers)
             ),
             rate_ceiling,
+            cors.clone(),
         )
         .is_err()
     {
@@ -5172,6 +5203,7 @@ async fn git_smart_http(
             StatusCode::TOO_MANY_REQUESTS,
             ErrorCode::RateLimited.as_str(),
             "git rate limit exceeded",
+            cors,
         );
     }
 
@@ -5190,6 +5222,7 @@ async fn git_smart_http(
                 StatusCode::UNAUTHORIZED,
                 ErrorCode::Unauthenticated.as_str(),
                 "Git push requires HTTP Basic authentication with a personal access token",
+                cors,
             );
             response.headers_mut().insert(
                 "WWW-Authenticate",
@@ -5205,6 +5238,7 @@ async fn git_smart_http(
                 StatusCode::FORBIDDEN,
                 ErrorCode::Forbidden.as_str(),
                 "personal access token scope does not allow Git push",
+                cors,
             );
         }
     } else {
@@ -5219,6 +5253,7 @@ async fn git_smart_http(
                 StatusCode::FORBIDDEN,
                 ErrorCode::Forbidden.as_str(),
                 "credential scope does not allow requested Git operation",
+                cors,
             );
             response.headers_mut().insert(
                 "WWW-Authenticate",
@@ -5237,6 +5272,7 @@ async fn git_smart_http(
                 StatusCode::NOT_FOUND,
                 ErrorCode::NotFound.as_str(),
                 "unrecognized Git smart HTTP path",
+                cors,
             );
         }
     };
@@ -5339,11 +5375,22 @@ fn bytes_response(
     response
 }
 
-fn error_response(status: StatusCode, code: &str, message: &str) -> Response {
+/// Build a JSON error response that preserves the route's CORS headers.
+///
+/// **Pass the cors HeaderMap produced by `Runtime::check_boundary`**
+/// for the route so cross-origin browsers can read the error response.
+/// Returning a 4xx/5xx without the right CORS headers leaves the
+/// browser unable to surface the body to JS — the request fails as
+/// "opaque" and the actual error message is invisible.
+///
+/// At the few call sites that genuinely have no `cors` yet (failures
+/// before `check_boundary` runs, or in helpers whose callers attach
+/// cors later), pass `HeaderMap::new()` explicitly.
+fn error_response(status: StatusCode, code: &str, message: &str, cors: HeaderMap) -> Response {
     json_response(
         status,
         json!({"errors": [{"message": message, "extensions": {"code": code}}]}),
-        HeaderMap::new(),
+        cors,
     )
 }
 
@@ -9201,6 +9248,31 @@ mod tests {
 
         assert_eq!(first.status(), StatusCode::OK);
         assert_eq!(second.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn extension_manifest_404_preserves_cors_for_browsers() {
+        // Regression for the TNQ-2 P1 cross-cutting CORS leak: any 4xx/5xx
+        // out of an HTTP handler that already computed `cors` must carry
+        // those CORS headers — otherwise a cross-origin browser sees an
+        // opaque CORS failure instead of the real error message.
+        let runtime = dev_runtime();
+        let response = extension_manifest(
+            State(AppState {
+                runtime,
+                git_state: PureRustGitState::test_default(),
+            }),
+            AxumPath("ext_does_not_exist".to_string()),
+            origin_headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            response
+                .headers()
+                .contains_key("access-control-allow-origin"),
+            "404 from extension_manifest must carry CORS so cross-origin browsers can read the error body",
+        );
     }
 
     #[tokio::test]
@@ -13247,7 +13319,7 @@ mod tests {
         let runtime = dev_runtime_no_extensions();
         let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
         let principal = runtime
-            .consume_session(&token)
+            .consume_session(&token, HeaderMap::new())
             .expect("freshly issued session must consume cleanly");
         assert!(matches!(principal, PrincipalStatus::OperatorCredential));
     }
