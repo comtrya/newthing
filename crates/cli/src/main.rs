@@ -280,7 +280,7 @@ fn print_help(stdout: &mut dyn Write) -> Result<(), CliError> {
 fn print_generate_help(stdout: &mut dyn Write) -> Result<(), CliError> {
     write!(
         stdout,
-        "Usage: comtrya generate [config] [--dir <path>] [--force] [--stdout]\n\n\
+        "Usage: comtrya generate [config] [--dir|-d <path>] [--force|-f] [--stdout]\n\n\
          Generates a remote GitOps global config directory containing:\n\
            <path>/comtrya.cue\n\
            <path>/cue.mod/module.cue\n"
@@ -291,9 +291,9 @@ fn print_generate_help(stdout: &mut dyn Write) -> Result<(), CliError> {
 fn help_text() -> &'static str {
     "Usage: comtrya <command>\n\n\
 Commands:\n\
-  validate-config [--dir <path>]  Validate a CUE config directory (or the built-in dev config)\n\
-  generate [config]     Generate a remote GitOps comtrya.cue config\n\
-  capabilities          Print kernel capability flags\n"
+  validate-config [--dir|-d <path>]  Validate a CUE config directory (or the built-in dev config)\n\
+  generate [config]                  Generate a remote GitOps comtrya.cue config\n\
+  capabilities                       Print kernel capability flags\n"
 }
 
 #[cfg(test)]
