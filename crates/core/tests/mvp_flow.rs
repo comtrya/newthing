@@ -1,18 +1,20 @@
 use comtrya_core::*;
 
 /// Exercises the surviving kernel contract surface end to end: config
-/// validation, metadata-store startup, OIDC login with real clock + workspace
-/// attribution, kernel event emission, capability advertisement, and the
-/// extension asset response policy. The former in-crate GraphQL gateway / git
-/// receive-pack / SDL-composition reference implementations were parallel to
-/// the server and have been removed.
+/// validation, OIDC login with real clock + workspace attribution, kernel
+/// event emission via the auth-service outbox + the typed event envelope,
+/// capability advertisement, and the extension asset response policy.
+///
+/// The former in-crate `MetadataStore` / `BackupService` / `SecretsService`
+/// shadow surfaces have been deleted (TNQ-3 P1) — the server has its own
+/// `crates/server/src/persistence.rs::PersistentStore`, no production
+/// caller ever drove the kernel-side metadata-store API, and the test
+/// fixtures held the only references. This test no longer asserts that
+/// surface.
 #[test]
 fn kernel_mvp_flow_is_exercised_through_contract_layer() {
     let config = InstanceConfig::minimal_dev();
     config.validate().unwrap();
-
-    let store = MetadataStore::new(MetadataBackend::Sqlite);
-    store.start().unwrap();
 
     let mut auth = AuthService::new(&config);
     let login = auth
