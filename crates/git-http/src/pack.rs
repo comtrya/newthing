@@ -164,8 +164,8 @@ pub async fn serve_fetch(
         let _ = tx.send(Bytes::from_static(PKT_DELIM)).await;
     }
 
-    // Compute traversal plan (objects + shallow boundaries)
-    // This is now executed for all cases including when ack_ready is true
+    // Compute traversal plan (objects + shallow boundaries).
+    // Runs when no acknowledgments section was emitted (no haves, or `done`).
     let repo_path_for_plan = repo_dir.clone();
     let req_for_plan = req_effective.clone();
     let plan =
@@ -589,10 +589,13 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
                 if req.filter_blob_none() {
                     continue;
                 }
+                // blob:limit=N skips blobs whose size is >= N bytes, matching
+                // git's semantics where `--filter=blob:limit=N` excludes
+                // objects of size N and above (closes #122 P3 off-by-one).
                 if let Some(limit) = blob_limit
                     && let Ok(obj) = repo.find_object(entry.oid)
                     && obj.kind == gix::objs::Kind::Blob
-                    && obj.data.len() > limit
+                    && obj.data.len() >= limit
                 {
                     continue;
                 }
@@ -604,12 +607,12 @@ fn plan_pack(repo_dir: PathBuf, req: &FetchRequest) -> anyhow::Result<PackPlan> 
         }
     }
 
-    // Include any direct blob wants (lazy fetches)
+    // Include any direct blob wants (lazy fetches). Same >= semantics.
     for oid in direct_blobs {
         if let Some(limit) = blob_limit
             && let Ok(obj) = repo.find_object(oid)
             && obj.kind == gix::objs::Kind::Blob
-            && obj.data.len() > limit
+            && obj.data.len() >= limit
         {
             continue;
         }
@@ -640,14 +643,14 @@ fn build_and_stream_pack_with_plan(
     let start = std::time::Instant::now();
     let mut hasher = sha1::Sha1::new();
 
-    // Pack header
+    // Pack header — object count must fit in u32 (git wire protocol limit).
+    let total_objects = plan.commits.len() + plan.trees.len() + plan.blobs.len() + plan.tags.len();
+    let object_count = u32::try_from(total_objects)
+        .map_err(|_| anyhow::anyhow!("pack object count {} exceeds u32 max", total_objects))?;
     let mut header = Vec::with_capacity(12);
     header.extend_from_slice(b"PACK");
     header.extend_from_slice(&2u32.to_be_bytes());
-    header.extend_from_slice(
-        &((plan.commits.len() + plan.trees.len() + plan.blobs.len() + plan.tags.len()) as u32)
-            .to_be_bytes(),
-    );
+    header.extend_from_slice(&object_count.to_be_bytes());
     hasher.update(&header);
     out.send_chunk(&header)?;
 
