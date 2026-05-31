@@ -1790,9 +1790,9 @@ mod tests {
                 owner_extension: "ext_pull_requests".to_string(),
                 collection: "pull_requests".to_string(),
                 id: "pul_reactor_test".to_string(),
-                resource: "comtrya://pull_request/pul_reactor_test".to_string(),
+                resource: "comtrya://pull-request/pul_reactor_test".to_string(),
                 resource_refs: vec![
-                    "comtrya://pull_request/pul_reactor_test".to_string(),
+                    "comtrya://pull-request/pul_reactor_test".to_string(),
                     source_repository.to_string(),
                 ],
                 visibility: "PRIVATE".to_string(),
@@ -1830,11 +1830,11 @@ mod tests {
             id: "evt_reactor_test".to_string(),
             event_type: "dev.comtrya.pull-request.merged".to_string(),
             payload: serde_json::to_vec(&serde_json::json!({
-                "pullRequestRef": "comtrya://pull_request/pul_reactor_test"
+                "pullRequestRef": "comtrya://pull-request/pul_reactor_test"
             }))
             .expect("encode event payload"),
             timestamp_ms: 1,
-            source_uri: "comtrya://pull_request/pul_reactor_test".to_string(),
+            source_uri: "comtrya://pull-request/pul_reactor_test".to_string(),
             emitter_extension: "ext_pull_requests".to_string(),
         };
         assert_eq!(OpsDispatcher::dispatch_event(&dispatcher, &event, 0), 1);
@@ -1864,7 +1864,7 @@ mod tests {
         );
         assert_eq!(repository_id_from_ref("comtrya://repository/"), None);
         assert_eq!(repository_id_from_ref("comtrya://workspace/ws_a"), None);
-        assert_eq!(repository_id_from_ref("comtrya://pull_request/pul_a"), None);
+        assert_eq!(repository_id_from_ref("comtrya://pull-request/pul_a"), None);
         assert_eq!(repository_id_from_ref("not-a-uri"), None);
     }
 
@@ -2271,9 +2271,9 @@ mod tests {
                 owner_extension: "ext_pull_requests".to_string(),
                 collection: "pull_requests".to_string(),
                 id: "pul_skip".to_string(),
-                resource: "comtrya://pull_request/pul_skip".to_string(),
+                resource: "comtrya://pull-request/pul_skip".to_string(),
                 resource_refs: vec![
-                    "comtrya://pull_request/pul_skip".to_string(),
+                    "comtrya://pull-request/pul_skip".to_string(),
                     source_repository.to_string(),
                 ],
                 visibility: "PRIVATE".to_string(),
@@ -2297,11 +2297,11 @@ mod tests {
             id: "evt_skip".to_string(),
             event_type: "dev.comtrya.pull-request.merged".to_string(),
             payload: serde_json::to_vec(&serde_json::json!({
-                "pullRequestRef": "comtrya://pull_request/pul_skip"
+                "pullRequestRef": "comtrya://pull-request/pul_skip"
             }))
             .expect("encode event payload"),
             timestamp_ms: 1,
-            source_uri: "comtrya://pull_request/pul_skip".to_string(),
+            source_uri: "comtrya://pull-request/pul_skip".to_string(),
             emitter_extension: "ext_pull_requests".to_string(),
         };
         assert_eq!(

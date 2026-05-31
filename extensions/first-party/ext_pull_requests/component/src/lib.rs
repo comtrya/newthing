@@ -421,7 +421,15 @@ struct CloseIssueReactionPayload<'a> {
 }
 
 fn pull_request_uri(id: &str) -> String {
-    format!("comtrya://pull_request/{id}")
+    // Resource kind is "pull-request" (kebab-case), matching the
+    // manifest.schema.json `^[a-z][a-z0-9-]*$` constraint and the
+    // `contributes.resourceKinds[].name` value in manifest.json.
+    // Previously this used "pull_request" (underscore) which made it
+    // impossible to declare a `relationshipTypes` entry whose sourceKinds
+    // or targetKinds included "pull-request" — the kind extracted from the
+    // URI ("pull_request") would never match the schema-valid form
+    // ("pull-request"). Fixes #167.
+    format!("comtrya://pull-request/{id}")
 }
 
 impl PullsGuest for Component {
