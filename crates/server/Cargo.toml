@@ -11,8 +11,7 @@ serde_json = "1"
 [dependencies]
 anyhow = "1"
 argon2 = "0.5"
-async-stream = "0.3"
-axum = "0.7.9"
+axum = { version = "0.7.9", features = ["macros"] }
 base64 = "0.22"
 futures = "0.3"
 tower-http = { version = "0.6", default-features = false, features = ["limit", "set-header"] }
@@ -31,7 +30,6 @@ cuengine = "0.40"
 # timestamps (e.g. better-auth emits `updated_at` as an ISO-8601 string, not the
 # spec's NumericDate). Without it the whole token response fails to parse.
 openidconnect = { version = "4.0.1", features = ["accept-rfc3339-timestamps"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 async-trait = "0.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "json"] }
@@ -47,3 +45,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # checkout/reset, so a `git` executable must be on PATH at runtime.
 gitsync = { git = "https://github.com/rawkode/gitsync", branch = "main" }
 tempfile = "3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
