@@ -198,13 +198,16 @@ fn repository_matches(stored: &StoredPullRequest, repository: &str) -> bool {
     }
     let scope = repository_scope(repository);
     if let Some(workspace) = scope.workspace_id.as_deref() {
-        if stored
-            .workspace_id
-            .as_deref()
-            .map(|stored_workspace| stored_workspace != workspace)
-            .unwrap_or(false)
-        {
-            return false;
+        // A workspace-scoped filter must NOT match a stored PR that has no
+        // workspace anchor. The previous `.map(...).unwrap_or(false)` form
+        // returned `false` (continue past the if) when `stored.workspace_id
+        // == None`, falling through to the tail-return and leaking PRs
+        // across workspaces. Mirror the strict comparison ext_issues uses
+        // (and the TNQ-3 #191 fix in ext_checks) so a missing workspace
+        // anchor fails closed.
+        match stored.workspace_id.as_deref() {
+            Some(stored_workspace) if stored_workspace == workspace => {}
+            _ => return false,
         }
     }
     if let Some(repository_id) = scope.repository_id.as_deref() {
