@@ -1,3 +1,4 @@
+use crate::clock;
 use crate::domain::Visibility;
 use crate::error::{CoreError, CoreResult, ErrorCode};
 use crate::ids::Slug;
@@ -968,7 +969,7 @@ fn snapshot(
         path: path.to_string(),
         config_hash: stable_hash(effective_config_json),
         effective_config_json: effective_config_json.to_string(),
-        created_at: "1970-01-01T00:00:00Z".to_string(),
+        created_at: clock::millis_to_rfc3339(clock::now_ms()),
         validation_status: if validation_errors.is_empty() {
             "valid".to_string()
         } else {
