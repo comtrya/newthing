@@ -21,7 +21,7 @@ mod state;
 pub mod v2;
 
 pub use repo::RepositoryProvider;
-pub use state::GitHttpState;
+pub use state::{AppliedRefUpdate, GitHttpState};
 
 /// The 40-character all-zero object id used as a sentinel in the Git wire
 /// protocol to mean "no object" (e.g. the old oid of a ref creation, or the

@@ -304,15 +304,22 @@ where
     };
 
     match receive_pack(&repo_dir, &bytes) {
-        Ok(body) => Response::builder()
-            .status(StatusCode::OK)
-            .header(
-                header::CONTENT_TYPE,
-                "application/x-git-receive-pack-result",
-            )
-            .header(header::CACHE_CONTROL, "no-cache")
-            .body(axum::body::Body::from(body))
-            .expect("response build"),
+        Ok((body, applied)) => {
+            // Emit ref-update events after the response is fully built so
+            // the push client doesn't wait for event fan-out (#125).
+            if !applied.is_empty() {
+                state.on_push_complete(&segments, &applied);
+            }
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(
+                    header::CONTENT_TYPE,
+                    "application/x-git-receive-pack-result",
+                )
+                .header(header::CACHE_CONTROL, "no-cache")
+                .body(axum::body::Body::from(body))
+                .expect("response build")
+        }
         Err(ReceiveError::Protocol(status, msg)) => (status, msg).into_response(),
     }
 }
@@ -329,9 +336,13 @@ fn protocol(status: StatusCode, msg: impl Into<String>) -> ReceiveError {
 }
 
 /// Core push handling: parse, ingest, validate, apply, report. Returns the raw
-/// `report-status` body on success, or a protocol error for HTTP-level
-/// failures. Per-ref rejections are encoded in the returned body.
-fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> {
+/// `report-status` body and the list of applied ref updates on success, or a
+/// protocol error for HTTP-level failures. Per-ref rejections are encoded in
+/// the returned body; `applied` only contains successfully updated refs.
+fn receive_pack(
+    repo_dir: &Path,
+    bytes: &[u8],
+) -> Result<(Vec<u8>, Vec<crate::state::AppliedRefUpdate>), ReceiveError> {
     let command_section = command_section_len(bytes)
         .ok_or_else(|| protocol(StatusCode::BAD_REQUEST, "missing pkt-line flush"))?;
     let pack = &bytes[command_section..];
@@ -360,10 +371,13 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
         .any(|c| !matches!(classify_command(c), CommandKind::Delete));
 
     if needs_pack && !pack_present(pack) {
-        return Ok(report_status(
-            ReportOutcome::UnpackError("missing packfile".to_string()),
-            &parsed.commands,
-            report_v2,
+        return Ok((
+            report_status(
+                ReportOutcome::UnpackError("missing packfile".to_string()),
+                &parsed.commands,
+                report_v2,
+            ),
+            vec![],
         ));
     }
 
@@ -373,10 +387,13 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
         match ingest_pack(repo_dir, pack) {
             Ok(keep) => keep,
             Err(e) => {
-                return Ok(report_status(
-                    ReportOutcome::UnpackError(format!("index-pack failed: {e}")),
-                    &parsed.commands,
-                    report_v2,
+                return Ok((
+                    report_status(
+                        ReportOutcome::UnpackError(format!("index-pack failed: {e}")),
+                        &parsed.commands,
+                        report_v2,
+                    ),
+                    vec![],
                 ));
             }
         }
@@ -411,19 +428,25 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
             Ok(o) => o,
             Err(_) => {
                 cleanup_keep(keep_path.as_deref());
-                return Ok(report_status(
-                    ReportOutcome::UnpackError("invalid object id".to_string()),
-                    &parsed.commands,
-                    report_v2,
+                return Ok((
+                    report_status(
+                        ReportOutcome::UnpackError("invalid object id".to_string()),
+                        &parsed.commands,
+                        report_v2,
+                    ),
+                    vec![],
                 ));
             }
         };
         if let Err(e) = verify_connectivity(&repo, oid, &mut visited) {
             cleanup_keep(keep_path.as_deref());
-            return Ok(report_status(
-                ReportOutcome::UnpackError(format!("missing necessary objects: {e}")),
-                &parsed.commands,
-                report_v2,
+            return Ok((
+                report_status(
+                    ReportOutcome::UnpackError(format!("missing necessary objects: {e}")),
+                    &parsed.commands,
+                    report_v2,
+                ),
+                vec![],
             ));
         }
     }
@@ -444,9 +467,17 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
     cleanup_keep(keep_path.as_deref());
 
     let mut per_ref = Vec::with_capacity(evaluated.len());
+    let mut applied: Vec<crate::state::AppliedRefUpdate> = Vec::new();
     for ev in &evaluated {
         let status = match (&ev.decision, txn_failed) {
-            (CommandDecision::Accept, false) => RefStatus::Ok,
+            (CommandDecision::Accept, false) => {
+                applied.push(crate::state::AppliedRefUpdate {
+                    ref_name: ev.command.ref_name.clone(),
+                    old_oid: ev.command.old_oid.clone(),
+                    new_oid: ev.command.new_oid.clone(),
+                });
+                RefStatus::Ok
+            }
             (CommandDecision::Accept, true) => {
                 RefStatus::Ng("atomic transaction failed".to_string())
             }
@@ -455,7 +486,10 @@ fn receive_pack(repo_dir: &Path, bytes: &[u8]) -> Result<Vec<u8>, ReceiveError> 
         per_ref.push((ev.command.ref_name.clone(), status));
     }
 
-    Ok(report_status_lines(ReportOutcome::Ok, &per_ref, report_v2))
+    Ok((
+        report_status_lines(ReportOutcome::Ok, &per_ref, report_v2),
+        applied,
+    ))
 }
 
 /// Evaluate a command against the live repository, reading the current ref
@@ -1084,7 +1118,7 @@ mod tests {
             &pack,
         );
 
-        let out = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let (out, _applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(text.contains("ok refs/heads/main\n"), "report: {text}");
@@ -1114,7 +1148,7 @@ mod tests {
             )],
             &pack,
         );
-        let out = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let (out, _applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(text.contains("ok refs/heads/feature\n"), "report: {text}");
@@ -1146,7 +1180,7 @@ mod tests {
             &[(c1.clone(), alt.clone(), "refs/heads/main".to_string())],
             &pack,
         );
-        let out = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let (out, _applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(
@@ -1176,7 +1210,7 @@ mod tests {
         // Send a stale old oid (not the current main).
         let stale = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string();
         let body = build_request(&[(stale, c2.clone(), "refs/heads/main".to_string())], &pack);
-        let out = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let (out, _applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(
@@ -1215,7 +1249,7 @@ mod tests {
             )],
             &[],
         );
-        let out = receive_pack(&fx.bare, &body).expect("protocol ok");
+        let (out, _applied) = receive_pack(&fx.bare, &body).expect("protocol ok");
         let text = String::from_utf8(out).unwrap();
         assert!(text.contains("unpack ok\n"), "report: {text}");
         assert!(text.contains("ok refs/heads/doomed\n"), "report: {text}");
