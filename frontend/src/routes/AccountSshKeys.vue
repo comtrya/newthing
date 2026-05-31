@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import AccountNav from "../components/AccountNav.vue";
 import Chip from "../components/Chip.vue";
 import Icon from "../components/Icon.vue";
 
@@ -125,14 +126,11 @@ onMounted(() => {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Account · SSH keys</div>
-          <h1 class="serif">SSH public keys</h1>
+          <div class="eyebrow" style="margin-bottom: 6px">Account</div>
+          <h1 class="serif">Credentials</h1>
           <div class="subline">
-            Add your ed25519 or RSA public key to prepare for SSH push/pull. The
-            actual <code>git@…</code> transport ships alongside the SSH server
-            (<a href="https://github.com/comtrya/comtrya/issues/129" target="_blank" rel="noopener">#129</a>
-            / <a href="https://github.com/comtrya/comtrya/issues/225" target="_blank" rel="noopener">#225</a>).
-            You can add keys now; they will be used automatically once the transport lands.
+            Manage your personal access tokens for HTTP git operations and SSH keys for
+            git over SSH.
           </div>
         </div>
         <div class="spacer" />
@@ -140,6 +138,8 @@ onMounted(() => {
           <Icon name="retry" /><span>{{ loading ? "Refreshing" : "Refresh" }}</span>
         </button>
       </div>
+
+      <AccountNav />
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
