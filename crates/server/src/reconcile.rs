@@ -18,6 +18,18 @@ pub(crate) fn reconcile_live(runtime: &Runtime, config: &InstanceConfig) {
     if let Ok(mut auth) = runtime.auth_service.lock() {
         auth.set_issuers(&config.oidc_issuers);
     }
+    // Evict any stale OIDC discovery documents whose issuer_id is no longer
+    // in the current config. Fixes #222: rotating issuerURL via GitOps would
+    // leave the old issuer's JWKS cached for the lifetime of the process,
+    // meaning a key compromise + issuer rotation didn't take effect without
+    // a restart. After eviction, the next login attempt re-fetches from the
+    // new issuer's discovery URL.
+    let live_issuer_ids: std::collections::BTreeSet<String> = config
+        .oidc_issuers
+        .iter()
+        .map(|iss| iss.id.clone())
+        .collect();
+    runtime.oidc_discovery.evict_stale(&live_issuer_ids);
     reconcile_repositories(runtime, config);
     reconcile_labels(runtime, config);
     reconcile_extensions(runtime, config);
