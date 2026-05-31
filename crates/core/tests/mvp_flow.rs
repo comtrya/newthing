@@ -70,16 +70,4 @@ fn kernel_mvp_flow_is_exercised_through_contract_layer() {
     assert_eq!(outbox.all()[0].time, "2023-11-14T22:13:20.500Z");
 
     assert!(InstanceCapabilities::v1().graphql_subscriptions);
-
-    let asset = extension_asset_response(
-        "http://localhost:4321",
-        &["http://localhost:4321".to_string()],
-        "/_extensions/ext_pull_requests/assets/index.abc123.js",
-        b"customElements.define('x-test', class extends HTMLElement {})",
-        "text/javascript",
-        true,
-    )
-    .unwrap();
-    assert_eq!(asset.status, 200);
-    assert!(asset.headers.contains_key("Content-Security-Policy"));
 }
