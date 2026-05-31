@@ -79,6 +79,65 @@ struct WireConfig {
     labels: Vec<WireLabel>,
     #[serde(default)]
     extensions: Vec<WireExtension>,
+    #[serde(rename = "rateLimits", default)]
+    rate_limits: Option<WireRateLimits>,
+}
+
+/// Operator-overridable rate-limit ceilings. Every field is optional;
+/// a missing value falls back to the `RateLimits::default()` shipped
+/// with the kernel binary. Names match the camelCase wire convention
+/// across the rest of the WireConfig schema.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRateLimits {
+    #[serde(rename = "oidcCallbackPerIp", default)]
+    oidc_callback_per_ip: Option<u32>,
+    #[serde(rename = "tokenExchangePerPrincipal", default)]
+    token_exchange_per_principal: Option<u32>,
+    #[serde(rename = "graphqlPerPrincipal", default)]
+    graphql_per_principal: Option<u32>,
+    #[serde(rename = "graphqlPerIpUnauthenticated", default)]
+    graphql_per_ip_unauthenticated: Option<u32>,
+    #[serde(rename = "streamNewConnectionsPerMinute", default)]
+    stream_new_connections_per_minute: Option<u32>,
+    #[serde(rename = "streamMaxConcurrent", default)]
+    stream_max_concurrent: Option<u32>,
+    #[serde(rename = "gitInfoRefsPerPrincipal", default)]
+    git_info_refs_per_principal: Option<u32>,
+    #[serde(rename = "gitReceivePackPerPrincipal", default)]
+    git_receive_pack_per_principal: Option<u32>,
+}
+
+impl WireRateLimits {
+    fn into_domain(self) -> crate::config::RateLimits {
+        let defaults = crate::config::RateLimits::default();
+        crate::config::RateLimits {
+            oidc_callback_per_ip: self
+                .oidc_callback_per_ip
+                .unwrap_or(defaults.oidc_callback_per_ip),
+            token_exchange_per_principal: self
+                .token_exchange_per_principal
+                .unwrap_or(defaults.token_exchange_per_principal),
+            graphql_per_principal: self
+                .graphql_per_principal
+                .unwrap_or(defaults.graphql_per_principal),
+            graphql_per_ip_unauthenticated: self
+                .graphql_per_ip_unauthenticated
+                .unwrap_or(defaults.graphql_per_ip_unauthenticated),
+            stream_new_connections_per_minute: self
+                .stream_new_connections_per_minute
+                .unwrap_or(defaults.stream_new_connections_per_minute),
+            stream_max_concurrent: self
+                .stream_max_concurrent
+                .unwrap_or(defaults.stream_max_concurrent),
+            git_info_refs_per_principal: self
+                .git_info_refs_per_principal
+                .unwrap_or(defaults.git_info_refs_per_principal),
+            git_receive_pack_per_principal: self
+                .git_receive_pack_per_principal
+                .unwrap_or(defaults.git_receive_pack_per_principal),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -326,7 +385,10 @@ impl WireConfig {
                 .map(|a| a.kind)
                 .unwrap_or_else(|| "spicedb".to_string()),
             workspaces,
-            rate_limits: crate::config::RateLimits::default(),
+            rate_limits: self
+                .rate_limits
+                .map(WireRateLimits::into_domain)
+                .unwrap_or_default(),
             extensions,
             admins: self
                 .admins
@@ -667,6 +729,42 @@ workspaces: default: { name: "Default", visibility: "PRIVATE" }
             err.message.contains("unknown field") || err.message.contains("environmnet"),
             "got: {}",
             err.message
+        );
+    }
+
+    #[test]
+    fn rate_limits_default_when_block_absent() {
+        // Regression for TNQ-3 P1: previously `WireConfig` had no
+        // `rateLimits` field at all, and `into_instance_config` set
+        // `RateLimits::default()` unconditionally — operators had no
+        // way to tune the per-principal / per-IP ceilings the server
+        // actually enforces. Now: missing block falls back to defaults,
+        // every present field overrides.
+        let dir = tempfile::tempdir().unwrap();
+        let config = eval(dir.path(), MINIMAL).unwrap();
+        let defaults = crate::config::RateLimits::default();
+        assert_eq!(config.rate_limits, defaults);
+    }
+
+    #[test]
+    fn rate_limits_wire_field_reaches_instance_config() {
+        let dir = tempfile::tempdir().unwrap();
+        // Override two fields; leave the rest to defaults.
+        let body = format!(
+            "{MINIMAL}\nrateLimits: {{ graphqlPerPrincipal: 1200, gitReceivePackPerPrincipal: 5 }}\n"
+        );
+        let config = eval(dir.path(), &body).unwrap();
+        assert_eq!(config.rate_limits.graphql_per_principal, 1200);
+        assert_eq!(config.rate_limits.git_receive_pack_per_principal, 5);
+        // Unset fields keep their defaults.
+        let defaults = crate::config::RateLimits::default();
+        assert_eq!(
+            config.rate_limits.oidc_callback_per_ip,
+            defaults.oidc_callback_per_ip
+        );
+        assert_eq!(
+            config.rate_limits.stream_max_concurrent,
+            defaults.stream_max_concurrent
         );
     }
 
