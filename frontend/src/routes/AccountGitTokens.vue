@@ -26,6 +26,12 @@ const formError = ref<string | null>(null);
 const justMinted = ref<{ token: string; record: GitPersonalAccessToken } | null>(null);
 const copied = ref(false);
 
+// Inline revoke confirm — avoids `window.confirm`, which blocks the
+// renderer in headless MCP runs and is generally a low-effort modal
+// experience.
+const revokePrompt = ref<GitPersonalAccessToken | null>(null);
+const revokeBusy = ref(false);
+
 const canSubmit = computed(
   () =>
     !submitting.value &&
@@ -76,17 +82,27 @@ async function submit(): Promise<void> {
   }
 }
 
-async function revoke(token: GitPersonalAccessToken): Promise<void> {
-  const ok = window.confirm(
-    `Revoke "${token.name}"? The token will stop working immediately for every git operation.`,
-  );
-  if (!ok) return;
+function askRevoke(token: GitPersonalAccessToken): void {
+  revokePrompt.value = token;
+}
+
+function cancelRevoke(): void {
+  revokePrompt.value = null;
+}
+
+async function confirmRevoke(): Promise<void> {
+  const target = revokePrompt.value;
+  if (!target || revokeBusy.value) return;
+  revokeBusy.value = true;
   error.value = null;
   try {
-    await revokeGitPersonalAccessToken(token.id);
+    await revokeGitPersonalAccessToken(target.id);
+    revokePrompt.value = null;
     await refresh();
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    revokeBusy.value = false;
   }
 }
 
@@ -235,6 +251,28 @@ onMounted(() => {
         </form>
       </div>
 
+      <div v-if="revokePrompt" class="glass revoke-confirm" data-smoke="revoke-confirm">
+        <div class="section-hd">
+          <div class="section-hd-title">Revoke "{{ revokePrompt.name }}"?</div>
+          <div class="section-hd-sub">
+            The token will stop working immediately for every git operation.
+          </div>
+          <div class="spacer" />
+          <button class="btn" type="button" :disabled="revokeBusy" @click="cancelRevoke">
+            <span>Cancel</span>
+          </button>
+          <button
+            class="btn danger"
+            type="button"
+            :disabled="revokeBusy"
+            @click="confirmRevoke"
+            data-smoke="revoke-confirm-yes"
+          >
+            <Icon name="x" /><span>{{ revokeBusy ? "Revoking…" : "Yes, revoke" }}</span>
+          </button>
+        </div>
+      </div>
+
       <div class="glass">
         <div class="section-hd">
           <div class="section-hd-title">Existing tokens</div>
@@ -283,7 +321,7 @@ onMounted(() => {
                 v-if="!token.revokedAt"
                 class="btn danger"
                 type="button"
-                @click="revoke(token)"
+                @click="askRevoke(token)"
               >
                 <Icon name="x" /><span>Revoke</span>
               </button>
@@ -400,6 +438,10 @@ onMounted(() => {
 }
 .just-minted {
   border-left: 4px solid var(--accent);
+  margin-bottom: 16px;
+}
+.revoke-confirm {
+  border-left: 4px solid var(--err);
   margin-bottom: 16px;
 }
 .token-blob {
