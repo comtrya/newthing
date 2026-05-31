@@ -4,6 +4,6 @@ import ExtensionRoute from "./ExtensionRoute.vue";
 
 <template>
   <section class="repo-extension-embed" data-smoke="repo-issue-board">
-    <ExtensionRoute prefix="issues" :rest="[]" />
+    <ExtensionRoute prefix="issues" :rest="['board']" />
   </section>
 </template>
