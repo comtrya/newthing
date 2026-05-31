@@ -32,7 +32,6 @@
     "paths": {
       "@comtrya/sdk-core": ["./packages/sdk-core/src/index.ts"],
       "@comtrya/sdk-core/*": ["./packages/sdk-core/src/*.ts"],
-      "@comtrya/sdk-preact": ["./packages/sdk-preact/src/index.ts"],
       "@comtrya/sdk-vue": ["./packages/sdk-vue/src/index.ts"]
     }
   },
