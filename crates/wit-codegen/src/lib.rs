@@ -141,18 +141,30 @@ pub fn render_ts_client(ops: &[OpSpec]) -> String {
     out.push_str("// Requires the @comtrya/sdk-core runtime (`invokeOp`, `OpResult`).\n\n");
     out.push_str("import { invokeOp, type OpResult } from \"@comtrya/sdk-core\";\n\n");
 
+    // Dedup ops by route. Multi-world packages or repeated WIT exports can
+    // produce duplicate OpSpecs; duplicate TS object keys would silently
+    // shadow the first entry (closes #122 P3 [wit-codegen/correctness]).
+    let mut seen_routes: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let deduped: Vec<&OpSpec> = ops
+        .iter()
+        .filter(|op| seen_routes.insert(&op.route))
+        .collect();
+
     // Group ops by interface name to produce one namespace per interface.
     let mut by_iface: BTreeMap<String, Vec<&OpSpec>> = BTreeMap::new();
-    for op in ops {
+    for op in deduped {
         by_iface
             .entry(format!("{}::{}", op.extension_id, op.interface_name))
             .or_default()
             .push(op);
     }
     for (group, group_ops) in &by_iface {
-        // Group key is "<ext-id>::<iface>" — using "::" (not valid in
-        // WIT identifiers) guarantees no collision with extension ids
-        // that happen to contain underscores.
+        // Group key is "<ext-id>::<iface>". The safe_name uses "_x_" as
+        // the separator. Note: this mapping is NOT collision-free — two
+        // extensions whose ids and interface names differ only in `_` vs `-`
+        // could map to the same TS identifier. Guaranteed-injective naming
+        // (e.g. quoted-key object literal) is deferred to the phase-2 typed
+        // client (#103).
         let safe_name = kebab_to_camel(&group.replace("::", "_x_"));
         out.push_str(&format!("export const {} = {{\n", safe_name));
         for op in group_ops {
