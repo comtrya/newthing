@@ -197,7 +197,7 @@ interface RelationRow {
  */
 export async function listLinkedIssues(pullId: string): Promise<LinkedIssue[]> {
   if (!pullId) return [];
-  const from = `comtrya://pull_request/${pullId}`;
+  const from = `comtrya://pull-request/${pullId}`;
   const data = await getGraphQLClient().query<{
     relations?: { outgoing?: RelationRow[] };
   }>(

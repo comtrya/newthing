@@ -176,12 +176,12 @@ const renderedBody = computed(() =>
 /**
  * URI for the pull's comment thread. Comments are scoped per
  * resource URI (kernel-owned, see comments.wit); pull-requests are
- * addressed as `comtrya://pull_request/<id>` server-side, so the
+ * addressed as `comtrya://pull-request/<id>` server-side, so the
  * shell-level `comtrya-comment-thread` mount targets that exact
  * shape.
  */
 const pullCommentTarget = computed(() =>
-  pull.value ? `comtrya://pull_request/${pull.value.id}` : "",
+  pull.value ? `comtrya://pull-request/${pull.value.id}` : "",
 );
 
 /**
