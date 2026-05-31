@@ -690,6 +690,32 @@ impl WasmRegistry {
                                 continue;
                             }
                         };
+                    // Cross-extension mutations must hold a resolved
+                    // `requiresExtensionPoints` binding to the target,
+                    // mirroring the synchronous `HostState::invoke`
+                    // gate (wasm_host.rs `permits(target, op)` →
+                    // `Forbidden`). Without this re-check, a reactor
+                    // could name `extB/iface.op` in `reactor.allowedMutations`
+                    // and reach extB regardless of whether extA holds a
+                    // binding to extB — the manifest list and the
+                    // bindings table are two authorization surfaces
+                    // that must agree. A reactor calling back into its
+                    // OWN extension does not need a cross-extension
+                    // binding.
+                    if target_extension != reactor_extension_id
+                        && !self
+                            .consumer_bindings(reactor_extension_id)
+                            .permits(&target_extension, &op)
+                    {
+                        tracing::warn!(
+                            reactor = %reactor_extension_id,
+                            target = %target_extension,
+                            op = %op,
+                            "reactor mutation targets another extension with no resolved \
+                             extension-point binding; declare requiresExtensionPoints"
+                        );
+                        continue;
+                    }
                     let dispatcher = RegistryDispatcher {
                         registry: self.clone(),
                         store: store.clone(),
@@ -2428,6 +2454,79 @@ mod tests {
         assert!(
             event_log.contains(REACTION_DEPTH_EXCEEDED_EVENT),
             "depth exceeded event missing from {event_log}"
+        );
+    }
+
+    #[test]
+    fn reactor_cross_extension_mutation_requires_extension_point_binding() {
+        // Regression for the TNQ-3 P1 reactor binding bypass: a reactor
+        // listing `extB/iface.op` in `reactor.allowedMutations` must
+        // ALSO hold a resolved `requiresExtensionPoints` binding to
+        // extB, mirroring the synchronous `HostState::invoke` gate.
+        //
+        // The test installs `ext_pull_requests` with no bindings,
+        // marks `ext_nonexistent/foo.bar` as an allowed mutation, and
+        // fires an `InvokeMutation` reaction. Before the fix the
+        // registry would call `OpsDispatcher::dispatch_with_reactor_depth`
+        // and log a "reactor mutation dispatch failed" warning (the
+        // target doesn't exist). With the fix the gate skips the
+        // dispatch entirely; the event log records nothing.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../extensions/first-party/ext_pull_requests");
+        let wasm = root.join("dist/ext_pull_requests.wasm");
+        assert!(
+            wasm.is_file(),
+            "{} missing; run `bash extensions/bundler/build-extension.sh \
+             extensions/first-party/ext_pull_requests` before this test",
+            wasm.display()
+        );
+
+        let registry = WasmRegistry::new().expect("build registry");
+        registry
+            .register_from_manifest(&root)
+            .expect("register ext_pull_requests");
+        let original = registry
+            .get("ext_pull_requests")
+            .expect("get ext_pull_requests");
+        let mut manifest = (*original.manifest).clone();
+        manifest.reactor_allowed_mutations = vec!["ext_nonexistent/foo.bar".to_string()];
+        let loaded = Arc::new(LoadedExtension {
+            id: original.id.clone(),
+            principal: original.principal.clone(),
+            manifest: Arc::new(manifest),
+            route_table: original.route_table.clone(),
+            provides: original.provides.clone(),
+            requires: original.requires.clone(),
+            component: original.component.clone(),
+        });
+        registry
+            .extensions
+            .write()
+            .expect("extension write lock")
+            .insert("ext_pull_requests".to_string(), loaded);
+        // Bindings table is empty for ext_pull_requests — the gate
+        // must refuse the cross-extension call on that ground alone.
+        let tmp = tempdir_for_test("comtrya-reactor-cross-ext-binding");
+        let store =
+            Arc::new(crate::ExtensionRuntimeStore::open_for_tests(&tmp).expect("open ext store"));
+
+        registry.apply_reactor_reactions(
+            store.clone(),
+            "ext_pull_requests",
+            vec![WasmReaction::InvokeMutation {
+                name: "ext_nonexistent/foo.bar".to_string(),
+                payload: b"{}".to_vec(),
+            }],
+            0,
+        );
+
+        // No dispatch attempt → no event of any kind in the log.
+        let events_path = store.events_path();
+        let event_log = std::fs::read_to_string(&events_path).unwrap_or_default();
+        assert!(
+            event_log.is_empty(),
+            "reactor gate must skip the cross-extension dispatch when no extension-point \
+             binding resolves it; event log was: {event_log}"
         );
     }
 
