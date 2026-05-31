@@ -30,8 +30,8 @@
         "name": "check_runs",
         "ownerExtension": "ext_checks",
         "indexes": [
-          { "name": "by_repository_commit_name", "fields": ["repositoryID", "commitOID", "name"], "unique": true },
-          { "name": "by_repository_required", "fields": ["repositoryID", "required"], "unique": false }
+          { "name": "by_repository_commit_name", "fields": ["repositoryId", "commitOid", "name"], "unique": true },
+          { "name": "by_repository_required", "fields": ["repositoryId", "required"], "unique": false }
         ]
       }
     ]
