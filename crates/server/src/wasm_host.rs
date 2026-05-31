@@ -1929,13 +1929,23 @@ impl wit_events::Host for HostState {
         let mut events: Vec<wit_types::Event> = Vec::with_capacity(limit);
         let mut found_cursor = after_id.is_none();
         let mut scanned: usize = 0;
+        let mut hit_eof = false;
+        // Tracks the OLDEST id we've stepped past during this call (newest-
+        // first scan, so each new id is older than the previous). Used to
+        // emit a resume cursor when the scan budget is exhausted before
+        // `limit` is filled — without it, the caller has no way to walk
+        // forward and the older events are silently truncated.
+        let mut last_scanned_id: Option<String> = None;
         while events.len() < limit && scanned < MAX_SCAN_LINES {
             let line = match reader
                 .next_line()
                 .map_err(|e| err(wit_types::ErrorCode::Internal, e.to_string()))?
             {
                 Some(line) => line,
-                None => break,
+                None => {
+                    hit_eof = true;
+                    break;
+                }
             };
             scanned += 1;
             let Ok(v) = serde_json::from_str::<Value>(&line) else {
@@ -1980,6 +1990,9 @@ impl wit_events::Host for HostState {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            if !id.is_empty() {
+                last_scanned_id = Some(id.clone());
+            }
             // Cursor: skip every matching event up to AND INCLUDING
             // the cursor id (the caller's last-seen newest id). After
             // that, accumulate. ULID-monotonic ids in descending
@@ -2014,17 +2027,30 @@ impl wit_events::Host for HostState {
                 emitter_extension: emitter,
             });
         }
-        // `next_page` is set when we still had room for more matches
-        // but stopped only because we hit the per-call scan ceiling —
-        // the caller resumes from the oldest event we returned. If we
-        // simply ran out of file or filled `limit`, the next page
-        // anchor is the last yielded id when more lines remain.
-        let next_page = if events.len() == limit {
-            events.last().map(|last| wit_types::PageToken {
-                cursor: encode_doc_cursor(&last.id),
-            })
-        } else {
+        // Emit a continuation cursor whenever the loop stopped for any
+        // reason OTHER than reaching the end of the on-disk file:
+        //
+        // - `events.len() == limit` — caller's requested page filled;
+        //   older matches may still exist.
+        // - `scanned == MAX_SCAN_LINES` — per-call scan budget burned
+        //   before `limit` was filled. Without a cursor here the caller
+        //   silently lost everything past the budget — the regression
+        //   #199 introduced and TNQ-4 caught.
+        //
+        // Prefer the last yielded match's id (newest cursor preserves
+        // strict-after semantics on resume). Fall back to the oldest id
+        // we walked past — useful when the budget burned on lines the
+        // visibility filter dropped and we yielded zero matches.
+        let next_page = if hit_eof {
             None
+        } else {
+            events
+                .last()
+                .map(|last| last.id.clone())
+                .or(last_scanned_id)
+                .map(|id| wit_types::PageToken {
+                    cursor: encode_doc_cursor(&id),
+                })
         };
         Ok(wit_events::EventPage { events, next_page })
     }
