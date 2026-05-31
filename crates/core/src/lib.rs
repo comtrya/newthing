@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod backup;
 pub mod clock;
 pub mod config;
 pub mod domain;
@@ -11,11 +10,8 @@ pub mod graphql;
 pub mod http;
 pub mod ids;
 pub mod instance_config_eval;
-pub mod persistence;
-pub mod secrets;
 
 pub use auth::*;
-pub use backup::*;
 pub use config::*;
 pub use domain::*;
 pub use error::*;
@@ -26,5 +22,3 @@ pub use graphql::*;
 pub use http::*;
 pub use ids::*;
 pub use instance_config_eval::*;
-pub use persistence::*;
-pub use secrets::*;
