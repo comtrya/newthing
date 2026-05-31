@@ -52,6 +52,22 @@ pub struct StoredCredential {
     pub actions: Vec<String>,
 }
 
+/// Opaque session record returned by admin list_active_sessions.
+/// Does NOT contain the bearer token — that is the credential and must
+/// never leave the auth boundary.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminSessionRecord {
+    /// Opaque stable ID used to revoke the session via the admin API.
+    pub session_id: String,
+    /// Serde-rendered PrincipalStatus tag (e.g. "Credential").
+    pub principal: String,
+    /// Unix seconds when the session expires.
+    pub expires_at: u64,
+    /// Unix seconds when the session was created.
+    pub created_at: u64,
+}
+
 /// A Git personal access token (PAT) row, sans secret material. The
 /// `token_hash` (an argon2id PHC string) never leaves the persistence
 /// layer except via [`PersistentStore::lookup_git_personal_access_token_by_id`],
@@ -212,6 +228,7 @@ impl PersistentStore {
     pub fn insert_session(
         &self,
         token: &str,
+        session_id: &str,
         principal: StoredPrincipal,
         expires_at: u64,
         now: u64,
@@ -220,10 +237,11 @@ impl PersistentStore {
             .lock()
             .expect("conn lock poisoned")
             .execute(
-                "INSERT INTO sessions(token, principal, expires_at, used, created_at) \
-                 VALUES (?1, ?2, ?3, 0, ?4)",
+                "INSERT INTO sessions(token, session_id, principal, expires_at, used, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5)",
                 params![
                     token,
+                    session_id,
                     principal_tag(principal),
                     expires_at as i64,
                     now as i64
@@ -685,6 +703,68 @@ impl PersistentStore {
         Ok((sessions, credentials, rate_limits))
     }
 
+    /// List active (non-expired, non-used) sessions for the admin panel.
+    /// Returns session metadata WITHOUT the bearer token — the token is
+    /// the credential and must never be exposed outside the auth boundary.
+    pub fn list_active_sessions(&self, now: u64) -> Result<Vec<AdminSessionRecord>, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT session_id, principal, expires_at, created_at \
+                 FROM sessions \
+                 WHERE expires_at > ?1 AND used = 0 AND session_id IS NOT NULL \
+                 ORDER BY created_at DESC \
+                 LIMIT 500",
+            )
+            .map_err(|e| format!("prepare list_sessions failed: {e}"))?;
+        let rows: Vec<AdminSessionRecord> = stmt
+            .query_map(params![now as i64], |row| {
+                Ok(AdminSessionRecord {
+                    session_id: row.get(0)?,
+                    principal: row.get(1)?,
+                    expires_at: row.get::<_, i64>(2)? as u64,
+                    created_at: row.get::<_, i64>(3)? as u64,
+                })
+            })
+            .map_err(|e| format!("query sessions failed: {e}"))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
+    }
+
+    /// Revoke a session by its opaque session_id. Marks the session as
+    /// used so the bearer token is immediately rejected on next use.
+    /// Returns `true` if a live session was revoked, `false` if not found.
+    pub fn revoke_session(&self, session_id: &str, now: u64) -> Result<bool, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let updated = conn
+            .execute(
+                "UPDATE sessions SET used = 1 \
+                 WHERE session_id = ?1 AND expires_at > ?2 AND used = 0",
+                params![session_id, now as i64],
+            )
+            .map_err(|e| format!("revoke session failed: {e}"))?;
+        Ok(updated > 0)
+    }
+
+    /// Revoke all active sessions for a given principal tag. Used by the
+    /// admin "deactivate user" action to invalidate all sessions at once.
+    pub fn revoke_sessions_for_principal(
+        &self,
+        principal_tag_value: &str,
+        now: u64,
+    ) -> Result<u64, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let updated = conn
+            .execute(
+                "UPDATE sessions SET used = 1 \
+                 WHERE principal = ?1 AND expires_at > ?2 AND used = 0",
+                params![principal_tag_value, now as i64],
+            )
+            .map_err(|e| format!("revoke sessions for principal failed: {e}"))?;
+        Ok(updated as u64)
+    }
+
     pub fn telemetry_counts(&self, now: u64) -> Result<(u64, u64, u64), String> {
         let conn = self.conn.lock().expect("conn lock poisoned");
         let sessions = conn
@@ -864,6 +944,7 @@ mod tests {
         store
             .insert_session(
                 "sess_abc",
+                "test_session_abc",
                 StoredPrincipal::OperatorCredential,
                 9_999_999_999,
                 1000,
@@ -880,7 +961,13 @@ mod tests {
     fn session_take_is_single_use() {
         let (_tmp, store) = fresh_store();
         store
-            .insert_session("sess_once", StoredPrincipal::Credential, 9_999_999_999, 1)
+            .insert_session(
+                "sess_once",
+                "test_session_once",
+                StoredPrincipal::Credential,
+                9_999_999_999,
+                1,
+            )
             .unwrap();
         assert_eq!(
             store.take_session("sess_once", 2).unwrap(),
@@ -897,7 +984,13 @@ mod tests {
     fn expired_session_is_not_taken() {
         let (_tmp, store) = fresh_store();
         store
-            .insert_session("sess_exp", StoredPrincipal::Credential, 100, 50)
+            .insert_session(
+                "sess_exp",
+                "test_session_exp",
+                StoredPrincipal::Credential,
+                100,
+                50,
+            )
             .unwrap();
         assert_eq!(store.take_session("sess_exp", 200).unwrap(), None,);
     }
@@ -952,10 +1045,22 @@ mod tests {
     fn evict_expired_drops_only_old_rows() {
         let (_tmp, store) = fresh_store();
         store
-            .insert_session("live", StoredPrincipal::Credential, 9_999_999_999, 1)
+            .insert_session(
+                "live",
+                "test_session_live",
+                StoredPrincipal::Credential,
+                9_999_999_999,
+                1,
+            )
             .unwrap();
         store
-            .insert_session("dead", StoredPrincipal::Credential, 100, 1)
+            .insert_session(
+                "dead",
+                "test_session_dead",
+                StoredPrincipal::Credential,
+                100,
+                1,
+            )
             .unwrap();
         let (sessions_evicted, _, _) = store.evict_expired(500, 60).unwrap();
         assert_eq!(sessions_evicted, 1);
