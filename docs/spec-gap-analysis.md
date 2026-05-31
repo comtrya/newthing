@@ -45,14 +45,32 @@ Spec: TOML **admin repo** (identities, teams, repo catalog, permission grants, a
 Spec sketch (db/git-read/http-types/registration + init/handle-route/handle-hook/run-job/render-slot/graphql-resolve).
 `comtrya` WIT (`extensions/wit/comtrya/platform/*.wit`): `storage`, `events`, `reactor`, `ops`, `relations`, `comments`, `ids`, `identity`, `time`, `log`. **🟡 conceptually aligned but a different surface** — storage is the kernel JSONL store (not raw libSQL `db` resources), reactions are the `reactor`/`on-event` model (not `handle-hook`), and there is **no `graphql-resolve` export today** (current shape; SP6 adds it). No `register-route`/`render-slot`/`run-job` host imports.
 
-### A7 GraphQL federation — **SP6 build (decided)**
+### A7 GraphQL federation — **SP6 build (decided), reads-only**
 Spec: every extension emits Fed-v2 subgraph SDL; host composes (`graphql-composition`) and plans (Hive Router) a supergraph; custom WASM executor runs the plan into `graphql-resolve`.
-`comtrya` today: extensions are reached via WIT ops at `/api/ops`; kernel-owned GraphQL fields cover auth/identity/instance-config. The `ExtensionHost` + `GraphqlComposer` SDL-composition path was **deleted** in an earlier quality sweep (recoverable from git history on `chore/thermo-nuclear-quality-review`, but the spec is the source of truth — not the recovered shape).
-**Decision taken (TNQ-3 escalation): rebuild federation per the spec.** This is the SP6 north-star direction; current kernel-owned GraphQL is the interim shape, not the goal. Consequences:
-- `GOAL.md` updated to reference the SP6 north star alongside the current kernel-owned-GraphQL allowance for kernel-mandatory fields.
-- `docs/v3-decisions.md` reframed: kernel-owned GraphQL is CURRENT, SP6 federation is the north star.
+`comtrya` today: extensions are reached via WIT ops at `/api/ops` for BOTH reads and writes; kernel-owned GraphQL fields cover auth/identity/instance-config. The `ExtensionHost` + `GraphqlComposer` SDL-composition path was **deleted** in an earlier quality sweep (recoverable from git history on `chore/thermo-nuclear-quality-review`, but the spec is the source of truth — not the recovered shape).
+
+**Decision taken: federated GraphQL is the read transport; tarpc RPC is the write transport.** Reads currently served via `/api/ops` (`list-issues`, `list-epics`, `by-ref-*`, `by-refs-*`, etc.) migrate to federated subgraphs (SP6, this section). Writes migrate to RPC over tarpc (separate decision; see "A7.1 RPC writes" below and tracking issue #207). The frontend uses GraphQL for every read and RPC for every write — never `/api/ops` directly.
+
+Consequences (SP6, reads):
+- `GOAL.md`, `SPEC.md`, and `docs/v3-decisions.md` now state the read/write transport split as the north star, with `/api/ops` framed as the interim.
 - The deleted composition scaffolding does **not** need to be restored. SP6 rebuilds against the spec: `graphql-composition` (Grafbase) + Hive Router query-planner, `graphql-resolve` WIT export, custom plan executor. This is the largest single piece and warrants its own spec→plan→build cycle and a build-time spike (planner-as-crate, plan-IR-drives-executor, join-spec dialect compatibility).
 - No `apollo-federation`/`harmonizer` at runtime (per spec).
+
+### A7.1 RPC writes — **tarpc migration (decided)**
+**Decision taken: writes go through RPC, target transport tarpc** (https://github.com/google/tarpc). The kernel hosts the RPC server; each extension's `cargo-component` exposes a typed write surface via codegen mirroring its current WIT input records. The frontend SDK gets a typed RPC client per extension.
+
+Why tarpc (working assumption):
+- Typed request/response shapes — matches the WIT inputs we already have.
+- Async-friendly and easy to embed in `axum` alongside the GraphQL endpoint.
+- Bidirectional streaming hook for writes that need progress feedback (large imports, multi-step migrations).
+- One sub-second transport for the whole write surface, instead of N JSON-over-HTTP endpoints.
+
+Out of scope for tarpc (stays on existing transports):
+- Git smart-HTTP push (`receive-pack`) — already pure Rust, not an extension write.
+- OIDC callback / token exchange — kernel-internal HTTP.
+- Webhook / publisher fan-out — emitted via the event log.
+
+Tracking issue: #207.
 
 ### A8 WASM runtime policy
 Spec: per-request instantiation + pooling allocator, **epoch interruption**, `ResourceLimiter`, async host fns.
@@ -73,7 +91,8 @@ Spec: per-request instantiation + pooling allocator, **epoch interruption**, `Re
 The spec's SP1 (TOML admin repo, `DesiredState`, identities/teams/grants, tombstone deletion, `ArcSwap` snapshot, argon2 PATs, `forge admin init`/`reconcile` CLI) is **🟡 partially present in a different form**: `comtrya` reconciles a CUE config repo and has a reconcile/diff/apply path, but the identity/team/grant/permission-resolution model, tombstone deletion, and argon2 PATs are **not** built as specified. The CLI is `comtrya` (CUE generate/validate), not `forge admin init|reconcile|hook`.
 
 ## Biggest decisions / forks
-1. **GraphQL: federation (DECIDED — rebuild)** → rewrite GOAL.md, SP6 build + spike.
+1. **GraphQL: federation (DECIDED — rebuild)** for reads → SP6 build + spike (#203).
+1a. **RPC for writes (DECIDED — tarpc)** → write-path migration (#207).
 2. **No-central-DB + per-extension libSQL** vs current `comtrya.db` + JSONL — unresolved (gap report only; no migration started).
 3. **Config: TOML admin-repo model** vs current CUE — unresolved fork.
 4. **SSH transport** — not started.

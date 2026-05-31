@@ -11,14 +11,20 @@ feature behavior delivered by WASM extensions.
   responsibilities.
 - Extension backend behavior is implemented as WebAssembly Component Model
   components built from Rust `cargo-component` crates.
-- Extension calls use canonical WIT operation routes under `/api/ops`.
-- GraphQL today is reserved for kernel-owned fields. The v3 north-star
-  direction is the SP6 Apollo Federation v2 rebuild — see `docs/v3-decisions.md`
-  and `docs/spec-gap-analysis.md` §A7. Until SP6 lands, kernel-owned-GraphQL
-  is the shipping shape for any field the kernel must own (auth, identity,
-  instance config).
+- **North star — read/write transport split.** All reads go through the
+  GraphQL endpoint, served by the kernel and federated extension subgraphs
+  (SP6 — Apollo Federation v2, tracking issue #203). All writes go through
+  RPC (target: tarpc, tracking issue #207). The frontend uses GraphQL for
+  every read and RPC for every write.
+- **Interim shipping shape.** Extension calls (BOTH reads and writes) flow
+  through canonical WIT operation routes under `/api/ops` today. Kernel-owned
+  GraphQL fields cover the kernel's mandatory concerns (auth, identity,
+  instance config) and stay as the kernel half of the federated graph after
+  SP6 lands. The `/api/ops` surface is interim; do not extend it beyond what
+  current extensions need.
 - The frontend is a Vite/Vue shell that loads extension UI bundles from
-  `/_extensions/...`.
+  `/_extensions/...`. The shell uses GraphQL for reads and RPC for writes;
+  extension UI bundles follow the same contract via the generated SDK.
 - The implementation favors deletion and current contracts over transition
   layers.
 
