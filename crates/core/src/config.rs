@@ -181,7 +181,6 @@ pub struct InstanceConfig {
     pub repository_storage_backends: BTreeMap<String, RepoStorageBackend>,
     pub authz_kind: String,
     pub workspaces: BTreeMap<String, WorkspaceConfig>,
-    pub ceilings: Ceilings,
     pub rate_limits: RateLimits,
     pub extensions: Vec<crate::extensions::ExtensionInstallConfig>,
     pub admins: Vec<AdminConfig>,
@@ -209,11 +208,10 @@ impl InstanceConfig {
             &self.repository_storage_default,
             &self.repository_storage_backends,
         )?;
-        for (slug, workspace) in &self.workspaces {
+        for slug in self.workspaces.keys() {
             Slug::new(slug.clone()).map_err(|err| {
                 CoreError::config_invalid(format!("workspace slug {slug:?}: {}", err.message))
             })?;
-            validate_visibility_ceiling(workspace.visibility, &self.ceilings.workspace)?;
         }
         let mut seen = BTreeMap::new();
         for ext in &self.extensions {
@@ -262,17 +260,6 @@ impl InstanceConfig {
                 return Err(CoreError::config_invalid(format!(
                     "duplicate repository path {:?} in config",
                     repo.path
-                )));
-            }
-            if !self
-                .ceilings
-                .repository
-                .allowed_visibility
-                .contains(&repo.visibility)
-            {
-                return Err(CoreError::config_invalid(format!(
-                    "repository {:?} visibility {} is outside allowedVisibility",
-                    repo.path, repo.visibility
                 )));
             }
             if let Some(backend) = &repo.storage_backend
@@ -352,7 +339,6 @@ impl InstanceConfig {
             repository_storage_backends,
             authz_kind: "spicedb".to_string(),
             workspaces,
-            ceilings: Ceilings::default(),
             rate_limits: RateLimits::default(),
             extensions: Vec::new(),
             admins: Vec::new(),
@@ -368,52 +354,6 @@ fn is_hex_color(value: &str) -> bool {
         return false;
     };
     hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit())
-}
-
-/// Visibility ceilings for instance-declared resources. Only the visibility
-/// allowlist is enforced today; broader ceiling fields (descendants policy,
-/// per-publisher allowlists, per-backend allowlists, group/publisher ceilings)
-/// were declared on this struct but never actually consulted anywhere. They
-/// were deleted to satisfy the no-dead-code rule. Reintroduce a field here
-/// only at the same time as the code that enforces it.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Ceilings {
-    pub repository: RepositoryCeilings,
-    pub workspace: WorkspaceCeilings,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RepositoryCeilings {
-    pub allowed_visibility: Vec<Visibility>,
-}
-
-impl Default for RepositoryCeilings {
-    fn default() -> Self {
-        Self {
-            allowed_visibility: vec![
-                Visibility::Private,
-                Visibility::Internal,
-                Visibility::Public,
-            ],
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorkspaceCeilings {
-    pub allowed_visibility: Vec<Visibility>,
-}
-
-impl Default for WorkspaceCeilings {
-    fn default() -> Self {
-        Self {
-            allowed_visibility: vec![
-                Visibility::Private,
-                Visibility::Internal,
-                Visibility::Public,
-            ],
-        }
-    }
 }
 
 /// Caps applied to user-supplied CUE files before invoking the
@@ -1241,20 +1181,6 @@ fn validate_storage(
         }
     }
     Ok(())
-}
-
-fn validate_visibility_ceiling(
-    visibility: Visibility,
-    ceilings: &WorkspaceCeilings,
-) -> CoreResult<()> {
-    if ceilings.allowed_visibility.contains(&visibility) {
-        Ok(())
-    } else {
-        Err(CoreError::config_invalid(format!(
-            "workspace visibility {} is outside allowedVisibility",
-            visibility
-        )))
-    }
 }
 
 #[cfg(test)]

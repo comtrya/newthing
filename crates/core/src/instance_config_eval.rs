@@ -326,7 +326,6 @@ impl WireConfig {
                 .map(|a| a.kind)
                 .unwrap_or_else(|| "spicedb".to_string()),
             workspaces,
-            ceilings: crate::config::Ceilings::default(),
             rate_limits: crate::config::RateLimits::default(),
             extensions,
             admins: self
