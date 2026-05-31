@@ -136,19 +136,30 @@ pub async fn serve_fetch(
         // We already resolved them into req_effective.wants above; map
         // the original refname back to the OID by re-opening the repo.
         let repo_for_refs = gix::open(repo_dir);
-        if let Ok(repo) = repo_for_refs {
-            for refname in req.want_refs() {
-                if let Ok(mut reference) = repo.find_reference(refname) {
+        // Collect all (oid, refname) pairs synchronously before any await.
+        // gix::Reference<'_> borrows &gix::Repository which is !Send (RefCell
+        // interior), so it must not be held across an .await boundary. We
+        // materialise all strings first, drop repo, then stream them.
+        let wanted_ref_lines: Vec<Bytes> = if let Ok(repo) = repo_for_refs {
+            req.want_refs()
+                .iter()
+                .filter_map(|refname| {
+                    let mut reference = repo.find_reference(refname).ok()?;
                     let oid = reference
                         .try_id()
                         .map(|id| id.to_string())
-                        .or_else(|| reference.peel_to_commit().ok().map(|c| c.id().to_string()));
-                    if let Some(oid) = oid {
-                        let line = format!("{oid} {refname}\n");
-                        let _ = tx.send(Bytes::from(encode_pkt_line(line.as_bytes()))).await;
-                    }
-                }
-            }
+                        .or_else(|| reference.peel_to_commit().ok().map(|c| c.id().to_string()))?;
+                    Some(Bytes::from(encode_pkt_line(
+                        format!("{oid} {refname}\n").as_bytes(),
+                    )))
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        // repo and all references are dropped here; only Bytes (Send) remains
+        for line in wanted_ref_lines {
+            let _ = tx.send(line).await;
         }
         let _ = tx.send(Bytes::from_static(PKT_DELIM)).await;
     }

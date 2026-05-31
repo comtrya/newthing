@@ -4450,7 +4450,7 @@ fn event_stream_response(
     // Subscribe BEFORE reading the on-disk backfill. ULID-monotonic
     // event ids let us drop live frames whose id is `<= max_backfill_id`
     // so the cross-over between backfill and live cannot duplicate.
-    let mut rx = state.runtime.event_broadcast.subscribe();
+    let rx = state.runtime.event_broadcast.subscribe();
     let backfill: Vec<Value> = state
         .runtime
         .read_events()
@@ -4478,46 +4478,56 @@ fn event_stream_response(
         sse_frame(&event).map(|s| Ok::<_, std::convert::Infallible>(Bytes::from(s)))
     });
 
+    // Build the live frame stream using futures::stream::unfold.
     let keep_alive_interval = std::time::Duration::from_secs(15);
-    let live_stream = async_stream::stream! {
-        let mut keep_alive = tokio::time::interval(keep_alive_interval);
-        keep_alive.tick().await; // skip the immediate first tick
-        loop {
-            tokio::select! {
-                _ = keep_alive.tick() => {
-                    yield Ok::<_, std::convert::Infallible>(Bytes::from_static(b": keep-alive\n\n"));
-                }
-                result = rx.recv() => {
-                    match result {
-                        Ok(event) => {
-                            if !sse_event_visible(&event, is_admin) { continue; }
-                            // Drop live frames already in the backfill.
-                            if let Some(cap) = &max_backfill_id
-                                && let Some(id) = event.get("id").and_then(Value::as_str)
-                                && id.as_bytes() <= cap.as_bytes() {
-                                continue;
+    let live_stream = futures::stream::unfold(
+        (
+            rx,
+            tokio::time::interval(keep_alive_interval),
+            max_backfill_id,
+            is_admin,
+        ),
+        move |(mut rx, mut ka, max_bf_id, is_adm)| async move {
+            ka.tick().await; // skip the first immediate tick
+            loop {
+                tokio::select! {
+                    _ = ka.tick() => {
+                        return Some((
+                            Ok::<_, std::convert::Infallible>(Bytes::from_static(b": keep-alive\n\n")),
+                            (rx, ka, max_bf_id, is_adm),
+                        ));
+                    }
+                    result = rx.recv() => {
+                        match result {
+                            Ok(event) => {
+                                if !sse_event_visible(&event, is_adm) { continue; }
+                                if let Some(cap) = &max_bf_id
+                                    && let Some(id) = event.get("id").and_then(Value::as_str)
+                                    && id.as_bytes() <= cap.as_bytes() {
+                                    continue;
+                                }
+                                if let Some(frame) = sse_frame(&event) {
+                                    return Some((
+                                        Ok(Bytes::from(frame)),
+                                        (rx, ka, max_bf_id, is_adm),
+                                    ));
+                                }
                             }
-                            if let Some(frame) = sse_frame(&event) {
-                                yield Ok(Bytes::from(frame));
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!(missed = n, "SSE subscriber lagged; advising reconnect");
+                                return Some((
+                                    Ok(Bytes::from_static(b"event: comtrya.lagged\ndata: {}\nretry: 0\n\n")),
+                                    (rx, ka, max_bf_id, is_adm),
+                                ));
+                                // Note: unfold terminates on next call when rx is closed.
                             }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(
-                                missed = n,
-                                "SSE subscriber lagged behind broadcast; advising reconnect"
-                            );
-                            // Tell the client to reconnect — the
-                            // `Last-Event-ID` they replay will then
-                            // recover from the on-disk log.
-                            yield Ok(Bytes::from_static(b"event: comtrya.lagged\ndata: {}\nretry: 0\n\n"));
-                            break;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
             }
-        }
-    };
+        },
+    );
 
     let body_stream = backfill_stream.chain(live_stream);
     let mut response = Response::builder()
@@ -5521,7 +5531,7 @@ fn apply_extension_asset_headers(response: &mut Response, etag: &str) {
 async fn repo_endpoint(
     State(state): State<AppState>,
     headers: HeaderMap,
-    method: Method,
+    method: axum::http::Method,
     AxumPath(path): AxumPath<String>,
     RawQuery(raw_query): RawQuery,
     uri: Uri,
@@ -5530,10 +5540,6 @@ async fn repo_endpoint(
     if is_git_smart_http(&path, raw_query.as_deref()) {
         return git_smart_http(state, headers, method, path, raw_query, body).await;
     }
-    // Non-git `/r/<repo>` browse traffic is served by the SPA edge
-    // (Vite in dev, the static frontend in production). When such a
-    // request reaches the kernel directly it falls through to the same
-    // browse fallback every other unmatched route uses.
     not_found_or_unsupported(State(state), headers, uri).await
 }
 
@@ -6960,7 +6966,11 @@ fn storage_index(name: &str, fields: &[&str], unique: bool) -> StorageIndexDecla
 fn validate_storage_collections(
     storage_collections: &[StorageCollectionDeclaration],
 ) -> Result<(), String> {
-    let mut seen = BTreeSet::new();
+    // Only reject the (owner, name) pair being declared twice by the same
+    // extension. Cross-extension name sharing (e.g. "_meta" in ext_issues and
+    // ext_pull_requests) is allowed for now — fixing the collection_owners
+    // BTreeMap to be a multi-map is tracked in #153.
+    let mut seen_pairs: BTreeSet<(String, String)> = BTreeSet::new();
     for collection in storage_collections {
         if collection.name.is_empty() {
             return Err("storage collection name must not be empty".to_string());
@@ -6971,7 +6981,7 @@ fn validate_storage_collections(
                 collection.name
             ));
         }
-        if !seen.insert((collection.owner_extension.clone(), collection.name.clone())) {
+        if !seen_pairs.insert((collection.owner_extension.clone(), collection.name.clone())) {
             return Err(format!(
                 "duplicate storage collection declaration: {}/{}",
                 collection.owner_extension, collection.name
