@@ -426,6 +426,15 @@ fn router(state: AppState) -> Router {
             post(admin_refresh_oidc_issuer),
         )
         .route("/api/admin/config-sync/resync", post(admin_config_resync))
+        .route("/api/admin/sessions", get(admin_list_sessions))
+        .route(
+            "/api/admin/sessions/:id",
+            axum::routing::delete(admin_revoke_session),
+        )
+        .route(
+            "/api/admin/sessions",
+            axum::routing::delete(admin_revoke_all_user_sessions),
+        )
         // No `/auth/oidc/*path` catchall — axum 0.7's matchit
         // rejects a wildcard that overlaps the specific
         // `/:provider/{login,callback}` routes above (router
@@ -2313,10 +2322,12 @@ impl Runtime {
     /// actually authenticate.
     fn issue_session(&self, principal: PrincipalStatus) -> Result<String, String> {
         let token = self.next_secure_token("sess");
+        let session_id = self.next_id("session");
         let now = now_seconds();
         self.store
             .insert_session(
                 &token,
+                &session_id,
                 principal_to_stored(principal),
                 now.saturating_add(self.options.session_ttl_seconds),
                 now,
@@ -5155,6 +5166,157 @@ async fn admin_config_resync(State(state): State<AppState>, headers: HeaderMap) 
                 StatusCode::INTERNAL_SERVER_ERROR,
                 ErrorCode::InternalServerError.as_str(),
                 &format!("config sync failed: {e}"),
+                cors,
+            )
+        }
+    }
+}
+
+/// List active (non-expired, non-used) sessions for admin management.
+/// Returns opaque session IDs — bearer tokens are NEVER included.
+///
+/// `GET /api/admin/sessions`
+/// Requires: AdminCredential | OperatorCredential
+async fn admin_list_sessions(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/api/admin/*") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "admin action requires an admin or operator credential",
+            cors,
+        );
+    }
+    let now = now_seconds();
+    match state.runtime.store.list_active_sessions(now) {
+        Ok(sessions) => json_response(StatusCode::OK, json!({"sessions": sessions}), cors),
+        Err(e) => {
+            tracing::error!("list_active_sessions failed: {}", e);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "failed to list sessions",
+                cors,
+            )
+        }
+    }
+}
+
+/// Revoke a single session by its opaque session_id.
+///
+/// `DELETE /api/admin/sessions/:id`
+/// Requires: AdminCredential | OperatorCredential
+async fn admin_revoke_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    AxumPath(session_id): AxumPath<String>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/api/admin/*") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "admin action requires an admin or operator credential",
+            cors,
+        );
+    }
+    let now = now_seconds();
+    match state.runtime.store.revoke_session(&session_id, now) {
+        Ok(true) => {
+            let _ = state.runtime.append_audit(
+                "dev.comtrya.admin.session.revoked",
+                json!({"sessionId": session_id}),
+            );
+            json_response(StatusCode::OK, json!({"revoked": true}), cors)
+        }
+        Ok(false) => error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "session not found or already expired",
+            cors,
+        ),
+        Err(e) => {
+            tracing::error!("revoke_session failed: {}", e);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "failed to revoke session",
+                cors,
+            )
+        }
+    }
+}
+
+/// Revoke all active sessions matching a given principal type. Allows an
+/// admin to forcibly log out all users of a specific credential class
+/// (e.g. "Credential" to kick all end-user sessions). Requires a JSON
+/// body `{"principal": "<tag>"}` where tag is one of: Credential,
+/// AdminCredential, OperatorCredential.
+///
+/// `DELETE /api/admin/sessions`
+/// Requires: AdminCredential | OperatorCredential
+async fn admin_revoke_all_user_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::Json<serde_json::Value>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/api/admin/*") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+    if !matches!(
+        state.runtime.principal_from_headers(&headers),
+        PrincipalStatus::AdminCredential | PrincipalStatus::OperatorCredential
+    ) {
+        return error_response(
+            StatusCode::FORBIDDEN,
+            ErrorCode::Forbidden.as_str(),
+            "admin action requires an admin or operator credential",
+            cors,
+        );
+    }
+    let principal_tag = match body.get("principal").and_then(|v| v.as_str()) {
+        Some(tag) if ["Credential", "AdminCredential", "OperatorCredential"].contains(&tag) => tag,
+        _ => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                ErrorCode::BadUserInput.as_str(),
+                "body must include \"principal\": \"Credential\" | \"AdminCredential\" | \"OperatorCredential\"",
+                cors,
+            );
+        }
+    };
+    let now = now_seconds();
+    match state
+        .runtime
+        .store
+        .revoke_sessions_for_principal(principal_tag, now)
+    {
+        Ok(count) => {
+            let _ = state.runtime.append_audit(
+                "dev.comtrya.admin.sessions.bulk_revoked",
+                json!({"principal": principal_tag, "count": count}),
+            );
+            json_response(StatusCode::OK, json!({"revoked": count}), cors)
+        }
+        Err(e) => {
+            tracing::error!("revoke_sessions_for_principal failed: {}", e);
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "failed to revoke sessions",
                 cors,
             )
         }
@@ -14559,6 +14721,31 @@ mod tests {
             git_state: PureRustGitState::test_default(),
         };
         let response = admin_config_resync(State(state), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_list_sessions_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_list_sessions(State(state), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_revoke_session_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_revoke_session(
+            State(state),
+            HeaderMap::new(),
+            AxumPath("session_test".to_string()),
+        )
+        .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 

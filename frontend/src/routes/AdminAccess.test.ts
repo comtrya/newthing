@@ -41,3 +41,21 @@ describe("admin OIDC refresh endpoint URL", () => {
     expect(url).not.toContain("https://accounts");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Session management URL encoding
+// ---------------------------------------------------------------------------
+
+describe("admin session revoke URL", () => {
+  function buildRevokeUrl(sessionId: string): string {
+    return `/api/admin/sessions/${encodeURIComponent(sessionId)}`;
+  }
+
+  test("plain session_id uses verbatim path", () => {
+    expect(buildRevokeUrl("session_abc123")).toBe("/api/admin/sessions/session_abc123");
+  });
+
+  test("session_id with slashes is encoded", () => {
+    expect(buildRevokeUrl("session/foo")).toBe("/api/admin/sessions/session%2Ffoo");
+  });
+});
