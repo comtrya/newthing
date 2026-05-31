@@ -60,15 +60,19 @@ struct PureRustGitState {
     semaphore: Arc<Semaphore>,
     max_body: usize,
     timeout_ms: u64,
+    /// Optional runtime reference for emitting post-push ref-update events.
+    /// `None` in test contexts where event emission is not needed.
+    runtime: Option<Arc<Runtime>>,
 }
 
 impl PureRustGitState {
-    fn from_runtime(runtime: &Runtime) -> Self {
+    fn from_runtime(runtime: &Arc<Runtime>) -> Self {
         Self {
             project_root: runtime.repository_root(),
             semaphore: Arc::new(Semaphore::new(8)),
             max_body: 64 * 1024 * 1024,
             timeout_ms: 60_000,
+            runtime: Some(runtime.clone()),
         }
     }
 
@@ -79,6 +83,7 @@ impl PureRustGitState {
             semaphore: Arc::new(Semaphore::new(1)),
             max_body: 1024 * 1024,
             timeout_ms: 5_000,
+            runtime: None,
         }
     }
 }
@@ -120,6 +125,37 @@ impl GitHttpState for PureRustGitState {
             anyhow::bail!("invalid repo slug");
         }
         Ok(())
+    }
+
+    /// Emit `dev.comtrya.ref.updated` events for each successfully applied
+    /// ref update. These events feed the reactor (PR auto-close on merge,
+    /// check-run derivation, etc.) and are visible on the SSE stream.
+    fn on_push_complete(
+        &self,
+        segments: &[String],
+        updates: &[comtrya_git_http::AppliedRefUpdate],
+    ) {
+        let Some(runtime) = &self.runtime else { return };
+        let repo_path = segments.join("/");
+        for update in updates {
+            let kind = if update.is_create() {
+                "created"
+            } else if update.is_delete() {
+                "deleted"
+            } else {
+                "updated"
+            };
+            let _ = runtime.append_event(
+                "dev.comtrya.ref.updated",
+                json!({
+                    "repository": repo_path,
+                    "ref": update.ref_name,
+                    "oldOid": update.old_oid,
+                    "newOid": update.new_oid,
+                    "kind": kind,
+                }),
+            );
+        }
     }
 }
 
