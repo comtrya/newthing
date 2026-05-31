@@ -168,9 +168,13 @@ pub fn evaluate_repo_config(
     let workdir = worktree.path();
 
     if let Err(message) = install_schemas(workdir, extension_schemas) {
+        // Must include "repository": null so the shape matches the success path
+        // and callers like graphql_response can safely use .get("repository")
+        // without a missing-key branch (#122 P3 [server/type-boundary]).
         return json!({
             "projects": [implicit_default_project()],
             "instances": [],
+            "repository": Value::Null,
             "error": message,
         });
     }

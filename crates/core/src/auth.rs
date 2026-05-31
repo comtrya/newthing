@@ -143,7 +143,7 @@ impl AuthService {
             self.audit_login(false, None, now_ms);
             return Err(CoreError::forbidden(
                 "OIDC JIT provisioning denied by issuer rules",
-                "comtrya://instance/local",
+                self.instance_resource.canonical(),
                 "auth:login",
             ));
         }
