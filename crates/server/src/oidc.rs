@@ -391,6 +391,20 @@ impl OidcDiscoveryCache {
             .insert(issuer_id.to_string(), fetched.clone());
         Ok(fetched)
     }
+
+    /// Evict any cached discovery documents whose `issuer_id` is no longer
+    /// in `live_issuer_ids`. Called by the GitOps reconciler after updating
+    /// the live issuer set so that a rotated `issuerURL` (e.g. after a key
+    /// compromise) does not remain cached for the lifetime of the process.
+    ///
+    /// Ids that still exist keep their cached metadata; only removed or
+    /// replaced ids are evicted so the next call to `get_or_fetch` triggers
+    /// a fresh HTTP discovery.
+    pub fn evict_stale(&self, live_issuer_ids: &std::collections::BTreeSet<String>) {
+        if let Ok(mut map) = self.inner.write() {
+            map.retain(|id, _| live_issuer_ids.contains(id.as_str()));
+        }
+    }
 }
 
 #[cfg(test)]
