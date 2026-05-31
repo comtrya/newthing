@@ -1914,99 +1914,190 @@ impl wit_events::Host for HostState {
                 next_page: None,
             });
         }
-        let source = std::fs::read_to_string(&path)
+        // Walk events newest-first via a bounded reverse-tail reader.
+        // Previously this `read_to_string`'d the entire events.jsonl
+        // and reparsed every line per call — O(file_size) regardless
+        // of `limit`, and O(N^2) when an extension walked the cursor
+        // with `limit=1`. The new path streams 64 KiB chunks from
+        // EOF backwards, yields complete JSONL lines as soon as
+        // they're framed, and stops as soon as `limit` matches are
+        // collected or `MAX_SCAN_LINES` is reached.
+        const MAX_SCAN_LINES: usize = 8 * 1024;
+        let limit = limit as usize;
+        let mut reader = ReverseLineReader::open(&path)
             .map_err(|e| err(wit_types::ErrorCode::Internal, e.to_string()))?;
-        // Collect all VISIBLE matching events newest-first. Pagination
-        // then walks the cursor forward through that filtered set —
-        // any subsequent call passes the previous page's last id back
-        // as `after`, and we resume strictly past it.
-        let matching: Vec<wit_types::Event> = source
-            .lines()
-            .rev()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter_map(|v| {
-                let data = v.get("data")?;
-                let emitter = data
-                    .get("emitterExtension")
-                    .and_then(Value::as_str)
-                    .unwrap_or("core")
-                    .to_string();
-                // Visibility: own events + manifest-allowed extensions.
-                if emitter != self.extension_id
-                    && !self
-                        .manifest
-                        .allowed_event_reads
-                        .iter()
-                        .any(|e| e == &emitter)
+        let mut events: Vec<wit_types::Event> = Vec::with_capacity(limit);
+        let mut found_cursor = after_id.is_none();
+        let mut scanned: usize = 0;
+        while events.len() < limit && scanned < MAX_SCAN_LINES {
+            let line = match reader
+                .next_line()
+                .map_err(|e| err(wit_types::ErrorCode::Internal, e.to_string()))?
+            {
+                Some(line) => line,
+                None => break,
+            };
+            scanned += 1;
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
+            let Some(data) = v.get("data") else { continue };
+            let emitter = data
+                .get("emitterExtension")
+                .and_then(Value::as_str)
+                .unwrap_or("core")
+                .to_string();
+            // Visibility: own events + manifest-allowed extensions.
+            if emitter != self.extension_id
+                && !self
+                    .manifest
+                    .allowed_event_reads
+                    .iter()
+                    .any(|e| e == &emitter)
+            {
+                continue;
+            }
+            let Some(event_type) = data
+                .get("eventType")
+                .and_then(Value::as_str)
+                .or_else(|| v.get("type").and_then(Value::as_str))
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if let Some(filter) = &type_filter
+                && &event_type != filter
+            {
+                continue;
+            }
+            if let Some(filter) = &source_extension_filter
+                && &emitter != filter
+            {
+                continue;
+            }
+            let id = data
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            // Cursor: skip every matching event up to AND INCLUDING
+            // the cursor id (the caller's last-seen newest id). After
+            // that, accumulate. ULID-monotonic ids in descending
+            // order mean the cursor is always exactly the boundary.
+            if !found_cursor {
+                if let Some(cursor) = after_id.as_deref()
+                    && id == cursor
                 {
-                    return None;
+                    found_cursor = true;
                 }
-                let event_type = data
-                    .get("eventType")
+                continue;
+            }
+            let payload = data
+                .get("payloadB64")
+                .and_then(Value::as_str)
+                .and_then(base64_decode)
+                .unwrap_or_default();
+            events.push(wit_types::Event {
+                id,
+                event_type,
+                payload,
+                timestamp_ms: data
+                    .get("timestampMs")
+                    .and_then(Value::as_u64)
+                    .or_else(|| v.get("time").and_then(Value::as_u64).map(|s| s * 1000))
+                    .unwrap_or(0),
+                source_uri: data
+                    .get("sourceUri")
                     .and_then(Value::as_str)
-                    .or_else(|| v.get("type").and_then(Value::as_str))?
-                    .to_string();
-                if let Some(filter) = &type_filter
-                    && &event_type != filter
-                {
-                    return None;
-                }
-                if let Some(filter) = &source_extension_filter
-                    && &emitter != filter
-                {
-                    return None;
-                }
-                let payload = data
-                    .get("payloadB64")
-                    .and_then(Value::as_str)
-                    .and_then(base64_decode)
-                    .unwrap_or_default();
-                Some(wit_types::Event {
-                    id: data
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    event_type,
-                    payload,
-                    timestamp_ms: data
-                        .get("timestampMs")
-                        .and_then(Value::as_u64)
-                        .or_else(|| v.get("time").and_then(Value::as_u64).map(|s| s * 1000))
-                        .unwrap_or(0),
-                    source_uri: data
-                        .get("sourceUri")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    emitter_extension: emitter,
-                })
-            })
-            .collect();
-        // Resume strictly after the cursor. The collection is already
-        // newest-first (reverse of file order), and event ids are
-        // ULID-like (lexicographically time-monotonic), so the
-        // cursor's id, the newest id seen by the caller, comes
-        // before every older id in the descending ordering.
-        let start = match after_id {
-            Some(ref cursor) => matching
-                .iter()
-                .position(|e| &e.id == cursor)
-                .map(|i| i + 1)
-                .unwrap_or(matching.len()),
-            None => 0,
-        };
-        let remaining = &matching[start..];
-        let take = (limit as usize).min(remaining.len());
-        let events: Vec<wit_types::Event> = remaining[..take].to_vec();
-        let next_page = if remaining.len() > take {
-            remaining.get(take - 1).map(|last| wit_types::PageToken {
+                    .unwrap_or_default()
+                    .to_string(),
+                emitter_extension: emitter,
+            });
+        }
+        // `next_page` is set when we still had room for more matches
+        // but stopped only because we hit the per-call scan ceiling —
+        // the caller resumes from the oldest event we returned. If we
+        // simply ran out of file or filled `limit`, the next page
+        // anchor is the last yielded id when more lines remain.
+        let next_page = if events.len() == limit {
+            events.last().map(|last| wit_types::PageToken {
                 cursor: encode_doc_cursor(&last.id),
             })
         } else {
             None
         };
         Ok(wit_events::EventPage { events, next_page })
+    }
+}
+
+/// Newest-first JSONL line reader. Reads the file in 64 KiB chunks
+/// from EOF backwards and yields complete lines as soon as they're
+/// framed — never loads the whole file into memory.
+struct ReverseLineReader {
+    file: std::fs::File,
+    pos: u64,
+    /// Bytes from earlier-in-file chunks not yet consumed as lines.
+    /// Always represents a contiguous byte range ending at `pos +
+    /// buf.len()` in the file.
+    buf: Vec<u8>,
+}
+
+impl ReverseLineReader {
+    fn open(path: &std::path::Path) -> std::io::Result<Self> {
+        use std::io::Seek;
+        let mut file = std::fs::File::open(path)?;
+        let pos = file.seek(std::io::SeekFrom::End(0))?;
+        Ok(Self {
+            file,
+            pos,
+            buf: Vec::new(),
+        })
+    }
+
+    fn next_line(&mut self) -> std::io::Result<Option<String>> {
+        use std::io::{Read, Seek, SeekFrom};
+        const CHUNK: usize = 64 * 1024;
+        loop {
+            if let Some(nl_idx) = self.buf.iter().rposition(|b| *b == b'\n') {
+                // Newest complete line is `buf[nl_idx + 1 ..]`. Yield
+                // it, then drop the trailing newline and that line
+                // from buf — older bytes (ending in another newline,
+                // or EOF) stay for the next call.
+                let line_bytes = self.buf[nl_idx + 1..].to_vec();
+                self.buf.truncate(nl_idx);
+                if line_bytes.is_empty() {
+                    // A blank trailing line (file ends with "\n\n")
+                    // or a no-content tail after a newline — just
+                    // loop and yield the previous complete line.
+                    continue;
+                }
+                let line = String::from_utf8(line_bytes).unwrap_or_default();
+                return Ok(Some(line));
+            }
+            if self.pos == 0 {
+                // No more file. Drain the buf as the final line.
+                if self.buf.is_empty() {
+                    return Ok(None);
+                }
+                let last = std::mem::take(&mut self.buf);
+                let line = String::from_utf8(last).unwrap_or_default();
+                if line.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(line));
+            }
+            // Read another chunk from earlier in the file.
+            let read_size = (self.pos as usize).min(CHUNK);
+            let new_pos = self.pos - read_size as u64;
+            self.file.seek(SeekFrom::Start(new_pos))?;
+            let mut chunk = vec![0u8; read_size];
+            self.file.read_exact(&mut chunk)?;
+            self.pos = new_pos;
+            // Prepend chunk (older bytes go first; existing buf stays
+            // after, preserving file-order within the buffer).
+            chunk.extend_from_slice(&self.buf);
+            self.buf = chunk;
+        }
     }
 }
 
@@ -2193,6 +2284,68 @@ pub fn host_state_for_op(input: HostStateForOp) -> HostState {
         ops_invoke_depth: 0,
         reactor_depth: 0,
         minted_ids: input.minted_ids,
+    }
+}
+
+#[cfg(test)]
+mod reverse_line_reader_tests {
+    use super::ReverseLineReader;
+    use std::io::Write;
+
+    fn fixture_file(name: &str, contents: &[u8]) -> std::path::PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("comtrya-revline-{}-{}", name, std::process::id()));
+        let mut file = std::fs::File::create(&path).expect("create fixture");
+        file.write_all(contents).expect("write fixture");
+        path
+    }
+
+    fn drain(path: &std::path::Path) -> Vec<String> {
+        let mut reader = ReverseLineReader::open(path).expect("open reverse reader");
+        let mut out = Vec::new();
+        while let Some(line) = reader.next_line().expect("read line") {
+            out.push(line);
+        }
+        out
+    }
+
+    #[test]
+    fn reverse_reader_yields_newest_first() {
+        let path = fixture_file("newest-first", b"one\ntwo\nthree\n");
+        assert_eq!(drain(&path), vec!["three", "two", "one"]);
+    }
+
+    #[test]
+    fn reverse_reader_handles_no_trailing_newline() {
+        // The append path always writes "\n" after each event but a
+        // partially-written tail (kernel crash mid-write) could end
+        // mid-line. The reader must still yield every complete line
+        // and not emit a malformed tail as a separate one — except
+        // for files with no trailing newline at all, where the LAST
+        // chunk IS the newest "line" by definition.
+        let path = fixture_file("no-trailing-nl", b"one\ntwo\nthree");
+        assert_eq!(drain(&path), vec!["three", "two", "one"]);
+    }
+
+    #[test]
+    fn reverse_reader_handles_empty_file() {
+        let path = fixture_file("empty", b"");
+        assert_eq!(drain(&path), Vec::<String>::new());
+    }
+
+    #[test]
+    fn reverse_reader_handles_lines_spanning_chunk_boundaries() {
+        // Lines longer than the 64 KiB chunk size must span chunks
+        // and still be yielded whole (newest-first).
+        let long_a = "a".repeat(100_000);
+        let long_b = "b".repeat(80_000);
+        let bytes = format!("{long_a}\n{long_b}\nshort\n").into_bytes();
+        let path = fixture_file("chunk-boundary", &bytes);
+        let lines = drain(&path);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "short");
+        assert_eq!(lines[1], long_b);
+        assert_eq!(lines[2], long_a);
     }
 }
 
