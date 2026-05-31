@@ -415,6 +415,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "comtrya-core",
+ "futures-util",
  "oci-distribution",
  "serde",
  "serde_json",
