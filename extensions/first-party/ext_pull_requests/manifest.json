@@ -28,8 +28,8 @@
         "name": "pull_requests",
         "ownerExtension": "ext_pull_requests",
         "indexes": [
-          { "name": "by_repository_state_updated", "fields": ["repositoryID", "state", "updatedAt"], "unique": false },
-          { "name": "by_repository_number", "fields": ["repositoryID", "number"], "unique": true }
+          { "name": "by_repository_state_updated", "fields": ["repositoryId", "state", "updatedAt"], "unique": false },
+          { "name": "by_repository_number", "fields": ["repositoryId", "number"], "unique": true }
         ]
       },
       {
