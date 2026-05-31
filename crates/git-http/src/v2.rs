@@ -204,18 +204,21 @@ where
                     "handling fetch (rust backend)"
                 );
                 let start = Instant::now();
-                let fut = pack::serve_fetch(&repo_dir, &req, &headers, max);
-                let resp = match tokio::time::timeout(
+                // The deadline is pushed INTO `serve_fetch` so it
+                // bounds the live pack stream (spawn_blocking + the
+                // writer task), not just the cheap response builder.
+                // Wrapping `serve_fetch` in `tokio::time::timeout`
+                // here was a no-op: the future returned as soon as
+                // the channel was wired up while the spawned task
+                // continued unbounded.
+                let resp = pack::serve_fetch(
+                    &repo_dir,
+                    &req,
+                    &headers,
+                    max,
                     std::time::Duration::from_millis(state.git_timeout_ms()),
-                    fut,
                 )
-                .await
-                {
-                    Ok(r) => r,
-                    Err(_) => {
-                        return (StatusCode::REQUEST_TIMEOUT, "fetch timed out").into_response();
-                    }
-                };
+                .await;
                 counter!("git_http.upload_pack", "backend" => "rust").increment(1);
                 histogram!("git_http.upload_pack_ms", "backend" => "rust")
                     .record(start.elapsed().as_millis() as f64);

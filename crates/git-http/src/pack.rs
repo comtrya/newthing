@@ -36,11 +36,19 @@ struct PackPlan {
 /// - optional "acknowledgments" section (ACK/NAK) if client sent `have` lines, then a pkt-delim (0001)
 /// - optional "shallow-info" section if deepen/filter imply shallows, then a pkt-delim (0001).
 /// - required  "packfile" section header followed by sideband(1) framed pack bytes; final pkt-flush (0000)
+///
+/// `pack_stream_timeout` bounds the LIVE STREAMING phase (the pack body
+/// that `tokio::task::spawn_blocking` walks the object database for) —
+/// not the cheap response builder. Wrapping the call in
+/// `tokio::time::timeout` would only deadline the response builder
+/// (which returns as soon as the channel is wired up) and leave the
+/// spawned task running unbounded; this parameter is the correct fix.
 pub async fn serve_fetch(
     repo_dir: &PathBuf,
     req: &FetchRequest,
     _headers: &HeaderMap,
     _body_limit: usize,
+    pack_stream_timeout: std::time::Duration,
 ) -> Response {
     // Channel to stream pkt-line framed bytes out to the client
     let (tx, rx) = mpsc::channel::<Bytes>(16);
@@ -198,7 +206,16 @@ pub async fn serve_fetch(
         }
     });
 
-    let stream = ReceiverStream::new(rx).map(Ok::<Bytes, std::convert::Infallible>);
+    // `take_until(sleep)` enforces the pack-stream deadline on the
+    // live body: when the timer fires the stream ends, axum drops
+    // the response body, the receiver is dropped, and the next
+    // `blocking_send` in the writer surfaces as BrokenPipe (see
+    // SidebandPktWriter), which the streaming loop's `?` chain
+    // propagates — so the spawned task exits promptly instead of
+    // walking the whole object database past the deadline.
+    let stream = ReceiverStream::new(rx)
+        .take_until(tokio::time::sleep(pack_stream_timeout))
+        .map(Ok::<Bytes, std::convert::Infallible>);
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")
