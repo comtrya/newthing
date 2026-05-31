@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import AccountNav from "../components/AccountNav.vue";
 import Chip from "../components/Chip.vue";
 import Icon from "../components/Icon.vue";
 import {
@@ -152,12 +153,11 @@ onMounted(() => {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Account · Git credentials</div>
-          <h1 class="serif">Personal access tokens</h1>
+          <div class="eyebrow" style="margin-bottom: 6px">Account</div>
+          <h1 class="serif">Credentials</h1>
           <div class="subline">
-            Mint a token for HTTP git push or git fetch. Tokens are stored
-            argon2id-hashed; only the prefix is recoverable after creation. SSH key
-            management ships alongside the SSH transport — see issue #219.
+            Manage your personal access tokens for HTTP git operations and SSH keys for
+            git over SSH.
           </div>
         </div>
         <div class="spacer" />
@@ -165,6 +165,8 @@ onMounted(() => {
           <Icon name="retry" /><span>{{ loading ? "Refreshing" : "Refresh" }}</span>
         </button>
       </div>
+
+      <AccountNav />
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
