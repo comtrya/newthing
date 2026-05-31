@@ -1,11 +1,44 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, onMounted } from "vue";
 import AdminNav from "../components/AdminNav.vue";
 import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
-import { formatUnixTime, useAdminTelemetry } from "../admin-telemetry";
+import { formatUnixTime, useAdminTelemetry, type AdminSession } from "../admin-telemetry";
 
-const { telemetry, loading, error, refresh, syncNow, refreshOidcIssuer, configSync } = useAdminTelemetry();
+const {
+  telemetry,
+  loading,
+  error,
+  refresh,
+  syncNow,
+  refreshOidcIssuer,
+  listSessions,
+  revokeSession,
+  configSync,
+} = useAdminTelemetry();
+
+const sessions = ref<AdminSession[]>([]);
+const sessionsError = ref<string | null>(null);
+const sessionsLoading = ref(false);
+
+async function loadSessions(): Promise<void> {
+  sessionsLoading.value = true;
+  sessionsError.value = null;
+  try {
+    sessions.value = await listSessions();
+  } catch (caught) {
+    sessionsError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    sessionsLoading.value = false;
+  }
+}
+
+async function handleRevokeSession(sessionId: string): Promise<void> {
+  await revokeSession(sessionId);
+  await loadSessions();
+}
+
+onMounted(() => void loadSessions());
 
 const accessStats = computed(() => {
   const data = telemetry.value;
@@ -152,6 +185,49 @@ const accessStats = computed(() => {
             </div>
           </div>
           <div v-else class="empty">No OIDC issuers are configured for this instance.</div>
+        </div>
+
+        <!-- Active sessions with per-session revoke -->
+        <div class="glass" style="margin-bottom: 16px">
+          <div class="section-hd">
+            <div class="section-hd-title">Active sessions</div>
+            <div class="section-hd-sub">
+              {{ sessions.length }} live{{ sessionsLoading ? " (loading…)" : "" }}
+            </div>
+            <div class="spacer" />
+            <button class="btn" type="button" :disabled="sessionsLoading" @click="loadSessions">
+              <Icon name="retry" /><span>Refresh</span>
+            </button>
+          </div>
+          <div v-if="sessionsError" class="error-panel">{{ sessionsError }}</div>
+          <div v-else-if="sessions.length" class="rows">
+            <div
+              v-for="session in sessions"
+              :key="session.sessionId"
+              class="session-row"
+            >
+              <div class="session-main">
+                <div class="session-title">
+                  <Chip mono>{{ session.principal }}</Chip>
+                  <span class="mono session-id">{{ session.sessionId }}</span>
+                </div>
+                <div class="session-detail mono">
+                  created {{ formatUnixTime(session.createdAt) }} · expires
+                  {{ formatUnixTime(session.expiresAt) }}
+                </div>
+              </div>
+              <button
+                class="btn btn-sm"
+                type="button"
+                :disabled="loading"
+                title="Revoke this session immediately"
+                @click="handleRevokeSession(session.sessionId)"
+              >
+                <Icon name="x" /><span>Revoke</span>
+              </button>
+            </div>
+          </div>
+          <div v-else class="empty">No active sessions.</div>
         </div>
 
         <div class="grid two">

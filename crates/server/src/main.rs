@@ -14725,6 +14725,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_list_sessions_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_list_sessions(State(state), HeaderMap::new()).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_revoke_session_rejects_unauthenticated() {
+        let state = AppState {
+            runtime: dev_runtime_no_extensions(),
+            git_state: PureRustGitState::test_default(),
+        };
+        let response = admin_revoke_session(
+            State(state),
+            HeaderMap::new(),
+            AxumPath("session_test".to_string()),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn append_event_publishes_to_broadcast_subscribers() {
         // Regression for the TNQ-3 P1 SSE one-shot bug: previously
         // `append_event_internal` only wrote to disk, so SSE subscribers

@@ -98,6 +98,14 @@ interface AdminTelemetryPayload {
   adminTelemetry?: unknown;
 }
 
+/** Session record returned by GET /api/admin/sessions — bearer token excluded */
+export interface AdminSession {
+  sessionId: string;
+  principal: string;
+  expiresAt: number;
+  createdAt: number;
+}
+
 /**
  * Runtime type guard for the admin telemetry JSON-scalar payload.
  *
@@ -208,6 +216,39 @@ export function useAdminTelemetry() {
     }
   }
 
+  /** Fetch the current list of active sessions from the admin API. */
+  async function listSessions(): Promise<AdminSession[]> {
+    const res = await fetch("/api/admin/sessions", {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ message: res.statusText }));
+      throw new Error((body as { message?: string }).message ?? res.statusText);
+    }
+    const data = await res.json();
+    return (data.sessions ?? []) as AdminSession[];
+  }
+
+  /** Revoke a single session by its opaque session_id. */
+  async function revokeSession(sessionId: string): Promise<void> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const res = await fetch(`/api/admin/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error((body as { message?: string }).message ?? res.statusText);
+      }
+      await refresh();
+    } catch (caught) {
+      error.value = caught instanceof Error ? caught.message : String(caught);
+      loading.value = false;
+    }
+  }
+
   onMounted(() => {
     void refresh();
   });
@@ -219,6 +260,8 @@ export function useAdminTelemetry() {
     refresh,
     syncNow,
     refreshOidcIssuer,
+    listSessions,
+    revokeSession,
     ready: computed(() => telemetry.value?.readiness.ready ?? false),
     configSync: computed(() => telemetry.value?.configSync ?? null),
   };
