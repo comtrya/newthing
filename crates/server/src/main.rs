@@ -4481,7 +4481,12 @@ fn event_stream_response(
     // Build the live frame stream using futures::stream::unfold.
     let keep_alive_interval = std::time::Duration::from_secs(15);
     let live_stream = futures::stream::unfold(
-        (rx, tokio::time::interval(keep_alive_interval), max_backfill_id, is_admin),
+        (
+            rx,
+            tokio::time::interval(keep_alive_interval),
+            max_backfill_id,
+            is_admin,
+        ),
         move |(mut rx, mut ka, max_bf_id, is_adm)| async move {
             ka.tick().await; // skip the first immediate tick
             loop {
