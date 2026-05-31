@@ -1633,17 +1633,15 @@ fn epic_state_from_json(state: &str) -> Result<EpicState, wit_types::Error> {
     }
 }
 
+/// Extract the workspace id from a `comtrya://workspace/<id>` URI.
+/// Returns `None` for anything that is not a well-formed workspace URI —
+/// the previous fallback that guessed an id from a bare `ws_` prefix was
+/// a stringly-typed heuristic that accepted malformed input at the parse
+/// boundary instead of rejecting it (closes #122 P3 [server/type-boundary]).
 fn workspace_id_from_uri(workspace: &str) -> Option<String> {
     workspace
         .strip_prefix("comtrya://workspace/")
         .map(str::to_string)
-        .or_else(|| {
-            if workspace.starts_with("ws_") {
-                Some(workspace.to_string())
-            } else {
-                None
-            }
-        })
 }
 
 fn pull_request_to_json(pull: &PullRequest) -> Value {

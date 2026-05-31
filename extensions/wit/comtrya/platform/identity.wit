@@ -23,7 +23,9 @@ interface identity {
 
   /// Whether the current principal holds the named permission.
   /// Permissions are extension-namespaced strings of the form
-  /// `<extension-id>.<verb>` (e.g. `issues.write`). The kernel rejects
+  /// `<extension-name>.<verb>` where `extension-name` is the bare
+  /// short name (e.g. `issues`, not `ext_issues`) and `verb` is the
+  /// action being checked (e.g. `issues.write`). The kernel rejects
   /// strings outside this grammar with `bad-input`.
   ///
   /// Returns:
