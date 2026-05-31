@@ -1194,23 +1194,10 @@ impl wit_relations::Host for HostState {
             } else {
                 (source.clone(), target.clone())
             };
-        // Idempotent on (canon_source, canon_target, kind). Stored as
-        // documents in the `relations` collection.
-        let records = self
-            .store
-            .load_records()
-            .map_err(|e| err(wit_types::ErrorCode::Internal, e))?;
-        if let Some(existing) = records.iter().find(|r| {
-            r.collection == "relations"
-                && r.owner_extension == "core"
-                && r.data.get("source").and_then(Value::as_str) == Some(canon_source.as_str())
-                && r.data.get("target").and_then(Value::as_str) == Some(canon_target.as_str())
-                && r.data.get("kind").and_then(Value::as_str) == Some(&kind)
-        }) {
-            return Ok(wit_relations::CreateResult::AlreadyExisted(
-                record_to_relation(existing),
-            ));
-        }
+        // Idempotent on (canon_source, canon_target, kind). The store
+        // holds the records-cache lock across probe + insert + disk
+        // write so two concurrent callers cannot both observe
+        // no-existing-edge and then write duplicate records.
         let id = self.mint_internal("relation")?;
         let created_at = self.clock.now_iso();
         let data = serde_json::json!({
@@ -1237,12 +1224,18 @@ impl wit_relations::Host for HostState {
             updated_at: created_at.clone(),
             data: data.clone(),
         };
-        self.store
-            .create_document(record.clone())
+        let outcome = self
+            .store
+            .create_relation_if_absent(&canon_source, &canon_target, &kind, record)
             .map_err(storage_create_error_to_wit_error)?;
-        Ok(wit_relations::CreateResult::Created(record_to_relation(
-            &record,
-        )))
+        Ok(match outcome {
+            crate::RelationCreateOutcome::Created(record) => {
+                wit_relations::CreateResult::Created(record_to_relation(&record))
+            }
+            crate::RelationCreateOutcome::AlreadyExisted(record) => {
+                wit_relations::CreateResult::AlreadyExisted(record_to_relation(&record))
+            }
+        })
     }
 
     fn replace_attributes(

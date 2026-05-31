@@ -6616,6 +6616,16 @@ impl std::fmt::Display for StorageCreateError {
     }
 }
 
+/// Typed outcome of `ExtensionRuntimeStore::create_relation_if_absent`.
+/// `Created` means the candidate record was written; `AlreadyExisted`
+/// means an existing record matched the `(canon_source, canon_target,
+/// kind)` triple and is returned verbatim.
+#[derive(Debug, Clone)]
+pub(crate) enum RelationCreateOutcome {
+    Created(ExtensionDocumentRecord),
+    AlreadyExisted(ExtensionDocumentRecord),
+}
+
 /// Typed outcome of `ExtensionRuntimeStore::delete_document`. The WASM
 /// host returns `wit_types::DeleteResult::WasAbsent` for `NotFound`
 /// and `wit_types::ErrorCode::Internal` for storage failures — without
@@ -7059,6 +7069,64 @@ impl ExtensionRuntimeStore {
             .map_err(StorageCreateError::Internal)
     }
 
+    /// Atomically probe-then-insert a `relations` record. Holds the
+    /// `records_cache` lock across the probe and the disk write so two
+    /// concurrent `wit_relations::Host::create` calls cannot both observe
+    /// no-existing-edge and then write duplicate records for the same
+    /// `(canon_source, canon_target, kind)` triple.
+    ///
+    /// `record` is the freshly-minted candidate; if the probe finds an
+    /// existing edge, the candidate is discarded and the existing record
+    /// is returned (callers may waste a minted id — acceptable).
+    pub(crate) fn create_relation_if_absent(
+        &self,
+        canon_source: &str,
+        canon_target: &str,
+        kind: &str,
+        record: ExtensionDocumentRecord,
+    ) -> Result<RelationCreateOutcome, StorageCreateError> {
+        let mut cache = self.records_cache.lock().map_err(|error| {
+            StorageCreateError::Internal(format!("extension store cache lock poisoned: {error}"))
+        })?;
+        if cache.is_none() {
+            let read = self
+                .read_records_from_disk()
+                .map_err(StorageCreateError::Internal)?;
+            *cache = Some(read);
+        }
+        let records = cache.as_ref().expect("cache populated above").clone();
+        if let Some(existing) = records.iter().find(|r| {
+            r.collection == "relations"
+                && r.owner_extension == "core"
+                && r.data.get("source").and_then(Value::as_str) == Some(canon_source)
+                && r.data.get("target").and_then(Value::as_str) == Some(canon_target)
+                && r.data.get("kind").and_then(Value::as_str) == Some(kind)
+        }) {
+            return Ok(RelationCreateOutcome::AlreadyExisted(existing.clone()));
+        }
+        // Same `(owner_extension, collection, id)` dedup as create_document —
+        // would only fire on an internal id-mint collision, which is
+        // exceedingly unlikely with the new CSPRNG-backed OpaqueId minter,
+        // but we keep the check for defence-in-depth.
+        if records.iter().any(|existing| {
+            existing.owner_extension == record.owner_extension
+                && existing.collection == record.collection
+                && existing.id == record.id
+        }) {
+            return Err(StorageCreateError::AlreadyExists {
+                owner_extension: record.owner_extension,
+                collection: record.collection,
+                id: record.id,
+            });
+        }
+        let mut next = records;
+        next.push(record.clone());
+        self.persist_records_to_disk(&next)
+            .map_err(StorageCreateError::Internal)?;
+        *cache = Some(next);
+        Ok(RelationCreateOutcome::Created(record))
+    }
+
     pub(crate) fn delete_document(
         &self,
         owner_extension: &str,
@@ -7192,7 +7260,12 @@ impl ExtensionRuntimeStore {
             .collect()
     }
 
-    fn write_records_atomically(&self, records: &[ExtensionDocumentRecord]) -> Result<(), String> {
+    /// Persist the document table to disk via tmp-file + rename. Does not
+    /// touch the cache — callers that already hold `records_cache` must
+    /// update it themselves. Callers that don't hold the cache should use
+    /// `write_records_atomically` (which both persists and refreshes the
+    /// cache).
+    fn persist_records_to_disk(&self, records: &[ExtensionDocumentRecord]) -> Result<(), String> {
         let path = self.documents_path();
         let tmp_path = self.root.join("documents.jsonl.tmp");
         let mut body = Vec::new();
@@ -7209,6 +7282,11 @@ impl ExtensionRuntimeStore {
                 path.display()
             )
         })?;
+        Ok(())
+    }
+
+    fn write_records_atomically(&self, records: &[ExtensionDocumentRecord]) -> Result<(), String> {
+        self.persist_records_to_disk(records)?;
         // Refresh the cache with the just-written records so the next read
         // is served from memory without re-reading the file. This is the
         // single write chokepoint for the document table (create, delete,
@@ -13546,6 +13624,99 @@ mod tests {
         assert!(
             matches!(missing, Err(StorageUpdateError::NotFound { .. })),
             "commit for non-owner must report NotFound, not corrupt another owner; got {missing:?}"
+        );
+    }
+
+    #[test]
+    fn create_relation_if_absent_holds_lock_across_probe_and_insert() {
+        // Regression for the TNQ-2 P1 race: previously `wit_relations::Host::create`
+        // probed records via `load_records` (which releases the cache lock)
+        // and then minted a fresh id and called `create_document`. Two
+        // concurrent callers could both pass the probe and then write
+        // distinct records for the same (source, target, kind) triple,
+        // because the dedup key in `create_document` is
+        // (owner_extension, collection, id) — not the relation triple.
+        //
+        // `create_relation_if_absent` holds the records-cache lock across
+        // probe + insert + disk write, so contention turns into exactly
+        // one Created and N-1 AlreadyExisted, never duplicates.
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let dir = temp_dir("storage-relation-race");
+        let store = Arc::new(ExtensionRuntimeStore::open_for_tests(&dir).expect("open store"));
+
+        let source = "comtrya://issue/iss_race_source";
+        let target = "comtrya://epic/epc_race_target";
+        let kind = "comtrya://relation-kind/tracks";
+
+        const THREADS: usize = 8;
+        let barrier = Arc::new(Barrier::new(THREADS));
+        let mut joins = Vec::with_capacity(THREADS);
+        for i in 0..THREADS {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            joins.push(thread::spawn(move || {
+                // Each thread mints a distinct candidate id so the dedup
+                // key in create_document would NOT save us — only the
+                // locked probe-then-insert prevents duplicate edges.
+                let candidate_id = format!("rel_race_{i:02}");
+                let record = extension_document_record(
+                    "core",
+                    "relations",
+                    &candidate_id,
+                    source,
+                    vec![source.to_string(), target.to_string()],
+                    json!({
+                        "id": candidate_id,
+                        "source": source,
+                        "target": target,
+                        "kind": kind,
+                        "createdAt": "2026-05-31T00:00:00Z",
+                    }),
+                    "2026-05-31T00:00:00Z",
+                );
+                barrier.wait();
+                store.create_relation_if_absent(source, target, kind, record)
+            }));
+        }
+
+        let outcomes: Vec<_> = joins.into_iter().map(|h| h.join().unwrap()).collect();
+        let created = outcomes
+            .iter()
+            .filter(|r| matches!(r, Ok(RelationCreateOutcome::Created(_))))
+            .count();
+        let already_existed = outcomes
+            .iter()
+            .filter(|r| matches!(r, Ok(RelationCreateOutcome::AlreadyExisted(_))))
+            .count();
+        assert_eq!(
+            created, 1,
+            "exactly one writer must observe Created; got {created} (outcomes: {outcomes:?})"
+        );
+        assert_eq!(
+            already_existed,
+            THREADS - 1,
+            "remaining writers must observe AlreadyExisted; got {already_existed}"
+        );
+
+        // Disk-side check: only one `relations` record persisted for the triple.
+        let records = store.load_records().unwrap();
+        let matching: Vec<_> = records
+            .iter()
+            .filter(|r| {
+                r.collection == "relations"
+                    && r.owner_extension == "core"
+                    && r.data.get("source").and_then(Value::as_str) == Some(source)
+                    && r.data.get("target").and_then(Value::as_str) == Some(target)
+                    && r.data.get("kind").and_then(Value::as_str) == Some(kind)
+            })
+            .collect();
+        assert_eq!(
+            matching.len(),
+            1,
+            "exactly one persisted edge for the triple; got {}",
+            matching.len()
         );
     }
 }
