@@ -74,6 +74,12 @@ export function relationshipTargetProviderForKind(
   return PROVIDERS.get(resourceKind);
 }
 
+/** Remove a registered relationship target provider by resource kind. */
+export function unregisterRelationshipTargetProvider(resourceKind: string): void {
+  PROVIDERS.delete(resourceKind);
+  notify();
+}
+
 export function subscribeRelationshipTypes(callback: () => void): () => void {
   SUBSCRIBERS.add(callback);
   return () => SUBSCRIBERS.delete(callback);

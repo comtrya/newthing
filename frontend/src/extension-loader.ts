@@ -2,10 +2,14 @@ import {
   configureGraphQLClient,
   getGraphQLClient,
   registerCard,
+  unregisterCard,
   registerRelationshipTargetProvider,
+  unregisterRelationshipTargetProvider,
   registerRelationshipType,
   registerRoute,
+  unregisterRoute,
   registerWidget,
+  unregisterWidget,
   type RelationshipTargetProvider,
 } from "@comtrya/sdk-core";
 import { parseManifest, type UiManifestV2 } from "./extension-manifest";
@@ -211,15 +215,16 @@ function createHost(
     routePrefix: extension.routePrefix,
     registerWidget(contribution) {
       assertPermission(manifest, contribution.requiredPermission);
+      const widgetId = `${extensionId}:${contribution.id}`;
       registerWidget({
-        id: `${extensionId}:${contribution.id}`,
+        id: widgetId,
         extensionId,
         element: contribution.element,
         defaultSlot: contribution.defaultSlot,
         defaultPriority: contribution.defaultPriority,
         requiredPermission: contribution.requiredPermission,
       });
-      return { dispose: () => undefined };
+      return { dispose: () => unregisterWidget(widgetId) };
     },
     registerRoute(path, contribution) {
       if (!extension.routePrefix) {
@@ -228,33 +233,35 @@ function createHost(
         );
       }
       assertPermission(manifest, contribution.requiredPermission);
-      const id = `${extensionId}:route:${path}:${contribution.element}`;
+      const routeId = `${extensionId}:route:${path}:${contribution.element}`;
       registerRoute({
-        id,
+        id: routeId,
         extensionId,
         routePrefix: extension.routePrefix,
         path,
         element: contribution.element,
       });
-      return { dispose: () => undefined };
+      return { dispose: () => unregisterRoute(routeId) };
     },
     registerCard(contribution) {
       assertPermission(manifest, contribution.requiredPermission);
+      const cardKind = contribution.resourceKind;
       registerCard({
-        kind: contribution.resourceKind,
+        kind: cardKind,
         element: contribution.element,
         extensionId,
       });
-      return { dispose: () => undefined };
+      return { dispose: () => unregisterCard(cardKind) };
     },
     registerRelationshipTargetProvider(contribution) {
+      const relationshipKind = contribution.resourceKind;
       registerRelationshipTargetProvider({
-        id: `${extensionId}:relationship-target:${contribution.resourceKind}`,
+        id: `${extensionId}:relationship-target:${relationshipKind}`,
         extensionId,
-        resourceKind: contribution.resourceKind,
+        resourceKind: relationshipKind,
         loadTargets: contribution.loadTargets,
       });
-      return { dispose: () => undefined };
+      return { dispose: () => unregisterRelationshipTargetProvider(relationshipKind) };
     },
   };
 }

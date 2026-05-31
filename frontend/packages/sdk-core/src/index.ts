@@ -41,6 +41,7 @@ export {
 } from "./session";
 export {
   registerCard,
+  unregisterCard,
   cardFor,
   type CardContribution,
 } from "./card-registry";
@@ -48,6 +49,7 @@ export {
   registerRelationshipType,
   relationshipTypesForSourceKind,
   registerRelationshipTargetProvider,
+  unregisterRelationshipTargetProvider,
   relationshipTargetProviderForKind,
   subscribeRelationshipTypes,
   type RelationshipTarget,
