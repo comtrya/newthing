@@ -185,23 +185,33 @@ fn read_by_ref(ref_uri: &str) -> Result<Option<StoredEpic>, Error> {
 
 fn member_uris(epic_ref: &str, kind: &str, limit: u32) -> Result<Vec<String>, Error> {
     let prefix = format!("comtrya://{kind}/");
-    // Per the per-extension list-op convention documented in
-    // `docs/wit-platform-design.md`, server-side clamp at 1024 and
-    // silently truncate. The relations probe still pages 1024 max, so
-    // any caller asking for >1024 gets exactly the first 1024 matches.
+    // Server-side clamp per the per-extension list-op convention.
     let cap = limit.min(1024) as usize;
-    Ok(relations::incoming(epic_ref, Some(PART_OF), 1024, None)?
-        .relations
-        .into_iter()
-        .filter_map(|relation| {
+    // Paginate through ALL relation pages until the prefix-filtered
+    // output reaches `cap` or there are no more pages. Previously the
+    // function fetched a single 1024-entry page; since both
+    // `comtrya://rel/part-of` issues and child epics share the same
+    // relation kind, the first page might be all of the other kind and
+    // return zero matching items — silently under-reporting. Fixes #223.
+    let mut out: Vec<String> = Vec::with_capacity(cap.min(64));
+    let mut after: Option<bindings::comtrya::platform::types::PageToken> = None;
+    loop {
+        let page = relations::incoming(epic_ref, Some(PART_OF), 1024, after.as_ref())?;
+        let next = page.next_page;
+        for relation in page.relations {
             if relation.source.starts_with(&prefix) {
-                Some(relation.source)
-            } else {
-                None
+                out.push(relation.source);
+                if out.len() >= cap {
+                    return Ok(out);
+                }
             }
-        })
-        .take(cap)
-        .collect())
+        }
+        match next {
+            Some(cursor) => after = Some(cursor),
+            None => break,
+        }
+    }
+    Ok(out)
 }
 
 fn issue_state_counts(refs: &[String]) -> Result<(u64, u64), Error> {
