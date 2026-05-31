@@ -33,7 +33,7 @@
         ]
       },
       {
-        "name": "_meta",
+        "name": "ext_pull_requests_meta",
         "ownerExtension": "ext_pull_requests",
         "indexes": [
           { "name": "by_id", "fields": ["id"], "unique": true }
