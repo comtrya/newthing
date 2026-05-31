@@ -17,18 +17,6 @@ pub enum TokenAction {
 }
 
 impl TokenAction {
-    pub const fn as_scope(self) -> &'static str {
-        match self {
-            Self::GitRead => "git:read",
-            Self::GitWrite => "git:write",
-            Self::GraphqlRead => "graphql:read",
-            Self::GraphqlWrite => "graphql:write",
-            Self::EventsRead => "events:read",
-            Self::ChecksRead => "checks:read",
-            Self::ChecksWrite => "checks:write",
-        }
-    }
-
     pub fn parse(value: &str) -> CoreResult<Self> {
         Ok(match value {
             "git:read" => Self::GitRead,
