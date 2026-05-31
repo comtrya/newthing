@@ -53,23 +53,27 @@ pub const RESERVED_ROUTE_PREFIXES: &[&str] = &[
     "r", "x", "api", "auth", "git", "graphql", "events", "readyz", "healthz", "instance",
 ];
 
-fn validate_route_prefix(prefix: &str) -> Result<(), String> {
+fn validate_route_prefix(prefix: &str) -> CoreResult<()> {
     let mut chars = prefix.chars();
     let first = chars
         .next()
-        .ok_or_else(|| "route_prefix must not be empty".to_string())?;
+        .ok_or_else(|| CoreError::config_invalid("route_prefix must not be empty"))?;
     if !first.is_ascii_lowercase() {
-        return Err(format!("route_prefix must start with a-z, got '{first}'"));
+        return Err(CoreError::config_invalid(format!(
+            "route_prefix must start with a-z, got '{first}'"
+        )));
     }
     for c in chars {
         if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-            return Err(format!(
+            return Err(CoreError::config_invalid(format!(
                 "route_prefix must match [a-z][a-z0-9-]*, found '{c}'"
-            ));
+            )));
         }
     }
     if RESERVED_ROUTE_PREFIXES.contains(&prefix) {
-        return Err(format!("route_prefix '{prefix}' is reserved by the host"));
+        return Err(CoreError::config_invalid(format!(
+            "route_prefix '{prefix}' is reserved by the host"
+        )));
     }
     Ok(())
 }
@@ -104,7 +108,7 @@ impl ExtensionInstallConfig {
             _ => {}
         }
         if let Some(prefix) = &self.route_prefix {
-            validate_route_prefix(prefix).map_err(CoreError::config_invalid)?;
+            validate_route_prefix(prefix)?;
         }
         Ok(())
     }
