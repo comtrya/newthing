@@ -95,7 +95,51 @@ export interface AdminTelemetry {
 }
 
 interface AdminTelemetryPayload {
-  adminTelemetry?: AdminTelemetry;
+  adminTelemetry?: unknown;
+}
+
+/**
+ * Runtime type guard for the admin telemetry JSON-scalar payload.
+ *
+ * `adminTelemetry` is returned as a raw JSON scalar (no GraphQL subfields
+ * are declared on the server side). The TypeScript interface `AdminTelemetry`
+ * cannot be verified at compile time — this guard validates the minimum
+ * required shape at the edge so downstream code can safely dereference deep
+ * paths like `telemetry.readiness.ready` without risking `TypeError` on a
+ * partial or malformed payload (closes #118).
+ *
+ * Validates:
+ *   - Top-level object with the required section keys
+ *   - `instance` has at minimum `id` (string) and `now` (number)
+ *   - `readiness` has at minimum `ready` (boolean)
+ *   - `access`, `storage`, `services`, `extensions`, `recentEvents` exist
+ */
+function isAdminTelemetry(value: unknown): value is AdminTelemetry {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  // Require the top-level sections
+  for (const key of [
+    "instance",
+    "services",
+    "readiness",
+    "access",
+    "storage",
+    "extensions",
+    "recentEvents",
+  ]) {
+    if (!(key in v)) return false;
+  }
+  // Spot-check instance shape
+  const inst = v["instance"];
+  if (!inst || typeof inst !== "object") return false;
+  const i = inst as Record<string, unknown>;
+  if (typeof i["id"] !== "string") return false;
+  if (typeof i["now"] !== "number") return false;
+  // Spot-check readiness shape
+  const rdy = v["readiness"];
+  if (!rdy || typeof rdy !== "object") return false;
+  if (typeof (rdy as Record<string, unknown>)["ready"] !== "boolean") return false;
+  return true;
 }
 
 export function useAdminTelemetry() {
@@ -110,10 +154,16 @@ export function useAdminTelemetry() {
       const payload = await getGraphQLClient().query<AdminTelemetryPayload>(
         `query AdminTelemetry { adminTelemetry }`,
       );
-      telemetry.value = payload.adminTelemetry ?? null;
-      if (!telemetry.value) {
-        error.value = "admin telemetry was not returned";
+      const raw = payload.adminTelemetry;
+      if (!isAdminTelemetry(raw)) {
+        telemetry.value = null;
+        error.value =
+          raw == null
+            ? "admin telemetry was not returned"
+            : "admin telemetry payload has an unexpected shape";
+        return;
       }
+      telemetry.value = raw;
     } catch (caught) {
       telemetry.value = null;
       error.value = caught instanceof Error ? caught.message : String(caught);
