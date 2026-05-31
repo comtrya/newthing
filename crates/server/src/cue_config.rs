@@ -210,13 +210,39 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<TempDir, Strin
         .stdout
         .take()
         .ok_or_else(|| "git archive stdout missing".to_string())?;
-    let tar_status = Command::new("tar")
+    // Drain stderr off-thread so a noisy `git archive` (many ref-name
+    // warnings, transport-hook progress) cannot fill the 64 KiB pipe
+    // buffer and deadlock the `wait()` below — the kernel would block
+    // git on its stderr write while we sat blocked in wait, forever.
+    let archive_stderr_handle = archive.stderr.take().map(|mut stderr| {
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut buf = String::new();
+            let _ = stderr.read_to_string(&mut buf);
+            buf
+        })
+    });
+    // Spawn tar in a separate fallible scope so a tar-spawn failure
+    // (binary missing, ENOMEM, ulimit) still reaps the archive child;
+    // a bare `?` would early-return with the Child handle dropped and
+    // the underlying process unreaped.
+    let tar_status = match Command::new("tar")
         .arg("-x")
         .arg("-C")
         .arg(base)
         .stdin(archive_out)
         .status()
-        .map_err(|e| format!("tar spawn failed: {e}"))?;
+    {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = archive.kill();
+            let _ = archive.wait();
+            if let Some(handle) = archive_stderr_handle {
+                let _ = handle.join();
+            }
+            return Err(format!("tar spawn failed: {error}"));
+        }
+    };
 
     // Reap the `git archive` child whether or not tar succeeded — never
     // leak the process. If it failed (e.g. unknown ref), surface its
@@ -225,15 +251,8 @@ fn materialise_worktree(git_dir: &Path, ref_name: &str) -> Result<TempDir, Strin
     let archive_status = archive
         .wait()
         .map_err(|e| format!("git archive wait failed: {e}"))?;
-    let archive_stderr = archive
-        .stderr
-        .take()
-        .map(|mut stderr| {
-            use std::io::Read;
-            let mut buf = String::new();
-            let _ = stderr.read_to_string(&mut buf);
-            buf
-        })
+    let archive_stderr = archive_stderr_handle
+        .and_then(|handle| handle.join().ok())
         .unwrap_or_default();
 
     if !tar_status.success() {
