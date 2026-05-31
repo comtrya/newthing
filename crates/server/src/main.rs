@@ -6,7 +6,7 @@ compile_error!("comtrya-server requires a Unix target (uses tokio::signal::unix 
 
 use axum::body::{Body, Bytes};
 use axum::extract::{Path as AxumPath, Query, RawQuery, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, ETAG};
+use axum::http::header::{CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, ETAG};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, options, post};
@@ -588,6 +588,13 @@ struct Runtime {
     /// startup and replaced by the reconciler on each config sync, so admin
     /// changes take effect without a restart.
     admins: std::sync::RwLock<Vec<comtrya_core::AdminConfig>>,
+    /// Broadcasts every persisted event to the SSE subscribers held by
+    /// `event_stream_response`. Capacity 256 — a slow subscriber that
+    /// falls behind gets `RecvError::Lagged` and we drop them with a
+    /// warn log instead of stalling the producer. `append_event_internal`
+    /// publishes after the JSONL append succeeds, so a disk-write failure
+    /// never surfaces an event that hasn't actually persisted.
+    event_broadcast: tokio::sync::broadcast::Sender<Value>,
 }
 
 type ResponseResult<T> = Result<T, Box<Response>>;
@@ -774,6 +781,11 @@ impl Runtime {
                 config_sync::sync_interval_seconds_from_env(),
             )),
             admins: std::sync::RwLock::new(admins_seed),
+            // 256 keeps a slow consumer ~3 seconds of headroom at typical
+            // emit rates (issue: SSE flooding). Drop-with-Lagged is the
+            // documented contract: subscribers get a discontinuity signal
+            // they can recover from via Last-Event-ID on reconnect.
+            event_broadcast: tokio::sync::broadcast::channel(256).0,
         };
         // Install the per-repo extension opt-in resolver. It needs the
         // data dir, the shared CUE evaluation cache, and the collected
@@ -2506,18 +2518,22 @@ impl Runtime {
     }
 
     fn append_event_internal(&self, event_type: &str, data: Value) -> std::io::Result<()> {
-        append_jsonl(
-            &self.events_path,
-            json!({
-                "specversion": "1.0",
-                "id": self.next_id("evt"),
-                "type": event_type,
-                "source": "comtrya://instance/local",
-                "time": now_seconds(),
-                "visibility": "PRIVATE",
-                "data": data
-            }),
-        )
+        let envelope = json!({
+            "specversion": "1.0",
+            "id": self.next_id("evt"),
+            "type": event_type,
+            "source": "comtrya://instance/local",
+            "time": now_seconds(),
+            "visibility": "PRIVATE",
+            "data": data
+        });
+        append_jsonl(&self.events_path, envelope.clone())?;
+        // Publish AFTER the disk write so a slow subscriber can never
+        // see an event the kernel hasn't persisted. `send` returns an
+        // `Err` only when there are zero subscribers; that's normal
+        // (no SSE clients connected) and not a failure.
+        let _ = self.event_broadcast.send(envelope);
+        Ok(())
     }
 
     fn append_audit(&self, event_type: &str, data: Value) -> std::io::Result<()> {
@@ -4211,12 +4227,60 @@ async fn events(
     event_stream_response(state, headers, query.get("session").cloned(), "/events")
 }
 
+/// True if `event` is admissible on the SSE stream for the given
+/// principal. Mirrors the prior in-line filter: audit events are
+/// dropped for everyone; non-admins only see PUBLIC.
+fn sse_event_visible(event: &Value, is_admin: bool) -> bool {
+    let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+    if event_type.starts_with("dev.comtrya.auth.") || event_type.starts_with("dev.comtrya.oidc.") {
+        return false;
+    }
+    if !is_admin {
+        let visibility = event
+            .get("visibility")
+            .and_then(Value::as_str)
+            .unwrap_or("PRIVATE");
+        if visibility != "PUBLIC" {
+            return false;
+        }
+    }
+    true
+}
+
+/// Format a JSON envelope as an SSE frame. Returns `None` if the
+/// envelope is missing the stable `id` field — those events cannot
+/// participate in `Last-Event-ID` reconnect, so they're dropped.
+fn sse_frame(event: &Value) -> Option<String> {
+    let event_id = event.get("id").and_then(Value::as_str)?;
+    let event_type = event
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("dev.comtrya.event");
+    Some(format!(
+        "id: {event_id}\nevent: {event_type}\ndata: {event}\n\n"
+    ))
+}
+
+/// Serve `/graphql/stream` and `/events` as a real `text/event-stream`
+/// using `axum::body::Body::from_stream` against a live broadcast
+/// subscription. Honors `Last-Event-ID` for backfill from the on-disk
+/// log and emits a `:` keep-alive comment every 15 seconds so proxies
+/// don't time the connection out.
+///
+/// Previously this collected the full filtered `events.jsonl` into a
+/// `String` and returned a finite body labeled `text/event-stream`;
+/// browsers' `EventSource` saw the connection close immediately,
+/// reconnected in a tight loop, and missed every event appended
+/// between snapshots. The `Last-Event-ID` machinery the rest of the
+/// code carefully threads was a no-op because no live frames ever
+/// reached the client.
 fn event_stream_response(
     state: AppState,
     headers: HeaderMap,
     session: Option<String>,
     route: &str,
 ) -> Response {
+    use futures::StreamExt;
     let cors = match state.runtime.check_boundary(&headers, route) {
         Ok(cors) => cors,
         Err(response) => return *response,
@@ -4242,58 +4306,97 @@ fn event_stream_response(
             cors,
         );
     }
-
-    // Visibility filter. Without it, every authenticated principal sees
-    // every workspace event including PRIVATE repo/PR/comment activity
-    // for repos they cannot read (issue: /events SSE cross-tenant leak).
-    // Admin/operator credentials retain full visibility for ops/audit
-    // tooling. Audit events (`dev.comtrya.auth.*` / `dev.comtrya.oidc.*`)
-    // are never served on this stream — they're for the audit log only
-    // and would expose login activity / OIDC subject identifiers to any
-    // authenticated reader.
     let is_admin = matches!(
         principal,
         PrincipalStatus::OperatorCredential | PrincipalStatus::AdminCredential
     );
-    let frames = state
+    let last_event_id = headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+
+    // Subscribe BEFORE reading the on-disk backfill. ULID-monotonic
+    // event ids let us drop live frames whose id is `<= max_backfill_id`
+    // so the cross-over between backfill and live cannot duplicate.
+    let mut rx = state.runtime.event_broadcast.subscribe();
+    let backfill: Vec<Value> = state
         .runtime
         .read_events()
         .into_iter()
+        .filter(|event| sse_event_visible(event, is_admin))
         .filter(|event| {
-            let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
-            if event_type.starts_with("dev.comtrya.auth.")
-                || event_type.starts_with("dev.comtrya.oidc.")
-            {
-                return false;
-            }
-            if !is_admin {
-                let visibility = event
-                    .get("visibility")
-                    .and_then(Value::as_str)
-                    .unwrap_or("PRIVATE");
-                if visibility != "PUBLIC" {
-                    return false;
+            // Resume strictly after `Last-Event-ID`: skip events with
+            // ids `<= cursor`. If no cursor, ship the full filtered
+            // backfill.
+            match last_event_id.as_deref() {
+                None => true,
+                Some(cursor) => {
+                    let id = event.get("id").and_then(Value::as_str).unwrap_or("");
+                    id.as_bytes() > cursor.as_bytes()
                 }
             }
-            true
         })
-        .filter_map(|event| {
-            let event_type = event
-                .get("type")
-                .and_then(Value::as_str)
-                .unwrap_or("dev.comtrya.event")
-                .to_string();
-            // Use the event's stable `evt_…` id, not the per-request
-            // iteration index. Last-Event-ID reconnect was meaningless
-            // before — the index shifted every time the log grew or
-            // earlier entries were filtered out.
-            let event_id = event.get("id").and_then(Value::as_str)?.to_string();
-            Some(format!(
-                "id: {event_id}\nevent: {event_type}\ndata: {event}\n\n"
-            ))
-        })
-        .collect::<String>();
-    text_response(StatusCode::OK, "text/event-stream", frames, cors)
+        .collect();
+    let max_backfill_id = backfill
+        .last()
+        .and_then(|event| event.get("id").and_then(Value::as_str))
+        .map(str::to_string);
+
+    let backfill_stream = futures::stream::iter(backfill).filter_map(|event| async move {
+        sse_frame(&event).map(|s| Ok::<_, std::convert::Infallible>(Bytes::from(s)))
+    });
+
+    let keep_alive_interval = std::time::Duration::from_secs(15);
+    let live_stream = async_stream::stream! {
+        let mut keep_alive = tokio::time::interval(keep_alive_interval);
+        keep_alive.tick().await; // skip the immediate first tick
+        loop {
+            tokio::select! {
+                _ = keep_alive.tick() => {
+                    yield Ok::<_, std::convert::Infallible>(Bytes::from_static(b": keep-alive\n\n"));
+                }
+                result = rx.recv() => {
+                    match result {
+                        Ok(event) => {
+                            if !sse_event_visible(&event, is_admin) { continue; }
+                            // Drop live frames already in the backfill.
+                            if let Some(cap) = &max_backfill_id
+                                && let Some(id) = event.get("id").and_then(Value::as_str)
+                                && id.as_bytes() <= cap.as_bytes() {
+                                continue;
+                            }
+                            if let Some(frame) = sse_frame(&event) {
+                                yield Ok(Bytes::from(frame));
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(
+                                missed = n,
+                                "SSE subscriber lagged behind broadcast; advising reconnect"
+                            );
+                            // Tell the client to reconnect — the
+                            // `Last-Event-ID` they replay will then
+                            // recover from the on-disk log.
+                            yield Ok(Bytes::from_static(b"event: comtrya.lagged\ndata: {}\nretry: 0\n\n"));
+                            break;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            }
+        }
+    };
+
+    let body_stream = backfill_stream.chain(live_stream);
+    let mut response = Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "text/event-stream")
+        .header(CACHE_CONTROL, "no-cache, no-transform")
+        .header("X-Accel-Buffering", "no")
+        .body(axum::body::Body::from_stream(body_stream))
+        .expect("static headers are valid");
+    response.headers_mut().extend(cors);
+    response
 }
 
 async fn events_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -13840,5 +13943,89 @@ mod tests {
             "exactly one persisted edge for the triple; got {}",
             matching.len()
         );
+    }
+
+    #[test]
+    fn sse_event_visible_drops_audit_and_private_for_non_admin() {
+        let public = json!({
+            "id": "evt_pub",
+            "type": "dev.comtrya.repository.created",
+            "visibility": "PUBLIC",
+        });
+        let private = json!({
+            "id": "evt_priv",
+            "type": "dev.comtrya.repository.created",
+            "visibility": "PRIVATE",
+        });
+        let auth = json!({
+            "id": "evt_auth",
+            "type": "dev.comtrya.auth.login.succeeded",
+            "visibility": "PUBLIC",
+        });
+        let oidc = json!({
+            "id": "evt_oidc",
+            "type": "dev.comtrya.oidc.login.completed",
+            "visibility": "PUBLIC",
+        });
+
+        // Non-admin: PUBLIC ok; PRIVATE dropped; auth/oidc always dropped.
+        assert!(sse_event_visible(&public, false));
+        assert!(!sse_event_visible(&private, false));
+        assert!(!sse_event_visible(&auth, false));
+        assert!(!sse_event_visible(&oidc, false));
+
+        // Admin sees private too, but never auth/oidc.
+        assert!(sse_event_visible(&public, true));
+        assert!(sse_event_visible(&private, true));
+        assert!(!sse_event_visible(&auth, true));
+        assert!(!sse_event_visible(&oidc, true));
+    }
+
+    #[test]
+    fn sse_frame_requires_stable_id() {
+        let with_id = json!({
+            "id": "evt_01",
+            "type": "x",
+            "data": {},
+        });
+        let frame = sse_frame(&with_id).expect("frame minted for event with id");
+        assert!(frame.starts_with("id: evt_01\nevent: x\ndata: "));
+        assert!(frame.ends_with("\n\n"));
+
+        let without_id = json!({ "type": "x", "data": {} });
+        assert!(
+            sse_frame(&without_id).is_none(),
+            "events missing stable id cannot participate in Last-Event-ID reconnect"
+        );
+    }
+
+    #[tokio::test]
+    async fn append_event_publishes_to_broadcast_subscribers() {
+        // Regression for the TNQ-3 P1 SSE one-shot bug: previously
+        // `append_event_internal` only wrote to disk, so SSE subscribers
+        // had no way to react to live events. Now it also publishes to
+        // the per-runtime broadcast channel so `event_stream_response`
+        // can bridge into the live feed after backfill.
+        let runtime = dev_runtime_no_extensions();
+        let mut rx = runtime.event_broadcast.subscribe();
+        runtime
+            .append_event("dev.comtrya.test.broadcast", json!({"hello": "world"}))
+            .expect("append event");
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("broadcast publish should arrive within 1s")
+            .expect("recv ok");
+        assert_eq!(
+            event.get("type").and_then(Value::as_str),
+            Some("dev.comtrya.test.broadcast")
+        );
+        assert_eq!(
+            event
+                .get("data")
+                .and_then(|d| d.get("hello"))
+                .and_then(Value::as_str),
+            Some("world")
+        );
+        assert!(event.get("id").and_then(Value::as_str).is_some());
     }
 }
