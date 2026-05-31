@@ -231,16 +231,27 @@ impl SidebandPktWriter {
         while !data.is_empty() {
             let take = data.len().min(self.max_payload);
             let chunk = &data[..take];
-            if self.sideband {
+            let bytes = if self.sideband {
                 let mut payload = Vec::with_capacity(1 + chunk.len());
                 payload.push(1u8); // band 1: data
                 payload.extend_from_slice(chunk);
-                let pkt = encode_pkt_line(&payload);
-                let _ = self.tx.blocking_send(Bytes::from(pkt));
+                Bytes::from(encode_pkt_line(&payload))
             } else {
                 // Raw pack bytes (no pkt-line framing) when sideband not negotiated
-                let _ = self.tx.blocking_send(Bytes::copy_from_slice(chunk));
-            }
+                Bytes::copy_from_slice(chunk)
+            };
+            // Surface a closed receiver as `BrokenPipe` so the streaming
+            // task's `?` aborts the pack-build loop. The receiver is
+            // closed when the client TCP-closes; without this, the
+            // blocking task walks the entire object database, zlib-
+            // encodes every blob, and SHA1-updates the trailer for a
+            // connection that's already gone.
+            self.tx.blocking_send(bytes).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "git smart-HTTP client disconnected mid-pack",
+                )
+            })?;
             data = &data[take..];
         }
         Ok(())
@@ -255,8 +266,12 @@ impl SidebandPktWriter {
         payload.extend_from_slice(msg.as_bytes());
         payload.push(b'\n');
         let pkt = encode_pkt_line(&payload);
-        let _ = self.tx.blocking_send(Bytes::from(pkt));
-        Ok(())
+        self.tx.blocking_send(Bytes::from(pkt)).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "git smart-HTTP client disconnected mid-progress",
+            )
+        })
     }
 }
 
@@ -767,6 +782,31 @@ mod tests {
             }
             _ => panic!("expected progress pkt"),
         }
+    }
+
+    #[test]
+    fn sideband_pkt_writer_surfaces_broken_pipe_when_receiver_dropped() {
+        // Regression for TNQ-3 P1: previously `let _ = self.tx.blocking_send(...)`
+        // discarded SendError when the client TCP-closed mid-pack, and the
+        // blocking task kept walking the object DB, zlib-encoding, and
+        // SHA1-updating for a connection that was already gone. Now the
+        // error bubbles up as `BrokenPipe` so the streaming loop's `?`
+        // aborts the pack-build.
+        let (tx, rx) = mpsc::channel::<Bytes>(1);
+        drop(rx);
+        let mut writer = SidebandPktWriter::new(tx, true, false);
+        let err = writer
+            .send_chunk(b"unsendable")
+            .expect_err("closed channel must surface");
+        assert_eq!(err.kind(), std::io::ErrorKind::BrokenPipe);
+
+        let (tx2, rx2) = mpsc::channel::<Bytes>(1);
+        drop(rx2);
+        let mut writer2 = SidebandPktWriter::new(tx2, true, false);
+        let err2 = writer2
+            .progress_line("progress".to_string())
+            .expect_err("closed channel must surface");
+        assert_eq!(err2.kind(), std::io::ErrorKind::BrokenPipe);
     }
 
     #[test]
