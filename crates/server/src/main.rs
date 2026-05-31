@@ -2281,22 +2281,33 @@ impl Runtime {
         }
     }
 
-    fn issue_session(&self, principal: PrincipalStatus) -> String {
+    /// Mint a single-use session token and persist it. Returns the
+    /// token only when the insert succeeds — a storage failure here
+    /// MUST propagate up to the HTTP caller so the operator gets a
+    /// 503 (StorageUnavailable) rather than a 302/cookie that the
+    /// next request will see as `Invalid` (401). Previously this
+    /// logged the failure and returned the token anyway; the audit
+    /// log recorded a "session issued" event the system could not
+    /// actually authenticate.
+    fn issue_session(&self, principal: PrincipalStatus) -> Result<String, String> {
         let token = self.next_secure_token("sess");
         let now = now_seconds();
-        if let Err(error) = self.store.insert_session(
-            &token,
-            principal_to_stored(principal),
-            now.saturating_add(self.options.session_ttl_seconds),
-            now,
-        ) {
-            tracing::error!(%error, "session persistence failed");
-        }
+        self.store
+            .insert_session(
+                &token,
+                principal_to_stored(principal),
+                now.saturating_add(self.options.session_ttl_seconds),
+                now,
+            )
+            .map_err(|error| {
+                tracing::error!(%error, "session persistence failed");
+                error
+            })?;
         let _ = self.append_audit(
             "dev.comtrya.session.issued",
             json!({"token_sha256_prefix": token_audit_id(&token)}),
         );
-        token
+        Ok(token)
     }
 
     fn consume_session(&self, token: &str, cors: HeaderMap) -> ResponseResult<PrincipalStatus> {
@@ -2343,30 +2354,37 @@ impl Runtime {
         }
     }
 
+    /// Mint a bearer credential and persist it. Returns the token only
+    /// when the insert succeeds — see `issue_session` for the same
+    /// rationale: a token the system cannot authenticate must not be
+    /// shipped to the client.
     fn issue_credential(
         &self,
         resource: String,
         actions: Vec<String>,
         principal: PrincipalStatus,
-    ) -> String {
+    ) -> Result<String, String> {
         let token = self.next_secure_token("fp");
         let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
         let now = now_seconds();
-        if let Err(error) = self.store.insert_credential(
-            &token,
-            principal_to_stored(principal),
-            &principal_uri,
-            &actions,
-            now.saturating_add(300),
-            now,
-        ) {
-            tracing::error!(%error, "credential persistence failed");
-        }
+        self.store
+            .insert_credential(
+                &token,
+                principal_to_stored(principal),
+                &principal_uri,
+                &actions,
+                now.saturating_add(300),
+                now,
+            )
+            .map_err(|error| {
+                tracing::error!(%error, "credential persistence failed");
+                error
+            })?;
         let _ = self.append_event(
             "dev.comtrya.auth.credential.issued",
             json!({"resource": resource, "scope": actions, "principal": principal_uri}),
         );
-        token
+        Ok(token)
     }
 
     /// Mint a Git personal access token for `owner_principal_uri`. Returns
@@ -4426,7 +4444,18 @@ fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> R
             cors,
         );
     }
-    let token = state.runtime.issue_session(principal);
+    let token = match state.runtime.issue_session(principal) {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::error!(%error, "issue_session_response: session persistence failed");
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                "session storage is temporarily unavailable",
+                cors,
+            );
+        }
+    };
     json_response(
         StatusCode::OK,
         json!({"session": token, "expiresIn": state.runtime.options.session_ttl_seconds}),
@@ -4525,11 +4554,22 @@ async fn token_exchange(
             );
         }
     }
-    let token = state.runtime.issue_credential(
+    let token = match state.runtime.issue_credential(
         request.requested_resource.clone(),
         request.requested_actions.clone(),
         PrincipalStatus::OperatorCredential,
-    );
+    ) {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::error!(%error, "token_exchange: credential persistence failed");
+            return error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                "credential storage is temporarily unavailable",
+                cors,
+            );
+        }
+    };
     json_response(
         StatusCode::OK,
         json!({
@@ -5109,14 +5149,24 @@ async fn oidc_callback(
     } else {
         PrincipalStatus::Credential
     };
-    let token = state.runtime.issue_credential(
+    let token = match state.runtime.issue_credential(
         "comtrya://workspace".to_string(),
         OIDC_BROWSER_ACTIONS
             .iter()
             .map(|action| action.to_string())
             .collect(),
         principal,
-    );
+    ) {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::error!(%error, "OIDC callback: credential persistence failed");
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::StorageUnavailable.as_str(),
+                "credential storage is temporarily unavailable",
+            );
+        }
+    };
     let cookie = session_cookie_value(
         &token,
         state.runtime.options.session_ttl_seconds,
@@ -9388,7 +9438,9 @@ mod tests {
     #[tokio::test]
     async fn session_token_is_single_use_for_events() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let token = runtime
+            .issue_session(PrincipalStatus::OperatorCredential)
+            .expect("test store insert");
         let mut query = HashMap::new();
         query.insert("session".to_string(), token.clone());
 
@@ -9510,7 +9562,9 @@ mod tests {
     #[tokio::test]
     async fn expired_session_token_fails_closed_for_events() {
         let runtime = dev_runtime_no_extensions_with_session_ttl(0);
-        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let token = runtime
+            .issue_session(PrincipalStatus::OperatorCredential)
+            .expect("test store insert");
         let mut query = HashMap::new();
         query.insert("session".to_string(), token);
 
@@ -9614,11 +9668,13 @@ mod tests {
         let runtime = dev_runtime_no_extensions();
         import_test_repository(&runtime, "comtrya/comtrya");
         let git_state = PureRustGitState::from_runtime(&runtime);
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
 
         let response = call_repo_endpoint(
             AppState { runtime, git_state },
@@ -9659,11 +9715,13 @@ mod tests {
         );
         import_test_repository(&runtime, "comtrya/comtrya");
         let git_state = PureRustGitState::from_runtime(&runtime);
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
 
         let request = || {
             call_repo_endpoint(
@@ -9698,11 +9756,13 @@ mod tests {
         // `Unavailable` status (→ 503), never as `Invalid` (→ 401), so a SQLite
         // hiccup is not mistaken for a bad token.
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
 
         // Sanity: a healthy store resolves the credential.
@@ -9757,11 +9817,13 @@ mod tests {
             ErrorCode::Unauthenticated.as_str()
         );
 
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let wrong_scope_response = call_repo_endpoint(
             AppState {
                 runtime: runtime.clone(),
@@ -9785,11 +9847,13 @@ mod tests {
             ErrorCode::Forbidden.as_str()
         );
 
-        let write_only_token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["git:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let write_only_token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["git:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let write_only_fetch_response = call_repo_endpoint(
             AppState {
                 runtime,
@@ -9817,11 +9881,13 @@ mod tests {
     #[tokio::test]
     async fn git_endpoint_rejects_path_traversal_after_auth() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["git:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["git:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
 
         let response = call_repo_endpoint(
             AppState {
@@ -9851,11 +9917,13 @@ mod tests {
         // git:write must be refused, since browser cookies/bearers cannot push.
         // The client is challenged for HTTP Basic.
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["git:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["git:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
 
         let response = call_repo_endpoint(
             AppState {
@@ -9960,11 +10028,13 @@ mod tests {
     #[tokio::test]
     async fn account_git_token_api_creates_lists_and_revokes_tokens() {
         let runtime = dev_runtime_no_extensions();
-        let bearer = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:read".to_string(), "git:write".to_string()],
-            PrincipalStatus::Credential,
-        );
+        let bearer = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:read".to_string(), "git:write".to_string()],
+                PrincipalStatus::Credential,
+            )
+            .expect("test store insert");
         let state = AppState {
             runtime: runtime.clone(),
             git_state: PureRustGitState::test_default(),
@@ -10011,11 +10081,13 @@ mod tests {
     #[tokio::test]
     async fn account_git_token_api_rejects_scopes_the_session_does_not_have() {
         let runtime = dev_runtime_no_extensions();
-        let bearer = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:read".to_string()],
-            PrincipalStatus::Credential,
-        );
+        let bearer = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:read".to_string()],
+                PrincipalStatus::Credential,
+            )
+            .expect("test store insert");
         let state = AppState {
             runtime,
             git_state: PureRustGitState::test_default(),
@@ -10138,11 +10210,13 @@ mod tests {
         // credential must be challenged for HTTP Basic (PAT-only push path),
         // not served as a browse route.
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let response = call_repo_endpoint(
             AppState {
                 runtime,
@@ -10173,11 +10247,13 @@ mod tests {
         // git:read credential is supplied to prove the response is the browse
         // fallthrough rather than a git auth challenge.
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["git:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["git:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         for path in ["comtrya/comtrya", "comtrya/comtrya/code"] {
             let response = call_repo_endpoint(
                 AppState {
@@ -10256,11 +10332,13 @@ mod tests {
     #[tokio::test]
     async fn graphql_response_starts_with_empty_workspace_and_nullable_root_repository() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let mut headers = HeaderMap::new();
         headers.insert(
             "authorization",
@@ -11054,11 +11132,13 @@ mod tests {
         runtime.wasm_registry.install_repo_enablement(
             crate::wasm_registry::StaticRepoEnablement::new([(repository, vec!["ext_issues"])]),
         );
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["api:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["api:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let state = AppState {
             runtime: runtime.clone(),
             git_state: PureRustGitState::test_default(),
@@ -11195,11 +11275,13 @@ mod tests {
     #[tokio::test]
     async fn api_ops_reject_unknown_extension_without_graphql_bridge() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["api:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["api:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let state = AppState {
             runtime,
             git_state: PureRustGitState::test_default(),
@@ -11235,11 +11317,13 @@ mod tests {
                 vec!["ext_issues"],
             )]),
         );
-        let token = runtime.issue_credential(
-            "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
-            vec!["api:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://repository/repo_01HV0K4XAVE2H6R5M8KJZ8Q1A3".to_string(),
+                vec!["api:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let state = AppState {
             runtime,
             git_state: PureRustGitState::test_default(),
@@ -11712,11 +11796,13 @@ mod tests {
     #[tokio::test]
     async fn user_layout_returns_empty_for_unknown_principal_repo() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::Credential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::Credential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -11742,11 +11828,13 @@ mod tests {
     #[tokio::test]
     async fn set_user_layout_round_trips() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://user/test".to_string(),
-            vec!["graphql:write".to_string()],
-            PrincipalStatus::Credential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://user/test".to_string(),
+                vec!["graphql:write".to_string()],
+                PrincipalStatus::Credential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let entries = json!({
             "issues-list": { "slot": "repository.sidebar", "priority": 50 },
@@ -11798,11 +11886,13 @@ mod tests {
     #[tokio::test]
     async fn set_user_layout_overwrites_previous_entries() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://user/test".to_string(),
-            vec!["graphql:write".to_string()],
-            PrincipalStatus::Credential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://user/test".to_string(),
+                vec!["graphql:write".to_string()],
+                PrincipalStatus::Credential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let state = AppState {
             runtime: runtime.clone(),
@@ -12228,11 +12318,13 @@ mod tests {
         // `issue_credential(... OperatorCredential)` call with whatever stub the OIDC
         // verifier exposes for tests.
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let response = graphql_post(
             State(AppState {
                 runtime,
@@ -12398,11 +12490,13 @@ mod tests {
             .unwrap()
             .trim()
             .to_string();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12439,11 +12533,13 @@ mod tests {
     async fn graphql_commit_diff_returns_error_envelope_for_malformed_oid() {
         let runtime = dev_runtime_no_extensions();
         import_test_repository(&runtime, "comtrya/comtrya");
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12472,11 +12568,13 @@ mod tests {
     async fn graphql_workspace_repository_by_path_resolves_via_variables() {
         let runtime = dev_runtime_no_extensions();
         import_test_repository(&runtime, "comtrya/comtrya");
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12508,11 +12606,13 @@ mod tests {
     async fn graphql_workspace_repository_by_path_resolves_rawkode_smoke_repo() {
         let runtime = dev_runtime_no_extensions();
         let created = import_test_repository(&runtime, "rawkode/rawkode");
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12546,11 +12646,13 @@ mod tests {
     #[tokio::test]
     async fn graphql_workspace_repository_by_path_returns_null_for_unknown() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12852,11 +12954,13 @@ mod tests {
     async fn graphql_workspace_repositories_exposes_groups_and_summary_fields() {
         let runtime = dev_runtime_no_extensions();
         import_test_repository(&runtime, "comtrya/comtrya");
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -12912,11 +13016,13 @@ mod tests {
     #[tokio::test]
     async fn graphql_extension_installations_exposes_route_prefix() {
         let runtime = dev_runtime();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -13131,11 +13237,13 @@ mod tests {
     #[tokio::test]
     async fn graphql_viewer_exposes_aggregate_fields() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:read".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:read".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let headers = bearer_headers(&token);
         let response = graphql_post(
             State(AppState {
@@ -13185,11 +13293,13 @@ mod tests {
     #[tokio::test]
     async fn create_repository_handler_rejects_traversal_path_without_panic() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_credential(
-            "comtrya://workspace".to_string(),
-            vec!["graphql:write".to_string()],
-            PrincipalStatus::OperatorCredential,
-        );
+        let token = runtime
+            .issue_credential(
+                "comtrya://workspace".to_string(),
+                vec!["graphql:write".to_string()],
+                PrincipalStatus::OperatorCredential,
+            )
+            .expect("test store insert");
         let mut headers = HeaderMap::new();
         headers.insert("origin", HeaderValue::from_static("http://localhost:4321"));
         headers.insert(
@@ -13450,7 +13560,9 @@ mod tests {
     #[test]
     fn issue_session_does_not_log_raw_token_to_audit() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let token = runtime
+            .issue_session(PrincipalStatus::OperatorCredential)
+            .expect("test store insert");
         let audit_lines = runtime.read_audit();
         assert!(
             !audit_lines.is_empty(),
@@ -13470,7 +13582,9 @@ mod tests {
     #[test]
     fn consume_session_works_with_secure_tokens() {
         let runtime = dev_runtime_no_extensions();
-        let token = runtime.issue_session(PrincipalStatus::OperatorCredential);
+        let token = runtime
+            .issue_session(PrincipalStatus::OperatorCredential)
+            .expect("test store insert");
         let principal = runtime
             .consume_session(&token, HeaderMap::new())
             .expect("freshly issued session must consume cleanly");
