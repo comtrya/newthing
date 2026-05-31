@@ -113,8 +113,17 @@ files and behavior changed.
   pulls, or checks.
 - Extension backends are authoritative for extension behavior. UI bundles call
   the generated SDK/client path and must not duplicate backend rules.
-- Use canonical WIT operation routes only. Do not add legacy GraphQL aliases,
-  compatibility routes, or extension-specific dispatch special cases.
+- **North star — read/write transport split.** All reads MUST go through the
+  GraphQL endpoint, served by the kernel and federated extension subgraphs
+  (SP6 — Apollo Federation v2; see `docs/v3-decisions.md` and
+  `docs/spec-gap-analysis.md` §A7, tracking issue #203). All writes MUST go
+  through RPC (target: tarpc — see #207). The frontend MUST use GraphQL for
+  every read and RPC for every write — never `/api/ops` directly for either.
+- Until SP6 (reads) and the tarpc migration (writes) land, the interim
+  `/api/ops` WIT routes are the shipping shape for extension-owned reads AND
+  writes. They are interim, not the goal — do not extend the surface, do not
+  expose new `/api/ops` reads from the frontend if a kernel GraphQL field
+  could cover the same query.
 - First-party extensions must ship real Component Model artifacts at
   `dist/<extension-id>.wasm`; do not add `.wat` stubs or resolver shims.
 - If a manifest, schema, WIT package, or documented protocol shape is changed,
