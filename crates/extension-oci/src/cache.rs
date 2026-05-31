@@ -105,20 +105,43 @@ impl ExtensionCache {
         })
     }
 
-    /// Store extension in cache with metadata
+    /// Store extension in cache with metadata.
+    ///
+    /// Uses an atomic write pattern: WASM and metadata are each written to
+    /// a unique temporary file in the cache directory first, then renamed
+    /// into their final positions. This ensures the cache entry only becomes
+    /// visible after BOTH files are fully written — a crash or concurrent
+    /// process between the two writes cannot leave a half-entry visible to
+    /// `get_wasm` / `get_metadata` (closes #122 P3 [extension-oci/correctness]).
     pub fn store(&self, cache_key: &str, wasm_data: &[u8], metadata: CacheMetadata) -> Result<()> {
-        // Write WASM file
+        // Stage WASM to a temp file first.
         let wasm_path = self.wasm_path(cache_key);
-        std::fs::write(&wasm_path, wasm_data)
-            .with_context(|| format!("Failed to write cached WASM: {}", wasm_path.display()))?;
+        let wasm_tmp = wasm_path.with_extension("wasm.tmp");
+        std::fs::write(&wasm_tmp, wasm_data)
+            .with_context(|| format!("Failed to write temp WASM: {}", wasm_tmp.display()))?;
 
-        // Write metadata
+        // Stage metadata to a temp file.
         let metadata_path = self.metadata_path(cache_key);
+        let metadata_tmp = metadata_path.with_extension("meta.tmp");
         let metadata_json =
             serde_json::to_string_pretty(&metadata).context("Failed to serialize metadata")?;
-        std::fs::write(&metadata_path, metadata_json).with_context(|| {
+        std::fs::write(&metadata_tmp, &metadata_json).with_context(|| {
+            format!("Failed to write temp metadata: {}", metadata_tmp.display())
+        })?;
+
+        // Rename WASM into place first (WASM without metadata → cache miss,
+        // which is safe — the entry will just be re-fetched).
+        std::fs::rename(&wasm_tmp, &wasm_path).with_context(|| {
             format!(
-                "Failed to write cache metadata: {}",
+                "Failed to atomically place WASM cache entry: {}",
+                wasm_path.display()
+            )
+        })?;
+
+        // Rename metadata into place — entry is now complete and visible.
+        std::fs::rename(&metadata_tmp, &metadata_path).with_context(|| {
+            format!(
+                "Failed to atomically place metadata cache entry: {}",
                 metadata_path.display()
             )
         })?;
@@ -128,13 +151,35 @@ impl ExtensionCache {
         Ok(())
     }
 
-    /// Verify checksum of cached WASM module
+    /// Verify integrity of a cached WASM module.
+    ///
+    /// Always checks the WASM against its locally-stored SHA256 to detect
+    /// disk-level corruption. When the original reference was a content
+    /// digest (`sha256:<hex>` form), also verifies the WASM against that
+    /// immutable OCI digest so a stale or tampered cache entry cannot be
+    /// accepted (closes #122 P3 [extension-oci/security]).
     pub fn verify_checksum(&self, cache_key: &str) -> Result<bool> {
         let wasm_data = self.get_wasm(cache_key)?;
         let metadata = self.get_metadata(cache_key)?;
 
         let computed_hash = compute_sha256(&wasm_data);
-        Ok(computed_hash == metadata.sha256)
+        // Basic integrity: stored hash must match recomputed hash.
+        if computed_hash != metadata.sha256 {
+            return Ok(false);
+        }
+        // When the entry was pinned by digest, verify against the immutable
+        // content digest from the OCI registry as well. This catches the case
+        // where both the WASM and its locally-stored sha256 were tampered.
+        // content_digest is in "sha256:<hex>" form (OCI spec).
+        if let Some(expected_hex) = metadata
+            .content_digest
+            .as_deref()
+            .and_then(|d| d.strip_prefix("sha256:"))
+            && computed_hash != expected_hex
+        {
+            return Ok(false);
+        }
+        Ok(true)
     }
 
     /// List all cached extensions
@@ -244,20 +289,69 @@ mod tests {
 
         let cache_key = "checksum_test";
         let wasm_data = b"\0asm\x01\x00\x00\x00";
+        let actual_hash = compute_sha256(wasm_data);
         let metadata = CacheMetadata {
             registry: "ghcr.io".to_string(),
             image: "test/extension".to_string(),
             reference: "v1.0.0".to_string(),
-            content_digest: Some("sha256:def456".to_string()),
+            // When content_digest is set it must match the actual WASM hash.
+            content_digest: Some(format!("sha256:{actual_hash}")),
             fetched_at: SystemTime::now(),
             size_bytes: wasm_data.len() as u64,
-            sha256: compute_sha256(wasm_data),
+            sha256: actual_hash,
         };
 
         cache.store(cache_key, wasm_data, metadata).unwrap();
 
-        // Verify checksum matches
+        // Verify checksum matches (sha256 + content_digest both agree).
         assert!(cache.verify_checksum(cache_key).unwrap());
+    }
+
+    #[test]
+    fn test_verify_checksum_no_content_digest() {
+        // When content_digest is None (tag-pinned ref), only the stored
+        // sha256 is checked — should still pass.
+        let temp_dir = TempDir::new().unwrap();
+        let cache = ExtensionCache::new(temp_dir.path().join("cache-no-digest")).unwrap();
+
+        let wasm_data = b"\0asm\x01\x00\x00\x00";
+        let metadata = CacheMetadata {
+            registry: "ghcr.io".to_string(),
+            image: "test/extension".to_string(),
+            reference: "latest".to_string(),
+            content_digest: None,
+            fetched_at: SystemTime::now(),
+            size_bytes: wasm_data.len() as u64,
+            sha256: compute_sha256(wasm_data),
+        };
+        cache.store("no_digest_key", wasm_data, metadata).unwrap();
+        assert!(cache.verify_checksum("no_digest_key").unwrap());
+    }
+
+    #[test]
+    fn test_verify_checksum_mismatched_content_digest_fails() {
+        // content_digest that doesn't match the WASM should fail.
+        let temp_dir = TempDir::new().unwrap();
+        let cache = ExtensionCache::new(temp_dir.path().join("cache-mismatch")).unwrap();
+
+        let wasm_data = b"\0asm\x01\x00\x00\x00";
+        let actual_hash = compute_sha256(wasm_data);
+        let metadata = CacheMetadata {
+            registry: "ghcr.io".to_string(),
+            image: "test/extension".to_string(),
+            reference: "v1.0.0".to_string(),
+            // Deliberately wrong content_digest.
+            content_digest: Some(
+                "sha256:000000000000000000000000000000000000000000000000000000000000dead"
+                    .to_string(),
+            ),
+            fetched_at: SystemTime::now(),
+            size_bytes: wasm_data.len() as u64,
+            sha256: actual_hash,
+        };
+        cache.store("mismatch_key", wasm_data, metadata).unwrap();
+        // Should fail because content_digest doesn't match the WASM.
+        assert!(!cache.verify_checksum("mismatch_key").unwrap());
     }
 
     #[test]

@@ -657,14 +657,17 @@ mod tests {
         let cache_key = ExtensionCache::compute_cache_key("ghcr.io", "test/extension", "v1.0.0");
 
         let wasm_data = CORE_MODULE;
+        let actual_hash = compute_sha256(wasm_data);
         let metadata = CacheMetadata {
             registry: "ghcr.io".to_string(),
             image: "test/extension".to_string(),
             reference: "v1.0.0".to_string(),
-            content_digest: Some("sha256:test789".to_string()),
+            // content_digest must agree with the WASM if set; use the
+            // real hash so verify_checksum passes in offline mode.
+            content_digest: Some(format!("sha256:{actual_hash}")),
             fetched_at: SystemTime::now(),
             size_bytes: wasm_data.len() as u64,
-            sha256: compute_sha256(wasm_data),
+            sha256: actual_hash,
         };
 
         fetcher
