@@ -96,6 +96,8 @@ interface RepositoryIdentity {
   updated?: string | null;
   openPullRequests?: number | null;
   gitHttpPath?: string | null;
+  /** Per-repo extension opt-in set from comtrya.cue `repository.extensions`. */
+  extensions?: string[] | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
   commits?: RepositoryCommit[] | null;
@@ -142,6 +144,7 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
       updated
       openPullRequests
       gitHttpPath
+      extensions
       blobs {
         path
         preview
@@ -494,6 +497,16 @@ const comtryaError = computed<string | null>(
   () => comtryaConfig.value?.error ?? null,
 );
 
+/**
+ * Extension opt-in set from the evaluated comtrya.cue. Used in the
+ * Config view to show which extensions are active for the repo, and by
+ * RepoTabs to conditionally render extension navigation tabs.
+ * `null` while the repository is still loading.
+ */
+const enabledExtensions = computed<string[] | null>(
+  () => repository.value?.extensions ?? null,
+);
+
 /** Pretty-print a project's per-extension policy object (e.g.
  *  `issues: { defaultLabels, closeOnMerge }`) into a flat list of
  *  `(key, value)` entries for the config view. Skips internal
@@ -804,6 +817,24 @@ async function fetchRepositoryIdentity(
         cuengine error: {{ comtryaError }}
       </p>
 
+      <!-- Extensions opt-in summary — most actionable for operators. -->
+      <article class="repo-config-panel" data-smoke="repo-config-extensions">
+        <header>
+          <h2>Enabled Extensions</h2>
+          <span class="hint"><code>repository · extensions</code></span>
+        </header>
+        <ul v-if="enabledExtensions && enabledExtensions.length > 0" class="repo-config-ext-list">
+          <li v-for="ext in enabledExtensions" :key="ext" class="repo-config-ext-chip">
+            {{ ext }}
+          </li>
+        </ul>
+        <p v-else class="repo-config-empty-inline">
+          No extensions enabled. Add
+          <code>repository: extensions: ["issues", "pulls", ...]</code>
+          to <code>comtrya.cue</code> to opt in.
+        </p>
+      </article>
+
       <article v-if="comtryaRepository" class="repo-config-panel">
         <header>
           <h2>Repository</h2>
@@ -858,7 +889,9 @@ async function fetchRepositoryIdentity(
         v-if="!comtryaError && !comtryaRepository && comtryaProjects.length === 0"
         class="repo-config-empty"
       >
-        This repo declares no <code>package comtrya</code> CUE. The forge falls back to shell defaults.
+        This repo declares no <code>package comtrya</code> CUE. The forge uses shell defaults for all settings.
+        Add a <code>comtrya.cue</code> at the root with <code>package comtrya</code> to configure visibility,
+        default branch, VCS, enabled extensions, projects, and labels.
       </p>
     </section>
 
