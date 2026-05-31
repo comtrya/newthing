@@ -25,6 +25,14 @@ const props = withDefaults(defineProps<{
   segments: string[];
   /** Resolved repository ULID used to scope queue links. */
   repositoryId?: string | null;
+  /**
+   * Extension opt-in set from `repository.extensions` in the repo's
+   * `comtrya.cue`. Extension tabs (issues, pulls, epics, checks) are
+   * only shown when the matching ID appears in this list.
+   * `null` / `undefined` means the list hasn't loaded yet; all
+   * extension tabs are hidden until the repo config is known.
+   */
+  enabledExtensions?: string[] | null;
   /** Counts surfaced on the matching tab labels.
    *  Zero or undefined hides the count chip. */
   openIssues?: number | null;
@@ -32,6 +40,7 @@ const props = withDefaults(defineProps<{
   failingChecks?: number | null;
 }>(), {
   repositoryId: null,
+  enabledExtensions: null,
   openIssues: 0,
   openPulls: 0,
   failingChecks: 0,
@@ -70,25 +79,52 @@ function repoExtPath(slug: string): string {
   return `${base}?repositoryId=${encodeURIComponent(props.repositoryId)}`;
 }
 
-const tabs = computed<Tab[]>(() => [
-  { id: "overview", label: "Overview", to: repoHomePath.value },
-  { id: "code",     label: "Code",     to: repoCodePath.value },
-  {
-    id: "issues", label: "Issues", to: repoExtPath("issues"),
-    count: props.openIssues ?? 0,
-  },
-  {
-    id: "pulls", label: "Pulls", to: repoExtPath("pulls"),
-    count: props.openPulls ?? 0,
-  },
-  { id: "epics", label: "Epics", to: repoExtPath("epics") },
-  {
-    id: "checks", label: "Checks", to: repoExtPath("checks"),
-    count: props.failingChecks ?? 0,
-    countTone: "alarm",
-  },
-  { id: "config", label: "Config", to: repoConfigPath.value },
-]);
+/**
+ * Returns true when an extension tab should be visible.
+ * Hidden while the repo config is still loading (null) and hidden
+ * when the repo has not opted into that extension ([] or absent).
+ */
+function extEnabled(id: string): boolean {
+  if (props.enabledExtensions === null) return false;
+  return props.enabledExtensions.includes(id);
+}
+
+const tabs = computed<Tab[]>(() => {
+  const all: Tab[] = [
+    { id: "overview", label: "Overview", to: repoHomePath.value },
+    { id: "code", label: "Code", to: repoCodePath.value },
+  ];
+  if (extEnabled("issues")) {
+    all.push({
+      id: "issues",
+      label: "Issues",
+      to: repoExtPath("issues"),
+      count: props.openIssues ?? 0,
+    });
+  }
+  if (extEnabled("pulls")) {
+    all.push({
+      id: "pulls",
+      label: "Pulls",
+      to: repoExtPath("pulls"),
+      count: props.openPulls ?? 0,
+    });
+  }
+  if (extEnabled("epics")) {
+    all.push({ id: "epics", label: "Epics", to: repoExtPath("epics") });
+  }
+  if (extEnabled("checks")) {
+    all.push({
+      id: "checks",
+      label: "Checks",
+      to: repoExtPath("checks"),
+      count: props.failingChecks ?? 0,
+      countTone: "alarm",
+    });
+  }
+  all.push({ id: "config", label: "Config", to: repoConfigPath.value });
+  return all;
+});
 
 function isActive(tab: Tab): boolean {
   // Highlight on prefix match so that workbench deep links (e.g.
