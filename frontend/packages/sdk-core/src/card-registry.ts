@@ -24,6 +24,11 @@ export function cardFor(kind: string): CardContribution | undefined {
   return CARDS.get(kind);
 }
 
+/** Remove a card contribution by resource kind. */
+export function unregisterCard(kind: string): void {
+  CARDS.delete(kind);
+}
+
 /** Test-only. */
 export function _resetCardsForTesting(): void {
   CARDS.clear();
