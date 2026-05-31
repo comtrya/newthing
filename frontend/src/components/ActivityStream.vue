@@ -12,6 +12,7 @@
  */
 
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 import { getGraphQLClient, subscribeLiveEvents, type LiveEvent } from "@comtrya/sdk-core";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
@@ -383,8 +384,8 @@ function relativeTime(ms: number): string {
         @mouseenter="focusedIndex = index"
       >
         <component
-          :is="formatItem(item).href ? 'a' : 'div'"
-          :href="formatItem(item).href ?? undefined"
+          :is="formatItem(item).href ? RouterLink : 'div'"
+          :to="formatItem(item).href ?? undefined"
           class="stream-link"
         >
           <span class="icon" :aria-hidden="true">{{ formatItem(item).iconLabel }}</span>
