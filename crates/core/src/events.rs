@@ -181,6 +181,13 @@ impl EventOutbox {
     pub fn all(&self) -> &[EventEnvelope] {
         &self.events
     }
+
+    /// Move every buffered event out of the outbox. Used by callers that
+    /// own the events' downstream sink (audit log / event stream) and
+    /// must guarantee the buffer doesn't grow unbounded across calls.
+    pub fn take_all(&mut self) -> Vec<EventEnvelope> {
+        std::mem::take(&mut self.events)
+    }
 }
 
 pub fn principal_key(principal: &Principal) -> String {

@@ -73,7 +73,14 @@ pub struct AuthService {
     /// instance's singleton workspace, derived from `InstanceConfig`, not a
     /// fabricated identifier.
     instance_resource: ResourceRef,
-    pub outbox: EventOutbox,
+    /// Audit/identity events buffered during the most recent mutating call
+    /// (currently only `login`). The caller MUST drain via `take_outbox`
+    /// after every such call and forward to the runtime's audit/event
+    /// sinks — events left in this buffer never reach disk and the
+    /// `dev.comtrya.auth.login.*` / `dev.comtrya.user.created` audit
+    /// trail goes missing. Private so callers cannot read without
+    /// draining (TNQ-3 P1: previously `pub`, no consumer drained it).
+    outbox: EventOutbox,
 }
 
 impl AuthService {
@@ -93,6 +100,15 @@ impl AuthService {
 
     pub fn users_len(&self) -> usize {
         self.users_by_issuer_subject.len()
+    }
+
+    /// Drain the outbox. Callers must invoke this after every mutating
+    /// AuthService call (today only `login`) so the audit/identity
+    /// events the call buffered reach disk via the runtime's sinks.
+    /// Returns the events in append order; the internal buffer is
+    /// emptied.
+    pub fn take_outbox(&mut self) -> Vec<EventEnvelope> {
+        self.outbox.take_all()
     }
 
     /// Replace the configured OIDC issuers, keeping already-provisioned users.
@@ -248,22 +264,23 @@ mod tests {
 
         assert!(result.created);
         assert_eq!(auth.users_len(), 1);
+        let drained = auth.take_outbox();
         assert!(
-            auth.outbox
-                .all()
+            drained
                 .iter()
                 .any(|event| event.event_type == CoreEventType::UserCreated.as_str())
         );
         // Auth events are attributed to the singleton workspace, not a
         // fabricated identifier, and stamped with the caller's clock.
-        let created = auth
-            .outbox
-            .all()
+        let created = drained
             .iter()
             .find(|event| event.event_type == CoreEventType::UserCreated.as_str())
             .unwrap();
         assert_eq!(created.source.canonical(), "comtrya://workspace");
         assert_eq!(created.time, "2023-11-14T22:13:20.000Z");
+        // Outbox is empty after draining — caller owns the events
+        // and the buffer must not grow across calls.
+        assert!(auth.take_outbox().is_empty());
     }
 
     #[test]
@@ -312,11 +329,9 @@ mod tests {
         // The unknown-issuer path must emit a failed-login audit event, just
         // like the issuer-mismatch and provisioning-denied paths do.
         let failed: Vec<_> = auth
-            .outbox
-            .all()
-            .iter()
+            .take_outbox()
+            .into_iter()
             .filter(|event| event.event_type == CoreEventType::AuthLoginFailed.as_str())
-            .cloned()
             .collect();
         assert_eq!(
             failed.len(),
