@@ -187,6 +187,83 @@ pub fn render_ts_client(ops: &[OpSpec]) -> String {
 mod tests {
     use super::*;
 
+    /// Path to the `ext_issues` WIT directory — used as a fixture for the
+    /// `parse_extension_wit` genericity tests.
+    ///
+    /// The directory contains a `deps/platform` subdirectory with the
+    /// `comtrya:platform` package; `wit_parser` discovers it automatically
+    /// so `dep_paths` can be empty.
+    fn ext_issues_wit_dir() -> std::path::PathBuf {
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+        std::path::PathBuf::from(&manifest).join("../../extensions/first-party/ext_issues/wit")
+    }
+
+    #[test]
+    fn parse_extension_wit_returns_ops_for_ext_issues() {
+        let wit = ext_issues_wit_dir();
+        if !wit.exists() {
+            eprintln!("skipping: WIT fixture not present at {}", wit.display());
+            return;
+        }
+        // dep_paths is empty: wit-parser auto-discovers deps/ in the wit dir.
+        let ops = parse_extension_wit(&wit, "ext_issues", &[])
+            .expect("parse_extension_wit should succeed");
+
+        // ext_issues exports at least open-issue, close-issue, list-issues.
+        let op_names: Vec<&str> = ops.iter().map(|o| o.op_name.as_str()).collect();
+        assert!(
+            op_names.iter().any(|n| *n == "open-issue"),
+            "expected open-issue in ops, got: {op_names:?}"
+        );
+        assert!(
+            op_names.iter().any(|n| *n == "close-issue"),
+            "expected close-issue in ops, got: {op_names:?}"
+        );
+        assert!(
+            op_names.iter().any(|n| *n == "list-issues"),
+            "expected list-issues in ops, got: {op_names:?}"
+        );
+    }
+
+    #[test]
+    fn parse_extension_wit_does_not_include_platform_reactor_export() {
+        // The reactor export comes from `comtrya:platform`, not the extension
+        // package itself. Verify that parse_extension_wit skips it so
+        // the generated TS client doesn't include kernel-internal dispatch.
+        let wit = ext_issues_wit_dir();
+        if !wit.exists() {
+            return;
+        }
+        let ops = parse_extension_wit(&wit, "ext_issues", &[])
+            .expect("parse_extension_wit should succeed");
+        let op_names: Vec<&str> = ops.iter().map(|o| o.op_name.as_str()).collect();
+        // The reactor interface's `on-event` op belongs to `comtrya:platform`
+        // and must not appear in the generated client.
+        assert!(
+            !op_names.contains(&"on-event"),
+            "reactor op `on-event` must not be included; got: {op_names:?}"
+        );
+    }
+
+    #[test]
+    fn parse_extension_wit_routes_use_extension_id() {
+        let wit = ext_issues_wit_dir();
+        if !wit.exists() {
+            return;
+        }
+        let ops = parse_extension_wit(&wit, "ext_issues", &[])
+            .expect("parse_extension_wit should succeed");
+        // Every route must start with the extension id.
+        for op in &ops {
+            assert!(
+                op.route.starts_with("ext_issues."),
+                "route `{}` does not start with extension id `ext_issues.`",
+                op.route
+            );
+            assert_eq!(op.extension_id, "ext_issues");
+        }
+    }
+
     #[test]
     fn kebab_case_conversions() {
         assert_eq!(kebab_to_camel("close-record"), "closeRecord");
