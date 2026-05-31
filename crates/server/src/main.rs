@@ -4622,16 +4622,24 @@ fn event_stream_response(
     });
 
     // Build the live frame stream using futures::stream::unfold.
+    //
+    // Use `interval_at(now + interval, interval)` so the first tick fires
+    // AFTER the keep-alive period, not immediately. This avoids the need for
+    // a `ka.tick().await` skip inside the unfold closure — which would block
+    // every re-invocation (not just the first) for up to 15 seconds, causing
+    // each event after the first to be delayed (TNQ-5 P1).
     let keep_alive_interval = std::time::Duration::from_secs(15);
     let live_stream = futures::stream::unfold(
         (
             rx,
-            tokio::time::interval(keep_alive_interval),
+            tokio::time::interval_at(
+                tokio::time::Instant::now() + keep_alive_interval,
+                keep_alive_interval,
+            ),
             max_backfill_id,
             is_admin,
         ),
         move |(mut rx, mut ka, max_bf_id, is_adm)| async move {
-            ka.tick().await; // skip the first immediate tick
             loop {
                 tokio::select! {
                     _ = ka.tick() => {
