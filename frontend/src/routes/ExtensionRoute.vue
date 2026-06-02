@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watchEffect } from "vue";
+import { useRoute } from "vue-router";
 import {
   routeFor,
   subscribeRoutes,
   type RouteMatch,
 } from "@comtrya/sdk-core";
+import {
+  extensionRouteElementContext,
+  extensionRouteQueryContext,
+  extensionRouteQueryContextKey,
+} from "../extension-route-context";
 import { extensionElementContext } from "../extension-runtime";
 
 const props = defineProps<{
@@ -13,8 +19,13 @@ const props = defineProps<{
 }>();
 
 const mount = ref<HTMLElement | null>(null);
+const route = useRoute();
 const routeTail = computed(() => props.rest.join("/"));
 const subPath = computed(() => (routeTail.value ? `/${routeTail.value}` : "/"));
+const routeQueryContext = computed(() => extensionRouteQueryContext(route.query));
+const routeContextKey = computed(() =>
+  extensionRouteQueryContextKey(routeQueryContext.value),
+);
 const matchedRoute = ref<RouteMatch | undefined>();
 let unsubscribe: (() => void) | undefined;
 
@@ -26,6 +37,7 @@ let unsubscribe: (() => void) | undefined;
 // `/r/:path/<ext>/<sub>` navigation, leaving the embedded
 // extension element stale until a reload.
 watchEffect(() => {
+  void routeContextKey.value;
   refreshRoute();
 });
 
@@ -55,7 +67,9 @@ function renderRoute(): void {
     Record<string, unknown>;
   node.dataset.extensionId = match.route.extensionId;
   node.dataset.extensionRoute = match.route.path;
-  for (const [key, value] of Object.entries(extensionElementContext())) {
+  for (const [key, value] of Object.entries(
+    extensionRouteElementContext(extensionElementContext(), route.query),
+  )) {
     node[key] = value;
   }
   node.routeParams = {
