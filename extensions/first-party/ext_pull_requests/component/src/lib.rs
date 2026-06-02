@@ -258,7 +258,10 @@ fn scan_pull_requests(
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RepoCounter {
+    id: String,
+    storage_id: String,
     next: u64,
 }
 
@@ -279,6 +282,31 @@ fn number_counter_key(repository: &str, scope: &RepositoryScope) -> String {
 /// attempts cover any practical PR-create burst without unbounded looping.
 const COUNTER_RETRY_LIMIT: u32 = 8;
 
+fn read_counter(counter_id: &str) -> Result<Option<RepoCounter>, Error> {
+    let mut after = None;
+    let mut found = None;
+    loop {
+        let page = storage::list_all(COUNTER_COLLECTION, 1024, after.as_ref())?;
+        for bytes in page.docs {
+            let counter: RepoCounter = serde_json::from_slice(&bytes)
+                .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
+            if counter.id == counter_id {
+                if found.is_some() {
+                    return Err(err(
+                        ErrorCode::Internal,
+                        format!("counter collection contains duplicate rows for {counter_id}"),
+                    ));
+                }
+                found = Some(counter);
+            }
+        }
+        match page.next_page {
+            Some(next) => after = Some(next),
+            None => return Ok(found),
+        }
+    }
+}
+
 /// Return the next sequential PR number for `scope_key` and increment the
 /// persisted counter atomically via storage's single-document version
 /// guard (update-begin/update-commit), seeding the counter on first use.
@@ -290,17 +318,31 @@ const COUNTER_RETRY_LIMIT: u32 = 8;
 fn next_number(scope_key: &str) -> Result<u64, Error> {
     let counter_id = format!("pull-number:{scope_key}");
     for _ in 0..COUNTER_RETRY_LIMIT {
-        match storage::update_begin(COUNTER_COLLECTION, &counter_id) {
-            Ok(snap) => {
+        match read_counter(&counter_id)? {
+            Some(counter) => {
+                let snap = match storage::update_begin(COUNTER_COLLECTION, &counter.storage_id) {
+                    Ok(snap) => snap,
+                    Err(Error {
+                        code: ErrorCode::NotFound,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                };
                 let mut counter: RepoCounter = serde_json::from_slice(&snap.data)
                     .map_err(|e| err(ErrorCode::Internal, format!("parse counter: {e}")))?;
+                if counter.id != counter_id {
+                    return Err(err(
+                        ErrorCode::Internal,
+                        format!("counter document has wrong id {}", counter.id),
+                    ));
+                }
                 let assigned = counter.next;
                 counter.next = counter.next.saturating_add(1);
                 let bytes = serde_json::to_vec(&counter)
                     .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
                 match storage::update_commit(
                     COUNTER_COLLECTION,
-                    &counter_id,
+                    &counter.storage_id,
                     &snap.version,
                     &bytes,
                 ) {
@@ -312,21 +354,23 @@ fn next_number(scope_key: &str) -> Result<u64, Error> {
                     Err(other) => return Err(other),
                 }
             }
-            Err(Error {
-                code: ErrorCode::NotFound,
-                ..
-            }) => {
+            None => {
                 // First PR for this scope — seed the counter at 2, return 1.
-                let counter = RepoCounter { next: 2 };
+                let storage_id = ids::mint("pull-counter")?;
+                let counter = RepoCounter {
+                    id: counter_id.clone(),
+                    storage_id: storage_id.clone(),
+                    next: 2,
+                };
                 let bytes = serde_json::to_vec(&counter)
                     .map_err(|e| err(ErrorCode::Internal, format!("serialise counter: {e}")))?;
                 match storage::create(
                     COUNTER_COLLECTION,
-                    &counter_id,
+                    &storage_id,
                     &bytes,
                     &storage::DocumentMetadata {
-                        resource_uri: format!("comtrya://ext_pull_requests_meta/{counter_id}"),
-                        resource_refs: vec![scope_key.to_string()],
+                        resource_uri: format!("comtrya://pull-counter/{storage_id}"),
+                        resource_refs: vec![scope_key.to_string(), counter_id.clone()],
                     },
                 ) {
                     Ok(()) => return Ok(1),
@@ -340,7 +384,6 @@ fn next_number(scope_key: &str) -> Result<u64, Error> {
                     Err(other) => return Err(other),
                 }
             }
-            Err(other) => return Err(other),
         }
     }
     Err(err(

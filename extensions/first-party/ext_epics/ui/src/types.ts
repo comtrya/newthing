@@ -36,6 +36,15 @@ export interface EpicProgress {
   percentComplete?: number | null;
 }
 
+export interface Relation {
+  id: string;
+  kind: string;
+  from?: string | null;
+  to: string;
+  source?: string | null;
+  target?: string | null;
+}
+
 export interface ComtryaGraphQLClient {
   query<T = unknown>(
     query: string,

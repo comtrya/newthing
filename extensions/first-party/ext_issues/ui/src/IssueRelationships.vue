@@ -4,9 +4,10 @@ import {
   relationshipTypesForSourceKind,
   subscribeRelationshipTypes,
   type RelationshipTarget,
+  type RelationshipTargetProvider,
   type RelationshipTypeContribution,
 } from "@comtrya/sdk-core";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import {
   createRelation,
   deleteRelation,
@@ -27,11 +28,29 @@ const CURRENT_KIND = "issue";
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
   comtryaClient?: ComtryaGraphQLClient;
+  relationshipRegistry?: RelationshipRegistryBridge;
   issue: Issue;
   workspaceId: string;
   repositoryId?: string | null;
   repositoryPath?: string | null;
+  refreshKey?: number;
 }>();
+
+const emit = defineEmits<{
+  "comtrya-relationship-changed": [detail: RelationshipChangedDetail];
+}>();
+
+interface RelationshipRegistryBridge {
+  relationshipTypesForSourceKind(kind: string): RelationshipTypeContribution[];
+  relationshipTargetProviderForKind(resourceKind: string): RelationshipTargetProvider | undefined;
+  subscribeRelationshipTypes(callback: () => void): () => void;
+}
+
+interface RelationshipChangedDetail {
+  source: "issue-relationships";
+  action: "created" | "deleted";
+  relation?: Relation;
+}
 
 interface RelationshipAction {
   key: string;
@@ -68,7 +87,7 @@ let unsubscribe: (() => void) | undefined;
 
 const relationshipTypes = computed(() => {
   registryVersion.value;
-  return relationshipTypesForSourceKind(CURRENT_KIND);
+  return activeRegistry().relationshipTypesForSourceKind(CURRENT_KIND);
 });
 
 const relationCount = computed(() => (
@@ -166,16 +185,22 @@ const sections = computed<RelationshipSection[]>(() => {
   return out;
 });
 
-onMounted(() => {
-  unsubscribe = subscribeRelationshipTypes(() => {
+watch(
+  () => props.relationshipRegistry,
+  () => {
+    unsubscribe?.();
+    unsubscribe = activeRegistry().subscribeRelationshipTypes(() => {
+      registryVersion.value += 1;
+    });
     registryVersion.value += 1;
-  });
-});
+  },
+  { immediate: true },
+);
 
 onUnmounted(() => unsubscribe?.());
 
 watch(
-  () => [graphClient.value, props.issue.id],
+  () => [graphClient.value, props.issue.id, props.refreshKey],
   () => void loadRelations(),
   { immediate: true },
 );
@@ -197,6 +222,7 @@ watch(
     props.repositoryId,
     props.repositoryPath,
     currentRef.value,
+    registryVersion.value,
   ],
   () => void loadTargets(),
   { immediate: true },
@@ -241,7 +267,7 @@ async function loadTargets(): Promise<void> {
   try {
     const loaded: RelationshipTarget[] = [];
     for (const targetKind of action.targetKinds) {
-      const provider = relationshipTargetProviderForKind(targetKind);
+      const provider = activeRegistry().relationshipTargetProviderForKind(targetKind);
       if (!provider) continue;
       const targets = await provider.loadTargets({
         workspaceId: props.workspaceId,
@@ -276,8 +302,9 @@ async function addRelationship(): Promise<void> {
   actionState.value = "submitting";
   actionError.value = null;
   try {
-    await createRelation(client, { from, to, kind: action.type.kind });
+    const relation = await createRelation(client, { from, to, kind: action.type.kind });
     await loadRelations();
+    notifyRelationshipChanged("created", relation);
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
@@ -293,11 +320,20 @@ async function removeRelationship(relation: Relation): Promise<void> {
   try {
     await deleteRelation(client, relation.id);
     await loadRelations();
+    notifyRelationshipChanged("deleted", relation);
   } catch (caught) {
     actionError.value = caught instanceof Error ? caught.message : String(caught);
   } finally {
     actionState.value = "idle";
   }
+}
+
+function activeRegistry(): RelationshipRegistryBridge {
+  return props.relationshipRegistry ?? {
+    relationshipTypesForSourceKind,
+    relationshipTargetProviderForKind,
+    subscribeRelationshipTypes,
+  };
 }
 
 function relationFrom(relation: Relation): string {
@@ -321,7 +357,7 @@ function resourceKind(ref: string): string {
 
 function targetKindsWithProviders(kinds: string[]): string[] {
   return [...new Set(kinds)]
-    .filter((kind) => relationshipTargetProviderForKind(kind) !== undefined);
+    .filter((kind) => activeRegistry().relationshipTargetProviderForKind(kind) !== undefined);
 }
 
 function uniqueRelations(relations: Relation[]): Relation[] {
@@ -339,6 +375,14 @@ function uniqueTargets(targets: RelationshipTarget[]): RelationshipTarget[] {
     if (seen.has(target.ref)) return false;
     seen.add(target.ref);
     return true;
+  });
+}
+
+function notifyRelationshipChanged(action: RelationshipChangedDetail["action"], relation: Relation): void {
+  emit("comtrya-relationship-changed", {
+    source: "issue-relationships",
+    action,
+    relation,
   });
 }
 </script>

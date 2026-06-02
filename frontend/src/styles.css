@@ -1,15 +1,19 @@
 /* ═══════════════════════════════════════════════════════════════
    Comtrya — Glass Design System
-   Dark-first, OKLCH palette, glass morphism, Geist type stack.
+   Dark-first, OKLCH palette, glass morphism, Quicksand/Bitter/Monaspace type stack.
    ═══════════════════════════════════════════════════════════════ */
 
 .shell-app,
 :root {
   color-scheme: dark;
 
-  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --font-serif: "Instrument Serif", "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Quicksand", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Monaspace Neon", "Monaspace Neon Var", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Bitter", Georgia, ui-serif, serif;
+  --sans: var(--font-sans);
+  --mono: var(--font-mono);
+  --serif: var(--font-serif);
+  --display: var(--font-serif);
 
   --accent: oklch(78% 0.14 215);
   --accent-soft: oklch(78% 0.14 215 / 0.14);

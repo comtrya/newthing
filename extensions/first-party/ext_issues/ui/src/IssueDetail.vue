@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { applyOptimistic } from "@comtrya/sdk-core";
+import {
+  applyOptimistic,
+  type RelationshipTargetProvider,
+  type RelationshipTypeContribution,
+} from "@comtrya/sdk-core";
 import {
   classifyPrincipal as authorLabel,
   fetchComtryaProjects,
@@ -28,10 +32,18 @@ import {
 } from "./types";
 
 const ISSUE_RELATIONSHIPS_TAG = "comtrya-issue-relationships";
+const ISSUE_DETAIL_SLOT_TAG = "comtrya-slot-mount";
+
+interface RelationshipRegistryBridge {
+  relationshipTypesForSourceKind(kind: string): RelationshipTypeContribution[];
+  relationshipTargetProviderForKind(resourceKind: string): RelationshipTargetProvider | undefined;
+  subscribeRelationshipTypes(callback: () => void): () => void;
+}
 
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
   comtryaClient?: ComtryaGraphQLClient;
+  relationshipRegistry?: RelationshipRegistryBridge;
   issue?: Issue | null;
   workspaceId?: string;
   repositoryId?: string | null;
@@ -53,6 +65,7 @@ const actionState = ref<"idle" | "submitting">("idle");
 const error = ref<string | null>(null);
 const actionError = ref<string | null>(null);
 const loadedIssue = ref<Issue | null>(props.issue ?? null);
+const relationshipRefreshKey = ref(0);
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 const workspaceId = computed(
   () => props.workspaceId
@@ -82,6 +95,10 @@ function onCommentThreadUpdate(event: Event): void {
   }
 }
 
+function onRelationshipChanged(): void {
+  relationshipRefreshKey.value += 1;
+}
+
 const createdAtLabel = computed(() => formatTimestamp(issue.value?.createdAt));
 const openedRelative = computed(() => relativeTime(issue.value?.createdAt));
 /**
@@ -102,6 +119,34 @@ const issueNumber = computed(() => Number(
   props.number ?? props.routeParams?.params?.number,
 ));
 const canLoad = computed(() => graphClient.value && Number.isFinite(issueNumber.value));
+const issueSlotContext = computed(() => {
+  const currentIssue = issue.value;
+  if (!currentIssue) return {};
+  return {
+    client: graphClient.value,
+    comtryaClient: graphClient.value,
+    issue: currentIssue,
+    workspaceId: workspaceId.value,
+    repositoryId: props.repositoryId ?? currentIssue.repositoryId ?? null,
+    repositoryPath: props.repositoryPath ?? null,
+    refreshKey: relationshipRefreshKey.value,
+    relationshipRefreshKey: relationshipRefreshKey.value,
+  };
+});
+const relationshipPanelProperties = computed(() => {
+  const currentIssue = issue.value;
+  if (!currentIssue) return {};
+  return {
+    client: graphClient.value,
+    comtryaClient: graphClient.value,
+    relationshipRegistry: props.relationshipRegistry,
+    issue: currentIssue,
+    workspaceId: workspaceId.value,
+    repositoryId: props.repositoryId ?? currentIssue.repositoryId ?? null,
+    repositoryPath: props.repositoryPath ?? null,
+    refreshKey: relationshipRefreshKey.value,
+  };
+});
 
 /**
  * CUE Project ownership routing — when an issue is scoped to a
@@ -533,14 +578,18 @@ async function reopenCurrentIssue(): Promise<void> {
           </section>
 
           <CustomElementHost
-            :tag="ISSUE_RELATIONSHIPS_TAG"
+            :tag="ISSUE_DETAIL_SLOT_TAG"
             :properties="{
-              client: graphClient,
-              issue,
-              workspaceId,
-              repositoryId: issue.repositoryId,
-              repositoryPath: props.repositoryPath,
+              name: 'issue.detail.sidebar',
+              elementContext: issueSlotContext,
             }"
+            @comtrya-relationship-changed="onRelationshipChanged"
+          />
+
+          <CustomElementHost
+            :tag="ISSUE_RELATIONSHIPS_TAG"
+            :properties="relationshipPanelProperties"
+            @comtrya-relationship-changed="onRelationshipChanged"
           />
         </aside>
       </div>
@@ -722,7 +771,7 @@ async function reopenCurrentIssue(): Promise<void> {
   padding: 20px;
   border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   background: var(--surface);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans, "Quicksand", ui-sans-serif, system-ui, sans-serif);
   font-size: 15px;
   line-height: 1.55;
   white-space: pre-wrap;

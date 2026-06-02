@@ -138,3 +138,93 @@ describe("extension refresh gates", () => {
     expect(shouldRefreshChecks(["checks"])).toBe(false);
   });
 });
+
+type RepositoryQueryMode = "context" | "overview" | "config";
+
+function queryModeForView(view: string): RepositoryQueryMode {
+  if (view === "overview") return "overview";
+  if (view === "config") return "config";
+  return "context";
+}
+
+interface TestRepositoryIdentity {
+  path: string;
+  name: string;
+  blobs?: Array<{ path: string }>;
+  commits?: Array<{ oid: string }>;
+  labels?: string[];
+  comtryaConfig?: { projects?: Array<{ name: string }> } | null;
+}
+
+function mergeRepositoryIdentity(
+  previous: TestRepositoryIdentity | null,
+  next: TestRepositoryIdentity | null,
+  mode: RepositoryQueryMode,
+): TestRepositoryIdentity | null {
+  if (!previous || !next || previous.path !== next.path) return next;
+  const preserveHeavy = mode === "context" || mode === "config";
+  return {
+    ...previous,
+    ...next,
+    blobs: preserveHeavy ? previous.blobs : next.blobs,
+    commits: preserveHeavy ? previous.commits : next.commits,
+    labels: mode === "context" ? previous.labels : next.labels,
+    comtryaConfig: mode === "context" ? previous.comtryaConfig : next.comtryaConfig,
+  };
+}
+
+describe("repository query modes", () => {
+  test("extension workbench routes use lightweight repository context", () => {
+    expect(queryModeForView("issues")).toBe("context");
+    expect(queryModeForView("pulls")).toBe("context");
+    expect(queryModeForView("epics")).toBe("context");
+    expect(queryModeForView("checks")).toBe("context");
+    expect(queryModeForView("code")).toBe("context");
+  });
+
+  test("overview and config request their heavier data explicitly", () => {
+    expect(queryModeForView("overview")).toBe("overview");
+    expect(queryModeForView("config")).toBe("config");
+  });
+
+  test("lightweight refresh preserves same-repo heavy fields", () => {
+    const previous: TestRepositoryIdentity = {
+      path: "comtrya/dogfood",
+      name: "dogfood",
+      blobs: [{ path: "README.md" }],
+      commits: [{ oid: "abc" }],
+      labels: ["kind::ux"],
+      comtryaConfig: { projects: [{ name: "frontend" }] },
+    };
+    const next: TestRepositoryIdentity = {
+      path: "comtrya/dogfood",
+      name: "dogfood",
+    };
+
+    expect(mergeRepositoryIdentity(previous, next, "context")).toEqual(previous);
+  });
+
+  test("config refresh can update config without discarding README data", () => {
+    const previous: TestRepositoryIdentity = {
+      path: "comtrya/dogfood",
+      name: "dogfood",
+      blobs: [{ path: "README.md" }],
+      commits: [{ oid: "abc" }],
+      comtryaConfig: { projects: [{ name: "frontend" }] },
+    };
+    const next: TestRepositoryIdentity = {
+      path: "comtrya/dogfood",
+      name: "dogfood",
+      comtryaConfig: { projects: [{ name: "backend" }] },
+    };
+
+    expect(mergeRepositoryIdentity(previous, next, "config")).toEqual({
+      path: "comtrya/dogfood",
+      name: "dogfood",
+      blobs: [{ path: "README.md" }],
+      commits: [{ oid: "abc" }],
+      labels: undefined,
+      comtryaConfig: { projects: [{ name: "backend" }] },
+    });
+  });
+});

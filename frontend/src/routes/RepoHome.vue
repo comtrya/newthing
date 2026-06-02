@@ -130,7 +130,30 @@ interface RepoHomePayload {
   };
 }
 
-const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
+type RepositoryQueryMode = "context" | "overview" | "config";
+
+const REPOSITORY_CONTEXT_QUERY = `query ShellRepoContext($segments: [String!]!) {
+  workspace {
+    id
+    repositoryByPath(segments: $segments) {
+      id
+      name
+      path
+      groups
+      description
+      defaultBranch
+      visibility
+      vcs
+      updated
+      openPullRequests
+      gitHttpPath
+      extensions
+      labelCatalog
+    }
+  }
+}`;
+
+const REPOSITORY_OVERVIEW_QUERY = `query ShellRepoOverview($segments: [String!]!) {
   workspace {
     id
     repositoryByPath(segments: $segments) {
@@ -173,12 +196,40 @@ const REPOSITORY_BY_PATH_QUERY = `query ShellRepoHome($segments: [String!]!) {
   }
 }`;
 
+const REPOSITORY_CONFIG_QUERY = `query ShellRepoConfig($segments: [String!]!) {
+  workspace {
+    id
+    repositoryByPath(segments: $segments) {
+      id
+      name
+      path
+      groups
+      description
+      defaultBranch
+      visibility
+      vcs
+      updated
+      openPullRequests
+      gitHttpPath
+      extensions
+      labels
+      labelCatalog
+      comtryaConfig
+    }
+  }
+}`;
+
 const repository = ref<RepositoryIdentity | null>(null);
 const workspaceId = ref<string | null>(null);
 const loadState = ref<"loading" | "ready" | "missing" | "error">("loading");
 const loadError = ref<string | null>(null);
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
+const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
+  if (props.view === "overview") return "overview";
+  if (props.view === "config") return "config";
+  return "context";
+});
 const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
 const displayPath = computed(() => repository.value?.path ?? repoPath.value);
 
@@ -570,24 +621,31 @@ const repoContext = computed<Record<string, unknown>>(() => ({
 }));
 
 watch(
-  repoSegments,
-  async (segments, _previous, onCleanup) => {
+  [repoSegments, repositoryQueryMode],
+  async ([segments, mode], _previous, onCleanup) => {
     const controller = new AbortController();
     onCleanup(() => controller.abort());
-    loadState.value = "loading";
+    const nextPath = segments.join("/");
+    const hasCurrentRepo = repository.value?.path === nextPath;
+    if (!hasCurrentRepo) {
+      repository.value = null;
+      loadState.value = "loading";
+    } else {
+      loadState.value = "ready";
+    }
     loadError.value = null;
     try {
-      const identity = await fetchRepositoryIdentity(segments);
+      const identity = await fetchRepositoryIdentity(segments, mode);
       if (controller.signal.aborted) return;
       workspaceId.value = identity.workspaceId;
-      repository.value = identity.repository;
+      repository.value = mergeRepositoryIdentity(repository.value, identity.repository, mode);
       loadState.value = identity.repository ? "ready" : "missing";
       setActiveLabelCatalog(
-        (identity.repository?.labelCatalog as Record<string, unknown> | null) ?? null,
+        (repository.value?.labelCatalog as Record<string, unknown> | null) ?? null,
       );
-      await applyUserLayoutFor(identity.repository?.id ?? null);
-      if (identity.repository && identity.workspaceId) {
-        const exts = identity.repository.extensions ?? [];
+      await applyUserLayoutFor(repository.value?.id ?? null);
+      if (repository.value && identity.workspaceId) {
+        const exts = repository.value.extensions ?? [];
         if (repositoryExtensionEnabled(exts, "issues")) {
           void refreshOpenIssues();
           setupIssueListeners();
@@ -600,12 +658,16 @@ watch(
       }
     } catch (error) {
       if (controller.signal.aborted) return;
-      workspaceId.value = null;
-      repository.value = null;
-      loadState.value = "error";
+      if (!hasCurrentRepo) {
+        workspaceId.value = null;
+        repository.value = null;
+        loadState.value = "error";
+        setActiveLabelCatalog(null);
+        await applyUserLayoutFor(null);
+      } else {
+        loadState.value = "ready";
+      }
       loadError.value = error instanceof Error ? error.message : String(error);
-      setActiveLabelCatalog(null);
-      await applyUserLayoutFor(null);
     }
   },
   { immediate: true },
@@ -613,14 +675,40 @@ watch(
 
 async function fetchRepositoryIdentity(
   segments: string[],
+  mode: RepositoryQueryMode,
 ): Promise<{ workspaceId: string | null; repository: RepositoryIdentity | null }> {
   const payload = await getGraphQLClient().query<RepoHomePayload>(
-    REPOSITORY_BY_PATH_QUERY,
+    repositoryQueryForMode(mode),
     { segments },
   );
   return {
     workspaceId: payload.workspace?.id ?? null,
     repository: payload.workspace?.repositoryByPath ?? null,
+  };
+}
+
+function repositoryQueryForMode(mode: RepositoryQueryMode): string {
+  if (mode === "overview") return REPOSITORY_OVERVIEW_QUERY;
+  if (mode === "config") return REPOSITORY_CONFIG_QUERY;
+  return REPOSITORY_CONTEXT_QUERY;
+}
+
+function mergeRepositoryIdentity(
+  previous: RepositoryIdentity | null,
+  next: RepositoryIdentity | null,
+  mode: RepositoryQueryMode,
+): RepositoryIdentity | null {
+  if (!previous || !next || previous.path !== next.path) return next;
+  const preserveHeavy = mode === "context" || mode === "config";
+  return {
+    ...previous,
+    ...next,
+    blobs: preserveHeavy ? previous.blobs : next.blobs,
+    bookmarks: preserveHeavy ? previous.bookmarks : next.bookmarks,
+    commits: preserveHeavy ? previous.commits : next.commits,
+    labels: mode === "context" ? previous.labels : next.labels,
+    labelCatalog: next.labelCatalog ?? previous.labelCatalog,
+    comtryaConfig: mode === "context" ? previous.comtryaConfig : next.comtryaConfig,
   };
 }
 </script>

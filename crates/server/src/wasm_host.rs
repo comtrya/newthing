@@ -4092,7 +4092,7 @@ mod m1_ext_issues_smoke {
             reactor_allowed_mutations: vec![],
             reactor_allowed_emits: vec![],
             reactor_scope: ContributionScope::Repository,
-            contributes_resource_kinds: vec!["issue".into()],
+            contributes_resource_kinds: vec!["issue".into(), "issue-counter".into()],
             has_repository_scoped_kinds: true,
             host_imports: vec![
                 "storage.read".into(),
@@ -4107,6 +4107,7 @@ mod m1_ext_issues_smoke {
         });
         let mut kind_prefixes = std::collections::BTreeMap::new();
         kind_prefixes.insert("issue".to_string(), "iss".to_string());
+        kind_prefixes.insert("issue-counter".to_string(), "isc".to_string());
         // Kernel-internal kinds (`event`, `relation`, `comment`) are
         // added by `UlidMinter::with_kernel_kinds` below — see the
         // constructor for why this lives there.

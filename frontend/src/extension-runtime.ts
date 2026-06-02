@@ -1,4 +1,11 @@
-import { activeWorkspaceId } from "@comtrya/sdk-core";
+import {
+  activeWorkspaceId,
+  relationshipTargetProviderForKind,
+  relationshipTypesForSourceKind,
+  subscribeRelationshipTypes,
+  type RelationshipTargetProvider,
+  type RelationshipTypeContribution,
+} from "@comtrya/sdk-core";
 
 export interface ShellGraphQLClient {
   query<T = unknown>(
@@ -20,6 +27,14 @@ export interface ExtensionRuntimeContext {
   client: ShellGraphQLClient;
   viewer: ShellViewer;
   capabilities: Record<string, boolean>;
+}
+
+export interface ShellRelationshipRegistry {
+  relationshipTypesForSourceKind(kind: string): RelationshipTypeContribution[];
+  relationshipTargetProviderForKind(
+    resourceKind: string,
+  ): RelationshipTargetProvider | undefined;
+  subscribeRelationshipTypes(callback: () => void): () => void;
 }
 
 let context: ExtensionRuntimeContext | undefined;
@@ -49,6 +64,11 @@ export function extensionElementContext(): Record<string, unknown> {
     comtryaClient: context.client,
     viewer: context.viewer,
     capabilities: context.capabilities,
+    relationshipRegistry: {
+      relationshipTypesForSourceKind,
+      relationshipTargetProviderForKind,
+      subscribeRelationshipTypes,
+    } satisfies ShellRelationshipRegistry,
     labelCatalog: activeLabelCatalog,
     // Workspace ID is read from the shared store every time the
     // context is built so a slot mount that re-runs after
