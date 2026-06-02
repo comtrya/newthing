@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { issueRouteContext } from "./route-context";
 
 describe("issueRouteContext", () => {
-  test("URL query wins over host props", () => {
+  test("host repository context wins over stale URL scope while query filters apply", () => {
     expect(
       issueRouteContext(
         {
@@ -14,10 +14,24 @@ describe("issueRouteContext", () => {
         "?workspaceId=ws_query&repositoryId=repo_query&projectName=query-project&state=OPEN",
       ),
     ).toEqual({
+      workspaceId: "ws_host",
+      repositoryId: "repo_host",
+      projectName: "host-project",
+      state: "OPEN",
+    });
+  });
+
+  test("URL query scopes generic extension routes when host props are absent", () => {
+    expect(
+      issueRouteContext(
+        {},
+        "?workspaceId=ws_query&repositoryId=repo_query&projectName=query-project&state=CLOSED",
+      ),
+    ).toEqual({
       workspaceId: "ws_query",
       repositoryId: "repo_query",
       projectName: "query-project",
-      state: "OPEN",
+      state: "CLOSED",
     });
   });
 

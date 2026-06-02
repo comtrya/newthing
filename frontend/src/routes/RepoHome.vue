@@ -916,23 +916,23 @@ async function fetchRepositoryIdentity(
       />
     </section>
 
-    <!-- /r/:path/{pulls,issues,checks} → workbench-style embed of the
-         matching extension's root route. The extension UI reads
-         `?repositoryId=…` from the URL to scope itself, so RepoTabs
-         carries the repo id through on every nav. The persistent
-         header / tabs stay put because every per-repo view is the
-         same RepoHome component. -->
+    <!-- /r/:path/{pulls,issues,checks,epics} → workbench-style embed of the
+         matching extension's root route. The repo path is authoritative:
+         RepoHome passes the freshly loaded repo/workspace context into the
+         extension element, while query params remain useful for filters and
+         old share links. The persistent header / tabs stay put because every
+         per-repo view is the same RepoHome component. -->
     <section v-else-if="view === 'pulls'" class="repo-extension-embed" data-smoke="repo-pulls">
-      <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
-      <ExtensionRoute prefix="issues" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="issues" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
-      <ExtensionRoute prefix="checks" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="checks" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
-      <ExtensionRoute prefix="epics" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="epics" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
   </template>
 </template>
