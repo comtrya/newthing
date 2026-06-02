@@ -2423,7 +2423,15 @@ impl Runtime {
         principal: PrincipalStatus,
     ) -> Result<String, String> {
         let token = self.next_secure_token("fp");
-        let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
+        // The principal URI must be a well-formed `comtrya://` resource ref:
+        // it is recorded as the author/creator on every write this credential
+        // performs, and paths like `create_comment` parse it back as a
+        // `ResourceRef` (26-char Crockford opaque ID). A counter-based id would
+        // fail that parse, so mint a real opaque id under the `prn_` prefix.
+        let principal_uri = format!(
+            "comtrya://credential/{}",
+            OpaqueId::new(IdPrefix::Owned("prn_".to_string())).as_str()
+        );
         let now = now_seconds();
         self.store
             .insert_credential(
