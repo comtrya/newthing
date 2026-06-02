@@ -214,7 +214,10 @@ impl DeviceAuthSessionStore {
     }
 
     fn evict_expired(&self, now_secs: u64) {
-        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         let expired_device_codes: Vec<String> = guard
             .sessions
             .iter()
@@ -230,7 +233,10 @@ impl DeviceAuthSessionStore {
 
     pub fn insert(&self, session: DeviceAuthSession, now_secs: u64) {
         self.evict_expired(now_secs);
-        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         if guard.sessions.len() >= OIDC_SESSION_MAX_ENTRIES {
             let dev_code_opt = guard.sessions.keys().next().cloned();
             let old_sess_opt = dev_code_opt.and_then(|dc| guard.sessions.remove(&dc));
@@ -238,27 +244,51 @@ impl DeviceAuthSessionStore {
                 guard.user_code_to_device_code.remove(&old_sess.user_code);
             }
         }
-        guard.user_code_to_device_code.insert(session.user_code.clone(), session.device_code.clone());
+        guard
+            .user_code_to_device_code
+            .insert(session.user_code.clone(), session.device_code.clone());
         guard.sessions.insert(session.device_code.clone(), session);
     }
 
-    pub fn get_by_device_code(&self, device_code: &str, now_secs: u64) -> Option<DeviceAuthSession> {
+    pub fn get_by_device_code(
+        &self,
+        device_code: &str,
+        now_secs: u64,
+    ) -> Option<DeviceAuthSession> {
         self.evict_expired(now_secs);
-        let guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         guard.sessions.get(device_code).cloned()
     }
 
     pub fn get_by_user_code(&self, user_code: &str, now_secs: u64) -> Option<DeviceAuthSession> {
         self.evict_expired(now_secs);
-        let guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         let dev_code = guard.user_code_to_device_code.get(user_code)?;
         guard.sessions.get(dev_code).cloned()
     }
 
-    pub fn update_status(&self, user_code: &str, status: DeviceAuthStatus, now_secs: u64) -> Result<(), ()> {
+    pub fn update_status(
+        &self,
+        user_code: &str,
+        status: DeviceAuthStatus,
+        now_secs: u64,
+    ) -> Result<(), ()> {
         self.evict_expired(now_secs);
-        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
-        let dev_code = guard.user_code_to_device_code.get(user_code).ok_or(())?.clone();
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
+        let dev_code = guard
+            .user_code_to_device_code
+            .get(user_code)
+            .ok_or(())?
+            .clone();
         if let Some(session) = guard.sessions.get_mut(&dev_code) {
             session.status = status;
             Ok(())
@@ -268,7 +298,10 @@ impl DeviceAuthSessionStore {
     }
 
     pub fn record_poll(&self, device_code: &str, now_secs: u64) -> Result<bool, ()> {
-        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         if let Some(session) = guard.sessions.get_mut(device_code) {
             if session.expires_at_secs < now_secs {
                 let user_code = session.user_code.clone();
@@ -276,7 +309,9 @@ impl DeviceAuthSessionStore {
                 guard.user_code_to_device_code.remove(&user_code);
                 return Err(());
             }
-            if session.last_polled_at_secs.is_some_and(|last_poll| now_secs.saturating_sub(last_poll) < MIN_POLL_INTERVAL_SECS) {
+            if session.last_polled_at_secs.is_some_and(|last_poll| {
+                now_secs.saturating_sub(last_poll) < MIN_POLL_INTERVAL_SECS
+            }) {
                 session.last_polled_at_secs = Some(now_secs);
                 return Ok(true);
             }
@@ -288,7 +323,10 @@ impl DeviceAuthSessionStore {
     }
 
     pub fn remove(&self, device_code: &str) {
-        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let mut guard = self
+            .inner
+            .lock()
+            .expect("device auth store lock not poisoned");
         if let Some(session) = guard.sessions.remove(device_code) {
             guard.user_code_to_device_code.remove(&session.user_code);
         }
@@ -597,7 +635,10 @@ mod tests {
         store.insert(state.clone(), session, now).unwrap();
 
         assert!(store.take(&state, now).is_some(), "first take returns Some");
-        assert!(store.take(&state, now).is_none(), "second take returns None");
+        assert!(
+            store.take(&state, now).is_none(),
+            "second take returns None"
+        );
     }
 
     #[test]
@@ -728,24 +769,38 @@ mod tests {
         assert_eq!(s.device_code, "dev_123");
 
         // Record poll
-        assert!(!store.record_poll("dev_123", now).unwrap(), "should poll fine");
-        assert!(store.record_poll("dev_123", now + 2).unwrap(), "should trigger slow_down");
-        assert!(!store.record_poll("dev_123", now + 10).unwrap(), "should poll fine after 10s");
+        assert!(
+            !store.record_poll("dev_123", now).unwrap(),
+            "should poll fine"
+        );
+        assert!(
+            store.record_poll("dev_123", now + 2).unwrap(),
+            "should trigger slow_down"
+        );
+        assert!(
+            !store.record_poll("dev_123", now + 10).unwrap(),
+            "should poll fine after 10s"
+        );
 
         // Update status
-        store.update_status(
-            "ABCD-EFGH",
-            DeviceAuthStatus::Approved {
-                owner_principal_uri: "comtrya://user/1".to_string(),
-                email: Some("test@example.com".to_string()),
-                display_name: Some("Test User".to_string()),
-            },
-            now + 10,
-        ).unwrap();
+        store
+            .update_status(
+                "ABCD-EFGH",
+                DeviceAuthStatus::Approved {
+                    owner_principal_uri: "comtrya://user/1".to_string(),
+                    email: Some("test@example.com".to_string()),
+                    display_name: Some("Test User".to_string()),
+                },
+                now + 10,
+            )
+            .unwrap();
 
         let s = store.get_by_device_code("dev_123", now + 10).unwrap();
         match s.status {
-            DeviceAuthStatus::Approved { owner_principal_uri, .. } => {
+            DeviceAuthStatus::Approved {
+                owner_principal_uri,
+                ..
+            } => {
                 assert_eq!(owner_principal_uri, "comtrya://user/1");
             }
             _ => panic!("Expected Approved status"),

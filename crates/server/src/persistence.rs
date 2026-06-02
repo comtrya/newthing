@@ -732,10 +732,7 @@ impl PersistentStore {
         Ok((sessions, credentials, rate_limits))
     }
 
-    pub fn insert_refresh_token(
-        &self,
-        record: &StoredRefreshToken,
-    ) -> Result<(), String> {
+    pub fn insert_refresh_token(&self, record: &StoredRefreshToken) -> Result<(), String> {
         let scopes_json = serde_json::to_string(&record.scopes)
             .map_err(|e| format!("serialize scopes failed: {e}"))?;
         self.conn
@@ -774,7 +771,7 @@ impl PersistentStore {
                  FROM refresh_tokens WHERE id = ?1",
             )
             .map_err(|e| format!("prepare lookup_refresh_token failed: {e}"))?;
-        
+
         let row = stmt
             .query_row(params![id], |row| {
                 Ok((
@@ -869,7 +866,11 @@ impl PersistentStore {
         Ok(())
     }
 
-    pub fn revoke_refresh_token_family(&self, family_id: &str, revoked_at: u64) -> Result<(), String> {
+    pub fn revoke_refresh_token_family(
+        &self,
+        family_id: &str,
+        revoked_at: u64,
+    ) -> Result<(), String> {
         self.conn
             .lock()
             .expect("conn lock poisoned")
@@ -1274,7 +1275,7 @@ mod tests {
     #[test]
     fn refresh_token_lifecycle_and_rotation() {
         let (_tmp, store) = fresh_store();
-        
+
         let token = StoredRefreshToken {
             id: "rt_1".to_string(),
             family_id: "family_a".to_string(),

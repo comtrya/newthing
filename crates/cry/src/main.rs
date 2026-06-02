@@ -48,11 +48,7 @@ fn get_home_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var("USERPROFILE")
-                .ok()
-                .map(PathBuf::from)
-        })
+        .or_else(|| std::env::var("USERPROFILE").ok().map(PathBuf::from))
 }
 
 fn warn_plaintext_fallback() {
@@ -136,13 +132,16 @@ fn write_credentials(host: &str, creds: &HostCredentials) -> Result<()> {
     // Always mirror to file or fallback if keyring fails
     if !keyring_success {
         warn_plaintext_fallback();
-        let home = get_home_dir().ok_or_else(|| anyhow::anyhow!("could not find home directory"))?;
+        let home =
+            get_home_dir().ok_or_else(|| anyhow::anyhow!("could not find home directory"))?;
         let path = home.join(".config/comtrya/cry.json");
-        
+
         let mut map = if path.exists() {
             std::fs::read_to_string(&path)
                 .ok()
-                .and_then(|content| serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok())
+                .and_then(|content| {
+                    serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok()
+                })
                 .unwrap_or_default()
         } else {
             HashMap::new()
@@ -163,10 +162,10 @@ fn delete_credentials(host: &str) -> Result<()> {
 
     let home = get_home_dir().ok_or_else(|| anyhow::anyhow!("could not find home directory"))?;
     let path = home.join(".config/comtrya/cry.json");
-    
-    let mut map_opt = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok());
+
+    let mut map_opt = std::fs::read_to_string(&path).ok().and_then(|content| {
+        serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok()
+    });
 
     if let Some(map) = map_opt.as_mut().filter(|m| m.contains_key(host)) {
         map.remove(host);
@@ -186,10 +185,9 @@ fn delete_all_credentials() -> Result<()> {
     let home = get_home_dir().ok_or_else(|| anyhow::anyhow!("could not find home directory"))?;
     let path = home.join(".config/comtrya/cry.json");
     if path.exists() {
-        if let Some(map) = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok())
-        {
+        if let Some(map) = std::fs::read_to_string(&path).ok().and_then(|content| {
+            serde_json::from_str::<HashMap<String, HostCredentials>>(&content).ok()
+        }) {
             for host in map.keys() {
                 if let Ok(entry) = get_keyring_entry(host) {
                     let _ = entry.delete_credential();
@@ -212,9 +210,12 @@ fn parse_and_normalize_host(input: &str) -> Result<(String, String)> {
     }
 
     let parsed = reqwest::Url::parse(&url_str)?;
-    let host_part = parsed.host_str().ok_or_else(|| anyhow::anyhow!("invalid host"))?.to_string();
+    let host_part = parsed
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("invalid host"))?
+        .to_string();
     let port = parsed.port();
-    
+
     let normalized_host = match port {
         Some(p) => format!("{}:{}", host_part, p),
         None => host_part,
@@ -251,7 +252,11 @@ impl SingleFlightLock {
                 }
             }
 
-            match OpenOptions::new().write(true).create_new(true).open(&self.path) {
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&self.path)
+            {
                 Ok(_) => {
                     return None;
                 }
@@ -280,7 +285,9 @@ fn open_browser(url: &str) {
     #[cfg(target_os = "linux")]
     let _ = std::process::Command::new("xdg-open").arg(url).status();
     #[cfg(target_os = "windows")]
-    let _ = std::process::Command::new("cmd").args(["/c", "start", url]).status();
+    let _ = std::process::Command::new("cmd")
+        .args(["/c", "start", url])
+        .status();
 }
 
 fn parse_args() -> Result<CliArgs, String> {
@@ -360,7 +367,9 @@ fn print_help() {
     eprintln!("  auth status [--host <host>]       Show current authentication status");
     eprintln!("  auth logout [--host <host>]       Clear local credentials for a host");
     eprintln!("  auth logout --all                 Clear all local credentials");
-    eprintln!("  auth setup-git [--host <host>]    Configure git to use cry as a credential helper");
+    eprintln!(
+        "  auth setup-git [--host <host>]    Configure git to use cry as a credential helper"
+    );
     eprintln!("  git-credential <get|store|erase>  Git credential helper protocol endpoint");
 }
 
@@ -439,8 +448,9 @@ async fn handle_auth_login(host_input: &str) -> Result<()> {
 
     let client = reqwest::Client::new();
     let code_url = format!("{}/auth/device/code", base_url);
-    
-    let resp = client.post(&code_url)
+
+    let resp = client
+        .post(&code_url)
         .form(&[("client_id", "cry")])
         .send()
         .await?;
@@ -448,20 +458,27 @@ async fn handle_auth_login(host_input: &str) -> Result<()> {
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Failed to get device code from server (HTTP {}): {}", status, err_text);
+        anyhow::bail!(
+            "Failed to get device code from server (HTTP {}): {}",
+            status,
+            err_text
+        );
     }
 
     let code_resp: DeviceCodeResponse = resp.json().await?;
-    
+
     eprintln!();
     eprintln!("------------------------------------------------------------");
-    eprintln!("  Verification Code: \x1b[1;32m{}\x1b[0m", code_resp.user_code);
+    eprintln!(
+        "  Verification Code: \x1b[1;32m{}\x1b[0m",
+        code_resp.user_code
+    );
     eprintln!("------------------------------------------------------------");
     eprintln!();
     eprintln!("Opening your browser to approve authorization...");
-    
+
     open_browser(&code_resp.verification_uri_complete);
-    
+
     eprintln!("If the browser did not open, navigate to:");
     eprintln!("  {}", code_resp.verification_uri_complete);
     eprintln!();
@@ -482,7 +499,8 @@ async fn handle_auth_login(host_input: &str) -> Result<()> {
 
         tokio::time::sleep(Duration::from_secs(interval)).await;
 
-        let poll_resp = client.post(&token_url)
+        let poll_resp = client
+            .post(&token_url)
             .form(&[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("client_id", "cry"),
@@ -502,7 +520,10 @@ async fn handle_auth_login(host_input: &str) -> Result<()> {
             };
 
             write_credentials(&normalized_host, &creds)?;
-            eprintln!("\x1b[1;32mSuccess! You are successfully authenticated with {}.\x1b[0m", base_url);
+            eprintln!(
+                "\x1b[1;32mSuccess! You are successfully authenticated with {}.\x1b[0m",
+                base_url
+            );
             return Ok(());
         }
 
@@ -519,17 +540,26 @@ async fn handle_auth_login(host_input: &str) -> Result<()> {
                         anyhow::bail!("Authorization request was denied by the user.");
                     }
                     "expired_token" => {
-                        anyhow::bail!("Verification code has expired. Please run 'cry auth login' again.");
+                        anyhow::bail!(
+                            "Verification code has expired. Please run 'cry auth login' again."
+                        );
                     }
                     other => {
-                        anyhow::bail!("OAuth2 error from server: {} ({:?})", other, err_data.error_description);
+                        anyhow::bail!(
+                            "OAuth2 error from server: {} ({:?})",
+                            other,
+                            err_data.error_description
+                        );
                     }
                 }
             } else {
                 anyhow::bail!("Server returned unparseable Bad Request during token polling.");
             }
         } else {
-            anyhow::bail!("Server returned unexpected HTTP status during token polling: {}", poll_resp.status());
+            anyhow::bail!(
+                "Server returned unexpected HTTP status during token polling: {}",
+                poll_resp.status()
+            );
         }
     }
 }
@@ -558,7 +588,8 @@ async fn handle_auth_logout(host_input: &str) -> Result<()> {
         // Attempt server-side revocation
         let client = reqwest::Client::new();
         let revoke_url = format!("{}/auth/token/revoke", base_url);
-        let _ = client.post(&revoke_url)
+        let _ = client
+            .post(&revoke_url)
             .form(&[("token", &creds.refresh_token)])
             .send()
             .await;
@@ -571,7 +602,7 @@ async fn handle_auth_logout(host_input: &str) -> Result<()> {
 
 fn handle_setup_git(host_input: &str) -> Result<()> {
     let (_, base_url) = parse_and_normalize_host(host_input)?;
-    
+
     // git config --global credential.<url>.helper "!cry git-credential"
     let key = format!("credential.{}.helper", base_url);
     let output = std::process::Command::new("git")
@@ -583,7 +614,10 @@ fn handle_setup_git(host_input: &str) -> Result<()> {
         anyhow::bail!("Failed to run git config: {}", err);
     }
 
-    eprintln!("\x1b[1;32mSuccess! Git has been configured to use 'cry git-credential' for {}.\x1b[0m", base_url);
+    eprintln!(
+        "\x1b[1;32mSuccess! Git has been configured to use 'cry git-credential' for {}.\x1b[0m",
+        base_url
+    );
     Ok(())
 }
 
@@ -657,7 +691,8 @@ async fn handle_git_credential(action: &str) -> Result<()> {
             if let Some(creds) = read_credentials(host) {
                 let client = reqwest::Client::new();
                 let revoke_url = format!("{}/auth/token/revoke", creds.host_url);
-                let _ = client.post(&revoke_url)
+                let _ = client
+                    .post(&revoke_url)
                     .form(&[("token", &creds.refresh_token)])
                     .send()
                     .await;
@@ -684,15 +719,16 @@ async fn perform_token_refresh(host_url: &str, refresh_token: &str) -> Result<Ho
         ("refresh_token", refresh_token),
     ];
 
-    let resp = client.post(&url)
-        .form(&params)
-        .send()
-        .await?;
+    let resp = client.post(&url).form(&params).send().await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let err_text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Server returned HTTP {} on token refresh: {}", status, err_text);
+        anyhow::bail!(
+            "Server returned HTTP {} on token refresh: {}",
+            status,
+            err_text
+        );
     }
 
     let token_resp: TokenResponse = resp.json().await?;

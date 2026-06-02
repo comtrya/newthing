@@ -5718,7 +5718,11 @@ async fn oidc_callback(
 
     // 2. Single-use session lookup. `take` removes the entry; replays
     //    or unknown state values yield 401.
-    let login_session = match state.runtime.oidc_sessions.take(&callback_state, now_seconds()) {
+    let login_session = match state
+        .runtime
+        .oidc_sessions
+        .take(&callback_state, now_seconds())
+    {
         Some(s) => s,
         None => {
             return err(
@@ -5990,24 +5994,54 @@ fn csrf_cookie_from_headers(headers: &HeaderMap) -> Option<&str> {
         })
 }
 
-fn security_response(status: StatusCode, html_body: String, set_cookie: Option<String>) -> Response {
+fn security_response(
+    status: StatusCode,
+    html_body: String,
+    set_cookie: Option<String>,
+) -> Response {
     let mut res = Response::new(axum::body::Body::from(html_body));
     *res.status_mut() = status;
     let h = res.headers_mut();
-    h.insert(axum::http::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-    h.insert(axum::http::header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
-    h.insert(axum::http::header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("frame-ancestors 'none'; default-src 'self'; style-src 'unsafe-inline'"));
-    h.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store, must-revalidate"));
-    h.insert(axum::http::header::PRAGMA, HeaderValue::from_static("no-cache"));
+    h.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    h.insert(
+        axum::http::header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    );
+    h.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "frame-ancestors 'none'; default-src 'self'; style-src 'unsafe-inline'",
+        ),
+    );
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, must-revalidate"),
+    );
+    h.insert(
+        axum::http::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
     if let Some(val) = set_cookie.and_then(|c| HeaderValue::from_str(&c).ok()) {
         h.insert(axum::http::header::SET_COOKIE, val);
     }
     res
 }
 
-fn render_device_auth_html(title: &str, content: &str, csrf_token: Option<&str>, error: Option<&str>, user_code: Option<&str>) -> String {
+fn render_device_auth_html(
+    title: &str,
+    content: &str,
+    csrf_token: Option<&str>,
+    error: Option<&str>,
+    user_code: Option<&str>,
+) -> String {
     let error_html = if let Some(err) = error {
-        format!(r#"<div style="background-color: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px;">{}</div>"#, html_escape(err))
+        format!(
+            r#"<div style="background-color: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px;">{}</div>"#,
+            html_escape(err)
+        )
     } else {
         "".to_string()
     };
@@ -6082,14 +6116,20 @@ fn render_device_auth_html(title: &str, content: &str, csrf_token: Option<&str>,
 }
 
 fn html_escape(input: &str) -> String {
-    input.replace('&', "&amp;")
-         .replace('<', "&lt;")
-         .replace('>', "&gt;")
-         .replace('"', "&quot;")
-         .replace('\'', "&#x27;")
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
 }
 
-fn json_err_response(status: StatusCode, error: &str, error_description: &str, cors: HeaderMap) -> Response {
+fn json_err_response(
+    status: StatusCode,
+    error: &str,
+    error_description: &str,
+    cors: HeaderMap,
+) -> Response {
     let body = json!({
         "error": error,
         "error_description": error_description,
@@ -6141,8 +6181,14 @@ async fn device_code_endpoint(
 
     let mut res = json_response(StatusCode::OK, json!(resp), cors);
     let h = res.headers_mut();
-    h.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    h.insert(axum::http::header::PRAGMA, HeaderValue::from_static("no-cache"));
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    h.insert(
+        axum::http::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
     res
 }
 
@@ -6159,10 +6205,16 @@ async fn device_verification_endpoint(
     let principal = state.runtime.principal_from_headers(&headers);
     let authenticated = matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::AdminCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     );
 
-    let user_code = query.user_code.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    let user_code = query
+        .user_code
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
 
     let Some(uc) = user_code else {
         let content = r#"
@@ -6173,12 +6225,19 @@ async fn device_verification_endpoint(
                 <button type="submit" style="background-color: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px;">Continue</button>
             </form>
         "#.to_string();
-        return security_response(StatusCode::OK, render_device_auth_html("Connect Device", &content, None, None, None), None);
+        return security_response(
+            StatusCode::OK,
+            render_device_auth_html("Connect Device", &content, None, None, None),
+            None,
+        );
     };
 
     let uc_normalized = uc.to_uppercase();
     let now = now_seconds();
-    let session_opt = state.runtime.device_sessions.get_by_user_code(&uc_normalized, now);
+    let session_opt = state
+        .runtime
+        .device_sessions
+        .get_by_user_code(&uc_normalized, now);
     if session_opt.is_none() {
         let content = r#"
             <p>Please enter the 8-character verification code shown on your CLI console.</p>
@@ -6190,8 +6249,16 @@ async fn device_verification_endpoint(
         "#.to_string();
         return security_response(
             StatusCode::BAD_REQUEST,
-            render_device_auth_html("Connect Device", &content, None, Some("The verification code is invalid or has expired. Please verify and try again."), None),
-            None
+            render_device_auth_html(
+                "Connect Device",
+                &content,
+                None,
+                Some(
+                    "The verification code is invalid or has expired. Please verify and try again.",
+                ),
+                None,
+            ),
+            None,
         );
     }
 
@@ -6200,8 +6267,14 @@ async fn device_verification_endpoint(
         if issuers.is_empty() {
             return security_response(
                 StatusCode::BAD_REQUEST,
-                render_device_auth_html("OIDC Not Configured", "<p>OpenID Connect identity providers are not configured on this server.</p>", None, None, None),
-                None
+                render_device_auth_html(
+                    "OIDC Not Configured",
+                    "<p>OpenID Connect identity providers are not configured on this server.</p>",
+                    None,
+                    None,
+                    None,
+                ),
+                None,
             );
         }
 
@@ -6210,7 +6283,10 @@ async fn device_verification_endpoint(
             let redirect_url = format!("/auth/oidc/{provider_id}/login?user_code={uc_normalized}");
             let mut res = Response::new(axum::body::Body::empty());
             *res.status_mut() = StatusCode::FOUND;
-            res.headers_mut().insert(axum::http::header::LOCATION, HeaderValue::from_str(&redirect_url).unwrap_or(HeaderValue::from_static("/")));
+            res.headers_mut().insert(
+                axum::http::header::LOCATION,
+                HeaderValue::from_str(&redirect_url).unwrap_or(HeaderValue::from_static("/")),
+            );
             return res;
         }
 
@@ -6223,7 +6299,11 @@ async fn device_verification_endpoint(
             ));
         }
         content.push_str("</div>");
-        return security_response(StatusCode::OK, render_device_auth_html("Select Provider", &content, None, None, None), None);
+        return security_response(
+            StatusCode::OK,
+            render_device_auth_html("Select Provider", &content, None, None, None),
+            None,
+        );
     }
 
     let csrf_cookie_val = csrf_cookie_from_headers(&headers).map(|s| s.to_string());
@@ -6231,7 +6311,9 @@ async fn device_verification_endpoint(
         Some(token) => (token, None),
         None => {
             let new_csrf = generate_high_entropy_hex(16);
-            let cookie = format!("device_csrf={new_csrf}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600");
+            let cookie = format!(
+                "device_csrf={new_csrf}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600"
+            );
             (new_csrf, Some(cookie))
         }
     };
@@ -6245,8 +6327,14 @@ async fn device_verification_endpoint(
 
     security_response(
         StatusCode::OK,
-        render_device_auth_html("Authorize Device", &content, Some(&csrf_token), None, Some(&uc_normalized)),
-        set_cookie
+        render_device_auth_html(
+            "Authorize Device",
+            &content,
+            Some(&csrf_token),
+            None,
+            Some(&uc_normalized),
+        ),
+        set_cookie,
     )
 }
 
@@ -6264,7 +6352,8 @@ async fn device_approve_endpoint(
     let cookie_csrf = csrf_cookie_from_headers(&headers);
     let csrf_valid = if let Some(cookie) = cookie_csrf {
         if cookie.len() == form.csrf_token.len() {
-            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8() == 1
+            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8()
+                == 1
         } else {
             false
         }
@@ -6275,8 +6364,14 @@ async fn device_approve_endpoint(
     if !csrf_valid {
         return security_response(
             StatusCode::BAD_REQUEST,
-            render_device_auth_html("Bad Request", "<p>CSRF verification failed. Please try again.</p>", None, None, None),
-            None
+            render_device_auth_html(
+                "Bad Request",
+                "<p>CSRF verification failed. Please try again.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
         );
     }
 
@@ -6284,21 +6379,33 @@ async fn device_approve_endpoint(
     let ctx = state.runtime.principal_context_from_headers(&headers);
     let authenticated = matches!(
         principal,
-        PrincipalStatus::OperatorCredential | PrincipalStatus::AdminCredential | PrincipalStatus::Credential
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
     );
 
     if !authenticated {
         return security_response(
             StatusCode::UNAUTHORIZED,
-            render_device_auth_html("Unauthorized", "<p>You must be signed in to approve a device.</p>", None, None, None),
-            None
+            render_device_auth_html(
+                "Unauthorized",
+                "<p>You must be signed in to approve a device.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
         );
     }
 
     let mut email = None;
     let mut display_name = None;
     if let Some(user_id) = ctx.uri.strip_prefix("comtrya://user/") {
-        let auth_service = state.runtime.auth_service.lock().expect("auth_service lock");
+        let auth_service = state
+            .runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock");
         if let Some(u) = auth_service.find_user_by_id(user_id) {
             email = u.email.clone();
             display_name = u.display_name.clone();
@@ -6313,17 +6420,32 @@ async fn device_approve_endpoint(
     };
 
     let now = now_seconds();
-    if state.runtime.device_sessions.update_status(&uc_normalized, status, now).is_ok() {
+    if state
+        .runtime
+        .device_sessions
+        .update_status(&uc_normalized, status, now)
+        .is_ok()
+    {
         let content = r#"
             <p style="color: #059669; font-weight: 600; font-size: 18px; text-align: center; margin-bottom: 16px;">✓ Device Authorized</p>
             <p style="text-align: center;">You have successfully approved this device. Your CLI will resume shortly.</p>
         "#.to_string();
-        security_response(StatusCode::OK, render_device_auth_html("Device Authorized", &content, None, None, None), None)
+        security_response(
+            StatusCode::OK,
+            render_device_auth_html("Device Authorized", &content, None, None, None),
+            None,
+        )
     } else {
         security_response(
             StatusCode::BAD_REQUEST,
-            render_device_auth_html("Authorization Failed", "<p>The verification code is invalid or has expired.</p>", None, None, None),
-            None
+            render_device_auth_html(
+                "Authorization Failed",
+                "<p>The verification code is invalid or has expired.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
         )
     }
 }
@@ -6336,7 +6458,8 @@ async fn device_deny_endpoint(
     let cookie_csrf = csrf_cookie_from_headers(&headers);
     let csrf_valid = if let Some(cookie) = cookie_csrf {
         if cookie.len() == form.csrf_token.len() {
-            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8() == 1
+            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8()
+                == 1
         } else {
             false
         }
@@ -6347,24 +6470,45 @@ async fn device_deny_endpoint(
     if !csrf_valid {
         return security_response(
             StatusCode::BAD_REQUEST,
-            render_device_auth_html("Bad Request", "<p>CSRF verification failed. Please try again.</p>", None, None, None),
-            None
+            render_device_auth_html(
+                "Bad Request",
+                "<p>CSRF verification failed. Please try again.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
         );
     }
 
     let uc_normalized = form.user_code.to_uppercase();
     let now = now_seconds();
-    if state.runtime.device_sessions.update_status(&uc_normalized, oidc::DeviceAuthStatus::Denied, now).is_ok() {
+    if state
+        .runtime
+        .device_sessions
+        .update_status(&uc_normalized, oidc::DeviceAuthStatus::Denied, now)
+        .is_ok()
+    {
         let content = r#"
             <p style="color: #dc2626; font-weight: 600; font-size: 18px; text-align: center; margin-bottom: 16px;">✗ Request Denied</p>
             <p style="text-align: center;">You have denied the authorization request. You may close this tab.</p>
         "#.to_string();
-        security_response(StatusCode::OK, render_device_auth_html("Request Denied", &content, None, None, None), None)
+        security_response(
+            StatusCode::OK,
+            render_device_auth_html("Request Denied", &content, None, None, None),
+            None,
+        )
     } else {
         security_response(
             StatusCode::BAD_REQUEST,
-            render_device_auth_html("Failed to Deny", "<p>The verification code is invalid or has expired.</p>", None, None, None),
-            None
+            render_device_auth_html(
+                "Failed to Deny",
+                "<p>The verification code is invalid or has expired.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
         )
     }
 }
@@ -6390,32 +6534,67 @@ async fn device_token_endpoint(
 
     if req.grant_type == "urn:ietf:params:oauth:grant-type:device_code" {
         let Some(ref dev_code) = req.device_code else {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_request", "Missing device_code", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "Missing device_code",
+                cors,
+            );
         };
         let now = now_seconds();
         match state.runtime.device_sessions.record_poll(dev_code, now) {
             Ok(true) => {
-                return json_err_response(StatusCode::BAD_REQUEST, "slow_down", "Polling interval is 5 seconds", cors);
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "slow_down",
+                    "Polling interval is 5 seconds",
+                    cors,
+                );
             }
             Ok(false) => {}
             Err(()) => {
-                return json_err_response(StatusCode::BAD_REQUEST, "expired_token", "Device code has expired or is invalid", cors);
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "expired_token",
+                    "Device code has expired or is invalid",
+                    cors,
+                );
             }
         }
 
-        let Some(session) = state.runtime.device_sessions.get_by_device_code(dev_code, now) else {
-            return json_err_response(StatusCode::BAD_REQUEST, "expired_token", "Device code has expired or is invalid", cors);
+        let Some(session) = state
+            .runtime
+            .device_sessions
+            .get_by_device_code(dev_code, now)
+        else {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "expired_token",
+                "Device code has expired or is invalid",
+                cors,
+            );
         };
 
         match session.status {
-            oidc::DeviceAuthStatus::Pending => {
-                json_err_response(StatusCode::BAD_REQUEST, "authorization_pending", "Authorization is still pending", cors)
-            }
+            oidc::DeviceAuthStatus::Pending => json_err_response(
+                StatusCode::BAD_REQUEST,
+                "authorization_pending",
+                "Authorization is still pending",
+                cors,
+            ),
             oidc::DeviceAuthStatus::Denied => {
                 state.runtime.device_sessions.remove(dev_code);
-                json_err_response(StatusCode::BAD_REQUEST, "access_denied", "The authorization request was denied by the user", cors)
+                json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "access_denied",
+                    "The authorization request was denied by the user",
+                    cors,
+                )
             }
-            oidc::DeviceAuthStatus::Approved { owner_principal_uri, .. } => {
+            oidc::DeviceAuthStatus::Approved {
+                owner_principal_uri,
+                ..
+            } => {
                 state.runtime.device_sessions.remove(dev_code);
 
                 let access_token = format!("fp_{}", generate_high_entropy_hex(24));
@@ -6431,7 +6610,12 @@ async fn device_token_endpoint(
                     now,
                 ) {
                     tracing::error!(%error, "insert access token failed");
-                    return json_err_response(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Failed to issue access token", cors);
+                    return json_err_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to issue access token",
+                        cors,
+                    );
                 }
 
                 let rt_id = state.runtime.next_id("rt");
@@ -6456,7 +6640,12 @@ async fn device_token_endpoint(
 
                 if let Err(error) = state.runtime.store.insert_refresh_token(&rt_record) {
                     tracing::error!(%error, "insert refresh token failed");
-                    return json_err_response(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Failed to issue refresh token", cors);
+                    return json_err_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to issue refresh token",
+                        cors,
+                    );
                 }
 
                 let _ = state.runtime.append_audit(
@@ -6477,47 +6666,91 @@ async fn device_token_endpoint(
 
                 let mut res = json_response(StatusCode::OK, body, cors);
                 let h = res.headers_mut();
-                h.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-                h.insert(axum::http::header::PRAGMA, HeaderValue::from_static("no-cache"));
+                h.insert(
+                    axum::http::header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-store"),
+                );
+                h.insert(
+                    axum::http::header::PRAGMA,
+                    HeaderValue::from_static("no-cache"),
+                );
                 res
             }
         }
     } else if req.grant_type == "refresh_token" {
         let Some(ref rt_token) = req.refresh_token else {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_request", "Missing refresh_token", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "Missing refresh_token",
+                cors,
+            );
         };
 
         let Some((id, secret)) = parse_refresh_token(rt_token) else {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Invalid refresh token format", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Invalid refresh token format",
+                cors,
+            );
         };
 
         let record = match state.runtime.store.lookup_refresh_token(id) {
             Ok(Some(rec)) => rec,
             Ok(None) => {
-                return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Refresh token not found", cors);
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_grant",
+                    "Refresh token not found",
+                    cors,
+                );
             }
             Err(error) => {
                 tracing::error!(%error, "lookup refresh token failed");
-                return json_err_response(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Database error", cors);
+                return json_err_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "server_error",
+                    "Database error",
+                    cors,
+                );
             }
         };
 
         let now = now_seconds();
 
         if hash_token_secret(secret) != record.token_hash {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Invalid refresh token secret", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Invalid refresh token secret",
+                cors,
+            );
         }
 
         if record.revoked_at.is_some() {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Refresh token has been revoked", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has been revoked",
+                cors,
+            );
         }
 
         if record.expires_at <= now {
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Refresh token has expired", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has expired",
+                cors,
+            );
         }
 
         if record.consumed_at.is_some() {
-            let _ = state.runtime.store.revoke_refresh_token_family(&record.family_id, now);
+            let _ = state
+                .runtime
+                .store
+                .revoke_refresh_token_family(&record.family_id, now);
             let _ = state.runtime.append_audit(
                 "dev.comtrya.auth.refresh.reuse_detected",
                 json!({
@@ -6526,7 +6759,12 @@ async fn device_token_endpoint(
                     "owner_principal_uri": record.owner_principal_uri,
                 }),
             );
-            return json_err_response(StatusCode::BAD_REQUEST, "invalid_grant", "Refresh token has already been consumed (reuse detected)", cors);
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has already been consumed (reuse detected)",
+                cors,
+            );
         }
 
         let next_rt_id = state.runtime.next_id("rt");
@@ -6549,9 +6787,18 @@ async fn device_token_endpoint(
             revoked_at: None,
         };
 
-        if let Err(error) = state.runtime.store.rotate_refresh_token(&record.id, &next_record, now) {
+        if let Err(error) = state
+            .runtime
+            .store
+            .rotate_refresh_token(&record.id, &next_record, now)
+        {
             tracing::error!(%error, "rotate refresh token failed");
-            return json_err_response(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Rotation failed", cors);
+            return json_err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Rotation failed",
+                cors,
+            );
         }
 
         let access_token = format!("fp_{}", generate_high_entropy_hex(24));
@@ -6565,7 +6812,12 @@ async fn device_token_endpoint(
             now,
         ) {
             tracing::error!(%error, "insert access token failed");
-            return json_err_response(StatusCode::INTERNAL_SERVER_ERROR, "server_error", "Failed to issue access token", cors);
+            return json_err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to issue access token",
+                cors,
+            );
         }
 
         let _ = state.runtime.append_audit(
@@ -6587,11 +6839,22 @@ async fn device_token_endpoint(
 
         let mut res = json_response(StatusCode::OK, body, cors);
         let h = res.headers_mut();
-        h.insert(axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        h.insert(axum::http::header::PRAGMA, HeaderValue::from_static("no-cache"));
+        h.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        );
+        h.insert(
+            axum::http::header::PRAGMA,
+            HeaderValue::from_static("no-cache"),
+        );
         res
     } else {
-        json_err_response(StatusCode::BAD_REQUEST, "unsupported_grant_type", "Unsupported grant type", cors)
+        json_err_response(
+            StatusCode::BAD_REQUEST,
+            "unsupported_grant_type",
+            "Unsupported grant type",
+            cors,
+        )
     }
 }
 
@@ -6854,7 +7117,8 @@ async fn git_smart_http(
         let is_pat_allowed = state
             .runtime
             .git_personal_access_token_allows(password, "git:write");
-        let is_fp_allowed = password.starts_with("fp_") && state.runtime.credential_allows(&headers, "git:write");
+        let is_fp_allowed =
+            password.starts_with("fp_") && state.runtime.credential_allows(&headers, "git:write");
         if !is_pat_allowed && !is_fp_allowed {
             return error_response(
                 StatusCode::FORBIDDEN,
@@ -10705,7 +10969,10 @@ mod tests {
             "exactly one in-flight session after login",
         );
         assert!(
-            runtime.oidc_sessions.take(&decoded_state, now_seconds()).is_some(),
+            runtime
+                .oidc_sessions
+                .take(&decoded_state, now_seconds())
+                .is_some(),
             "session keyed on the state token from the redirect",
         );
     }
