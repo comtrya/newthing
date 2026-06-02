@@ -11,6 +11,7 @@ import {
 import "./styles.css";
 import App from "./App.vue";
 import { defineCoreCommentThread } from "./core-widgets/comment-thread";
+import { defineCoreSlotMountElement } from "./core-widgets/slot-mount-element";
 import { loadShellExtensions } from "./extension-loader";
 import { installIssueRefHover } from "./issue-ref-hover";
 import { bindProjectCommands } from "./project-commands";
@@ -23,6 +24,7 @@ defineResourceCardElement();
 defineInlineEditElement();
 defineSkeletonElement();
 defineCoreCommentThread();
+defineCoreSlotMountElement();
 registerRepositoryShellSlots();
 bindGlobalShortcut();
 installIssueRefHover();

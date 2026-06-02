@@ -5,6 +5,7 @@ import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
 import EpicsList from "./EpicsList.vue";
+import IssueEpicLinker from "./IssueEpicLinker.vue";
 import {
   defaultWorkspaceId,
   epicRef,
@@ -19,6 +20,7 @@ const EPIC_CARD_TAG = "comtrya-epic-card";
 const EPICS_BOARD_TAG = "comtrya-epics-board";
 const EPICS_INDEX_TAG = "comtrya-epics-index";
 const EPIC_DETAIL_TAG = "comtrya-epic-detail";
+const ISSUE_EPIC_LINKER_TAG = "comtrya-issue-epic-linker";
 const EPIC_NEW_TAG = "comtrya-epic-new";
 
 interface ExtensionHost {
@@ -68,6 +70,7 @@ defineExtensionWidget({
 defineExtensionWidget({ tagName: EPICS_BOARD_TAG, component: EpicsList });
 defineExtensionWidget({ tagName: EPICS_INDEX_TAG, component: EpicsList });
 defineExtensionWidget({ tagName: EPIC_DETAIL_TAG, component: EpicDetail });
+defineExtensionWidget({ tagName: ISSUE_EPIC_LINKER_TAG, component: IssueEpicLinker });
 defineEpicNewElement();
 
 const extension: ExtensionDefinition = {
@@ -98,6 +101,13 @@ const extension: ExtensionDefinition = {
       defaultSlot: "repository.sidebar",
       defaultPriority: 100,
       requiredPermission: "epics.read",
+    });
+    host.registerWidget({
+      id: "issue-epic-linker",
+      element: ISSUE_EPIC_LINKER_TAG,
+      defaultSlot: "issue.detail.sidebar",
+      defaultPriority: 90,
+      requiredPermission: "epics.write",
     });
     host.registerRoute("/", {
       element: EPICS_INDEX_TAG,

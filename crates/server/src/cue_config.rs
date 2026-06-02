@@ -365,7 +365,7 @@ fn run_cuengine(workdir: &Path) -> Value {
                 pa.cmp(pb)
             });
 
-            let mut projects = discover_projects(&instances);
+            let mut projects = discover_projects(&instances, workdir);
             if projects.is_empty() {
                 projects.push(implicit_default_project());
             }
@@ -409,7 +409,7 @@ fn stable_path(p: &str) -> &str {
 /// relative inside a non-root instance are resolved against that
 /// instance's directory so a sub-project file `services/api/comtrya.cue`
 /// declaring `root: "."` lands on `services/api/`.
-fn discover_projects(instances: &[Value]) -> Vec<Value> {
+fn discover_projects(instances: &[Value], workdir: &Path) -> Vec<Value> {
     let mut projects: Vec<Value> = Vec::new();
     for instance in instances {
         let instance_path = instance
@@ -427,6 +427,9 @@ fn discover_projects(instances: &[Value]) -> Vec<Value> {
         for (name, def) in map.iter() {
             let raw_root = def.get("root").and_then(Value::as_str).unwrap_or("");
             let resolved_root = join_repo_path(&instance_path, raw_root);
+            if !project_root_exists(workdir, &resolved_root) {
+                continue;
+            }
             let mut project = def.clone();
             if let Some(obj) = project.as_object_mut() {
                 obj.insert("name".to_string(), Value::String(name.clone()));
@@ -442,9 +445,18 @@ fn discover_projects(instances: &[Value]) -> Vec<Value> {
     projects.sort_by(|a, b| {
         let na = a.get("name").and_then(Value::as_str).unwrap_or("");
         let nb = b.get("name").and_then(Value::as_str).unwrap_or("");
-        na.cmp(nb)
+        let ra = a.get("root").and_then(Value::as_str).unwrap_or("");
+        let rb = b.get("root").and_then(Value::as_str).unwrap_or("");
+        na.cmp(nb).then_with(|| ra.cmp(rb))
     });
     projects
+}
+
+fn project_root_exists(workdir: &Path, resolved_root: &str) -> bool {
+    if resolved_root.is_empty() {
+        return true;
+    }
+    workdir.join(resolved_root).exists()
 }
 
 fn join_repo_path(instance: &str, relative: &str) -> String {
@@ -912,6 +924,83 @@ mod tests {
             enabled.is_empty(),
             "absent extensions must default to empty; got: {enabled:?}"
         );
+    }
+
+    #[test]
+    fn recursive_project_discovery_ignores_inherited_parent_projects() {
+        let tmp = tempfile::Builder::new()
+            .prefix("comtrya-cue-recursive-projects-")
+            .tempdir()
+            .unwrap();
+        let work = tmp.path();
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            ["config", "user.email", "recursive-test@comtrya"].as_slice(),
+            ["config", "user.name", "recursive-test"].as_slice(),
+            ["config", "commit.gpgsign", "false"].as_slice(),
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(work)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "git {args:?} failed"
+            );
+        }
+        std::fs::create_dir_all(work.join("crates")).unwrap();
+        std::fs::create_dir_all(work.join("frontend")).unwrap();
+        std::fs::create_dir_all(work.join("extensions")).unwrap();
+        std::fs::write(work.join("crates").join("README.md"), "# backend\n").unwrap();
+        std::fs::write(
+            work.join("comtrya.cue"),
+            "package comtrya\n\nprojects: backend: { root: \"crates\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            work.join("frontend").join("comtrya.cue"),
+            "package comtrya\n\nprojects: frontend: { root: \".\" }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            work.join("extensions").join("comtrya.cue"),
+            "package comtrya\n\nprojects: extensions: { root: \".\" }\n",
+        )
+        .unwrap();
+        for args in [
+            ["add", "-A"].as_slice(),
+            ["commit", "-q", "-m", "seed"].as_slice(),
+        ] {
+            assert!(
+                Command::new("git")
+                    .current_dir(work)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success(),
+                "git {args:?} failed"
+            );
+        }
+
+        let result = evaluate_repo_config(&work.join(".git"), "main", &[]);
+        assert_eq!(
+            result.get("error"),
+            Some(&serde_json::Value::Null),
+            "evaluation must succeed; got: {result}"
+        );
+        let names: Vec<_> = result["projects"]
+            .as_array()
+            .expect("projects array")
+            .iter()
+            .map(|project| {
+                project
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("")
+            })
+            .collect();
+        assert_eq!(names, vec!["backend", "extensions", "frontend"]);
     }
 
     /// Regression: importing a repo that ships an unrelated top-level

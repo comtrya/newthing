@@ -3,7 +3,7 @@ package comtrya
 import "github.com/comtrya/comtrya/schema"
 
 projects: frontend: {
-	root:   "."
+	root: "."
 	labels: ["shell", "typescript", "vue"]
 
 	owners: [
@@ -31,6 +31,6 @@ projects: frontend: {
 	// reads it via `by-ref-issue` before deciding to close.
 	issues: {
 		defaultLabels: ["frontend"]
-		closeOnMerge:  false
+		closeOnMerge: false
 	}
 }

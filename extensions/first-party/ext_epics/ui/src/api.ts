@@ -1,6 +1,24 @@
 import type { OpResult } from "@comtrya/sdk-core";
 import { extEpicsXEpics } from "../../dist/ext_epics.client";
-import type { ComtryaGraphQLClient, Epic, EpicProgress, EpicState } from "./types";
+import type {
+  ComtryaGraphQLClient,
+  Epic,
+  EpicProgress,
+  EpicState,
+  Relation,
+} from "./types";
+
+export const EPIC_OUTGOING_RELATIONS_QUERY = `query($from: ResourceURN!, $kind: ResourceURN) {
+  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }
+}`;
+
+export const CREATE_RELATION_MUTATION = `mutation($input: RelationCreateInput!) {
+  relations.create(input: $input) { id kind from to source target }
+}`;
+
+export const DELETE_RELATION_MUTATION = `mutation($input: RelationDeleteInput!) {
+  relations.delete(input: $input)
+}`;
 
 interface WitEpic {
   id: string;
@@ -143,4 +161,52 @@ export async function assignEpicProject(
     projectName: projectName ?? null,
   });
   return normalizeEpic(opValue<WitEpic>(result, "assignProject"));
+}
+
+export async function outgoingRelations(
+  client: ComtryaGraphQLClient,
+  from: string,
+  kind?: string | null,
+): Promise<Relation[]> {
+  const data = await client.query<{ relations?: { outgoing?: Relation[] } }>(
+    EPIC_OUTGOING_RELATIONS_QUERY,
+    kind ? { from, kind } : { from },
+  );
+  return (data.relations?.outgoing ?? []).map(normalizeRelation);
+}
+
+export async function createRelation(
+  client: ComtryaGraphQLClient,
+  input: { from: string; to: string; kind: string },
+): Promise<Relation> {
+  const data = await client.mutate<{ relations?: { create?: Relation } }>(
+    CREATE_RELATION_MUTATION,
+    { input },
+  );
+  const relation = data.relations?.create;
+  if (!relation) throw new Error("relations.create returned no relation");
+  return normalizeRelation(relation);
+}
+
+export async function deleteRelation(
+  client: ComtryaGraphQLClient,
+  id: string,
+): Promise<boolean> {
+  const data = await client.mutate<{ relations?: { delete?: boolean } }>(
+    DELETE_RELATION_MUTATION,
+    { input: { id } },
+  );
+  return data.relations?.delete ?? false;
+}
+
+function normalizeRelation(relation: Relation): Relation {
+  const from = relation.from ?? relation.source ?? "";
+  const to = relation.to ?? relation.target ?? "";
+  return {
+    ...relation,
+    from,
+    to,
+    source: relation.source ?? from,
+    target: relation.target ?? to,
+  };
 }

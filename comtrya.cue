@@ -62,3 +62,66 @@ repository: schema.#Repository & {
 		schema.#ExclusiveLabel & {type: "priority", value: "p2", color: "#9c9c34"},
 	]
 }
+
+projects: backend: {
+	root: "crates"
+	labels: ["backend", "rust", "wasmtime", "graphql"]
+
+	owners: [
+		schema.#OwnerRef & {kind: "team", slug: "platform-maintainers"},
+		schema.#OwnerRef & {kind: "user", slug: "rawkode"},
+	]
+
+	docs: {
+		adr: {
+			slug:        "server/docs/adrs"
+			label:       "Backend ADRs"
+			description: "Accepted architectural decisions for the Comtrya backend."
+			properties: {
+				title:  "string"
+				status: "string"
+				date:   "string"
+				author: "principal-ref"
+			}
+		}
+		spec: {
+			slug:  "server/docs/specs"
+			label: "Backend Specs"
+			properties: {
+				title:  "string"
+				owner:  "principal-ref"
+				status: "string"
+			}
+		}
+	}
+
+	pulls: {
+		autoMerge: false
+		requiredChecks: ["cargo test", "cargo clippy"]
+	}
+
+	issues: {
+		defaultLabels: ["backend"]
+		closeOnMerge: true
+	}
+
+	epics: {
+		defaultLabels: ["backend"]
+		defaultStatus: "planned"
+		requiredFields: ["title"]
+	}
+
+	checks: {
+		catalog: {
+			"cargo test": {
+				displayName: "cargo test"
+				required:    true
+			}
+			"cargo clippy": {
+				displayName: "cargo clippy"
+				description: "Run with `-D warnings`; warnings are errors."
+				required:    true
+			}
+		}
+	}
+}

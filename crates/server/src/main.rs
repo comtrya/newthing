@@ -4269,6 +4269,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 .collect()
         })
         .unwrap_or_default();
+    let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
     let mut repository_by_path =
         resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
@@ -4287,7 +4288,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             .join("repositories")
             .join(format!("{canonical}.git"));
         if git_dir.is_dir() {
-            let git_payload = repo_git_data(&git_dir);
+            let git_payload = repo_git_data_for_query(&git_dir, query_str);
             if let Some(obj) = git_payload.as_object() {
                 for (key, value) in obj {
                     repo_obj.insert(key.clone(), value.clone());
@@ -4303,8 +4304,12 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                 &schemas,
             );
             apply_repository_cue_overrides(repo_obj, &comtrya_config);
-            annotate_bookmarks_with_resolution(repo_obj, &git_dir);
-            repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
+            if query_requests_field(query_str, "bookmarks") {
+                annotate_bookmarks_with_resolution(repo_obj, &git_dir);
+            }
+            if query_requests_field(query_str, "comtryaConfig") {
+                repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
+            }
 
             // CommitDetail.vue asks for `commitDiff(oid: $oid)` on
             // repositoryByPath. Populate the field only when the
@@ -4312,7 +4317,6 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             // an oid variable. Uses the AST (not substring scan) so a
             // string literal containing "commitDiff" doesn't trigger
             // a spurious diff load (closes #87 second clause).
-            let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
             let oid_var = payload
                 .get("variables")
                 .and_then(|v| v.get("oid"))
@@ -7080,34 +7084,65 @@ fn git_commits(git_dir: &Path) -> Result<Vec<Value>, String> {
         .collect())
 }
 
-/// Build a generic per-repo git data payload that works for any on-disk bare
-/// repository. Empty repos (no commits yet) return empty arrays for tree/files
-/// rather than errors. The returned object is merged into the GraphQL
-/// `repositoryByPath` resolver so the code-browser widget can render any repo.
-fn repo_git_data(git_dir: &Path) -> Value {
-    let default_branch = read_default_branch(git_dir).unwrap_or_else(|| "main".to_string());
-    let head_oid = git_text(git_dir, &["rev-parse", "HEAD"])
-        .ok()
-        .map(|s| s.trim().to_string());
-    let refs = git_refs(git_dir).unwrap_or_default();
-    let branches = git_branches(git_dir).unwrap_or_default();
-    // Reuse `git_commits` so the change-id trailer extraction (iter 63)
-    // and any future commit-shape additions stay in one place. The
-    // inline duplicate previously here was the reason iter 63's first
-    // attempt silently dropped `changeId`.
-    let commits = git_commits(git_dir).unwrap_or_default();
-    let (tree_entries, files, blobs) = git_tree_at_ref(git_dir, &default_branch)
-        .unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
-    json!({
-        "defaultBranch": default_branch,
-        "headOid": head_oid,
-        "refs": refs,
-        "branches": branches,
-        "commits": commits,
-        "treeEntries": tree_entries,
-        "files": files,
-        "blobs": blobs,
-    })
+fn repo_git_data_for_query(git_dir: &Path, query: &str) -> Value {
+    let wants_default_branch = query_requests_field(query, "defaultBranch");
+    let wants_head_oid = query_requests_field(query, "headOid");
+    let wants_refs = query_requests_field(query, "refs");
+    let wants_branches = query_requests_field(query, "branches");
+    let wants_commits = query_requests_field(query, "commits");
+    let wants_tree_entries = query_requests_field(query, "treeEntries");
+    let wants_files = query_requests_field(query, "files");
+    let wants_blobs = query_requests_field(query, "blobs");
+    let wants_tree = wants_tree_entries || wants_files || wants_blobs;
+    let needs_default_branch = wants_default_branch || wants_tree;
+
+    let default_branch = needs_default_branch
+        .then(|| read_default_branch(git_dir).unwrap_or_else(|| "main".to_string()));
+    let mut object = serde_json::Map::new();
+
+    if wants_default_branch && let Some(branch) = default_branch.clone() {
+        object.insert("defaultBranch".to_string(), json!(branch));
+    }
+    if wants_head_oid {
+        let head_oid = git_text(git_dir, &["rev-parse", "HEAD"])
+            .ok()
+            .map(|s| s.trim().to_string());
+        object.insert("headOid".to_string(), json!(head_oid));
+    }
+    if wants_refs {
+        object.insert(
+            "refs".to_string(),
+            json!(git_refs(git_dir).unwrap_or_default()),
+        );
+    }
+    if wants_branches {
+        object.insert(
+            "branches".to_string(),
+            json!(git_branches(git_dir).unwrap_or_default()),
+        );
+    }
+    if wants_commits {
+        object.insert(
+            "commits".to_string(),
+            json!(git_commits(git_dir).unwrap_or_default()),
+        );
+    }
+    if wants_tree {
+        let branch = default_branch.unwrap_or_else(|| "main".to_string());
+        let (tree_entries, files, blobs) = git_tree_at_ref(git_dir, &branch)
+            .unwrap_or_else(|_| (Vec::new(), Vec::new(), Vec::new()));
+        if wants_tree_entries {
+            object.insert("treeEntries".to_string(), json!(tree_entries));
+        }
+        if wants_files {
+            object.insert("files".to_string(), json!(files));
+        }
+        if wants_blobs {
+            object.insert("blobs".to_string(), json!(blobs));
+        }
+    }
+
+    Value::Object(object)
 }
 
 type GitTreePayload = (Vec<Value>, Vec<Value>, Vec<Value>);
@@ -9664,7 +9699,10 @@ mod tests {
         let repository = import_test_repository(&runtime, "comtrya/comtrya");
         let git_dir = runtime.repository_root().join("comtrya/comtrya.git");
 
-        let data = repo_git_data(&git_dir);
+        let data = repo_git_data_for_query(
+            &git_dir,
+            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch headOid refs { name target } branches { name } commits { oid } treeEntries { path } files { path } blobs { path } } } }",
+        );
 
         assert_eq!(repository["path"], "comtrya/comtrya");
         assert_eq!(data["defaultBranch"], "main");
@@ -9694,6 +9732,34 @@ mod tests {
                 .iter()
                 .any(|blob| blob["path"] == "README.md")
         );
+    }
+
+    #[test]
+    fn repo_git_data_for_query_only_populates_requested_fields() {
+        let runtime = dev_runtime_no_extensions();
+        import_test_repository(&runtime, "comtrya/comtrya");
+        let git_dir = runtime.repository_root().join("comtrya/comtrya.git");
+
+        let context = repo_git_data_for_query(
+            &git_dir,
+            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { id name path } } }",
+        );
+        assert!(context.as_object().unwrap().is_empty());
+
+        let files = repo_git_data_for_query(
+            &git_dir,
+            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch files { path } } } }",
+        );
+        assert_eq!(files["defaultBranch"], "main");
+        assert!(
+            files["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|file| file["path"] == "README.md")
+        );
+        assert!(files.get("commits").is_none());
+        assert!(files.get("blobs").is_none());
     }
 
     // Deleted: `unsupported_routes_return_registry_errors` (in #23) and

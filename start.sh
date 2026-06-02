@@ -1929,7 +1929,7 @@ log "end-to-end production-testbed smoke passed"
 # because that only sees committed state and skips the CUE files and
 # MDX docs a contributor may be iterating on. The snapshot lives under
 # $TMP_DIR and is recreated every run.
-if [[ -d "$ROOT_DIR/.git" ]]; then
+if git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   log "snapshotting working tree for dogfood import"
   DOGFOOD_SNAPSHOT="$TMP_DIR/dogfood-snapshot"
   DOGFOOD_BARE="$TMP_DIR/dogfood-bare.git"
