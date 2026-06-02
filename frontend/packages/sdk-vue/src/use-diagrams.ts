@@ -26,7 +26,7 @@ const MERMAID_CONFIG = {
   securityLevel: "strict",
   theme: "neutral",
   fontFamily:
-    "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    "'Monaspace Neon', 'Monaspace Neon Var', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 } as const;
 
 interface MermaidLike {

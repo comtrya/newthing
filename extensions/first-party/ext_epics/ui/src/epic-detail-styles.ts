@@ -6,7 +6,7 @@ const CSS = `
   display: grid;
   gap: 24px;
   padding: 24px 0 48px;
-  font-family: var(--serif, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--serif, "Bitter", Georgia, ui-serif, serif);
 }
 
 .epic-detail .epic-line,
@@ -17,14 +17,14 @@ const CSS = `
 .epic-detail .epic-actions-heading,
 .epic-detail .epic-kbd-hint,
 .epic-detail .epic-section-count {
-  font-family: var(--mono, ui-monospace, "IBM Plex Mono", monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
 }
 
 .epic-header { display: grid; gap: 6px; }
 
 .epic-overline {
   margin: 0;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -33,7 +33,7 @@ const CSS = `
 
 .epic-title {
   margin: 0;
-  font-family: var(--display, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-weight: 600;
   font-size: 28px;
   letter-spacing: -0.01em;
@@ -126,7 +126,7 @@ const CSS = `
 }
 
 .epic-routed-label {
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -135,7 +135,7 @@ const CSS = `
 
 .epic-routed-project {
   margin-left: auto;
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   color: var(--accent-blue, #1d55a6);
   text-decoration: none;
@@ -156,7 +156,7 @@ const CSS = `
   background: var(--paper, #fffdf8);
   color: var(--ink, #111);
   padding: 8px 10px;
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 13px;
   outline: none;
   transition: border-color 120ms ease;
@@ -187,13 +187,13 @@ const CSS = `
   padding: 2px 8px;
   border: 1px solid currentColor;
   color: var(--ink, #111);
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   letter-spacing: 0.02em;
 }
 
 .epic-routed-owner .chip-glyph {
-  font-family: var(--display, system-ui);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-size: 12px;
   line-height: 1;
 }
@@ -206,13 +206,13 @@ const CSS = `
 
 .epic-routed-source {
   margin: 0;
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   color: var(--ink-faint, #6e6a62);
 }
 
 .epic-routed-source code {
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   padding: 0 4px;
   background: var(--paper-tint, #f2efe7);
@@ -282,7 +282,7 @@ const CSS = `
   border-radius: 2px;
   color: var(--ink-faint, #888);
   font-size: 12px;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
 }
 
 .epic-body.prose h1,
@@ -290,7 +290,7 @@ const CSS = `
 .epic-body.prose h3,
 .epic-body.prose h4 {
   margin: 16px 0 6px;
-  font-family: var(--display, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.005em;
@@ -314,7 +314,7 @@ const CSS = `
 }
 
 .epic-body.prose code {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   background: var(--ink-rule-soft, #efeee8);
   padding: 0 4px;
   border-radius: 2px;
@@ -328,7 +328,7 @@ const CSS = `
   padding: 10px 12px;
   overflow-x: auto;
   font-size: 12.5px;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
 }
 
 .epic-body.prose pre code {
@@ -348,7 +348,7 @@ const CSS = `
 
 .epic-section h3 {
   margin: 0;
-  font-family: var(--display, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-weight: 600;
   font-size: 13px;
   letter-spacing: -0.005em;
@@ -413,14 +413,14 @@ const CSS = `
 }
 
 .epic-issue-row .row-number {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11.5px;
   color: var(--ink-faint, #6e6a62);
   font-variant-numeric: tabular-nums;
 }
 
 .epic-issue-row .row-title {
-  font-family: var(--display, "iA Writer Quattro", Georgia, serif);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-size: 13px;
   color: var(--ink, #1a1a1a);
   overflow: hidden;
@@ -439,7 +439,7 @@ const CSS = `
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 10.5px;
   color: var(--ink-faint, #888);
 }
@@ -455,7 +455,7 @@ const CSS = `
 }
 
 .epic-kbd-hint kbd {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 10px;
   padding: 0 4px;
   border: 1px solid var(--ink-rule, #d8d6cf);
@@ -472,7 +472,7 @@ const CSS = `
 
 .epic-actions-heading {
   margin: 0;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 10.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -488,7 +488,7 @@ const CSS = `
 
 .epic-actions button {
   padding: 4px 12px;
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 11px;
   border: 1px solid var(--ink-rule, #d8d6cf);
   background: var(--surface-2, #faf9f5);
@@ -524,12 +524,12 @@ const CSS = `
 
 .epic-comments-head h2 {
   margin: 0;
-  font-family: var(--display, system-ui);
+  font-family: var(--display, "Bitter", Georgia, ui-serif, serif);
   font-size: 18px;
 }
 
 .epic-comments-count {
-  font-family: var(--mono, monospace);
+  font-family: var(--mono, "Monaspace Neon", "Monaspace Neon Var", ui-monospace, monospace);
   font-size: 13px;
   color: var(--ink-faint, #68645c);
   font-weight: normal;

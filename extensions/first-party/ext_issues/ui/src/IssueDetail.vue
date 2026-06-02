@@ -771,7 +771,7 @@ async function reopenCurrentIssue(): Promise<void> {
   padding: 20px;
   border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   background: var(--surface);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans, "Quicksand", ui-sans-serif, system-ui, sans-serif);
   font-size: 15px;
   line-height: 1.55;
   white-space: pre-wrap;
