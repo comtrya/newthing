@@ -4853,6 +4853,28 @@ async fn token_exchange(
             );
         }
     };
+    // Also set the session cookie (mirroring the OIDC callback). The shell
+    // keeps using the returned bearer, but extension UI pages run their own
+    // bundle whose sdk-core has no operator code to bootstrap a bearer from;
+    // they reach the kernel with `credentials: "include"`, so the cookie is
+    // what authenticates their same-origin `/api/ops` and GraphQL calls.
+    // `auth_token_from_headers` already accepts the cookie as a credential.
+    // Build the cookie value before consuming `cors`: a formatting failure is
+    // a hard error (a 200 without the cookie silently breaks extension auth),
+    // matching how the OIDC callback treats the same case.
+    let cookie = session_cookie_value(&token, 300, state.runtime.options.tls_terminated);
+    let cookie_value = match HeaderValue::from_str(&cookie) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!(%error, "token_exchange: failed to build session cookie");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "failed to issue session cookie",
+                cors,
+            );
+        }
+    };
     let mut response = json_response(
         StatusCode::OK,
         json!({
@@ -4864,18 +4886,9 @@ async fn token_exchange(
         }),
         cors,
     );
-    // Also set the session cookie (mirroring the OIDC callback). The shell
-    // keeps using the returned bearer, but extension UI pages run their own
-    // bundle whose sdk-core has no operator code to bootstrap a bearer from;
-    // they reach the kernel with `credentials: "include"`, so the cookie is
-    // what authenticates their same-origin `/api/ops` and GraphQL calls.
-    // `auth_token_from_headers` already accepts the cookie as a credential.
-    let cookie = session_cookie_value(&token, 300, state.runtime.options.tls_terminated);
-    if let Ok(cookie_value) = HeaderValue::from_str(&cookie) {
-        response
-            .headers_mut()
-            .insert(axum::http::header::SET_COOKIE, cookie_value);
-    }
+    response
+        .headers_mut()
+        .insert(axum::http::header::SET_COOKIE, cookie_value);
     response
 }
 
