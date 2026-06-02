@@ -2423,7 +2423,15 @@ impl Runtime {
         principal: PrincipalStatus,
     ) -> Result<String, String> {
         let token = self.next_secure_token("fp");
-        let principal_uri = format!("comtrya://credential/{}", self.next_id("prn"));
+        // The principal URI must be a well-formed `comtrya://` resource ref:
+        // it is recorded as the author/creator on every write this credential
+        // performs, and paths like `create_comment` parse it back as a
+        // `ResourceRef` (26-char Crockford opaque ID). A counter-based id would
+        // fail that parse, so mint a real opaque id under the `prn_` prefix.
+        let principal_uri = format!(
+            "comtrya://credential/{}",
+            OpaqueId::new(IdPrefix::Owned("prn_".to_string())).as_str()
+        );
         let now = now_seconds();
         self.store
             .insert_credential(
@@ -4845,7 +4853,29 @@ async fn token_exchange(
             );
         }
     };
-    json_response(
+    // Also set the session cookie (mirroring the OIDC callback). The shell
+    // keeps using the returned bearer, but extension UI pages run their own
+    // bundle whose sdk-core has no operator code to bootstrap a bearer from;
+    // they reach the kernel with `credentials: "include"`, so the cookie is
+    // what authenticates their same-origin `/api/ops` and GraphQL calls.
+    // `auth_token_from_headers` already accepts the cookie as a credential.
+    // Build the cookie value before consuming `cors`: a formatting failure is
+    // a hard error (a 200 without the cookie silently breaks extension auth),
+    // matching how the OIDC callback treats the same case.
+    let cookie = session_cookie_value(&token, 300, state.runtime.options.tls_terminated);
+    let cookie_value = match HeaderValue::from_str(&cookie) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::error!(%error, "token_exchange: failed to build session cookie");
+            return error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError.as_str(),
+                "failed to issue session cookie",
+                cors,
+            );
+        }
+    };
+    let mut response = json_response(
         StatusCode::OK,
         json!({
             "accessToken": token,
@@ -4855,7 +4885,11 @@ async fn token_exchange(
             "resource": request.requested_resource
         }),
         cors,
-    )
+    );
+    response
+        .headers_mut()
+        .insert(axum::http::header::SET_COOKIE, cookie_value);
+    response
 }
 
 #[derive(Debug, Deserialize)]

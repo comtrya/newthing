@@ -47,7 +47,10 @@ const kernelProxyTable = (): Record<string, ProxyOptions> => ({
   "/auth": kernelProxy(),
   "/graphql": kernelProxy(),
   "/_extensions": kernelProxy(),
-  "/r": repoProxy(),
+  // Must be `/r/` (with the slash): Vite matches proxy contexts by
+  // `startsWith`, and a bare `/r` would also capture sibling kernel routes
+  // like `/readyz`, whose repoProxy `bypass` would then serve the SPA shell.
+  "/r/": repoProxy(),
   "/healthz": kernelProxy(),
   "/readyz": kernelProxy(),
   "/events/session": kernelProxy(),

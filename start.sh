@@ -6,6 +6,8 @@ cd "$ROOT_DIR"
 
 SERVER_PID=""
 FRONTEND_PID=""
+SOURCE_GIT_PIDS=""
+SOURCE_GIT_URL=""
 TMP_DIR=""
 REQUEST_RESET=0
 
@@ -80,6 +82,14 @@ EOF
   cat >"$repo_dir/comtrya.cue" <<'EOF'
 package comtrya
 
+// Per-repo extension opt-in (#137 / Phase 2). Repository-scoped extension
+// features (issues, pulls, checks) and the issue→epic part-of participation
+// gate are off unless the repo opts in via `repository.extensions`. The smoke
+// exercises all four, so it enables them here. Authored without the published
+// schema import because the imported smoke repo doesn't vendor that CUE module;
+// the kernel reads `repository.extensions` as a plain array.
+repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics"]
+
 projects: kernel: {
 	root: "."
 	labels: ["runtime"]
@@ -109,8 +119,61 @@ EOF
   git -C "$repo_dir" checkout main >/dev/null
 }
 
+# `createRepository` clones the source over HTTP only — `file://` and `git://`
+# are rejected as SSRF/local-disclosure vectors. Serve the source repo's object
+# store over dumb Smart-HTTP (a static file server is sufficient for a
+# `git clone --bare`) so the import path exercises a real network clone.
+# Sets SOURCE_GIT_URL to the served base URL and appends the server PID to
+# SOURCE_GIT_PIDS for cleanup. Safe to call more than once (smoke source +
+# dogfood snapshot each get their own server).
+serve_git_source_over_http() {
+  local repo_dir="$1"
+  local git_root="$repo_dir/.git"
+  [[ -d "$git_root" ]] || git_root="$repo_dir"
+  # Dumb HTTP transport reads the static refs/packs advertisement.
+  git --git-dir="$git_root" update-server-info
+
+  local server_js="$TMP_DIR/git-source-server.mjs"
+  cat >"$server_js" <<'EOF'
+const ROOT = process.env.GIT_HTTP_ROOT;
+Bun.serve({
+  hostname: process.env.GIT_HTTP_HOST ?? "127.0.0.1",
+  port: Number(process.env.GIT_HTTP_PORT),
+  async fetch(req) {
+    const rel = decodeURIComponent(new URL(req.url).pathname);
+    if (rel.includes("..")) return new Response("bad request", { status: 400 });
+    const file = Bun.file(ROOT + rel);
+    if (await file.exists()) return new Response(file);
+    return new Response("not found", { status: 404 });
+  },
+});
+EOF
+
+  # Pick an unused high port WITHOUT killing whatever might be on it. Unlike
+  # the fixed kernel/frontend ports that `free_port` reclaims from a prior
+  # run, this is an ephemeral helper port chosen at random, so killing the
+  # current listener could take down an unrelated local process. Probe with
+  # lsof and retry on collision instead.
+  local host="127.0.0.1"
+  local port=""
+  local candidate
+  for _ in $(seq 1 50); do
+    candidate="$((24000 + RANDOM % 20000))"
+    if ! lsof -nP -iTCP@"$host:$candidate" -sTCP:LISTEN >/dev/null 2>&1; then
+      port="$candidate"
+      break
+    fi
+  done
+  [[ -n "$port" ]] || fail "could not find a free port for the git source server"
+  GIT_HTTP_ROOT="$git_root" GIT_HTTP_HOST="$host" GIT_HTTP_PORT="$port" \
+    "$BUN" "$server_js" >"$TMP_DIR/git-source-http-$port.log" 2>&1 &
+  SOURCE_GIT_PIDS="$SOURCE_GIT_PIDS $!"
+  SOURCE_GIT_URL="http://$host:$port/"
+  wait_for_url "git source http ($port)" "http://$host:$port/info/refs" 200
+}
+
 cleanup() {
-  for pid in "$FRONTEND_PID" "$SERVER_PID"; do
+  for pid in $SOURCE_GIT_PIDS "$FRONTEND_PID" "$SERVER_PID"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
       log "stopping pid=$pid"
       kill "$pid" >/dev/null 2>&1 || true
@@ -203,6 +266,25 @@ expect_contains() {
     sed -n '1,180p' "$body_file" >&2 || true
     exit 1
   fi
+}
+
+# `/events` and `/graphql/stream` are real, open-ended `text/event-stream`
+# responses (15s keep-alives), so a plain GET never returns. The backfill
+# frames are flushed immediately on connect, so we read for a bounded window,
+# then disconnect — `curl --max-time` exits 28 on the timeout, which is the
+# expected, successful path here. Captures the streamed frames into a file for
+# a follow-up `expect_contains`.
+read_event_stream() {
+  local label="$1"
+  local body_file="$2"
+  shift 2
+
+  curl -sS --no-buffer --max-time 5 -o "$body_file" "$@" >/dev/null 2>&1 || true
+  if [[ ! -s "$body_file" ]]; then
+    printf '\n[comtrya] %s produced no event-stream frames within the read window\n' "$label" >&2
+    exit 1
+  fi
+  log "ok - $label (streamed)"
 }
 
 json_assert() {
@@ -448,20 +530,18 @@ assert_extension_browser_surfaces_render() {
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [port, pageUrl, outputFile] = process.argv.slice(1);
+const [port, baseUrl, repoPath, outputFile] = process.argv.slice(1);
 
-// Widgets that must mount somewhere on the repo code surface. Their default
-// slot is irrelevant to the smoke — under the hybrid model the user can
-// move any widget to any slot. We only require that each widget renders.
-const expectedWidgets = [
-  { tagName: "comtrya-repository-summary", label: "Repository",            origin: "core" },
-  { tagName: "comtrya-core-code-browser",  label: "Code · ",               origin: "core" },
-  { tagName: "comtrya-issues-list",        label: "Issues",                origin: "extension" },
-  { tagName: "comtrya-pulls-overview",     label: "Repo · pulls overview", origin: "extension" },
-  { tagName: "comtrya-checks-board",       label: "Checks board",          origin: "extension" },
+// Surfaces that must actually render in a real browser, verified against the
+// live DOM. The repo /code route mounts the core code browser into the
+// repository.code slot (the tabbed repo UI renders only that slot on /code);
+// each first-party extension page renders its own top-level custom element.
+const surfaces = [
+  { name: "repo code", url: `${baseUrl}/r/${repoPath}/code`, slot: "repository.code", widget: "comtrya-core-code-browser", heading: repoPath },
+  { name: "issues page", url: `${baseUrl}/x/issues/`, widget: "comtrya-issues-list" },
+  { name: "pulls page", url: `${baseUrl}/x/pulls/`, widget: "comtrya-pulls-queue" },
+  { name: "epics page", url: `${baseUrl}/x/epics/`, widget: "comtrya-epics-index" },
 ];
-
-const expectedSlots = ["repository.main", "repository.sidebar"];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -513,93 +593,79 @@ async function connect(target) {
 }
 
 const COLLECT_EXPRESSION = `(() => {
-  const slots = {};
-  for (const slot of ["repository.main", "repository.sidebar"]) {
-    const mount = document.querySelector("[data-extension-slot-mount=\\\"" + slot + "\\\"]");
-    if (!mount) {
-      slots[slot] = { mounted: false };
-      continue;
-    }
-    slots[slot] = {
-      mounted: true,
-      children: Array.from(mount.children).map((child) => child.tagName.toLowerCase()),
-      text: (mount.innerText || mount.textContent || "").trim(),
-    };
+  const slotMounts = {};
+  for (const mount of document.querySelectorAll("[data-extension-slot-mount]")) {
+    slotMounts[mount.getAttribute("data-extension-slot-mount")] =
+      Array.from(mount.children).map((child) => child.tagName.toLowerCase());
   }
-  const widgetTags = Array.from(
-    document.querySelectorAll("[data-extension-slot-mount] *")
-  ).map((node) => node.tagName.toLowerCase());
-  const dashboardText = (
-    document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]")?.parentElement?.innerText ||
-    document.body?.innerText ||
-    ""
-  ).trim();
-  return {
-    headings: Array.from(document.querySelectorAll("h1, h2")).map((heading) => heading.textContent?.trim()),
-    pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
-    slots,
-    widgetTags,
-    dashboardText,
-  };
+  const customEls = [...new Set(
+    Array.from(document.querySelectorAll("*"))
+      .map((node) => node.tagName.toLowerCase())
+      .filter((tag) => tag.startsWith("comtrya-")),
+  )];
+  const headings = Array.from(document.querySelectorAll("h1, h2"))
+    .map((heading) => (heading.textContent || "").trim())
+    .filter(Boolean);
+  return { slotMounts, customEls, headings };
 })()`;
 
-function evidenceIsReady(evidence) {
-  if (evidence.pageHeadSmoke !== "present") return false;
-  if (!evidence.headings?.includes("comtrya/comtrya")) return false;
-  // Both generic slots must mount (even if empty until widgets resolve).
-  for (const slot of expectedSlots) {
-    const got = evidence.slots?.[slot];
-    if (!got?.mounted) return false;
+function surfaceReady(surface, evidence) {
+  if (surface.widget && !evidence.customEls?.includes(surface.widget)) return false;
+  if (surface.slot) {
+    const children = evidence.slotMounts?.[surface.slot];
+    if (!children || !children.includes(surface.widget)) return false;
   }
-  // Each expected widget must render somewhere inside the dashboard.
-  for (const expected of expectedWidgets) {
-    if (!evidence.widgetTags?.includes(expected.tagName)) return false;
-    if (expected.label && !evidence.dashboardText?.includes(expected.label)) return false;
-  }
+  if (surface.heading && !evidence.headings?.includes(surface.heading)) return false;
   return true;
 }
 
 const target = await pageTarget();
 const cdp = await connect(target);
+const collected = {};
 try {
   await cdp.send("Runtime.enable");
   await cdp.send("Page.enable");
-  await cdp.send("Page.navigate", { url: pageUrl });
-
-  let lastEvidence = {};
-  const deadline = Date.now() + 20000;
-  while (Date.now() < deadline) {
-    const result = await cdp.send("Runtime.evaluate", {
-      expression: COLLECT_EXPRESSION,
-      returnByValue: true,
-    });
-    if (result.exceptionDetails) {
-      const detail =
-        result.exceptionDetails.exception?.description ??
-        result.exceptionDetails.text ??
-        "DOM collection threw";
-      fs.writeFileSync(
-        outputFile,
-        JSON.stringify({ exception: detail, exceptionDetails: result.exceptionDetails }, null, 2),
-      );
-      throw new Error(detail);
+  for (const surface of surfaces) {
+    await cdp.send("Page.navigate", { url: surface.url });
+    let evidence = {};
+    let ready = false;
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const result = await cdp.send("Runtime.evaluate", {
+        expression: COLLECT_EXPRESSION,
+        returnByValue: true,
+      });
+      if (result.exceptionDetails) {
+        const detail =
+          result.exceptionDetails.exception?.description ??
+          result.exceptionDetails.text ??
+          "DOM collection threw";
+        collected[surface.name] = { exception: detail };
+        fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+        throw new Error(`${surface.name}: ${detail}`);
+      }
+      evidence = result.result?.value ?? {};
+      if (surfaceReady(surface, evidence)) {
+        ready = true;
+        break;
+      }
+      await sleep(250);
     }
-    lastEvidence = result.result?.value ?? {};
-    if (evidenceIsReady(lastEvidence)) {
-      fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
-      process.exit(0);
+    collected[surface.name] = { url: surface.url, ...evidence };
+    if (!ready) {
+      fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+      throw new Error(`surface "${surface.name}" (${surface.url}) did not render ${surface.widget}`);
     }
-    await sleep(250);
   }
-  fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
-  throw new Error("repo code extension slots did not become ready");
+  fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+  process.exit(0);
 } finally {
   cdp.close();
 }
-' "$debugging_port" "$FRONTEND_URL/r/$repo_path/code" "$evidence_file"; then
+' "$debugging_port" "$FRONTEND_URL" "$repo_path" "$evidence_file"; then
     kill "$browser_pid" >/dev/null 2>&1 || true
     wait "$browser_pid" >/dev/null 2>&1 || true
-    printf '\n[comtrya] headless browser repo-code smoke failed with %s\n' "$browser_bin" >&2
+    printf '\n[comtrya] headless browser extension-surface smoke failed with %s\n' "$browser_bin" >&2
     printf '[comtrya] browser evidence:\n' >&2
     sed -n '1,220p' "$evidence_file" >&2 || true
     printf '[comtrya] browser log:\n' >&2
@@ -610,7 +676,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser repo code mounted core + extension widgets into repository.main / repository.sidebar"
+  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics extension pages"
 }
 
 assert_issue_close_browser_smoke() {
@@ -719,9 +785,15 @@ async function connect(target) {
   };
 }
 
+// comtrya-issue-detail is a Vue custom element rendered into a shadow root,
+// so its [data-smoke="issue-detail-main"] node and action buttons live in the
+// shadow tree, not the light DOM. Query through the host shadowRoot (falling
+// back to document if a build ever renders light DOM).
 const collectExpression = `(() => {
-  const main = document.querySelector("[data-smoke=\\"issue-detail-main\\"]");
-  const buttons = Array.from(document.querySelectorAll("button")).map((button) => ({
+  const host = document.querySelector("comtrya-issue-detail");
+  const root = host && host.shadowRoot ? host.shadowRoot : document;
+  const main = root.querySelector("[data-smoke=\\"issue-detail-main\\"]");
+  const buttons = Array.from(root.querySelectorAll("button")).map((button) => ({
     text: (button.textContent || "").trim(),
     disabled: button.disabled,
   }));
@@ -766,7 +838,9 @@ async function waitFor(cdp, predicate, label) {
 }
 
 const clickExpression = `(() => {
-  const button = Array.from(document.querySelectorAll("button")).find(
+  const host = document.querySelector("comtrya-issue-detail");
+  const root = host && host.shadowRoot ? host.shadowRoot : document;
+  const button = Array.from(root.querySelectorAll("button")).find(
     (candidate) => (candidate.textContent || "").trim() === "Close issue",
   );
   if (!button) {
@@ -1040,7 +1114,7 @@ expect_contains "frontend shell HTML loads Vue assets" "$TMP_DIR/frontend.html" 
 expect_status "frontend readyz" 200 "$TMP_DIR/readyz.json" \
   "$FRONTEND_URL/readyz"
 json_assert "frontend readyz" "$TMP_DIR/readyz.json" \
-  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.repositoryRoot === true && json.unsupported.some((surface) => surface.id === "git_receive_pack")'
+  'json.ready === true && json.mode === "production-testbed" && json.checks.extensionStorageSchema === true && json.checks.extensionStorageDocuments === true && json.checks.repositoryRoot === true && Array.isArray(json.unsupported) && json.unsupported.length === 0'
 
 expect_status "OIDC callback rejects missing state/code through Vue shell" 400 "$TMP_DIR/oidc-callback.json" \
   "$FRONTEND_URL/auth/oidc/prod/callback"
@@ -1049,7 +1123,7 @@ json_assert "OIDC callback rejects missing state/code through Vue shell" "$TMP_D
 
 expect_status "operator code exchange through Vue shell" 200 "$TMP_DIR/token.json" \
   -H "content-type: application/json" \
-  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://workspace\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"checks:read\"]}" \
+  --data "{\"grantType\":\"urn:comtrya:grant:operator-code\",\"subjectToken\":\"$OPERATOR_CODE\",\"subjectTokenType\":\"urn:comtrya:token-type:operator-code\",\"requestedResource\":\"comtrya://workspace\",\"requestedActions\":[\"graphql:read\",\"graphql:write\",\"events:read\",\"git:read\",\"git:write\",\"checks:read\"]}" \
   "$FRONTEND_URL/auth/token-exchange"
 
 ACCESS_TOKEN="$(extract_json_string accessToken "$TMP_DIR/token.json")"
@@ -1075,7 +1149,8 @@ WORKSPACE_REF="comtrya://workspace/$WORKSPACE_ID"
 SMOKE_REPO_PATH="comtrya/comtrya"
 SMOKE_SOURCE_REPO="$TMP_DIR/smoke-source"
 create_smoke_source_repo "$SMOKE_SOURCE_REPO"
-SMOKE_SOURCE_URL="file://$SMOKE_SOURCE_REPO"
+serve_git_source_over_http "$SMOKE_SOURCE_REPO"
+SMOKE_SOURCE_URL="$SOURCE_GIT_URL"
 expect_status "import smoke repository through Vue shell" 200 "$TMP_DIR/import-smoke-repo.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1120,7 +1195,7 @@ if [[ -z "$EVENT_SESSION" ]]; then
   fail "event session request did not return session"
 fi
 
-expect_status "event stream through Vue shell" 200 "$TMP_DIR/events.json" \
+read_event_stream "event stream through Vue shell" "$TMP_DIR/events.json" \
   "$FRONTEND_URL/events?session=$EVENT_SESSION"
 expect_contains "event stream through Vue shell" "$TMP_DIR/events.json" 'dev.comtrya.instance.started'
 expect_status "event session reuse fails closed through Vue shell" 401 "$TMP_DIR/events-reuse.json" \
@@ -1201,13 +1276,13 @@ else
 fi
 
 expect_status "Git upload-pack without token fails closed through Vue shell" 401 "$TMP_DIR/git-no-token.json" \
-  "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/r/$SMOKE_REPO_PATH/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack without token fails closed through Vue shell" "$TMP_DIR/git-no-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
 expect_status "Git upload-pack with wrong token fails closed through Vue shell" 401 "$TMP_DIR/git-wrong-token.json" \
   -H "authorization: Bearer wrong-token" \
-  "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/r/$SMOKE_REPO_PATH/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack with wrong token fails closed through Vue shell" "$TMP_DIR/git-wrong-token.json" \
   'json.errors[0].extensions.code === "UNAUTHENTICATED"'
 
@@ -1221,13 +1296,13 @@ if [[ -z "$NO_GIT_TOKEN" ]]; then
 fi
 expect_status "Git upload-pack without git read scope fails closed through Vue shell" 403 "$TMP_DIR/git-no-read-scope.json" \
   -H "authorization: Bearer $NO_GIT_TOKEN" \
-  "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git/info/refs?service=git-upload-pack"
+  "$FRONTEND_URL/r/$SMOKE_REPO_PATH/info/refs?service=git-upload-pack"
 json_assert "Git upload-pack without git read scope fails closed through Vue shell" "$TMP_DIR/git-no-read-scope.json" \
   'json.errors[0].extensions.code === "FORBIDDEN"'
 
 log "checking imported Git refs through Vue shell"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
-  ls-remote "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git" \
+  ls-remote "$FRONTEND_URL/r/$SMOKE_REPO_PATH" \
   >"$TMP_DIR/git-ls-remote.log" 2>&1 || {
   sed -n '1,160p' "$TMP_DIR/git-ls-remote.log" >&2 || true
   fail "git ls-remote through Vue shell failed"
@@ -1241,7 +1316,7 @@ fi
 log "cloning imported Git repository through Vue shell"
 GIT_SMOKE_CLONE="$TMP_DIR/comtrya-clone"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
-  clone "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git" "$GIT_SMOKE_CLONE" \
+  clone "$FRONTEND_URL/r/$SMOKE_REPO_PATH" "$GIT_SMOKE_CLONE" \
   >"$TMP_DIR/git-clone.log" 2>&1 || {
   sed -n '1,200p' "$TMP_DIR/git-clone.log" >&2 || true
   fail "git clone through Vue shell failed"
@@ -1269,11 +1344,40 @@ git -C "$GIT_SMOKE_CLONE" rev-parse refs/remotes/origin/ui/repository-intelligen
   >"$TMP_DIR/git-fetch-branch-rev.log" || fail "branch-specific fetch did not create remote ref"
 log "ok - Git clone/fetch through Vue shell"
 
-expect_status "Git receive-pack fails closed through Vue shell" 501 "$TMP_DIR/git-receive-pack.json" \
+# Writes are PAT-only: a browser/operator bearer credential can read but must
+# never push, so a CSRF'd cookie can never mutate a repository. The receive-pack
+# advertisement with a bearer credential (no Basic PAT) must fail closed.
+expect_status "Git receive-pack rejects bearer credential (writes are PAT-only)" 401 "$TMP_DIR/git-push-bearer.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
-  "$FRONTEND_URL/git/$SMOKE_REPO_PATH.git/info/refs?service=git-receive-pack"
-json_assert "Git receive-pack fails closed through Vue shell" "$TMP_DIR/git-receive-pack.json" \
-  'json.errors[0].extensions.code === "UNSUPPORTED" && json.errors[0].extensions.surface === "git_receive_pack" && json.errors[0].message.includes("receive-pack")'
+  "$FRONTEND_URL/r/$SMOKE_REPO_PATH/info/refs?service=git-receive-pack"
+json_assert "Git receive-pack rejects bearer credential (writes are PAT-only)" "$TMP_DIR/git-push-bearer.json" \
+  'json.errors[0].extensions.code === "UNAUTHENTICATED"'
+
+# A git:write PAT clears the write-auth gate. Push over HTTP is otherwise a
+# deferred feature: the receive-pack ref advertisement is intentionally not
+# served yet (enforced by the kernel unit test
+# `dispatch_does_not_advertise_receive_pack`), so the smart-HTTP push handshake
+# stops at the advertisement with `400 unsupported service`. Reaching that 400
+# (rather than 401/403) proves the write-scope PAT auth path is wired correctly
+# while documenting that the advertisement itself is still deferred.
+log "minting git:write personal access token to exercise the push auth gate"
+expect_status "mint git:write personal access token through Vue shell" 201 "$TMP_DIR/git-pat.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data '{"name":"smoke-push","scopes":["git:read","git:write"]}' \
+  "$FRONTEND_URL/api/account/git-tokens"
+GIT_WRITE_PAT="$(extract_json_string token "$TMP_DIR/git-pat.json")"
+if [[ -z "$GIT_WRITE_PAT" ]]; then
+  fail "git:write PAT mint did not return token"
+fi
+# The PAT is the HTTP Basic password; the username is ignored by the kernel.
+GIT_PAT_BASIC="$(printf 'comtrya:%s' "$GIT_WRITE_PAT" | base64 | tr -d '\n')"
+
+expect_status "Git receive-pack advertisement is deferred for a git:write PAT" 400 "$TMP_DIR/git-receive-advertise.txt" \
+  -H "authorization: Basic $GIT_PAT_BASIC" \
+  "$FRONTEND_URL/r/$SMOKE_REPO_PATH/info/refs?service=git-receive-pack"
+expect_contains "Git receive-pack advertisement is deferred for a git:write PAT" "$TMP_DIR/git-receive-advertise.txt" \
+  "unsupported service"
 
 expect_status "workspace homepage renders" 200 "$TMP_DIR/home.html" \
   "$FRONTEND_URL/"
@@ -1361,90 +1465,6 @@ expect_status "createRepository rejects invalid path segment" 400 "$TMP_DIR/crea
 json_assert "createRepository invalid-path carries BAD_USER_INPUT code" "$TMP_DIR/create-repo-bad.json" \
   'json.errors[0].extensions.code === "BAD_USER_INPUT"'
 
-# ── Relations API ──────────────────────────────────────────────────────────
-RELATION_FROM="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B1"
-RELATION_TO="comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1B2"
-expect_status "relations.create writes a relation" 200 "$TMP_DIR/rel-create.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind from to } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.create returns the relation with rel_ id" "$TMP_DIR/rel-create.json" \
-  "json.data.relations.create.kind === \"comtrya://rel/part-of\" && json.data.relations.create.from === \"$RELATION_FROM\" && json.data.relations.create.to === \"$RELATION_TO\" && json.data.relations.create.id.startsWith(\"rel_\")"
-RELATION_ID="$(json_value "$TMP_DIR/rel-create.json" 'json.data.relations.create.id')"
-
-expect_status "relations.create is idempotent on (from,to,kind)" 200 "$TMP_DIR/rel-create-again.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.create is idempotent" "$TMP_DIR/rel-create-again.json" \
-  "json.data.relations.create.id === \"$RELATION_ID\""
-
-expect_status "relations.outgoing returns the relation" 200 "$TMP_DIR/rel-outgoing.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id to } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.outgoing is non-empty" "$TMP_DIR/rel-outgoing.json" \
-  "json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === \"$RELATION_TO\""
-
-expect_status "relations.incoming returns the relation" 200 "$TMP_DIR/rel-incoming.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$to: ResourceURN!) { relations.incoming(to: \$to) { id from } }\",\"variables\":{\"to\":\"$RELATION_TO\"}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.incoming is non-empty" "$TMP_DIR/rel-incoming.json" \
-  "json.data.relations.incoming.length === 1 && json.data.relations.incoming[0].from === \"$RELATION_FROM\""
-
-expect_status "relations.create rejects malformed verb URI" 400 "$TMP_DIR/rel-bad-verb.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"not-a-verb-uri\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "malformed verb is BAD_USER_INPUT" "$TMP_DIR/rel-bad-verb.json" \
-  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
-
-expect_status "relations.create rejects self-link" 400 "$TMP_DIR/rel-self.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_FROM\",\"kind\":\"comtrya://rel/part-of\"}}}" \
-  "$FRONTEND_URL/graphql"
-
-SYM_LOW="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1A1"
-SYM_HIGH="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B9"
-expect_status "relations.create symmetric verb stores canonical direction" 200 "$TMP_DIR/rel-sym.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id from to } }\",\"variables\":{\"input\":{\"from\":\"$SYM_HIGH\",\"to\":\"$SYM_LOW\",\"kind\":\"comtrya://rel/relates-to\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "symmetric verb canonicalised (lex-smaller as from)" "$TMP_DIR/rel-sym.json" \
-  "json.data.relations.create.from === \"$SYM_LOW\" && json.data.relations.create.to === \"$SYM_HIGH\""
-
-expect_status "outgoing for symmetric verb finds the relation from either side" 200 "$TMP_DIR/rel-sym-outgoing.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/relates-to\\\") { id } }\",\"variables\":{\"from\":\"$SYM_HIGH\"}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "symmetric outgoing from non-canonical side still returns one" "$TMP_DIR/rel-sym-outgoing.json" \
-  'json.data.relations.outgoing.length === 1'
-
-expect_status "relations.delete removes the relation" 200 "$TMP_DIR/rel-delete.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"mutation(\$input: DeleteRelationInput!) { relations.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$RELATION_ID\"}}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.delete reports true" "$TMP_DIR/rel-delete.json" \
-  'json.data.relations.delete === true'
-
-expect_status "relations.outgoing after delete is empty" 200 "$TMP_DIR/rel-outgoing-after.json" \
-  -H "authorization: Bearer $ACCESS_TOKEN" \
-  -H "content-type: application/json" \
-  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
-  "$FRONTEND_URL/graphql"
-json_assert "relations.outgoing now empty for the deleted side" "$TMP_DIR/rel-outgoing-after.json" \
-  'json.data.relations.outgoing.length === 0'
-
 # ── Comments API ────────────────────────────────────────────────────────────
 COMMENT_TARGET="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1C9"
 expect_status "comments.create on a target" 200 "$TMP_DIR/cmt-create.json" \
@@ -1498,7 +1518,12 @@ json_assert "comments.delete returns true" "$TMP_DIR/cmt-delete.json" \
   'json.data.comments.delete === true'
 
 # ── ext_issues end-to-end via canonical ops ────────────────────────────────
-ISSUE_REPOSITORY_URI="$WORKSPACE_REF"
+# Repository-scoped (not workspace-scoped): the issue→epic part-of participation
+# gate resolves the SOURCE issue's repository and requires it to have enabled
+# ext_epics. A workspace-only ref carries no repository_id, so the gate could
+# not resolve a repo. Issue numbering stays per-workspace (by-number-issue keys
+# on workspaceId), so this does not perturb the number assertions below.
+ISSUE_REPOSITORY_URI="$REPO_RESOURCE"
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1637,7 +1662,7 @@ EPIC_CHILD_ID="$(json_value "$TMP_DIR/epc-child.json" 'json.id')"
 expect_status "children-of-epic returns the child epic" 200 "$TMP_DIR/epc-children.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "\"$EPIC_ROOT_REF\"" \
+  --data "{\"ref\":\"$EPIC_ROOT_REF\",\"limit\":1024}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/children-of-epic"
 json_assert "childrenOf has the child epic URI" "$TMP_DIR/epc-children.json" \
   "json.length === 1 && json[0] === \"comtrya://epic/$EPIC_CHILD_ID\""
@@ -1672,7 +1697,7 @@ expect_status "close issue B" 200 "$TMP_DIR/epc-close-b.json" \
 expect_status "issues-in-epic returns both linked issues" 200 "$TMP_DIR/epc-issues-in.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "\"$EPIC_ROOT_REF\"" \
+  --data "{\"ref\":\"$EPIC_ROOT_REF\",\"limit\":1024}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/issues-in-epic"
 json_assert "issuesIn has the two issue URIs" "$TMP_DIR/epc-issues-in.json" \
   "json.length === 2 && json.includes(\"comtrya://issue/$ISSUE_A_ID\") && json.includes(\"comtrya://issue/$ISSUE_B_ID\")"
@@ -1709,6 +1734,104 @@ expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-st
 json_assert "unknown state rejected as bad-input" "$TMP_DIR/epc-bad-state.json" \
   'json.code === "bad-input"'
 
+# ── Relations API (core relations graph) ───────────────────────────────────
+# Placed after the issue-numbering assertions: part-of (issue→epic) is gated by
+# ext_epics participation, which resolves the SOURCE issue's repository, so the
+# source must be a real repo-scoped issue (created here in the ext_epics-enabled
+# smoke repo). Creating it earlier would perturb the per-workspace numbering
+# checks above. The epic target need not exist as a record — the edge is
+# structural — so a synthetic epic URN is fine.
+expect_status "open-issue for relations source" 200 "$TMP_DIR/rel-src.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"relations source\",\"bodyMarkdown\":\"\"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+REL_SOURCE_ID="$(json_value "$TMP_DIR/rel-src.json" 'json.id')"
+RELATION_FROM="comtrya://issue/$REL_SOURCE_ID"
+RELATION_TO="comtrya://epic/epc_01HV0K4XAVE2H6R5M8KJZ8Q1B2"
+expect_status "relations.create writes a relation" 200 "$TMP_DIR/rel-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id kind from to } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.create returns the relation with rel_ id" "$TMP_DIR/rel-create.json" \
+  "json.data.relations.create.kind === \"comtrya://rel/part-of\" && json.data.relations.create.from === \"$RELATION_FROM\" && json.data.relations.create.to === \"$RELATION_TO\" && json.data.relations.create.id.startsWith(\"rel_\")"
+RELATION_ID="$(json_value "$TMP_DIR/rel-create.json" 'json.data.relations.create.id')"
+
+expect_status "relations.create is idempotent on (from,to,kind)" 200 "$TMP_DIR/rel-create-again.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.create is idempotent" "$TMP_DIR/rel-create-again.json" \
+  "json.data.relations.create.id === \"$RELATION_ID\""
+
+expect_status "relations.outgoing returns the relation" 200 "$TMP_DIR/rel-outgoing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id to } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.outgoing is non-empty" "$TMP_DIR/rel-outgoing.json" \
+  "json.data.relations.outgoing.length === 1 && json.data.relations.outgoing[0].to === \"$RELATION_TO\""
+
+expect_status "relations.incoming returns the relation" 200 "$TMP_DIR/rel-incoming.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$to: ResourceURN!) { relations.incoming(to: \$to) { id from } }\",\"variables\":{\"to\":\"$RELATION_TO\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.incoming is non-empty" "$TMP_DIR/rel-incoming.json" \
+  "json.data.relations.incoming.length === 1 && json.data.relations.incoming[0].from === \"$RELATION_FROM\""
+
+expect_status "relations.create rejects malformed verb URI" 400 "$TMP_DIR/rel-bad-verb.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_TO\",\"kind\":\"not-a-verb-uri\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "malformed verb is BAD_USER_INPUT" "$TMP_DIR/rel-bad-verb.json" \
+  'json.errors[0].extensions.code === "BAD_USER_INPUT"'
+
+expect_status "relations.create rejects self-link" 400 "$TMP_DIR/rel-self.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id } }\",\"variables\":{\"input\":{\"from\":\"$RELATION_FROM\",\"to\":\"$RELATION_FROM\",\"kind\":\"comtrya://rel/part-of\"}}}" \
+  "$FRONTEND_URL/graphql"
+
+# Symmetric relates-to (issue↔issue) is declared by ext_issues with no
+# participation requirement, so synthetic issue URNs are fine here.
+SYM_LOW="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1A1"
+SYM_HIGH="comtrya://issue/iss_01HV0K4XAVE2H6R5M8KJZ8Q1B9"
+expect_status "relations.create symmetric verb stores canonical direction" 200 "$TMP_DIR/rel-sym.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: CreateRelationInput!) { relations.create(input: \$input) { id from to } }\",\"variables\":{\"input\":{\"from\":\"$SYM_HIGH\",\"to\":\"$SYM_LOW\",\"kind\":\"comtrya://rel/relates-to\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "symmetric verb canonicalised (lex-smaller as from)" "$TMP_DIR/rel-sym.json" \
+  "json.data.relations.create.from === \"$SYM_LOW\" && json.data.relations.create.to === \"$SYM_HIGH\""
+
+expect_status "outgoing for symmetric verb finds the relation from either side" 200 "$TMP_DIR/rel-sym-outgoing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from, kind: \\\"comtrya://rel/relates-to\\\") { id } }\",\"variables\":{\"from\":\"$SYM_HIGH\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "symmetric outgoing from non-canonical side still returns one" "$TMP_DIR/rel-sym-outgoing.json" \
+  'json.data.relations.outgoing.length === 1'
+
+expect_status "relations.delete removes the relation" 200 "$TMP_DIR/rel-delete.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"mutation(\$input: DeleteRelationInput!) { relations.delete(input: \$input) }\",\"variables\":{\"input\":{\"id\":\"$RELATION_ID\"}}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.delete reports true" "$TMP_DIR/rel-delete.json" \
+  'json.data.relations.delete === true'
+
+expect_status "relations.outgoing after delete is empty" 200 "$TMP_DIR/rel-outgoing-after.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"query\":\"query(\$from: ResourceURN!) { relations.outgoing(from: \$from) { id } }\",\"variables\":{\"from\":\"$RELATION_FROM\"}}" \
+  "$FRONTEND_URL/graphql"
+json_assert "relations.outgoing now empty for the deleted side" "$TMP_DIR/rel-outgoing-after.json" \
+  'json.data.relations.outgoing.length === 0'
+
 # ── ext_pull_requests auto-close-on-merge reactor ──────────────────────────
 expect_status "open-issue for reactor target" 200 "$TMP_DIR/rx-issue.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1725,7 +1848,7 @@ expect_status "create-pull" 200 "$TMP_DIR/rx-pr.json" \
 json_assert "pr created with pul_ id and DRAFT state" "$TMP_DIR/rx-pr.json" \
   'json.id.startsWith("pul_") && json.state === "DRAFT"'
 REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.id')"
-REACTOR_PR_REF="comtrya://pull_request/$REACTOR_PR_ID"
+REACTOR_PR_REF="comtrya://pull-request/$REACTOR_PR_ID"
 REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
 
 expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
@@ -1778,7 +1901,7 @@ expect_contains "imported repo path serves Vue shell" "$TMP_DIR/import-repo-reso
 
 log "checking imported repo is reachable through Git smart HTTP"
 git -c "http.extraHeader=Authorization: Bearer $ACCESS_TOKEN" \
-  ls-remote "$FRONTEND_URL/git/$IMPORT_REPO_PATH.git" \
+  ls-remote "$FRONTEND_URL/r/$IMPORT_REPO_PATH" \
   >"$TMP_DIR/git-imported-ls-remote.log" 2>&1 || {
   sed -n '1,160p' "$TMP_DIR/git-imported-ls-remote.log" >&2 || true
   fail "git ls-remote on imported repo failed"
@@ -1788,7 +1911,7 @@ if ! grep -Fq $'\trefs/heads/main' "$TMP_DIR/git-imported-ls-remote.log"; then
   sed -n '1,160p' "$TMP_DIR/git-imported-ls-remote.log" >&2 || true
   exit 1
 fi
-log "ok - imported repo serves refs via /git/$IMPORT_REPO_PATH.git"
+log "ok - imported repo serves refs via /r/$IMPORT_REPO_PATH"
 
 expect_status "repositoryByPath returns code-browser data for imported repo" 200 "$TMP_DIR/imported-repo-files.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1833,7 +1956,9 @@ if [[ -d "$ROOT_DIR/.git" ]]; then
   fi
   if [[ -d "$DOGFOOD_BARE" ]]; then
     DOGFOOD_PATH="comtrya/dogfood"
-    DOGFOOD_URL="file://$DOGFOOD_BARE"
+    # Served over HTTP like the smoke source: createRepository rejects file://.
+    serve_git_source_over_http "$DOGFOOD_BARE"
+    DOGFOOD_URL="$SOURCE_GIT_URL"
     DOGFOOD_OUT="$TMP_DIR/dogfood-import.json"
     log "importing snapshot as $DOGFOOD_PATH"
     HTTP_CODE="$(curl -sS -o "$DOGFOOD_OUT" -w "%{http_code}" \

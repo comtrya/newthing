@@ -39,6 +39,17 @@
           { "name": "by_id", "fields": ["id"], "unique": true }
         ]
       }
+    ],
+    "relationshipTypes": [
+      {
+        "id": "ext_pull_requests.closes",
+        "kind": "comtrya://rel/com.comtrya.pulls/closes",
+        "sourceKinds": ["pull-request"],
+        "targetKinds": ["issue"],
+        "outgoingLabel": "closes",
+        "incomingLabel": "closed by",
+        "order": 10
+      }
     ]
   },
   "hostImports": [
