@@ -1961,6 +1961,14 @@ mod tests {
             enabled.contains("ext_issues"),
             "expected ext_issues in opt-in set, got {enabled:?}"
         );
+        let workspace_scoped = resolver.enabled_extensions_for_repo(
+            &store,
+            "comtrya://workspace/ws_default/repository/repo_widget",
+        );
+        assert_eq!(
+            workspace_scoped, enabled,
+            "workspace-scoped repository refs must resolve through the same opt-in set",
+        );
         assert!(
             !enabled.contains("ext_checks"),
             "ext_checks not declared; must be absent, got {enabled:?}"

@@ -1,20 +1,33 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watchEffect } from "vue";
+import { useRoute } from "vue-router";
 import {
   routeFor,
   subscribeRoutes,
   type RouteMatch,
 } from "@comtrya/sdk-core";
+import {
+  extensionRouteElementContext,
+  extensionRouteQueryContext,
+  extensionRouteQueryContextKey,
+} from "../extension-route-context";
 import { extensionElementContext } from "../extension-runtime";
 
 const props = defineProps<{
   prefix: string;
   rest: string[];
+  elementContext?: Record<string, unknown>;
 }>();
 
 const mount = ref<HTMLElement | null>(null);
+const route = useRoute();
 const routeTail = computed(() => props.rest.join("/"));
 const subPath = computed(() => (routeTail.value ? `/${routeTail.value}` : "/"));
+const routeQueryContext = computed(() => extensionRouteQueryContext(route.query));
+const routeContextKey = computed(() =>
+  extensionRouteQueryContextKey(routeQueryContext.value),
+);
+const elementContextKey = computed(() => stableElementContextKey(props.elementContext ?? {}));
 const matchedRoute = ref<RouteMatch | undefined>();
 let unsubscribe: (() => void) | undefined;
 
@@ -26,6 +39,8 @@ let unsubscribe: (() => void) | undefined;
 // `/r/:path/<ext>/<sub>` navigation, leaving the embedded
 // extension element stale until a reload.
 watchEffect(() => {
+  void routeContextKey.value;
+  void elementContextKey.value;
   refreshRoute();
 });
 
@@ -55,7 +70,11 @@ function renderRoute(): void {
     Record<string, unknown>;
   node.dataset.extensionId = match.route.extensionId;
   node.dataset.extensionRoute = match.route.path;
-  for (const [key, value] of Object.entries(extensionElementContext())) {
+  const context = {
+    ...extensionRouteElementContext(extensionElementContext(), route.query),
+    ...(props.elementContext ?? {}),
+  };
+  for (const [key, value] of Object.entries(context)) {
     node[key] = value;
   }
   node.routeParams = {
@@ -77,6 +96,24 @@ function buildPlaceholder(message: string): HTMLElement {
   label.textContent = message;
   node.append(label);
   return node;
+}
+
+function stableElementContextKey(context: Record<string, unknown>): string {
+  return Object.keys(context)
+    .sort()
+    .map((key) => `${key}:${stableElementContextValue(context[key])}`)
+    .join("|");
+}
+
+function stableElementContextValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(stableElementContextValue).join(",")}]`;
+  }
+  return typeof value;
 }
 </script>
 

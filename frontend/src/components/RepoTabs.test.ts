@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import {
+  repositoryExtensionEnabled,
+  type RepositoryExtensionSlug,
+} from "../repository-extensions";
 
 // RepoTabs is a Vue SFC; test the extension-filtering logic directly
 // (the computed `tabs` logic) without mounting a full Vue app.
@@ -26,9 +30,8 @@ function buildTabs(opts: {
 }): Tab[] {
   const { enabledExtensions, openIssues = 0, openPulls = 0, failingChecks = 0 } = opts;
 
-  function extEnabled(id: string): boolean {
-    if (enabledExtensions === null) return false;
-    return enabledExtensions.includes(id);
+  function extEnabled(id: RepositoryExtensionSlug): boolean {
+    return repositoryExtensionEnabled(enabledExtensions, id);
   }
 
   const all: Tab[] = [
@@ -58,6 +61,19 @@ function visibleIds(
   return buildTabs({ enabledExtensions, ...overrides }).map((t) => t.id);
 }
 
+function repoExtPath(opts: {
+  repoPath: string;
+  slug: string;
+  repositoryId?: string | null;
+  workspaceId?: string | null;
+}): string {
+  const base = `/r/${opts.repoPath}/${opts.slug}`;
+  if (!opts.repositoryId) return base;
+  const params = new URLSearchParams({ repositoryId: opts.repositoryId });
+  if (opts.workspaceId) params.set("workspaceId", opts.workspaceId);
+  return `${base}?${params.toString()}`;
+}
+
 describe("RepoTabs extension filtering", () => {
   test("shows only Overview, Code, Config when no extensions enabled", () => {
     const ids = visibleIds([]);
@@ -69,28 +85,33 @@ describe("RepoTabs extension filtering", () => {
     expect(ids).toEqual(["overview", "code", "config"]);
   });
 
-  test("shows Issues tab when 'issues' is in enabledExtensions", () => {
-    expect(visibleIds(["issues"])).toContain("issues");
+  test("shows Issues tab when 'ext_issues' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_issues"])).toContain("issues");
     expect(visibleIds([])).not.toContain("issues");
   });
 
-  test("shows Pulls tab when 'pulls' is in enabledExtensions", () => {
-    expect(visibleIds(["pulls"])).toContain("pulls");
+  test("shows Pulls tab when 'ext_pull_requests' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_pull_requests"])).toContain("pulls");
     expect(visibleIds([])).not.toContain("pulls");
   });
 
-  test("shows Epics tab when 'epics' is in enabledExtensions", () => {
-    expect(visibleIds(["epics"])).toContain("epics");
+  test("shows Epics tab when 'ext_epics' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_epics"])).toContain("epics");
     expect(visibleIds([])).not.toContain("epics");
   });
 
-  test("shows Checks tab when 'checks' is in enabledExtensions", () => {
-    expect(visibleIds(["checks"])).toContain("checks");
+  test("shows Checks tab when 'ext_checks' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_checks"])).toContain("checks");
     expect(visibleIds([])).not.toContain("checks");
   });
 
   test("shows multiple extension tabs when all enabled", () => {
-    const ids = visibleIds(["issues", "pulls", "epics", "checks"]);
+    const ids = visibleIds([
+      "ext_issues",
+      "ext_pull_requests",
+      "ext_epics",
+      "ext_checks",
+    ]);
     expect(ids).toContain("issues");
     expect(ids).toContain("pulls");
     expect(ids).toContain("epics");
@@ -98,7 +119,12 @@ describe("RepoTabs extension filtering", () => {
   });
 
   test("preserves Overview-Code-...-Config ordering", () => {
-    const ids = visibleIds(["checks", "issues", "pulls", "epics"]);
+    const ids = visibleIds([
+      "ext_checks",
+      "ext_issues",
+      "ext_pull_requests",
+      "ext_epics",
+    ]);
     expect(ids[0]).toBe("overview");
     expect(ids[1]).toBe("code");
     expect(ids[ids.length - 1]).toBe("config");
@@ -110,14 +136,17 @@ describe("RepoTabs extension filtering", () => {
   });
 
   test("issues tab carries openIssues count", () => {
-    const tabs = buildTabs({ enabledExtensions: ["issues"], openIssues: 7 });
+    const tabs = buildTabs({
+      enabledExtensions: ["ext_issues"],
+      openIssues: 7,
+    });
     const issues = tabs.find((t) => t.id === "issues");
     expect(issues?.count).toBe(7);
   });
 
   test("checks tab uses alarm countTone", () => {
     const tabs = buildTabs({
-      enabledExtensions: ["checks"],
+      enabledExtensions: ["ext_checks"],
       failingChecks: 3,
     });
     const checks = tabs.find((t) => t.id === "checks");
@@ -127,7 +156,7 @@ describe("RepoTabs extension filtering", () => {
 
   test("partial extension set — only requested extension tabs appear", () => {
     // Repo enabled only issues and epics
-    const ids = visibleIds(["issues", "epics"]);
+    const ids = visibleIds(["ext_issues", "ext_epics"]);
     expect(ids).toContain("issues");
     expect(ids).toContain("epics");
     expect(ids).not.toContain("pulls");
@@ -135,10 +164,15 @@ describe("RepoTabs extension filtering", () => {
   });
 
   test("unknown extension IDs in opt-in set do not create tabs", () => {
-    const ids = visibleIds(["issues", "unknown-extension", "future-ext"]);
+    const ids = visibleIds(["ext_issues", "unknown-extension", "future-ext"]);
     expect(ids).not.toContain("unknown-extension");
     expect(ids).not.toContain("future-ext");
     expect(ids).toContain("issues");
+  });
+
+  test("short extension slugs are not feature enablement ids", () => {
+    const ids = visibleIds(["issues", "pulls", "epics", "checks"]);
+    expect(ids).toEqual(["overview", "code", "config"]);
   });
 });
 
@@ -172,5 +206,28 @@ describe("RepoTabs ARIA semantics", () => {
     expect(result).not.toBe("false");
     expect(result).not.toBe(false);
     expect(result).toBeUndefined();
+  });
+});
+
+describe("RepoTabs extension URLs", () => {
+  test("carries repository and workspace scope when both ids are known", () => {
+    expect(
+      repoExtPath({
+        repoPath: "comtrya/dogfood",
+        slug: "issues",
+        workspaceId: "ws_123",
+        repositoryId: "repo_456",
+      }),
+    ).toBe("/r/comtrya/dogfood/issues?repositoryId=repo_456&workspaceId=ws_123");
+  });
+
+  test("still carries repository scope while workspace id is loading", () => {
+    expect(
+      repoExtPath({
+        repoPath: "comtrya/dogfood",
+        slug: "issues",
+        repositoryId: "repo_456",
+      }),
+    ).toBe("/r/comtrya/dogfood/issues?repositoryId=repo_456");
   });
 });

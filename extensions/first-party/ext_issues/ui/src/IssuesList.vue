@@ -22,10 +22,12 @@ import {
   newIssueHref as newIssueHrefBuilder,
   stateTone,
   type ComtryaGraphQLClient,
+  type ExtensionRouteParams,
   type Issue,
   type IssueState,
   type LoadState,
 } from "./types";
+import { issueRouteContext } from "./route-context";
 
 const props = withDefaults(defineProps<{
   client?: ComtryaGraphQLClient;
@@ -33,6 +35,7 @@ const props = withDefaults(defineProps<{
   issues?: Issue[] | null;
   workspaceId?: string;
   repositoryId?: string | null;
+  routeParams?: ExtensionRouteParams;
   state?: string | null;
   title?: string;
   showNewLink?: boolean;
@@ -96,6 +99,7 @@ const projectFilter = ref("");
 const selectedIds = ref<Set<string>>(new Set());
 const bulkBusy = ref(false);
 const bulkError = ref<string | null>(null);
+const locationSearch = ref(typeof window === "undefined" ? "" : window.location.search);
 
 function toggleSelection(id: string): void {
   const next = new Set(selectedIds.value);
@@ -226,15 +230,32 @@ const quickAddPolicyResolved = ref(false);
 
 const issues = computed(() => {
   const all = props.issues ?? loaded.value;
-  if (!props.projectName) return all;
-  return all.filter((issue) => issue.projectName === props.projectName);
+  const projectName = effectiveProjectName.value;
+  if (!projectName) return all;
+  return all.filter((issue) => issue.projectName === projectName);
 });
 const graphClient = computed(() => props.client ?? props.comtryaClient);
+const routeContext = computed(() =>
+  issueRouteContext(
+    {
+      workspaceId: props.workspaceId,
+      repositoryId: props.repositoryId,
+      routeParams: props.routeParams,
+      projectName: props.projectName,
+      state: props.state,
+    },
+    locationSearch.value,
+  ),
+);
+const effectiveWorkspaceId = computed(() => routeContext.value.workspaceId);
+const effectiveRepositoryId = computed(() => routeContext.value.repositoryId ?? null);
+const effectiveProjectName = computed(() => routeContext.value.projectName ?? null);
+const effectiveRouteState = computed(() => routeContext.value.state ?? null);
 const newIssueHref = computed(() => {
   const base = newIssueHrefBuilder();
-  const params = new URLSearchParams({ workspaceId: props.workspaceId });
-  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
-  if (props.projectName) params.set("projectName", props.projectName);
+  const params = new URLSearchParams({ workspaceId: effectiveWorkspaceId.value });
+  if (effectiveRepositoryId.value) params.set("repositoryId", effectiveRepositoryId.value);
+  if (effectiveProjectName.value) params.set("projectName", effectiveProjectName.value);
   return `${base}?${params.toString()}`;
 });
 
@@ -290,7 +311,7 @@ const effectiveProjectFilter = computed<string>(() => {
   // Prop wins regardless of input: mounted on a project page,
   // the list is already scoped and a `project:` token would be
   // contradictory.
-  if (props.projectName) return "";
+  if (effectiveProjectName.value) return "";
   for (const token of parsedQuery.value.filters.project ?? []) {
     if (token.trim()) return token.trim();
   }
@@ -412,7 +433,8 @@ function clearProjectFilter(): void {
 }
 
 const quickAddPlaceholder = computed(() => {
-  if (props.projectName) return `New issue in ${props.projectName}…`;
+  const projectName = effectiveProjectName.value;
+  if (projectName) return `New issue in ${projectName}…`;
   return "New issue…";
 });
 
@@ -514,7 +536,7 @@ function writeUrlState(): void {
   else params.delete("assignee");
   // Skip writing `?project=` when the list is project-scoped via
   // its prop — the project comes from the route already.
-  if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
+  if (projectFilter.value && !effectiveProjectName.value) params.set("project", projectFilter.value);
   else params.delete("project");
   const next = params.toString();
   const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
@@ -540,6 +562,7 @@ onUnmounted(() => {
 
 function onPopState(): void {
   suppressUrlWrite = true;
+  locationSearch.value = window.location.search;
   readUrlState();
   nextTick(() => {
     suppressUrlWrite = false;
@@ -624,23 +647,30 @@ function onQuickAddEscape(event: KeyboardEvent): void {
 }
 
 watch(
-  () => [graphClient.value, props.issues, props.workspaceId, props.repositoryId, props.state],
+  () => [
+    graphClient.value,
+    props.issues,
+    effectiveWorkspaceId.value,
+    effectiveRepositoryId.value,
+    effectiveRouteState.value,
+  ],
   () => void load(),
 );
 
-watch(() => props.projectName, () => void loadPolicy());
+watch(effectiveProjectName, () => void loadPolicy());
 
 watch(filtered, (next) => {
   if (focused.value >= next.length) focused.value = Math.max(0, next.length - 1);
 });
 
 async function loadPolicy(): Promise<void> {
-  if (!props.projectName) {
+  const projectName = effectiveProjectName.value;
+  if (!projectName) {
     quickAddPolicy.value = { defaultLabels: [], closeOnMerge: null, ownerRefs: [] };
     quickAddPolicyResolved.value = true;
     return;
   }
-  quickAddPolicy.value = await resolveIssuesPolicy(props.projectName, "location");
+  quickAddPolicy.value = await resolveIssuesPolicy(projectName, "location");
   quickAddPolicyResolved.value = true;
 }
 
@@ -661,9 +691,9 @@ async function load(): Promise<void> {
   error.value = null;
   try {
     const list = await listIssues(graphClient.value, {
-      workspaceId: props.workspaceId,
-      repositoryId: props.repositoryId,
-      state: props.state,
+      workspaceId: effectiveWorkspaceId.value,
+      repositoryId: effectiveRepositoryId.value,
+      state: effectiveRouteState.value,
     });
     loaded.value = list;
     loadState.value = list.length > 0 ? "ready" : "empty";
@@ -685,9 +715,9 @@ async function submitQuickAdd(): Promise<void> {
   quickAddError.value = null;
   try {
     const created = await openIssue({
-      workspaceId: props.workspaceId,
-      repositoryId: props.repositoryId,
-      projectName: props.projectName ?? null,
+      workspaceId: effectiveWorkspaceId.value,
+      repositoryId: effectiveRepositoryId.value,
+      projectName: effectiveProjectName.value,
       title,
       bodyMarkdown: "",
       labels: quickAddPolicy.value.defaultLabels,
@@ -784,7 +814,7 @@ async function submitQuickAdd(): Promise<void> {
         </button>
       </div>
       <div
-        v-if="projectFilter && !props.projectName"
+        v-if="projectFilter && !effectiveProjectName"
         class="issues-project-filter"
         data-smoke="issues-project-filter"
       >

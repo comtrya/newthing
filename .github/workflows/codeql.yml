@@ -49,10 +49,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-          # `security-and-quality` is the broader pack; the ruleset
-          # only blocks on `errors`, so quality-pack warnings/notices
-          # surface in the Security tab without gating merges.
-          queries: security-and-quality
+          # `security-and-quality` is configured in
+          # .github/codeql-config.yml. That config also ignores generated
+          # first-party extension UI assets so CodeQL reports source issues
+          # instead of minified bundle internals.
+          config-file: ./.github/codeql-config.yml
 
       - name: perform CodeQL analysis
         uses: github/codeql-action/analyze@v3

@@ -13,6 +13,7 @@ import {
   type LabelCatalogEntry,
 } from "@comtrya/sdk-vue";
 import { cloneCommand as buildCloneCommand } from "../repo-clone";
+import { repositoryExtensionEnabled } from "../repository-extensions";
 import { applyUserLayoutFor } from "../user-layout";
 import { setActiveLabelCatalog } from "../extension-runtime";
 
@@ -587,11 +588,11 @@ watch(
       await applyUserLayoutFor(identity.repository?.id ?? null);
       if (identity.repository && identity.workspaceId) {
         const exts = identity.repository.extensions ?? [];
-        if (exts.includes("issues")) {
+        if (repositoryExtensionEnabled(exts, "issues")) {
           void refreshOpenIssues();
           setupIssueListeners();
         }
-        if (exts.includes("checks")) void refreshFailingChecks();
+        if (repositoryExtensionEnabled(exts, "checks")) void refreshFailingChecks();
       } else {
         teardownIssueListeners();
         openIssues.value = 0;
@@ -671,6 +672,7 @@ async function fetchRepositoryIdentity(
     <RepoTabs
       :segments="repoSegments"
       :repository-id="repository?.id ?? null"
+      :workspace-id="workspaceId"
       :enabled-extensions="repository?.extensions ?? null"
       :open-issues="openIssues"
       :open-pulls="repository?.openPullRequests ?? 0"
@@ -914,23 +916,23 @@ async function fetchRepositoryIdentity(
       />
     </section>
 
-    <!-- /r/:path/{pulls,issues,checks} → workbench-style embed of the
-         matching extension's root route. The extension UI reads
-         `?repositoryId=…` from the URL to scope itself, so RepoTabs
-         carries the repo id through on every nav. The persistent
-         header / tabs stay put because every per-repo view is the
-         same RepoHome component. -->
+    <!-- /r/:path/{pulls,issues,checks,epics} → workbench-style embed of the
+         matching extension's root route. The repo path is authoritative:
+         RepoHome passes the freshly loaded repo/workspace context into the
+         extension element, while query params remain useful for filters and
+         old share links. The persistent header / tabs stay put because every
+         per-repo view is the same RepoHome component. -->
     <section v-else-if="view === 'pulls'" class="repo-extension-embed" data-smoke="repo-pulls">
-      <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
-      <ExtensionRoute prefix="issues" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="issues" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
-      <ExtensionRoute prefix="checks" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="checks" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
-      <ExtensionRoute prefix="epics" :rest="embeddedSubPath" />
+      <ExtensionRoute prefix="epics" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
   </template>
 </template>

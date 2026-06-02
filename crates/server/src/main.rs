@@ -7184,6 +7184,7 @@ fn is_text_preview_path(path: &str) -> bool {
                 | "json"
                 | "toml"
                 | "cue"
+                | "wit"
                 | "yaml"
                 | "yml"
                 | "txt"
@@ -7204,6 +7205,7 @@ fn file_kind(path: &str) -> &'static str {
         Some("vue") => "vue",
         Some("json") => "json",
         Some("cue") => "cue",
+        Some("wit") => "wit",
         Some("toml") => "toml",
         Some("yaml" | "yml") => "yaml",
         _ => "file",
@@ -9101,6 +9103,17 @@ mod tests {
 
     fn issue_route(op: &str) -> String {
         format!("issues.{op}")
+    }
+
+    #[test]
+    fn repository_browser_previews_wit_files() {
+        assert!(is_text_preview_path(
+            "extensions/wit/comtrya/platform/world.wit"
+        ));
+        assert_eq!(
+            file_kind("extensions/wit/comtrya/platform/world.wit"),
+            "wit"
+        );
     }
 
     #[test]
