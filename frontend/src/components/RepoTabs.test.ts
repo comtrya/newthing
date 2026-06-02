@@ -61,6 +61,19 @@ function visibleIds(
   return buildTabs({ enabledExtensions, ...overrides }).map((t) => t.id);
 }
 
+function repoExtPath(opts: {
+  repoPath: string;
+  slug: string;
+  repositoryId?: string | null;
+  workspaceId?: string | null;
+}): string {
+  const base = `/r/${opts.repoPath}/${opts.slug}`;
+  if (!opts.repositoryId) return base;
+  const params = new URLSearchParams({ repositoryId: opts.repositoryId });
+  if (opts.workspaceId) params.set("workspaceId", opts.workspaceId);
+  return `${base}?${params.toString()}`;
+}
+
 describe("RepoTabs extension filtering", () => {
   test("shows only Overview, Code, Config when no extensions enabled", () => {
     const ids = visibleIds([]);
@@ -193,5 +206,28 @@ describe("RepoTabs ARIA semantics", () => {
     expect(result).not.toBe("false");
     expect(result).not.toBe(false);
     expect(result).toBeUndefined();
+  });
+});
+
+describe("RepoTabs extension URLs", () => {
+  test("carries repository and workspace scope when both ids are known", () => {
+    expect(
+      repoExtPath({
+        repoPath: "comtrya/dogfood",
+        slug: "issues",
+        workspaceId: "ws_123",
+        repositoryId: "repo_456",
+      }),
+    ).toBe("/r/comtrya/dogfood/issues?repositoryId=repo_456&workspaceId=ws_123");
+  });
+
+  test("still carries repository scope while workspace id is loading", () => {
+    expect(
+      repoExtPath({
+        repoPath: "comtrya/dogfood",
+        slug: "issues",
+        repositoryId: "repo_456",
+      }),
+    ).toBe("/r/comtrya/dogfood/issues?repositoryId=repo_456");
   });
 });

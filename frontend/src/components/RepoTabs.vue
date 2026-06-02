@@ -29,6 +29,8 @@ const props = withDefaults(defineProps<{
   segments: string[];
   /** Resolved repository ULID used to scope queue links. */
   repositoryId?: string | null;
+  /** Active workspace ULID, carried through route links when known. */
+  workspaceId?: string | null;
   /**
    * Extension opt-in set from `repository.extensions` in the repo's
    * `comtrya.cue`. Extension tabs (issues, pulls, epics, checks) are
@@ -44,6 +46,7 @@ const props = withDefaults(defineProps<{
   failingChecks?: number | null;
 }>(), {
   repositoryId: null,
+  workspaceId: null,
   enabledExtensions: null,
   openIssues: 0,
   openPulls: 0,
@@ -70,8 +73,8 @@ const repoConfigPath = computed(() => `${repoHomePath.value}/config`);
 
 /**
  * Build the per-repo workbench URL for an embedded extension. The
- * `?repositoryId=<id>` query is what the embedded extension's UI
- * (IssuesList, PullsQueue, ChecksBoard, …) reads to scope its
+ * `?workspaceId=<id>&repositoryId=<id>` query is what the embedded
+ * extension's UI (IssuesList, PullsQueue, ChecksBoard, …) reads to scope its
  * listing. Carrying it on the URL means the repo workbench stays
  * mounted across deep links and reloads. When the id is still
  * loading we fall back to the bare per-repo path; the extension
@@ -80,7 +83,9 @@ const repoConfigPath = computed(() => `${repoHomePath.value}/config`);
 function repoExtPath(slug: string): string {
   const base = `${repoHomePath.value}/${slug}`;
   if (!props.repositoryId) return base;
-  return `${base}?repositoryId=${encodeURIComponent(props.repositoryId)}`;
+  const params = new URLSearchParams({ repositoryId: props.repositoryId });
+  if (props.workspaceId) params.set("workspaceId", props.workspaceId);
+  return `${base}?${params.toString()}`;
 }
 
 /**

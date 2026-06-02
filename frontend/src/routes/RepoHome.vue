@@ -672,6 +672,7 @@ async function fetchRepositoryIdentity(
     <RepoTabs
       :segments="repoSegments"
       :repository-id="repository?.id ?? null"
+      :workspace-id="workspaceId"
       :enabled-extensions="repository?.extensions ?? null"
       :open-issues="openIssues"
       :open-pulls="repository?.openPullRequests ?? 0"

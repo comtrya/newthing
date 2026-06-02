@@ -6,6 +6,7 @@ import IssuesList from "./IssuesList.vue";
 import { listIssues, openIssue } from "./api";
 import { bindIssueCommands } from "./issue-commands";
 import { resolveIssuesPolicy } from "./policy";
+import { issueRouteContext } from "./route-context";
 import {
   defaultWorkspaceId,
   issueHref,
@@ -132,45 +133,17 @@ function defineIssueNewElement(): void {
     repositoryId?: string | null;
 
     connectedCallback(): void {
-      this.replaceChildren(issueNewForm(routeContext(this.routeParams, this)));
+      this.replaceChildren(
+        issueNewForm(issueRouteContext({
+          routeParams: this.routeParams,
+          workspaceId: this.workspaceId,
+          repositoryId: this.repositoryId,
+        })),
+      );
     }
   }
 
   customElements.define(ISSUE_NEW_TAG, IssueNewElement);
-}
-
-interface IssueRouteContext {
-  workspaceId?: string | null;
-  repositoryId?: string | null;
-  projectName?: string | null;
-}
-
-function routeContext(
-  routeParams?: ExtensionRouteParams,
-  context: IssueRouteContext = {},
-): {
-  workspaceId: string;
-  repositoryId?: string | null;
-  projectName?: string | null;
-} {
-  const params = new URLSearchParams(window.location.search);
-  return {
-    workspaceId:
-      params.get("workspaceId") ??
-      context.workspaceId ??
-      routeParams?.params?.workspaceId ??
-      defaultWorkspaceId(),
-    repositoryId:
-      params.get("repositoryId") ??
-      context.repositoryId ??
-      routeParams?.params?.repositoryId ??
-      null,
-    projectName:
-      params.get("projectName") ??
-      context.projectName ??
-      routeParams?.params?.projectName ??
-      null,
-  };
 }
 
 function issueNewForm(context: {

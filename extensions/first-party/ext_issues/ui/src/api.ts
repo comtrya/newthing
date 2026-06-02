@@ -1,5 +1,6 @@
 import type { OpResult } from "@comtrya/sdk-core";
 import { extIssuesXIssues } from "../../dist/ext_issues.client";
+import { repositoryUri } from "./scope";
 import type { ComtryaGraphQLClient, Issue, IssueState, Relation } from "./types";
 
 export const ISSUE_OUTGOING_RELATIONS_QUERY = `query($from: ResourceURN!, $kind: ResourceURN) {
@@ -52,12 +53,6 @@ function opValue<T>(result: OpResult<unknown>, label: string): T {
   throw new Error(`${label}: ${result.error.message}`);
 }
 
-function repositoryUri(workspaceId: string, repositoryId?: string | null): string {
-  return repositoryId
-    ? `comtrya://workspace/${workspaceId}/repository/${repositoryId}`
-    : `comtrya://workspace/${workspaceId}`;
-}
-
 function repositoryParts(repository?: string | null): {
   workspaceId: string;
   repositoryId?: string | null;
@@ -65,9 +60,16 @@ function repositoryParts(repository?: string | null): {
   const match = repository?.match(
     /^comtrya:\/\/workspace\/([^/]+)(?:\/repository\/([^/]+))?$/,
   );
+  if (!match) {
+    const repoOnly = repository?.match(/^comtrya:\/\/repository\/([^/]+)$/);
+    return {
+      workspaceId: "",
+      repositoryId: repoOnly?.[1] ?? null,
+    };
+  }
   return {
-    workspaceId: match?.[1] ?? "",
-    repositoryId: match?.[2] ?? null,
+    workspaceId: match[1] ?? "",
+    repositoryId: match[2] ?? null,
   };
 }
 
