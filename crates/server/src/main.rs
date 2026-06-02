@@ -6297,7 +6297,11 @@ async fn device_verification_endpoint(
         Some(token) => (token, None),
         None => {
             let new_csrf = generate_high_entropy_hex(16);
-            let secure_attr = if state.runtime.options.tls_terminated { "; Secure" } else { "" };
+            let secure_attr = if state.runtime.options.tls_terminated {
+                "; Secure"
+            } else {
+                ""
+            };
             let cookie = format!(
                 "device_csrf={new_csrf}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age=3600"
             );
