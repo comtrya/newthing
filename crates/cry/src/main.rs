@@ -116,6 +116,10 @@ fn write_secure_file(path: &Path, content: &str) -> Result<()> {
     drop(file);
 
     // Atomically rename
+    #[cfg(windows)]
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
     std::fs::rename(temp_path, path)?;
     Ok(())
 }
@@ -304,7 +308,7 @@ fn parse_args() -> Result<CliArgs, String> {
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
-        if arg == "--host" || arg == "-h" {
+        if arg == "--host" || arg == "-H" {
             if i + 1 < args.len() {
                 host = Some(args[i + 1].clone());
                 i += 2;

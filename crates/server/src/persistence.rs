@@ -882,7 +882,6 @@ impl PersistentStore {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub fn revoke_refresh_token_by_id(&self, id: &str, revoked_at: u64) -> Result<(), String> {
         self.conn
             .lock()
@@ -895,7 +894,7 @@ impl PersistentStore {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn touch_refresh_token(&self, id: &str, last_used_at: u64) -> Result<(), String> {
         self.conn
             .lock()
@@ -1281,7 +1280,7 @@ mod tests {
             family_id: "family_a".to_string(),
             owner_principal_uri: "comtrya://user/123".to_string(),
             token_hash: "hash_1".to_string(),
-            token_prefix: "crt".to_string(),
+            token_prefix: "crt_rt_1".to_string(),
             scopes: vec!["git:read".to_string()],
             expires_at: 1000,
             created_at: 100,
@@ -1312,7 +1311,7 @@ mod tests {
             family_id: "family_a".to_string(),
             owner_principal_uri: "comtrya://user/123".to_string(),
             token_hash: "hash_2".to_string(),
-            token_prefix: "crt".to_string(),
+            token_prefix: "crt_rt_2".to_string(),
             scopes: vec!["git:read".to_string()],
             expires_at: 2000,
             created_at: 200,

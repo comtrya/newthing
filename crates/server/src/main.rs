@@ -2325,18 +2325,11 @@ impl Runtime {
     }
 
     pub(crate) fn principal_context_from_headers(&self, headers: &HeaderMap) -> PrincipalContext {
-        let token_owned;
+        let token_owned = basic_password_from_headers(headers).filter(|pw| pw.starts_with("fp_"));
         let token = if let Some(t) = auth_token_from_headers(headers) {
             Some(t)
-        } else if let Some(pw) = basic_password_from_headers(headers) {
-            if pw.starts_with("fp_") {
-                token_owned = pw;
-                Some(token_owned.as_str())
-            } else {
-                None
-            }
         } else {
-            None
+            token_owned.as_deref()
         };
         let Some(token) = token else {
             return PrincipalContext::anonymous();
@@ -2356,18 +2349,11 @@ impl Runtime {
     }
 
     fn credential_allows(&self, headers: &HeaderMap, action: &str) -> bool {
-        let token_owned;
+        let token_owned = basic_password_from_headers(headers).filter(|pw| pw.starts_with("fp_"));
         let token = if let Some(t) = auth_token_from_headers(headers) {
             Some(t)
-        } else if let Some(pw) = basic_password_from_headers(headers) {
-            if pw.starts_with("fp_") {
-                token_owned = pw;
-                Some(token_owned.as_str())
-            } else {
-                None
-            }
         } else {
-            None
+            token_owned.as_deref()
         };
         let Some(token) = token else {
             return false;
@@ -6311,8 +6297,9 @@ async fn device_verification_endpoint(
         Some(token) => (token, None),
         None => {
             let new_csrf = generate_high_entropy_hex(16);
+            let secure_attr = if state.runtime.options.tls_terminated { "; Secure" } else { "" };
             let cookie = format!(
-                "device_csrf={new_csrf}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=3600"
+                "device_csrf={new_csrf}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age=3600"
             );
             (new_csrf, Some(cookie))
         }
@@ -6628,7 +6615,7 @@ async fn device_token_endpoint(
                     family_id: state.runtime.next_id("family"),
                     owner_principal_uri: owner_principal_uri.clone(),
                     token_hash: rt_hash,
-                    token_prefix: "crt".to_string(),
+                    token_prefix: rt_token_str.chars().take(12).collect::<String>(),
                     scopes: scopes.clone(),
                     expires_at: now.saturating_add(30 * 24 * 3600), // 30 days
                     created_at: now,
@@ -6777,7 +6764,7 @@ async fn device_token_endpoint(
             family_id: record.family_id.clone(),
             owner_principal_uri: record.owner_principal_uri.clone(),
             token_hash: next_rt_hash,
-            token_prefix: "crt".to_string(),
+            token_prefix: next_rt_token_str.chars().take(12).collect::<String>(),
             scopes: record.scopes.clone(),
             expires_at: now.saturating_add(30 * 24 * 3600), // 30 days
             created_at: now,
