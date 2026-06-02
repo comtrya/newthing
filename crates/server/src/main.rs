@@ -4853,7 +4853,7 @@ async fn token_exchange(
             );
         }
     };
-    json_response(
+    let mut response = json_response(
         StatusCode::OK,
         json!({
             "accessToken": token,
@@ -4863,7 +4863,20 @@ async fn token_exchange(
             "resource": request.requested_resource
         }),
         cors,
-    )
+    );
+    // Also set the session cookie (mirroring the OIDC callback). The shell
+    // keeps using the returned bearer, but extension UI pages run their own
+    // bundle whose sdk-core has no operator code to bootstrap a bearer from;
+    // they reach the kernel with `credentials: "include"`, so the cookie is
+    // what authenticates their same-origin `/api/ops` and GraphQL calls.
+    // `auth_token_from_headers` already accepts the cookie as a credential.
+    let cookie = session_cookie_value(&token, 300, state.runtime.options.tls_terminated);
+    if let Ok(cookie_value) = HeaderValue::from_str(&cookie) {
+        response
+            .headers_mut()
+            .insert(axum::http::header::SET_COOKIE, cookie_value);
+    }
+    response
 }
 
 #[derive(Debug, Deserialize)]
