@@ -518,20 +518,18 @@ assert_extension_browser_surfaces_render() {
 
   if ! "$BUN" --eval '
 const fs = require("fs");
-const [port, pageUrl, outputFile] = process.argv.slice(1);
+const [port, baseUrl, repoPath, outputFile] = process.argv.slice(1);
 
-// Widgets that must mount somewhere on the repo code surface. Their default
-// slot is irrelevant to the smoke — under the hybrid model the user can
-// move any widget to any slot. We only require that each widget renders.
-const expectedWidgets = [
-  { tagName: "comtrya-repository-summary", label: "Repository",            origin: "core" },
-  { tagName: "comtrya-core-code-browser",  label: "Code · ",               origin: "core" },
-  { tagName: "comtrya-issues-list",        label: "Issues",                origin: "extension" },
-  { tagName: "comtrya-pulls-overview",     label: "Repo · pulls overview", origin: "extension" },
-  { tagName: "comtrya-checks-board",       label: "Checks board",          origin: "extension" },
+// Surfaces that must actually render in a real browser, verified against the
+// live DOM. The repo /code route mounts the core code browser into the
+// repository.code slot (the tabbed repo UI renders only that slot on /code);
+// each first-party extension page renders its own top-level custom element.
+const surfaces = [
+  { name: "repo code", url: `${baseUrl}/r/${repoPath}/code`, slot: "repository.code", widget: "comtrya-core-code-browser", heading: repoPath },
+  { name: "issues page", url: `${baseUrl}/x/issues/`, widget: "comtrya-issues-list" },
+  { name: "pulls page", url: `${baseUrl}/x/pulls/`, widget: "comtrya-pulls-queue" },
+  { name: "epics page", url: `${baseUrl}/x/epics/`, widget: "comtrya-epics-index" },
 ];
-
-const expectedSlots = ["repository.main", "repository.sidebar"];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -583,93 +581,79 @@ async function connect(target) {
 }
 
 const COLLECT_EXPRESSION = `(() => {
-  const slots = {};
-  for (const slot of ["repository.main", "repository.sidebar"]) {
-    const mount = document.querySelector("[data-extension-slot-mount=\\\"" + slot + "\\\"]");
-    if (!mount) {
-      slots[slot] = { mounted: false };
-      continue;
-    }
-    slots[slot] = {
-      mounted: true,
-      children: Array.from(mount.children).map((child) => child.tagName.toLowerCase()),
-      text: (mount.innerText || mount.textContent || "").trim(),
-    };
+  const slotMounts = {};
+  for (const mount of document.querySelectorAll("[data-extension-slot-mount]")) {
+    slotMounts[mount.getAttribute("data-extension-slot-mount")] =
+      Array.from(mount.children).map((child) => child.tagName.toLowerCase());
   }
-  const widgetTags = Array.from(
-    document.querySelectorAll("[data-extension-slot-mount] *")
-  ).map((node) => node.tagName.toLowerCase());
-  const dashboardText = (
-    document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]")?.parentElement?.innerText ||
-    document.body?.innerText ||
-    ""
-  ).trim();
-  return {
-    headings: Array.from(document.querySelectorAll("h1, h2")).map((heading) => heading.textContent?.trim()),
-    pageHeadSmoke: document.querySelector("[data-smoke=\\\"repo-dashboard\\\"]") ? "present" : null,
-    slots,
-    widgetTags,
-    dashboardText,
-  };
+  const customEls = [...new Set(
+    Array.from(document.querySelectorAll("*"))
+      .map((node) => node.tagName.toLowerCase())
+      .filter((tag) => tag.startsWith("comtrya-")),
+  )];
+  const headings = Array.from(document.querySelectorAll("h1, h2"))
+    .map((heading) => (heading.textContent || "").trim())
+    .filter(Boolean);
+  return { slotMounts, customEls, headings };
 })()`;
 
-function evidenceIsReady(evidence) {
-  if (evidence.pageHeadSmoke !== "present") return false;
-  if (!evidence.headings?.includes("comtrya/comtrya")) return false;
-  // Both generic slots must mount (even if empty until widgets resolve).
-  for (const slot of expectedSlots) {
-    const got = evidence.slots?.[slot];
-    if (!got?.mounted) return false;
+function surfaceReady(surface, evidence) {
+  if (surface.widget && !evidence.customEls?.includes(surface.widget)) return false;
+  if (surface.slot) {
+    const children = evidence.slotMounts?.[surface.slot];
+    if (!children || !children.includes(surface.widget)) return false;
   }
-  // Each expected widget must render somewhere inside the dashboard.
-  for (const expected of expectedWidgets) {
-    if (!evidence.widgetTags?.includes(expected.tagName)) return false;
-    if (expected.label && !evidence.dashboardText?.includes(expected.label)) return false;
-  }
+  if (surface.heading && !evidence.headings?.includes(surface.heading)) return false;
   return true;
 }
 
 const target = await pageTarget();
 const cdp = await connect(target);
+const collected = {};
 try {
   await cdp.send("Runtime.enable");
   await cdp.send("Page.enable");
-  await cdp.send("Page.navigate", { url: pageUrl });
-
-  let lastEvidence = {};
-  const deadline = Date.now() + 20000;
-  while (Date.now() < deadline) {
-    const result = await cdp.send("Runtime.evaluate", {
-      expression: COLLECT_EXPRESSION,
-      returnByValue: true,
-    });
-    if (result.exceptionDetails) {
-      const detail =
-        result.exceptionDetails.exception?.description ??
-        result.exceptionDetails.text ??
-        "DOM collection threw";
-      fs.writeFileSync(
-        outputFile,
-        JSON.stringify({ exception: detail, exceptionDetails: result.exceptionDetails }, null, 2),
-      );
-      throw new Error(detail);
+  for (const surface of surfaces) {
+    await cdp.send("Page.navigate", { url: surface.url });
+    let evidence = {};
+    let ready = false;
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const result = await cdp.send("Runtime.evaluate", {
+        expression: COLLECT_EXPRESSION,
+        returnByValue: true,
+      });
+      if (result.exceptionDetails) {
+        const detail =
+          result.exceptionDetails.exception?.description ??
+          result.exceptionDetails.text ??
+          "DOM collection threw";
+        collected[surface.name] = { exception: detail };
+        fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+        throw new Error(`${surface.name}: ${detail}`);
+      }
+      evidence = result.result?.value ?? {};
+      if (surfaceReady(surface, evidence)) {
+        ready = true;
+        break;
+      }
+      await sleep(250);
     }
-    lastEvidence = result.result?.value ?? {};
-    if (evidenceIsReady(lastEvidence)) {
-      fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
-      process.exit(0);
+    collected[surface.name] = { url: surface.url, ...evidence };
+    if (!ready) {
+      fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+      throw new Error(`surface "${surface.name}" (${surface.url}) did not render ${surface.widget}`);
     }
-    await sleep(250);
   }
-  fs.writeFileSync(outputFile, JSON.stringify(lastEvidence, null, 2));
-  throw new Error("repo code extension slots did not become ready");
+  fs.writeFileSync(outputFile, JSON.stringify(collected, null, 2));
+  process.exit(0);
 } finally {
   cdp.close();
 }
-' "$debugging_port" "$FRONTEND_URL/r/$repo_path/code" "$evidence_file"; then
+' "$debugging_port" "$FRONTEND_URL" "$repo_path" "$evidence_file"; then
     kill "$browser_pid" >/dev/null 2>&1 || true
     wait "$browser_pid" >/dev/null 2>&1 || true
-    printf '\n[comtrya] headless browser repo-code smoke failed with %s\n' "$browser_bin" >&2
+    printf '\n[comtrya] headless browser extension-surface smoke failed with %s\n' "$browser_bin" >&2
     printf '[comtrya] browser evidence:\n' >&2
     sed -n '1,220p' "$evidence_file" >&2 || true
     printf '[comtrya] browser log:\n' >&2
@@ -680,7 +664,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser repo code mounted core + extension widgets into repository.main / repository.sidebar"
+  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics extension pages"
 }
 
 assert_issue_close_browser_smoke() {
@@ -789,9 +773,15 @@ async function connect(target) {
   };
 }
 
+// comtrya-issue-detail is a Vue custom element rendered into a shadow root,
+// so its [data-smoke="issue-detail-main"] node and action buttons live in the
+// shadow tree, not the light DOM. Query through the host shadowRoot (falling
+// back to document if a build ever renders light DOM).
 const collectExpression = `(() => {
-  const main = document.querySelector("[data-smoke=\\"issue-detail-main\\"]");
-  const buttons = Array.from(document.querySelectorAll("button")).map((button) => ({
+  const host = document.querySelector("comtrya-issue-detail");
+  const root = host && host.shadowRoot ? host.shadowRoot : document;
+  const main = root.querySelector("[data-smoke=\\"issue-detail-main\\"]");
+  const buttons = Array.from(root.querySelectorAll("button")).map((button) => ({
     text: (button.textContent || "").trim(),
     disabled: button.disabled,
   }));
@@ -836,7 +826,9 @@ async function waitFor(cdp, predicate, label) {
 }
 
 const clickExpression = `(() => {
-  const button = Array.from(document.querySelectorAll("button")).find(
+  const host = document.querySelector("comtrya-issue-detail");
+  const root = host && host.shadowRoot ? host.shadowRoot : document;
+  const button = Array.from(root.querySelectorAll("button")).find(
     (candidate) => (candidate.textContent || "").trim() === "Close issue",
   );
   if (!button) {
