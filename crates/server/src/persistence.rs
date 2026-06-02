@@ -104,6 +104,25 @@ pub struct StoredSshPublicKey {
     pub removed_at: Option<u64>,
 }
 
+/// A secure, long-lived OIDC refresh token record.
+/// Only the SHA-256 hash of the token secret is stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoredRefreshToken {
+    pub id: String,
+    pub family_id: String,
+    pub owner_principal_uri: String,
+    pub token_hash: String,
+    pub token_prefix: String,
+    pub scopes: Vec<String>,
+    pub expires_at: u64,
+    pub created_at: u64,
+    pub last_used_at: Option<u64>,
+    pub consumed_at: Option<u64>,
+    pub replaced_by: Option<String>,
+    pub revoked_at: Option<u64>,
+}
+
 pub struct PersistentStore {
     conn: Mutex<Connection>,
     db_path: PathBuf,
@@ -700,7 +719,192 @@ impl PersistentStore {
                 params![rate_cutoff as i64],
             )
             .map_err(|e| format!("evict rate_limits failed: {e}"))?;
+
+        // Delete refresh tokens expired or revoked more than 1 day ago so that
+        // concurrent grace windows or recent reuse/theft detection can operate.
+        let refresh_cutoff = now.saturating_sub(86400); // 1 day ago
+        conn.execute(
+            "DELETE FROM refresh_tokens WHERE expires_at <= ?1 OR (revoked_at IS NOT NULL AND revoked_at <= ?1)",
+            params![refresh_cutoff as i64],
+        )
+        .map_err(|e| format!("evict refresh_tokens failed: {e}"))?;
+
         Ok((sessions, credentials, rate_limits))
+    }
+
+    pub fn insert_refresh_token(&self, record: &StoredRefreshToken) -> Result<(), String> {
+        let scopes_json = serde_json::to_string(&record.scopes)
+            .map_err(|e| format!("serialize scopes failed: {e}"))?;
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "INSERT INTO refresh_tokens(
+                   id, family_id, owner_principal_uri, token_hash, token_prefix, scopes_json,
+                   expires_at, created_at, last_used_at, consumed_at, replaced_by, revoked_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    record.id,
+                    record.family_id,
+                    record.owner_principal_uri,
+                    record.token_hash,
+                    record.token_prefix,
+                    scopes_json,
+                    record.expires_at as i64,
+                    record.created_at as i64,
+                    record.last_used_at.map(|v| v as i64),
+                    record.consumed_at.map(|v| v as i64),
+                    record.replaced_by,
+                    record.revoked_at.map(|v| v as i64),
+                ],
+            )
+            .map_err(|e| format!("insert refresh token failed: {e}"))?;
+        Ok(())
+    }
+
+    pub fn lookup_refresh_token(&self, id: &str) -> Result<Option<StoredRefreshToken>, String> {
+        let conn = self.conn.lock().expect("conn lock poisoned");
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, family_id, owner_principal_uri, token_hash, token_prefix, scopes_json, \
+                        expires_at, created_at, last_used_at, consumed_at, replaced_by, revoked_at \
+                 FROM refresh_tokens WHERE id = ?1",
+            )
+            .map_err(|e| format!("prepare lookup_refresh_token failed: {e}"))?;
+
+        let row = stmt
+            .query_row(params![id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, Option<i64>>(8)?,
+                    row.get::<_, Option<i64>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<i64>>(11)?,
+                ))
+            })
+            .optional()
+            .map_err(|e| format!("query lookup_refresh_token failed: {e}"))?;
+
+        if let Some(r) = row {
+            let scopes: Vec<String> = serde_json::from_str(&r.5)
+                .map_err(|e| format!("deserialize scopes failed: {e}"))?;
+            Ok(Some(StoredRefreshToken {
+                id: r.0,
+                family_id: r.1,
+                owner_principal_uri: r.2,
+                token_hash: r.3,
+                token_prefix: r.4,
+                scopes,
+                expires_at: r.6 as u64,
+                created_at: r.7 as u64,
+                last_used_at: r.8.map(|v| v as u64),
+                consumed_at: r.9.map(|v| v as u64),
+                replaced_by: r.10,
+                revoked_at: r.11.map(|v| v as u64),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn rotate_refresh_token(
+        &self,
+        old_id: &str,
+        new_record: &StoredRefreshToken,
+        consumed_at: u64,
+    ) -> Result<(), String> {
+        let mut conn = self.conn.lock().expect("conn lock poisoned");
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("begin rotate_refresh_token transaction failed: {e}"))?;
+
+        // 1. Mark old token as consumed and reference its successor
+        let rows_affected = tx.execute(
+            "UPDATE refresh_tokens SET consumed_at = ?1, replaced_by = ?2 WHERE id = ?3 AND consumed_at IS NULL AND revoked_at IS NULL",
+            params![consumed_at as i64, &new_record.id, old_id],
+        )
+        .map_err(|e| format!("update old refresh token consumed_at failed: {e}"))?;
+
+        if rows_affected == 0 {
+            return Err("Refresh token already consumed or revoked".to_string());
+        }
+
+        // 2. Insert new refresh token
+        let scopes_json = serde_json::to_string(&new_record.scopes)
+            .map_err(|e| format!("serialize scopes failed: {e}"))?;
+        tx.execute(
+            "INSERT INTO refresh_tokens(
+               id, family_id, owner_principal_uri, token_hash, token_prefix, scopes_json,
+               expires_at, created_at, last_used_at, consumed_at, replaced_by, revoked_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                new_record.id,
+                new_record.family_id,
+                new_record.owner_principal_uri,
+                new_record.token_hash,
+                new_record.token_prefix,
+                scopes_json,
+                new_record.expires_at as i64,
+                new_record.created_at as i64,
+                new_record.last_used_at.map(|v| v as i64),
+                new_record.consumed_at.map(|v| v as i64),
+                new_record.replaced_by,
+                new_record.revoked_at.map(|v| v as i64),
+            ],
+        )
+        .map_err(|e| format!("insert new refresh token failed: {e}"))?;
+
+        tx.commit()
+            .map_err(|e| format!("commit rotate_refresh_token failed: {e}"))?;
+        Ok(())
+    }
+
+    pub fn revoke_refresh_token_family(
+        &self,
+        family_id: &str,
+        revoked_at: u64,
+    ) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE refresh_tokens SET revoked_at = ?1 WHERE family_id = ?2 AND revoked_at IS NULL",
+                params![revoked_at as i64, family_id],
+            )
+            .map_err(|e| format!("revoke family failed: {e}"))?;
+        Ok(())
+    }
+
+    pub fn revoke_refresh_token_by_id(&self, id: &str, revoked_at: u64) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE refresh_tokens SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL",
+                params![revoked_at as i64, id],
+            )
+            .map_err(|e| format!("revoke refresh token by id failed: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn touch_refresh_token(&self, id: &str, last_used_at: u64) -> Result<(), String> {
+        self.conn
+            .lock()
+            .expect("conn lock poisoned")
+            .execute(
+                "UPDATE refresh_tokens SET last_used_at = ?1 WHERE id = ?2",
+                params![last_used_at as i64, id],
+            )
+            .map_err(|e| format!("touch refresh token failed: {e}"))?;
+        Ok(())
     }
 
     /// List active (non-expired, non-used) sessions for the admin panel.
@@ -1065,5 +1269,72 @@ mod tests {
         let (sessions_evicted, _, _) = store.evict_expired(500, 60).unwrap();
         assert_eq!(sessions_evicted, 1);
         assert!(store.take_session("live", 600).unwrap().is_some());
+    }
+
+    #[test]
+    fn refresh_token_lifecycle_and_rotation() {
+        let (_tmp, store) = fresh_store();
+
+        let token = StoredRefreshToken {
+            id: "rt_1".to_string(),
+            family_id: "family_a".to_string(),
+            owner_principal_uri: "comtrya://user/123".to_string(),
+            token_hash: "hash_1".to_string(),
+            token_prefix: "crt_rt_1".to_string(),
+            scopes: vec!["git:read".to_string()],
+            expires_at: 1000,
+            created_at: 100,
+            last_used_at: None,
+            consumed_at: None,
+            replaced_by: None,
+            revoked_at: None,
+        };
+
+        // 1. Insert and lookup
+        store.insert_refresh_token(&token).unwrap();
+        let fetched = store.lookup_refresh_token("rt_1").unwrap().unwrap();
+        assert_eq!(fetched.id, "rt_1");
+        assert_eq!(fetched.family_id, "family_a");
+        assert_eq!(fetched.token_hash, "hash_1");
+        assert_eq!(fetched.scopes, vec!["git:read".to_string()]);
+        assert_eq!(fetched.expires_at, 1000);
+        assert!(fetched.consumed_at.is_none());
+
+        // 2. Touch/update last used
+        store.touch_refresh_token("rt_1", 150).unwrap();
+        let fetched = store.lookup_refresh_token("rt_1").unwrap().unwrap();
+        assert_eq!(fetched.last_used_at, Some(150));
+
+        // 3. Rotate
+        let rotated = StoredRefreshToken {
+            id: "rt_2".to_string(),
+            family_id: "family_a".to_string(),
+            owner_principal_uri: "comtrya://user/123".to_string(),
+            token_hash: "hash_2".to_string(),
+            token_prefix: "crt_rt_2".to_string(),
+            scopes: vec!["git:read".to_string()],
+            expires_at: 2000,
+            created_at: 200,
+            last_used_at: None,
+            consumed_at: None,
+            replaced_by: None,
+            revoked_at: None,
+        };
+        store.rotate_refresh_token("rt_1", &rotated, 200).unwrap();
+
+        let old = store.lookup_refresh_token("rt_1").unwrap().unwrap();
+        assert_eq!(old.consumed_at, Some(200));
+        assert_eq!(old.replaced_by, Some("rt_2".to_string()));
+
+        let new = store.lookup_refresh_token("rt_2").unwrap().unwrap();
+        assert_eq!(new.id, "rt_2");
+        assert!(new.consumed_at.is_none());
+
+        // 4. Revoke family
+        store.revoke_refresh_token_family("family_a", 300).unwrap();
+        let old = store.lookup_refresh_token("rt_1").unwrap().unwrap();
+        assert_eq!(old.revoked_at, Some(300));
+        let new = store.lookup_refresh_token("rt_2").unwrap().unwrap();
+        assert_eq!(new.revoked_at, Some(300));
     }
 }

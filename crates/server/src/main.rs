@@ -437,6 +437,27 @@ fn router(state: AppState) -> Router {
         .route("/auth/oidc/:provider/login", get(oidc_login))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
         .route(
+            "/auth/device/code",
+            post(device_code_endpoint).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route("/auth/device", get(device_verification_endpoint))
+        .route(
+            "/auth/device/approve",
+            post(device_approve_endpoint).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route(
+            "/auth/device/deny",
+            post(device_deny_endpoint).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route(
+            "/auth/device/token",
+            post(device_token_endpoint).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route(
+            "/auth/token/revoke",
+            post(device_revoke_endpoint).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
+        )
+        .route(
             "/api/account/git-tokens",
             get(list_git_tokens)
                 .post(create_git_token)
@@ -632,6 +653,7 @@ struct Runtime {
     token_counter: AtomicU64,
     oidc_sessions: oidc::OidcSessionStore,
     oidc_discovery: oidc::OidcDiscoveryCache,
+    device_sessions: oidc::DeviceAuthSessionStore,
     /// OIDC user upsert + audit. `&mut self` on `login`, so we wrap in
     /// `Mutex`. **Never** hold this guard across an `.await` — see
     /// `oidc_callback` for the discipline.
@@ -836,6 +858,7 @@ impl Runtime {
             token_counter: AtomicU64::new(0),
             oidc_sessions: oidc::OidcSessionStore::new(),
             oidc_discovery: oidc::OidcDiscoveryCache::with_reqwest(),
+            device_sessions: oidc::DeviceAuthSessionStore::new(),
             auth_service: Mutex::new(auth_service),
             cue_config_cache: Arc::new(cue_config::CueConfigCache::new()),
             config_sync_status: Mutex::new(config_sync::SyncStatus::unconfigured(
@@ -2302,7 +2325,13 @@ impl Runtime {
     }
 
     pub(crate) fn principal_context_from_headers(&self, headers: &HeaderMap) -> PrincipalContext {
-        let Some(token) = auth_token_from_headers(headers) else {
+        let token_owned = basic_password_from_headers(headers).filter(|pw| pw.starts_with("fp_"));
+        let token = if let Some(t) = auth_token_from_headers(headers) {
+            Some(t)
+        } else {
+            token_owned.as_deref()
+        };
+        let Some(token) = token else {
             return PrincipalContext::anonymous();
         };
 
@@ -2320,7 +2349,13 @@ impl Runtime {
     }
 
     fn credential_allows(&self, headers: &HeaderMap, action: &str) -> bool {
-        let Some(token) = auth_token_from_headers(headers) else {
+        let token_owned = basic_password_from_headers(headers).filter(|pw| pw.starts_with("fp_"));
+        let token = if let Some(t) = auth_token_from_headers(headers) {
+            Some(t)
+        } else {
+            token_owned.as_deref()
+        };
+        let Some(token) = token else {
             return false;
         };
 
@@ -5450,9 +5485,15 @@ async fn oidc_providers(State(state): State<AppState>, headers: HeaderMap) -> Re
     json_response(StatusCode::OK, json!({ "providers": providers }), cors)
 }
 
+#[derive(Debug, Deserialize)]
+struct OidcLoginQuery {
+    user_code: Option<String>,
+}
+
 async fn oidc_login(
     State(state): State<AppState>,
     AxumPath(provider): AxumPath<String>,
+    Query(query): Query<OidcLoginQuery>,
     headers: HeaderMap,
 ) -> Response {
     let route = format!("/auth/oidc/{provider}/login");
@@ -5559,6 +5600,7 @@ async fn oidc_login(
                 pkce_verifier: verifier,
                 nonce,
                 created_at_secs: now,
+                user_code: query.user_code,
             },
             now,
         )
@@ -5662,7 +5704,11 @@ async fn oidc_callback(
 
     // 2. Single-use session lookup. `take` removes the entry; replays
     //    or unknown state values yield 401.
-    let login_session = match state.runtime.oidc_sessions.take(&callback_state) {
+    let login_session = match state
+        .runtime
+        .oidc_sessions
+        .take(&callback_state, now_seconds())
+    {
         Some(s) => s,
         None => {
             return err(
@@ -5852,13 +5898,21 @@ async fn oidc_callback(
         }
     };
 
-    // 7. 302 to root. Frontend wiring (return_to support, post-login
-    //    UX) lands separately.
+    // 7. 302 to root (or /auth/device if user_code is present in session).
+    let redirect_url = if let Some(ref uc) = login_session.user_code {
+        format!("/auth/device?user_code={}", uc)
+    } else {
+        "/".to_string()
+    };
     let mut response = Response::new(axum::body::Body::empty());
     *response.status_mut() = StatusCode::FOUND;
+    let location_header = match HeaderValue::from_str(&redirect_url) {
+        Ok(v) => v,
+        Err(_) => HeaderValue::from_static("/"),
+    };
     response
         .headers_mut()
-        .insert(axum::http::header::LOCATION, HeaderValue::from_static("/"));
+        .insert(axum::http::header::LOCATION, location_header);
     response
         .headers_mut()
         .insert(axum::http::header::SET_COOKIE, cookie_value);
@@ -5873,6 +5927,959 @@ async fn oidc_callback(
         }),
     );
     response
+}
+
+// ── OIDC Device Authorization Flow Endpoints ───────────────────────────────
+
+#[allow(dead_code)]
+#[derive(serde::Deserialize)]
+struct DeviceCodeRequest {
+    client_id: Option<String>,
+    scope: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct DeviceCodeResponse {
+    device_code: String,
+    user_code: String,
+    verification_uri: String,
+    verification_uri_complete: String,
+    expires_in: u64,
+    interval: u64,
+}
+
+fn generate_high_entropy_hex(len: usize) -> String {
+    let mut bytes = vec![0u8; len];
+    getrandom::fill(&mut bytes).expect("OS RNG must be available");
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn hash_token_secret(secret: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(secret.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+fn parse_refresh_token(token: &str) -> Option<(&str, &str)> {
+    if !token.starts_with("crt_") {
+        return None;
+    }
+    token[4..].rsplit_once('_')
+}
+
+fn csrf_cookie_from_headers(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookie| {
+            cookie.split(';').find_map(|part| {
+                let (name, value) = part.trim().split_once('=')?;
+                (name == "device_csrf" && !value.is_empty()).then_some(value)
+            })
+        })
+}
+
+fn security_response(
+    status: StatusCode,
+    html_body: String,
+    set_cookie: Option<String>,
+) -> Response {
+    let mut res = Response::new(axum::body::Body::from(html_body));
+    *res.status_mut() = status;
+    let h = res.headers_mut();
+    h.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    h.insert(
+        axum::http::header::X_FRAME_OPTIONS,
+        HeaderValue::from_static("DENY"),
+    );
+    h.insert(
+        axum::http::header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "frame-ancestors 'none'; default-src 'self'; style-src 'unsafe-inline'",
+        ),
+    );
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, must-revalidate"),
+    );
+    h.insert(
+        axum::http::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    if let Some(val) = set_cookie.and_then(|c| HeaderValue::from_str(&c).ok()) {
+        h.insert(axum::http::header::SET_COOKIE, val);
+    }
+    res
+}
+
+fn render_device_auth_html(
+    title: &str,
+    content: &str,
+    csrf_token: Option<&str>,
+    error: Option<&str>,
+    user_code: Option<&str>,
+) -> String {
+    let error_html = if let Some(err) = error {
+        format!(
+            r#"<div style="background-color: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px;">{}</div>"#,
+            html_escape(err)
+        )
+    } else {
+        "".to_string()
+    };
+
+    let form_html = if let Some(csrf) = csrf_token {
+        let uc = user_code.unwrap_or("");
+        format!(
+            r#"<form style="display: flex; gap: 12px; margin-top: 24px;" method="POST">
+                <input type="hidden" name="csrf_token" value="{csrf}" />
+                <input type="hidden" name="user_code" value="{uc}" />
+                <button type="submit" formaction="/auth/device/approve" style="flex: 1; background-color: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px;">Approve</button>
+                <button type="submit" formaction="/auth/device/deny" style="flex: 1; background-color: #ef4444; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px;">Deny</button>
+            </form>"#
+        )
+    } else {
+        "".to_string()
+    };
+
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>{title} - Comtrya</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }}
+        .card {{
+            background: white;
+            padding: 32px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            width: 100%;
+            max-width: 440px;
+            box-sizing: border-box;
+        }}
+        h1 {{
+            font-size: 24px;
+            font-weight: 700;
+            color: #111827;
+            margin: 0 0 16px 0;
+        }}
+        p {{
+            color: #4b5563;
+            font-size: 16px;
+            line-height: 1.5;
+            margin: 0 0 24px 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>{title}</h1>
+        {error_html}
+        {content}
+        {form_html}
+    </div>
+</body>
+</html>"#,
+        title = html_escape(title),
+        error_html = error_html,
+        content = content,
+        form_html = form_html
+    )
+}
+
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+fn json_err_response(
+    status: StatusCode,
+    error: &str,
+    error_description: &str,
+    cors: HeaderMap,
+) -> Response {
+    let body = json!({
+        "error": error,
+        "error_description": error_description,
+    });
+    let mut res = json_response(status, body, cors);
+    res.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    res
+}
+
+async fn device_code_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Form(_req): axum::Form<DeviceCodeRequest>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/auth/device/code") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+
+    let now = now_seconds();
+    let user_code = oidc::generate_user_code();
+    let device_code = oidc::generate_device_code();
+
+    let session = oidc::DeviceAuthSession {
+        device_code: device_code.clone(),
+        user_code: user_code.clone(),
+        status: oidc::DeviceAuthStatus::Pending,
+        expires_at_secs: now.saturating_add(oidc::DEVICE_CODE_TTL_SECS),
+        last_polled_at_secs: None,
+    };
+
+    state.runtime.device_sessions.insert(session, now);
+
+    let public_url = &state.runtime.config.public_url;
+    let verification_uri = format!("{public_url}/auth/device");
+    let verification_uri_complete = format!("{public_url}/auth/device?user_code={user_code}");
+
+    let resp = DeviceCodeResponse {
+        device_code,
+        user_code,
+        verification_uri,
+        verification_uri_complete,
+        expires_in: oidc::DEVICE_CODE_TTL_SECS,
+        interval: oidc::MIN_POLL_INTERVAL_SECS,
+    };
+
+    let mut res = json_response(StatusCode::OK, json!(resp), cors);
+    let h = res.headers_mut();
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store"),
+    );
+    h.insert(
+        axum::http::header::PRAGMA,
+        HeaderValue::from_static("no-cache"),
+    );
+    res
+}
+
+#[derive(serde::Deserialize)]
+struct DeviceVerificationQuery {
+    user_code: Option<String>,
+}
+
+async fn device_verification_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<DeviceVerificationQuery>,
+) -> Response {
+    let principal = state.runtime.principal_from_headers(&headers);
+    let authenticated = matches!(
+        principal,
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
+    );
+
+    let user_code = query
+        .user_code
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
+    let Some(uc) = user_code else {
+        let content = r#"
+            <p>Please enter the 8-character verification code shown on your CLI console.</p>
+            <form method="GET" style="display: flex; flex-direction: column; gap: 16px;">
+                <input type="text" name="user_code" placeholder="ABCD-EFGH" required maxlength="10"
+                       style="padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 18px; text-transform: uppercase; font-family: monospace; letter-spacing: 2px; text-align: center;" />
+                <button type="submit" style="background-color: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px;">Continue</button>
+            </form>
+        "#.to_string();
+        return security_response(
+            StatusCode::OK,
+            render_device_auth_html("Connect Device", &content, None, None, None),
+            None,
+        );
+    };
+
+    let uc_normalized = uc.to_uppercase();
+    let now = now_seconds();
+    let session_opt = state
+        .runtime
+        .device_sessions
+        .get_by_user_code(&uc_normalized, now);
+    if session_opt.is_none() {
+        let content = r#"
+            <p>Please enter the 8-character verification code shown on your CLI console.</p>
+            <form method="GET" style="display: flex; flex-direction: column; gap: 16px;">
+                <input type="text" name="user_code" placeholder="ABCD-EFGH" required maxlength="10"
+                       style="padding: 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 18px; text-transform: uppercase; font-family: monospace; letter-spacing: 2px; text-align: center;" />
+                <button type="submit" style="background-color: #2563eb; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 16px;">Continue</button>
+            </form>
+        "#.to_string();
+        return security_response(
+            StatusCode::BAD_REQUEST,
+            render_device_auth_html(
+                "Connect Device",
+                &content,
+                None,
+                Some(
+                    "The verification code is invalid or has expired. Please verify and try again.",
+                ),
+                None,
+            ),
+            None,
+        );
+    }
+
+    if !authenticated {
+        let issuers = &state.runtime.config.oidc_issuers;
+        if issuers.is_empty() {
+            return security_response(
+                StatusCode::BAD_REQUEST,
+                render_device_auth_html(
+                    "OIDC Not Configured",
+                    "<p>OpenID Connect identity providers are not configured on this server.</p>",
+                    None,
+                    None,
+                    None,
+                ),
+                None,
+            );
+        }
+
+        if issuers.len() == 1 {
+            let provider_id = &issuers[0].id;
+            let redirect_url = format!("/auth/oidc/{provider_id}/login?user_code={uc_normalized}");
+            let mut res = Response::new(axum::body::Body::empty());
+            *res.status_mut() = StatusCode::FOUND;
+            res.headers_mut().insert(
+                axum::http::header::LOCATION,
+                HeaderValue::from_str(&redirect_url).unwrap_or(HeaderValue::from_static("/")),
+            );
+            return res;
+        }
+
+        let mut content = "<p>Choose an identity provider to sign in and authorize this device:</p><div style=\"display: flex; flex-direction: column; gap: 12px;\">".to_string();
+        for issuer in issuers {
+            content.push_str(&format!(
+                r#"<a href="/auth/oidc/{id}/login?user_code={uc_normalized}" style="display: block; text-align: center; text-decoration: none; background-color: #f3f4f6; color: #111827; border: 1px solid #d1d5db; padding: 12px; border-radius: 6px; font-weight: 600; font-size: 16px;">Sign in with {name}</a>"#,
+                id = html_escape(&issuer.id),
+                name = html_escape(&issuer.id)
+            ));
+        }
+        content.push_str("</div>");
+        return security_response(
+            StatusCode::OK,
+            render_device_auth_html("Select Provider", &content, None, None, None),
+            None,
+        );
+    }
+
+    let csrf_cookie_val = csrf_cookie_from_headers(&headers).map(|s| s.to_string());
+    let (csrf_token, set_cookie) = match csrf_cookie_val {
+        Some(token) => (token, None),
+        None => {
+            let new_csrf = generate_high_entropy_hex(16);
+            let secure_attr = if state.runtime.options.tls_terminated {
+                "; Secure"
+            } else {
+                ""
+            };
+            let cookie = format!(
+                "device_csrf={new_csrf}; HttpOnly{secure_attr}; SameSite=Lax; Path=/; Max-Age=3600"
+            );
+            (new_csrf, Some(cookie))
+        }
+    };
+
+    let content = format!(
+        r#"<p>An application is requesting authorization to access your Comtrya account.</p>
+           <div style="background-color: #f3f4f6; padding: 16px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 2px; font-family: monospace; color: #111827; margin-bottom: 24px;">{}</div>
+           <p style="font-size: 14px; color: #6b7280; text-align: center;">Make sure this matches the code displayed in your terminal before approving.</p>"#,
+        html_escape(&uc_normalized)
+    );
+
+    security_response(
+        StatusCode::OK,
+        render_device_auth_html(
+            "Authorize Device",
+            &content,
+            Some(&csrf_token),
+            None,
+            Some(&uc_normalized),
+        ),
+        set_cookie,
+    )
+}
+
+#[derive(serde::Deserialize)]
+struct DeviceActionForm {
+    user_code: String,
+    csrf_token: String,
+}
+
+async fn device_approve_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Form(form): axum::Form<DeviceActionForm>,
+) -> Response {
+    let cookie_csrf = csrf_cookie_from_headers(&headers);
+    let csrf_valid = if let Some(cookie) = cookie_csrf {
+        if cookie.len() == form.csrf_token.len() {
+            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8()
+                == 1
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !csrf_valid {
+        return security_response(
+            StatusCode::BAD_REQUEST,
+            render_device_auth_html(
+                "Bad Request",
+                "<p>CSRF verification failed. Please try again.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
+        );
+    }
+
+    let principal = state.runtime.principal_from_headers(&headers);
+    let ctx = state.runtime.principal_context_from_headers(&headers);
+    let authenticated = matches!(
+        principal,
+        PrincipalStatus::OperatorCredential
+            | PrincipalStatus::AdminCredential
+            | PrincipalStatus::Credential
+    );
+
+    if !authenticated {
+        return security_response(
+            StatusCode::UNAUTHORIZED,
+            render_device_auth_html(
+                "Unauthorized",
+                "<p>You must be signed in to approve a device.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
+        );
+    }
+
+    let mut email = None;
+    let mut display_name = None;
+    if let Some(user_id) = ctx.uri.strip_prefix("comtrya://user/") {
+        let auth_service = state
+            .runtime
+            .auth_service
+            .lock()
+            .expect("auth_service lock");
+        if let Some(u) = auth_service.find_user_by_id(user_id) {
+            email = u.email.clone();
+            display_name = u.display_name.clone();
+        }
+    }
+
+    let uc_normalized = form.user_code.to_uppercase();
+    let status = oidc::DeviceAuthStatus::Approved {
+        owner_principal_uri: ctx.uri.clone(),
+        email,
+        display_name,
+    };
+
+    let now = now_seconds();
+    if state
+        .runtime
+        .device_sessions
+        .update_status(&uc_normalized, status, now)
+        .is_ok()
+    {
+        let content = r#"
+            <p style="color: #059669; font-weight: 600; font-size: 18px; text-align: center; margin-bottom: 16px;">✓ Device Authorized</p>
+            <p style="text-align: center;">You have successfully approved this device. Your CLI will resume shortly.</p>
+        "#.to_string();
+        security_response(
+            StatusCode::OK,
+            render_device_auth_html("Device Authorized", &content, None, None, None),
+            None,
+        )
+    } else {
+        security_response(
+            StatusCode::BAD_REQUEST,
+            render_device_auth_html(
+                "Authorization Failed",
+                "<p>The verification code is invalid or has expired.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
+        )
+    }
+}
+
+async fn device_deny_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Form(form): axum::Form<DeviceActionForm>,
+) -> Response {
+    let cookie_csrf = csrf_cookie_from_headers(&headers);
+    let csrf_valid = if let Some(cookie) = cookie_csrf {
+        if cookie.len() == form.csrf_token.len() {
+            subtle::ConstantTimeEq::ct_eq(cookie.as_bytes(), form.csrf_token.as_bytes()).unwrap_u8()
+                == 1
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    if !csrf_valid {
+        return security_response(
+            StatusCode::BAD_REQUEST,
+            render_device_auth_html(
+                "Bad Request",
+                "<p>CSRF verification failed. Please try again.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
+        );
+    }
+
+    let uc_normalized = form.user_code.to_uppercase();
+    let now = now_seconds();
+    if state
+        .runtime
+        .device_sessions
+        .update_status(&uc_normalized, oidc::DeviceAuthStatus::Denied, now)
+        .is_ok()
+    {
+        let content = r#"
+            <p style="color: #dc2626; font-weight: 600; font-size: 18px; text-align: center; margin-bottom: 16px;">✗ Request Denied</p>
+            <p style="text-align: center;">You have denied the authorization request. You may close this tab.</p>
+        "#.to_string();
+        security_response(
+            StatusCode::OK,
+            render_device_auth_html("Request Denied", &content, None, None, None),
+            None,
+        )
+    } else {
+        security_response(
+            StatusCode::BAD_REQUEST,
+            render_device_auth_html(
+                "Failed to Deny",
+                "<p>The verification code is invalid or has expired.</p>",
+                None,
+                None,
+                None,
+            ),
+            None,
+        )
+    }
+}
+
+#[allow(dead_code)]
+#[derive(serde::Deserialize)]
+struct TokenRequest {
+    grant_type: String,
+    device_code: Option<String>,
+    refresh_token: Option<String>,
+    client_id: Option<String>,
+}
+
+async fn device_token_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Form(req): axum::Form<TokenRequest>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/auth/device/token") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+
+    if req.grant_type == "urn:ietf:params:oauth:grant-type:device_code" {
+        let Some(ref dev_code) = req.device_code else {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "Missing device_code",
+                cors,
+            );
+        };
+        let now = now_seconds();
+        match state.runtime.device_sessions.record_poll(dev_code, now) {
+            Ok(true) => {
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "slow_down",
+                    "Polling interval is 5 seconds",
+                    cors,
+                );
+            }
+            Ok(false) => {}
+            Err(()) => {
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "expired_token",
+                    "Device code has expired or is invalid",
+                    cors,
+                );
+            }
+        }
+
+        let Some(session) = state
+            .runtime
+            .device_sessions
+            .get_by_device_code(dev_code, now)
+        else {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "expired_token",
+                "Device code has expired or is invalid",
+                cors,
+            );
+        };
+
+        match session.status {
+            oidc::DeviceAuthStatus::Pending => json_err_response(
+                StatusCode::BAD_REQUEST,
+                "authorization_pending",
+                "Authorization is still pending",
+                cors,
+            ),
+            oidc::DeviceAuthStatus::Denied => {
+                state.runtime.device_sessions.remove(dev_code);
+                json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "access_denied",
+                    "The authorization request was denied by the user",
+                    cors,
+                )
+            }
+            oidc::DeviceAuthStatus::Approved {
+                owner_principal_uri,
+                ..
+            } => {
+                state.runtime.device_sessions.remove(dev_code);
+
+                let access_token = format!("fp_{}", generate_high_entropy_hex(24));
+                let access_token_expires_at = now.saturating_add(300); // 5 minutes
+                let scopes = vec!["git:read".to_string(), "git:write".to_string()];
+
+                if let Err(error) = state.runtime.store.insert_credential(
+                    &access_token,
+                    persistence::StoredPrincipal::Credential,
+                    &owner_principal_uri,
+                    &scopes,
+                    access_token_expires_at,
+                    now,
+                ) {
+                    tracing::error!(%error, "insert access token failed");
+                    return json_err_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to issue access token",
+                        cors,
+                    );
+                }
+
+                let rt_id = state.runtime.next_id("rt");
+                let rt_secret = generate_high_entropy_hex(24);
+                let rt_token_str = format!("crt_{}_{}", rt_id, rt_secret);
+                let rt_hash = hash_token_secret(&rt_secret);
+
+                let rt_record = persistence::StoredRefreshToken {
+                    id: rt_id.clone(),
+                    family_id: state.runtime.next_id("family"),
+                    owner_principal_uri: owner_principal_uri.clone(),
+                    token_hash: rt_hash,
+                    token_prefix: rt_token_str.chars().take(12).collect::<String>(),
+                    scopes: scopes.clone(),
+                    expires_at: now.saturating_add(30 * 24 * 3600), // 30 days
+                    created_at: now,
+                    last_used_at: Some(now),
+                    consumed_at: None,
+                    replaced_by: None,
+                    revoked_at: None,
+                };
+
+                if let Err(error) = state.runtime.store.insert_refresh_token(&rt_record) {
+                    tracing::error!(%error, "insert refresh token failed");
+                    return json_err_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "server_error",
+                        "Failed to issue refresh token",
+                        cors,
+                    );
+                }
+
+                let _ = state.runtime.append_audit(
+                    "dev.comtrya.auth.device.completed",
+                    json!({
+                        "owner_principal_uri": owner_principal_uri,
+                        "token_id": rt_record.id,
+                    }),
+                );
+
+                let body = json!({
+                    "access_token": access_token,
+                    "token_type": "Bearer",
+                    "expires_in": 300,
+                    "refresh_token": rt_token_str,
+                    "scope": scopes.join(" "),
+                });
+
+                let mut res = json_response(StatusCode::OK, body, cors);
+                let h = res.headers_mut();
+                h.insert(
+                    axum::http::header::CACHE_CONTROL,
+                    HeaderValue::from_static("no-store"),
+                );
+                h.insert(
+                    axum::http::header::PRAGMA,
+                    HeaderValue::from_static("no-cache"),
+                );
+                res
+            }
+        }
+    } else if req.grant_type == "refresh_token" {
+        let Some(ref rt_token) = req.refresh_token else {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "Missing refresh_token",
+                cors,
+            );
+        };
+
+        let Some((id, secret)) = parse_refresh_token(rt_token) else {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Invalid refresh token format",
+                cors,
+            );
+        };
+
+        let record = match state.runtime.store.lookup_refresh_token(id) {
+            Ok(Some(rec)) => rec,
+            Ok(None) => {
+                return json_err_response(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_grant",
+                    "Refresh token not found",
+                    cors,
+                );
+            }
+            Err(error) => {
+                tracing::error!(%error, "lookup refresh token failed");
+                return json_err_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "server_error",
+                    "Database error",
+                    cors,
+                );
+            }
+        };
+
+        let now = now_seconds();
+
+        if hash_token_secret(secret) != record.token_hash {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Invalid refresh token secret",
+                cors,
+            );
+        }
+
+        if record.revoked_at.is_some() {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has been revoked",
+                cors,
+            );
+        }
+
+        if record.expires_at <= now {
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has expired",
+                cors,
+            );
+        }
+
+        if record.consumed_at.is_some() {
+            let _ = state
+                .runtime
+                .store
+                .revoke_refresh_token_family(&record.family_id, now);
+            let _ = state.runtime.append_audit(
+                "dev.comtrya.auth.refresh.reuse_detected",
+                json!({
+                    "family_id": record.family_id,
+                    "token_id": record.id,
+                    "owner_principal_uri": record.owner_principal_uri,
+                }),
+            );
+            return json_err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid_grant",
+                "Refresh token has already been consumed (reuse detected)",
+                cors,
+            );
+        }
+
+        let next_rt_id = state.runtime.next_id("rt");
+        let next_rt_secret = generate_high_entropy_hex(24);
+        let next_rt_token_str = format!("crt_{}_{}", next_rt_id, next_rt_secret);
+        let next_rt_hash = hash_token_secret(&next_rt_secret);
+
+        let next_record = persistence::StoredRefreshToken {
+            id: next_rt_id.clone(),
+            family_id: record.family_id.clone(),
+            owner_principal_uri: record.owner_principal_uri.clone(),
+            token_hash: next_rt_hash,
+            token_prefix: next_rt_token_str.chars().take(12).collect::<String>(),
+            scopes: record.scopes.clone(),
+            expires_at: now.saturating_add(30 * 24 * 3600), // 30 days
+            created_at: now,
+            last_used_at: Some(now),
+            consumed_at: None,
+            replaced_by: None,
+            revoked_at: None,
+        };
+
+        if let Err(error) = state
+            .runtime
+            .store
+            .rotate_refresh_token(&record.id, &next_record, now)
+        {
+            tracing::error!(%error, "rotate refresh token failed");
+            return json_err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Rotation failed",
+                cors,
+            );
+        }
+
+        let access_token = format!("fp_{}", generate_high_entropy_hex(24));
+        let access_token_expires_at = now.saturating_add(300); // 5 minutes
+        if let Err(error) = state.runtime.store.insert_credential(
+            &access_token,
+            persistence::StoredPrincipal::Credential,
+            &record.owner_principal_uri,
+            &record.scopes,
+            access_token_expires_at,
+            now,
+        ) {
+            tracing::error!(%error, "insert access token failed");
+            return json_err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "server_error",
+                "Failed to issue access token",
+                cors,
+            );
+        }
+
+        let _ = state.runtime.append_audit(
+            "dev.comtrya.auth.refresh.completed",
+            json!({
+                "family_id": record.family_id,
+                "token_id": next_record.id,
+                "owner_principal_uri": record.owner_principal_uri,
+            }),
+        );
+
+        let body = json!({
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": 300,
+            "refresh_token": next_rt_token_str,
+            "scope": record.scopes.join(" "),
+        });
+
+        let mut res = json_response(StatusCode::OK, body, cors);
+        let h = res.headers_mut();
+        h.insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        );
+        h.insert(
+            axum::http::header::PRAGMA,
+            HeaderValue::from_static("no-cache"),
+        );
+        res
+    } else {
+        json_err_response(
+            StatusCode::BAD_REQUEST,
+            "unsupported_grant_type",
+            "Unsupported grant type",
+            cors,
+        )
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RevocationRequest {
+    token: String,
+    #[allow(dead_code)]
+    token_type_hint: Option<String>,
+}
+
+async fn device_revoke_endpoint(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::Form(req): axum::Form<RevocationRequest>,
+) -> Response {
+    let cors = match state.runtime.check_boundary(&headers, "/auth/token/revoke") {
+        Ok(c) => c,
+        Err(r) => return *r,
+    };
+
+    let now = now_seconds();
+    if req.token.starts_with("crt_") {
+        let Some((id, secret)) = parse_refresh_token(&req.token) else {
+            return json_response(StatusCode::OK, json!({}), cors);
+        };
+        let Ok(Some(record)) = state.runtime.store.lookup_refresh_token(id) else {
+            return json_response(StatusCode::OK, json!({}), cors);
+        };
+        if hash_token_secret(secret) == record.token_hash {
+            let _ = state.runtime.store.revoke_refresh_token_by_id(id, now);
+        }
+    }
+
+    json_response(StatusCode::OK, json!({}), cors)
 }
 
 async fn extension_manifest(
@@ -6098,10 +7105,12 @@ async fn git_smart_http(
             );
             return response;
         };
-        if !state
+        let is_pat_allowed = state
             .runtime
-            .git_personal_access_token_allows(password, "git:write")
-        {
+            .git_personal_access_token_allows(password, "git:write");
+        let is_fp_allowed =
+            password.starts_with("fp_") && state.runtime.credential_allows(&headers, "git:write");
+        if !is_pat_allowed && !is_fp_allowed {
             return error_response(
                 StatusCode::FORBIDDEN,
                 ErrorCode::Forbidden.as_str(),
@@ -6112,9 +7121,13 @@ async fn git_smart_http(
     } else {
         let credential_reads = state.runtime.credential_allows(&headers, "git:read");
         let pat_reads = basic_password.as_deref().is_some_and(|password| {
-            state
-                .runtime
-                .git_personal_access_token_allows(password, "git:read")
+            if password.starts_with("fp_") {
+                state.runtime.credential_allows(&headers, "git:read")
+            } else {
+                state
+                    .runtime
+                    .git_personal_access_token_allows(password, "git:read")
+            }
         });
         if !credential_reads && !pat_reads {
             let mut response = error_response(
@@ -9865,6 +10878,7 @@ mod tests {
                 git_state: PureRustGitState::test_default(),
             }),
             AxumPath("nonexistent".to_string()),
+            Query(OidcLoginQuery { user_code: None }),
             origin_header_map(),
         )
         .await;
@@ -9888,6 +10902,7 @@ mod tests {
                 git_state: PureRustGitState::test_default(),
             }),
             AxumPath(provider),
+            Query(OidcLoginQuery { user_code: None }),
             origin_header_map(),
         )
         .await;
@@ -9945,7 +10960,10 @@ mod tests {
             "exactly one in-flight session after login",
         );
         assert!(
-            runtime.oidc_sessions.take(&decoded_state).is_some(),
+            runtime
+                .oidc_sessions
+                .take(&decoded_state, now_seconds())
+                .is_some(),
             "session keyed on the state token from the redirect",
         );
     }
@@ -10019,6 +11037,7 @@ mod tests {
                     pkce_verifier: verifier,
                     nonce: Nonce::new_random(),
                     created_at_secs: now,
+                    user_code: None,
                 },
                 now,
             )

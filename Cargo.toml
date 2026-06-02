@@ -6,6 +6,7 @@ members = [
     "crates/git-http",
     "crates/extension-oci",
     "crates/wit-codegen",
+    "crates/cry",
 ]
 exclude = [
     # Component-Model crates target wasm32-unknown-unknown and have
