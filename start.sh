@@ -149,10 +149,22 @@ Bun.serve({
 });
 EOF
 
+  # Pick an unused high port WITHOUT killing whatever might be on it. Unlike
+  # the fixed kernel/frontend ports that `free_port` reclaims from a prior
+  # run, this is an ephemeral helper port chosen at random, so killing the
+  # current listener could take down an unrelated local process. Probe with
+  # lsof and retry on collision instead.
   local host="127.0.0.1"
-  local port
-  port="$((24000 + RANDOM % 20000))"
-  free_port "$host:$port"
+  local port=""
+  local candidate
+  for _ in $(seq 1 50); do
+    candidate="$((24000 + RANDOM % 20000))"
+    if ! lsof -nP -iTCP@"$host:$candidate" -sTCP:LISTEN >/dev/null 2>&1; then
+      port="$candidate"
+      break
+    fi
+  done
+  [[ -n "$port" ]] || fail "could not find a free port for the git source server"
   GIT_HTTP_ROOT="$git_root" GIT_HTTP_HOST="$host" GIT_HTTP_PORT="$port" \
     "$BUN" "$server_js" >"$TMP_DIR/git-source-http-$port.log" 2>&1 &
   SOURCE_GIT_PIDS="$SOURCE_GIT_PIDS $!"
