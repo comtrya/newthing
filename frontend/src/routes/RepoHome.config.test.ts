@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { repositoryExtensionEnabled } from "../repository-extensions";
 
 // ---------------------------------------------------------------------------
 // formatConfigValue — used in the config view DL to pretty-print CUE values
@@ -94,7 +95,7 @@ describe("enabledExtensions derivation", () => {
   });
 
   test("extension list is preserved as-is", () => {
-    const exts = ["issues", "pulls", "epics"];
+    const exts = ["ext_issues", "ext_pull_requests", "ext_epics"];
     expect(deriveEnabledExtensions(exts)).toEqual(exts);
   });
 });
@@ -104,31 +105,36 @@ describe("enabledExtensions derivation", () => {
 // ---------------------------------------------------------------------------
 
 function shouldRefreshIssues(exts: string[]): boolean {
-  return exts.includes("issues");
+  return repositoryExtensionEnabled(exts, "issues");
 }
 
 function shouldRefreshChecks(exts: string[]): boolean {
-  return exts.includes("checks");
+  return repositoryExtensionEnabled(exts, "checks");
 }
 
 describe("extension refresh gates", () => {
-  test("refreshes issues when 'issues' is enabled", () => {
-    expect(shouldRefreshIssues(["issues", "pulls"])).toBe(true);
+  test("refreshes issues when 'ext_issues' is enabled", () => {
+    expect(shouldRefreshIssues(["ext_issues", "ext_pull_requests"])).toBe(true);
   });
 
-  test("skips issue refresh when 'issues' is absent", () => {
-    expect(shouldRefreshIssues(["pulls", "epics"])).toBe(false);
+  test("skips issue refresh when 'ext_issues' is absent", () => {
+    expect(shouldRefreshIssues(["ext_pull_requests", "ext_epics"])).toBe(false);
   });
 
   test("skips issue refresh when extensions list is empty", () => {
     expect(shouldRefreshIssues([])).toBe(false);
   });
 
-  test("refreshes checks when 'checks' is enabled", () => {
-    expect(shouldRefreshChecks(["checks"])).toBe(true);
+  test("refreshes checks when 'ext_checks' is enabled", () => {
+    expect(shouldRefreshChecks(["ext_checks"])).toBe(true);
   });
 
-  test("skips checks refresh when 'checks' is absent", () => {
-    expect(shouldRefreshChecks(["issues"])).toBe(false);
+  test("skips checks refresh when 'ext_checks' is absent", () => {
+    expect(shouldRefreshChecks(["ext_issues"])).toBe(false);
+  });
+
+  test("short extension slugs do not trigger repo refresh work", () => {
+    expect(shouldRefreshIssues(["issues"])).toBe(false);
+    expect(shouldRefreshChecks(["checks"])).toBe(false);
   });
 });

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import {
+  repositoryExtensionEnabled,
+  type RepositoryExtensionSlug,
+} from "../repository-extensions";
 
 /**
  * Repo-scope navigation strip. Mounted on RepoHome below the
@@ -84,9 +88,8 @@ function repoExtPath(slug: string): string {
  * Hidden while the repo config is still loading (null) and hidden
  * when the repo has not opted into that extension ([] or absent).
  */
-function extEnabled(id: string): boolean {
-  if (props.enabledExtensions === null) return false;
-  return props.enabledExtensions.includes(id);
+function extEnabled(id: RepositoryExtensionSlug): boolean {
+  return repositoryExtensionEnabled(props.enabledExtensions, id);
 }
 
 const tabs = computed<Tab[]>(() => {

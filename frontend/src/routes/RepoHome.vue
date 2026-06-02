@@ -13,6 +13,7 @@ import {
   type LabelCatalogEntry,
 } from "@comtrya/sdk-vue";
 import { cloneCommand as buildCloneCommand } from "../repo-clone";
+import { repositoryExtensionEnabled } from "../repository-extensions";
 import { applyUserLayoutFor } from "../user-layout";
 import { setActiveLabelCatalog } from "../extension-runtime";
 
@@ -587,11 +588,11 @@ watch(
       await applyUserLayoutFor(identity.repository?.id ?? null);
       if (identity.repository && identity.workspaceId) {
         const exts = identity.repository.extensions ?? [];
-        if (exts.includes("issues")) {
+        if (repositoryExtensionEnabled(exts, "issues")) {
           void refreshOpenIssues();
           setupIssueListeners();
         }
-        if (exts.includes("checks")) void refreshFailingChecks();
+        if (repositoryExtensionEnabled(exts, "checks")) void refreshFailingChecks();
       } else {
         teardownIssueListeners();
         openIssues.value = 0;
