@@ -90,6 +90,13 @@ impl AuthService {
         self.users_by_issuer_subject.len()
     }
 
+    pub fn find_user_by_id(&self, user_id_str: &str) -> Option<User> {
+        self.users_by_issuer_subject
+            .values()
+            .find(|u| u.id.to_string() == user_id_str)
+            .cloned()
+    }
+
     /// Drain the outbox. Callers must invoke this after every mutating
     /// AuthService call (today only `login`) so the audit/identity
     /// events the call buffered reach disk via the runtime's sinks.

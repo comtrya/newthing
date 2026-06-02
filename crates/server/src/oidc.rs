@@ -106,6 +106,7 @@ pub(crate) struct OidcLoginSession {
     pub pkce_verifier: PkceCodeVerifier,
     pub nonce: Nonce,
     pub created_at_secs: u64,
+    pub user_code: Option<String>,
 }
 
 /// 30 minutes — matches typical OIDC implementations and is generous
@@ -149,10 +150,19 @@ impl OidcSessionStore {
     }
 
     /// Single-use retrieval — removes the entry on return. Called from
-    /// the production callback handler.
-    pub fn take(&self, state: &str) -> Option<OidcLoginSession> {
+    /// the production callback handler. Checks TTL to reject expired sessions.
+    pub fn take(&self, state: &str, now_secs: u64) -> Option<OidcLoginSession> {
         let mut guard = self.inner.lock().expect("oidc session lock not poisoned");
-        guard.remove(state)
+        if let Some(session) = guard.remove(state) {
+            let cutoff = now_secs.saturating_sub(OIDC_SESSION_TTL_SECS);
+            if session.created_at_secs >= cutoff {
+                Some(session)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     #[cfg(test)]
@@ -162,6 +172,149 @@ impl OidcSessionStore {
             .expect("oidc session lock not poisoned")
             .len()
     }
+}
+
+pub(crate) const DEVICE_CODE_TTL_SECS: u64 = 10 * 60; // 10 minutes
+pub(crate) const MIN_POLL_INTERVAL_SECS: u64 = 5;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DeviceAuthStatus {
+    Pending,
+    Approved {
+        owner_principal_uri: String,
+        email: Option<String>,
+        display_name: Option<String>,
+    },
+    Denied,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DeviceAuthSession {
+    pub device_code: String,
+    pub user_code: String,
+    pub status: DeviceAuthStatus,
+    pub expires_at_secs: u64,
+    pub last_polled_at_secs: Option<u64>,
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct DeviceAuthSessionStore {
+    inner: Mutex<DeviceAuthStoreInner>,
+}
+
+#[derive(Default, Debug)]
+struct DeviceAuthStoreInner {
+    sessions: HashMap<String, DeviceAuthSession>,
+    user_code_to_device_code: HashMap<String, String>,
+}
+
+impl DeviceAuthSessionStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn evict_expired(&self, now_secs: u64) {
+        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let expired_device_codes: Vec<String> = guard
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.expires_at_secs < now_secs)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for dev_code in expired_device_codes {
+            if let Some(session) = guard.sessions.remove(&dev_code) {
+                guard.user_code_to_device_code.remove(&session.user_code);
+            }
+        }
+    }
+
+    pub fn insert(&self, session: DeviceAuthSession, now_secs: u64) {
+        self.evict_expired(now_secs);
+        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        if guard.sessions.len() >= OIDC_SESSION_MAX_ENTRIES {
+            let dev_code_opt = guard.sessions.keys().next().cloned();
+            let old_sess_opt = dev_code_opt.and_then(|dc| guard.sessions.remove(&dc));
+            if let Some(old_sess) = old_sess_opt {
+                guard.user_code_to_device_code.remove(&old_sess.user_code);
+            }
+        }
+        guard.user_code_to_device_code.insert(session.user_code.clone(), session.device_code.clone());
+        guard.sessions.insert(session.device_code.clone(), session);
+    }
+
+    pub fn get_by_device_code(&self, device_code: &str, now_secs: u64) -> Option<DeviceAuthSession> {
+        self.evict_expired(now_secs);
+        let guard = self.inner.lock().expect("device auth store lock not poisoned");
+        guard.sessions.get(device_code).cloned()
+    }
+
+    pub fn get_by_user_code(&self, user_code: &str, now_secs: u64) -> Option<DeviceAuthSession> {
+        self.evict_expired(now_secs);
+        let guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let dev_code = guard.user_code_to_device_code.get(user_code)?;
+        guard.sessions.get(dev_code).cloned()
+    }
+
+    pub fn update_status(&self, user_code: &str, status: DeviceAuthStatus, now_secs: u64) -> Result<(), ()> {
+        self.evict_expired(now_secs);
+        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        let dev_code = guard.user_code_to_device_code.get(user_code).ok_or(())?.clone();
+        if let Some(session) = guard.sessions.get_mut(&dev_code) {
+            session.status = status;
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn record_poll(&self, device_code: &str, now_secs: u64) -> Result<bool, ()> {
+        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        if let Some(session) = guard.sessions.get_mut(device_code) {
+            if session.expires_at_secs < now_secs {
+                let user_code = session.user_code.clone();
+                guard.sessions.remove(device_code);
+                guard.user_code_to_device_code.remove(&user_code);
+                return Err(());
+            }
+            if session.last_polled_at_secs.is_some_and(|last_poll| now_secs.saturating_sub(last_poll) < MIN_POLL_INTERVAL_SECS) {
+                session.last_polled_at_secs = Some(now_secs);
+                return Ok(true);
+            }
+            session.last_polled_at_secs = Some(now_secs);
+            Ok(false)
+        } else {
+            Err(())
+        }
+    }
+
+    pub fn remove(&self, device_code: &str) {
+        let mut guard = self.inner.lock().expect("device auth store lock not poisoned");
+        if let Some(session) = guard.sessions.remove(device_code) {
+            guard.user_code_to_device_code.remove(&session.user_code);
+        }
+    }
+}
+
+pub(crate) fn generate_user_code() -> String {
+    let mut bytes = [0u8; 8];
+    getrandom::fill(&mut bytes).expect("OS RNG must be available");
+    let alphabet = b"ABCDEFGHJKMNPQRSTVWXYZ23456789";
+    let mut code = String::with_capacity(9);
+    for (i, &byte) in bytes.iter().enumerate() {
+        if i == 4 {
+            code.push('-');
+        }
+        let idx = (byte as usize) % alphabet.len();
+        code.push(alphabet[idx] as char);
+    }
+    code
+}
+
+pub(crate) fn generate_device_code() -> String {
+    let mut bytes = [0u8; 24];
+    getrandom::fill(&mut bytes).expect("OS RNG must be available");
+    let hex_str: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    format!("dev_{}", hex_str)
 }
 
 /// Source of OIDC provider metadata. Production wires
@@ -431,6 +584,7 @@ mod tests {
             pkce_verifier: verifier,
             nonce: Nonce::new_random(),
             created_at_secs: now_secs - age_secs,
+            user_code: None,
         };
         (state, session)
     }
@@ -442,8 +596,8 @@ mod tests {
         let (state, session) = fake_session("dev", 0, now);
         store.insert(state.clone(), session, now).unwrap();
 
-        assert!(store.take(&state).is_some(), "first take returns Some");
-        assert!(store.take(&state).is_none(), "second take returns None");
+        assert!(store.take(&state, now).is_some(), "first take returns Some");
+        assert!(store.take(&state, now).is_none(), "second take returns None");
     }
 
     #[test]
@@ -462,7 +616,7 @@ mod tests {
         store.insert(new_state, new_session, now).unwrap();
 
         assert!(
-            store.take(&old_state).is_none(),
+            store.take(&old_state, now).is_none(),
             "old session evicted on insert"
         );
     }
@@ -481,6 +635,7 @@ mod tests {
                     pkce_verifier: verifier,
                     nonce: Nonce::new_random(),
                     created_at_secs: now,
+                    user_code: None,
                 },
             );
         }
@@ -548,5 +703,67 @@ mod tests {
         cache.evict_stale(&live);
         // After eviction the cache is still empty; flush on a live id returns false.
         assert!(!cache.flush_issuer("issuer-a"));
+    }
+
+    #[test]
+    fn device_auth_store_lifecycle() {
+        let store = DeviceAuthSessionStore::new();
+        let now = 1_000_000;
+        let session = DeviceAuthSession {
+            device_code: "dev_123".to_string(),
+            user_code: "ABCD-EFGH".to_string(),
+            status: DeviceAuthStatus::Pending,
+            expires_at_secs: now + 600,
+            last_polled_at_secs: None,
+        };
+
+        store.insert(session, now);
+
+        // Lookup by device_code
+        let s = store.get_by_device_code("dev_123", now).unwrap();
+        assert_eq!(s.user_code, "ABCD-EFGH");
+
+        // Lookup by user_code
+        let s = store.get_by_user_code("ABCD-EFGH", now).unwrap();
+        assert_eq!(s.device_code, "dev_123");
+
+        // Record poll
+        assert!(!store.record_poll("dev_123", now).unwrap(), "should poll fine");
+        assert!(store.record_poll("dev_123", now + 2).unwrap(), "should trigger slow_down");
+        assert!(!store.record_poll("dev_123", now + 10).unwrap(), "should poll fine after 10s");
+
+        // Update status
+        store.update_status(
+            "ABCD-EFGH",
+            DeviceAuthStatus::Approved {
+                owner_principal_uri: "comtrya://user/1".to_string(),
+                email: Some("test@example.com".to_string()),
+                display_name: Some("Test User".to_string()),
+            },
+            now + 10,
+        ).unwrap();
+
+        let s = store.get_by_device_code("dev_123", now + 10).unwrap();
+        match s.status {
+            DeviceAuthStatus::Approved { owner_principal_uri, .. } => {
+                assert_eq!(owner_principal_uri, "comtrya://user/1");
+            }
+            _ => panic!("Expected Approved status"),
+        }
+
+        // Evict expired
+        let session_expired = DeviceAuthSession {
+            device_code: "dev_expired".to_string(),
+            user_code: "EXPI-REDD".to_string(),
+            status: DeviceAuthStatus::Pending,
+            expires_at_secs: now + 50,
+            last_polled_at_secs: None,
+        };
+        store.insert(session_expired, now + 10);
+        assert!(store.get_by_user_code("EXPI-REDD", now + 10).is_some());
+
+        // Now move clock beyond expiry
+        let s_exp = store.get_by_user_code("EXPI-REDD", now + 100);
+        assert!(s_exp.is_none(), "should be evicted");
     }
 }
