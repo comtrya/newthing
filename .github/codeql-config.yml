@@ -1,0 +1,7 @@
+name: comtrya-codeql
+
+queries:
+  - uses: security-and-quality
+
+paths-ignore:
+  - "extensions/first-party/*/assets/**"
