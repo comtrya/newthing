@@ -67,7 +67,7 @@ mod ext_issues_bindings {
 use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput,
+    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
 };
 
 mod ext_epics_bindings {
@@ -80,7 +80,7 @@ mod ext_epics_bindings {
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
-    EpicProgress, EpicState,
+    EpicProgress, EpicState, UpdateEpicInput,
 };
 
 mod ext_pull_requests_bindings {
@@ -170,6 +170,44 @@ struct AssignProjectInputJson {
     id: String,
     #[serde(default)]
     project_name: Option<String>,
+}
+
+/// Input for `update-issue`. All fields except `id` are optional. A missing
+/// JSON key and an explicit JSON `null` both deserialise to `None` (serde
+/// default behaviour for `Option<T>`). Semantics:
+///   - `None` → leave the stored field unchanged
+///   - `Some(value)` → overwrite with `value`
+///
+/// `labels: null` / key absent keeps existing labels; `labels: []` clears them.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateIssueInputJson {
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    body_markdown: Option<String>,
+    /// `null` or absent → keep existing labels; `[]` → clear labels.
+    #[serde(default)]
+    labels: Option<Vec<String>>,
+}
+
+/// Input for `update-epic`. Same optional-field semantics as `UpdateIssueInputJson`.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateEpicInputJson {
+    id: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    body_markdown: Option<String>,
+    #[serde(default)]
+    owner_ref: Option<String>,
+    #[serde(default)]
+    target_date: Option<String>,
+    /// `null` or absent → keep existing labels; `[]` → clear labels.
+    #[serde(default)]
+    labels: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -709,6 +747,44 @@ pub fn dispatch_ext_issues(
                 })?;
             issue_state_counts_to_json(&result.map_err(local_error_to_canonical)?)
         }
+        "update-issue" => {
+            let parsed: UpdateIssueInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse update-issue input: {e}"),
+                )
+            })?;
+            // Mutation keyed by issue id: load the issue to learn its
+            // repository, then gate before mutating — same shape as
+            // close-issue / reopen-issue / assign-project.
+            let existing = issues
+                .call_get_issue(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("update-issue repo lookup: {e}"),
+                    )
+                })?
+                .map_err(local_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(registry, &gate_store, &existing.repository, "ext_issues")?;
+            }
+            let wit_input = UpdateIssueInput {
+                id: parsed.id,
+                title: parsed.title,
+                body_markdown: parsed.body_markdown,
+                labels: parsed.labels,
+            };
+            let result = issues
+                .call_update_issue(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("update-issue call: {e}"),
+                    )
+                })?;
+            issue_to_json(&result.map_err(local_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -986,6 +1062,34 @@ pub fn dispatch_ext_epics(
                     .collect(),
             )
         }
+        "update-epic" => {
+            let parsed: UpdateEpicInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse update-epic input: {e}"),
+                )
+            })?;
+            // Epics are workspace-scoped, not repository-scoped, so no
+            // `ensure_repo_enabled` gate — same shape as change-state-epic
+            // and assign-project above.
+            let wit_input = UpdateEpicInput {
+                id: parsed.id,
+                title: parsed.title,
+                body_markdown: parsed.body_markdown,
+                owner_ref: parsed.owner_ref,
+                target_date: parsed.target_date,
+                labels: parsed.labels,
+            };
+            let result = epics
+                .call_update_epic(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("update-epic call: {e}"),
+                    )
+                })?;
+            epic_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -1081,14 +1185,12 @@ pub fn dispatch_ext_sprints(
         }
         "get-sprint" => {
             let id = string_payload(&input, "get-sprint")?;
-            let result = sprints
-                .call_get_sprint(&mut wasm_store, &id)
-                .map_err(|e| {
-                    wit_error(
-                        wit_types::ErrorCode::Internal,
-                        format!("get-sprint call: {e}"),
-                    )
-                })?;
+            let result = sprints.call_get_sprint(&mut wasm_store, &id).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::Internal,
+                    format!("get-sprint call: {e}"),
+                )
+            })?;
             match result.map_err(sprints_error_to_canonical)? {
                 Some(sprint) => sprint_to_json(&sprint),
                 None => Value::Null,

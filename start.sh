@@ -1610,6 +1610,41 @@ else
   log "skipping browser issue close smoke in interactive mode; set COMTRYA_BROWSER_SMOKE=1 or pass --oneshot to require it"
 fi
 
+# ── update-issue partial-update op ────────────────────────────────────────
+# Create a fresh issue for the update assertions so the title/label change
+# does not interfere with number or state checks on the issues above.
+expect_status "open-issue for update-issue smoke" 200 "$TMP_DIR/iss-update-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"original title\",\"bodyMarkdown\":\"original body\",\"labels\":[\"kind::ux\"]}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+json_assert "update-smoke issue opened" "$TMP_DIR/iss-update-create.json" \
+  'json.state === "open" && json.title === "original title" && json.labels.includes("kind::ux")'
+ISSUE_UPDATE_ID="$(json_value "$TMP_DIR/iss-update-create.json" 'json.id')"
+ISSUE_UPDATE_CREATED_AT="$(json_value "$TMP_DIR/iss-update-create.json" 'json.createdAt')"
+
+expect_status "update-issue changes title and clears labels" 200 "$TMP_DIR/iss-update.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$ISSUE_UPDATE_ID\",\"title\":\"updated title\",\"labels\":[]}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/update-issue"
+json_assert "update-issue returned correct updated title" "$TMP_DIR/iss-update.json" \
+  'json.title === "updated title"'
+json_assert "update-issue cleared labels" "$TMP_DIR/iss-update.json" \
+  'Array.isArray(json.labels) && json.labels.length === 0'
+json_assert "update-issue kept original body (body not passed, so None)" "$TMP_DIR/iss-update.json" \
+  'json.bodyMarkdown === "original body"'
+json_assert "update-issue bumped updatedAt" "$TMP_DIR/iss-update.json" \
+  "json.updatedAt >= \"$ISSUE_UPDATE_CREATED_AT\""
+
+expect_status "update-issue rejects empty title" 400 "$TMP_DIR/iss-update-empty-title.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$ISSUE_UPDATE_ID\",\"title\":\"   \"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/update-issue"
+json_assert "update-issue empty title is bad-input" "$TMP_DIR/iss-update-empty-title.json" \
+  'json.code === "bad-input"'
+
 expect_status "by-refs-issue batch returns parallel array" 200 "$TMP_DIR/iss-by-refs.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1742,6 +1777,30 @@ expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-st
   --data "{\"id\":\"$EPIC_ROOT_ID\",\"state\":\"GREEN\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
 json_assert "unknown state rejected as bad-input" "$TMP_DIR/epc-bad-state.json" \
+  'json.code === "bad-input"'
+
+# ── update-epic partial-update op ─────────────────────────────────────────
+EPIC_UPDATE_CREATED_AT="$(json_value "$TMP_DIR/epc-create.json" 'json.createdAt')"
+expect_status "update-epic changes title and sets labels" 200 "$TMP_DIR/epc-update.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_ROOT_ID\",\"title\":\"Q4 platform launch (updated)\",\"labels\":[\"roadmap\"]}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/update-epic"
+json_assert "update-epic returned correct updated title" "$TMP_DIR/epc-update.json" \
+  'json.title === "Q4 platform launch (updated)"'
+json_assert "update-epic set labels" "$TMP_DIR/epc-update.json" \
+  'Array.isArray(json.labels) && json.labels.includes("roadmap")'
+json_assert "update-epic kept original body (body not passed, so None)" "$TMP_DIR/epc-update.json" \
+  'json.bodyMarkdown === "big stuff"'
+json_assert "update-epic bumped updatedAt" "$TMP_DIR/epc-update.json" \
+  "json.updatedAt >= \"$EPIC_UPDATE_CREATED_AT\""
+
+expect_status "update-epic rejects empty title" 400 "$TMP_DIR/epc-update-empty-title.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_ROOT_ID\",\"title\":\"  \"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/update-epic"
+json_assert "update-epic empty title is bad-input" "$TMP_DIR/epc-update-empty-title.json" \
   'json.code === "bad-input"'
 
 # ── ext_sprints end-to-end ─────────────────────────────────────────────────

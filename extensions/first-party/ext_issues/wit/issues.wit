@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.7;
+package comtrya:ext-issues@0.1.8;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -105,10 +105,25 @@ interface issues {
     project-name: option<string>,
   }
 
+  // 0.1.8 — partial-update for mutable issue fields. Only `Some`
+  // fields are applied; `None` leaves the stored field unchanged.
+  // `labels: Some([])` clears the label set; `labels: None` keeps
+  // the existing labels. `title` is trimmed and validated the same
+  // way as at open time (non-empty, at most MAX_TITLE_LEN bytes);
+  // an empty or over-long title with `Some` value is rejected with
+  // `bad-input`. `updated-at` is bumped on every successful write.
+  record update-issue-input {
+    %id: id,
+    title: option<string>,
+    body-markdown: option<string>,
+    labels: option<list<string>>,
+  }
+
   open-issue: func(input: open-issue-input) -> result<issue, error>;
   close-issue: func(input: close-issue-input) -> result<issue, error>;
   reopen-issue: func(%id: id) -> result<issue, error>;
   assign-project: func(input: assign-project-input) -> result<issue, error>;
+  update-issue: func(input: update-issue-input) -> result<issue, error>;
   get-issue: func(%id: id) -> result<option<issue>, error>;
   list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
