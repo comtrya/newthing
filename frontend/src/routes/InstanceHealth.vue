@@ -113,18 +113,18 @@ async function graphql<T>(query: string): Promise<T> {
         <span class="overline">Admin</span>
         <h1>{{ title }}</h1>
       </div>
-      <div class="summary-grid" aria-label="Instance health summary">
+      <div class="summary-grid" aria-label="Instance health summary" :aria-busy="loadState !== 'ready'">
         <div>
           <span>Ready</span>
-          <strong>{{ readyz?.ready === true ? "yes" : "no" }}</strong>
+          <strong>{{ loadState !== 'ready' ? '—' : (readyz?.ready === true ? "yes" : "no") }}</strong>
         </div>
         <div>
           <span>Health</span>
-          <strong>{{ healthz?.status ?? "unknown" }}</strong>
+          <strong>{{ loadState !== 'ready' ? '—' : (healthz?.status ?? "unknown") }}</strong>
         </div>
         <div>
           <span>Mode</span>
-          <strong>{{ readyz?.mode ?? "unknown" }}</strong>
+          <strong>{{ loadState !== 'ready' ? '—' : (readyz?.mode ?? "unknown") }}</strong>
         </div>
       </div>
     </section>

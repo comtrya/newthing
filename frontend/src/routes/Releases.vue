@@ -23,7 +23,7 @@ const scope = computed(() => repoPath.value || "Workspace");
         <p class="overline">{{ scope }}</p>
         <h1>Releases</h1>
       </div>
-      <Chip :mono="true">0 releases</Chip>
+      <Chip tone="info">Not yet available</Chip>
     </header>
 
     <article class="runtime-empty-panel">

@@ -119,6 +119,10 @@ async function refreshOpenIssueCount(repoId: string, ws: string): Promise<void> 
  * Re-fired on the same SSE topics the per-repo counts watch.
  */
 const totalOpenIssuesFetched = ref(0);
+// Tracks whether the workspace-wide open-issue fetch has resolved at least
+// once. The count is hydrated by a separate invokeOp after the main GraphQL
+// load, so the summary tile must show `—` (not a misleading 0) until then.
+const workspaceOpenIssuesLoaded = ref(false);
 
 async function refreshWorkspaceOpenIssues(): Promise<void> {
   const ws = workspaceId.value;
@@ -134,6 +138,7 @@ async function refreshWorkspaceOpenIssues(): Promise<void> {
     const s = (issue.state ?? "").toUpperCase();
     return s === "OPEN" || s === "REOPENED";
   }).length;
+  workspaceOpenIssuesLoaded.value = true;
 }
 
 async function refreshAllOpenIssues(): Promise<void> {
@@ -362,26 +367,26 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
         <span class="overline">Workspace</span>
         <h1>{{ workspace.name }}</h1>
       </div>
-      <div class="summary-grid" aria-label="Workspace summary">
+      <div class="summary-grid" aria-label="Workspace summary" :aria-busy="loadState === 'loading'">
         <div>
           <span>Repositories</span>
-          <strong>{{ repositories.length }}</strong>
+          <strong>{{ loadState === 'loading' ? '—' : repositories.length }}</strong>
         </div>
         <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenIssues} open issues — see the Inbox`">
           <span>Open issues</span>
-          <strong>{{ totalOpenIssues }}</strong>
+          <strong>{{ loadState === 'loading' || !workspaceOpenIssuesLoaded ? '—' : totalOpenIssues }}</strong>
         </RouterLink>
         <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenPulls} open pull requests — see the Inbox`">
           <span>Open pulls</span>
-          <strong>{{ totalOpenPulls }}</strong>
+          <strong>{{ loadState === 'loading' ? '—' : totalOpenPulls }}</strong>
         </RouterLink>
         <div>
           <span>Extensions</span>
-          <strong>{{ extensionCount }}</strong>
+          <strong>{{ loadState === 'loading' ? '—' : extensionCount }}</strong>
         </div>
         <div>
           <span>Runtime</span>
-          <strong>{{ extensionRuntime }}</strong>
+          <strong>{{ loadState === 'loading' ? '—' : extensionRuntime }}</strong>
         </div>
       </div>
     </section>
