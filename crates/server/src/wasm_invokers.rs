@@ -125,6 +125,19 @@ mod ext_docs_bindings {
 
 use ext_docs_bindings::ExtDocs;
 
+mod ext_sprints_bindings {
+    wasmtime::component::bindgen!({
+        path: "../../extensions/first-party/ext_sprints/wit",
+        world: "ext-sprints",
+    });
+}
+
+use ext_sprints_bindings::ExtSprints;
+use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
+    AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
+    CreateSprintInput, ListSprintsInput, MembersInput, Sprint, SprintState,
+};
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OpenIssueInputJson {
@@ -222,6 +235,48 @@ struct RecordCheckInputJson {
     state: String,
     conclusion: Option<String>,
     required: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateSprintInputJson {
+    workspace: String,
+    title: String,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    start_date: Option<String>,
+    #[serde(default)]
+    end_date: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListSprintsInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangeStateSprintInputJson {
+    id: String,
+    state: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssignIssueInputJson {
+    sprint_ref: String,
+    issue_ref: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MembersInputJson {
+    #[serde(rename = "ref")]
+    ref_: String,
+    limit: u32,
 }
 
 pub fn reactor_subscriptions_for_extension(
@@ -946,6 +1001,227 @@ pub fn dispatch_ext_epics(
     })
 }
 
+pub fn dispatch_ext_sprints(
+    registry: &WasmRegistry,
+    store: Arc<crate::ExtensionRuntimeStore>,
+    current_principal: &str,
+    info: &crate::generated_dispatch::DispatchInfo,
+    payload: &[u8],
+    depth: u32,
+    reactor_depth: u32,
+) -> Result<Vec<u8>, wit_types::Error> {
+    if info.extension_id != "ext_sprints" || info.interface_name != "sprints" {
+        return Err(wit_error(
+            wit_types::ErrorCode::Internal,
+            format!(
+                "ext_sprints invoker received wrong route: {}.{}.{}",
+                info.extension_id, info.interface_name, info.op_name
+            ),
+        ));
+    }
+    let input = parse_payload(payload)?;
+    // NOT per-repo gated: sprints are workspace-scoped. No repository to
+    // resolve `repository.extensions` against.
+    let dispatcher: Arc<dyn OpsDispatcher> = Arc::new(RegistryDispatcher {
+        registry: registry.clone(),
+        store: store.clone(),
+    });
+    let (mut host_state, ext) = build_host_state(
+        registry,
+        info.extension_id,
+        current_principal,
+        store,
+        dispatcher,
+        depth,
+    )
+    .map_err(|e| wit_error(wit_types::ErrorCode::Internal, e))?;
+    host_state.reactor_depth = reactor_depth;
+    let mut wasm_store = new_invocation_store(registry.engine.as_ref(), host_state)?;
+    let instance = registry
+        .linker
+        .instantiate(&mut wasm_store, &ext.component)
+        .map_err(|e| {
+            wit_error(
+                wit_types::ErrorCode::Internal,
+                format!("instantiate ext_sprints: {e}"),
+            )
+        })?;
+    let ext_sprints = ExtSprints::new(&mut wasm_store, &instance).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("bind ext-sprints world: {e}"),
+        )
+    })?;
+    let sprints = ext_sprints.comtrya_ext_sprints_sprints();
+
+    let value = match info.op_name {
+        "create-sprint" => {
+            let parsed: CreateSprintInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse create-sprint input: {e}"),
+                )
+            })?;
+            let wit_input = CreateSprintInput {
+                workspace: parsed.workspace,
+                title: parsed.title,
+                goal: parsed.goal,
+                start_date: parsed.start_date,
+                end_date: parsed.end_date,
+            };
+            let result = sprints
+                .call_create_sprint(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("create-sprint call: {e}"),
+                    )
+                })?;
+            sprint_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
+        "get-sprint" => {
+            let id = string_payload(&input, "get-sprint")?;
+            let result = sprints
+                .call_get_sprint(&mut wasm_store, &id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("get-sprint call: {e}"),
+                    )
+                })?;
+            match result.map_err(sprints_error_to_canonical)? {
+                Some(sprint) => sprint_to_json(&sprint),
+                None => Value::Null,
+            }
+        }
+        "list-sprints" => {
+            let parsed: ListSprintsInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse list-sprints input: {e}"),
+                )
+            })?;
+            let wit_input = ListSprintsInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_list_sprints(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-sprints call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(sprints_error_to_canonical)?
+                    .iter()
+                    .map(sprint_to_json)
+                    .collect(),
+            )
+        }
+        "by-ref-sprint" => {
+            let ref_uri = string_payload(&input, "by-ref-sprint")?;
+            let result = sprints
+                .call_by_ref_sprint(&mut wasm_store, &ref_uri)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("by-ref-sprint call: {e}"),
+                    )
+                })?;
+            match result.map_err(sprints_error_to_canonical)? {
+                Some(sprint) => sprint_to_json(&sprint),
+                None => Value::Null,
+            }
+        }
+        "change-state-sprint" => {
+            let parsed: ChangeStateSprintInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse change-state-sprint input: {e}"),
+                    )
+                })?;
+            let state = sprint_state_from_json(&parsed.state)?;
+            let wit_input = SprintsChangeStateInput {
+                id: parsed.id,
+                state,
+            };
+            let result = sprints
+                .call_change_state_sprint(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("change-state-sprint call: {e}"),
+                    )
+                })?;
+            sprint_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
+        "assign-issue" => {
+            let parsed: AssignIssueInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse assign-issue input: {e}"),
+                )
+            })?;
+            let wit_input = SprintsAssignIssueInput {
+                sprint_ref: parsed.sprint_ref,
+                issue_ref: parsed.issue_ref,
+            };
+            let result = sprints
+                .call_assign_issue(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("assign-issue call: {e}"),
+                    )
+                })?;
+            Value::Bool(result.map_err(sprints_error_to_canonical)?)
+        }
+        "issues-in-sprint" => {
+            let parsed: MembersInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse issues-in-sprint input: {e}"),
+                )
+            })?;
+            let wit_input = MembersInput {
+                ref_: parsed.ref_,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_issues_in_sprint(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("issues-in-sprint call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(sprints_error_to_canonical)?
+                    .into_iter()
+                    .map(Value::String)
+                    .collect(),
+            )
+        }
+        other => {
+            return Err(wit_error(
+                wit_types::ErrorCode::NotFound,
+                format!("ext_sprints has no op named '{other}'"),
+            ));
+        }
+    };
+    serde_json::to_vec(&value).map_err(|e| {
+        wit_error(
+            wit_types::ErrorCode::Internal,
+            format!("encode result: {e}"),
+        )
+    })
+}
+
 pub fn dispatch_ext_pull_requests(
     registry: &WasmRegistry,
     store: Arc<crate::ExtensionRuntimeStore>,
@@ -1634,6 +1910,44 @@ fn epic_state_from_json(state: &str) -> Result<EpicState, wit_types::Error> {
     }
 }
 
+fn sprint_to_json(sprint: &Sprint) -> Value {
+    serde_json::json!({
+        "id": sprint.id,
+        "workspace": sprint.workspace,
+        "workspaceId": workspace_id_from_uri(&sprint.workspace),
+        "title": sprint.title,
+        "state": sprint_state_to_graphql(sprint.state),
+        "number": sprint.number,
+        "goal": sprint.goal,
+        "startDate": sprint.start_date,
+        "endDate": sprint.end_date,
+        "createdAt": sprint.created_at,
+        "updatedAt": sprint.updated_at,
+    })
+}
+
+fn sprint_state_to_graphql(state: SprintState) -> &'static str {
+    match state {
+        SprintState::Planned => "PLANNED",
+        SprintState::Active => "ACTIVE",
+        SprintState::Completed => "COMPLETED",
+        SprintState::Canceled => "CANCELED",
+    }
+}
+
+fn sprint_state_from_json(state: &str) -> Result<SprintState, wit_types::Error> {
+    match state {
+        "PLANNED" => Ok(SprintState::Planned),
+        "ACTIVE" => Ok(SprintState::Active),
+        "COMPLETED" => Ok(SprintState::Completed),
+        "CANCELED" => Ok(SprintState::Canceled),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown sprint state '{other}'"),
+        )),
+    }
+}
+
 /// Extract the workspace id from a `comtrya://workspace/<id>` URI.
 /// Returns `None` for anything that is not a well-formed workspace URI —
 /// the previous fallback that guessed an id from a bare `ws_` prefix was
@@ -1792,6 +2106,26 @@ fn epic_error_to_canonical(
     e: ext_epics_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
     use ext_epics_bindings::comtrya::platform::types as local;
+    let code = match e.code {
+        local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
+        local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,
+        local::ErrorCode::Forbidden => wit_types::ErrorCode::Forbidden,
+        local::ErrorCode::Unauthenticated => wit_types::ErrorCode::Unauthenticated,
+        local::ErrorCode::BadInput => wit_types::ErrorCode::BadInput,
+        local::ErrorCode::Internal => wit_types::ErrorCode::Internal,
+        local::ErrorCode::Unavailable => wit_types::ErrorCode::Unavailable,
+    };
+    wit_types::Error {
+        code,
+        message: e.message,
+        path: e.path,
+    }
+}
+
+fn sprints_error_to_canonical(
+    e: ext_sprints_bindings::comtrya::platform::types::Error,
+) -> wit_types::Error {
+    use ext_sprints_bindings::comtrya::platform::types as local;
     let code = match e.code {
         local::ErrorCode::NotFound => wit_types::ErrorCode::NotFound,
         local::ErrorCode::Conflict => wit_types::ErrorCode::Conflict,

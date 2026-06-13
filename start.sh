@@ -94,7 +94,7 @@ package comtrya
 // exercises all four, so it enables them here. Authored without the published
 // schema import because the imported smoke repo doesn't vendor that CUE module;
 // the kernel reads `repository.extensions` as a plain array.
-repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics"]
+repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_sprints"]
 
 projects: kernel: {
 	root: "."
@@ -1145,7 +1145,7 @@ expect_status "GraphQL through Vue shell" 200 "$TMP_DIR/graphql.json" \
 json_assert "GraphQL viewer through Vue shell" "$TMP_DIR/graphql.json" \
   'json.data.viewer.authenticated === true && json.data.viewer.permissions.includes("git:read")'
 json_assert "GraphQL fresh runtime starts empty through Vue shell" "$TMP_DIR/graphql.json" \
-  'json.data.workspace.name === "Default" && Array.isArray(json.data.workspace.repositories) && json.data.workspace.repositories.length === 0 && json.data.repository === null && json.data.extensionInstallations.length === 6 && json.data.adminTelemetry.storage.repositories.count === 0'
+  'json.data.workspace.name === "Default" && Array.isArray(json.data.workspace.repositories) && json.data.workspace.repositories.length === 0 && json.data.repository === null && json.data.extensionInstallations.length === 7 && json.data.adminTelemetry.storage.repositories.count === 0'
 WORKSPACE_ID="$(json_value "$TMP_DIR/graphql.json" 'json.data.workspace.id')"
 if [[ -z "$WORKSPACE_ID" ]]; then
   fail "GraphQL did not return workspace.id"
@@ -1231,7 +1231,7 @@ else
   log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
 fi
 
-for extension_id in ext_pull_requests ext_checks ext_issues ext_epics; do
+for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints; do
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
@@ -1742,6 +1742,57 @@ expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-st
   --data "{\"id\":\"$EPIC_ROOT_ID\",\"state\":\"GREEN\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
 json_assert "unknown state rejected as bad-input" "$TMP_DIR/epc-bad-state.json" \
+  'json.code === "bad-input"'
+
+# ── ext_sprints end-to-end ─────────────────────────────────────────────────
+expect_status "create-sprint" 200 "$TMP_DIR/spr-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"Sprint 1\",\"goal\":\"ship it\",\"startDate\":null,\"endDate\":null}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/create-sprint"
+json_assert "sprint created with spr_ id and number 1" "$TMP_DIR/spr-create.json" \
+  'json.id.startsWith("spr_") && json.number === 1 && json.state === "PLANNED"'
+SPRINT_ID="$(json_value "$TMP_DIR/spr-create.json" 'json.id')"
+SPRINT_REF="comtrya://sprint/$SPRINT_ID"
+
+expect_status "change-state-sprint to ACTIVE" 200 "$TMP_DIR/spr-state.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"ACTIVE\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "sprint state is ACTIVE" "$TMP_DIR/spr-state.json" \
+  'json.state === "ACTIVE"'
+
+expect_status "assign-issue to sprint" 200 "$TMP_DIR/spr-assign.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"sprintRef\":\"$SPRINT_REF\",\"issueRef\":\"comtrya://issue/$ISSUE_ONE_ID\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/assign-issue"
+json_assert "assign-issue returns true" "$TMP_DIR/spr-assign.json" \
+  'json === true'
+
+expect_status "issues-in-sprint returns the assigned issue" 200 "$TMP_DIR/spr-issues.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"ref\":\"$SPRINT_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/issues-in-sprint"
+json_assert "issues-in-sprint has the issue URN" "$TMP_DIR/spr-issues.json" \
+  "json.length === 1 && json[0] === \"comtrya://issue/$ISSUE_ONE_ID\""
+
+expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/list-sprints"
+json_assert "list-sprints has 1 sprint" "$TMP_DIR/spr-list.json" \
+  'json.length === 1'
+
+expect_status "change-state-sprint rejects unknown state" 400 "$TMP_DIR/spr-bad-state.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"YELLOW\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "unknown sprint state rejected as bad-input" "$TMP_DIR/spr-bad-state.json" \
   'json.code === "bad-input"'
 
 # ── Relations API (core relations graph) ───────────────────────────────────

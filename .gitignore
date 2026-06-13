@@ -23,6 +23,8 @@ extensions/first-party/*/dist/*
 !extensions/first-party/ext_docs/dist/ext_docs.wasm
 !extensions/first-party/ext_workspace_home/dist/
 !extensions/first-party/ext_workspace_home/dist/ext_workspace_home.wasm
+!extensions/first-party/ext_sprints/dist/
+!extensions/first-party/ext_sprints/dist/ext_sprints.wasm
 
 # cargo-component regenerates this from the WIT on every build; treat
 # it as generated, not source.

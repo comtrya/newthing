@@ -1,0 +1,16 @@
+{
+  "extends": "../../../../frontend/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../../../frontend",
+    "paths": {
+      "vue": ["node_modules/vue/dist/vue.d.mts"],
+      "@comtrya/sdk-core": ["packages/sdk-core/src/index.ts"],
+      "@comtrya/sdk-vue": ["packages/sdk-vue/src/index.ts"]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "../../../../frontend/shell-v3/src/vue-shims.d.ts"
+  ]
+}
