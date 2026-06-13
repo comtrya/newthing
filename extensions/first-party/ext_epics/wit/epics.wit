@@ -4,7 +4,7 @@
 // machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.3;
+package comtrya:ext-epics@0.1.4;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -23,6 +23,10 @@ interface epics {
     title: string,
     body-markdown: string,
     state: epic-state,
+    // 0.1.4 — per-workspace sequential number, analogous to issues.number.
+    // Allocated at create time via a CAS counter in `ext_epics_meta`;
+    // workspace-scoped so the first epic in each workspace is number 1.
+    number: u32,
     target-date: option<string>,
     owner-ref: option<uri>,
     labels: list<string>,

@@ -22,7 +22,10 @@
         "snippet": "package comtrya\n\n// Per-Project epic policy. The status set mirrors the WIT\n// `epic-state` variant exposed by ext_epics; if you add a state\n// here, also extend the variant. Read by ext_epics; the kernel\n// and other extensions do not interpret these fields.\n#EpicStatus: \"planned\" | \"in-progress\" | \"at-risk\" | \"done\" | \"canceled\"\n\n#EpicsPolicy: {\n  defaultLabels?:  [...string]\n  defaultStatus?:  #EpicStatus | *\"planned\"\n  requiredFields?: [...string]\n}\n\n#Project: { epics?: #EpicsPolicy }\n"
       }
     ],
-    "resourceKinds": [{ "name": "epic", "prefix": "epc", "scope": "instance" }],
+    "resourceKinds": [
+      { "name": "epic", "prefix": "epc", "scope": "instance" },
+      { "name": "epic-counter", "prefix": "epcc", "scope": "instance" }
+    ],
     "relationshipTypes": [
       {
         "id": "ext_epics.issue-part-of-epic",
@@ -50,6 +53,13 @@
         "ownerExtension": "ext_epics",
         "indexes": [
           { "name": "by_workspace_state_updated", "fields": ["workspaceId", "state", "updatedAt"], "unique": false }
+        ]
+      },
+      {
+        "name": "ext_epics_meta",
+        "ownerExtension": "ext_epics",
+        "indexes": [
+          { "name": "by_id", "fields": ["id"], "unique": true }
         ]
       }
     ]

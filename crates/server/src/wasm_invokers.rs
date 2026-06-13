@@ -1589,6 +1589,7 @@ fn epic_to_json(epic: &Epic) -> Value {
         "title": epic.title,
         "bodyMarkdown": epic.body_markdown,
         "state": epic_state_to_graphql(epic.state),
+        "number": epic.number,
         "targetDate": epic.target_date,
         "ownerRef": epic.owner_ref,
         "labels": epic.labels,

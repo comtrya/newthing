@@ -18,9 +18,11 @@ use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, React
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "epics";
+const COUNTER_COLLECTION: &str = "ext_epics_meta";
 const MAX_TITLE_LEN: usize = 512;
 const MAX_BODY_LEN: usize = 64 * 1024;
 const PART_OF: &str = "comtrya://rel/part-of";
+const COUNTER_RETRY_LIMIT: u32 = 8;
 
 struct Component;
 
@@ -33,6 +35,11 @@ struct StoredEpic {
     title: String,
     body_markdown: String,
     state: String,
+    /// Per-workspace sequential number allocated at create time.
+    /// `#[serde(default)]` lets pre-existing persisted records without
+    /// this field deserialise without error (they will read as 0).
+    #[serde(default)]
+    number: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -49,6 +56,14 @@ struct StoredEpic {
     project_name: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkspaceCounter {
+    id: String,
+    storage_id: String,
+    next: u32,
+}
+
 impl StoredEpic {
     fn to_wit(&self) -> Epic {
         Epic {
@@ -57,6 +72,7 @@ impl StoredEpic {
             title: self.title.clone(),
             body_markdown: self.body_markdown.clone(),
             state: state_from_str(&self.state),
+            number: self.number,
             target_date: self.target_date.clone(),
             owner_ref: self.owner_ref.clone(),
             labels: self.labels.clone(),
@@ -74,6 +90,117 @@ fn err(code: ErrorCode, message: impl Into<String>) -> Error {
         message: message.into(),
         path: None,
     }
+}
+
+fn read_workspace_counter(counter_id: &str) -> Result<Option<WorkspaceCounter>, Error> {
+    let mut after = None;
+    let mut found = None;
+    loop {
+        let page = storage::list_all(COUNTER_COLLECTION, 1024, after.as_ref())?;
+        for bytes in page.docs {
+            let counter: WorkspaceCounter = serde_json::from_slice(&bytes)
+                .map_err(|e| err(ErrorCode::Internal, format!("parse epic counter: {e}")))?;
+            if counter.id == counter_id {
+                if found.is_some() {
+                    return Err(err(
+                        ErrorCode::Internal,
+                        format!("counter collection contains duplicate rows for {counter_id}"),
+                    ));
+                }
+                found = Some(counter);
+            }
+        }
+        match page.next_page {
+            Some(next) => after = Some(next),
+            None => return Ok(found),
+        }
+    }
+}
+
+/// Return the next sequential epic number for `workspace_id` and increment the
+/// persisted counter atomically via storage's single-document version guard
+/// (update-begin/update-commit), seeding the counter on first use.
+///
+/// The CAS loop retries up to `COUNTER_RETRY_LIMIT` times on `conflict`
+/// (another epic-create raced us between begin and commit) and on the
+/// first-use seed race (two creators hit `NotFound`, the second sees
+/// `conflict` from `storage::create` and re-enters the update path).
+fn next_epic_number(workspace_id: &str) -> Result<u32, Error> {
+    let scope_key = format!("comtrya://workspace/{workspace_id}");
+    let counter_id = format!("epic-number:{scope_key}");
+    for _ in 0..COUNTER_RETRY_LIMIT {
+        match read_workspace_counter(&counter_id)? {
+            Some(counter) => {
+                let snap = match storage::update_begin(COUNTER_COLLECTION, &counter.storage_id) {
+                    Ok(snap) => snap,
+                    Err(Error {
+                        code: ErrorCode::NotFound,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                };
+                let mut counter: WorkspaceCounter = serde_json::from_slice(&snap.data)
+                    .map_err(|e| err(ErrorCode::Internal, format!("parse epic counter: {e}")))?;
+                if counter.id != counter_id {
+                    return Err(err(
+                        ErrorCode::Internal,
+                        format!("counter document has wrong id {}", counter.id),
+                    ));
+                }
+                let assigned = counter.next;
+                counter.next = counter.next.saturating_add(1);
+                let bytes = serde_json::to_vec(&counter)
+                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                match storage::update_commit(
+                    COUNTER_COLLECTION,
+                    &counter.storage_id,
+                    &snap.version,
+                    &bytes,
+                ) {
+                    Ok(()) => return Ok(assigned),
+                    Err(Error {
+                        code: ErrorCode::Conflict,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                }
+            }
+            None => {
+                // First epic in this workspace — seed the counter at 2, return 1.
+                let storage_id = ids::mint("epic-counter")?;
+                let counter = WorkspaceCounter {
+                    id: counter_id.clone(),
+                    storage_id: storage_id.clone(),
+                    next: 2,
+                };
+                let bytes = serde_json::to_vec(&counter)
+                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                match storage::create(
+                    COUNTER_COLLECTION,
+                    &storage_id,
+                    &bytes,
+                    &storage::DocumentMetadata {
+                        resource_uri: format!("comtrya://epic-counter/{storage_id}"),
+                        resource_refs: vec![scope_key.clone(), counter_id.clone()],
+                    },
+                ) {
+                    Ok(()) => return Ok(1),
+                    // Another writer seeded the counter between our
+                    // read and our create. Fall through to the next
+                    // iteration which will hit the Some branch.
+                    Err(Error {
+                        code: ErrorCode::Conflict,
+                        ..
+                    }) => continue,
+                    Err(other) => return Err(other),
+                }
+            }
+        }
+    }
+    Err(err(
+        ErrorCode::Unavailable,
+        format!("epic-number counter for {workspace_id} contended past retry limit"),
+    ))
 }
 
 fn state_to_str(state: EpicState) -> &'static str {
@@ -310,6 +437,7 @@ impl EpicsGuest for Component {
             .as_ref()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
+        let number = next_epic_number(&workspace_id)?;
         let stored = StoredEpic {
             id: id.clone(),
             workspace,
@@ -317,6 +445,7 @@ impl EpicsGuest for Component {
             title: title.to_string(),
             body_markdown: input.body_markdown,
             state: state_to_str(EpicState::Planned).to_string(),
+            number,
             target_date: input.target_date,
             owner_ref: input.owner_ref,
             labels: input.labels,

@@ -1655,6 +1655,8 @@ expect_status "create-epic" 200 "$TMP_DIR/epc-create.json" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "epic created with epc_ id, state=PLANNED" "$TMP_DIR/epc-create.json" \
   'json.id.startsWith("epc_") && json.state === "PLANNED"'
+json_assert "epic has sequential number 1" "$TMP_DIR/epc-create.json" \
+  'typeof json.number === "number" && json.number >= 1'
 EPIC_ROOT_ID="$(json_value "$TMP_DIR/epc-create.json" 'json.id')"
 EPIC_ROOT_REF="comtrya://epic/$EPIC_ROOT_ID"
 
@@ -1663,6 +1665,8 @@ expect_status "create-epic with parentEpicRef writes part-of" 200 "$TMP_DIR/epc-
   -H "content-type: application/json" \
   --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
+json_assert "child epic has sequential number 2" "$TMP_DIR/epc-child.json" \
+  'typeof json.number === "number" && json.number === 2'
 EPIC_CHILD_ID="$(json_value "$TMP_DIR/epc-child.json" 'json.id')"
 
 expect_status "children-of-epic returns the child epic" 200 "$TMP_DIR/epc-children.json" \
