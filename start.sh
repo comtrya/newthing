@@ -66,6 +66,12 @@ create_smoke_source_repo() {
     || git -C "$repo_dir" init >/dev/null 2>&1
   git -C "$repo_dir" config user.name "Comtrya Smoke"
   git -C "$repo_dir" config user.email "smoke@comtrya.local"
+  # Fixture commits must never depend on the operator's signing setup. An
+  # operator with commit signing forced in their global git config (e.g.
+  # gitsign/Sigstore) would otherwise see these throwaway scaffolding commits
+  # block on interactive OAuth, failing the documented acceptance path.
+  git -C "$repo_dir" config commit.gpgsign false
+  git -C "$repo_dir" config tag.gpgsign false
   if [[ "$(git -C "$repo_dir" branch --show-current)" != "main" ]]; then
     git -C "$repo_dir" checkout -B main >/dev/null 2>&1
   fi
@@ -1043,7 +1049,7 @@ if [[ -z "${COMTRYA_CONFIG_REPO_URL:-}" ]]; then
   git -C "$CONFIG_SOURCE" init -q -b "$COMTRYA_CONFIG_REPO_REF"
   git -C "$CONFIG_SOURCE" add -A
   git -C "$CONFIG_SOURCE" -c user.email=ci@comtrya.dev -c user.name=comtrya \
-    commit -q -m "bundled config fixture"
+    -c commit.gpgsign=false commit -q -m "bundled config fixture"
   export COMTRYA_CONFIG_REPO_URL="file://$CONFIG_SOURCE"
   log "materialised bundled config repo: $COMTRYA_CONFIG_REPO_URL"
 fi
