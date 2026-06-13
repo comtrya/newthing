@@ -12,7 +12,6 @@
 import { computed } from "vue";
 import { RouterLink } from "vue-router";
 import Icon from "./Icon.vue";
-import Chip from "./Chip.vue";
 import type { IconKey } from "./icons";
 
 type AdminItemId =
@@ -95,18 +94,10 @@ const navStyle = computed(
       >
         <span :style="iconStyle(item.id)"><Icon :name="item.icon" /></span>
         <span>{{ item.label }}</span>
-        <span
-          v-if="item.id === 'updates'"
-          style="flex: 1; text-align: right"
-        ><Chip mono tone="warn">1</Chip></span>
       </RouterLink>
       <span v-else :style="rowStyle(item.id)">
         <span :style="iconStyle(item.id)"><Icon :name="item.icon" /></span>
         <span>{{ item.label }}</span>
-        <span
-          v-if="item.id === 'updates'"
-          style="flex: 1; text-align: right"
-        ><Chip mono tone="warn">1</Chip></span>
       </span>
     </template>
   </div>

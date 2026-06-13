@@ -436,13 +436,13 @@ const projectQueueHrefs = computed(() => {
   </section>
 
   <template v-else>
-    <section class="project-summary" data-smoke="project-summary">
+    <section class="project-summary" data-smoke="project-summary" :aria-busy="!summary.loaded">
       <RouterLink :to="projectQueueHrefs.issuesOpen" class="stat" :title="`Open issues in ${project?.name}`">
-        <span class="stat-num" :data-zero="summary.issuesOpen === 0">{{ summary.issuesOpen }}</span>
+        <span class="stat-num" :data-zero="summary.loaded && summary.issuesOpen === 0">{{ summary.loaded ? summary.issuesOpen : '—' }}</span>
         <span class="stat-label">open issue<template v-if="summary.issuesOpen !== 1">s</template></span>
       </RouterLink>
       <RouterLink :to="projectQueueHrefs.issuesClosed" class="stat" :title="`Closed issues in ${project?.name}`">
-        <span class="stat-num muted">{{ summary.issuesClosed }}</span>
+        <span class="stat-num muted">{{ summary.loaded ? summary.issuesClosed : '—' }}</span>
         <span class="stat-label">closed</span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
@@ -451,7 +451,7 @@ const projectQueueHrefs = computed(() => {
         class="stat"
         :title="`In-progress epics in ${project?.name}`"
       >
-        <span class="stat-num" :data-zero="summary.epicsInProgress === 0">{{ summary.epicsInProgress }}</span>
+        <span class="stat-num" :data-zero="summary.loaded && summary.epicsInProgress === 0">{{ summary.loaded ? summary.epicsInProgress : '—' }}</span>
         <span class="stat-label">epic<template v-if="summary.epicsInProgress !== 1">s</template> in progress</span>
       </RouterLink>
       <RouterLink
@@ -459,7 +459,7 @@ const projectQueueHrefs = computed(() => {
         class="stat"
         :title="`Planned epics in ${project?.name}`"
       >
-        <span class="stat-num muted">{{ summary.epicsPlanned }}</span>
+        <span class="stat-num muted">{{ summary.loaded ? summary.epicsPlanned : '—' }}</span>
         <span class="stat-label">planned</span>
       </RouterLink>
       <RouterLink
@@ -467,12 +467,12 @@ const projectQueueHrefs = computed(() => {
         class="stat"
         :title="`Done epics in ${project?.name}`"
       >
-        <span class="stat-num muted">{{ summary.epicsDone }}</span>
+        <span class="stat-num muted">{{ summary.loaded ? summary.epicsDone : '—' }}</span>
         <span class="stat-label">done</span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
       <div class="stat stat-static">
-        <span class="stat-num">{{ docsByType.length }}</span>
+        <span class="stat-num">{{ summary.loaded ? docsByType.length : '—' }}</span>
         <span class="stat-label">doc type<template v-if="docsByType.length !== 1">s</template></span>
       </div>
     </section>
