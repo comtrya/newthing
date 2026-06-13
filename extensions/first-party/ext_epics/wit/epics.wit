@@ -4,7 +4,7 @@
 // machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.4;
+package comtrya:ext-epics@0.1.5;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -65,6 +65,21 @@ interface epics {
     project-name: option<string>,
   }
 
+  // 0.1.5 — partial-update for mutable epic fields. Only `Some`
+  // fields are applied; `None` leaves the stored field unchanged.
+  // `labels: Some([])` clears labels; `labels: None` keeps them.
+  // `title` is trimmed and validated the same way as at create time
+  // (non-empty, at most MAX_TITLE_LEN bytes). `updated-at` is
+  // bumped on every successful write.
+  record update-epic-input {
+    %id: id,
+    title: option<string>,
+    body-markdown: option<string>,
+    owner-ref: option<string>,
+    target-date: option<string>,
+    labels: option<list<string>>,
+  }
+
   record epic-progress {
     issues-open: u64,
     issues-closed: u64,
@@ -76,6 +91,7 @@ interface epics {
   create-epic: func(input: create-epic-input) -> result<epic, error>;
   change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   assign-project: func(input: assign-project-input) -> result<epic, error>;
+  update-epic: func(input: update-epic-input) -> result<epic, error>;
   get-epic: func(%id: id) -> result<option<epic>, error>;
   list-epics: func(workspace: uri, %limit: u32) -> result<list<epic>, error>;
   by-ref-epic: func(ref: uri) -> result<option<epic>, error>;

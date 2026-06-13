@@ -22,7 +22,7 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput,
+    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -821,6 +821,54 @@ impl IssuesGuest for Component {
             &issue_uri(&issue.id),
         )?;
         Ok(issue)
+    }
+
+    /// 0.1.8 — partial update of mutable issue fields. Only `Some`
+    /// fields are applied; `None` leaves the stored field unchanged.
+    /// `labels: Some([])` clears the label set; `labels: None` keeps
+    /// the existing labels. `title` is trimmed and validated the same
+    /// way as at open time. `updated-at` is bumped on every successful
+    /// write.
+    fn update_issue(input: UpdateIssueInput) -> Result<Issue, Error> {
+        let snap = storage::update_begin(COLLECTION, &input.id)?;
+        let mut stored = decode_stored_issue(&input.id, &snap.data)?;
+        if let Some(title) = input.title {
+            let title = title.trim().to_string();
+            if title.is_empty() {
+                return Err(err(ErrorCode::BadInput, "issue title must not be empty"));
+            }
+            if title.len() > MAX_TITLE_LEN {
+                return Err(err(
+                    ErrorCode::BadInput,
+                    format!("issue title must be at most {MAX_TITLE_LEN} bytes"),
+                ));
+            }
+            stored.title = title;
+        }
+        if let Some(body) = input.body_markdown {
+            if body.len() > MAX_BODY_LEN {
+                return Err(err(
+                    ErrorCode::BadInput,
+                    format!("issue body must be at most {MAX_BODY_LEN} bytes"),
+                ));
+            }
+            stored.body_markdown = body;
+        }
+        if let Some(labels) = input.labels {
+            // Trim + deduplicate, same as open-issue.
+            let mut seen = std::collections::BTreeSet::new();
+            stored.labels = labels
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .filter(|s| seen.insert(s.clone()))
+                .collect();
+        }
+        stored.updated_at = time::now_iso();
+        let bytes = serde_json::to_vec(&stored)
+            .map_err(|e| err(ErrorCode::Internal, format!("serialise issue: {e}")))?;
+        storage::update_commit(COLLECTION, &input.id, &snap.version, &bytes)?;
+        Ok(stored.to_wit())
     }
 
     fn get_issue(id: String) -> Result<Option<Issue>, Error> {

@@ -11,7 +11,7 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
-    Guest as EpicsGuest,
+    Guest as EpicsGuest, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -533,6 +533,66 @@ impl EpicsGuest for Component {
             },
             &epic_uri(&stored.id),
         )?;
+        Ok(stored.to_wit())
+    }
+
+    /// 0.1.5 — partial update of mutable epic fields. Only `Some`
+    /// fields are applied; `None` leaves the stored field unchanged.
+    /// `labels: Some([])` clears the label set; `labels: None` keeps
+    /// the existing labels. `title` is trimmed and validated the same
+    /// way as at create time. `updated-at` is bumped on every
+    /// successful write.
+    fn update_epic(input: UpdateEpicInput) -> Result<Epic, Error> {
+        let snap = storage::update_begin(COLLECTION, &input.id)?;
+        let mut stored = decode(&input.id, &snap.data)?;
+        if let Some(title) = input.title {
+            let title = title.trim().to_string();
+            if title.is_empty() {
+                return Err(err(ErrorCode::BadInput, "epic title must not be empty"));
+            }
+            if title.len() > MAX_TITLE_LEN {
+                return Err(err(
+                    ErrorCode::BadInput,
+                    format!("epic title must be at most {MAX_TITLE_LEN} bytes"),
+                ));
+            }
+            stored.title = title;
+        }
+        if let Some(body) = input.body_markdown {
+            if body.len() > MAX_BODY_LEN {
+                return Err(err(
+                    ErrorCode::BadInput,
+                    format!("epic body must be at most {MAX_BODY_LEN} bytes"),
+                ));
+            }
+            stored.body_markdown = body;
+        }
+        if let Some(owner_ref) = input.owner_ref {
+            stored.owner_ref = if owner_ref.trim().is_empty() {
+                None
+            } else {
+                Some(owner_ref)
+            };
+        }
+        if let Some(target_date) = input.target_date {
+            stored.target_date = if target_date.trim().is_empty() {
+                None
+            } else {
+                Some(target_date)
+            };
+        }
+        if let Some(labels) = input.labels {
+            // Trim + deduplicate, same as create-epic.
+            let mut seen = std::collections::BTreeSet::new();
+            stored.labels = labels
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .filter(|s| seen.insert(s.clone()))
+                .collect();
+        }
+        stored.updated_at = time::now_iso();
+        commit_update(&input.id, &stored, &snap.version)?;
         Ok(stored.to_wit())
     }
 
