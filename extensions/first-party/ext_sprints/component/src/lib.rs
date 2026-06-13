@@ -128,9 +128,7 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                     Err(other) => return Err(other),
                 };
                 let mut counter: WorkspaceCounter = serde_json::from_slice(&snap.data)
-                    .map_err(|e| {
-                        err(ErrorCode::Internal, format!("parse sprint counter: {e}"))
-                    })?;
+                    .map_err(|e| err(ErrorCode::Internal, format!("parse sprint counter: {e}")))?;
                 if counter.id != counter_id {
                     return Err(err(
                         ErrorCode::Internal,
@@ -140,7 +138,10 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                 let assigned = counter.next;
                 counter.next = counter.next.saturating_add(1);
                 let bytes = serde_json::to_vec(&counter).map_err(|e| {
-                    err(ErrorCode::Internal, format!("serialise sprint counter: {e}"))
+                    err(
+                        ErrorCode::Internal,
+                        format!("serialise sprint counter: {e}"),
+                    )
                 })?;
                 match storage::update_commit(
                     COUNTER_COLLECTION,
@@ -165,7 +166,10 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                     next: 2,
                 };
                 let bytes = serde_json::to_vec(&counter).map_err(|e| {
-                    err(ErrorCode::Internal, format!("serialise sprint counter: {e}"))
+                    err(
+                        ErrorCode::Internal,
+                        format!("serialise sprint counter: {e}"),
+                    )
                 })?;
                 match storage::create(
                     COUNTER_COLLECTION,
@@ -289,7 +293,12 @@ fn sprint_id_from_ref(ref_uri: &str) -> Result<String, Error> {
         .strip_prefix("comtrya://sprint/")
         .map(str::to_string)
         .filter(|id| !id.is_empty())
-        .ok_or_else(|| err(ErrorCode::BadInput, "sprint ref must be comtrya://sprint/<id>"))
+        .ok_or_else(|| {
+            err(
+                ErrorCode::BadInput,
+                "sprint ref must be comtrya://sprint/<id>",
+            )
+        })
 }
 
 fn read_by_ref(ref_uri: &str) -> Result<Option<StoredSprint>, Error> {
@@ -343,7 +352,10 @@ impl SprintsGuest for Component {
             title: title.to_string(),
             state: state_to_str(SprintState::Planned).to_string(),
             number,
-            goal: input.goal.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            goal: input
+                .goal
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             start_date: input.start_date,
             end_date: input.end_date,
             created_at: now.clone(),

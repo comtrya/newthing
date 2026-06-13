@@ -1081,14 +1081,12 @@ pub fn dispatch_ext_sprints(
         }
         "get-sprint" => {
             let id = string_payload(&input, "get-sprint")?;
-            let result = sprints
-                .call_get_sprint(&mut wasm_store, &id)
-                .map_err(|e| {
-                    wit_error(
-                        wit_types::ErrorCode::Internal,
-                        format!("get-sprint call: {e}"),
-                    )
-                })?;
+            let result = sprints.call_get_sprint(&mut wasm_store, &id).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::Internal,
+                    format!("get-sprint call: {e}"),
+                )
+            })?;
             match result.map_err(sprints_error_to_canonical)? {
                 Some(sprint) => sprint_to_json(&sprint),
                 None => Value::Null,
