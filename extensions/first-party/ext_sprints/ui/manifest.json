@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "comtrya.ui-extension/v2",
+  "id": "ext_sprints",
+  "extension": "sprints",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "assets": {
+    "entry": "/_extensions/ext_sprints/assets/index.js",
+    "entryIntegrity": "sha256-cba92aedace754c07d7110fb52e15a12106c178df2a40f34f75cf7f1285be956",
+    "styles": []
+  },
+  "permissions": [
+    "sprints.read"
+  ]
+}

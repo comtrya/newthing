@@ -7569,6 +7569,7 @@ const FIRST_PARTY_EXTENSIONS: &[&str] = &[
     "ext_workspace_home",
     "ext_issues",
     "ext_epics",
+    "ext_sprints",
     "ext_docs",
 ];
 

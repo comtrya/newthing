@@ -1,0 +1,72 @@
+// ext_sprints — per-extension WIT.
+//
+// Sprints are time-boxed iterations that group issues. The sprint state
+// machine is PLANNED → ACTIVE → COMPLETED / CANCELED, with transitions
+// modelled explicitly in the `sprint-state` variant.
+
+package comtrya:ext-sprints@0.1.0;
+
+interface sprints {
+  use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
+
+  variant sprint-state {
+    planned,
+    active,
+    completed,
+    canceled,
+  }
+
+  record sprint {
+    %id: id,
+    workspace: uri,
+    title: string,
+    number: u32,
+    state: sprint-state,
+    goal: option<string>,
+    start-date: option<string>,
+    end-date: option<string>,
+    created-at: iso-timestamp,
+    updated-at: iso-timestamp,
+  }
+
+  record create-sprint-input {
+    workspace: uri,
+    title: string,
+    goal: option<string>,
+    start-date: option<string>,
+    end-date: option<string>,
+  }
+
+  record list-sprints-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record change-state-input {
+    %id: id,
+    state: sprint-state,
+  }
+
+  record assign-issue-input {
+    sprint-ref: uri,
+    issue-ref: uri,
+  }
+
+  record members-input {
+    ref: uri,
+    %limit: u32,
+  }
+
+  create-sprint: func(input: create-sprint-input) -> result<sprint, error>;
+  get-sprint: func(%id: string) -> result<option<sprint>, error>;
+  list-sprints: func(input: list-sprints-input) -> result<list<sprint>, error>;
+  by-ref-sprint: func(ref: uri) -> result<option<sprint>, error>;
+  change-state-sprint: func(input: change-state-input) -> result<sprint, error>;
+  assign-issue: func(input: assign-issue-input) -> result<bool, error>;
+  issues-in-sprint: func(input: members-input) -> result<list<string>, error>;
+}
+
+world ext-sprints {
+  include comtrya:platform/extension@0.1.0;
+  export sprints;
+}

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "comtrya.extension/v1",
+  "id": "ext_sprints",
+  "name": "sprints",
+  "displayName": "Sprints",
+  "version": "0.1.0",
+  "publisher": "comtrya-dev",
+  "platformWitVersion": "0.1.0",
+  "perExtensionWit": "wit",
+  "wasmComponent": "dist/ext_sprints.wasm",
+  "witWorld": "ext-sprints",
+  "routePrefix": "sprints",
+  "ui": { "manifest": "ui/manifest.json" },
+  "runtime": {
+    "resolver": "platform-wit-extension",
+    "outputType": "comtrya.sprints/summary.v1"
+  },
+  "contributes": {
+    "cueSchemas": [
+      {
+        "id": "sprints",
+        "snippet": "package comtrya\n\n// Per-Project sprint policy. The status set mirrors the WIT\n// `sprint-state` variant exposed by ext_sprints; if you add a state\n// here, also extend the variant. Read by ext_sprints; the kernel\n// and other extensions do not interpret these fields.\n#SprintState: \"planned\" | \"active\" | \"completed\" | \"canceled\"\n\n#SprintsPolicy: {\n  defaultCapacity?: int\n  cadence?:         string\n}\n\n#Project: { sprints?: #SprintsPolicy }\n"
+      }
+    ],
+    "resourceKinds": [
+      { "name": "sprint", "prefix": "spr", "scope": "instance" },
+      { "name": "sprint-counter", "prefix": "sprc", "scope": "instance" }
+    ],
+    "relationshipTypes": [
+      {
+        "id": "ext_sprints.issue-part-of-sprint",
+        "kind": "comtrya://rel/part-of",
+        "sourceKinds": ["issue"],
+        "targetKinds": ["sprint"],
+        "outgoingLabel": "part of sprint",
+        "incomingLabel": "contains issue",
+        "order": 200,
+        "requiresParticipation": "ext_sprints"
+      }
+    ],
+    "collections": [
+      {
+        "name": "sprints",
+        "ownerExtension": "ext_sprints",
+        "indexes": [
+          { "name": "by_workspace_state_updated", "fields": ["workspaceId", "state", "updatedAt"], "unique": false }
+        ]
+      },
+      {
+        "name": "ext_sprints_meta",
+        "ownerExtension": "ext_sprints",
+        "indexes": [
+          { "name": "by_id", "fields": ["id"], "unique": true }
+        ]
+      }
+    ]
+  },
+  "hostImports": [
+    "storage.read", "storage.write",
+    "relations.read", "relations.write",
+    "events.write",
+    "time", "ids", "log"
+  ],
+  "allowedEmits": [
+    "dev.comtrya.sprint.created",
+    "dev.comtrya.sprint.state-changed"
+  ],
+  "reactor": {
+    "allowedMutations": [],
+    "allowedEmits": []
+  }
+}

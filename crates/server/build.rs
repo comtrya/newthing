@@ -221,6 +221,7 @@ fn typed_invoker_fn(id: &str) -> Option<&'static str> {
         // onto typed WASM invokers as their component crates land.
         "ext_issues" => Some("dispatch_ext_issues"),
         "ext_epics" => Some("dispatch_ext_epics"),
+        "ext_sprints" => Some("dispatch_ext_sprints"),
         "ext_pull_requests" => Some("dispatch_ext_pull_requests"),
         "ext_checks" => Some("dispatch_ext_checks"),
         "ext_workspace_home" => Some("dispatch_ext_workspace_home"),
