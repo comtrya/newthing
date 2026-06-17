@@ -868,6 +868,152 @@ kbd {
   display: grid;
 }
 
+/* First-run onboarding — shown on the workspace home when no repos
+   exist yet. Editorial intro + two equal action cards + quiet tips. */
+.shell-app .home-onboard {
+  display: grid;
+  gap: 28px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 56px 0 40px;
+}
+
+.shell-app .home-onboard-intro {
+  display: grid;
+  gap: 10px;
+}
+
+.shell-app .home-onboard-intro h2 {
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.shell-app .home-onboard-intro p {
+  color: var(--fg-2);
+  max-width: 56ch;
+  line-height: 1.55;
+}
+
+.shell-app .home-onboard-intro code,
+.shell-app .home-onboard-tips code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--fg);
+  background: var(--surface);
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  padding: 0.5px 5px;
+}
+
+.shell-app .home-onboard-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.shell-app .home-onboard-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+  transition: border-color 100ms ease, background 100ms ease, transform 100ms ease;
+}
+
+.shell-app .home-onboard-card:hover {
+  border-color: var(--line-3);
+  background: var(--surface-2);
+  transform: translateY(-1px);
+}
+
+.shell-app .home-onboard-card:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.shell-app .home-onboard-card.primary {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.shell-app .home-onboard-glyph {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  border: 0.5px solid var(--line-2);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--fg-2);
+}
+
+.shell-app .home-onboard-card.primary .home-onboard-glyph {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.shell-app .home-onboard-card-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.shell-app .home-onboard-card-body strong {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.shell-app .home-onboard-card-body span {
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.shell-app .home-onboard-tips {
+  list-style: none;
+  margin: 0;
+  padding: 18px 0 0;
+  border-top: 0.5px solid var(--line);
+  display: grid;
+  gap: 12px;
+}
+
+.shell-app .home-onboard-tips li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.shell-app .home-onboard-tips kbd {
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .shell-app .home-onboard-actions { grid-template-columns: 1fr; }
+  .shell-app .home-onboard { padding-top: 32px; }
+}
+
 .shell-app .activity-project-filter {
   display: flex;
   flex-wrap: wrap;

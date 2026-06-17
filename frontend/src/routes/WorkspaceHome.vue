@@ -63,6 +63,26 @@ const workspace = computed(() => payload.value?.workspace ?? {
 });
 const repositories = computed(() => workspace.value.repositories);
 const extensionCount = computed(() => payload.value?.extensionInstallations?.length ?? 0);
+
+/**
+ * A freshly-provisioned single-user forge has no repositories yet.
+ * Rather than render an empty header strip over an empty activity
+ * stream — which reads as "broken" on first run — the home swaps to
+ * a guided first-run panel: the two ways to get a repo into the forge
+ * (create empty / import by URL, both served by `/new`) plus the two
+ * navigation affordances a newcomer won't discover on their own
+ * (⌘K palette, the `comtrya.cue` config model). Only shown once the
+ * workspace summary has resolved so a slow load doesn't flash it.
+ */
+const isFreshWorkspace = computed(
+  () => loadState.value === "ready" && repositories.value.length === 0,
+);
+
+const isMac =
+  typeof navigator !== "undefined"
+    ? /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || "")
+    : false;
+const cmdLabel = computed(() => (isMac ? "⌘" : "Ctrl"));
 const extensionRuntime = computed(
   () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
 );
@@ -393,7 +413,52 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
 
     <p v-if="loadState === 'error'" class="repo-state" role="alert">{{ loadError }}</p>
 
-    <section class="home-grid">
+    <section
+      v-if="isFreshWorkspace"
+      class="home-onboard"
+      data-smoke="home-onboard"
+      aria-label="Get started"
+    >
+      <div class="home-onboard-intro">
+        <span class="overline">First run</span>
+        <h2>Bring your first repository in</h2>
+        <p>
+          This workspace is empty. Create a fresh repository or import one you
+          already have — both land here with their <code>comtrya.cue</code>
+          config evaluated and ready to browse.
+        </p>
+      </div>
+
+      <div class="home-onboard-actions">
+        <RouterLink to="/new" class="home-onboard-card primary" data-smoke="onboard-create">
+          <span class="home-onboard-glyph" aria-hidden="true">+</span>
+          <span class="home-onboard-card-body">
+            <strong>Create a repository</strong>
+            <span>Start empty and push your first commit over git.</span>
+          </span>
+        </RouterLink>
+        <RouterLink to="/new" class="home-onboard-card" data-smoke="onboard-import">
+          <span class="home-onboard-glyph" aria-hidden="true">↧</span>
+          <span class="home-onboard-card-body">
+            <strong>Import from a URL</strong>
+            <span>Clone an existing repo into the forge by its remote URL.</span>
+          </span>
+        </RouterLink>
+      </div>
+
+      <ul class="home-onboard-tips" aria-label="Tips">
+        <li>
+          <kbd>{{ cmdLabel }}</kbd><kbd>K</kbd>
+          opens the command palette — jump to any repo, issue, or pull.
+        </li>
+        <li>
+          A <code>comtrya.cue</code> at a repo root declares its visibility,
+          default branch, enabled extensions, and projects.
+        </li>
+      </ul>
+    </section>
+
+    <section v-else class="home-grid">
       <div class="home-spine" data-smoke="home-spine">
         <div
           v-if="uniqueActivityProjects.length > 0"
