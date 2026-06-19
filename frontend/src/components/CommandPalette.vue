@@ -430,7 +430,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
             <Combobox @update:model-value="onSelect" nullable>
               <ComboboxInput
                 class="palette-input"
-                placeholder="Search repos, issues, pulls, epics, commands…"
+                placeholder="Search repositories, issues, pull requests, epics, commands…"
                 autocomplete="off"
                 spellcheck="false"
                 :display-value="() => ''"
