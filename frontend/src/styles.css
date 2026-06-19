@@ -2135,6 +2135,24 @@ kbd {
   color: var(--fg-4);
 }
 
+.shell-app .repo-code-latest-author {
+  flex: 0 0 auto;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.shell-app .repo-code-latest-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .repo-code-latest-time {
+  flex: 0 0 auto;
+  color: var(--fg-3);
+}
+
 .shell-app .repo-code-commit-label {
   color: var(--fg);
   font-family: var(--font-mono);

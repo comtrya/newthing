@@ -15,7 +15,16 @@ interface RepoCodePayload {
   path: string;
   defaultBranch: string | null;
   headOid: string | null;
+  commits?: RepoCodeCommit[] | null;
   files: RepoFile[];
+}
+
+interface RepoCodeCommit {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  time: string;
 }
 
 const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
@@ -25,6 +34,7 @@ const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
       path
       defaultBranch
       headOid
+      commits { oid shortOid subject author time }
       files { path size kind preview }
     }
   }
@@ -381,13 +391,9 @@ function filterEntries(entries: BrowserEntry[], query: string): BrowserEntry[] {
 function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTMLElement {
   const summary = document.createElement("div");
   summary.className = "repo-code-directory-summary";
-  const commit = shortCommit(repo.headOid);
   const treeSummary = directorySummary(repo.files, currentPath);
-  summary.setAttribute("aria-label", `Latest commit ${commit}; ${treeSummary}`);
-
-  const latest = document.createElement("span");
-  latest.className = "repo-code-latest-commit";
-  latest.append(icon("commit"), textNode("Latest commit "), commitLabel(repo.headOid));
+  const latest = buildLatestCommit(repo);
+  summary.setAttribute("aria-label", `${latest.getAttribute("aria-label")}; ${treeSummary}`);
 
   const tree = document.createElement("span");
   tree.className = "repo-code-directory-counts";
@@ -395,6 +401,43 @@ function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTML
 
   summary.append(latest, tree);
   return summary;
+}
+
+function buildLatestCommit(repo: RepoCodePayload): HTMLElement {
+  const latest = document.createElement("span");
+  latest.className = "repo-code-latest-commit";
+
+  const commit = repo.commits?.[0] ?? null;
+  if (!commit) {
+    const short = shortCommit(repo.headOid);
+    latest.setAttribute("aria-label", `Latest commit ${short}`);
+    latest.append(icon("commit"), textNode("Latest commit "), commitLabel(repo.headOid));
+    return latest;
+  }
+
+  const author = commit.author.trim() || "Unknown author";
+  const subject = commit.subject.trim() || "No commit message";
+  const time = commit.time.trim();
+  const short = commit.shortOid.trim() || shortCommit(commit.oid);
+  latest.setAttribute(
+    "aria-label",
+    `Latest commit ${subject} by ${author} (${short})${time ? ` ${time}` : ""}`,
+  );
+  latest.append(
+    icon("commit"),
+    commitText("repo-code-latest-author", author),
+    commitText("repo-code-latest-subject", subject),
+    commitLabel(short),
+  );
+  if (time) latest.append(commitText("repo-code-latest-time", time));
+  return latest;
+}
+
+function commitText(className: string, text: string): HTMLElement {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
 }
 
 function commitLabel(headOid: string | null | undefined): HTMLElement {

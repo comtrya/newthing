@@ -15,6 +15,15 @@ test("core code browser renders familiar branch and commit controls", async () =
             path: "comtrya/dogfood",
             defaultBranch: "main",
             headOid: "1234567890abcdef1234567890abcdef12345678",
+            commits: [
+              {
+                oid: "1234567890abcdef1234567890abcdef12345678",
+                shortOid: "1234567",
+                subject: "Add repository shell",
+                author: "Ada",
+                time: "2 hours ago",
+              },
+            ],
             files: [
               { path: "README.md", size: 120, kind: "markdown", preview: "# Readme" },
               { path: "src/main.ts", size: 240, kind: "typescript", preview: "main()" },
@@ -41,8 +50,13 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(refText).toEqual(["main", "1234567890ab"]);
   expect(element.querySelectorAll(".repo-code-ref-pill svg")).toHaveLength(2);
   expect(element.querySelector(".repo-code-breadcrumb-current")?.textContent).toBe("dogfood");
-  expect(element.querySelector(".repo-code-latest-commit")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-    "Latest commit 1234567890ab",
+  const latestCommit = element.querySelector(".repo-code-latest-commit")!;
+  expect(latestCommit.querySelector(".repo-code-latest-author")?.textContent).toBe("Ada");
+  expect(latestCommit.querySelector(".repo-code-latest-subject")?.textContent).toBe("Add repository shell");
+  expect(latestCommit.querySelector(".repo-code-commit-label")?.textContent).toBe("1234567");
+  expect(latestCommit.querySelector(".repo-code-latest-time")?.textContent).toBe("2 hours ago");
+  expect(latestCommit.getAttribute("aria-label")).toBe(
+    "Latest commit Add repository shell by Ada (1234567) 2 hours ago",
   );
   expect(element.querySelector(".repo-code-directory-counts")?.textContent).toBe(
     "1 directory · 1 file shown · 2 total",
