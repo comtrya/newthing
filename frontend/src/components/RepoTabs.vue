@@ -63,6 +63,8 @@ interface Tab {
   icon: IconKey;
   to: string;
   count?: number;
+  countAriaLabel?: string;
+  showZeroCount?: boolean;
   countTone?: "ink" | "alarm";
 }
 
@@ -112,6 +114,8 @@ const tabs = computed<Tab[]>(() => {
       icon: "issue",
       to: repoExtPath("issues"),
       count: props.openIssues ?? 0,
+      countAriaLabel: `${props.openIssues ?? 0} open issues`,
+      showZeroCount: true,
     });
   }
   if (extEnabled("pulls")) {
@@ -121,6 +125,8 @@ const tabs = computed<Tab[]>(() => {
       icon: "pr",
       to: repoExtPath("pulls"),
       count: props.openPulls ?? 0,
+      countAriaLabel: `${props.openPulls ?? 0} open pull requests`,
+      showZeroCount: true,
     });
   }
   if (extEnabled("epics")) {
@@ -133,6 +139,7 @@ const tabs = computed<Tab[]>(() => {
       icon: "check",
       to: repoExtPath("checks"),
       count: props.failingChecks ?? 0,
+      countAriaLabel: `${props.failingChecks ?? 0} failing checks`,
       countTone: "alarm",
     });
   }
@@ -178,8 +185,9 @@ function isActive(tab: Tab): boolean {
       <Icon :name="tab.icon" />
       <span class="repo-tab-label">{{ tab.label }}</span>
       <span
-        v-if="(tab.count ?? 0) > 0"
+        v-if="(tab.count ?? 0) > 0 || tab.showZeroCount"
         :class="['repo-tab-count', `tone-${tab.countTone ?? 'ink'}`]"
+        :aria-label="tab.countAriaLabel"
       >{{ tab.count }}</span>
     </RouterLink>
   </nav>

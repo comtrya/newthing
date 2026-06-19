@@ -20,6 +20,8 @@ interface Tab {
   label: string;
   icon: string;
   count?: number;
+  countAriaLabel?: string;
+  showZeroCount?: boolean;
   countTone?: CountTone;
 }
 
@@ -40,9 +42,23 @@ function buildTabs(opts: {
     { id: "code", label: "Code", icon: "folder" },
   ];
   if (extEnabled("issues"))
-    all.push({ id: "issues", label: "Issues", icon: "issue", count: openIssues });
+    all.push({
+      id: "issues",
+      label: "Issues",
+      icon: "issue",
+      count: openIssues,
+      countAriaLabel: `${openIssues} open issues`,
+      showZeroCount: true,
+    });
   if (extEnabled("pulls"))
-    all.push({ id: "pulls", label: "Pull requests", icon: "pr", count: openPulls });
+    all.push({
+      id: "pulls",
+      label: "Pull requests",
+      icon: "pr",
+      count: openPulls,
+      countAriaLabel: `${openPulls} open pull requests`,
+      showZeroCount: true,
+    });
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
   if (extEnabled("checks"))
     all.push({
@@ -50,6 +66,7 @@ function buildTabs(opts: {
       label: "Checks",
       icon: "check",
       count: failingChecks,
+      countAriaLabel: `${failingChecks} failing checks`,
       countTone: "alarm",
     });
   all.push({ id: "config", label: "Config", icon: "settings" });
@@ -144,9 +161,27 @@ describe("RepoTabs extension filtering", () => {
     });
     const issues = tabs.find((t) => t.id === "issues");
     expect(issues?.count).toBe(7);
+    expect(issues?.countAriaLabel).toBe("7 open issues");
   });
 
-  test("checks tab uses alarm countTone", () => {
+  test("issues and pull request tabs opt into zero-count badges", () => {
+    const tabs = buildTabs({
+      enabledExtensions: ["ext_issues", "ext_pull_requests", "ext_checks"],
+    });
+    const issues = tabs.find((t) => t.id === "issues");
+    const pulls = tabs.find((t) => t.id === "pulls");
+    const checks = tabs.find((t) => t.id === "checks");
+    expect(issues?.count).toBe(0);
+    expect(issues?.showZeroCount).toBe(true);
+    expect(issues?.countAriaLabel).toBe("0 open issues");
+    expect(pulls?.count).toBe(0);
+    expect(pulls?.showZeroCount).toBe(true);
+    expect(pulls?.countAriaLabel).toBe("0 open pull requests");
+    expect(checks?.count).toBe(0);
+    expect(checks?.showZeroCount).toBeUndefined();
+  });
+
+  test("checks tab uses alarm countTone and count label", () => {
     const tabs = buildTabs({
       enabledExtensions: ["ext_checks"],
       failingChecks: 3,
@@ -154,6 +189,7 @@ describe("RepoTabs extension filtering", () => {
     const checks = tabs.find((t) => t.id === "checks");
     expect(checks?.countTone).toBe("alarm");
     expect(checks?.count).toBe(3);
+    expect(checks?.countAriaLabel).toBe("3 failing checks");
   });
 
   test("partial extension set — only requested extension tabs appear", () => {

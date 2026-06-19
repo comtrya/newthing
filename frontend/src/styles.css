@@ -1917,20 +1917,29 @@ kbd {
 }
 
 .shell-app .repo-tab-count {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  min-width: 20px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1;
-  padding: 1px 5px;
-  border: 0.5px solid var(--line);
-  border-radius: 4px;
-  color: var(--fg-3);
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--fg-2);
 }
 
-.shell-app .repo-tab.active .repo-tab-count { border-color: var(--line-3); color: var(--fg); }
+.shell-app .repo-tab.active .repo-tab-count {
+  background: var(--surface-3);
+  color: var(--fg);
+}
 
 .shell-app .repo-tab-count.tone-alarm {
   background: var(--err-soft);
-  border-color: var(--err);
   color: var(--err);
 }
 
