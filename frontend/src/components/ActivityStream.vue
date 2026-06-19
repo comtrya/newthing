@@ -52,6 +52,20 @@ const status = ref<"connecting" | "live" | "idle" | "error">("connecting");
 const error = ref<string | null>(null);
 const focusedIndex = ref(0);
 
+const statusLabel = computed(() => {
+  switch (status.value) {
+    case "connecting":
+      return "Connecting";
+    case "live":
+      return "Live";
+    case "error":
+      return "Error";
+    case "idle":
+    default:
+      return "Idle";
+  }
+});
+
 let unsubscribe: (() => void) | undefined;
 let highlightTimers: number[] = [];
 
@@ -362,7 +376,7 @@ function relativeTime(ms: number): string {
         <h2>Today</h2>
         <span :class="['stream-status', `stream-status-${status}`]">
           <span class="dot" />
-          {{ status }}
+          {{ statusLabel }}
         </span>
       </div>
       <span class="count">{{ filtered.length }} event{{ filtered.length === 1 ? "" : "s" }}</span>
@@ -444,11 +458,12 @@ function relativeTime(ms: number): string {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .stream-status .dot {
@@ -478,14 +493,16 @@ function relativeTime(ms: number): string {
 }
 
 .activity-stream .count {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
 }
 
 .muted {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
 }
 
