@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { listPulls } from "./api";
 import {
+  defaultWorkspaceId,
   pullHref,
   pullsIndexHref,
   relativeTime,
@@ -13,12 +14,14 @@ import {
 interface HostContext {
   workspaceId?: string;
   repositoryId?: string | null;
+  repositoryPath?: string | null;
 }
 
 const props = defineProps<{
   host?: HostContext;
   workspaceId?: string;
   repositoryId?: string | null;
+  repositoryPath?: string | null;
 }>();
 
 
@@ -29,6 +32,7 @@ const workspaceId = computed(
   () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
 );
 const repositoryId = computed(() => props.repositoryId ?? props.host?.repositoryId ?? null);
+const repositoryPath = computed(() => props.repositoryPath ?? props.host?.repositoryPath ?? null);
 
 const top = computed(() => {
   return pulls.value
@@ -47,6 +51,14 @@ const openCount = computed(
 
 onMounted(() => void load());
 watch(() => [workspaceId.value, repositoryId.value], () => void load());
+
+function pullsListHref(): string {
+  return pullsIndexHref(repositoryPath.value);
+}
+
+function pullDetailHref(pull: Pick<PullRequest, "id">): string {
+  return pullHref(pull, repositoryPath.value);
+}
 
 async function load(): Promise<void> {
   loadState.value = "loading";
@@ -68,7 +80,7 @@ async function load(): Promise<void> {
   <section class="pulls-overview" data-smoke="pulls-overview">
     <header>
       <h3>Pull requests</h3>
-      <a :href="pullsIndexHref()">{{ openCount }} open</a>
+      <a :href="pullsListHref()">{{ openCount }} open</a>
     </header>
 
     <p v-if="loadState === 'loading'" class="muted">Loading…</p>
@@ -77,7 +89,7 @@ async function load(): Promise<void> {
 
     <ul v-else>
       <li v-for="pull in top" :key="pull.id">
-        <a :href="pullHref(pull)">
+        <a :href="pullDetailHref(pull)">
           <span class="num">#{{ pull.number }}</span>
           <span class="title">{{ pull.title }}</span>
           <span :class="['state', stateTone(pull.state).className]">

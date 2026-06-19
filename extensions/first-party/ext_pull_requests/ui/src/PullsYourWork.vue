@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { listPulls } from "./api";
 import {
   authorLabel,
+  defaultWorkspaceId,
   pullHref,
   pullsIndexHref,
   relativeTime,
@@ -14,12 +15,14 @@ import {
 interface HostContext {
   workspaceId?: string;
   viewerRef?: string | null;
+  repositoryPath?: string | null;
 }
 
 const props = defineProps<{
   host?: HostContext;
   workspaceId?: string;
   viewerRef?: string | null;
+  repositoryPath?: string | null;
 }>();
 
 
@@ -30,6 +33,7 @@ const workspaceId = computed(
   () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
 );
 const viewerRef = computed(() => props.viewerRef ?? props.host?.viewerRef ?? null);
+const repositoryPath = computed(() => props.repositoryPath ?? props.host?.repositoryPath ?? null);
 
 const authoredByViewer = computed(() => {
   if (!viewerRef.value) return pulls.value.filter((p) => p.state === "READY" || p.state === "DRAFT").slice(0, 5);
@@ -41,6 +45,14 @@ const authoredByViewer = computed(() => {
 
 onMounted(() => void load());
 watch(() => [workspaceId.value], () => void load());
+
+function pullsListHref(): string {
+  return pullsIndexHref(repositoryPath.value);
+}
+
+function pullDetailHref(pull: Pick<PullRequest, "id">): string {
+  return pullHref(pull, repositoryPath.value);
+}
 
 async function load(): Promise<void> {
   loadState.value = "loading";
@@ -61,7 +73,7 @@ async function load(): Promise<void> {
   <section class="pulls-your-work" data-smoke="pulls-your-work">
     <header>
       <h3>Your pull requests</h3>
-      <a :href="pullsIndexHref()">queue</a>
+      <a :href="pullsListHref()">queue</a>
     </header>
 
     <p v-if="loadState === 'loading'" class="muted">Loading…</p>
@@ -72,7 +84,7 @@ async function load(): Promise<void> {
 
     <ul v-else>
       <li v-for="pull in authoredByViewer" :key="pull.id">
-        <a :href="pullHref(pull)">
+        <a :href="pullDetailHref(pull)">
           <span class="num">#{{ pull.number }}</span>
           <span class="title">{{ pull.title }}</span>
           <span :class="['state', stateTone(pull.state).className]">

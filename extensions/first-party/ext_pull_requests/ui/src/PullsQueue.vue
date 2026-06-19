@@ -4,6 +4,7 @@ import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
 import { listPulls } from "./api";
 import {
   classifyAuthor,
+  defaultWorkspaceId,
   pullHref,
   relativeTime,
   stateTone,
@@ -15,12 +16,14 @@ import {
 interface HostContext {
   workspaceId?: string;
   repositoryId?: string | null;
+  repositoryPath?: string | null;
 }
 
 const props = defineProps<{
   host?: HostContext;
   workspaceId?: string;
   repositoryId?: string | null;
+  repositoryPath?: string | null;
 }>();
 
 type Filter = "OPEN" | "DRAFT" | "MERGED" | "CLOSED" | "ALL";
@@ -55,6 +58,7 @@ const workspaceId = computed(
   () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
 );
 const repositoryId = computed(() => props.repositoryId ?? props.host?.repositoryId ?? null);
+const repositoryPath = computed(() => props.repositoryPath ?? props.host?.repositoryPath ?? null);
 
 const matchesFilter = (pull: PullRequest, f: Filter): boolean => {
   if (f === "ALL") return true;
@@ -303,7 +307,7 @@ useShortcuts({
     const pull = filtered.value[focusedIndex.value];
     if (!pull) return;
     event.preventDefault();
-    window.location.href = pullHref(pull);
+    window.location.href = pullDetailHref(pull);
   },
   "/": (event) => {
     event.preventDefault();
@@ -316,6 +320,10 @@ function onSearchEscape(event: KeyboardEvent): void {
   if (!search.value) return;
   event.preventDefault();
   search.value = "";
+}
+
+function pullDetailHref(pull: Pick<PullRequest, "id">): string {
+  return pullHref(pull, repositoryPath.value);
 }
 
 async function load(): Promise<void> {
@@ -432,7 +440,7 @@ async function load(): Promise<void> {
         :aria-selected="index === focusedIndex"
         @mouseenter="focusedIndex = index"
       >
-        <a :href="pullHref(pull)" class="pulls-row-link">
+        <a :href="pullDetailHref(pull)" class="pulls-row-link">
           <span class="pulls-row-number">#{{ pull.number }}</span>
           <span class="pulls-row-body">
             <span class="pulls-row-title">{{ pull.title }}</span>

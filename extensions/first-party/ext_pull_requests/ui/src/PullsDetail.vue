@@ -14,6 +14,7 @@ import DiffView from "./DiffView.vue";
 import { parseUnifiedDiff } from "./diff";
 import {
   classifyAuthor,
+  defaultWorkspaceId,
   pullsIndexHref,
   relativeTime,
   stateTone,
@@ -24,9 +25,11 @@ import {
 
 const props = defineProps<{
   routeParams?: ExtensionRouteParams;
+  repositoryPath?: string | null;
 }>();
 
 const pullId = computed(() => props.routeParams?.params?.pullId ?? "");
+const pullsBackHref = computed(() => pullsIndexHref(props.repositoryPath));
 const pull = ref<PullRequest | null>(null);
 const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
@@ -267,12 +270,16 @@ useShortcuts({
   Escape: (event) => {
     // Defer to overlays (palette / shortcuts overlay) when one is open.
     if (document.querySelector(".shortcuts-backdrop, .palette-backdrop")) return;
-    event.preventDefault();
-    window.location.href = pullsIndexHref();
+    navigateToPulls(event);
   },
 });
 
 watch(pullId, () => void load());
+
+function navigateToPulls(event: Event): void {
+  event.preventDefault();
+  window.location.href = pullsBackHref.value;
+}
 
 async function load(): Promise<void> {
   if (!pullId.value) {
@@ -330,7 +337,7 @@ async function loadDiff(): Promise<void> {
   diffState.value = "loading";
   diffError.value = null;
   try {
-    const segments = repositorySegmentsFromLocation();
+    const segments = repositorySegmentsFromContext();
     if (segments.length === 0) {
       diffPatch.value = "";
       diffPath.value = "";
@@ -360,13 +367,19 @@ async function loadDiff(): Promise<void> {
   }
 }
 
+function repositorySegmentsFromContext(): string[] {
+  const fromHost = props.repositoryPath?.split("/").filter(Boolean) ?? [];
+  if (fromHost.length > 0) return fromHost;
+  return repositorySegmentsFromLocation();
+}
+
 function repositorySegmentsFromLocation(): string[] {
   if (typeof window === "undefined") return [];
   const path = window.location.pathname;
   if (!path.startsWith("/r/")) return [];
   const rest = path.slice("/r/".length);
-  const projectIdx = rest.indexOf("/p/");
-  const repoPath = projectIdx >= 0 ? rest.slice(0, projectIdx) : rest;
+  const workbenchIdx = rest.search(/\/(?:pulls|issues|checks|epics|p)\//);
+  const repoPath = workbenchIdx >= 0 ? rest.slice(0, workbenchIdx) : rest;
   return repoPath.split("/").filter(Boolean).map(decodeURIComponent);
 }
 
@@ -406,13 +419,18 @@ async function onClose(): Promise<void> {
     <p v-else-if="loadState === 'error'" class="pulls-error" role="alert">{{ error }}</p>
     <p v-else-if="loadState === 'empty' || !pull" class="pulls-empty">
       No pull request found for <code>{{ pullId }}</code>.
-      <a :href="pullsIndexHref()">← back to queue</a>
+      <a :href="pullsBackHref" @click="navigateToPulls">← Pull requests</a>
     </p>
 
     <template v-else>
       <header class="pulls-detail-head">
         <div class="pulls-detail-title">
-          <a :href="pullsIndexHref()" class="back" aria-label="Back to pull request queue">←</a>
+          <button
+            type="button"
+            class="back"
+            aria-label="Back to pull requests"
+            @click="navigateToPulls"
+          >← Pull requests</button>
           <span class="pulls-detail-number">#{{ pull.number }}</span>
           <h1>{{ pull.title }}</h1>
         </div>
@@ -641,7 +659,11 @@ async function onClose(): Promise<void> {
   font-family: var(--font-mono, monospace);
   font-size: 16px;
   color: var(--fg-3, rgba(255,255,255,0.52));
+  border: 0;
+  background: transparent;
+  padding: 0;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .back:hover {

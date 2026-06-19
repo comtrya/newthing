@@ -1,6 +1,10 @@
-import { buildExtensionUrl } from "@comtrya/sdk-core";
+import { activeWorkspaceId, buildExtensionUrl } from "@comtrya/sdk-core";
 
 export const EXT_PULLS_ROUTE_PREFIX = "pulls";
+
+export function defaultWorkspaceId(): string {
+  return activeWorkspaceId() ?? "";
+}
 
 export type PrState = "DRAFT" | "READY" | "MERGED" | "CLOSED";
 
@@ -37,12 +41,23 @@ export interface ExtensionRouteParams {
   params?: Record<string, string | undefined>;
 }
 
-export function pullsIndexHref(): string {
-  return buildExtensionUrl(EXT_PULLS_ROUTE_PREFIX, "/");
+export function pullsIndexHref(repositoryPath?: string | null): string {
+  return repositoryPullsBasePath(repositoryPath) ?? buildExtensionUrl(EXT_PULLS_ROUTE_PREFIX, "/");
 }
 
-export function pullHref(pull: Pick<PullRequest, "id">): string {
+export function pullHref(
+  pull: Pick<PullRequest, "id">,
+  repositoryPath?: string | null,
+): string {
+  const repoBase = repositoryPullsBasePath(repositoryPath);
+  if (repoBase) return `${repoBase}/${encodeURIComponent(pull.id)}`;
   return buildExtensionUrl(EXT_PULLS_ROUTE_PREFIX, `/${pull.id}`);
+}
+
+function repositoryPullsBasePath(repositoryPath: string | null | undefined): string | null {
+  const segments = repositoryPath?.split("/").filter(Boolean) ?? [];
+  if (segments.length === 0) return null;
+  return `/r/${segments.map(encodeURIComponent).join("/")}/pulls`;
 }
 
 export function stateTone(state: PrState | string | undefined): PrTone {
