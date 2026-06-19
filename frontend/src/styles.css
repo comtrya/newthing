@@ -2094,6 +2094,48 @@ kbd {
   white-space: nowrap;
 }
 
+.shell-app .repo-code-directory-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  border-bottom: 0.5px solid var(--line);
+  padding: 10px 12px;
+}
+
+.shell-app .repo-code-filter-control {
+  width: min(100%, 320px);
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  background: var(--bg-2);
+  color: var(--fg-3);
+  padding: 0 10px;
+}
+
+.shell-app .repo-code-filter-control:focus-within {
+  border-color: var(--accent-line);
+  color: var(--fg-2);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.shell-app .repo-code-file-filter {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  letter-spacing: 0;
+}
+
+.shell-app .repo-code-file-filter::placeholder {
+  color: var(--fg-3);
+}
+
 .shell-app .repo-code-directory-header,
 .shell-app .repo-code-row {
   display: grid;

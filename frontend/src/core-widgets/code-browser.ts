@@ -89,10 +89,12 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   private renderBrowser(root: HTMLElement, repo: RepoCodePayload): void {
     let currentPath = "";
     let openFilePath: string | null = null;
+    let filterText = "";
 
     const navigateToDirectory = (path: string): void => {
       currentPath = normalizePath(path);
       openFilePath = null;
+      filterText = "";
       render();
     };
     const openFile = (file: RepoFile): void => {
@@ -122,7 +124,16 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
         buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory),
         openFileEntry
           ? buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)))
-          : buildDirectoryView(repo, currentPath, navigateToDirectory, openFile),
+          : buildDirectoryView(
+            repo,
+            currentPath,
+            filterText,
+            (value) => {
+              filterText = value;
+            },
+            navigateToDirectory,
+            openFile,
+          ),
       );
       root.append(browser);
     };
@@ -255,6 +266,8 @@ function buildBreadcrumbSeparator(): HTMLElement {
 function buildDirectoryView(
   repo: RepoCodePayload,
   currentPath: string,
+  filterText: string,
+  setFilterText: (value: string) => void,
   navigateToDirectory: (path: string) => void,
   openFile: (file: RepoFile) => void,
 ): HTMLElement {
@@ -267,27 +280,73 @@ function buildDirectoryView(
   header.className = "repo-code-directory-header";
   header.append(columnLabel("Name"), columnLabel("Type"), columnLabel("Size"));
 
+  const controls = buildDirectoryControls(filterText);
   const rows = document.createElement("ul");
   rows.className = "repo-code-rows";
 
-  if (currentPath) {
-    rows.append(buildParentRow(currentPath, navigateToDirectory));
-  }
-
   const entries = entriesForPath(repo.files, currentPath);
-  if (entries.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "repo-code-empty-row";
-    empty.textContent = "No files in this directory.";
-    rows.append(empty);
-  } else {
-    for (const entry of entries) {
+  const renderRows = (query: string): void => {
+    rows.replaceChildren();
+
+    if (currentPath) {
+      rows.append(buildParentRow(currentPath, navigateToDirectory));
+    }
+
+    const filteredEntries = filterEntries(entries, query);
+    if (filteredEntries.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "repo-code-empty-row";
+      empty.textContent = query.trim()
+        ? `No files or folders match "${query.trim()}".`
+        : "No files in this directory.";
+      rows.append(empty);
+      return;
+    }
+
+    for (const entry of filteredEntries) {
       rows.append(buildEntryRow(entry, navigateToDirectory, openFile));
     }
-  }
+  };
 
-  panel.append(buildDirectorySummary(repo, currentPath), header, rows);
+  const filter = controls.querySelector<HTMLInputElement>(".repo-code-file-filter");
+  filter?.addEventListener("input", () => {
+    const value = filter.value;
+    setFilterText(value);
+    renderRows(value);
+  });
+  renderRows(filterText);
+
+  panel.append(buildDirectorySummary(repo, currentPath), controls, header, rows);
   return panel;
+}
+
+function buildDirectoryControls(filterText: string): HTMLElement {
+  const controls = document.createElement("div");
+  controls.className = "repo-code-directory-controls";
+  const label = document.createElement("label");
+  label.className = "repo-code-filter-control";
+  label.append(icon("file"));
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "repo-code-file-filter";
+  input.dataset.smoke = "repo-code-file-filter";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Find file or folder");
+  input.placeholder = "Find file or folder";
+  input.value = filterText;
+  label.append(input);
+  controls.append(label);
+  return controls;
+}
+
+function filterEntries(entries: BrowserEntry[], query: string): BrowserEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((entry) =>
+    entry.name.toLowerCase().includes(needle)
+    || entry.path.toLowerCase().includes(needle),
+  );
 }
 
 function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTMLElement {

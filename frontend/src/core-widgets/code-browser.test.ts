@@ -47,7 +47,28 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(element.querySelector(".repo-code-directory-counts")?.textContent).toBe(
     "1 directory · 1 file shown · 2 total",
   );
+
+  const filter = element.querySelector<HTMLInputElement>(".repo-code-file-filter");
+  expect(filter?.placeholder).toBe("Find file or folder");
+  expect(rowNames(element)).toEqual(["src", "README.md"]);
+
+  filter!.value = "read";
+  filter!.dispatchEvent(new Event("input", { bubbles: true }));
+  expect(rowNames(element)).toEqual(["README.md"]);
+
+  filter!.value = "missing";
+  filter!.dispatchEvent(new Event("input", { bubbles: true }));
+  expect(rowNames(element)).toEqual([]);
+  expect(element.querySelector(".repo-code-empty-row")?.textContent).toBe(
+    'No files or folders match "missing".',
+  );
 });
+
+function rowNames(root: ParentNode): string[] {
+  return Array.from(root.querySelectorAll(".repo-code-row-name")).map((node) =>
+    node.textContent?.trim() ?? "",
+  );
+}
 
 async function eventually<T>(read: () => T | null | undefined): Promise<T> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
