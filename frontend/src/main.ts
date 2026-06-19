@@ -66,7 +66,7 @@ function registerNavigationCommands(router: Router): void {
   });
   registerCommand({
     id: "core.issues",
-    title: "Open workspace issues queue",
+    title: "Open workspace issues",
     category: "Navigation",
     shortcut: "g i",
     extensionId: "core",
@@ -76,7 +76,7 @@ function registerNavigationCommands(router: Router): void {
   });
   registerCommand({
     id: "core.pulls",
-    title: "Open workspace pull-request queue",
+    title: "Open workspace pull requests",
     category: "Navigation",
     shortcut: "g p",
     extensionId: "core",
