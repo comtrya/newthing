@@ -103,6 +103,20 @@ function humanizeKeyLabel(key: string): string {
     .join(" ");
 }
 
+function normalizedProjectRoot(root: string | null | undefined): string {
+  return root?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function projectRootLabel(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "Repository root";
+}
+
+function projectRootTitle(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "<repo root>";
+}
+
 const projectsSummaryLabel = computed(() => {
   if (loadState.value === "loading") return "discovering...";
   if (loadState.value === "error") return "unavailable";
@@ -277,8 +291,9 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               </RouterLink>
               <template v-else>{{ project.name }}</template>
             </h3>
-            <code v-if="project.root" class="project-root">{{ project.root }}/</code>
-            <code v-else class="project-root">&lt;repo root&gt;</code>
+            <span class="project-root" :title="projectRootTitle(project.root)">
+              {{ projectRootLabel(project.root) }}
+            </span>
             <span v-if="project.implicit" class="implicit-badge">implicit</span>
           </div>
           <div class="project-meta">
@@ -452,9 +467,10 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .project-root {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-3);
 }
 
 .implicit-badge {

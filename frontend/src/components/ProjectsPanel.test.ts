@@ -31,6 +31,20 @@ function humanizeKeyLabel(key: string): string {
     .join(" ");
 }
 
+function normalizedProjectRoot(root: string | null | undefined): string {
+  return root?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function projectRootLabel(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "Repository root";
+}
+
+function projectRootTitle(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "<repo root>";
+}
+
 describe("ProjectsPanel summary copy", () => {
   test("summarizes explicit projects without exposing CUE evaluator internals", () => {
     expect(projectSummaryLabel(1, 1, false)).toBe("1 project from 1 config source");
@@ -54,5 +68,12 @@ describe("ProjectsPanel summary copy", () => {
     expect(humanizeKeyLabel("runtime")).toBe("Runtime");
     expect(humanizeKeyLabel("pull_requests")).toBe("Pull Requests");
     expect(humanizeKeyLabel("buildStatus")).toBe("Build Status");
+  });
+
+  test("uses familiar project root copy without losing raw root context", () => {
+    expect(projectRootLabel(undefined)).toBe("Repository root");
+    expect(projectRootTitle(undefined)).toBe("<repo root>");
+    expect(projectRootLabel("crates/server/")).toBe("crates/server/");
+    expect(projectRootTitle("crates/server/")).toBe("crates/server/");
   });
 });
