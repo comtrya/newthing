@@ -249,6 +249,9 @@ const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "
 const repositoryRefLabel = computed(() =>
   repositoryVcs.value === "jj" ? "bookmark" : "branch",
 );
+const repositoryAboutRefLabel = computed(() =>
+  repositoryRefLabel.value === "bookmark" ? "Bookmark" : "Branch",
+);
 const repositoryUpdatedLabel = computed(() =>
   relativeUpdated(repository.value?.updated ?? null) ?? "unknown",
 );
@@ -890,14 +893,14 @@ function mergeRepositoryIdentity(
             <div>
               <dt>
                 <Icon name="branch" />
-                <span>{{ repositoryRefLabel }}</span>
+                <span>{{ repositoryAboutRefLabel }}</span>
               </dt>
               <dd>{{ repositoryDefaultRef }}</dd>
             </div>
             <div>
               <dt>
                 <Icon name="terminal" />
-                <span>vcs</span>
+                <span>VCS</span>
               </dt>
               <dd>{{ repositoryVcs }}</dd>
             </div>
@@ -905,14 +908,14 @@ function mergeRepositoryIdentity(
               <dt>
                 <Icon v-if="repositoryVisibility === 'public'" name="globe" />
                 <Icon v-else name="lock" />
-                <span>visibility</span>
+                <span>Visibility</span>
               </dt>
               <dd>{{ repositoryVisibilityLabel }}</dd>
             </div>
             <div>
               <dt>
                 <Icon name="clock" />
-                <span>updated</span>
+                <span>Updated</span>
               </dt>
               <dd>{{ repositoryUpdatedLabel }}</dd>
             </div>

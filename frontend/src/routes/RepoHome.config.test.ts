@@ -160,6 +160,33 @@ describe("repository visibility copy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Repository About metadata labels — mirrors RepoHome.vue's sidebar copy
+// ---------------------------------------------------------------------------
+
+function repositoryAboutRefLabel(vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj" ? "Bookmark" : "Branch";
+}
+
+function repositoryAboutMetadataLabels(vcs: string | null | undefined): string[] {
+  return [repositoryAboutRefLabel(vcs), "VCS", "Visibility", "Updated"];
+}
+
+describe("repository About metadata labels", () => {
+  test("uses familiar UI labels instead of lower-case schema keys", () => {
+    expect(repositoryAboutMetadataLabels("git")).toEqual([
+      "Branch",
+      "VCS",
+      "Visibility",
+      "Updated",
+    ]);
+  });
+
+  test("keeps jj terminology by showing Bookmark as the ref label", () => {
+    expect(repositoryAboutMetadataLabels("jj")[0]).toBe("Bookmark");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 
