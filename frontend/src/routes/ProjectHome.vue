@@ -378,9 +378,10 @@ const projectQueueHrefs = computed(() => {
 
 <template>
   <header class="project-header" data-smoke="project-home">
-    <p class="overline">
+    <p class="project-breadcrumb" aria-label="Repository project breadcrumb">
       <RouterLink :to="`/r/${repoPath}`">{{ repoPath }}</RouterLink>
-      · project
+      <span class="project-breadcrumb-separator" aria-hidden="true">/</span>
+      <span>Projects</span>
     </p>
     <h1>{{ props.project }}</h1>
 
@@ -604,34 +605,46 @@ const projectQueueHrefs = computed(() => {
 <style scoped>
 .project-header {
   display: grid;
-  gap: 10px;
-  border-bottom: 0.5px solid var(--line);
-  padding-bottom: 18px;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
 }
 
-.project-header .overline {
+.project-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 20px;
+}
+
+.project-breadcrumb a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.project-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.project-breadcrumb-separator {
   color: var(--fg-3);
 }
 
-.project-header .overline a {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px solid currentColor;
-}
-
 .project-header h1 {
-  font-family: var(--font-serif);
-  font-size: 56px;
-  font-weight: 400;
-  font-style: italic;
-  line-height: 0.95;
-  letter-spacing: 0;
   margin: 0;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 32px;
 }
 
 .project-switcher {
