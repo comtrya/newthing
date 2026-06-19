@@ -97,6 +97,28 @@ const project = computed<ComtryaProject | null>(
 );
 const projectExists = computed(() => project.value !== null);
 
+function normalizedProjectRoot(root: string | null | undefined): string {
+  return root?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function projectRootLabel(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "Repository root";
+}
+
+function projectRootTitle(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "<repo root>";
+}
+
+function ownerKindLabel(kind: string | null | undefined): string {
+  if (!kind?.trim()) return "Owner";
+  return kind
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 onMounted(() => void load());
 watch(() => [repoSegments.value, props.project], () => void load());
 
@@ -404,9 +426,9 @@ const projectQueueHrefs = computed(() => {
     </nav>
 
     <div v-if="project" class="project-chip-row" aria-label="Project at a glance">
-      <span class="project-chip">
-        <strong>{{ project.root || "." }}/</strong>
-        <span>root</span>
+      <span class="project-chip" :title="projectRootTitle(project.root)">
+        <strong>{{ projectRootLabel(project.root) }}</strong>
+        <span>Root directory</span>
       </span>
       <span
         v-for="label in (project.labels ?? [])"
@@ -414,7 +436,7 @@ const projectQueueHrefs = computed(() => {
         class="project-chip tone-label"
       >
         <strong>{{ label }}</strong>
-        <span>label</span>
+        <span>Label</span>
       </span>
       <span
         v-for="owner in (project.owners ?? [])"
@@ -423,7 +445,7 @@ const projectQueueHrefs = computed(() => {
         :title="owner.ref"
       >
         <strong>{{ owner.slug }}</strong>
-        <span>{{ owner.kind ?? 'owner' }}</span>
+        <span>{{ ownerKindLabel(owner.kind) }}</span>
       </span>
     </div>
   </header>
@@ -690,20 +712,20 @@ const projectQueueHrefs = computed(() => {
 
 .project-chip {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border: 0.5px solid var(--line-2);
   border-radius: var(--r-xs);
   background: var(--surface);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0;
 }
 
 .project-chip strong {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-weight: 600;
   font-size: 13px;
   color: var(--fg);
@@ -712,7 +734,7 @@ const projectQueueHrefs = computed(() => {
 
 .project-chip span {
   color: var(--fg-3);
-  text-transform: lowercase;
+  text-transform: none;
 }
 
 .project-chip.tone-label strong {
