@@ -38,14 +38,14 @@ const staticGroups: ShortcutGroup[] = [
       { keys: ["g", "o"], description: "Overview" },
       { keys: ["g", "c"], description: "Code" },
       { keys: ["g", "i"], description: "Issues" },
-      { keys: ["g", "p"], description: "Pulls" },
+      { keys: ["g", "p"], description: "Pull requests" },
       { keys: ["g", "e"], description: "Epics" },
       { keys: ["g", "k"], description: "Checks" },
       { keys: ["g", "f"], description: "Config" },
     ],
   },
   {
-    title: "Lists (issues, pulls, epics)",
+    title: "Lists (issues, pull requests, epics)",
     shortcuts: [
       { keys: ["j"], description: "Move focus down" },
       { keys: ["k"], description: "Move focus up" },
