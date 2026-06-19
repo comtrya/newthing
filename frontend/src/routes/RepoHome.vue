@@ -889,7 +889,7 @@ function mergeRepositoryIdentity(
             <h2>About</h2>
             <RouterLink class="repo-about-code-link" :to="repoCodeHref">
               <Icon name="file" />
-              <span>Code</span>
+              <span>View code</span>
             </RouterLink>
           </header>
           <p class="repo-about-description">
