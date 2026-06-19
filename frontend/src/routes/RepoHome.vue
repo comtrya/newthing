@@ -241,6 +241,15 @@ const repositoryName = computed(() => repository.value?.name ?? props.repo);
 const repositoryVisibility = computed(() =>
   (repository.value?.visibility ?? "PRIVATE").toLowerCase(),
 );
+const repositoryVcs = computed(() => (repository.value?.vcs ?? "git").toLowerCase());
+const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "main");
+const repositoryRefLabel = computed(() =>
+  repositoryVcs.value === "jj" ? "bookmark" : "branch",
+);
+const repositoryUpdatedLabel = computed(() =>
+  relativeUpdated(repository.value?.updated ?? null) ?? "unknown",
+);
+const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
 
 /**
  * Clone command for the repository — absolute URL built from the
@@ -410,14 +419,14 @@ function relativeUpdated(value: string | null | undefined): string | null {
 
 const repoChips = computed<Chip[]>(() => {
   const chips: Chip[] = [];
-  const branch = repository.value?.defaultBranch ?? "main";
-  const vcs = (repository.value?.vcs ?? "git").toLowerCase();
+  const branch = repositoryDefaultRef.value;
+  const vcs = repositoryVcs.value;
   // In jj the default ref is a "bookmark", not a branch. The chip
   // label flips to match the repo's declared vcs so the
   // terminology stays honest. The wire (`defaultBranch`) keeps
   // its name on the CUE side and on the GraphQL projection;
   // only the user-facing label adapts.
-  const refLabel = vcs === "jj" ? "bookmark" : "branch";
+  const refLabel = repositoryRefLabel.value;
   chips.push({
     label: refLabel,
     value: branch,
@@ -828,6 +837,54 @@ function mergeRepositoryIdentity(
       </main>
 
       <aside class="repo-overview-rail">
+        <section
+          class="repo-about"
+          data-smoke="repo-about"
+          aria-label="About repository"
+        >
+          <header class="repo-about-head">
+            <h2>About</h2>
+            <RouterLink class="repo-about-code-link" :to="repoCodeHref">
+              <Icon name="file" />
+              <span>Code</span>
+            </RouterLink>
+          </header>
+          <p class="repo-about-description">
+            {{ repository?.description || "No description provided." }}
+          </p>
+          <dl class="repo-about-list">
+            <div>
+              <dt>
+                <Icon name="branch" />
+                <span>{{ repositoryRefLabel }}</span>
+              </dt>
+              <dd>{{ repositoryDefaultRef }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon name="terminal" />
+                <span>vcs</span>
+              </dt>
+              <dd>{{ repositoryVcs }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon v-if="repositoryVisibility === 'public'" name="globe" />
+                <Icon v-else name="lock" />
+                <span>visibility</span>
+              </dt>
+              <dd>{{ repositoryVisibility }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon name="clock" />
+                <span>updated</span>
+              </dt>
+              <dd>{{ repositoryUpdatedLabel }}</dd>
+            </div>
+          </dl>
+        </section>
+
         <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
 
         <section

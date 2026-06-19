@@ -1453,6 +1453,7 @@ kbd {
 
 .shell-app .repo-labels,
 .shell-app .repo-activity,
+.shell-app .repo-about,
 .shell-app .repo-bookmarks,
 .shell-app .repo-readme,
 .shell-app .repo-config-panel {
@@ -1469,6 +1470,7 @@ kbd {
 
 .shell-app.light .repo-labels,
 .shell-app.light .repo-activity,
+.shell-app.light .repo-about,
 .shell-app.light .repo-bookmarks,
 .shell-app.light .repo-readme,
 .shell-app.light .repo-config-panel {
@@ -1480,6 +1482,7 @@ kbd {
 
 .shell-app .repo-labels-head,
 .shell-app .repo-activity-head,
+.shell-app .repo-about-head,
 .shell-app .repo-bookmarks-head,
 .shell-app .repo-readme-head,
 .shell-app .repo-config-panel > header {
@@ -1498,6 +1501,7 @@ kbd {
 
 .shell-app .repo-labels-head h2,
 .shell-app .repo-activity-head h2,
+.shell-app .repo-about-head h2,
 .shell-app .repo-bookmarks-head h2,
 .shell-app .repo-readme-head h2,
 .shell-app .repo-config-panel > header h2 {
@@ -1507,6 +1511,67 @@ kbd {
   letter-spacing: 0.02em;
   text-transform: none;
   color: var(--fg);
+}
+
+.shell-app .repo-about-code-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-3);
+  text-decoration: none;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shell-app .repo-about-code-link:hover {
+  color: var(--fg);
+}
+
+.shell-app .repo-about-description {
+  margin: 0;
+  padding: 12px 16px 10px;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.shell-app .repo-about-list {
+  margin: 0;
+  padding: 0 16px 12px;
+  display: grid;
+  gap: 7px;
+}
+
+.shell-app .repo-about-list > div {
+  min-height: 20px;
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.shell-app .repo-about-list dt,
+.shell-app .repo-about-list dd {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.shell-app .repo-about-list dt {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.shell-app .repo-about-list dd {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .shell-app .repo-labels-list {
