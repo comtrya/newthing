@@ -255,6 +255,7 @@ const repositoryAboutRefLabel = computed(() =>
 const repositoryUpdatedLabel = computed(() =>
   relativeUpdated(repository.value?.updated ?? null) ?? "unknown",
 );
+const repoHomeHref = computed(() => `/r/${repoPath.value}`);
 const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
 
 /**
@@ -764,11 +765,17 @@ function mergeRepositoryIdentity(
             <span class="repo-title-icon" aria-hidden="true">
               <Icon name="folder" />
             </span>
-            <span v-if="repositoryOwnerPath" class="repo-owner-path">
-              {{ repositoryOwnerPath }}
-            </span>
-            <span v-if="repositoryOwnerPath" class="repo-path-separator">/</span>
-            <strong class="repo-name">{{ repositoryName }}</strong>
+            <RouterLink
+              class="repo-title-path"
+              :to="repoHomeHref"
+              :aria-label="`Repository home: ${displayPath}`"
+            >
+              <span v-if="repositoryOwnerPath" class="repo-owner-path">
+                {{ repositoryOwnerPath }}
+              </span>
+              <span v-if="repositoryOwnerPath" class="repo-path-separator">/</span>
+              <strong class="repo-name">{{ repositoryName }}</strong>
+            </RouterLink>
           </h1>
           <span
             class="repo-visibility"

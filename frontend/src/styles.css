@@ -1247,13 +1247,30 @@ kbd {
   color: var(--fg-3);
 }
 
+.shell-app .repo-title-path {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  color: var(--info);
+  text-decoration: none;
+}
+
+.shell-app .repo-title-path:hover .repo-owner-path,
+.shell-app .repo-title-path:hover .repo-name {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
 .shell-app .repo-owner-path {
   min-width: 0;
   max-width: min(44vw, 560px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-2);
+  color: inherit;
   font-weight: 400;
 }
 
@@ -1263,7 +1280,7 @@ kbd {
 
 .shell-app .repo-name {
   min-width: 0;
-  color: var(--fg);
+  color: inherit;
   font-weight: 650;
 }
 
