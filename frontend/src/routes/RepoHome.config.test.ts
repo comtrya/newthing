@@ -67,6 +67,39 @@ describe("formatConfigValue", () => {
 });
 
 // ---------------------------------------------------------------------------
+// README header metadata — mirrors RepoHome.vue's size label helper
+// ---------------------------------------------------------------------------
+
+function formatReadmeSize(size: number | null | undefined): string | null {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unit]}`;
+}
+
+describe("README header metadata", () => {
+  test("omits unknown or invalid sizes", () => {
+    expect(formatReadmeSize(null)).toBeNull();
+    expect(formatReadmeSize(undefined)).toBeNull();
+    expect(formatReadmeSize(Number.NaN)).toBeNull();
+    expect(formatReadmeSize(-1)).toBeNull();
+  });
+
+  test("formats byte, KB, and MB labels for the README file header", () => {
+    expect(formatReadmeSize(12)).toBe("12 B");
+    expect(formatReadmeSize(1536)).toBe("1.5 KB");
+    expect(formatReadmeSize(12 * 1024)).toBe("12 KB");
+    expect(formatReadmeSize(2 * 1024 * 1024)).toBe("2.0 MB");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 

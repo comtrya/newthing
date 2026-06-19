@@ -1782,8 +1782,49 @@ kbd {
 .shell-app .repo-readme-empty { padding: 20px 24px; color: var(--fg-3); font-size: 13px; }
 .shell-app .repo-readme { margin-top: 28px; }
 .shell-app .repo-overview-main .repo-readme { margin-top: 0; }
-.shell-app .repo-readme-path { color: var(--fg); }
-.shell-app .repo-readme-truncated { color: var(--fg-3); font-size: 10px; }
+.shell-app .repo-readme-head {
+  align-items: center;
+  flex-wrap: wrap;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shell-app .repo-readme-title,
+.shell-app .repo-readme-meta {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.shell-app .repo-readme-title {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.shell-app .repo-readme-title .icon {
+  flex: none;
+  color: var(--fg-3);
+}
+
+.shell-app .repo-readme-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .repo-readme-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--fg-3);
+  font-size: 12px;
+}
+
+.shell-app .repo-readme-size { font-family: var(--font-mono); }
+.shell-app .repo-readme-truncated { color: var(--fg-3); font-size: 12px; }
 
 .shell-app .repo-readme-body {
   padding: 22px 26px;

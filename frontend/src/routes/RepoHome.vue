@@ -622,6 +622,20 @@ const readmeTruncated = computed(() => {
   const size = typeof blob.size === "number" ? blob.size : preview.length;
   return size > preview.length;
 });
+const readmeSizeLabel = computed(() => formatReadmeSize(readmeBlob.value?.size ?? null));
+
+function formatReadmeSize(size: number | null | undefined): string | null {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unit]}`;
+}
 
 const repoContext = computed<Record<string, unknown>>(() => ({
   workspaceId: workspaceId.value ?? undefined,
@@ -824,9 +838,15 @@ function mergeRepositoryIdentity(
           aria-label="README"
         >
           <header class="repo-readme-head">
-            <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
-            <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
-              preview
+            <span class="repo-readme-title">
+              <Icon name="file" />
+              <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
+            </span>
+            <span class="repo-readme-meta">
+              <span v-if="readmeSizeLabel" class="repo-readme-size">{{ readmeSizeLabel }}</span>
+              <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
+                preview
+              </span>
             </span>
           </header>
           <article ref="readmeBody" class="repo-readme-body prose" v-html="renderedReadme" />
