@@ -75,6 +75,12 @@ const loadError = ref<string | null>(null);
 
 const projects = computed<ComtryaProject[]>(() => config.value?.projects ?? []);
 const instanceCount = computed(() => config.value?.instances?.length ?? 0);
+const projectCountLabels = {
+  openIssues: "open issues",
+  epicsInProgress: "in-progress epics",
+  closedIssues: "closed issues",
+} as const;
+
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return count === 1 ? singular : pluralForm;
 }
@@ -294,7 +300,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`Open issues in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).openIssues }}</span>
-              <span class="count-label">open</span>
+              <span class="count-label">{{ projectCountLabels.openIssues }}</span>
             </RouterLink>
             <RouterLink
               :to="projectFilterHref('epics', project.name, 'IN_PROGRESS')"
@@ -303,7 +309,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`In-progress epics in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).epicsInProgress }}</span>
-              <span class="count-label">epics</span>
+              <span class="count-label">{{ projectCountLabels.epicsInProgress }}</span>
             </RouterLink>
             <RouterLink
               :to="projectFilterHref('issues', project.name, 'CLOSED')"
@@ -312,7 +318,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`Closed issues in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).closedIssues }}</span>
-              <span class="count-label">closed</span>
+              <span class="count-label">{{ projectCountLabels.closedIssues }}</span>
             </RouterLink>
           </div>
         </header>
@@ -506,9 +512,9 @@ function authorKindOfOwner(owner: ComtryaRef): string {
   gap: 5px;
   color: inherit;
   text-decoration: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
   border-bottom: 1px solid transparent;
   transition: border-color 80ms ease;
 }

@@ -3,6 +3,12 @@ import { describe, expect, test } from "bun:test";
 // ProjectsPanel.vue keeps the GraphQL fetch in the component; test the
 // small display formatter directly so the rail copy stays familiar.
 
+const projectCountLabels = {
+  openIssues: "open issues",
+  epicsInProgress: "in-progress epics",
+  closedIssues: "closed issues",
+} as const;
+
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return count === 1 ? singular : pluralForm;
 }
@@ -23,5 +29,13 @@ describe("ProjectsPanel summary copy", () => {
 
   test("uses familiar default-project copy for implicit repositories", () => {
     expect(projectSummaryLabel(1, 0, true)).toBe("1 default project");
+  });
+
+  test("uses explicit issue and epic labels for project work counts", () => {
+    expect(projectCountLabels).toEqual({
+      openIssues: "open issues",
+      epicsInProgress: "in-progress epics",
+      closedIssues: "closed issues",
+    });
   });
 });
