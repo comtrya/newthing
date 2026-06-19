@@ -36,8 +36,8 @@ function buildTabs(opts: {
   }
 
   const all: Tab[] = [
-    { id: "overview", label: "Overview", icon: "folder" },
-    { id: "code", label: "Code", icon: "file" },
+    { id: "overview", label: "README", icon: "file" },
+    { id: "code", label: "Code", icon: "folder" },
   ];
   if (extEnabled("issues"))
     all.push({ id: "issues", label: "Issues", icon: "issue", count: openIssues });
@@ -77,7 +77,7 @@ function repoExtPath(opts: {
 }
 
 describe("RepoTabs extension filtering", () => {
-  test("shows only Overview, Code, Config when no extensions enabled", () => {
+  test("shows only README, Code, Config when no extensions enabled", () => {
     const ids = visibleIds([]);
     expect(ids).toEqual(["overview", "code", "config"]);
   });
@@ -120,7 +120,7 @@ describe("RepoTabs extension filtering", () => {
     expect(ids).toContain("checks");
   });
 
-  test("preserves Overview-Code-...-Config ordering", () => {
+  test("preserves README-Code-...-Config ordering", () => {
     const ids = visibleIds([
       "ext_checks",
       "ext_issues",
@@ -184,14 +184,21 @@ describe("RepoTabs extension filtering", () => {
     expect(
       Object.fromEntries(tabs.map((tab) => [tab.id, tab.icon])),
     ).toEqual({
-      overview: "folder",
-      code: "file",
+      overview: "file",
+      code: "folder",
       issues: "issue",
       pulls: "pr",
       epics: "tag",
       checks: "check",
       config: "settings",
     });
+  });
+
+  test("uses README language for the repo-home route without changing the overview id", () => {
+    const tabs = buildTabs({ enabledExtensions: [] });
+    const overview = tabs.find((tab) => tab.id === "overview");
+    expect(overview?.label).toBe("README");
+    expect(overview?.id).toBe("overview");
   });
 
   test("uses GitHub-familiar pull request language without changing the extension id", () => {

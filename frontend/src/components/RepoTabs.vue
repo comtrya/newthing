@@ -11,13 +11,13 @@ import type { IconKey } from "./icons";
 /**
  * Repo-scope navigation strip. Mounted on RepoHome below the
  * chip row + clone command. Surfaces the five sub-surfaces a
- * repo has — Overview (the current page), Code (in-page anchor
- * to the code-browser slot), Pull requests / Issues / Checks (links to
+ * repo has — README (the current page), Code (the file browser
+ * slot), Pull requests / Issues / Checks (links to
  * the workspace-wide queues filtered by `repositoryId`).
  *
  * Editorial aesthetic per LOOP_TODO: bottom-border underline on
  * the active tab, no background pill, mono labels. The active
- * indicator follows `route.path` — Overview lights up on
+ * indicator follows `route.path` — README lights up on
  * `/r/<segments>`, other tabs are pure navigation today.
  *
  * Seeds the future Workbench layout (LOOP_TODO macro):
@@ -102,8 +102,8 @@ function extEnabled(id: RepositoryExtensionSlug): boolean {
 
 const tabs = computed<Tab[]>(() => {
   const all: Tab[] = [
-    { id: "overview", label: "Overview", icon: "folder", to: repoHomePath.value },
-    { id: "code", label: "Code", icon: "file", to: repoCodePath.value },
+    { id: "overview", label: "README", icon: "file", to: repoHomePath.value },
+    { id: "code", label: "Code", icon: "folder", to: repoCodePath.value },
   ];
   if (extEnabled("issues")) {
     all.push({
@@ -143,7 +143,7 @@ const tabs = computed<Tab[]>(() => {
 function isActive(tab: Tab): boolean {
   // Highlight on prefix match so that workbench deep links (e.g.
   // `/r/:path/issues/<ws>/<num>`) keep the Issues tab active.
-  // Overview only highlights on the exact repo home path because
+  // README only highlights on the exact repo home path because
   // every per-extension URL nests under the same base.
   if (tab.id === "overview") return route.path === repoHomePath.value;
   const prefix = `${repoHomePath.value}/${tab.id}`;
