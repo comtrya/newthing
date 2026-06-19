@@ -55,7 +55,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       return;
     }
 
-    renderHeader(root, segments.join("/"), null, null);
+    renderHeader(root, segments.join("/"));
     renderMessage(root, "Loading files...", "muted", { append: true });
 
     try {
@@ -102,7 +102,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
     };
     const render = (): void => {
       root.replaceChildren();
-      renderHeader(root, repo.path, repo.defaultBranch, repo.headOid);
+      renderHeader(root, repo.path);
 
       if (!repo.files.length) {
         renderMessage(
@@ -131,21 +131,12 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   }
 }
 
-function renderHeader(
-  root: HTMLElement,
-  repoPath: string,
-  defaultBranch: string | null | undefined,
-  headOid: string | null | undefined,
-): void {
+function renderHeader(root: HTMLElement, repoPath: string): void {
   const header = document.createElement("header");
   header.className = "repo-code-header";
   const title = document.createElement("h2");
   title.textContent = `Code · ${repoPath}`;
-  const meta = document.createElement("div");
-  const branch = defaultBranch ?? "main";
-  const shortHead = typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "-";
-  meta.textContent = `${branch} · ${shortHead}`;
-  header.append(title, meta);
+  header.append(title);
   root.append(header);
 }
 
@@ -171,15 +162,42 @@ function buildBrowserToolbar(
 ): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "repo-code-toolbar";
-  toolbar.append(buildBreadcrumbs(repo.path, openFile?.path ?? currentPath, navigateToDirectory));
+
+  const primary = document.createElement("div");
+  primary.className = "repo-code-toolbar-primary";
+  primary.append(
+    buildRefbar(repo.defaultBranch, repo.headOid),
+    buildBreadcrumbs(repo.path, openFile?.path ?? currentPath, navigateToDirectory),
+  );
 
   const meta = document.createElement("span");
   meta.className = "repo-code-toolbar-meta";
   meta.textContent = openFile
     ? `${openFile.kind ?? "file"} · ${humanSize(openFile.size)}`
     : directorySummary(repo.files, currentPath);
-  toolbar.append(meta);
+  toolbar.append(primary, meta);
   return toolbar;
+}
+
+function buildRefbar(defaultBranch: string | null | undefined, headOid: string | null | undefined): HTMLElement {
+  const refbar = document.createElement("div");
+  refbar.className = "repo-code-refbar";
+  refbar.setAttribute("aria-label", "Current code reference");
+  const branch = defaultBranch?.trim() || "main";
+  const commit = typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
+  refbar.append(
+    refPill("branch", branch, "Default branch"),
+    refPill("commit", commit, headOid || "No commit recorded"),
+  );
+  return refbar;
+}
+
+function refPill(iconName: "branch" | "commit", text: string, title: string): HTMLElement {
+  const pill = document.createElement("span");
+  pill.className = `repo-code-ref-pill repo-code-ref-pill--${iconName}`;
+  pill.title = title;
+  pill.append(icon(iconName), textNode(text));
+  return pill;
 }
 
 function buildBreadcrumbs(
@@ -405,7 +423,7 @@ function renderPlainPreview(file: RepoFile, body: HTMLElement): void {
   body.append(wrap);
 }
 
-function icon(name: "chev" | "file" | "folder"): HTMLElement {
+function icon(name: "branch" | "chev" | "commit" | "file" | "folder"): HTMLElement {
   const span = document.createElement("span");
   span.className = `repo-code-icon repo-code-icon--${name}`;
   span.innerHTML = Ic[name];

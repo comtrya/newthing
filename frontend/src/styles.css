@@ -1857,14 +1857,11 @@ kbd {
 .shell-app .repo-code-header {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
   padding: 12px 0;
 }
 
 .shell-app .repo-code-header h2 { font-size: 18px; }
 
-.shell-app .repo-code-header div,
 .shell-app .repo-code-message,
 .shell-app .repo-code-toolbar,
 .shell-app .repo-code-directory,
@@ -1873,7 +1870,6 @@ kbd {
   font-size: 12px;
 }
 
-.shell-app .repo-code-header div,
 .shell-app .repo-code-message.muted,
 .shell-app .repo-code-toolbar-meta,
 .shell-app .repo-code-row-meta { color: var(--fg-3); }
@@ -1886,22 +1882,65 @@ kbd {
 }
 
 .shell-app .repo-code-toolbar {
-  min-height: 36px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   border: 0.5px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--surface);
-  padding: 8px 10px;
+  padding: 6px 10px;
 }
+
+.shell-app .repo-code-toolbar-primary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.shell-app .repo-code-refbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.shell-app .repo-code-ref-pill {
+  min-width: 0;
+  min-height: 28px;
+  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  padding: 0 10px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .repo-code-ref-pill--commit {
+  color: var(--fg-3);
+  font-weight: 500;
+}
+
+.shell-app .repo-code-ref-pill .repo-code-icon { color: currentColor; }
+
+.shell-app .repo-code-ref-pill--commit .repo-code-icon { color: var(--fg-4); }
 
 .shell-app .repo-code-breadcrumbs {
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
+  border-left: 0.5px solid var(--line);
+  padding-left: 10px;
   overflow: hidden;
 }
 
@@ -2616,6 +2655,18 @@ kbd {
   .shell-app .repo-code-file-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .shell-app .repo-code-toolbar-primary,
+  .shell-app .repo-code-refbar {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .shell-app .repo-code-breadcrumbs {
+    width: 100%;
+    border-left: 0;
+    padding-left: 0;
   }
 
   .shell-app .repo-code-toolbar-meta {
