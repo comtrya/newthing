@@ -201,6 +201,22 @@ describe("repository About metadata labels", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Recent commits count copy — mirrors RepoHome.vue's rail count label
+// ---------------------------------------------------------------------------
+
+function commitCountLabel(count: number): string {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+
+describe("Recent commits count copy", () => {
+  test("uses an explicit noun instead of a bare number", () => {
+    expect(commitCountLabel(0)).toBe("0 commits");
+    expect(commitCountLabel(1)).toBe("1 commit");
+    expect(commitCountLabel(2)).toBe("2 commits");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 

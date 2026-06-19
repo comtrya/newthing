@@ -535,6 +535,10 @@ const bookmarks = computed<RepositoryBookmark[]>(
 const commits = computed<RepositoryCommit[]>(
   () => repository.value?.commits ?? [],
 );
+function commitCountLabel(count: number): string {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+const commitsCountLabel = computed(() => commitCountLabel(commits.value.length));
 
 /**
  * Vcs-aware copy for the bookmarks panel.
@@ -982,7 +986,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-commits-head">
             <h2>Recent commits</h2>
-            <span class="repo-commits-count">{{ commits.length }}</span>
+            <span class="repo-commits-count">{{ commitsCountLabel }}</span>
           </header>
           <ul class="repo-commits-list">
             <li v-for="commit in commits" :key="commit.oid" class="repo-commit">

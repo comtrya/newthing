@@ -1668,7 +1668,12 @@ kbd {
 }
 
 .shell-app .repo-commits-head h2 { margin: 0; font-family: var(--font-sans); font-size: 16px; }
-.shell-app .repo-commits-count { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+.shell-app .repo-commits-count {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-3);
+}
 
 .shell-app .repo-commits-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 
