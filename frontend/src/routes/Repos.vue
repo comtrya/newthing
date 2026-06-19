@@ -54,8 +54,8 @@ const sortedRepos = computed(() =>
   <div class="repos-page">
     <header class="hairline-b repos-head">
       <div class="repos-head-titles">
-        <div class="eyebrow">Workspace · {{ sortedRepos.length }} repositories</div>
-        <h1 class="serif repos-title">Repositories</h1>
+        <div class="eyebrow">{{ sortedRepos.length }} repositories in this workspace</div>
+        <h1 class="repos-title">Repositories</h1>
       </div>
       <div class="repos-head-actions">
         <RouterLink to="/new" class="btn btn-primary">
@@ -77,7 +77,7 @@ const sortedRepos = computed(() =>
           <RouterLink :to="`/r/${repo.path}`" class="repo-link">
             <div class="repo-row">
               <span class="repo-icon"><Icon name="folder" /></span>
-              <span class="mono repo-path">{{ repo.path }}</span>
+              <span class="repo-path">{{ repo.path }}</span>
               <span class="spacer" />
               <Chip v-if="(repo.openPullRequests ?? 0) > 0" :mono="true" tone="info">
                 {{ repo.openPullRequests }} open
@@ -106,10 +106,12 @@ const sortedRepos = computed(() =>
 }
 .repos-head-titles { flex: 1; }
 .repos-title {
+  font-family: var(--font-sans);
   font-size: 28px;
   line-height: 1.05;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .repos-head-actions {
   display: flex;
@@ -157,7 +159,9 @@ const sortedRepos = computed(() =>
 }
 .repo-icon { color: var(--fg-3); display: inline-flex; }
 .repo-path {
+  font-family: var(--font-sans);
   font-size: 13px;
+  font-weight: 600;
   color: var(--fg);
   flex-shrink: 0;
 }
