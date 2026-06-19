@@ -579,7 +579,7 @@ async function onSelect(entry: PaletteEntry | null): Promise<void> {
                   v-if="filteredCommands.length === 0 && filteredIssues.length === 0 && filteredPulls.length === 0 && filteredEpics.length === 0 && filteredRepos.length === 0"
                   class="palette-empty"
                 >
-                  No matches for "{{ query }}"
+                  No results found for "{{ query }}"
                 </p>
               </ComboboxOptions>
 
