@@ -314,7 +314,7 @@ function pullRepoLabel(pull: PullRow): string {
       <p class="overline">Workspace</p>
       <h1>Inbox</h1>
       <p class="inbox-tagline">
-        Open work across every repo. The first answer to "what's live?"
+        Open work across every repository. The first answer to "what's live?"
         without walking every workbench.
       </p>
     </header>
