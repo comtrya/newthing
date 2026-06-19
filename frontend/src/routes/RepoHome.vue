@@ -457,7 +457,7 @@ const repoChips = computed<Chip[]>(() => {
     title: `default ${refLabel} · ${branch}`,
   });
   chips.push({
-    label: "vcs",
+    label: "version control",
     value: repositoryVcsLabel.value,
     tone: vcs === "jj" ? "ink" : "muted",
     title: `version control · ${repositoryVcsLabel.value}`,

@@ -107,11 +107,19 @@ function openPullRequestChipLabel(count: number): string {
   return count === 1 ? "open pull request" : "open pull requests";
 }
 
+function vcsChipLabel(): string {
+  return "version control";
+}
+
 describe("repository chip copy", () => {
   test("uses full pull request language instead of PR abbreviation", () => {
     expect(openPullRequestChipLabel(0)).toBe("open pull requests");
     expect(openPullRequestChipLabel(1)).toBe("open pull request");
     expect(openPullRequestChipLabel(2)).toBe("open pull requests");
+  });
+
+  test("uses full version control language instead of VCS abbreviation", () => {
+    expect(vcsChipLabel()).toBe("version control");
   });
 });
 
