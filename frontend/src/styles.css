@@ -1984,8 +1984,9 @@ kbd {
 .shell-app .repo-code-toolbar,
 .shell-app .repo-code-directory,
 .shell-app .repo-code-file {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
+  letter-spacing: 0;
 }
 
 .shell-app .repo-code-message.muted,
