@@ -1485,15 +1485,16 @@ kbd {
 .shell-app .repo-readme-head,
 .shell-app .repo-config-panel > header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
   border-bottom: 0.5px solid var(--line);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--fg-3);
 }
 
@@ -1504,9 +1505,9 @@ kbd {
 .shell-app .repo-readme-head h2,
 .shell-app .repo-config-panel > header h2 {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   text-transform: none;
   color: var(--fg);
 }
