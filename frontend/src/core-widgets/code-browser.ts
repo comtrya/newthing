@@ -122,7 +122,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
         buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory),
         openFileEntry
           ? buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)))
-          : buildDirectoryView(repo.files, currentPath, navigateToDirectory, openFile),
+          : buildDirectoryView(repo, currentPath, navigateToDirectory, openFile),
       );
       root.append(browser);
     };
@@ -184,10 +184,9 @@ function buildRefbar(defaultBranch: string | null | undefined, headOid: string |
   refbar.className = "repo-code-refbar";
   refbar.setAttribute("aria-label", "Current code reference");
   const branch = defaultBranch?.trim() || "main";
-  const commit = typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
   refbar.append(
     refPill("branch", branch, "Default branch"),
-    refPill("commit", commit, headOid || "No commit recorded"),
+    refPill("commit", shortCommit(headOid), headOid || "No commit recorded"),
   );
   return refbar;
 }
@@ -254,7 +253,7 @@ function buildBreadcrumbSeparator(): HTMLElement {
 }
 
 function buildDirectoryView(
-  files: RepoFile[],
+  repo: RepoCodePayload,
   currentPath: string,
   navigateToDirectory: (path: string) => void,
   openFile: (file: RepoFile) => void,
@@ -275,7 +274,7 @@ function buildDirectoryView(
     rows.append(buildParentRow(currentPath, navigateToDirectory));
   }
 
-  const entries = entriesForPath(files, currentPath);
+  const entries = entriesForPath(repo.files, currentPath);
   if (entries.length === 0) {
     const empty = document.createElement("li");
     empty.className = "repo-code-empty-row";
@@ -287,8 +286,38 @@ function buildDirectoryView(
     }
   }
 
-  panel.append(header, rows);
+  panel.append(buildDirectorySummary(repo, currentPath), header, rows);
   return panel;
+}
+
+function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTMLElement {
+  const summary = document.createElement("div");
+  summary.className = "repo-code-directory-summary";
+  const commit = shortCommit(repo.headOid);
+  const treeSummary = directorySummary(repo.files, currentPath);
+  summary.setAttribute("aria-label", `Latest commit ${commit}; ${treeSummary}`);
+
+  const latest = document.createElement("span");
+  latest.className = "repo-code-latest-commit";
+  latest.append(icon("commit"), textNode("Latest commit "), commitLabel(repo.headOid));
+
+  const tree = document.createElement("span");
+  tree.className = "repo-code-directory-counts";
+  tree.textContent = treeSummary;
+
+  summary.append(latest, tree);
+  return summary;
+}
+
+function commitLabel(headOid: string | null | undefined): HTMLElement {
+  const label = document.createElement("code");
+  label.className = "repo-code-commit-label";
+  label.textContent = shortCommit(headOid);
+  return label;
+}
+
+function shortCommit(headOid: string | null | undefined): string {
+  return typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
 }
 
 function columnLabel(text: string): HTMLElement {

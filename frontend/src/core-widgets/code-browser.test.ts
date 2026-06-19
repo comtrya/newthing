@@ -41,6 +41,12 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(refText).toEqual(["main", "1234567890ab"]);
   expect(element.querySelectorAll(".repo-code-ref-pill svg")).toHaveLength(2);
   expect(element.querySelector(".repo-code-breadcrumb-current")?.textContent).toBe("dogfood");
+  expect(element.querySelector(".repo-code-latest-commit")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+    "Latest commit 1234567890ab",
+  );
+  expect(element.querySelector(".repo-code-directory-counts")?.textContent).toBe(
+    "1 directory · 1 file shown · 2 total",
+  );
 });
 
 async function eventually<T>(read: () => T | null | undefined): Promise<T> {

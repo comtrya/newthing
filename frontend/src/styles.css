@@ -1990,6 +1990,45 @@ kbd {
   overflow: hidden;
 }
 
+.shell-app .repo-code-directory-summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 0.5px solid var(--line);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  padding: 7px 12px;
+}
+
+.shell-app .repo-code-latest-commit {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .repo-code-latest-commit .repo-code-icon {
+  color: var(--fg-4);
+}
+
+.shell-app .repo-code-commit-label {
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.shell-app .repo-code-directory-counts {
+  flex: 0 0 auto;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
 .shell-app .repo-code-directory-header,
 .shell-app .repo-code-row {
   display: grid;
@@ -2670,6 +2709,15 @@ kbd {
   }
 
   .shell-app .repo-code-toolbar-meta {
+    white-space: normal;
+  }
+
+  .shell-app .repo-code-directory-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .shell-app .repo-code-directory-counts {
     white-space: normal;
   }
 
