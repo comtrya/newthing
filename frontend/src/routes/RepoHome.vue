@@ -276,10 +276,17 @@ const cloneCommandTitle = computed(() =>
     : "Clones the repository over git Smart HTTP.",
 );
 const cloneCopied = ref(false);
+const cloneCopyUnavailable = ref(false);
+const cloneCopyStatus = computed(() => {
+  if (cloneCopied.value) return "Clone command copied";
+  if (cloneCopyUnavailable.value) return "Copy unavailable";
+  return "Copy clone command";
+});
 let cloneCopyTimer: number | undefined;
 
 async function copyClone(): Promise<void> {
   if (!cloneCommand.value) return;
+  cloneCopyUnavailable.value = false;
   try {
     await navigator.clipboard.writeText(cloneCommand.value);
     cloneCopied.value = true;
@@ -288,8 +295,11 @@ async function copyClone(): Promise<void> {
       cloneCopied.value = false;
     }, 1400);
   } catch {
-    // Clipboard API can fail in non-secure contexts; the chip stays
-    // selectable so the user can still copy manually.
+    cloneCopyUnavailable.value = true;
+    if (cloneCopyTimer !== undefined) window.clearTimeout(cloneCopyTimer);
+    cloneCopyTimer = window.setTimeout(() => {
+      cloneCopyUnavailable.value = false;
+    }, 1400);
   }
 }
 
@@ -776,11 +786,12 @@ function mergeRepositoryIdentity(
           type="button"
           class="repo-clone-copy"
           :aria-pressed="cloneCopied"
-          :title="cloneCopied ? 'Copied' : 'Copy clone command'"
+          :aria-label="cloneCopyStatus"
+          :title="cloneCopyStatus"
           @click="copyClone"
         >
-          <Icon name="copy" />
-          <span>{{ cloneCopied ? "copied" : "copy" }}</span>
+          <Icon :name="cloneCopied ? 'check' : 'copy'" />
+          <span>{{ cloneCopied ? "Copied" : "Code" }}</span>
         </button>
       </div>
     </div>

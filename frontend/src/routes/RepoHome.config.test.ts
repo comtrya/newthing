@@ -116,6 +116,33 @@ describe("repository chip copy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Clone action copy — mirrors RepoHome.vue's green Code button label
+// ---------------------------------------------------------------------------
+
+function cloneActionLabel(copied: boolean): string {
+  return copied ? "Copied" : "Code";
+}
+
+function cloneCopyStatus(copied: boolean, unavailable: boolean): string {
+  if (copied) return "Clone command copied";
+  if (unavailable) return "Copy unavailable";
+  return "Copy clone command";
+}
+
+describe("clone action copy", () => {
+  test("uses familiar Code language before switching to Copied feedback", () => {
+    expect(cloneActionLabel(false)).toBe("Code");
+    expect(cloneActionLabel(true)).toBe("Copied");
+  });
+
+  test("exposes copy, copied, and unavailable states to assistive tech", () => {
+    expect(cloneCopyStatus(false, false)).toBe("Copy clone command");
+    expect(cloneCopyStatus(true, false)).toBe("Clone command copied");
+    expect(cloneCopyStatus(false, true)).toBe("Copy unavailable");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 
