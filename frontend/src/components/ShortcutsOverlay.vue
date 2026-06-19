@@ -33,7 +33,7 @@ const staticGroups: ShortcutGroup[] = [
     ],
   },
   {
-    title: "Inside a repo workbench",
+    title: "Inside a repository",
     shortcuts: [
       { keys: ["g", "o"], description: "Overview" },
       { keys: ["g", "c"], description: "Code" },
@@ -75,7 +75,7 @@ const staticGroups: ShortcutGroup[] = [
       { keys: ["p"], description: "Previous file in diff" },
       { keys: ["["], description: "Collapse file" },
       { keys: ["]"], description: "Expand file" },
-      { keys: ["Esc"], description: "Back to queue" },
+      { keys: ["Esc"], description: "Back to pull requests" },
     ],
   },
 ];
