@@ -23,12 +23,12 @@ const scope = computed(() => repoPath.value || "Workspace");
         <p class="overline">{{ scope }}</p>
         <h1>Pipelines</h1>
       </div>
-      <Chip tone="info">Not yet available</Chip>
+      <Chip tone="info">No runs yet</Chip>
     </header>
 
     <article class="runtime-empty-panel">
-      <h2>No pipeline runs recorded</h2>
-      <p>Comtrya has no persisted pipeline run data for this scope.</p>
+      <h2>No workflow runs yet</h2>
+      <p>Workflow runs will appear here when pipeline data is recorded for this scope.</p>
     </article>
   </section>
 </template>
@@ -49,9 +49,21 @@ const scope = computed(() => repoPath.value || "Workspace");
 }
 
 .runtime-empty-head h1 {
+  font-family: var(--font-sans);
   margin: 0;
   font-size: 28px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
   line-height: 1.1;
+}
+
+.runtime-empty-head .overline {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .runtime-empty-panel {
