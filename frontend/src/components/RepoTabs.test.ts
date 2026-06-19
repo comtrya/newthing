@@ -42,7 +42,7 @@ function buildTabs(opts: {
   if (extEnabled("issues"))
     all.push({ id: "issues", label: "Issues", icon: "issue", count: openIssues });
   if (extEnabled("pulls"))
-    all.push({ id: "pulls", label: "Pulls", icon: "pr", count: openPulls });
+    all.push({ id: "pulls", label: "Pull requests", icon: "pr", count: openPulls });
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
   if (extEnabled("checks"))
     all.push({
@@ -192,6 +192,13 @@ describe("RepoTabs extension filtering", () => {
       checks: "check",
       config: "settings",
     });
+  });
+
+  test("uses GitHub-familiar pull request language without changing the extension id", () => {
+    const tabs = buildTabs({ enabledExtensions: ["ext_pull_requests"] });
+    const pulls = tabs.find((tab) => tab.id === "pulls");
+    expect(pulls?.label).toBe("Pull requests");
+    expect(pulls?.id).toBe("pulls");
   });
 
   test("short extension slugs are not feature enablement ids", () => {

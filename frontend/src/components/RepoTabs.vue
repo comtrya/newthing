@@ -12,7 +12,7 @@ import type { IconKey } from "./icons";
  * Repo-scope navigation strip. Mounted on RepoHome below the
  * chip row + clone command. Surfaces the five sub-surfaces a
  * repo has — Overview (the current page), Code (in-page anchor
- * to the code-browser slot), Pulls / Issues / Checks (links to
+ * to the code-browser slot), Pull requests / Issues / Checks (links to
  * the workspace-wide queues filtered by `repositoryId`).
  *
  * Editorial aesthetic per LOOP_TODO: bottom-border underline on
@@ -117,7 +117,7 @@ const tabs = computed<Tab[]>(() => {
   if (extEnabled("pulls")) {
     all.push({
       id: "pulls",
-      label: "Pulls",
+      label: "Pull requests",
       icon: "pr",
       to: repoExtPath("pulls"),
       count: props.openPulls ?? 0,

@@ -812,7 +812,7 @@ function mergeRepositoryIdentity(
     <!-- /r/:path → README home. Per the v3 layout direction, the home
          is the README, not a vertical pile of every extension. Extensions
          each own their own per-repo route — Code at /r/:path/code,
-         Issues / Pulls / Checks via RepoTabs. Projects (a kernel concept)
+         Issues / Pull requests / Checks via RepoTabs. Projects (a kernel concept)
          and Bookmarks (CUE-declared refs) live in a compact right rail
          alongside the README. -->
     <div v-if="view === 'overview'" class="repo-overview">
