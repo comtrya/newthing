@@ -477,7 +477,7 @@ const projectQueueHrefs = computed(() => {
       </RouterLink>
       <RouterLink :to="projectQueueHrefs.issuesClosed" class="stat" :title="`Closed issues in ${project?.name}`">
         <span class="stat-num muted">{{ summary.loaded ? summary.issuesClosed : '—' }}</span>
-        <span class="stat-label">closed</span>
+        <span class="stat-label">closed issue<template v-if="summary.issuesClosed !== 1">s</template></span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
       <RouterLink
@@ -486,7 +486,7 @@ const projectQueueHrefs = computed(() => {
         :title="`In-progress epics in ${project?.name}`"
       >
         <span class="stat-num" :data-zero="summary.loaded && summary.epicsInProgress === 0">{{ summary.loaded ? summary.epicsInProgress : '—' }}</span>
-        <span class="stat-label">epic<template v-if="summary.epicsInProgress !== 1">s</template> in progress</span>
+        <span class="stat-label">in-progress epic<template v-if="summary.epicsInProgress !== 1">s</template></span>
       </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.epicsPlanned"
@@ -494,7 +494,7 @@ const projectQueueHrefs = computed(() => {
         :title="`Planned epics in ${project?.name}`"
       >
         <span class="stat-num muted">{{ summary.loaded ? summary.epicsPlanned : '—' }}</span>
-        <span class="stat-label">planned</span>
+        <span class="stat-label">planned epic<template v-if="summary.epicsPlanned !== 1">s</template></span>
       </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.epicsDone"
@@ -502,12 +502,12 @@ const projectQueueHrefs = computed(() => {
         :title="`Done epics in ${project?.name}`"
       >
         <span class="stat-num muted">{{ summary.loaded ? summary.epicsDone : '—' }}</span>
-        <span class="stat-label">done</span>
+        <span class="stat-label">done epic<template v-if="summary.epicsDone !== 1">s</template></span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
       <div class="stat stat-static">
         <span class="stat-num">{{ summary.loaded ? docsByType.length : '—' }}</span>
-        <span class="stat-label">doc type<template v-if="docsByType.length !== 1">s</template></span>
+        <span class="stat-label">documentation type<template v-if="docsByType.length !== 1">s</template></span>
       </div>
     </section>
 
@@ -798,10 +798,11 @@ a.stat:hover .stat-label {
 }
 
 .stat-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--fg-3);
 }
 
