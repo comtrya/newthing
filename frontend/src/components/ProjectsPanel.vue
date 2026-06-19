@@ -75,6 +75,26 @@ const loadError = ref<string | null>(null);
 
 const projects = computed<ComtryaProject[]>(() => config.value?.projects ?? []);
 const instanceCount = computed(() => config.value?.instances?.length ?? 0);
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return count === 1 ? singular : pluralForm;
+}
+
+function projectSummaryLabel(projectCount: number, sourceCount: number, implicit: boolean): string {
+  if (implicit) return "1 default project";
+  const projectWord = plural(projectCount, "project");
+  const sourceWord = plural(sourceCount, "config source");
+  return `${projectCount} ${projectWord} from ${sourceCount} ${sourceWord}`;
+}
+
+const projectsSummaryLabel = computed(() => {
+  if (loadState.value === "loading") return "discovering...";
+  if (loadState.value === "error") return "unavailable";
+  return projectSummaryLabel(
+    projects.value.length,
+    instanceCount.value,
+    projects.value.length === 1 && projects.value[0]?.implicit === true,
+  );
+});
 const reservedKeys = new Set([
   "name",
   "root",
@@ -218,17 +238,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
       <div class="title-block">
         <h2>Projects</h2>
         <span class="muted">
-          <template v-if="loadState === 'loading'">discovering…</template>
-          <template v-else-if="loadState === 'error'">unavailable</template>
-          <template v-else-if="projects.length === 1 && projects[0]?.implicit">
-            1 implicit project · add a <code>package comtrya</code> CUE
-            file anywhere in the repo to declare more
-          </template>
-          <template v-else>
-            {{ projects.length }} project<template v-if="projects.length !== 1">s</template>
-            · evaluated from {{ instanceCount }}
-            <code>package comtrya</code> instance<template v-if="instanceCount !== 1">s</template>
-          </template>
+          {{ projectsSummaryLabel }}
         </span>
       </div>
     </header>
@@ -365,8 +375,10 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .muted {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
   color: var(--fg-3);
 }
 
