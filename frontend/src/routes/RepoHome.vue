@@ -912,7 +912,7 @@ function mergeRepositoryIdentity(
             <div>
               <dt>
                 <Icon name="terminal" />
-                <span>VCS</span>
+                <span>Version control</span>
               </dt>
               <dd>{{ repositoryVcsLabel }}</dd>
             </div>

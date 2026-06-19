@@ -168,7 +168,7 @@ function repositoryAboutRefLabel(vcs: string | null | undefined): string {
 }
 
 function repositoryAboutMetadataLabels(vcs: string | null | undefined): string[] {
-  return [repositoryAboutRefLabel(vcs), "VCS", "Visibility", "Updated"];
+  return [repositoryAboutRefLabel(vcs), "Version control", "Visibility", "Updated"];
 }
 
 function repositoryVcsDisplayLabel(vcs: string | null | undefined): string {
@@ -182,7 +182,7 @@ describe("repository About metadata labels", () => {
   test("uses familiar UI labels instead of lower-case schema keys", () => {
     expect(repositoryAboutMetadataLabels("git")).toEqual([
       "Branch",
-      "VCS",
+      "Version control",
       "Visibility",
       "Updated",
     ]);
