@@ -598,7 +598,7 @@ const projectQueueHrefs = computed(() => {
       >
         <header>
           <h3>In-progress epics</h3>
-          <RouterLink :to="projectQueueHrefs.epicsInProgress" class="see-all">see all ›</RouterLink>
+          <RouterLink :to="projectQueueHrefs.epicsInProgress" class="see-all">View all</RouterLink>
         </header>
         <ul>
           <li v-for="epic in summary.inProgressEpics" :key="epic.id">
@@ -964,7 +964,8 @@ a.stat:hover .stat-label {
 
 .project-work-panel .see-all {
   color: var(--fg-3);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .project-work-panel .see-all:hover {
