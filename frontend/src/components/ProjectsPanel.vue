@@ -92,6 +92,17 @@ function projectSummaryLabel(projectCount: number, sourceCount: number, implicit
   return `${projectCount} ${projectWord} from ${sourceCount} ${sourceWord}`;
 }
 
+function humanizeKeyLabel(key: string): string {
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return key;
+  return words
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
+
 const projectsSummaryLabel = computed(() => {
   if (loadState.value === "loading") return "discovering...";
   if (loadState.value === "error") return "unavailable";
@@ -272,7 +283,9 @@ function authorKindOfOwner(owner: ComtryaRef): string {
           </div>
           <div class="project-meta">
             <span v-if="project.labels?.length" class="labels">
-              <span v-for="label in project.labels" :key="label" class="label">{{ label }}</span>
+              <span v-for="label in project.labels" :key="label" class="label" :title="label">
+                {{ humanizeKeyLabel(label) }}
+              </span>
             </span>
             <span v-if="project.owners?.length" class="owners">
               <span class="owners-prefix">owners</span>
@@ -332,7 +345,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
             class="claim"
           >
             <header>
-              <code class="claim-key">{{ claim.key }}</code>
+              <span class="claim-key" :title="claim.key">{{ humanizeKeyLabel(claim.key) }}</span>
             </header>
             <ul v-if="claim.value && typeof claim.value === 'object' && !Array.isArray(claim.value)" class="claim-fields">
               <li
@@ -473,10 +486,14 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .label {
   border: 1px solid currentColor;
-  padding: 0 5px;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-transform: none;
 }
 
 .owners {
@@ -565,11 +582,11 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .claim-key {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--fg);
 }
 

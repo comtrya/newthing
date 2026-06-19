@@ -20,6 +20,17 @@ function projectSummaryLabel(projectCount: number, sourceCount: number, implicit
   return `${projectCount} ${projectWord} from ${sourceCount} ${sourceWord}`;
 }
 
+function humanizeKeyLabel(key: string): string {
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return key;
+  return words
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
+
 describe("ProjectsPanel summary copy", () => {
   test("summarizes explicit projects without exposing CUE evaluator internals", () => {
     expect(projectSummaryLabel(1, 1, false)).toBe("1 project from 1 config source");
@@ -37,5 +48,11 @@ describe("ProjectsPanel summary copy", () => {
       epicsInProgress: "in-progress epics",
       closedIssues: "closed issues",
     });
+  });
+
+  test("formats raw labels and claim keys as familiar UI text", () => {
+    expect(humanizeKeyLabel("runtime")).toBe("Runtime");
+    expect(humanizeKeyLabel("pull_requests")).toBe("Pull Requests");
+    expect(humanizeKeyLabel("buildStatus")).toBe("Build Status");
   });
 });
