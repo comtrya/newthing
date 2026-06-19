@@ -19,6 +19,7 @@ const cloneFromUrl = ref("");
 const submitState = ref<"idle" | "submitting">("idle");
 const error = ref<string | null>(null);
 const isImport = computed(() => cloneFromUrl.value.trim().length > 0);
+const pageTitle = computed(() => (isImport.value ? "Import repository" : "Create a new repository"));
 const submitLabel = computed(() => {
   if (submitState.value === "submitting") return isImport.value ? "Importing..." : "Creating...";
   return isImport.value ? "Import repository" : "Create repository";
@@ -64,10 +65,10 @@ async function submit(): Promise<void> {
 
 <template>
   <div data-smoke="new-repo-shell">
-    <section class="page-header" data-smoke="new-repo-header">
+    <section class="page-header new-repo-header" data-smoke="new-repo-header">
       <div class="title-group">
-        <span class="overline">/new · workspace</span>
-        <h1>New repository.</h1>
+        <span class="overline new-repo-kicker">Workspace</span>
+        <h1 class="new-repo-title">{{ pageTitle }}</h1>
       </div>
       <div class="summary-grid" aria-label="New repository summary">
         <div>
@@ -123,3 +124,22 @@ async function submit(): Promise<void> {
     </section>
   </div>
 </template>
+
+<style scoped>
+.new-repo-header .new-repo-kicker {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.new-repo-header .new-repo-title {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+</style>
