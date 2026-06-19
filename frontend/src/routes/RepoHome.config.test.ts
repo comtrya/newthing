@@ -143,6 +143,23 @@ describe("clone action copy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Repository visibility copy — mirrors RepoHome.vue's badge label
+// ---------------------------------------------------------------------------
+
+function repositoryVisibilityLabel(visibility: string | null | undefined): string {
+  return (visibility ?? "PRIVATE").toLowerCase() === "public" ? "Public" : "Private";
+}
+
+describe("repository visibility copy", () => {
+  test("uses GitHub-like title-case labels instead of uppercase system copy", () => {
+    expect(repositoryVisibilityLabel("PUBLIC")).toBe("Public");
+    expect(repositoryVisibilityLabel("public")).toBe("Public");
+    expect(repositoryVisibilityLabel("PRIVATE")).toBe("Private");
+    expect(repositoryVisibilityLabel(undefined)).toBe("Private");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 

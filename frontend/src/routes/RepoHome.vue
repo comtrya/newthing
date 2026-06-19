@@ -241,6 +241,9 @@ const repositoryName = computed(() => repository.value?.name ?? props.repo);
 const repositoryVisibility = computed(() =>
   (repository.value?.visibility ?? "PRIVATE").toLowerCase(),
 );
+const repositoryVisibilityLabel = computed(() =>
+  repositoryVisibility.value === "public" ? "Public" : "Private",
+);
 const repositoryVcs = computed(() => (repository.value?.vcs ?? "git").toLowerCase());
 const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "main");
 const repositoryRefLabel = computed(() =>
@@ -769,7 +772,7 @@ function mergeRepositoryIdentity(
             class="repo-visibility"
             :class="`tone-${repositoryVisibility === 'public' ? 'public' : 'private'}`"
           >
-            {{ repositoryVisibility }}
+            {{ repositoryVisibilityLabel }}
           </span>
         </div>
         <p v-if="repository?.description" class="repo-description">

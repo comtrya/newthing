@@ -1275,12 +1275,11 @@ kbd {
   border: 0.5px solid var(--line-2);
   border-radius: 999px;
   color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
 }
 
 .shell-app .repo-visibility.tone-public {
