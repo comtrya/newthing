@@ -18,6 +18,7 @@ import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
 import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
 import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
+import Icon from "../components/Icon.vue";
 import { setActiveLabelCatalog } from "../extension-runtime";
 
 interface ComtryaRef {
@@ -490,14 +491,20 @@ const projectQueueHrefs = computed(() => {
     <section class="project-quick-actions" data-smoke="project-quick-actions" aria-label="Quick actions">
       <RouterLink
         :to="projectQueueHrefs.newIssue"
-        class="quick-action"
+        class="quick-action quick-action-primary"
         :title="`Open a new issue scoped to ${project?.name}`"
-      >+ new issue</RouterLink>
+      >
+        <Icon name="issue" aria-hidden="true" />
+        <span>New issue</span>
+      </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.newEpic"
-        class="quick-action"
+        class="quick-action quick-action-secondary"
         :title="`Open a new epic scoped to ${project?.name}`"
-      >+ new epic</RouterLink>
+      >
+        <Icon name="tag" aria-hidden="true" />
+        <span>New epic</span>
+      </RouterLink>
     </section>
 
     <section
@@ -794,19 +801,39 @@ a.stat:hover .stat-label {
 .quick-action {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border: 0.5px solid var(--line-2);
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-2);
   border-radius: var(--r-xs);
   background: var(--surface);
   color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0;
   text-decoration: none;
-  transition: background 80ms ease, color 80ms ease;
+  transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
 }
 
-.quick-action:hover {
+.quick-action :deep(.icon) {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-action-primary {
+  background: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 80%, black);
+  color: #07130c;
+}
+
+.quick-action-primary:hover {
+  background: color-mix(in srgb, var(--ok) 88%, white);
+  border-color: color-mix(in srgb, var(--ok) 72%, black);
+}
+
+.quick-action-secondary:hover {
   background: var(--surface-2);
   border-color: var(--fg-3);
 }
