@@ -2272,8 +2272,7 @@ kbd {
   color: var(--fg-3);
 }
 
-.shell-app .repo-code-row--directory .repo-code-icon,
-.shell-app .repo-code-row--parent .repo-code-icon { color: var(--accent); }
+.shell-app .repo-code-row--directory .repo-code-icon { color: var(--accent); }
 
 .shell-app .repo-code-icon svg {
   width: 14px;

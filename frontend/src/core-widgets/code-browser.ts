@@ -323,10 +323,6 @@ function buildDirectoryView(
   const renderRows = (query: string): void => {
     rows.replaceChildren();
 
-    if (currentPath) {
-      rows.append(buildParentRow(currentPath, navigateToDirectory));
-    }
-
     const filteredEntries = filterEntries(entries, query);
     if (filteredEntries.length === 0) {
       const empty = document.createElement("li");
@@ -445,18 +441,6 @@ function commitLabel(headOid: string | null | undefined): HTMLElement {
 
 function shortCommit(headOid: string | null | undefined): string {
   return typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
-}
-
-function buildParentRow(currentPath: string, navigateToDirectory: (path: string) => void): HTMLElement {
-  const item = document.createElement("li");
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "repo-code-row repo-code-row--parent";
-  button.setAttribute("aria-label", "Back to parent directory");
-  button.addEventListener("click", () => navigateToDirectory(parentPath(currentPath)));
-  button.append(rowName("folder", ".."), rowMeta("parent directory"), rowMeta(""));
-  item.append(button);
-  return item;
 }
 
 function buildEntryRow(

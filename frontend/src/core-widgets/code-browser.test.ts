@@ -63,9 +63,25 @@ test("core code browser renders familiar branch and commit controls", async () =
   );
   expect(element.querySelector(".repo-code-directory-header")).toBeNull();
 
-  const filter = element.querySelector<HTMLInputElement>(".repo-code-file-filter");
+  let filter = element.querySelector<HTMLInputElement>(".repo-code-file-filter");
   expect(filter?.placeholder).toBe("Find file or folder");
   expect(rowNames(element)).toEqual(["src", "README.md"]);
+
+  const srcRow = element.querySelector<HTMLButtonElement>('[aria-label="Open directory src"]');
+  srcRow!.click();
+  await eventually(() =>
+    element.querySelector(".repo-code-breadcrumb-current")?.textContent === "src"
+      ? element.querySelector(".repo-code-directory")
+      : null,
+  );
+  expect(element.querySelector(".repo-code-row--parent")).toBeNull();
+  expect(rowNames(element)).toEqual(["main.ts"]);
+
+  const repoCrumb = element.querySelector<HTMLButtonElement>(".repo-code-breadcrumb");
+  repoCrumb!.click();
+  await eventually(() => element.querySelector('[aria-label="Open directory src"]'));
+  expect(rowNames(element)).toEqual(["src", "README.md"]);
+  filter = element.querySelector<HTMLInputElement>(".repo-code-file-filter");
 
   const slash = keydown("/");
   document.dispatchEvent(slash);
