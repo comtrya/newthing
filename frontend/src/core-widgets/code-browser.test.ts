@@ -52,6 +52,20 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(filter?.placeholder).toBe("Find file or folder");
   expect(rowNames(element)).toEqual(["src", "README.md"]);
 
+  const slash = keydown("/");
+  document.dispatchEvent(slash);
+  expect(slash.defaultPrevented).toBe(true);
+  expect(document.activeElement).toBe(filter);
+
+  const otherInput = document.createElement("input");
+  document.body.append(otherInput);
+  otherInput.focus();
+  const typingSlash = keydown("/");
+  otherInput.dispatchEvent(typingSlash);
+  expect(typingSlash.defaultPrevented).toBe(false);
+  expect(document.activeElement).toBe(otherInput);
+  otherInput.remove();
+
   filter!.value = "read";
   filter!.dispatchEvent(new Event("input", { bubbles: true }));
   expect(rowNames(element)).toEqual(["README.md"]);
@@ -62,12 +76,20 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(element.querySelector(".repo-code-empty-row")?.textContent).toBe(
     'No files or folders match "missing".',
   );
+
+  element.remove();
 });
 
 function rowNames(root: ParentNode): string[] {
   return Array.from(root.querySelectorAll(".repo-code-row-name")).map((node) =>
     node.textContent?.trim() ?? "",
   );
+}
+
+function keydown(key: string): KeyboardEvent {
+  const event = new Event("keydown", { bubbles: true, cancelable: true }) as KeyboardEvent;
+  Object.defineProperty(event, "key", { value: key });
+  return event;
 }
 
 async function eventually<T>(read: () => T | null | undefined): Promise<T> {

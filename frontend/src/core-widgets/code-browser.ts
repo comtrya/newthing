@@ -38,8 +38,21 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   repositoryGroups?: string[] | string;
   repositoryName?: string;
   repositoryPath?: string;
+  private activeFilterInput: HTMLInputElement | null = null;
+  private readonly handleDocumentKeydown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.key !== "/") return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isEditableTarget(event.target)) return;
+    const filter = this.activeFilterInput;
+    if (!filter || !this.contains(filter) || filter.disabled) return;
+    event.preventDefault();
+    filter.focus();
+    filter.select();
+  };
 
   async connectedCallback(): Promise<void> {
+    document.removeEventListener("keydown", this.handleDocumentKeydown);
+    document.addEventListener("keydown", this.handleDocumentKeydown);
     this.dataset.smoke = "repo-code-section";
     const root = document.createElement("div");
     root.className = "extension-payload";
@@ -71,6 +84,11 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
     } catch (error) {
       renderMessage(root, `code: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
+  }
+
+  disconnectedCallback(): void {
+    document.removeEventListener("keydown", this.handleDocumentKeydown);
+    this.activeFilterInput = null;
   }
 
   private segments(): string[] {
@@ -107,6 +125,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       renderHeader(root, repo.path);
 
       if (!repo.files.length) {
+        this.activeFilterInput = null;
         renderMessage(
           root,
           "This repository has no commits yet. Push to it or import content to see files here.",
@@ -120,26 +139,36 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       const browser = document.createElement("section");
       browser.dataset.smoke = "repo-code-browser";
       browser.className = "repo-code-browser";
-      browser.append(
-        buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory),
-        openFileEntry
-          ? buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)))
-          : buildDirectoryView(
-            repo,
-            currentPath,
-            filterText,
-            (value) => {
-              filterText = value;
-            },
-            navigateToDirectory,
-            openFile,
-          ),
-      );
+      let body: HTMLElement;
+      if (openFileEntry) {
+        this.activeFilterInput = null;
+        body = buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)));
+      } else {
+        body = buildDirectoryView(
+          repo,
+          currentPath,
+          filterText,
+          (value) => {
+            filterText = value;
+          },
+          navigateToDirectory,
+          openFile,
+        );
+        this.activeFilterInput = body.querySelector(".repo-code-file-filter");
+      }
+      browser.append(buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory), body);
       root.append(browser);
     };
 
     render();
   }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select";
 }
 
 function renderHeader(root: HTMLElement, repoPath: string): void {
