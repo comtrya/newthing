@@ -315,10 +315,6 @@ function buildDirectoryView(
   panel.className = "repo-code-directory";
   panel.setAttribute("aria-label", currentPath ? `Files in ${currentPath}` : "Repository files");
 
-  const header = document.createElement("div");
-  header.className = "repo-code-directory-header";
-  header.append(columnLabel("Name"), columnLabel("Type"), columnLabel("Size"));
-
   const controls = buildDirectoryControls(filterText);
   const rows = document.createElement("ul");
   rows.className = "repo-code-rows";
@@ -355,7 +351,7 @@ function buildDirectoryView(
   });
   renderRows(filterText);
 
-  panel.append(buildDirectorySummary(repo, currentPath), controls, header, rows);
+  panel.append(buildDirectorySummary(repo, currentPath), controls, rows);
   return panel;
 }
 
@@ -449,12 +445,6 @@ function commitLabel(headOid: string | null | undefined): HTMLElement {
 
 function shortCommit(headOid: string | null | undefined): string {
   return typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
-}
-
-function columnLabel(text: string): HTMLElement {
-  const label = document.createElement("span");
-  label.textContent = text;
-  return label;
 }
 
 function buildParentRow(currentPath: string, navigateToDirectory: (path: string) => void): HTMLElement {

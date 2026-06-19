@@ -61,6 +61,7 @@ test("core code browser renders familiar branch and commit controls", async () =
   expect(element.querySelector(".repo-code-directory-counts")?.textContent).toBe(
     "1 directory · 1 file shown · 2 total",
   );
+  expect(element.querySelector(".repo-code-directory-header")).toBeNull();
 
   const filter = element.querySelector<HTMLInputElement>(".repo-code-file-filter");
   expect(filter?.placeholder).toBe("Find file or folder");

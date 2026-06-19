@@ -2208,19 +2208,11 @@ kbd {
   color: var(--fg-3);
 }
 
-.shell-app .repo-code-directory-header,
 .shell-app .repo-code-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 150px 96px;
   align-items: center;
   gap: 12px;
-}
-
-.shell-app .repo-code-directory-header {
-  min-height: 34px;
-  border-bottom: 0.5px solid var(--line);
-  color: var(--fg-3);
-  padding: 0 12px;
 }
 
 .shell-app .repo-code-row {
