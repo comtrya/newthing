@@ -171,6 +171,13 @@ function repositoryAboutMetadataLabels(vcs: string | null | undefined): string[]
   return [repositoryAboutRefLabel(vcs), "VCS", "Visibility", "Updated"];
 }
 
+function repositoryVcsDisplayLabel(vcs: string | null | undefined): string {
+  const normalized = (vcs ?? "git").toLowerCase();
+  if (normalized === "git") return "Git";
+  if (normalized === "jj") return "Jujutsu";
+  return normalized;
+}
+
 describe("repository About metadata labels", () => {
   test("uses familiar UI labels instead of lower-case schema keys", () => {
     expect(repositoryAboutMetadataLabels("git")).toEqual([
@@ -183,6 +190,13 @@ describe("repository About metadata labels", () => {
 
   test("keeps jj terminology by showing Bookmark as the ref label", () => {
     expect(repositoryAboutMetadataLabels("jj")[0]).toBe("Bookmark");
+  });
+
+  test("formats raw VCS values as familiar product labels", () => {
+    expect(repositoryVcsDisplayLabel("git")).toBe("Git");
+    expect(repositoryVcsDisplayLabel("GIT")).toBe("Git");
+    expect(repositoryVcsDisplayLabel("jj")).toBe("Jujutsu");
+    expect(repositoryVcsDisplayLabel(undefined)).toBe("Git");
   });
 });
 

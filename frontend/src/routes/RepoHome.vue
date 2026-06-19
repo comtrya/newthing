@@ -245,6 +245,12 @@ const repositoryVisibilityLabel = computed(() =>
   repositoryVisibility.value === "public" ? "Public" : "Private",
 );
 const repositoryVcs = computed(() => (repository.value?.vcs ?? "git").toLowerCase());
+function repositoryVcsDisplayLabel(vcs: string): string {
+  if (vcs === "git") return "Git";
+  if (vcs === "jj") return "Jujutsu";
+  return vcs;
+}
+const repositoryVcsLabel = computed(() => repositoryVcsDisplayLabel(repositoryVcs.value));
 const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "main");
 const repositoryRefLabel = computed(() =>
   repositoryVcs.value === "jj" ? "bookmark" : "branch",
@@ -452,9 +458,9 @@ const repoChips = computed<Chip[]>(() => {
   });
   chips.push({
     label: "vcs",
-    value: vcs,
+    value: repositoryVcsLabel.value,
     tone: vcs === "jj" ? "ink" : "muted",
-    title: `version control · ${vcs}`,
+    title: `version control · ${repositoryVcsLabel.value}`,
   });
   const repoBase = `/r/${repoPath.value}`;
   if (failingChecks.value > 0) {
@@ -908,7 +914,7 @@ function mergeRepositoryIdentity(
                 <Icon name="terminal" />
                 <span>VCS</span>
               </dt>
-              <dd>{{ repositoryVcs }}</dd>
+              <dd>{{ repositoryVcsLabel }}</dd>
             </div>
             <div>
               <dt>
