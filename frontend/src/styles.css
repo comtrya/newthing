@@ -2294,38 +2294,6 @@ kbd {
   background: var(--bg-2);
 }
 
-.shell-app .repo-code-file-actions {
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  border-bottom: 0.5px solid var(--line);
-  background: var(--surface);
-  padding: 6px 10px;
-}
-
-.shell-app .repo-code-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0.5px solid var(--line-2);
-  border-radius: var(--r-xs);
-  background: var(--surface-2);
-  color: var(--fg-2);
-  cursor: pointer;
-  padding: 4px 8px;
-}
-
-.shell-app .repo-code-back:hover,
-.shell-app .repo-code-back:focus-visible {
-  color: var(--fg);
-  background: var(--surface-3);
-  outline: none;
-}
-
-.shell-app .repo-code-back .repo-code-icon--chev {
-  transform: rotate(180deg);
-}
-
 .shell-app .repo-code-file-header {
   min-height: 42px;
   display: flex;

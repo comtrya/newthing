@@ -107,6 +107,8 @@ test("core code browser renders familiar branch and commit controls", async () =
   const readmeRow = element.querySelector<HTMLButtonElement>('[aria-label="Open file README.md"]');
   readmeRow!.click();
   await eventually(() => element.querySelector('[data-smoke="repo-code-file-view"]'));
+  expect(element.querySelector(".repo-code-back")).toBeNull();
+  expect(element.querySelector(".repo-code-breadcrumb-current")?.textContent).toBe("README.md");
 
   const copyPath = element.querySelector<HTMLButtonElement>(".repo-code-copy-path");
   expect(copyPath?.textContent?.trim()).toBe("Copy path");
@@ -120,6 +122,12 @@ test("core code browser renders familiar branch and commit controls", async () =
   } else {
     delete (navigator as unknown as { clipboard?: unknown }).clipboard;
   }
+
+  const rootCrumb = element.querySelector<HTMLButtonElement>(".repo-code-breadcrumb");
+  expect(rootCrumb?.textContent).toBe("dogfood");
+  rootCrumb!.click();
+  await eventually(() => element.querySelector(".repo-code-directory"));
+  expect(rowNames(element)).toEqual(["src", "README.md"]);
 
   element.remove();
 });

@@ -152,7 +152,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       let body: HTMLElement;
       if (openFileEntry) {
         this.activeFilterInput = null;
-        body = buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)));
+        body = buildFileView(openFileEntry);
       } else {
         body = buildDirectoryView(
           repo,
@@ -509,19 +509,10 @@ function rowMeta(text: string): HTMLElement {
   return meta;
 }
 
-function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement {
+function buildFileView(file: RepoFile): HTMLElement {
   const article = document.createElement("article");
   article.dataset.smoke = "repo-code-file-view";
   article.className = "repo-code-file";
-
-  const actions = document.createElement("div");
-  actions.className = "repo-code-file-actions";
-  const back = document.createElement("button");
-  back.type = "button";
-  back.className = "repo-code-back";
-  back.append(icon("chev"), textNode("Back to directory"));
-  back.addEventListener("click", backToDirectory);
-  actions.append(back);
 
   const header = document.createElement("div");
   header.className = "repo-code-file-header";
@@ -549,7 +540,7 @@ function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement
     body.append(note);
   }
 
-  article.append(actions, header, body);
+  article.append(header, body);
   return article;
 }
 
@@ -635,7 +626,7 @@ function renderPlainPreview(file: RepoFile, body: HTMLElement): void {
   body.append(wrap);
 }
 
-function icon(name: "branch" | "chev" | "commit" | "copy" | "file" | "folder"): HTMLElement {
+function icon(name: "branch" | "commit" | "copy" | "file" | "folder"): HTMLElement {
   const span = document.createElement("span");
   span.className = `repo-code-icon repo-code-icon--${name}`;
   span.innerHTML = Ic[name];
