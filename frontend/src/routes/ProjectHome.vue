@@ -398,7 +398,7 @@ const projectQueueHrefs = computed(() => {
         :aria-selected="p.name === props.project"
         role="tab"
       >
-        <span class="tab-glyph">◇</span>{{ p.name }}
+        {{ p.name }}
       </RouterLink>
     </nav>
 
@@ -637,46 +637,35 @@ const projectQueueHrefs = computed(() => {
 .project-switcher {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 0;
   margin-top: 4px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+  padding-bottom: 0;
 }
 
 .project-tab {
   display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 0.5px solid var(--line);
-  border-radius: var(--r-xs);
-  background: var(--bg);
+  align-items: center;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
   color: var(--fg-2);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .project-tab:hover {
-  background: var(--bg-2);
   color: var(--fg);
 }
 
 .project-tab.active {
-  background: var(--fg);
-  color: var(--bg);
-  border-color: var(--fg);
-}
-
-.project-tab.active .tab-glyph {
-  color: inherit;
-}
-
-.tab-glyph {
-  color: var(--fg-3);
-  font-size: 10px;
+  color: var(--fg);
+  border-bottom-color: var(--ok);
 }
 
 .project-chip-row {
