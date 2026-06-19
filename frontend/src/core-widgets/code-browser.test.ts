@@ -77,6 +77,36 @@ test("core code browser renders familiar branch and commit controls", async () =
     'No files or folders match "missing".',
   );
 
+  filter!.value = "";
+  filter!.dispatchEvent(new Event("input", { bubbles: true }));
+  const clipboardWrites: string[] = [];
+  const clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string): Promise<void> => {
+        clipboardWrites.push(text);
+      },
+    },
+  });
+
+  const readmeRow = element.querySelector<HTMLButtonElement>('[aria-label="Open file README.md"]');
+  readmeRow!.click();
+  await eventually(() => element.querySelector('[data-smoke="repo-code-file-view"]'));
+
+  const copyPath = element.querySelector<HTMLButtonElement>(".repo-code-copy-path");
+  expect(copyPath?.textContent?.trim()).toBe("Copy path");
+  copyPath!.click();
+  await eventually(() => (copyPath!.getAttribute("aria-pressed") === "true" ? copyPath : null));
+  expect(clipboardWrites).toEqual(["README.md"]);
+  expect(copyPath!.textContent?.trim()).toBe("Copied");
+
+  if (clipboardDescriptor) {
+    Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+  } else {
+    delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+  }
+
   element.remove();
 });
 

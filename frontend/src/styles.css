@@ -2319,9 +2319,43 @@ kbd {
   white-space: nowrap;
 }
 
-.shell-app .repo-code-file-header span {
+.shell-app .repo-code-file-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.shell-app .repo-code-file-meta {
   color: var(--fg-3);
   flex: 0 0 auto;
+}
+
+.shell-app .repo-code-copy-path {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 8px;
+}
+
+.shell-app .repo-code-copy-path:hover,
+.shell-app .repo-code-copy-path:focus-visible {
+  color: var(--fg);
+  background: var(--surface-3);
+  outline: none;
+}
+
+.shell-app .repo-code-copy-path[aria-pressed="true"] {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+  color: var(--ok);
 }
 
 .shell-app .repo-code-file-body {

@@ -485,8 +485,12 @@ function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement
   const title = document.createElement("h3");
   title.append(icon("file"), textNode(file.path));
   const meta = document.createElement("span");
+  meta.className = "repo-code-file-meta";
   meta.textContent = `${file.kind ?? "file"} · ${humanSize(file.size)}`;
-  header.append(title, meta);
+  const headerActions = document.createElement("div");
+  headerActions.className = "repo-code-file-header-actions";
+  headerActions.append(meta, copyFilePathButton(file.path));
+  header.append(title, headerActions);
 
   const body = document.createElement("div");
   body.className = "repo-code-file-body";
@@ -504,6 +508,54 @@ function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement
 
   article.append(actions, header, body);
   return article;
+}
+
+function copyFilePathButton(path: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "repo-code-copy-path";
+  button.title = "Copy file path";
+  button.setAttribute("aria-label", `Copy file path ${path}`);
+  button.setAttribute("aria-pressed", "false");
+
+  const render = (copied: boolean): void => {
+    button.setAttribute("aria-pressed", String(copied));
+    button.title = copied ? "Copied file path" : "Copy file path";
+    button.replaceChildren(icon("copy"), textNode(copied ? "Copied" : "Copy path"));
+  };
+  render(false);
+
+  button.addEventListener("click", async () => {
+    try {
+      await writeClipboardText(path);
+      render(true);
+      window.setTimeout(() => render(false), 1600);
+    } catch {
+      button.title = "Copy unavailable";
+    }
+  });
+
+  return button;
+}
+
+async function writeClipboardText(text: string): Promise<void> {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return;
+  }
+
+  const target = document.createElement("textarea");
+  target.value = text;
+  target.readOnly = true;
+  target.style.position = "fixed";
+  target.style.inset = "0";
+  target.style.opacity = "0";
+  document.body.append(target);
+  target.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  target.remove();
+  if (!copied) throw new Error("copy command rejected");
 }
 
 async function renderHighlightedPreview(file: RepoFile, body: HTMLElement): Promise<void> {
@@ -540,7 +592,7 @@ function renderPlainPreview(file: RepoFile, body: HTMLElement): void {
   body.append(wrap);
 }
 
-function icon(name: "branch" | "chev" | "commit" | "file" | "folder"): HTMLElement {
+function icon(name: "branch" | "chev" | "commit" | "copy" | "file" | "folder"): HTMLElement {
   const span = document.createElement("span");
   span.className = `repo-code-icon repo-code-icon--${name}`;
   span.innerHTML = Ic[name];
