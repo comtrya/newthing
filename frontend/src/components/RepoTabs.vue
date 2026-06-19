@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import Icon from "./Icon.vue";
 import {
   repositoryExtensionEnabled,
   type RepositoryExtensionSlug,
 } from "../repository-extensions";
+import type { IconKey } from "./icons";
 
 /**
  * Repo-scope navigation strip. Mounted on RepoHome below the
@@ -58,6 +60,7 @@ const route = useRoute();
 interface Tab {
   id: string;
   label: string;
+  icon: IconKey;
   to: string;
   count?: number;
   countTone?: "ink" | "alarm";
@@ -99,13 +102,14 @@ function extEnabled(id: RepositoryExtensionSlug): boolean {
 
 const tabs = computed<Tab[]>(() => {
   const all: Tab[] = [
-    { id: "overview", label: "Overview", to: repoHomePath.value },
-    { id: "code", label: "Code", to: repoCodePath.value },
+    { id: "overview", label: "Overview", icon: "folder", to: repoHomePath.value },
+    { id: "code", label: "Code", icon: "file", to: repoCodePath.value },
   ];
   if (extEnabled("issues")) {
     all.push({
       id: "issues",
       label: "Issues",
+      icon: "issue",
       to: repoExtPath("issues"),
       count: props.openIssues ?? 0,
     });
@@ -114,23 +118,25 @@ const tabs = computed<Tab[]>(() => {
     all.push({
       id: "pulls",
       label: "Pulls",
+      icon: "pr",
       to: repoExtPath("pulls"),
       count: props.openPulls ?? 0,
     });
   }
   if (extEnabled("epics")) {
-    all.push({ id: "epics", label: "Epics", to: repoExtPath("epics") });
+    all.push({ id: "epics", label: "Epics", icon: "tag", to: repoExtPath("epics") });
   }
   if (extEnabled("checks")) {
     all.push({
       id: "checks",
       label: "Checks",
+      icon: "check",
       to: repoExtPath("checks"),
       count: props.failingChecks ?? 0,
       countTone: "alarm",
     });
   }
-  all.push({ id: "config", label: "Config", to: repoConfigPath.value });
+  all.push({ id: "config", label: "Config", icon: "settings", to: repoConfigPath.value });
   return all;
 });
 
@@ -169,6 +175,7 @@ function isActive(tab: Tab): boolean {
       :class="{ active: isActive(tab) }"
       :aria-current="isActive(tab) ? 'page' : undefined"
     >
+      <Icon :name="tab.icon" />
       <span class="repo-tab-label">{{ tab.label }}</span>
       <span
         v-if="(tab.count ?? 0) > 0"

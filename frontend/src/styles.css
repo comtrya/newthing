@@ -1204,13 +1204,88 @@ kbd {
   padding-bottom: 18px;
 }
 
-.shell-app .repo-header h1 {
-  font-family: var(--font-serif);
-  font-size: 44px;
-  line-height: 0.98;
-  letter-spacing: -0.02em;
-  max-width: 980px;
+.shell-app .repo-header-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, auto);
+  align-items: start;
+  gap: 16px;
+}
+
+.shell-app .repo-title-block {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.shell-app .repo-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shell-app .repo-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
   margin: 0;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: 0;
+  max-width: 980px;
+}
+
+.shell-app .repo-title-icon {
+  display: inline-flex;
+  color: var(--fg-3);
+}
+
+.shell-app .repo-owner-path {
+  min-width: 0;
+  max-width: min(44vw, 560px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+  font-weight: 400;
+}
+
+.shell-app .repo-path-separator {
+  color: var(--fg-4);
+}
+
+.shell-app .repo-name {
+  min-width: 0;
+  color: var(--fg);
+  font-weight: 650;
+}
+
+.shell-app .repo-visibility {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 0.5px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.shell-app .repo-visibility.tone-public {
+  border-color: var(--ok);
+  color: var(--ok);
 }
 
 .shell-app .repo-header .overline {
@@ -1237,7 +1312,7 @@ kbd {
   display: inline-flex;
   align-items: stretch;
   gap: 0;
-  margin-top: 10px;
+  justify-self: end;
   font-family: var(--font-mono);
   font-size: 12px;
   border: 0.5px solid var(--line-2);
@@ -1263,6 +1338,10 @@ kbd {
 }
 
 .shell-app .repo-clone-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   border: 0;
   border-left: 0.5px solid var(--line-2);
   background: var(--accent);
@@ -1722,6 +1801,15 @@ kbd {
   transition: color 80ms ease, border-color 80ms ease;
 }
 
+.shell-app .repo-tab .icon {
+  color: var(--fg-4);
+}
+
+.shell-app .repo-tab:hover .icon,
+.shell-app .repo-tab.active .icon {
+  color: currentColor;
+}
+
 .shell-app .repo-tab-count {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1746,6 +1834,20 @@ kbd {
   color: var(--fg);
   border-bottom-color: var(--accent);
   font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .shell-app .repo-header-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .shell-app .repo-clone {
+    justify-self: stretch;
+  }
+
+  .shell-app .repo-clone-cmd {
+    flex: 1 1 auto;
+  }
 }
 
 .shell-app .repo-slot-stack { display: grid; gap: 28px; padding-top: 28px; }

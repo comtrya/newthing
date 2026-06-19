@@ -6,6 +6,7 @@ import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
+import Icon from "../components/Icon.vue";
 import {
   LabelPill,
   renderMarkdown,
@@ -232,6 +233,14 @@ const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
 });
 const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
 const displayPath = computed(() => repository.value?.path ?? repoPath.value);
+const repositoryGroups = computed(() =>
+  repository.value?.groups?.length ? repository.value.groups : props.groups,
+);
+const repositoryOwnerPath = computed(() => repositoryGroups.value.join("/"));
+const repositoryName = computed(() => repository.value?.name ?? props.repo);
+const repositoryVisibility = computed(() =>
+  (repository.value?.visibility ?? "PRIVATE").toLowerCase(),
+);
 
 /**
  * Clone command for the repository — absolute URL built from the
@@ -414,12 +423,6 @@ const repoChips = computed<Chip[]>(() => {
     value: branch,
     tone: "ink",
     title: `default ${refLabel} · ${branch}`,
-  });
-  const visibility = (repository.value?.visibility ?? "PRIVATE").toLowerCase();
-  chips.push({
-    label: "visibility",
-    value: visibility,
-    tone: visibility === "public" ? "good" : "muted",
   });
   chips.push({
     label: "vcs",
@@ -715,11 +718,49 @@ function mergeRepositoryIdentity(
 
 <template>
   <header class="repo-header" data-smoke="repo-dashboard">
-    <p class="overline">Repository</p>
-    <h1>{{ displayPath }}</h1>
-    <p v-if="repository?.description" class="repo-description">
-      {{ repository.description }}
-    </p>
+    <div class="repo-header-top">
+      <div class="repo-title-block">
+        <p class="overline">Repository</p>
+        <div class="repo-title-row">
+          <h1 class="repo-title" :title="displayPath">
+            <span class="repo-title-icon" aria-hidden="true">
+              <Icon name="folder" />
+            </span>
+            <span v-if="repositoryOwnerPath" class="repo-owner-path">
+              {{ repositoryOwnerPath }}
+            </span>
+            <span v-if="repositoryOwnerPath" class="repo-path-separator">/</span>
+            <strong class="repo-name">{{ repositoryName }}</strong>
+          </h1>
+          <span
+            class="repo-visibility"
+            :class="`tone-${repositoryVisibility === 'public' ? 'public' : 'private'}`"
+          >
+            {{ repositoryVisibility }}
+          </span>
+        </div>
+        <p v-if="repository?.description" class="repo-description">
+          {{ repository.description }}
+        </p>
+      </div>
+      <div
+        v-if="cloneCommand"
+        class="repo-clone"
+        data-smoke="repo-clone"
+      >
+        <code class="repo-clone-cmd" :title="cloneCommandTitle" @click="copyClone">{{ cloneCommand }}</code>
+        <button
+          type="button"
+          class="repo-clone-copy"
+          :aria-pressed="cloneCopied"
+          :title="cloneCopied ? 'Copied' : 'Copy clone command'"
+          @click="copyClone"
+        >
+          <Icon name="copy" />
+          <span>{{ cloneCopied ? "copied" : "copy" }}</span>
+        </button>
+      </div>
+    </div>
     <div class="repo-chip-row" aria-label="Repository at a glance">
       <template v-for="chip in repoChips" :key="chip.label">
         <RouterLink
@@ -740,22 +781,6 @@ function mergeRepositoryIdentity(
           <span>{{ chip.label }}</span>
         </span>
       </template>
-    </div>
-    <div
-      v-if="cloneCommand"
-      class="repo-clone"
-      data-smoke="repo-clone"
-    >
-      <code class="repo-clone-cmd" :title="cloneCommandTitle" @click="copyClone">{{ cloneCommand }}</code>
-      <button
-        type="button"
-        class="repo-clone-copy"
-        :aria-pressed="cloneCopied"
-        :title="cloneCopied ? 'Copied' : 'Copy clone command'"
-        @click="copyClone"
-      >
-        {{ cloneCopied ? "copied" : "copy" }}
-      </button>
     </div>
     <RepoTabs
       :segments="repoSegments"

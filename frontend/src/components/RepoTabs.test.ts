@@ -18,6 +18,7 @@ type CountTone = "ink" | "alarm";
 interface Tab {
   id: string;
   label: string;
+  icon: string;
   count?: number;
   countTone?: CountTone;
 }
@@ -35,22 +36,23 @@ function buildTabs(opts: {
   }
 
   const all: Tab[] = [
-    { id: "overview", label: "Overview" },
-    { id: "code", label: "Code" },
+    { id: "overview", label: "Overview", icon: "folder" },
+    { id: "code", label: "Code", icon: "file" },
   ];
   if (extEnabled("issues"))
-    all.push({ id: "issues", label: "Issues", count: openIssues });
+    all.push({ id: "issues", label: "Issues", icon: "issue", count: openIssues });
   if (extEnabled("pulls"))
-    all.push({ id: "pulls", label: "Pulls", count: openPulls });
-  if (extEnabled("epics")) all.push({ id: "epics", label: "Epics" });
+    all.push({ id: "pulls", label: "Pulls", icon: "pr", count: openPulls });
+  if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
   if (extEnabled("checks"))
     all.push({
       id: "checks",
       label: "Checks",
+      icon: "check",
       count: failingChecks,
       countTone: "alarm",
     });
-  all.push({ id: "config", label: "Config" });
+  all.push({ id: "config", label: "Config", icon: "settings" });
   return all;
 }
 
@@ -168,6 +170,28 @@ describe("RepoTabs extension filtering", () => {
     expect(ids).not.toContain("unknown-extension");
     expect(ids).not.toContain("future-ext");
     expect(ids).toContain("issues");
+  });
+
+  test("uses familiar forge icons for core and extension tabs", () => {
+    const tabs = buildTabs({
+      enabledExtensions: [
+        "ext_issues",
+        "ext_pull_requests",
+        "ext_epics",
+        "ext_checks",
+      ],
+    });
+    expect(
+      Object.fromEntries(tabs.map((tab) => [tab.id, tab.icon])),
+    ).toEqual({
+      overview: "folder",
+      code: "file",
+      issues: "issue",
+      pulls: "pr",
+      epics: "tag",
+      checks: "check",
+      config: "settings",
+    });
   });
 
   test("short extension slugs are not feature enablement ids", () => {
