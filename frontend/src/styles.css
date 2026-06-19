@@ -1559,14 +1559,18 @@ kbd {
 
 .shell-app .repo-about-list dt {
   color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 
 .shell-app .repo-about-list dd {
   color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
