@@ -169,15 +169,23 @@ const summary = ref<{
   inProgressEpics: [],
 });
 
-/** Scalar (on/off, single value) policy chips rendered as plain key·value. */
-const policyChips = computed<Array<{ key: string; value: string; tone: "info" | "warn" }>>(() => {
-  const out: Array<{ key: string; value: string; tone: "info" | "warn" }> = [];
+interface PolicyChip {
+  id: string;
+  label: string;
+  value: string;
+  tone: "info" | "warn";
+}
+
+/** Scalar (on/off, single value) policy chips rendered as plain label·value. */
+const policyChips = computed<PolicyChip[]>(() => {
+  const out: PolicyChip[] = [];
   if (!project.value) return out;
   const issuesPolicy = project.value.issues as Record<string, unknown> | undefined;
   if (issuesPolicy && typeof issuesPolicy === "object") {
     if (typeof issuesPolicy.closeOnMerge === "boolean") {
       out.push({
-        key: "closeOnMerge",
+        id: "closeOnMerge",
+        label: "Close on merge",
         value: issuesPolicy.closeOnMerge ? "on" : "off",
         tone: issuesPolicy.closeOnMerge ? "info" : "warn",
       });
@@ -187,14 +195,16 @@ const policyChips = computed<Array<{ key: string; value: string; tone: "info" | 
   if (pullsPolicy && typeof pullsPolicy === "object") {
     if (typeof pullsPolicy.autoMerge === "boolean") {
       out.push({
-        key: "autoMerge",
+        id: "autoMerge",
+        label: "Auto-merge",
         value: pullsPolicy.autoMerge ? "on" : "off",
         tone: pullsPolicy.autoMerge ? "info" : "warn",
       });
     }
     if (Array.isArray(pullsPolicy.requiredChecks) && pullsPolicy.requiredChecks.length > 0) {
       out.push({
-        key: "requiredChecks",
+        id: "requiredChecks",
+        label: "Required checks",
         value: (pullsPolicy.requiredChecks as string[]).join(", "),
         tone: "info",
       });
@@ -495,20 +505,20 @@ const projectQueueHrefs = computed(() => {
       class="project-policy"
       data-smoke="project-policy"
     >
-      <span class="policy-prefix">policy</span>
+      <span class="policy-prefix">Policy</span>
       <span
         v-for="chip in policyChips"
-        :key="chip.key"
+        :key="chip.id"
         :class="['policy-chip', `tone-${chip.tone}`]"
         :title="`From package comtrya · ${project?.declaredAt || 'repo root'}/comtrya.cue`"
       >
-        <span class="policy-key">{{ chip.key }}</span>
+        <span class="policy-key">{{ chip.label }}</span>
         <span class="policy-sep">·</span>
         <span class="policy-value">{{ chip.value }}</span>
       </span>
       <template v-if="defaultLabelPills.length > 0">
         <span class="policy-chip tone-info policy-chip-labels">
-          <span class="policy-key">defaultLabels</span>
+          <span class="policy-key">Default labels</span>
           <span class="policy-sep">·</span>
           <LabelPill
             v-for="label in defaultLabelPills"
@@ -810,11 +820,10 @@ a.stat:hover .stat-label {
 }
 
 .policy-prefix {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--fg-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
   padding-right: 4px;
 }
 
