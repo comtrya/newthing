@@ -216,11 +216,32 @@ function commitCountLabel(count: number): string {
   return `${count} commit${count === 1 ? "" : "s"}`;
 }
 
+function nounCountLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function bookmarkCountLabel(count: number, vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj"
+    ? nounCountLabel(count, "bookmark")
+    : nounCountLabel(count, "ref");
+}
+
 describe("Recent commits count copy", () => {
   test("uses an explicit noun instead of a bare number", () => {
     expect(commitCountLabel(0)).toBe("0 commits");
     expect(commitCountLabel(1)).toBe("1 commit");
     expect(commitCountLabel(2)).toBe("2 commits");
+  });
+});
+
+describe("repository rail count copy", () => {
+  test("uses repository nouns instead of config provenance", () => {
+    expect(bookmarkCountLabel(1, "git")).toBe("1 ref");
+    expect(bookmarkCountLabel(2, "git")).toBe("2 refs");
+    expect(bookmarkCountLabel(1, "jj")).toBe("1 bookmark");
+    expect(bookmarkCountLabel(2, "jj")).toBe("2 bookmarks");
+    expect(nounCountLabel(1, "label")).toBe("1 label");
+    expect(nounCountLabel(4, "label")).toBe("4 labels");
   });
 });
 

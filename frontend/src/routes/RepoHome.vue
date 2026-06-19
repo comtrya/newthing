@@ -540,6 +540,10 @@ function commitCountLabel(count: number): string {
 }
 const commitsCountLabel = computed(() => commitCountLabel(commits.value.length));
 
+function nounCountLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 /**
  * Vcs-aware copy for the bookmarks panel.
  *
@@ -563,6 +567,14 @@ const bookmarksHint = computed(() =>
     ? "jj-native; movable tips that travel with the work"
     : "Refs the comtrya.cue config calls out for the team",
 );
+function bookmarkCountLabel(count: number, vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj"
+    ? nounCountLabel(count, "bookmark")
+    : nounCountLabel(count, "ref");
+}
+const bookmarksCountLabel = computed(() =>
+  bookmarkCountLabel(bookmarks.value.length, repository.value?.vcs),
+);
 
 const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
   () => repository.value?.labelCatalog ?? {},
@@ -571,6 +583,7 @@ const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
 const labelEntries = computed<string[]>(
   () => Object.keys(labelCatalog.value),
 );
+const labelsCountLabel = computed(() => nounCountLabel(labelEntries.value.length, "label"));
 
 const comtryaConfig = computed<ComtryaConfig | null>(
   () => repository.value?.comtryaConfig ?? null,
@@ -948,7 +961,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-bookmarks-head">
             <h2>{{ bookmarksLabel }}</h2>
-            <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
+            <span class="repo-bookmarks-count">{{ bookmarksCountLabel }}</span>
           </header>
           <p class="repo-bookmarks-hint">{{ bookmarksHint }}</p>
           <ul class="repo-bookmarks-list">
@@ -1013,7 +1026,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-labels-head">
             <h2>Labels</h2>
-            <span>{{ labelEntries.length }} declared</span>
+            <span>{{ labelsCountLabel }}</span>
           </header>
           <ul class="repo-labels-list">
             <li v-for="name in labelEntries" :key="name">
