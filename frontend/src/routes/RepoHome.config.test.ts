@@ -100,6 +100,22 @@ describe("README header metadata", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Repository chip copy — mirrors RepoHome.vue's repoChips labels
+// ---------------------------------------------------------------------------
+
+function openPullRequestChipLabel(count: number): string {
+  return count === 1 ? "open pull request" : "open pull requests";
+}
+
+describe("repository chip copy", () => {
+  test("uses full pull request language instead of PR abbreviation", () => {
+    expect(openPullRequestChipLabel(0)).toBe("open pull requests");
+    expect(openPullRequestChipLabel(1)).toBe("open pull request");
+    expect(openPullRequestChipLabel(2)).toBe("open pull requests");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 

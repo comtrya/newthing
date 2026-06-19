@@ -451,7 +451,7 @@ const repoChips = computed<Chip[]>(() => {
   }
   const prs = repository.value?.openPullRequests ?? 0;
   chips.push({
-    label: prs === 1 ? "open PR" : "open PRs",
+    label: prs === 1 ? "open pull request" : "open pull requests",
     value: String(prs),
     tone: prs > 0 ? "ink" : "muted",
     to: `${repoBase}/pulls`,
