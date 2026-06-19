@@ -354,7 +354,7 @@ async function load(): Promise<void> {
     <header class="pulls-queue-head">
       <h2>Pull requests</h2>
       <div class="pulls-queue-controls">
-        <div class="pulls-filter-row" role="tablist" aria-label="Filter pulls by state">
+        <div class="pulls-filter-row" role="tablist" aria-label="Filter pull requests by state">
           <button
             v-for="f in FILTERS"
             :key="f.id"
@@ -374,7 +374,7 @@ async function load(): Promise<void> {
             data-pulls-search
             v-model="search"
             type="search"
-            placeholder="Filter — try is:open · author:&lt;urn&gt; · text"
+            placeholder="Search pull requests"
             autocomplete="off"
             @keydown.esc="onSearchEscape"
           />
@@ -431,7 +431,7 @@ async function load(): Promise<void> {
       No pull requests match the current filter.
     </p>
 
-    <ol v-else class="pulls-list" role="listbox" aria-label="Pull request queue">
+    <ol v-else class="pulls-list" role="listbox" aria-label="Pull requests">
       <li
         v-for="(pull, index) in filtered"
         :key="pull.id"
