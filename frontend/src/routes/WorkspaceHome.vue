@@ -474,7 +474,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           <strong>{{ loadState === 'loading' || !workspaceOpenIssuesLoaded ? '—' : totalOpenIssues }}</strong>
         </RouterLink>
         <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenPulls} open pull requests — see the Inbox`">
-          <span>Open pulls</span>
+          <span>Open pull requests</span>
           <strong>{{ loadState === 'loading' ? '—' : totalOpenPulls }}</strong>
         </RouterLink>
         <div>
