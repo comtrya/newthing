@@ -907,7 +907,7 @@ function mergeRepositoryIdentity(
                 <Icon v-else name="lock" />
                 <span>visibility</span>
               </dt>
-              <dd>{{ repositoryVisibility }}</dd>
+              <dd>{{ repositoryVisibilityLabel }}</dd>
             </div>
             <div>
               <dt>

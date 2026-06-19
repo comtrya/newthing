@@ -151,7 +151,7 @@ function repositoryVisibilityLabel(visibility: string | null | undefined): strin
 }
 
 describe("repository visibility copy", () => {
-  test("uses GitHub-like title-case labels instead of uppercase system copy", () => {
+  test("uses one GitHub-like title-case label for header and About metadata", () => {
     expect(repositoryVisibilityLabel("PUBLIC")).toBe("Public");
     expect(repositoryVisibilityLabel("public")).toBe("Public");
     expect(repositoryVisibilityLabel("PRIVATE")).toBe("Private");
