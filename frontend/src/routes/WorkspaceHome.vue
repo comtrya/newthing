@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
+import { getSessionToken, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import {
   classifyPrincipal,
   fetchComtryaProjects,
@@ -52,6 +52,10 @@ const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
     }
   }
   extensionInstallations { id routePrefix }
+}`;
+
+const WORKSPACE_PROJECTS_QUERY = `query WorkspaceHomeProjects($segments: [String!]!) {
+  workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
 }`;
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
@@ -173,38 +177,131 @@ interface ProjectRow {
 
 const projectRows = ref<ProjectRow[]>([]);
 const projectsLoadState = ref<"idle" | "loading" | "ready">("idle");
+const PROJECT_FETCH_TIMEOUT_MS = 2_500;
+let projectsLoadRun = 0;
+
+interface WorkspaceProjectsPayload {
+  workspace?: {
+    repositoryByPath?: {
+      comtryaConfig?: {
+        projects?: unknown[];
+      } | null;
+    } | null;
+  };
+}
+
+function isComtryaProject(value: unknown): value is ComtryaProject {
+  return value !== null && typeof value === "object";
+}
+
+async function sessionTokenWithTimeout(): Promise<string | undefined> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      getSessionToken(),
+      new Promise<undefined>((resolve) => {
+        timeoutId = setTimeout(() => resolve(undefined), PROJECT_FETCH_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+async function fetchProjectsViaWorkspaceGraphQL(segments: string[]): Promise<ComtryaProject[]> {
+  try {
+    const token = await sessionTokenWithTimeout();
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), PROJECT_FETCH_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch("/graphql", {
+        method: "POST",
+        credentials: "include",
+        signal: controller.signal,
+        headers,
+        body: JSON.stringify({
+          query: WORKSPACE_PROJECTS_QUERY,
+          variables: { segments },
+        }),
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    const envelope = (await response.json()) as {
+      data?: WorkspaceProjectsPayload;
+      errors?: Array<{ message?: string }>;
+    };
+    if (!response.ok || envelope.errors?.length) return [];
+    const projects =
+      envelope.data?.workspace?.repositoryByPath?.comtryaConfig?.projects ?? [];
+    return projects.filter(isComtryaProject);
+  } catch {
+    return [];
+  }
+}
+
+async function fetchProjectsWithTimeout(segments: string[]): Promise<ComtryaProject[]> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let projects: ComtryaProject[] | null = null;
+  try {
+    projects = await Promise.race([
+      fetchComtryaProjects(segments),
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), PROJECT_FETCH_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+  return projects && projects.length > 0
+    ? projects
+    : fetchProjectsViaWorkspaceGraphQL(segments);
+}
+
+async function projectRowsForRepository(repo: RepositorySummary): Promise<ProjectRow[]> {
+  const segments = (repo.path ?? "")
+    .split("/")
+    .filter(Boolean)
+    .map(decodeURIComponent);
+  if (segments.length === 0) return [];
+  const projects = await fetchProjectsWithTimeout(segments);
+  return projects.map((project): ProjectRow => ({
+    repoPath: repo.path,
+    segments,
+    project,
+  }));
+}
 
 async function refreshAllProjects(): Promise<void> {
+  const loadRun = ++projectsLoadRun;
   if (repositories.value.length === 0) {
     projectRows.value = [];
     projectsLoadState.value = "ready";
     return;
   }
   projectsLoadState.value = "loading";
-  const fetched = await Promise.all(
-    repositories.value.map(async (repo) => {
-      const segments = (repo.path ?? "")
-        .split("/")
-        .filter(Boolean)
-        .map(decodeURIComponent);
-      const projects = segments.length > 0
-        ? await fetchComtryaProjects(segments)
-        : [];
-      return projects.map((project): ProjectRow => ({
-        repoPath: repo.path,
-        segments,
-        project,
-      }));
-    }),
-  );
-  const rows = fetched.flat().filter((row) => Boolean(row.project.name));
-  rows.sort((a, b) => {
-    const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
-    if (byProject !== 0) return byProject;
-    return a.repoPath.localeCompare(b.repoPath);
-  });
-  projectRows.value = rows;
-  projectsLoadState.value = "ready";
+  try {
+    const fetched = await Promise.all(
+      repositories.value.map((repo) => projectRowsForRepository(repo)),
+    );
+    if (loadRun !== projectsLoadRun) return;
+    const rows = fetched.flat().filter((row) => Boolean(row.project.name));
+    rows.sort((a, b) => {
+      const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
+      if (byProject !== 0) return byProject;
+      return a.repoPath.localeCompare(b.repoPath);
+    });
+    projectRows.value = rows;
+  } finally {
+    if (loadRun === projectsLoadRun) {
+      projectsLoadState.value = "ready";
+    }
+  }
 }
 
 function projectHomeHref(row: ProjectRow): string {
@@ -310,7 +407,7 @@ onUnmounted(() => {
 // Hydrate per-repo issue counts once the workspace summary resolves.
 watch([workspaceId, repositories], () => void refreshAllOpenIssues());
 
-// Hydrate the workspace-wide CUE Projects list at the same time -
+// Hydrate the workspace-wide Projects list at the same time -
 // triggered on repos changing (mount or live insert from
 // imported-repository events).
 watch(repositories, () => void refreshAllProjects(), { immediate: true });
@@ -422,27 +519,29 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
 
       <aside class="home-rail">
         <section
-          v-if="projectRows.length > 0 || projectsLoadState === 'loading'"
           class="panel home-projects"
           data-smoke="home-projects"
         >
           <header class="panel-heading">
             <h2>Projects</h2>
             <span class="meta" aria-hidden="true">
-              {{ projectRows.length }} declared
+              {{ projectRows.length }} project<template v-if="projectRows.length !== 1">s</template>
             </span>
           </header>
           <p v-if="projectsLoadState === 'loading'" class="home-empty">
-            Resolving CUE projects…
+            Loading projects…
           </p>
-          <ul v-else class="home-projects-list" aria-label="CUE projects across the workspace">
+          <p v-else-if="projectRows.length === 0" class="home-empty">
+            No projects found.
+          </p>
+          <ul v-else class="home-projects-list" aria-label="Projects across the workspace">
             <li
               v-for="row in projectRows"
               :key="`${row.repoPath}::${row.project.name}`"
               class="home-project-row"
             >
               <RouterLink :to="projectHomeHref(row)" class="home-project-link">
-                <span class="home-project-glyph" aria-hidden="true">◇</span>
+                <span class="home-project-glyph">Project</span>
                 <span class="home-project-name">{{ row.project.name }}</span>
                 <span class="home-project-repo">{{ row.repoPath }}</span>
               </RouterLink>
@@ -454,7 +553,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`Open issues in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).openIssues }}</span>
-                  <span class="count-label">open</span>
+                  <span class="count-label">open issues</span>
                 </RouterLink>
                 <RouterLink
                   :to="projectFilterHref('epics', row.project.name ?? '', 'IN_PROGRESS')"
@@ -463,7 +562,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`In-progress epics in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).epicsInProgress }}</span>
-                  <span class="count-label">epics</span>
+                  <span class="count-label">in-progress epics</span>
                 </RouterLink>
                 <RouterLink
                   :to="projectFilterHref('issues', row.project.name ?? '', 'CLOSED')"
@@ -472,7 +571,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`Closed issues in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).closedIssues }}</span>
-                  <span class="count-label">closed</span>
+                  <span class="count-label">closed issues</span>
                 </RouterLink>
               </div>
               <ul v-if="projectOwnerRefs(row.project).length > 0" class="home-project-owners">
@@ -490,7 +589,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
             </li>
           </ul>
           <p class="home-projects-source">
-            From <code>package comtrya</code> across every repo in this workspace
+            Projects across repositories in this workspace
           </p>
         </section>
       </aside>

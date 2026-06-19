@@ -925,6 +925,12 @@ kbd {
 
 .shell-app .home-project-row:last-child { border-bottom: 0; }
 
+.shell-app .home-projects .home-empty {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .shell-app .home-project-link {
   display: grid;
   grid-template-columns: auto auto 1fr;
@@ -941,7 +947,8 @@ kbd {
 .shell-app .home-project-glyph {
   font-family: var(--font-sans);
   color: var(--info);
-  font-size: 14px;
+  font-size: 11px;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -1039,8 +1046,9 @@ kbd {
 
 .shell-app .home-projects-source {
   margin: 8px 0 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
 }
 
