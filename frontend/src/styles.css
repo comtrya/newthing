@@ -1287,10 +1287,6 @@ kbd {
   color: var(--ok);
 }
 
-.shell-app .repo-header .overline {
-  margin: 0;
-}
-
 .shell-app .repo-description {
   margin: 0;
   font-family: var(--font-sans);

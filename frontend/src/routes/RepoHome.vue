@@ -759,7 +759,6 @@ function mergeRepositoryIdentity(
   <header class="repo-header" data-smoke="repo-dashboard">
     <div class="repo-header-top">
       <div class="repo-title-block">
-        <p class="overline">Repository</p>
         <div class="repo-title-row">
           <h1 class="repo-title" :title="displayPath">
             <span class="repo-title-icon" aria-hidden="true">
