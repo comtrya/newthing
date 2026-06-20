@@ -58,7 +58,7 @@ const accessStats = computed(() => {
   return [
     { label: "Active sessions", value: data.access.activeSessions },
     { label: "Active credentials", value: data.access.activeCredentials },
-    { label: "Rate limit rows", value: data.access.rateLimitRows },
+    { label: "Rate limit entries", value: data.access.rateLimitRows },
     { label: "OIDC issuers", value: data.access.oidcIssuers.length },
   ];
 });
@@ -258,7 +258,7 @@ const accessStats = computed(() => {
                 <strong>{{ telemetry.access.activeSessions }}</strong>
               </div>
               <div>
-                <span>Rate limit rows</span>
+                <span>Rate limit entries</span>
                 <strong>{{ telemetry.access.rateLimitRows }}</strong>
               </div>
               <div>
