@@ -91,8 +91,8 @@ const accessStats = computed(() => {
             <template v-if="telemetry">
               Current access state across sessions, credentials, rate limits, and sign-in providers.
             </template>
-            <template v-else-if="loading">Loading access telemetry...</template>
-            <template v-else>Access telemetry unavailable</template>
+            <template v-else-if="loading">Loading access settings...</template>
+            <template v-else>Access settings unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -103,7 +103,7 @@ const accessStats = computed(() => {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>Access settings could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
