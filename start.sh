@@ -1296,7 +1296,7 @@ expect_status "ext_docs summarize-doc parses front matter" 200 "$TMP_DIR/docs-su
   --data-binary "@$DOC_SUMMARY_PAYLOAD" \
   "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-doc"
 json_assert "ext_docs summarize-doc returns normalized summary" "$TMP_DIR/docs-summary.json" \
-  'json.path === "crates/server/docs/specs/extension-runtime.mdx" && json.title === "Extension runtime" && json.propertyCount === 3 && json.hasFrontMatter === true && json.bodyExcerpt.includes("First-party extensions are Component Model WASM")'
+  'json.path === "crates/server/docs/specs/extension-runtime.mdx" && json.title === "Extension runtime" && json.propertyCount === 3 && json.hasFrontMatter === true && json.bodyExcerpt.includes("First-party extensions are Component Model WASM") && json.properties.length === 3 && json.properties.some((property) => property.key === "title" && property.value === "Extension runtime") && json.properties.some((property) => property.key === "owner" && property.value === "platform-maintainers") && json.properties.some((property) => property.key === "status" && property.value === "shipping")'
 
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \

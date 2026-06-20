@@ -20,10 +20,16 @@ interface docs {
     preview: string,
   }
 
+  record doc-property {
+    key: string,
+    value: string,
+  }
+
   record doc-summary {
     path: string,
     title: string,
     property-count: u32,
+    properties: list<doc-property>,
     body-excerpt: string,
     has-front-matter: bool,
   }

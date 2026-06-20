@@ -8,7 +8,7 @@ mod bindings;
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
-    DocSummary, Guest as DocsGuest, SummarizeDocInput,
+    DocProperty, DocSummary, Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -36,6 +36,10 @@ fn summarize_preview(path: &str, preview: &str) -> DocSummary {
         path: path.to_string(),
         title,
         property_count: properties.len() as u32,
+        properties: properties
+            .into_iter()
+            .map(|(key, value)| DocProperty { key, value })
+            .collect(),
         body_excerpt: body_excerpt(body),
         has_front_matter,
     }
@@ -135,6 +139,11 @@ mod tests {
         assert_eq!(summary.path, "crates/server/docs/specs/extension-runtime.mdx");
         assert_eq!(summary.title, "Extension runtime");
         assert_eq!(summary.property_count, 3);
+        assert_eq!(summary.properties.len(), 3);
+        assert_eq!(summary.properties[0].key, "title");
+        assert_eq!(summary.properties[0].value, "Extension runtime");
+        assert_eq!(summary.properties[1].key, "owner");
+        assert_eq!(summary.properties[1].value, "platform-maintainers");
         assert!(summary.has_front_matter);
         assert!(summary.body_excerpt.starts_with("First-party extensions"));
     }
@@ -145,6 +154,7 @@ mod tests {
 
         assert_eq!(summary.title, "plain-note.mdx");
         assert_eq!(summary.property_count, 0);
+        assert!(summary.properties.is_empty());
         assert!(!summary.has_front_matter);
         assert_eq!(summary.body_excerpt, "No front matter here.");
     }

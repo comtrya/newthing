@@ -125,7 +125,7 @@ mod ext_docs_bindings {
 
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
-    DocSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocProperty, DocSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2385,8 +2385,20 @@ fn doc_summary_to_json(summary: &DocSummary) -> Value {
         "path": summary.path,
         "title": summary.title,
         "propertyCount": summary.property_count,
+        "properties": summary
+            .properties
+            .iter()
+            .map(doc_property_to_json)
+            .collect::<Vec<_>>(),
         "bodyExcerpt": summary.body_excerpt,
         "hasFrontMatter": summary.has_front_matter,
+    })
+}
+
+fn doc_property_to_json(property: &DocProperty) -> Value {
+    serde_json::json!({
+        "key": property.key,
+        "value": property.value,
     })
 }
 
