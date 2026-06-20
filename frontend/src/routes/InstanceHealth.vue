@@ -56,8 +56,67 @@ const title = computed(() => {
   return "Instance";
 });
 const smokeName = computed(() => `${props.mode}-admin-shell`);
-const readyChecks = computed(() => Object.entries(readyz.value?.checks ?? {}));
-const capabilities = computed(() => Object.entries(instance.value?.instance?.capabilities ?? {}));
+const readySummary = computed(() => {
+  if (loadState.value !== "ready") return "—";
+  return readyz.value?.ready === true ? "Ready" : "Not ready";
+});
+const healthSummary = computed(() => {
+  if (loadState.value !== "ready") return "—";
+  return formatStatusLabel(healthz.value?.status ?? "unknown");
+});
+const modeSummary = computed(() => {
+  if (loadState.value !== "ready") return "—";
+  return formatStatusLabel(readyz.value?.mode ?? "unknown");
+});
+const readyChecks = computed(() =>
+  Object.entries(readyz.value?.checks ?? {}).map(([name, ok]) => ({
+    name,
+    label: systemLabel(name),
+    status: ok ? "Passing" : "Failing",
+  })),
+);
+const capabilities = computed(() =>
+  Object.entries(instance.value?.instance?.capabilities ?? {}).map(([name, enabled]) => ({
+    name,
+    label: systemLabel(name),
+    status: enabled ? "Enabled" : "Disabled",
+  })),
+);
+
+const systemLabels: Record<string, string> = {
+  auditLogWritable: "Audit log",
+  configValid: "Configuration",
+  dataDirWritable: "Data directory",
+  eventLogWritable: "Event log",
+  extensionRuntime: "Extension runtime",
+  extensionStorageDocuments: "Extension storage documents",
+  extensionStorageSchema: "Extension storage schema",
+  gitHTTPS: "Git HTTPS",
+  gitLFS: "Git LFS",
+  graphqlSubscriptions: "GraphQL subscriptions",
+  operatorCodeConfigured: "Operator code",
+  productionTlsTerminated: "TLS termination",
+  repositoryRoot: "Repository root",
+  sse: "Server-sent events",
+};
+
+function systemLabel(name: string): string {
+  return systemLabels[name] ?? titleCaseWords(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2"));
+}
+
+function formatStatusLabel(value: string): string {
+  if (value.toLowerCase() === "ok") return "OK";
+  return titleCaseWords(value);
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
 
 onMounted(() => void load());
 
@@ -107,7 +166,7 @@ async function graphql<T>(query: string): Promise<T> {
 </script>
 
 <template>
-  <div :data-smoke="smokeName">
+  <div class="admin-shell" :data-smoke="smokeName">
     <section class="page-header">
       <div class="title-group">
         <span class="overline">Admin</span>
@@ -116,15 +175,15 @@ async function graphql<T>(query: string): Promise<T> {
       <div class="summary-grid" aria-label="Instance health summary" :aria-busy="loadState !== 'ready'">
         <div>
           <span>Ready</span>
-          <strong>{{ loadState !== 'ready' ? '—' : (readyz?.ready === true ? "yes" : "no") }}</strong>
+          <strong>{{ readySummary }}</strong>
         </div>
         <div>
           <span>Health</span>
-          <strong>{{ loadState !== 'ready' ? '—' : (healthz?.status ?? "unknown") }}</strong>
+          <strong>{{ healthSummary }}</strong>
         </div>
         <div>
           <span>Mode</span>
-          <strong>{{ loadState !== 'ready' ? '—' : (readyz?.mode ?? "unknown") }}</strong>
+          <strong>{{ modeSummary }}</strong>
         </div>
       </div>
     </section>
@@ -140,11 +199,11 @@ async function graphql<T>(query: string): Promise<T> {
         <div class="admin-list">
           <div>
             <span>Public URL</span>
-            <code>{{ instance?.instance?.publicURL ?? "-" }}</code>
+            <code>{{ instance?.instance?.publicURL ?? "Not configured" }}</code>
           </div>
           <div>
             <span>Viewer</span>
-            <code>{{ instance?.viewer?.authenticated ? "authenticated" : "anonymous" }}</code>
+            <code>{{ instance?.viewer?.authenticated ? "Authenticated" : "Anonymous" }}</code>
           </div>
           <div>
             <span>Extensions</span>
@@ -156,12 +215,12 @@ async function graphql<T>(query: string): Promise<T> {
       <section class="panel" data-smoke="instance-readyz">
         <header class="panel-heading">
           <h2>Readiness</h2>
-          <span class="chip" :class="readyz?.ready ? 'ok' : 'err'">{{ readyz?.ready ? "ready" : "not ready" }}</span>
+          <span class="chip" :class="readyz?.ready ? 'ok' : 'err'">{{ readyz?.ready ? "Ready" : "Not ready" }}</span>
         </header>
         <div class="admin-list">
-          <div v-for="[name, ok] in readyChecks" :key="name">
-            <span>{{ name }}</span>
-            <code>{{ ok ? "ok" : "fail" }}</code>
+          <div v-for="check in readyChecks" :key="check.name">
+            <span>{{ check.label }}</span>
+            <code>{{ check.status }}</code>
           </div>
         </div>
       </section>
@@ -171,23 +230,24 @@ async function graphql<T>(query: string): Promise<T> {
           <h2>Capabilities</h2>
         </header>
         <div class="admin-list">
-          <div v-for="[name, enabled] in capabilities" :key="name">
-            <span>{{ name }}</span>
-            <code>{{ enabled ? "enabled" : "disabled" }}</code>
+          <div v-for="capability in capabilities" :key="capability.name">
+            <span>{{ capability.label }}</span>
+            <code>{{ capability.status }}</code>
           </div>
         </div>
       </section>
 
       <section class="panel" data-smoke="instance-unsupported">
         <header class="panel-heading">
-          <h2>Unsupported Surfaces</h2>
+          <h2>Unsupported routes</h2>
         </header>
-        <div class="admin-list">
+        <div v-if="(readyz?.unsupported?.length ?? 0) > 0" class="admin-list">
           <div v-for="surface in readyz?.unsupported ?? []" :key="surface.id">
-            <span>{{ surface.id }}</span>
+            <span>{{ systemLabel(surface.id) }}</span>
             <code>{{ surface.pathPrefix }}</code>
           </div>
         </div>
+        <p v-else class="panel-empty">No unsupported routes.</p>
       </section>
     </section>
   </div>

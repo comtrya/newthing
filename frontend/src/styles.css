@@ -2481,6 +2481,49 @@ kbd {
 
 .shell-app .admin-list code { overflow-wrap: anywhere; }
 
+.shell-app .admin-shell h1 {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+.shell-app .admin-shell .overline,
+.shell-app .admin-shell .summary-grid span,
+.shell-app .admin-shell .admin-list span,
+.shell-app .admin-shell .admin-list code,
+.shell-app .admin-shell .panel-empty {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shell-app .admin-shell .overline,
+.shell-app .admin-shell .summary-grid span,
+.shell-app .admin-shell .admin-list span {
+  font-weight: 500;
+}
+
+.shell-app .admin-shell .summary-grid strong {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.shell-app .admin-shell .admin-list code {
+  font-weight: 600;
+}
+
+.shell-app .admin-shell .panel-empty {
+  margin: 14px 0 0;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+
 /* The command palette owns its styling in CommandPalette.vue's scoped
    block. The former global `.palette-*` rules that lived here were
    superseded by that refactor; they are intentionally not duplicated. */
