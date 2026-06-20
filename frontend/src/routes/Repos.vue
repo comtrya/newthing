@@ -68,7 +68,7 @@ const sortedRepos = computed(() =>
       <p v-if="loading" class="repos-state">Loading repositories…</p>
       <p v-else-if="error" class="repos-state repos-state-err" role="alert">{{ error }}</p>
       <p v-else-if="sortedRepos.length === 0" class="repos-state">
-        No repositories yet. <RouterLink to="/new" class="repos-state-link">Create one</RouterLink>
+        No repositories yet. <RouterLink to="/new" class="repos-state-link">Create a repository</RouterLink>
         to get started.
       </p>
 
