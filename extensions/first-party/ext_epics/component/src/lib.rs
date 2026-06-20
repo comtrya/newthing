@@ -10,8 +10,9 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
-    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
-    Guest as EpicsGuest, UpdateEpicInput,
+    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress,
+    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, Guest as EpicsGuest,
+    RoadmapBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -430,6 +431,60 @@ fn epic_uri(id: &str) -> String {
     format!("comtrya://epic/{id}")
 }
 
+#[derive(Clone, Copy)]
+enum RoadmapLane {
+    Planned,
+    InProgress,
+    AtRisk,
+    Done,
+    Canceled,
+}
+
+fn roadmap_lane(state: EpicState) -> RoadmapLane {
+    match state {
+        EpicState::Planned => RoadmapLane::Planned,
+        EpicState::InProgress => RoadmapLane::InProgress,
+        EpicState::AtRisk => RoadmapLane::AtRisk,
+        EpicState::Done => RoadmapLane::Done,
+        EpicState::Canceled => RoadmapLane::Canceled,
+    }
+}
+
+fn roadmap_column(key: &str, label: &str, cards: Vec<EpicRoadmapCard>) -> EpicRoadmapColumn {
+    EpicRoadmapColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn roadmap_columns(cards: Vec<EpicRoadmapCard>) -> Vec<EpicRoadmapColumn> {
+    let mut planned = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut at_risk = Vec::new();
+    let mut done = Vec::new();
+    let mut canceled = Vec::new();
+
+    for card in cards {
+        match roadmap_lane(card.epic.state) {
+            RoadmapLane::Planned => planned.push(card),
+            RoadmapLane::InProgress => in_progress.push(card),
+            RoadmapLane::AtRisk => at_risk.push(card),
+            RoadmapLane::Done => done.push(card),
+            RoadmapLane::Canceled => canceled.push(card),
+        }
+    }
+
+    vec![
+        roadmap_column("planned", "Planned", planned),
+        roadmap_column("in-progress", "In progress", in_progress),
+        roadmap_column("at-risk", "At risk", at_risk),
+        roadmap_column("done", "Done", done),
+        roadmap_column("canceled", "Canceled", canceled),
+    ]
+}
+
 impl EpicsGuest for Component {
     fn create_epic(input: CreateEpicInput) -> Result<Epic, Error> {
         let (workspace_id, workspace) = workspace_uri(input.workspace.trim())?;
@@ -633,6 +688,9 @@ impl EpicsGuest for Component {
         let workspace_id = workspace_id(&workspace)
             .ok_or_else(|| err(ErrorCode::BadInput, "epics.list requires a workspace"))?;
         let limit = limit.min(1024) as usize;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         scan_epics(|stored| {
             if stored.workspace_id == workspace_id {
@@ -687,6 +745,27 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn roadmap_board(input: RoadmapBoardInput) -> Result<EpicRoadmapBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicRoadmapCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicRoadmapBoard {
+            workspace,
+            total,
+            columns: roadmap_columns(cards),
+        })
+    }
+
     fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "issue", limit)
     }
@@ -707,3 +786,66 @@ impl ReactorGuest for Component {
 }
 
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn epic(id: &str, state: EpicState) -> Epic {
+        Epic {
+            id: id.to_string(),
+            workspace: "comtrya://workspace/ws_test".to_string(),
+            title: id.to_string(),
+            body_markdown: String::new(),
+            state,
+            number: 1,
+            target_date: None,
+            owner_ref: None,
+            labels: Vec::new(),
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+            closed_at: None,
+            project_name: None,
+        }
+    }
+
+    fn progress(percent_complete: u64) -> EpicProgress {
+        EpicProgress {
+            issues_open: 0,
+            issues_closed: 0,
+            child_epics_open: 0,
+            child_epics_closed: 0,
+            percent_complete,
+        }
+    }
+
+    fn card(id: &str, state: EpicState, percent_complete: u64) -> EpicRoadmapCard {
+        EpicRoadmapCard {
+            epic: epic(id, state),
+            progress: progress(percent_complete),
+        }
+    }
+
+    #[test]
+    fn roadmap_columns_group_cards_by_epic_state() {
+        let columns = roadmap_columns(vec![
+            card("planned", EpicState::Planned, 0),
+            card("risk", EpicState::AtRisk, 25),
+            card("doing", EpicState::InProgress, 50),
+            card("done", EpicState::Done, 100),
+            card("canceled", EpicState::Canceled, 0),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["planned", "in-progress", "at-risk", "done", "canceled"]
+        );
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 5);
+        assert_eq!(columns[0].cards[0].epic.id, "planned");
+        assert_eq!(columns[1].cards[0].progress.percent_complete, 50);
+        assert_eq!(columns[2].cards[0].epic.id, "risk");
+        assert_eq!(columns[3].cards[0].epic.id, "done");
+        assert_eq!(columns[4].cards[0].epic.id, "canceled");
+    }
+}

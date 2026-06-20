@@ -88,6 +88,29 @@ interface epics {
     percent-complete: u64,
   }
 
+  record roadmap-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-roadmap-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-roadmap-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<epic-roadmap-card>,
+  }
+
+  record epic-roadmap-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-roadmap-column>,
+  }
+
   create-epic: func(input: create-epic-input) -> result<epic, error>;
   change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   assign-project: func(input: assign-project-input) -> result<epic, error>;
@@ -97,6 +120,10 @@ interface epics {
   by-ref-epic: func(ref: uri) -> result<option<epic>, error>;
   by-refs-epic: func(refs: list<uri>) -> result<list<option<epic>>, error>;
   progress-epic: func(ref: uri) -> result<epic-progress, error>;
+  /// Familiar roadmap lanes for planning surfaces. Each card carries the
+  /// epic plus the same aggregate progress exposed by `progress-epic`, so
+  /// UIs do not need an N+1 fan-out to render a roadmap board.
+  roadmap-board: func(input: roadmap-board-input) -> result<epic-roadmap-board, error>;
   /// Issues that are members of this epic. Capped server-side at
   /// `min(limit, 1024)`; silently truncated beyond that. Per the
   /// per-extension list-op convention (see `docs/wit-platform-design.md`).

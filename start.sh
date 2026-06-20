@@ -2414,6 +2414,14 @@ expect_status "list-epics returns both epics for the workspace" 200 "$TMP_DIR/ep
 json_assert "list has 2 epics" "$TMP_DIR/epc-list.json" \
   'json.length === 2'
 
+expect_status "roadmap-board groups epics by lifecycle state with progress" 200 "$TMP_DIR/epc-roadmap.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/roadmap-board"
+json_assert "roadmap has planned root and done child lanes with progress" "$TMP_DIR/epc-roadmap.json" \
+  "json.total === 2 && json.columns.length === 5 && json.columns.find((c) => c.key === \"planned\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"done\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
 expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

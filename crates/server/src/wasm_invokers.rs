@@ -80,7 +80,8 @@ mod ext_epics_bindings {
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
-    EpicProgress, EpicState, UpdateEpicInput,
+    EpicProgress, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState,
+    RoadmapBoardInput, UpdateEpicInput,
 };
 
 mod ext_pull_requests_bindings {
@@ -220,6 +221,13 @@ struct UpdateEpicInputJson {
     /// `null` or absent → keep existing labels; `[]` → clear labels.
     #[serde(default)]
     labels: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoadmapBoardInputJson {
+    workspace: String,
+    limit: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -1071,6 +1079,27 @@ pub fn dispatch_ext_epics(
                     )
                 })?;
             epic_progress_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "roadmap-board" => {
+            let parsed: RoadmapBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse roadmap-board input: {e}"),
+                )
+            })?;
+            let wit_input = RoadmapBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_roadmap_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("roadmap-board call: {e}"),
+                    )
+                })?;
+            epic_roadmap_board_to_json(&result.map_err(epic_error_to_canonical)?)
         }
         "issues-in-epic" => {
             let ref_uri = string_field(&input, "ref", "issues-in-epic")?;
@@ -2076,6 +2105,39 @@ fn epic_progress_to_json(progress: &EpicProgress) -> Value {
         "childEpicsOpen": progress.child_epics_open,
         "childEpicsClosed": progress.child_epics_closed,
         "percentComplete": progress.percent_complete,
+    })
+}
+
+fn epic_roadmap_board_to_json(board: &EpicRoadmapBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_roadmap_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_roadmap_column_to_json(column: &EpicRoadmapColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_roadmap_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_roadmap_card_to_json(card: &EpicRoadmapCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
     })
 }
 
