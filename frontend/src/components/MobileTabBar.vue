@@ -31,7 +31,7 @@ const tabs: TabItem[] = [
     id: "pipelines",
     to: "/pipelines",
     icon: "bolt",
-    label: "CI",
+    label: "Actions",
     matches: (p) => p.startsWith("/pipelines"),
   },
   {

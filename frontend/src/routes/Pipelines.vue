@@ -21,14 +21,14 @@ const scope = computed(() => repoPath.value || "Workspace");
     <header class="runtime-empty-head hairline-b">
       <div>
         <p class="overline">{{ scope }}</p>
-        <h1>Pipelines</h1>
+        <h1>Actions</h1>
       </div>
       <Chip tone="info">No runs yet</Chip>
     </header>
 
     <article class="runtime-empty-panel">
       <h2>No workflow runs yet</h2>
-      <p>Workflow runs will appear here when pipeline data is recorded for this scope.</p>
+      <p>Workflow runs will appear here when they are recorded for this scope.</p>
     </article>
   </section>
 </template>

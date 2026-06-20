@@ -38,7 +38,7 @@ const items: RailItem[] = [
     id: "pipelines",
     to: "/pipelines",
     icon: "bolt",
-    label: "Pipelines",
+    label: "Actions",
     matches: (p) => p.startsWith("/pipelines"),
   },
   {

@@ -399,7 +399,7 @@ async function loadAuthProviders(): Promise<void> {
             to="/pipelines"
             class="sb-link"
             :class="{ 'sb-link-active': route.path.startsWith('/pipelines') }"
-          >Pipelines</RouterLink>
+          >Actions</RouterLink>
           <RouterLink
             to="/releases"
             class="sb-link"
