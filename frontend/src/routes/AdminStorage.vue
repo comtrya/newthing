@@ -47,7 +47,7 @@ function statusLabel(path: TelemetryPath): string {
       <div class="page-header">
         <div>
           <div class="eyebrow" style="margin-bottom: 6px">Storage telemetry</div>
-          <h1 class="serif">Runtime storage paths</h1>
+          <h1>Runtime storage paths</h1>
           <div class="subline">
             <template v-if="telemetry">
               Live filesystem counts from the configured data directory.
@@ -70,16 +70,16 @@ function statusLabel(path: TelemetryPath): string {
       <template v-if="telemetry">
         <div class="summary-grid">
           <div class="glass summary-card">
-            <div class="eyebrow">repositories</div>
-            <div class="mono summary-value">{{ telemetry.storage.repositories.count }}</div>
+            <div class="eyebrow">Repositories</div>
+            <div class="summary-value">{{ telemetry.storage.repositories.count }}</div>
             <div class="summary-detail">
               {{ telemetry.storage.repositories.root.files ?? 0 }} files ·
               {{ formatBytes(telemetry.storage.repositories.root.bytes) }}
             </div>
           </div>
           <div class="glass summary-card">
-            <div class="eyebrow">extension storage</div>
-            <div class="mono summary-value">
+            <div class="eyebrow">Extension storage</div>
+            <div class="summary-value">
               {{ formatBytes(telemetry.storage.extensionStorage.bytes) }}
             </div>
             <div class="summary-detail">
@@ -87,8 +87,8 @@ function statusLabel(path: TelemetryPath): string {
             </div>
           </div>
           <div class="glass summary-card">
-            <div class="eyebrow">metadata</div>
-            <div class="mono summary-value">{{ formatBytes(telemetry.storage.metadata.bytes) }}</div>
+            <div class="eyebrow">Metadata</div>
+            <div class="summary-value">{{ formatBytes(telemetry.storage.metadata.bytes) }}</div>
             <div class="summary-detail">{{ telemetry.storage.metadata.files ?? 0 }} files</div>
           </div>
         </div>
@@ -184,10 +184,19 @@ function statusLabel(path: TelemetryPath): string {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -215,7 +224,9 @@ function statusLabel(path: TelemetryPath): string {
   padding: 16px;
 }
 .summary-value {
+  font-family: var(--font-sans);
   font-size: 26px;
+  font-weight: 600;
   color: var(--fg);
   margin-top: 8px;
 }
