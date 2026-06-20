@@ -46,6 +46,10 @@ function formatOidcIssuerCount(count: number): string {
   return `${count} configured issuer${count === 1 ? "" : "s"}`;
 }
 
+function formatUnsupportedSurfaceCount(count: number): string {
+  return `${count} unsupported surface${count === 1 ? "" : "s"}`;
+}
+
 onMounted(() => void loadSessions());
 
 const accessStats = computed(() => {
@@ -268,7 +272,7 @@ const accessStats = computed(() => {
             <div class="section-hd">
               <div class="section-hd-title">Unsupported admin surfaces</div>
               <div class="section-hd-sub">
-                {{ telemetry.readiness.unsupported.length }} explicit gaps
+                {{ formatUnsupportedSurfaceCount(telemetry.readiness.unsupported.length) }}
               </div>
             </div>
             <div v-if="telemetry.readiness.unsupported.length" class="rows">
