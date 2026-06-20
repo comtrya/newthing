@@ -107,6 +107,29 @@ interface docs {
     columns: list<doc-owner-column>,
   }
 
+  record doc-tag-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    tags: list<string>,
+  }
+
+  record doc-tag-column {
+    key: string,
+    label: string,
+    tag: option<string>,
+    count: u32,
+    docs: list<doc-tag-card>,
+  }
+
+  record doc-tag-board {
+    total-docs: u32,
+    columns: list<doc-tag-column>,
+  }
+
   record bdd-step {
     keyword: string,
     text: string,
@@ -311,6 +334,10 @@ interface docs {
   /// Group project docs by front-matter owner so specs, PRDs, and BDD scenarios
   /// can be reviewed by responsibility instead of only by type or lifecycle.
   owner-board: func(input: doc-catalog-input) -> result<doc-owner-board, error>;
+
+  /// Group project docs by front-matter tags so specs, PRDs, and BDD scenarios
+  /// can be browsed by product area without shell-side taxonomy parsing.
+  tag-board: func(input: doc-catalog-input) -> result<doc-tag-board, error>;
 
   /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
   /// indexed beside PRDs and specs without the shell parsing Gherkin itself.

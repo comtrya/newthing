@@ -10158,6 +10158,10 @@ mod tests {
         format!("epics.{op}")
     }
 
+    fn docs_route(op: &str) -> String {
+        format!("docs.{op}")
+    }
+
     #[test]
     fn repository_browser_previews_wit_files() {
         assert!(is_text_preview_path(
@@ -10249,6 +10253,13 @@ mod tests {
         assert_eq!(info.extension_id, "ext_epics");
         assert_eq!(info.interface_name, "epics");
         assert_eq!(info.op_name, "target-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("tag-board"))
+                .expect("docs tag board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "tag-board");
     }
 
     #[test]

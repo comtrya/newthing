@@ -1359,6 +1359,14 @@ expect_status "ext_docs summarize-catalog groups declared doc types" 200 "$TMP_D
 json_assert "ext_docs summarize-catalog returns project doc catalog" "$TMP_DIR/docs-catalog.json" \
   'json.totalDocs === 2 && json.types.length === 2 && json.types[0].projectName === "backend" && json.types[0].typeName === "prd" && json.types[0].label === "Backend PRDs" && json.types[0].docCount === 1 && json.types[0].docs[0].title === "Repository Docs Surface" && json.types[0].docs[0].properties.some((property) => property.key === "audience" && property.value === "maintainers") && json.types[1].typeName === "scenario" && json.types[1].docs[0].properties.some((property) => property.key === "feature" && property.value === "repository-docs") && json.types[1].docs[0].properties.some((property) => property.key === "tags" && property.value === "[docs, projects, bdd]")'
 
+expect_status "ext_docs tag-board groups docs by front matter tags" 200 "$TMP_DIR/docs-tag-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CATALOG_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/tag-board"
+json_assert "ext_docs tag-board returns untagged and topic lanes" "$TMP_DIR/docs-tag-board.json" \
+  'json.totalDocs === 2 && json.columns.find((column) => column.key === "untagged")?.count === 1 && json.columns.find((column) => column.key === "untagged")?.docs?.[0]?.typeName === "prd" && json.columns.find((column) => column.key === "tag-bdd")?.docs?.[0]?.tags?.includes("bdd") && json.columns.find((column) => column.key === "tag-docs")?.count === 1 && json.columns.find((column) => column.key === "tag-projects")?.docs?.[0]?.title === "Repository docs are discoverable from project context"'
+
 DOC_STATUS_PAYLOAD="$TMP_DIR/docs-status-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

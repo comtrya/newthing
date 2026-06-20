@@ -15,9 +15,9 @@ use bindings::exports::comtrya::ext_docs::docs::{
     DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocOwnerBoard,
     DocOwnerCard, DocOwnerColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
     DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
-    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTagBoard,
+    DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
+    DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -158,6 +158,42 @@ fn owner_board(input: DocCatalogInput) -> Result<DocOwnerBoard, Error> {
     }));
 
     Ok(DocOwnerBoard {
+        total_docs: catalog.total_docs,
+        columns,
+    })
+}
+
+fn tag_board(input: DocCatalogInput) -> Result<DocTagBoard, Error> {
+    let catalog = summarize_catalog(input)?;
+    let mut tagged = BTreeMap::<String, (String, Vec<DocTagCard>)>::new();
+    let mut untagged = Vec::new();
+
+    for doc_type in &catalog.types {
+        for doc in &doc_type.docs {
+            let card = tag_card(doc_type, doc);
+            if card.tags.is_empty() {
+                untagged.push(card);
+                continue;
+            }
+
+            for tag in &card.tags {
+                let key = tag_key(tag);
+                let entry = tagged
+                    .entry(key)
+                    .or_insert_with(|| (tag.to_string(), Vec::new()));
+                entry.1.push(card.clone());
+            }
+        }
+    }
+
+    let mut columns = vec![tag_column("untagged", "Untagged", None, untagged)];
+    columns.extend(
+        tagged.into_iter().map(|(key, (tag, docs))| {
+            tag_column(format!("tag-{key}"), tag.clone(), Some(tag), docs)
+        }),
+    );
+
+    Ok(DocTagBoard {
         total_docs: catalog.total_docs,
         columns,
     })
@@ -1131,6 +1167,20 @@ fn owner_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocOwnerCard {
     }
 }
 
+fn tag_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocTagCard {
+    DocTagCard {
+        project_name: doc_type.project_name.clone(),
+        type_name: doc_type.type_name.clone(),
+        type_label: doc_type.label.clone(),
+        path: doc.path.clone(),
+        title: doc.title.clone(),
+        status: property_value(doc, "status").unwrap_or_default(),
+        tags: property_value(doc, "tags")
+            .map(|value| parse_tag_list(&value))
+            .unwrap_or_default(),
+    }
+}
+
 fn property_value(doc: &DocSummary, key: &str) -> Option<String> {
     doc.properties
         .iter()
@@ -1177,6 +1227,21 @@ fn owner_column(
         key: key.into(),
         label: label.into(),
         owner,
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
+fn tag_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    tag: Option<String>,
+    docs: Vec<DocTagCard>,
+) -> DocTagColumn {
+    DocTagColumn {
+        key: key.into(),
+        label: label.into(),
+        tag,
         count: docs.len() as u32,
         docs,
     }
@@ -1278,6 +1343,36 @@ fn owner_key(owner: &str) -> String {
     } else {
         key
     }
+}
+
+fn tag_key(tag: &str) -> String {
+    owner_key(tag)
+}
+
+fn parse_tag_list(value: &str) -> Vec<String> {
+    let trimmed = value
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut tags = Vec::new();
+    for raw in trimmed.split(',') {
+        let tag = raw
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim()
+            .to_string();
+        if tag.is_empty() || tags.iter().any(|existing| existing == &tag) {
+            continue;
+        }
+        tags.push(tag);
+    }
+    tags
 }
 
 enum ReadinessLane {
@@ -1480,6 +1575,10 @@ impl DocsGuest for Component {
         crate::owner_board(input)
     }
 
+    fn tag_board(input: DocCatalogInput) -> Result<DocTagBoard, Error> {
+        crate::tag_board(input)
+    }
+
     fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
         crate::summarize_scenarios(input)
     }
@@ -1538,8 +1637,8 @@ mod tests {
     use super::{
         decision_board, owner_board, readiness_board, scenario_board, status_board,
         summarize_catalog, summarize_checklists, summarize_decisions, summarize_outline,
-        summarize_preview, summarize_references, summarize_scenarios, traceability_board,
-        MAX_CATALOG_DOCS,
+        summarize_preview, summarize_references, summarize_scenarios, tag_board,
+        traceability_board, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1823,6 +1922,88 @@ mod tests {
             .expect("product owner column");
         assert_eq!(product.count, 1);
         assert_eq!(product.docs[0].title, "Next Docs Surface");
+    }
+
+    #[test]
+    fn tag_board_groups_docs_by_front_matter_tags() {
+        let board = tag_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                                .to_string(),
+                            preview:
+                                "---\ntitle: Repository Docs Surface\nstatus: active\ntags: [docs, projects, docs]\n---\n\nIntent."
+                                    .to_string(),
+                        },
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/without-tags.mdx".to_string(),
+                            preview: "---\ntitle: Untagged PRD\nstatus: planned\n---\n\nIntent."
+                                .to_string(),
+                        },
+                    ],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository docs are discoverable\nstatus: review\ntags: bdd, docs\n---\n\nGiven..."
+                                .to_string(),
+                    }],
+                },
+            ],
+        })
+        .expect("tag board should summarize");
+
+        assert_eq!(board.total_docs, 3);
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .map(|column| column.key.as_str())
+                .collect::<Vec<_>>(),
+            ["untagged", "tag-bdd", "tag-docs", "tag-projects"]
+        );
+
+        let untagged = board
+            .columns
+            .iter()
+            .find(|column| column.key == "untagged")
+            .expect("untagged column");
+        assert_eq!(untagged.count, 1);
+        assert_eq!(untagged.docs[0].title, "Untagged PRD");
+        assert_eq!(untagged.tag, None);
+
+        let docs = board
+            .columns
+            .iter()
+            .find(|column| column.key == "tag-docs")
+            .expect("docs tag column");
+        assert_eq!(docs.label, "docs");
+        assert_eq!(docs.tag.as_deref(), Some("docs"));
+        assert_eq!(docs.count, 2);
+        assert_eq!(docs.docs[0].tags, ["docs", "projects"]);
+        assert_eq!(docs.docs[1].type_label, "BDD Scenarios");
+
+        let bdd = board
+            .columns
+            .iter()
+            .find(|column| column.key == "tag-bdd")
+            .expect("bdd tag column");
+        assert_eq!(bdd.count, 1);
+        assert_eq!(bdd.docs[0].title, "Repository docs are discoverable");
     }
 
     #[test]
