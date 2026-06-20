@@ -55,7 +55,7 @@ const footerItems: RailItem[] = [
     id: "admin",
     to: "/admin",
     icon: "lock",
-    label: "Forge admin",
+    label: "Site admin",
     matches: (p) => p.startsWith("/admin"),
   },
   {

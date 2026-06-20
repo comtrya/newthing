@@ -474,7 +474,7 @@ async function loadAuthProviders(): Promise<void> {
         </section>
 
         <nav class="sb-nav-footer" aria-label="Admin">
-          <RouterLink to="/admin" class="sb-faint">Forge admin</RouterLink>
+          <RouterLink to="/admin" class="sb-faint">Site admin</RouterLink>
           <RouterLink to="/instance" class="sb-faint">Instance</RouterLink>
           <RouterLink to="/health" class="sb-faint">Health</RouterLink>
           <RouterLink to="/settings" class="sb-faint">Settings</RouterLink>
