@@ -1,7 +1,7 @@
 // ext_epics — per-extension WIT.
 //
 // Epics are work-tracking aggregates that contain issues. The epic state
-// machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
+// machine is PLANNED → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
 package comtrya:ext-epics@0.1.5;

@@ -1755,13 +1755,45 @@ expect_status "progress-epic aggregates across issues and child epics" 200 "$TMP
 json_assert "progress is 1 open issue + 1 closed issue + 1 open child epic = 33%" "$TMP_DIR/epc-progress.json" \
   'json.issuesOpen === 1 && json.issuesClosed === 1 && json.childEpicsOpen === 1 && json.childEpicsClosed === 0 && json.percentComplete === 33'
 
-expect_status "change-state-epic to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
+expect_status "change-state-epic rejects PLANNED to DONE" 400 "$TMP_DIR/epc-invalid-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "invalid epic transition rejected as bad-input" "$TMP_DIR/epc-invalid-transition.json" \
+  'json.code === "bad-input" && /PLANNED -> DONE/.test(json.message)'
+
+expect_status "change-state-epic PLANNED to IN_PROGRESS" 200 "$TMP_DIR/epc-state-in-progress.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"IN_PROGRESS\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "child epic state is IN_PROGRESS" "$TMP_DIR/epc-state-in-progress.json" \
+  'json.state === "IN_PROGRESS" && (json.closedAt === null || json.closedAt === undefined)'
+
+expect_status "change-state-epic IN_PROGRESS to AT_RISK" 200 "$TMP_DIR/epc-state-at-risk.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"AT_RISK\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "child epic state is AT_RISK" "$TMP_DIR/epc-state-at-risk.json" \
+  'json.state === "AT_RISK" && (json.closedAt === null || json.closedAt === undefined)'
+
+expect_status "change-state-epic AT_RISK to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
 json_assert "child epic state is DONE" "$TMP_DIR/epc-state.json" \
   'json.state === "DONE"'
+
+expect_status "change-state-epic rejects DONE to IN_PROGRESS" 400 "$TMP_DIR/epc-terminal-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"IN_PROGRESS\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "terminal epic transition rejected as bad-input" "$TMP_DIR/epc-terminal-transition.json" \
+  'json.code === "bad-input" && /DONE -> IN_PROGRESS/.test(json.message)'
 
 expect_status "list-epics returns both epics for the workspace" 200 "$TMP_DIR/epc-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

@@ -149,8 +149,9 @@ fn next_epic_number(workspace_id: &str) -> Result<u32, Error> {
                 }
                 let assigned = counter.next;
                 counter.next = counter.next.saturating_add(1);
-                let bytes = serde_json::to_vec(&counter)
-                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                let bytes = serde_json::to_vec(&counter).map_err(|e| {
+                    err(ErrorCode::Internal, format!("serialise epic counter: {e}"))
+                })?;
                 match storage::update_commit(
                     COUNTER_COLLECTION,
                     &counter.storage_id,
@@ -173,8 +174,9 @@ fn next_epic_number(workspace_id: &str) -> Result<u32, Error> {
                     storage_id: storage_id.clone(),
                     next: 2,
                 };
-                let bytes = serde_json::to_vec(&counter)
-                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                let bytes = serde_json::to_vec(&counter).map_err(|e| {
+                    err(ErrorCode::Internal, format!("serialise epic counter: {e}"))
+                })?;
                 match storage::create(
                     COUNTER_COLLECTION,
                     &storage_id,
@@ -221,6 +223,23 @@ fn state_from_str(state: &str) -> EpicState {
         "CANCELED" => EpicState::Canceled,
         _ => EpicState::Planned,
     }
+}
+
+fn can_transition_epic_state(current: &str, next: &str) -> bool {
+    if current == next {
+        return true;
+    }
+    matches!(
+        (current, next),
+        ("PLANNED", "IN_PROGRESS")
+            | ("PLANNED", "CANCELED")
+            | ("IN_PROGRESS", "AT_RISK")
+            | ("IN_PROGRESS", "DONE")
+            | ("IN_PROGRESS", "CANCELED")
+            | ("AT_RISK", "IN_PROGRESS")
+            | ("AT_RISK", "DONE")
+            | ("AT_RISK", "CANCELED")
+    )
 }
 
 fn workspace_id(workspace: &str) -> Option<String> {
@@ -476,11 +495,21 @@ impl EpicsGuest for Component {
     fn change_state_epic(input: ChangeStateEpicInput) -> Result<Epic, Error> {
         let snap = storage::update_begin(COLLECTION, &input.id)?;
         let mut stored = decode(&input.id, &snap.data)?;
-        let now = time::now_iso();
+        let current = stored.state.clone();
         let state = state_to_str(input.state).to_string();
+        if current == state {
+            return Ok(stored.to_wit());
+        }
+        if !can_transition_epic_state(&current, &state) {
+            return Err(err(
+                ErrorCode::BadInput,
+                format!("invalid epic state transition: {current} -> {state}"),
+            ));
+        }
+        let now = time::now_iso();
         stored.state = state.clone();
         stored.updated_at = now.clone();
-        stored.closed_at = if matches!(input.state, EpicState::Done | EpicState::Canceled) {
+        stored.closed_at = if matches!(state.as_str(), "DONE" | "CANCELED") {
             Some(now)
         } else {
             None
