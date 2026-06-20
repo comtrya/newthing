@@ -173,11 +173,11 @@ onMounted(() => {
         </div>
         <form class="form-panel" @submit.prevent="submit">
           <label>
-            <span>Name</span>
+            <span>Title</span>
             <input v-model="formName" type="text" maxlength="80" placeholder="e.g. laptop-2026" required />
           </label>
           <label>
-            <span>Public key</span>
+            <span>Key</span>
             <textarea
               v-model="formKey"
               rows="3"
@@ -204,7 +204,7 @@ onMounted(() => {
         </div>
         <div v-if="keys.length" class="key-table">
           <div class="key-row key-row-hd">
-            <span>Name</span>
+            <span>Title</span>
             <span>Type</span>
             <span>Fingerprint</span>
             <span>Added</span>
