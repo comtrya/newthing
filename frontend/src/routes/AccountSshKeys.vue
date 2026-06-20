@@ -154,14 +154,14 @@ onMounted(() => {
 
       <div v-if="removePrompt" class="glass revoke-confirm">
         <div class="section-hd">
-          <div class="section-hd-title">Remove "{{ removePrompt.name }}"?</div>
+          <div class="section-hd-title">Delete SSH key "{{ removePrompt.name }}"?</div>
           <div class="section-hd-sub">{{ removePrompt.fingerprint }}</div>
           <div class="spacer" />
           <button class="btn" type="button" :disabled="removeBusy" @click="cancelRemove">
             <span>Cancel</span>
           </button>
           <button class="btn danger" type="button" :disabled="removeBusy" @click="confirmRemove" data-smoke="remove-confirm-yes">
-            <Icon name="x" /><span>{{ removeBusy ? "Removing…" : "Yes, remove" }}</span>
+            <Icon name="x" /><span>{{ removeBusy ? "Deleting…" : "Delete SSH key" }}</span>
           </button>
         </div>
       </div>
@@ -219,7 +219,7 @@ onMounted(() => {
             <div class="mono">{{ formatUnix(key.lastUsedAt) }}</div>
             <div>
               <button class="btn danger" type="button" @click="askRemove(key)">
-                <Icon name="x" /><span>Remove</span>
+                <Icon name="x" /><span>Delete</span>
               </button>
             </div>
           </div>
