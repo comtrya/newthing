@@ -1298,6 +1298,67 @@ expect_status "ext_docs summarize-doc parses front matter" 200 "$TMP_DIR/docs-su
 json_assert "ext_docs summarize-doc returns normalized summary" "$TMP_DIR/docs-summary.json" \
   'json.path === "crates/server/docs/specs/extension-runtime.mdx" && json.title === "Extension runtime" && json.propertyCount === 3 && json.hasFrontMatter === true && json.bodyExcerpt.includes("First-party extensions are Component Model WASM") && json.properties.length === 3 && json.properties.some((property) => property.key === "title" && property.value === "Extension runtime") && json.properties.some((property) => property.key === "owner" && property.value === "platform-maintainers") && json.properties.some((property) => property.key === "status" && property.value === "shipping")'
 
+DOC_CATALOG_PAYLOAD="$TMP_DIR/docs-catalog-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        description: "Product requirements for backend-owned forge capabilities.",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "audience: maintainers\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside the implementation.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        description: "Behavior scenarios that describe user-visible forge workflows.",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "feature: repository-docs\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "tags: [docs, projects, bdd]\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_CATALOG_PAYLOAD"
+expect_status "ext_docs summarize-catalog groups declared doc types" 200 "$TMP_DIR/docs-catalog.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CATALOG_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-catalog"
+json_assert "ext_docs summarize-catalog returns project doc catalog" "$TMP_DIR/docs-catalog.json" \
+  'json.totalDocs === 2 && json.types.length === 2 && json.types[0].projectName === "backend" && json.types[0].typeName === "prd" && json.types[0].label === "Backend PRDs" && json.types[0].docCount === 1 && json.types[0].docs[0].title === "Repository Docs Surface" && json.types[0].docs[0].properties.some((property) => property.key === "audience" && property.value === "maintainers") && json.types[1].typeName === "scenario" && json.types[1].docs[0].properties.some((property) => property.key === "feature" && property.value === "repository-docs") && json.types[1].docs[0].properties.some((property) => property.key === "tags" && property.value === "[docs, projects, bdd]")'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

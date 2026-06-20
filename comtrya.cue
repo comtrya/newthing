@@ -22,8 +22,10 @@ repository: schema.#Repository & {
 	// inherit this enablement; per-project `issues` / `epics` blocks
 	// are policy defaults, not feature toggles. ext_epics is listed so
 	// project epics and issue-to-epic relationships are available to
-	// every project in this repo.
-	extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics"]
+	// every project in this repo. ext_docs is listed so project-owned
+	// ADRs, specs, PRDs, and BDD scenarios render through the repository
+	// docs surface instead of living as untyped files.
+	extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_docs"]
 
 	bookmarks: [
 		{
@@ -91,6 +93,29 @@ projects: backend: {
 				title:  "string"
 				owner:  "principal-ref"
 				status: "string"
+			}
+		}
+		prd: {
+			slug:        "server/docs/prds"
+			label:       "Backend PRDs"
+			description: "Product requirements for backend-owned forge capabilities."
+			properties: {
+				title:    "string"
+				owner:    "principal-ref"
+				status:   "string"
+				audience: "string"
+			}
+		}
+		scenario: {
+			slug:        "server/docs/scenarios"
+			label:       "BDD Scenarios"
+			description: "Behavior scenarios that describe user-visible forge workflows."
+			properties: {
+				title:   "string"
+				feature: "string"
+				owner:   "principal-ref"
+				status:  "string"
+				tags:    "[...string]"
 			}
 		}
 	}

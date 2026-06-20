@@ -20,6 +20,19 @@ interface docs {
     preview: string,
   }
 
+  record doc-type-input {
+    project-name: string,
+    type-name: string,
+    label: string,
+    description: option<string>,
+    slug: string,
+    files: list<summarize-doc-input>,
+  }
+
+  record doc-catalog-input {
+    types: list<doc-type-input>,
+  }
+
   record doc-property {
     key: string,
     value: string,
@@ -34,12 +47,32 @@ interface docs {
     has-front-matter: bool,
   }
 
+  record doc-type-summary {
+    project-name: string,
+    type-name: string,
+    label: string,
+    description: option<string>,
+    slug: string,
+    doc-count: u32,
+    docs: list<doc-summary>,
+  }
+
+  record doc-catalog {
+    total-docs: u32,
+    types: list<doc-type-summary>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
   /// Parse one Markdown/MDX preview into the normalized summary shape
   /// consumed by docs surfaces.
   summarize-doc: func(input: summarize-doc-input) -> result<doc-summary, error>;
+
+  /// Build a normalized catalog for already-enumerated project doc types.
+  /// The kernel or UI supplies the project/type/file enumeration; ext_docs
+  /// owns parsing and summary semantics for every file in the catalog.
+  summarize-catalog: func(input: doc-catalog-input) -> result<doc-catalog, error>;
 }
 
 world ext-docs {

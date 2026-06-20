@@ -125,7 +125,8 @@ mod ext_docs_bindings {
 
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
-    DocProperty, DocSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocCatalog, DocCatalogInput as DocsDocCatalogInput, DocProperty, DocSummary,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -326,6 +327,26 @@ struct MembersInputJson {
 struct SummarizeDocInputJson {
     path: String,
     preview: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocTypeInputJson {
+    project_name: String,
+    type_name: String,
+    label: String,
+    #[serde(default)]
+    description: Option<String>,
+    slug: String,
+    #[serde(default)]
+    files: Vec<SummarizeDocInputJson>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocCatalogInputJson {
+    #[serde(default)]
+    types: Vec<DocTypeInputJson>,
 }
 
 pub fn reactor_subscriptions_for_extension(
@@ -2395,6 +2416,57 @@ fn doc_summary_to_json(summary: &DocSummary) -> Value {
     })
 }
 
+fn doc_catalog_input_to_wit(input: DocCatalogInputJson) -> DocsDocCatalogInput {
+    DocsDocCatalogInput {
+        types: input
+            .types
+            .into_iter()
+            .map(|doc_type| DocsDocTypeInput {
+                project_name: doc_type.project_name,
+                type_name: doc_type.type_name,
+                label: doc_type.label,
+                description: doc_type.description,
+                slug: doc_type.slug,
+                files: doc_type
+                    .files
+                    .into_iter()
+                    .map(|file| DocsSummarizeDocInput {
+                        path: file.path,
+                        preview: file.preview,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn doc_catalog_to_json(catalog: &DocCatalog) -> Value {
+    serde_json::json!({
+        "totalDocs": catalog.total_docs,
+        "types": catalog
+            .types
+            .iter()
+            .map(doc_type_summary_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_summary_to_json(summary: &DocTypeSummary) -> Value {
+    serde_json::json!({
+        "projectName": summary.project_name,
+        "typeName": summary.type_name,
+        "label": summary.label,
+        "description": summary.description,
+        "slug": summary.slug,
+        "docCount": summary.doc_count,
+        "docs": summary
+            .docs
+            .iter()
+            .map(doc_summary_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -2499,6 +2571,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-catalog" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-catalog input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_summarize_catalog(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-catalog call: {e}"),
+                    )
+                })?;
+            doc_catalog_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(

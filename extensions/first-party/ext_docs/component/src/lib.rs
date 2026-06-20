@@ -8,11 +8,14 @@ mod bindings;
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
-    DocProperty, DocSummary, Guest as DocsGuest, SummarizeDocInput,
+    DocCatalog, DocCatalogInput, DocProperty, DocSummary, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 const MAX_PREVIEW_LEN: usize = 1_048_576;
+const MAX_CATALOG_TYPES: usize = 256;
+const MAX_CATALOG_DOCS: usize = 4_096;
 const EXCERPT_CHARS: usize = 180;
 
 struct Component;
@@ -45,6 +48,96 @@ fn summarize_preview(path: &str, preview: &str) -> DocSummary {
     }
 }
 
+fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
+    if input.types.len() > MAX_CATALOG_TYPES {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("doc catalog must contain at most {MAX_CATALOG_TYPES} types"),
+        ));
+    }
+
+    let total_files = input
+        .types
+        .iter()
+        .map(|doc_type| doc_type.files.len())
+        .sum::<usize>();
+    if total_files > MAX_CATALOG_DOCS {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("doc catalog must contain at most {MAX_CATALOG_DOCS} docs"),
+        ));
+    }
+
+    let mut total_docs = 0_u32;
+    let mut types = Vec::with_capacity(input.types.len());
+    for doc_type in input.types {
+        let summary = summarize_doc_type(doc_type)?;
+        total_docs += summary.doc_count;
+        types.push(summary);
+    }
+
+    Ok(DocCatalog { total_docs, types })
+}
+
+fn summarize_doc_type(input: DocTypeInput) -> Result<DocTypeSummary, Error> {
+    let project_name = required_field("project name", input.project_name)?;
+    let type_name = required_field("doc type name", input.type_name)?;
+    let slug = required_field("doc type slug", input.slug)?;
+    let label = clean_optional_label(input.label).unwrap_or_else(|| type_name.clone());
+    let description = input.description.and_then(clean_optional_label);
+
+    let mut docs = Vec::with_capacity(input.files.len());
+    for file in input.files {
+        let path = validate_doc_path(file.path)?;
+        validate_preview_len(&file.preview)?;
+        docs.push(summarize_preview(&path, &file.preview));
+    }
+
+    Ok(DocTypeSummary {
+        project_name,
+        type_name,
+        label,
+        description,
+        slug,
+        doc_count: docs.len() as u32,
+        docs,
+    })
+}
+
+fn required_field(label: &str, value: String) -> Result<String, Error> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("{label} must not be empty"),
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn clean_optional_label(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn validate_doc_path(path: String) -> Result<String, Error> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(err(ErrorCode::BadInput, "doc path must not be empty"));
+    }
+    Ok(path.to_string())
+}
+
+fn validate_preview_len(preview: &str) -> Result<(), Error> {
+    if preview.len() > MAX_PREVIEW_LEN {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("doc preview must be at most {MAX_PREVIEW_LEN} bytes"),
+        ));
+    }
+    Ok(())
+}
+
 fn parse_front_matter(preview: &str) -> (bool, Vec<(String, String)>, &str) {
     if !preview.starts_with("---") {
         return (false, Vec::new(), preview);
@@ -53,7 +146,9 @@ fn parse_front_matter(preview: &str) -> (bool, Vec<(String, String)>, &str) {
         return (false, Vec::new(), preview);
     };
     let front = preview[3..end].trim();
-    let body = preview[end + 4..].strip_prefix('\n').unwrap_or(&preview[end + 4..]);
+    let body = preview[end + 4..]
+        .strip_prefix('\n')
+        .unwrap_or(&preview[end + 4..]);
     let mut properties = Vec::new();
     for line in front.lines() {
         let Some((raw_key, raw_value)) = line.split_once(':') else {
@@ -99,17 +194,13 @@ impl DocsGuest for Component {
     }
 
     fn summarize_doc(input: SummarizeDocInput) -> Result<DocSummary, Error> {
-        let path = input.path.trim();
-        if path.is_empty() {
-            return Err(err(ErrorCode::BadInput, "doc path must not be empty"));
-        }
-        if input.preview.len() > MAX_PREVIEW_LEN {
-            return Err(err(
-                ErrorCode::BadInput,
-                format!("doc preview must be at most {MAX_PREVIEW_LEN} bytes"),
-            ));
-        }
-        Ok(summarize_preview(path, &input.preview))
+        let path = validate_doc_path(input.path)?;
+        validate_preview_len(&input.preview)?;
+        Ok(summarize_preview(&path, &input.preview))
+    }
+
+    fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
+        crate::summarize_catalog(input)
     }
 }
 
@@ -127,7 +218,11 @@ bindings::export!(Component with_types_in bindings);
 
 #[cfg(test)]
 mod tests {
-    use super::summarize_preview;
+    use super::bindings::exports::comtrya::ext_docs::docs::{
+        DocCatalogInput, DocTypeInput, SummarizeDocInput,
+    };
+
+    use super::{summarize_catalog, summarize_preview, MAX_CATALOG_DOCS};
 
     #[test]
     fn summary_uses_front_matter_title_and_excerpt() {
@@ -136,7 +231,10 @@ mod tests {
             "---\ntitle: Extension runtime\nowner: platform-maintainers\nstatus: shipping\n---\n\nFirst-party extensions are Component Model WASM components loaded by Wasmtime.",
         );
 
-        assert_eq!(summary.path, "crates/server/docs/specs/extension-runtime.mdx");
+        assert_eq!(
+            summary.path,
+            "crates/server/docs/specs/extension-runtime.mdx"
+        );
         assert_eq!(summary.title, "Extension runtime");
         assert_eq!(summary.property_count, 3);
         assert_eq!(summary.properties.len(), 3);
@@ -157,5 +255,91 @@ mod tests {
         assert!(summary.properties.is_empty());
         assert!(!summary.has_front_matter);
         assert_eq!(summary.body_excerpt, "No front matter here.");
+    }
+
+    #[test]
+    fn catalog_groups_project_doc_types_and_summaries() {
+        let catalog = summarize_catalog(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: Some("Product requirements".to_string()),
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/prds/repository-docs-surface.mdx".to_string(),
+                        preview:
+                            "---\ntitle: Repository Docs Surface\nstatus: active\n---\n\nDevelopers expect a forge to keep product intent beside implementation."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository docs are discoverable\nfeature: repository-docs\n---\n\nGiven the Comtrya repository has opted into ext_docs"
+                                .to_string(),
+                    }],
+                },
+            ],
+        })
+        .expect("catalog should summarize");
+
+        assert_eq!(catalog.total_docs, 2);
+        assert_eq!(catalog.types.len(), 2);
+        assert_eq!(catalog.types[0].project_name, "backend");
+        assert_eq!(catalog.types[0].type_name, "prd");
+        assert_eq!(catalog.types[0].doc_count, 1);
+        assert_eq!(catalog.types[0].docs[0].title, "Repository Docs Surface");
+        assert_eq!(catalog.types[1].type_name, "scenario");
+        assert_eq!(catalog.types[1].docs[0].properties[1].key, "feature");
+    }
+
+    #[test]
+    fn catalog_rejects_empty_type_metadata() {
+        let err = summarize_catalog(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: " ".to_string(),
+                label: String::new(),
+                description: None,
+                slug: "server/docs/prds".to_string(),
+                files: Vec::new(),
+            }],
+        })
+        .expect_err("empty type name should be rejected");
+
+        assert!(err.message.contains("doc type name"));
+    }
+
+    #[test]
+    fn catalog_rejects_too_many_docs() {
+        let files = (0..=MAX_CATALOG_DOCS)
+            .map(|idx| SummarizeDocInput {
+                path: format!("docs/{idx}.mdx"),
+                preview: "body".to_string(),
+            })
+            .collect();
+
+        let err = summarize_catalog(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: "spec".to_string(),
+                label: "Specs".to_string(),
+                description: None,
+                slug: "server/docs/specs".to_string(),
+                files,
+            }],
+        })
+        .expect_err("catalog limit should be enforced");
+
+        assert!(err.message.contains("4096"));
     }
 }
