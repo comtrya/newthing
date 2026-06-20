@@ -335,7 +335,7 @@ async function loadAuthProviders(): Promise<void> {
         <span class="word">Comtrya</span>
       </RouterLink>
       <button class="cmdk" type="button" @click="openPalette">
-        <span class="cmdk-text">repository, issue, pull request, epic, command…</span>
+        <span class="cmdk-text">Search or jump to...</span>
         <kbd>{{ cmdLabel }} K</kbd>
       </button>
       <div class="topbar-actions">
