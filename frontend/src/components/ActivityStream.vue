@@ -387,7 +387,7 @@ function relativeTime(ms: number): string {
       Connecting to the live stream…
     </p>
     <p v-else-if="status === 'idle' && filtered.length === 0" class="muted">
-      Sign in to see live activity. Past events will populate once recorded.
+      Sign in to see live activity. Recent activity will appear here after events occur.
     </p>
     <p v-else-if="filtered.length === 0" class="muted">
       No activity yet. Open an issue or push a branch to see it appear here.
