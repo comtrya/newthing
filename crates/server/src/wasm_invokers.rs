@@ -100,8 +100,10 @@ mod ext_pull_requests_bindings {
 
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ChangeStatePullInput, ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
-    PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, MergePullInput, PrState,
+    PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
+    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReviewBoard,
+    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 
 mod ext_checks_bindings {
@@ -356,6 +358,27 @@ struct ChangeStatePullInputJson {
 #[serde(rename_all = "camelCase")]
 struct PullReviewBoardInputJson {
     repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullMergeCheckSummaryJson {
+    pull_id: String,
+    required_missing: u32,
+    required_failing: u32,
+    pending: u32,
+    optional_failing: u32,
+    passing: u32,
+    total: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullMergeReadinessBoardInputJson {
+    repository: String,
+    #[serde(default)]
+    check_summaries: Vec<PullMergeCheckSummaryJson>,
     limit: u32,
 }
 
@@ -2018,6 +2041,41 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_review_board_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "merge-readiness-board" => {
+            let parsed: PullMergeReadinessBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse merge-readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullMergeReadinessBoardInput {
+                repository: parsed.repository,
+                check_summaries: parsed
+                    .check_summaries
+                    .into_iter()
+                    .map(|summary| PullMergeCheckSummary {
+                        pull_id: summary.pull_id,
+                        required_missing: summary.required_missing,
+                        required_failing: summary.required_failing,
+                        pending: summary.pending,
+                        optional_failing: summary.optional_failing,
+                        passing: summary.passing,
+                        total: summary.total,
+                    })
+                    .collect(),
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_merge_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("merge-readiness-board call: {e}"),
+                    )
+                })?;
+            pull_merge_readiness_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -3053,6 +3111,56 @@ fn pull_review_card_to_json(card: &PullReviewCard) -> Value {
     serde_json::json!({
         "pullRequest": pull_request_to_json(&card.pull_request),
         "terminal": card.terminal,
+    })
+}
+
+fn pull_merge_readiness_board_to_json(board: &PullMergeReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_merge_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_merge_readiness_column_to_json(column: &PullMergeReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_merge_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_merge_readiness_card_to_json(card: &PullMergeReadinessCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+        "blocked": card.blocked,
+        "waiting": card.waiting,
+        "checkSummary": card
+            .check_summary
+            .as_ref()
+            .map(pull_merge_check_summary_to_json),
+    })
+}
+
+fn pull_merge_check_summary_to_json(summary: &PullMergeCheckSummary) -> Value {
+    serde_json::json!({
+        "pullId": summary.pull_id,
+        "requiredMissing": summary.required_missing,
+        "requiredFailing": summary.required_failing,
+        "pending": summary.pending,
+        "optionalFailing": summary.optional_failing,
+        "passing": summary.passing,
+        "total": summary.total,
     })
 }
 

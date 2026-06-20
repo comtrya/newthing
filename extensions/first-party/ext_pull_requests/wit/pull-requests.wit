@@ -84,6 +84,43 @@ interface pulls {
     columns: list<pull-review-column>,
   }
 
+  record pull-merge-check-summary {
+    pull-id: id,
+    required-missing: u32,
+    required-failing: u32,
+    pending: u32,
+    optional-failing: u32,
+    passing: u32,
+    total: u32,
+  }
+
+  record pull-merge-readiness-board-input {
+    repository: uri,
+    check-summaries: list<pull-merge-check-summary>,
+    %limit: u32,
+  }
+
+  record pull-merge-readiness-card {
+    pull-request: pull-request,
+    terminal: bool,
+    blocked: bool,
+    waiting: bool,
+    check-summary: option<pull-merge-check-summary>,
+  }
+
+  record pull-merge-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-merge-readiness-card>,
+  }
+
+  record pull-merge-readiness-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-merge-readiness-column>,
+  }
+
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
@@ -91,6 +128,7 @@ interface pulls {
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
+  merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
 }
 
 world ext-pull-requests {

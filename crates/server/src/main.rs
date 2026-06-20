@@ -10311,6 +10311,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_checks");
         assert_eq!(info.interface_name, "checks");
         assert_eq!(info.op_name, "expected-readiness-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.merge-readiness-board",
+        )
+        .expect("pull merge readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "merge-readiness-board");
     }
 
     #[test]

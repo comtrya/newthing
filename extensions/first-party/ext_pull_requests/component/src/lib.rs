@@ -12,11 +12,15 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput,
-    PrState, PullRequest, PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    PrState, PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
+    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReviewBoard,
+    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 use bindings::exports::comtrya::platform::reactor::{
     Guest as ReactorGuest, MutationCall, Reaction,
 };
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -116,6 +120,15 @@ enum ReviewLane {
     Closed,
 }
 
+enum MergeReadinessLane {
+    Draft,
+    Blocked,
+    Waiting,
+    Ready,
+    Merged,
+    Closed,
+}
+
 fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     Error {
         code,
@@ -208,6 +221,79 @@ fn review_columns(cards: Vec<PullReviewCard>) -> Vec<PullReviewColumn> {
         review_column("review", "In review", review),
         review_column("merged", "Merged", merged),
         review_column("closed", "Closed", closed),
+    ]
+}
+
+fn merge_readiness_flags(
+    pull: &PullRequest,
+    summary: Option<&PullMergeCheckSummary>,
+) -> (bool, bool) {
+    if matches!(
+        pull.state,
+        PrState::Draft | PrState::Merged | PrState::Closed
+    ) {
+        return (false, false);
+    }
+    match summary {
+        Some(summary) if summary.required_missing > 0 || summary.required_failing > 0 => {
+            (true, false)
+        }
+        Some(summary) if summary.pending > 0 => (false, true),
+        Some(_) => (false, false),
+        None => (false, true),
+    }
+}
+
+fn merge_readiness_lane(card: &PullMergeReadinessCard) -> MergeReadinessLane {
+    match card.pull_request.state {
+        PrState::Draft => MergeReadinessLane::Draft,
+        PrState::Merged => MergeReadinessLane::Merged,
+        PrState::Closed => MergeReadinessLane::Closed,
+        _ if card.blocked => MergeReadinessLane::Blocked,
+        _ if card.waiting => MergeReadinessLane::Waiting,
+        _ => MergeReadinessLane::Ready,
+    }
+}
+
+fn merge_readiness_column(
+    key: &str,
+    label: &str,
+    cards: Vec<PullMergeReadinessCard>,
+) -> PullMergeReadinessColumn {
+    PullMergeReadinessColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn merge_readiness_columns(cards: Vec<PullMergeReadinessCard>) -> Vec<PullMergeReadinessColumn> {
+    let mut drafts = Vec::new();
+    let mut blocked = Vec::new();
+    let mut waiting = Vec::new();
+    let mut ready = Vec::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match merge_readiness_lane(&card) {
+            MergeReadinessLane::Draft => drafts.push(card),
+            MergeReadinessLane::Blocked => blocked.push(card),
+            MergeReadinessLane::Waiting => waiting.push(card),
+            MergeReadinessLane::Ready => ready.push(card),
+            MergeReadinessLane::Merged => merged.push(card),
+            MergeReadinessLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        merge_readiness_column("draft", "Draft", drafts),
+        merge_readiness_column("blocked", "Blocked by checks", blocked),
+        merge_readiness_column("waiting", "Checks running", waiting),
+        merge_readiness_column("ready", "Ready to merge", ready),
+        merge_readiness_column("merged", "Merged", merged),
+        merge_readiness_column("closed", "Closed", closed),
     ]
 }
 
@@ -762,6 +848,46 @@ impl PullsGuest for Component {
             columns: review_columns(cards),
         })
     }
+
+    fn merge_readiness_board(
+        input: PullMergeReadinessBoardInput,
+    ) -> Result<PullMergeReadinessBoard, Error> {
+        let limit = input.limit.min(1024) as usize;
+        let mut summaries_by_pull = input
+            .check_summaries
+            .into_iter()
+            .map(|summary| (summary.pull_id.clone(), summary))
+            .collect::<BTreeMap<_, _>>();
+        let mut cards = Vec::new();
+        if limit > 0 {
+            scan_pull_requests(|stored| {
+                if repository_matches(&stored, &input.repository) {
+                    let pull_request = stored.to_wit();
+                    let check_summary = summaries_by_pull.remove(&pull_request.id);
+                    let (blocked, waiting) =
+                        merge_readiness_flags(&pull_request, check_summary.as_ref());
+                    let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+                    cards.push(PullMergeReadinessCard {
+                        pull_request,
+                        terminal,
+                        blocked,
+                        waiting,
+                        check_summary,
+                    });
+                    if cards.len() >= limit {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })?;
+        }
+        let total = cards.len() as u32;
+        Ok(PullMergeReadinessBoard {
+            repository: input.repository,
+            total,
+            columns: merge_readiness_columns(cards),
+        })
+    }
 }
 
 impl ReactorGuest for Component {
@@ -836,8 +962,9 @@ bindings::export!(Component with_types_in bindings);
 #[cfg(test)]
 mod tests {
     use super::{
-        review_columns, state_from_str, state_to_str, validate_state_transition, ErrorCode,
-        PrState, PullRequest, PullReviewCard,
+        merge_readiness_columns, merge_readiness_flags, review_columns, state_from_str,
+        state_to_str, validate_state_transition, ErrorCode, PrState, PullMergeCheckSummary,
+        PullMergeReadinessCard, PullRequest, PullReviewCard,
     };
 
     /// #6 P0-6 regression: REVIEW round-trips losslessly through the
@@ -925,6 +1052,111 @@ mod tests {
         assert!(columns[3].cards[0].terminal);
         assert_eq!(columns[4].cards[0].pull_request.id, "closed");
         assert!(columns[4].cards[0].terminal);
+    }
+
+    fn summary_for(pull_id: &str) -> PullMergeCheckSummary {
+        PullMergeCheckSummary {
+            pull_id: pull_id.to_string(),
+            required_missing: 0,
+            required_failing: 0,
+            pending: 0,
+            optional_failing: 0,
+            passing: 3,
+            total: 3,
+        }
+    }
+
+    #[test]
+    fn merge_readiness_columns_group_by_checks_and_terminal_state() {
+        let blocked_summary = PullMergeCheckSummary {
+            required_missing: 1,
+            ..summary_for("blocked")
+        };
+        let waiting_summary = PullMergeCheckSummary {
+            pending: 1,
+            ..summary_for("waiting")
+        };
+        let ready_summary = summary_for("ready");
+
+        let blocked_pull = pull_with_state("blocked", PrState::Review);
+        let waiting_pull = pull_with_state("waiting", PrState::Ready);
+        let ready_pull = pull_with_state("ready", PrState::Review);
+        let draft_pull = pull_with_state("draft", PrState::Draft);
+        let merged_pull = pull_with_state("merged", PrState::Merged);
+        let closed_pull = pull_with_state("closed", PrState::Closed);
+
+        let (blocked, waiting) = merge_readiness_flags(&blocked_pull, Some(&blocked_summary));
+        assert!(blocked);
+        assert!(!waiting);
+        let (blocked, waiting) = merge_readiness_flags(&waiting_pull, Some(&waiting_summary));
+        assert!(!blocked);
+        assert!(waiting);
+        let (blocked, waiting) = merge_readiness_flags(&ready_pull, Some(&ready_summary));
+        assert!(!blocked);
+        assert!(!waiting);
+        let (blocked, waiting) = merge_readiness_flags(&ready_pull, None);
+        assert!(!blocked);
+        assert!(waiting);
+
+        let columns = merge_readiness_columns(vec![
+            PullMergeReadinessCard {
+                pull_request: draft_pull,
+                terminal: false,
+                blocked: false,
+                waiting: false,
+                check_summary: None,
+            },
+            PullMergeReadinessCard {
+                pull_request: blocked_pull,
+                terminal: false,
+                blocked: true,
+                waiting: false,
+                check_summary: Some(blocked_summary),
+            },
+            PullMergeReadinessCard {
+                pull_request: waiting_pull,
+                terminal: false,
+                blocked: false,
+                waiting: true,
+                check_summary: Some(waiting_summary),
+            },
+            PullMergeReadinessCard {
+                pull_request: ready_pull,
+                terminal: false,
+                blocked: false,
+                waiting: false,
+                check_summary: Some(ready_summary),
+            },
+            PullMergeReadinessCard {
+                pull_request: merged_pull,
+                terminal: true,
+                blocked: false,
+                waiting: false,
+                check_summary: None,
+            },
+            PullMergeReadinessCard {
+                pull_request: closed_pull,
+                terminal: true,
+                blocked: false,
+                waiting: false,
+                check_summary: None,
+            },
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["draft", "blocked", "waiting", "ready", "merged", "closed"]
+        );
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 6);
+        assert_eq!(columns[0].cards[0].pull_request.id, "draft");
+        assert_eq!(columns[1].cards[0].pull_request.id, "blocked");
+        assert_eq!(columns[2].cards[0].pull_request.id, "waiting");
+        assert_eq!(columns[3].cards[0].pull_request.id, "ready");
+        assert_eq!(columns[4].cards[0].pull_request.id, "merged");
+        assert!(columns[4].cards[0].terminal);
+        assert_eq!(columns[5].cards[0].pull_request.id, "closed");
+        assert!(columns[5].cards[0].terminal);
     }
 
     #[test]

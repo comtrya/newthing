@@ -2906,6 +2906,14 @@ expect_status "review-board moves ready pull requests into ready lane" 200 "$TMP
 json_assert "review board has the ready PR card" "$TMP_DIR/rx-pr-review-board-ready.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"ready\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
 
+expect_status "merge-readiness-board blocks PRs with missing required checks" 200 "$TMP_DIR/rx-pr-merge-readiness-blocked.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":1,\"requiredFailing\":0,\"pending\":0,\"optionalFailing\":0,\"passing\":1,\"total\":2}],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the blocked PR card" "$TMP_DIR/rx-pr-merge-readiness-blocked.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"blocked\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === true && card.waiting === false && card.checkSummary.requiredMissing === 1)"
+
 expect_status "change-state-pull transitions READY PR to REVIEW" 200 "$TMP_DIR/rx-pr-review.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -2921,6 +2929,14 @@ expect_status "review-board moves review pull requests into review lane" 200 "$T
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
 json_assert "review board has the in-review PR card" "$TMP_DIR/rx-pr-review-board-review.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "merge-readiness-board waits for pending checks" 200 "$TMP_DIR/rx-pr-merge-readiness-waiting.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":0,\"requiredFailing\":0,\"pending\":1,\"optionalFailing\":0,\"passing\":1,\"total\":2}],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the waiting PR card" "$TMP_DIR/rx-pr-merge-readiness-waiting.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"waiting\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === false && card.waiting === true && card.checkSummary.pending === 1)"
 
 expect_status "change-state-pull transitions REVIEW PR back to DRAFT" 200 "$TMP_DIR/rx-pr-back-to-draft.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -2945,6 +2961,14 @@ expect_status "change-state-pull transitions DRAFT PR directly to REVIEW" 200 "$
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
 json_assert "pr is REVIEW after direct change-state-pull" "$TMP_DIR/rx-pr-draft-to-review.json" \
   'json.state === "REVIEW"'
+
+expect_status "merge-readiness-board marks passing reviewed PRs ready" 200 "$TMP_DIR/rx-pr-merge-readiness-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":0,\"requiredFailing\":0,\"pending\":0,\"optionalFailing\":1,\"passing\":2,\"total\":3}],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the ready PR card" "$TMP_DIR/rx-pr-merge-readiness-ready.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"ready\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === false && card.waiting === false && card.checkSummary.optionalFailing === 1)"
 
 expect_status "change-state-pull rejects terminal merge state" 400 "$TMP_DIR/rx-pr-change-state-terminal.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -2975,6 +2999,14 @@ expect_status "review-board moves merged pull requests into terminal lane" 200 "
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
 json_assert "review board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-board-merged.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true)"
+
+expect_status "merge-readiness-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-merge-readiness-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the merged terminal PR card" "$TMP_DIR/rx-pr-merge-readiness-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.blocked === false && card.waiting === false)"
 
 expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

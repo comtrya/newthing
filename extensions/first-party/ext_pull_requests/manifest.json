@@ -72,7 +72,9 @@
   ],
   "dispatchRoutes": [
     { "op": "pulls.create-pull", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
-    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.review-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.merge-readiness-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "scope": "repository",
