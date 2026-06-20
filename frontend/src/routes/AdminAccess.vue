@@ -163,8 +163,8 @@ const accessStats = computed(() => {
                 <div class="issuer-title">
                   <span class="mono">{{ issuer.id }}</span>
                   <Chip mono>{{ issuer.clientKind }}</Chip>
-                  <Chip v-if="issuer.hasClientSecret" mono tone="ok">secret configured</Chip>
-                  <Chip v-else mono tone="warn">no client secret</Chip>
+                  <Chip v-if="issuer.hasClientSecret" tone="ok">Secret configured</Chip>
+                  <Chip v-else tone="warn">Secret missing</Chip>
                 </div>
                 <div class="issuer-detail mono">{{ issuer.issuerURL }}</div>
                 <div class="issuer-detail mono">{{ issuer.redirectURL }}</div>
