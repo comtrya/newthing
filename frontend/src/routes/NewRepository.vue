@@ -28,7 +28,7 @@ const submitLabel = computed(() => {
 async function submit(): Promise<void> {
   const requestedPath = path.value.trim();
   if (!requestedPath) {
-    error.value = "path is required";
+    error.value = "Repository path is required.";
     return;
   }
 
@@ -72,7 +72,7 @@ async function submit(): Promise<void> {
       </div>
       <div class="summary-grid" aria-label="New repository summary">
         <div>
-          <span>Path</span>
+          <span>Repository path</span>
           <strong>required</strong>
         </div>
         <div>
@@ -89,16 +89,16 @@ async function submit(): Promise<void> {
     <section class="form-panel">
       <form data-smoke="new-repo-form" @submit.prevent="submit">
         <label>
-          <span>Path</span>
+          <span>Repository path</span>
           <input
             v-model="path"
             name="path"
             autocomplete="off"
             spellcheck="false"
             required
-            placeholder="rawkode/hello/rawkode"
+            placeholder="owner/repository-name"
           />
-          <small>Slash-separated. Each segment: lowercase a-z, 0-9, dash, underscore, dot.</small>
+          <small>Use owner/repo or nested/group/repo. Segments may include lowercase letters, numbers, dash, underscore, or dot.</small>
         </label>
 
         <label>
