@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from "vue";
+import { principalLabel } from "@comtrya/sdk-vue";
 import AdminNav from "../components/AdminNav.vue";
 import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
@@ -48,6 +49,20 @@ function formatSignInProviderCount(count: number): string {
 
 function formatUnavailableAdminPageCount(count: number): string {
   return `${count} unavailable page${count === 1 ? "" : "s"}`;
+}
+
+function formatSessionPrincipal(principal: string): string {
+  const label = principalLabel(principal);
+  switch (label) {
+    case "OperatorCredential":
+      return "Operator credential";
+    case "AdminCredential":
+      return "Admin credential";
+    case "Credential":
+      return "Credential";
+    default:
+      return label;
+  }
 }
 
 onMounted(() => void loadSessions());
@@ -220,7 +235,7 @@ const accessStats = computed(() => {
             >
               <div class="session-main">
                 <div class="session-title">
-                  <Chip mono>{{ session.principal }}</Chip>
+                  <Chip :title="session.principal">{{ formatSessionPrincipal(session.principal) }}</Chip>
                   <span class="mono session-id">{{ session.sessionId }}</span>
                 </div>
                 <div class="session-detail">
