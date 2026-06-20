@@ -176,7 +176,7 @@ onMounted(() => {
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
           <div class="section-hd-title">Add new SSH key</div>
-          <div class="section-hd-sub">Paste your <code>~/.ssh/id_ed25519.pub</code> or <code>~/.ssh/id_rsa.pub</code></div>
+          <div class="section-hd-sub">Paste a public key in OpenSSH format.</div>
         </div>
         <form class="form-panel" @submit.prevent="submit">
           <label>
