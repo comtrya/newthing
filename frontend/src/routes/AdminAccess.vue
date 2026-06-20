@@ -38,6 +38,10 @@ async function handleRevokeSession(sessionId: string): Promise<void> {
   await loadSessions();
 }
 
+function formatActiveSessionCount(count: number): string {
+  return `${count} active session${count === 1 ? "" : "s"}`;
+}
+
 onMounted(() => void loadSessions());
 
 const accessStats = computed(() => {
@@ -192,7 +196,7 @@ const accessStats = computed(() => {
           <div class="section-hd">
             <div class="section-hd-title">Active sessions</div>
             <div class="section-hd-sub">
-              {{ sessions.length }} live{{ sessionsLoading ? " (loading…)" : "" }}
+              {{ formatActiveSessionCount(sessions.length) }}{{ sessionsLoading ? " (loading…)" : "" }}
             </div>
             <div class="spacer" />
             <button class="btn" type="button" :disabled="sessionsLoading" @click="loadSessions">
