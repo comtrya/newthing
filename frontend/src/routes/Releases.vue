@@ -28,7 +28,7 @@ const scope = computed(() => repoPath.value || "Workspace");
 
     <article class="runtime-empty-panel">
       <h2>No releases published</h2>
-      <p>Published releases will appear here when release data is recorded for this scope.</p>
+      <p>Published releases will appear here after you publish one for this scope.</p>
     </article>
   </section>
 </template>
