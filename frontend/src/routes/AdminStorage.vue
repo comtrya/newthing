@@ -15,10 +15,10 @@ const directoryRows = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "data dir", value: data.storage.dataDir },
-    { label: "metadata", value: data.storage.metadata },
-    { label: "repositories", value: data.storage.repositories.root },
-    { label: "extension storage", value: data.storage.extensionStorage },
+    { label: "Data directory", value: data.storage.dataDir },
+    { label: "Metadata", value: data.storage.metadata },
+    { label: "Repositories", value: data.storage.repositories.root },
+    { label: "Extension storage", value: data.storage.extensionStorage },
   ];
 });
 
@@ -26,13 +26,17 @@ const logRows = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "events", value: data.storage.events },
-    { label: "audit", value: data.storage.audit },
+    { label: "Events log", value: data.storage.events },
+    { label: "Audit log", value: data.storage.audit },
   ];
 });
 
 function statusTone(path: TelemetryPath): "ok" | "err" {
   return path.exists ? "ok" : "err";
+}
+
+function statusLabel(path: TelemetryPath): string {
+  return path.exists ? "Present" : "Missing";
 }
 </script>
 
@@ -97,9 +101,9 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
           <div class="path-grid">
             <div v-for="row in directoryRows" :key="row.label" class="path-card">
               <div class="path-card-head">
-                <span class="mono">{{ row.label }}</span>
-                <Chip :tone="statusTone(row.value)" mono>
-                  {{ row.value.exists ? "present" : "missing" }}
+                <span>{{ row.label }}</span>
+                <Chip :tone="statusTone(row.value)">
+                  {{ statusLabel(row.value) }}
                 </Chip>
               </div>
               <div class="path mono">{{ row.value.path }}</div>
@@ -151,10 +155,10 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
                   <Icon :name="row.value.exists ? 'check' : 'x'" />
                 </span>
                 <div class="log-main">
-                  <div class="mono log-title">{{ row.label }}</div>
+                  <div class="log-title">{{ row.label }}</div>
                   <div class="mono log-path">{{ row.value.path }}</div>
                 </div>
-                <div class="mono log-size">{{ formatBytes(row.value.bytes) }}</div>
+                <div class="log-size">{{ formatBytes(row.value.bytes) }}</div>
               </div>
             </div>
           </div>
@@ -254,7 +258,13 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
   gap: 8px;
   justify-content: space-between;
   font-size: 12px;
+  font-weight: 600;
   color: var(--fg);
+}
+.path-card-head :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .path {
   margin-top: 8px;
