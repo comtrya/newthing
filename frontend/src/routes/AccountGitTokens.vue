@@ -135,12 +135,16 @@ function formatUnix(ts: number | null | undefined): string {
   }
 }
 
-function tokenStatus(token: GitPersonalAccessToken): { label: string; tone: "ok" | "warn" | "err" } {
-  if (token.revokedAt) return { label: "revoked", tone: "err" };
+function tokenStatus(token: GitPersonalAccessToken): {
+  label: string;
+  state: "active" | "revoked" | "expired";
+  tone: "ok" | "warn" | "err";
+} {
+  if (token.revokedAt) return { label: "Revoked", state: "revoked", tone: "err" };
   if (token.expiresAt && token.expiresAt < Math.floor(Date.now() / 1000)) {
-    return { label: "expired", tone: "err" };
+    return { label: "Expired", state: "expired", tone: "err" };
   }
-  return { label: "active", tone: "ok" };
+  return { label: "Active", state: "active", tone: "ok" };
 }
 
 onMounted(() => {
@@ -300,7 +304,7 @@ onMounted(() => {
             v-for="token in tokens"
             :key="token.id"
             class="token-row"
-            :data-status="tokenStatus(token).label"
+            :data-status="tokenStatus(token).state"
           >
             <div>
               <div class="token-name">{{ token.name }}</div>
