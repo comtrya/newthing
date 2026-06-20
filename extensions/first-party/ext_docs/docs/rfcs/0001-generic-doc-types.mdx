@@ -11,4 +11,8 @@ status: accepted
 - `properties` — typed front-matter fields (string, int, bool, list, or `#Person`).
 - An implicit `body` — the MDX body of every file, validated as `string`.
 
-The CUE schema for `#DocType` and `#Person` is registered in `manifest.json` under `contributes.cueSchemas`. The kernel writes that snippet into the materialised workdir before evaluating the repo's `package comtrya` config, so unification gives us free validation: a malformed `docs` block fails at CUE eval time, not at render time.
+The CUE schema for `#DocType` and principal references is registered in `manifest.json` under `contributes.cueSchemas`. The kernel writes that snippet into the materialised workdir before evaluating the repo's `package comtrya` config, so unification gives us free validation: a malformed `docs` block fails at CUE eval time, not at render time.
+
+The extension backend owns document-summary parsing through `summarize-doc`.
+That keeps title/front-matter/body-excerpt semantics in the Component Model
+boundary instead of each UI surface inventing its own parser.

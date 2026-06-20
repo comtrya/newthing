@@ -6,19 +6,34 @@
 // `package comtrya` configuration and exposes the result on
 // `repository.comtryaConfig`; ext_docs's UI reads it.
 //
-// No backend ops are needed in 0.1.0 — the data path is kernel-owned
-// (CUE evaluation + repo file tree). `ping` exists only because the
-// kernel requires every first-party extension to ship a real WASM
-// component with at least one exported interface op.
+// The kernel owns CUE evaluation and repo file enumeration. ext_docs owns
+// document semantics such as front-matter extraction so ADRs, specs, PRDs,
+// scenarios, and future user-defined types use one parser.
 
 package comtrya:ext-docs@0.1.0;
 
 interface docs {
   use comtrya:platform/types@0.1.0.{error};
 
-  /// Liveness ping. 0.2.0 will add typed ops for front-matter
-  /// extraction once we move parsing off the UI.
+  record summarize-doc-input {
+    path: string,
+    preview: string,
+  }
+
+  record doc-summary {
+    path: string,
+    title: string,
+    property-count: u32,
+    body-excerpt: string,
+    has-front-matter: bool,
+  }
+
+  /// Liveness ping.
   ping: func() -> result<string, error>;
+
+  /// Parse one Markdown/MDX preview into the normalized summary shape
+  /// consumed by docs surfaces.
+  summarize-doc: func(input: summarize-doc-input) -> result<doc-summary, error>;
 }
 
 world ext-docs {

@@ -1231,7 +1231,7 @@ else
   log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
 fi
 
-for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints; do
+for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints ext_docs; do
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
@@ -1271,6 +1271,32 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprint
     "$FRONTEND_URL/_extensions/${extension_id}/assets/index.js?session=$EXTENSION_ASSET_SESSION"
   expect_contains "extension ${extension_id} asset through Vue shell" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
+
+DOC_SUMMARY_PAYLOAD="$TMP_DIR/docs-summary-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/specs/extension-runtime.mdx",
+    preview:
+      "---\n" +
+      "title: Extension runtime\n" +
+      "owner: platform-maintainers\n" +
+      "status: shipping\n" +
+      "---\n\n" +
+      "First-party extensions are Component Model WASM components loaded by Wasmtime.",
+  }),
+);
+' "$DOC_SUMMARY_PAYLOAD"
+expect_status "ext_docs summarize-doc parses front matter" 200 "$TMP_DIR/docs-summary.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SUMMARY_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-doc"
+json_assert "ext_docs summarize-doc returns normalized summary" "$TMP_DIR/docs-summary.json" \
+  'json.path === "crates/server/docs/specs/extension-runtime.mdx" && json.title === "Extension runtime" && json.propertyCount === 3 && json.hasFrontMatter === true && json.bodyExcerpt.includes("First-party extensions are Component Model WASM")'
 
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \

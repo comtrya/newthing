@@ -124,6 +124,9 @@ mod ext_docs_bindings {
 }
 
 use ext_docs_bindings::ExtDocs;
+use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
+    DocSummary, SummarizeDocInput as DocsSummarizeDocInput,
+};
 
 mod ext_sprints_bindings {
     wasmtime::component::bindgen!({
@@ -315,6 +318,13 @@ struct MembersInputJson {
     #[serde(rename = "ref")]
     ref_: String,
     limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SummarizeDocInputJson {
+    path: String,
+    preview: String,
 }
 
 pub fn reactor_subscriptions_for_extension(
@@ -2304,6 +2314,16 @@ fn workspace_home_error_to_canonical(
     }
 }
 
+fn doc_summary_to_json(summary: &DocSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "propertyCount": summary.property_count,
+        "bodyExcerpt": summary.body_excerpt,
+        "hasFrontMatter": summary.has_front_matter,
+    })
+}
+
 fn docs_error_to_canonical(
     e: ext_docs_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
@@ -2329,7 +2349,7 @@ pub fn dispatch_ext_docs(
     store: Arc<crate::ExtensionRuntimeStore>,
     current_principal: &str,
     info: &crate::generated_dispatch::DispatchInfo,
-    _payload: &[u8],
+    payload: &[u8],
     depth: u32,
     reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
@@ -2380,6 +2400,27 @@ pub fn dispatch_ext_docs(
                 wit_error(wit_types::ErrorCode::Internal, format!("ping call: {e}"))
             })?;
             Value::String(result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-doc" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-doc input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_doc(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-doc call: {e}"),
+                    )
+                })?;
+            doc_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
