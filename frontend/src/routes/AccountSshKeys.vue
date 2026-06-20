@@ -122,6 +122,10 @@ function formatUnix(ts: number | null | undefined): string {
   }
 }
 
+function formatLastUsed(ts: number | null | undefined): string {
+  return ts ? formatUnix(ts) : "Never used";
+}
+
 onMounted(() => {
   void refresh();
 });
@@ -216,7 +220,7 @@ onMounted(() => {
             <div><Chip mono tone="info">{{ key.keyType }}</Chip></div>
             <div class="mono fingerprint">{{ key.fingerprint }}</div>
             <div class="mono">{{ formatUnix(key.createdAt) }}</div>
-            <div class="mono">{{ formatUnix(key.lastUsedAt) }}</div>
+            <div class="mono">{{ formatLastUsed(key.lastUsedAt) }}</div>
             <div>
               <button class="btn danger" type="button" @click="askRemove(key)">
                 <Icon name="x" /><span>Delete</span>
