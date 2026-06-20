@@ -42,6 +42,10 @@ function formatActiveSessionCount(count: number): string {
   return `${count} active session${count === 1 ? "" : "s"}`;
 }
 
+function formatOidcIssuerCount(count: number): string {
+  return `${count} configured issuer${count === 1 ? "" : "s"}`;
+}
+
 onMounted(() => void loadSessions());
 
 const accessStats = computed(() => {
@@ -145,7 +149,7 @@ const accessStats = computed(() => {
           <div class="section-hd">
             <div class="section-hd-title">OIDC issuers</div>
             <div class="section-hd-sub">
-              {{ telemetry.access.oidcIssuers.length }} configured
+              {{ formatOidcIssuerCount(telemetry.access.oidcIssuers.length) }}
             </div>
           </div>
           <div v-if="telemetry.access.oidcIssuers.length" class="rows">
