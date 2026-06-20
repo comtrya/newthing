@@ -139,8 +139,8 @@ onMounted(() => {
           <div class="eyebrow" style="margin-bottom: 6px">Account</div>
           <h1 class="serif">Credentials</h1>
           <div class="subline">
-            Manage your personal access tokens for HTTP git operations and SSH keys for
-            git over SSH.
+            Manage your personal access tokens for HTTP Git operations and SSH keys for
+            Git over SSH.
           </div>
         </div>
         <div class="spacer" />
