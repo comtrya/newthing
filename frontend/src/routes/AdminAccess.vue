@@ -171,15 +171,15 @@ const accessStats = computed(() => {
               </div>
               <div class="issuer-policy">
                 <div>
-                  <span>domains</span>
+                  <span>Allowed domains</span>
                   <strong>{{ issuer.allowedDomains.length || 0 }}</strong>
                 </div>
                 <div>
-                  <span>groups</span>
+                  <span>Allowed groups</span>
                   <strong>{{ issuer.allowedGroups.length || 0 }}</strong>
                 </div>
                 <div>
-                  <span>subjects</span>
+                  <span>Allowed subjects</span>
                   <strong>{{ issuer.allowedSubjects.length || 0 }}</strong>
                 </div>
               </div>
