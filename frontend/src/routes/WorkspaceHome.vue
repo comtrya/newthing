@@ -68,7 +68,7 @@ const workspace = computed(() => payload.value?.workspace ?? {
 const repositories = computed(() => workspace.value.repositories);
 const extensionCount = computed(() => payload.value?.extensionInstallations?.length ?? 0);
 const extensionRuntime = computed(
-  () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
+  () => payload.value?.instance?.capabilities?.extensionRuntime ? "Enabled" : "Disabled",
 );
 
 /**
@@ -482,7 +482,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           <strong>{{ loadState === 'loading' ? '—' : extensionCount }}</strong>
         </div>
         <div>
-          <span>Runtime</span>
+          <span>Extension runtime</span>
           <strong>{{ loadState === 'loading' ? '—' : extensionRuntime }}</strong>
         </div>
       </div>
