@@ -2359,7 +2359,7 @@ EPIC_ROOT_REF="comtrya://epic/$EPIC_ROOT_ID"
 expect_status "create-epic with parentEpicRef writes part-of" 200 "$TMP_DIR/epc-child.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\"}" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":\"comtrya://user/rawkode\",\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "child epic has sequential number 2" "$TMP_DIR/epc-child.json" \
   'typeof json.number === "number" && json.number === 2'
@@ -2471,6 +2471,14 @@ expect_status "roadmap-board groups epics by lifecycle state with progress" 200 
   "$FRONTEND_URL/api/ops/ext_epics/epics/roadmap-board"
 json_assert "roadmap has planned root and done child lanes with progress" "$TMP_DIR/epc-roadmap.json" \
   "json.total === 2 && json.columns.length === 5 && json.columns.find((c) => c.key === \"planned\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"done\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
+expect_status "owner-board groups epics by owner and unowned lane" 200 "$TMP_DIR/epc-owner-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/owner-board"
+json_assert "owner board exposes unowned and rawkode lanes with progress" "$TMP_DIR/epc-owner-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"unowned\").ownerRef === null && json.columns.find((c) => c.key === \"unowned\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"owner-user-rawkode\").ownerRef === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"owner-user-rawkode\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
 
 expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

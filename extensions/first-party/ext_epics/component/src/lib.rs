@@ -10,13 +10,14 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
-    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress,
-    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, Guest as EpicsGuest,
-    RoadmapBoardInput, UpdateEpicInput,
+    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicOwnerBoard, EpicOwnerCard,
+    EpicOwnerColumn, EpicProgress, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState,
+    Guest as EpicsGuest, OwnerBoardInput, RoadmapBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const COLLECTION: &str = "epics";
 const COUNTER_COLLECTION: &str = "ext_epics_meta";
@@ -485,6 +486,73 @@ fn roadmap_columns(cards: Vec<EpicRoadmapCard>) -> Vec<EpicRoadmapColumn> {
     ]
 }
 
+fn epic_owner_key(owner_ref: &str) -> String {
+    let raw = owner_ref
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(owner_ref);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "owner".to_string()
+    } else {
+        format!("owner-{key}")
+    }
+}
+
+fn owner_column(
+    key: &str,
+    label: &str,
+    owner_ref: Option<String>,
+    cards: Vec<EpicOwnerCard>,
+) -> EpicOwnerColumn {
+    EpicOwnerColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        owner_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn owner_columns(cards: Vec<EpicOwnerCard>) -> Vec<EpicOwnerColumn> {
+    let mut unowned = Vec::new();
+    let mut owned: BTreeMap<String, (String, Vec<EpicOwnerCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let owner_ref = card
+            .epic
+            .owner_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|owner_ref| !owner_ref.is_empty())
+            .map(str::to_string);
+        let Some(owner_ref) = owner_ref else {
+            unowned.push(card);
+            continue;
+        };
+        let key = epic_owner_key(&owner_ref);
+        let entry = owned.entry(key).or_insert_with(|| (owner_ref, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![owner_column("unowned", "Unowned", None, unowned)];
+    columns.extend(owned.into_iter().map(|(key, (owner_ref, cards))| {
+        owner_column(&key, &owner_ref, Some(owner_ref.clone()), cards)
+    }));
+    columns
+}
+
 impl EpicsGuest for Component {
     fn create_epic(input: CreateEpicInput) -> Result<Epic, Error> {
         let (workspace_id, workspace) = workspace_uri(input.workspace.trim())?;
@@ -766,6 +834,27 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn owner_board(input: OwnerBoardInput) -> Result<EpicOwnerBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicOwnerCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicOwnerBoard {
+            workspace,
+            total,
+            columns: owner_columns(cards),
+        })
+    }
+
     fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "issue", limit)
     }
@@ -826,6 +915,15 @@ mod tests {
         }
     }
 
+    fn owner_card(id: &str, owner_ref: Option<&str>) -> EpicOwnerCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.owner_ref = owner_ref.map(str::to_string);
+        EpicOwnerCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
     #[test]
     fn roadmap_columns_group_cards_by_epic_state() {
         let columns = roadmap_columns(vec![
@@ -847,5 +945,45 @@ mod tests {
         assert_eq!(columns[2].cards[0].epic.id, "risk");
         assert_eq!(columns[3].cards[0].epic.id, "done");
         assert_eq!(columns[4].cards[0].epic.id, "canceled");
+    }
+
+    #[test]
+    fn owner_columns_group_unowned_and_owned_epics() {
+        let columns = owner_columns(vec![
+            owner_card("unowned", None),
+            owner_card("rawkode", Some("comtrya://user/rawkode")),
+            owner_card("team", Some("comtrya://team/platform-maintainers")),
+            owner_card("rawkode-two", Some("comtrya://user/rawkode")),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "unowned",
+                "owner-team-platform-maintainers",
+                "owner-user-rawkode"
+            ]
+        );
+        assert_eq!(columns[0].owner_ref, None);
+        assert_eq!(columns[0].cards[0].epic.id, "unowned");
+        assert_eq!(
+            columns[1].owner_ref.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[1].cards[0].epic.id, "team");
+        assert_eq!(
+            columns[2].owner_ref.as_deref(),
+            Some("comtrya://user/rawkode")
+        );
+        assert_eq!(columns[2].count, 2);
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "rawkode-two"]
+        );
     }
 }

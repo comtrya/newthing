@@ -4,7 +4,7 @@
 // machine is PLANNED → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.5;
+package comtrya:ext-epics@0.1.6;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -111,6 +111,30 @@ interface epics {
     columns: list<epic-roadmap-column>,
   }
 
+  record owner-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-owner-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-owner-column {
+    key: string,
+    label: string,
+    owner-ref: option<uri>,
+    count: u32,
+    cards: list<epic-owner-card>,
+  }
+
+  record epic-owner-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-owner-column>,
+  }
+
   create-epic: func(input: create-epic-input) -> result<epic, error>;
   change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   assign-project: func(input: assign-project-input) -> result<epic, error>;
@@ -124,6 +148,9 @@ interface epics {
   /// epic plus the same aggregate progress exposed by `progress-epic`, so
   /// UIs do not need an N+1 fan-out to render a roadmap board.
   roadmap-board: func(input: roadmap-board-input) -> result<epic-roadmap-board, error>;
+  /// Familiar ownership lanes for planning surfaces. Unowned epics are
+  /// explicit, while owned epics are grouped by their typed owner ref.
+  owner-board: func(input: owner-board-input) -> result<epic-owner-board, error>;
   /// Issues that are members of this epic. Capped server-side at
   /// `min(limit, 1024)`; silently truncated beyond that. Per the
   /// per-extension list-op convention (see `docs/wit-platform-design.md`).
