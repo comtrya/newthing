@@ -194,15 +194,15 @@ onMounted(() => {
         <pre class="mono token-blob">{{ justMinted.token }}</pre>
         <div class="kv-list">
           <div>
-            <span>scopes</span>
+            <span>Scopes</span>
             <strong class="mono">{{ justMinted.record.scopes.join(", ") }}</strong>
           </div>
           <div>
-            <span>expires</span>
+            <span>Expires</span>
             <strong class="mono">{{ formatUnix(justMinted.record.expiresAt) }}</strong>
           </div>
           <div>
-            <span>prefix</span>
+            <span>Prefix</span>
             <strong class="mono">{{ justMinted.record.tokenPrefix }}</strong>
           </div>
         </div>
