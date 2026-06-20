@@ -8,8 +8,8 @@ mod bindings;
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
-    DocCatalog, DocCatalogInput, DocProperty, DocSummary, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocCatalog, DocCatalogInput, DocProperty, DocStatusBoard, DocStatusCard, DocStatusColumn,
+    DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -79,6 +79,45 @@ fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
     Ok(DocCatalog { total_docs, types })
 }
 
+fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
+    let catalog = summarize_catalog(input)?;
+    let mut draft = Vec::new();
+    let mut active = Vec::new();
+    let mut done = Vec::new();
+    let mut other = Vec::new();
+    let mut missing = Vec::new();
+
+    for doc_type in &catalog.types {
+        for doc in &doc_type.docs {
+            let card = status_card(doc_type, doc);
+            match status_lane(&card.status) {
+                StatusLane::Draft => draft.push(card),
+                StatusLane::Active => active.push(card),
+                StatusLane::Done => done.push(card),
+                StatusLane::Other => other.push(card),
+                StatusLane::Missing => missing.push(card),
+            }
+        }
+    }
+
+    let mut columns = vec![
+        status_column("draft", "Draft", draft),
+        status_column("active", "Active", active),
+        status_column("done", "Done", done),
+    ];
+    if !other.is_empty() {
+        columns.push(status_column("other", "Other", other));
+    }
+    if !missing.is_empty() {
+        columns.push(status_column("missing", "Missing status", missing));
+    }
+
+    Ok(DocStatusBoard {
+        total_docs: catalog.total_docs,
+        columns,
+    })
+}
+
 fn summarize_doc_type(input: DocTypeInput) -> Result<DocTypeSummary, Error> {
     let project_name = required_field("project name", input.project_name)?;
     let type_name = required_field("doc type name", input.type_name)?;
@@ -102,6 +141,69 @@ fn summarize_doc_type(input: DocTypeInput) -> Result<DocTypeSummary, Error> {
         doc_count: docs.len() as u32,
         docs,
     })
+}
+
+fn status_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocStatusCard {
+    let status = property_value(doc, "status").unwrap_or_default();
+    DocStatusCard {
+        project_name: doc_type.project_name.clone(),
+        type_name: doc_type.type_name.clone(),
+        type_label: doc_type.label.clone(),
+        path: doc.path.clone(),
+        title: doc.title.clone(),
+        owner: property_value(doc, "owner"),
+        status,
+    }
+}
+
+fn property_value(doc: &DocSummary, key: &str) -> Option<String> {
+    doc.properties
+        .iter()
+        .find_map(|property| {
+            property
+                .key
+                .eq_ignore_ascii_case(key)
+                .then(|| property.value.trim())
+        })
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn status_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocStatusCard>,
+) -> DocStatusColumn {
+    DocStatusColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
+enum StatusLane {
+    Draft,
+    Active,
+    Done,
+    Other,
+    Missing,
+}
+
+fn status_lane(status: &str) -> StatusLane {
+    match normalize_status(status).as_str() {
+        "" => StatusLane::Missing,
+        "draft" | "planned" | "planning" | "proposed" | "todo" | "backlog" => StatusLane::Draft,
+        "accepted" | "active" | "in-progress" | "ready" | "review" | "shipping" => {
+            StatusLane::Active
+        }
+        "closed" | "complete" | "completed" | "done" | "shipped" => StatusLane::Done,
+        _ => StatusLane::Other,
+    }
+}
+
+fn normalize_status(status: &str) -> String {
+    status.trim().to_ascii_lowercase().replace([' ', '_'], "-")
 }
 
 fn required_field(label: &str, value: String) -> Result<String, Error> {
@@ -202,6 +304,10 @@ impl DocsGuest for Component {
     fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
         crate::summarize_catalog(input)
     }
+
+    fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
+        crate::status_board(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -222,7 +328,7 @@ mod tests {
         DocCatalogInput, DocTypeInput, SummarizeDocInput,
     };
 
-    use super::{summarize_catalog, summarize_preview, MAX_CATALOG_DOCS};
+    use super::{status_board, summarize_catalog, summarize_preview, MAX_CATALOG_DOCS};
 
     #[test]
     fn summary_uses_front_matter_title_and_excerpt() {
@@ -341,5 +447,92 @@ mod tests {
         .expect_err("catalog limit should be enforced");
 
         assert!(err.message.contains("4096"));
+    }
+
+    #[test]
+    fn status_board_groups_docs_by_front_matter_status() {
+        let board = status_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                                .to_string(),
+                            preview:
+                                "---\ntitle: Repository Docs Surface\nowner: platform-maintainers\nstatus: active\n---\n\nIntent."
+                                    .to_string(),
+                        },
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-next.mdx"
+                                .to_string(),
+                            preview: "---\ntitle: Next Docs Surface\nstatus: planned\n---\n\nIntent."
+                                .to_string(),
+                        },
+                    ],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![
+                        SummarizeDocInput {
+                            path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                                .to_string(),
+                            preview:
+                                "---\ntitle: Repository docs are discoverable\nstatus: shipped\n---\n\nGiven..."
+                                    .to_string(),
+                        },
+                        SummarizeDocInput {
+                            path: "crates/server/docs/scenarios/missing-status.mdx".to_string(),
+                            preview: "---\ntitle: Missing Status\n---\n\nGiven...".to_string(),
+                        },
+                    ],
+                },
+            ],
+        })
+        .expect("status board should summarize");
+
+        assert_eq!(board.total_docs, 4);
+        let draft = board
+            .columns
+            .iter()
+            .find(|column| column.key == "draft")
+            .expect("draft column");
+        assert_eq!(draft.count, 1);
+        assert_eq!(draft.docs[0].title, "Next Docs Surface");
+
+        let active = board
+            .columns
+            .iter()
+            .find(|column| column.key == "active")
+            .expect("active column");
+        assert_eq!(active.count, 1);
+        assert_eq!(
+            active.docs[0].owner.as_deref(),
+            Some("platform-maintainers")
+        );
+        assert_eq!(active.docs[0].type_label, "Backend PRDs");
+
+        let done = board
+            .columns
+            .iter()
+            .find(|column| column.key == "done")
+            .expect("done column");
+        assert_eq!(done.count, 1);
+
+        let missing = board
+            .columns
+            .iter()
+            .find(|column| column.key == "missing")
+            .expect("missing status column");
+        assert_eq!(missing.count, 1);
+        assert_eq!(missing.docs[0].status, "");
     }
 }

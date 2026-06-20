@@ -1359,6 +1359,78 @@ expect_status "ext_docs summarize-catalog groups declared doc types" 200 "$TMP_D
 json_assert "ext_docs summarize-catalog returns project doc catalog" "$TMP_DIR/docs-catalog.json" \
   'json.totalDocs === 2 && json.types.length === 2 && json.types[0].projectName === "backend" && json.types[0].typeName === "prd" && json.types[0].label === "Backend PRDs" && json.types[0].docCount === 1 && json.types[0].docs[0].title === "Repository Docs Surface" && json.types[0].docs[0].properties.some((property) => property.key === "audience" && property.value === "maintainers") && json.types[1].typeName === "scenario" && json.types[1].docs[0].properties.some((property) => property.key === "feature" && property.value === "repository-docs") && json.types[1].docs[0].properties.some((property) => property.key === "tags" && property.value === "[docs, projects, bdd]")'
 
+DOC_STATUS_PAYLOAD="$TMP_DIR/docs-status-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside the implementation.",
+          },
+          {
+            path: "crates/server/docs/prds/next-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Next Docs Surface\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "The next docs surface should make planning visible.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: shipped\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+          {
+            path: "crates/server/docs/scenarios/missing-status.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Status Scenario\n" +
+              "---\n\n" +
+              "Given a scenario has not declared its lifecycle state",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_STATUS_PAYLOAD"
+expect_status "ext_docs status-board groups docs into product lanes" 200 "$TMP_DIR/docs-status-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_STATUS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/status-board"
+json_assert "ext_docs status-board returns draft active done and missing lanes" "$TMP_DIR/docs-status-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "draft")?.count === 1 && json.columns.find((column) => column.key === "draft")?.docs?.[0]?.title === "Next Docs Surface" && json.columns.find((column) => column.key === "active")?.count === 1 && json.columns.find((column) => column.key === "active")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "done")?.count === 1 && json.columns.find((column) => column.key === "missing")?.count === 1 && json.columns.find((column) => column.key === "missing")?.docs?.[0]?.status === ""'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \
