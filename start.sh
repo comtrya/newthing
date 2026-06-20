@@ -1846,6 +1846,14 @@ json_assert "sprint created with spr_ id and number 1" "$TMP_DIR/spr-create.json
 SPRINT_ID="$(json_value "$TMP_DIR/spr-create.json" 'json.id')"
 SPRINT_REF="comtrya://sprint/$SPRINT_ID"
 
+expect_status "change-state-sprint rejects PLANNED to COMPLETED" 400 "$TMP_DIR/spr-invalid-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"COMPLETED\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "invalid sprint transition rejected as bad-input" "$TMP_DIR/spr-invalid-transition.json" \
+  'json.code === "bad-input"'
+
 expect_status "change-state-sprint to ACTIVE" 200 "$TMP_DIR/spr-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1862,6 +1870,14 @@ expect_status "assign-issue to sprint" 200 "$TMP_DIR/spr-assign.json" \
 json_assert "assign-issue returns true" "$TMP_DIR/spr-assign.json" \
   'json === true'
 
+expect_status "assign-issue rejects missing sprint" 404 "$TMP_DIR/spr-assign-missing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"sprintRef\":\"comtrya://sprint/spr_missing\",\"issueRef\":\"comtrya://issue/$ISSUE_ONE_ID\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/assign-issue"
+json_assert "missing sprint assignment is not-found" "$TMP_DIR/spr-assign-missing.json" \
+  'json.code === "not-found"'
+
 expect_status "issues-in-sprint returns the assigned issue" 200 "$TMP_DIR/spr-issues.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1877,6 +1893,22 @@ expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   "$FRONTEND_URL/api/ops/ext_sprints/sprints/list-sprints"
 json_assert "list-sprints has 1 sprint" "$TMP_DIR/spr-list.json" \
   'json.length === 1'
+
+expect_status "change-state-sprint ACTIVE to COMPLETED" 200 "$TMP_DIR/spr-completed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"COMPLETED\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "sprint state is COMPLETED" "$TMP_DIR/spr-completed.json" \
+  'json.state === "COMPLETED"'
+
+expect_status "change-state-sprint rejects COMPLETED to ACTIVE" 400 "$TMP_DIR/spr-terminal-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"ACTIVE\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "terminal sprint transition rejected as bad-input" "$TMP_DIR/spr-terminal-transition.json" \
+  'json.code === "bad-input"'
 
 expect_status "change-state-sprint rejects unknown state" 400 "$TMP_DIR/spr-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

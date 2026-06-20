@@ -128,9 +128,7 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                     Err(other) => return Err(other),
                 };
                 let mut counter: WorkspaceCounter = serde_json::from_slice(&snap.data)
-                    .map_err(|e| {
-                        err(ErrorCode::Internal, format!("parse sprint counter: {e}"))
-                    })?;
+                    .map_err(|e| err(ErrorCode::Internal, format!("parse sprint counter: {e}")))?;
                 if counter.id != counter_id {
                     return Err(err(
                         ErrorCode::Internal,
@@ -140,7 +138,10 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                 let assigned = counter.next;
                 counter.next = counter.next.saturating_add(1);
                 let bytes = serde_json::to_vec(&counter).map_err(|e| {
-                    err(ErrorCode::Internal, format!("serialise sprint counter: {e}"))
+                    err(
+                        ErrorCode::Internal,
+                        format!("serialise sprint counter: {e}"),
+                    )
                 })?;
                 match storage::update_commit(
                     COUNTER_COLLECTION,
@@ -165,7 +166,10 @@ fn next_sprint_number(workspace_id: &str) -> Result<u32, Error> {
                     next: 2,
                 };
                 let bytes = serde_json::to_vec(&counter).map_err(|e| {
-                    err(ErrorCode::Internal, format!("serialise sprint counter: {e}"))
+                    err(
+                        ErrorCode::Internal,
+                        format!("serialise sprint counter: {e}"),
+                    )
                 })?;
                 match storage::create(
                     COUNTER_COLLECTION,
@@ -211,6 +215,19 @@ fn state_from_str(state: &str) -> SprintState {
         "CANCELED" => SprintState::Canceled,
         _ => SprintState::Planned,
     }
+}
+
+fn can_transition_sprint_state(current: &str, next: &str) -> bool {
+    if current == next {
+        return true;
+    }
+    matches!(
+        (current, next),
+        ("PLANNED", "ACTIVE")
+            | ("PLANNED", "CANCELED")
+            | ("ACTIVE", "COMPLETED")
+            | ("ACTIVE", "CANCELED")
+    )
 }
 
 fn workspace_id(workspace: &str) -> Option<String> {
@@ -289,7 +306,12 @@ fn sprint_id_from_ref(ref_uri: &str) -> Result<String, Error> {
         .strip_prefix("comtrya://sprint/")
         .map(str::to_string)
         .filter(|id| !id.is_empty())
-        .ok_or_else(|| err(ErrorCode::BadInput, "sprint ref must be comtrya://sprint/<id>"))
+        .ok_or_else(|| {
+            err(
+                ErrorCode::BadInput,
+                "sprint ref must be comtrya://sprint/<id>",
+            )
+        })
 }
 
 fn read_by_ref(ref_uri: &str) -> Result<Option<StoredSprint>, Error> {
@@ -343,7 +365,10 @@ impl SprintsGuest for Component {
             title: title.to_string(),
             state: state_to_str(SprintState::Planned).to_string(),
             number,
-            goal: input.goal.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            goal: input
+                .goal
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             start_date: input.start_date,
             end_date: input.end_date,
             created_at: now.clone(),
@@ -392,8 +417,18 @@ impl SprintsGuest for Component {
     fn change_state_sprint(input: ChangeStateInput) -> Result<Sprint, Error> {
         let snap = storage::update_begin(COLLECTION, &input.id)?;
         let mut stored = decode(&input.id, &snap.data)?;
-        let now = time::now_iso();
+        let current = stored.state.clone();
         let state = state_to_str(input.state).to_string();
+        if current == state {
+            return Ok(stored.to_wit());
+        }
+        if !can_transition_sprint_state(&current, &state) {
+            return Err(err(
+                ErrorCode::BadInput,
+                format!("invalid sprint state transition: {current} -> {state}"),
+            ));
+        }
+        let now = time::now_iso();
         stored.state = state.clone();
         stored.updated_at = now;
         commit_update(&input.id, &stored, &snap.version)?;
@@ -411,8 +446,12 @@ impl SprintsGuest for Component {
     }
 
     fn assign_issue(input: AssignIssueInput) -> Result<bool, Error> {
-        // Validate sprint ref is well-formed.
-        let _ = sprint_id_from_ref(&input.sprint_ref)?;
+        if read_by_ref(&input.sprint_ref)?.is_none() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("sprint not found: {}", input.sprint_ref),
+            ));
+        }
         let _ = relations::create(&input.issue_ref, &input.sprint_ref, PART_OF, None)?;
         Ok(true)
     }
