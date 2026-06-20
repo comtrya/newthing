@@ -211,8 +211,8 @@ const accessStats = computed(() => {
                   <Chip mono>{{ session.principal }}</Chip>
                   <span class="mono session-id">{{ session.sessionId }}</span>
                 </div>
-                <div class="session-detail mono">
-                  created {{ formatUnixTime(session.createdAt) }} · expires
+                <div class="session-detail">
+                  Created {{ formatUnixTime(session.createdAt) }} · Expires
                   {{ formatUnixTime(session.expiresAt) }}
                 </div>
               </div>
@@ -419,6 +419,13 @@ const accessStats = computed(() => {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg);
+}
+.session-detail {
+  margin-top: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--fg-3);
 }
 .grid {
   display: grid;
