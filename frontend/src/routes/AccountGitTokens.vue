@@ -214,13 +214,13 @@ onMounted(() => {
         <div class="section-hd">
           <div class="section-hd-title">Generate new token</div>
           <div class="section-hd-sub">
-            Token name is shown only to you; pick something that identifies the
+            Note is shown only to you; pick something that identifies the
             machine or CI runner using it.
           </div>
         </div>
         <form class="form-panel" @submit.prevent="submit">
           <label>
-            <span>Name</span>
+            <span>Note</span>
             <input
               v-model="formName"
               type="text"
@@ -294,7 +294,7 @@ onMounted(() => {
         </div>
         <div v-if="tokens.length" class="token-table">
           <div class="token-row token-row-hd">
-            <span>Name</span>
+            <span>Note</span>
             <span>Scopes</span>
             <span>Status</span>
             <span>Expires</span>
