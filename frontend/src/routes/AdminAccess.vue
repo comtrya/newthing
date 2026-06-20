@@ -277,7 +277,7 @@ const accessStats = computed(() => {
                 <strong>{{ telemetry.access.rateLimitRows }}</strong>
               </div>
               <div>
-                <span>Sampled at</span>
+                <span>Updated</span>
                 <strong>{{ formatUnixTime(telemetry.instance.now) }}</strong>
               </div>
             </div>
