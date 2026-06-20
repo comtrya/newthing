@@ -188,10 +188,10 @@ const accessStats = computed(() => {
                   class="btn btn-sm"
                   type="button"
                   :disabled="loading"
-                  :title="`Flush OIDC discovery cache for ${issuer.id}. Forces a fresh HTTP discovery on the next login.`"
+                  :title="`Refresh sign-in provider metadata for ${issuer.id}. Forces a fresh OIDC discovery on the next login.`"
                   @click="refreshOidcIssuer(issuer.id)"
                 >
-                  <Icon name="retry" /><span>Refresh discovery</span>
+                  <Icon name="retry" /><span>Refresh provider</span>
                 </button>
               </div>
             </div>
