@@ -9,9 +9,10 @@ mod bindings;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
-    DocChecklistSection, DocChecklistSummary, DocProperty, DocReference, DocReferenceSummary,
-    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocChecklistSection, DocChecklistSummary, DocProperty, DocReadinessBoard, DocReadinessCard,
+    DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard,
+    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -51,6 +52,20 @@ fn summarize_preview(path: &str, preview: &str) -> DocSummary {
 }
 
 fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut total_docs = 0_u32;
+    let mut types = Vec::with_capacity(input.types.len());
+    for doc_type in input.types {
+        let summary = summarize_doc_type(doc_type)?;
+        total_docs += summary.doc_count;
+        types.push(summary);
+    }
+
+    Ok(DocCatalog { total_docs, types })
+}
+
+fn validate_catalog_size(input: &DocCatalogInput) -> Result<(), Error> {
     if input.types.len() > MAX_CATALOG_TYPES {
         return Err(err(
             ErrorCode::BadInput,
@@ -70,15 +85,7 @@ fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
         ));
     }
 
-    let mut total_docs = 0_u32;
-    let mut types = Vec::with_capacity(input.types.len());
-    for doc_type in input.types {
-        let summary = summarize_doc_type(doc_type)?;
-        total_docs += summary.doc_count;
-        types.push(summary);
-    }
-
-    Ok(DocCatalog { total_docs, types })
+    Ok(())
 }
 
 fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
@@ -117,6 +124,71 @@ fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
     Ok(DocStatusBoard {
         total_docs: catalog.total_docs,
         columns,
+    })
+}
+
+fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut needs_criteria = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut ready = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = required_field("project name", doc_type.project_name)?;
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let checklists = summarize_checklists(SummarizeDocInput {
+                path: path.clone(),
+                preview: file.preview.clone(),
+            })?;
+            let scenarios = summarize_scenarios(SummarizeDocInput {
+                path: path.clone(),
+                preview: file.preview.clone(),
+            })?;
+            let references = summarize_references(SummarizeDocInput {
+                path,
+                preview: file.preview,
+            })?;
+
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let card = DocReadinessCard {
+                project_name: project_name.clone(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                checklist_total: checklists.total_items,
+                checklist_checked: checklists.checked_items,
+                scenario_count: scenarios.scenario_count,
+                reference_count: references.reference_count,
+            };
+
+            match readiness_lane(&card) {
+                ReadinessLane::NeedsCriteria => needs_criteria.push(card),
+                ReadinessLane::InProgress => in_progress.push(card),
+                ReadinessLane::Ready => ready.push(card),
+            }
+            total_docs += 1;
+        }
+    }
+
+    Ok(DocReadinessBoard {
+        total_docs,
+        columns: vec![
+            readiness_column("needs-criteria", "Needs criteria", needs_criteria),
+            readiness_column("in-progress", "In progress", in_progress),
+            readiness_column("ready", "Ready", ready),
+        ],
     })
 }
 
@@ -659,6 +731,19 @@ fn status_column(
     }
 }
 
+fn readiness_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocReadinessCard>,
+) -> DocReadinessColumn {
+    DocReadinessColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 enum StatusLane {
     Draft,
     Active,
@@ -681,6 +766,26 @@ fn status_lane(status: &str) -> StatusLane {
 
 fn normalize_status(status: &str) -> String {
     status.trim().to_ascii_lowercase().replace([' ', '_'], "-")
+}
+
+enum ReadinessLane {
+    NeedsCriteria,
+    InProgress,
+    Ready,
+}
+
+fn readiness_lane(card: &DocReadinessCard) -> ReadinessLane {
+    if card.checklist_total > card.checklist_checked {
+        return ReadinessLane::InProgress;
+    }
+
+    if card.scenario_count > 0
+        || (card.checklist_total > 0 && card.checklist_checked == card.checklist_total)
+    {
+        return ReadinessLane::Ready;
+    }
+
+    ReadinessLane::NeedsCriteria
 }
 
 fn required_field(label: &str, value: String) -> Result<String, Error> {
@@ -797,6 +902,10 @@ impl DocsGuest for Component {
     fn summarize_references(input: SummarizeDocInput) -> Result<DocReferenceSummary, Error> {
         crate::summarize_references(input)
     }
+
+    fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
+        crate::readiness_board(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -818,7 +927,7 @@ mod tests {
     };
 
     use super::{
-        status_board, summarize_catalog, summarize_checklists, summarize_preview,
+        readiness_board, status_board, summarize_catalog, summarize_checklists, summarize_preview,
         summarize_references, summarize_scenarios, MAX_CATALOG_DOCS,
     };
 
@@ -1181,5 +1290,105 @@ comtrya://issue/ignored
             .references
             .iter()
             .all(|reference| reference.line > 0));
+    }
+
+    #[test]
+    fn readiness_board_groups_docs_by_product_readiness() {
+        let board = readiness_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-outline.mdx"
+                                .to_string(),
+                            preview:
+                                "---\ntitle: Repository Docs Outline\nstatus: planned\n---\n\nIntent without criteria."
+                                    .to_string(),
+                        },
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                                .to_string(),
+                            preview: r#"---
+title: Repository Docs Surface
+status: active
+---
+
+## Acceptance Criteria
+
+- [x] Project docs render beside implementation
+- [ ] Scenario docs can be summarized without shell-specific parsing
+
+## Traceability
+
+Tracks comtrya://epic/epc_01KVJZ0TRACE.
+"#
+                            .to_string(),
+                        },
+                    ],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview: r#"---
+title: Repository docs are discoverable
+status: active
+---
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see specs, PRDs, and BDD scenarios
+"#
+                        .to_string(),
+                    }],
+                },
+            ],
+        })
+        .expect("readiness board should summarize");
+
+        assert_eq!(board.total_docs, 3);
+
+        let needs_criteria = board
+            .columns
+            .iter()
+            .find(|column| column.key == "needs-criteria")
+            .expect("needs criteria column");
+        assert_eq!(needs_criteria.label, "Needs criteria");
+        assert_eq!(needs_criteria.count, 1);
+        assert_eq!(needs_criteria.docs[0].title, "Repository Docs Outline");
+
+        let in_progress = board
+            .columns
+            .iter()
+            .find(|column| column.key == "in-progress")
+            .expect("in progress column");
+        assert_eq!(in_progress.count, 1);
+        assert_eq!(in_progress.docs[0].type_label, "Backend PRDs");
+        assert_eq!(in_progress.docs[0].status, "active");
+        assert_eq!(in_progress.docs[0].checklist_total, 2);
+        assert_eq!(in_progress.docs[0].checklist_checked, 1);
+        assert_eq!(in_progress.docs[0].reference_count, 1);
+
+        let ready = board
+            .columns
+            .iter()
+            .find(|column| column.key == "ready")
+            .expect("ready column");
+        assert_eq!(ready.count, 1);
+        assert_eq!(ready.docs[0].type_name, "scenario");
+        assert_eq!(ready.docs[0].scenario_count, 1);
     }
 }

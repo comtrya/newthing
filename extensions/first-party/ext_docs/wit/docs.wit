@@ -139,6 +139,31 @@ interface docs {
     references: list<doc-reference>,
   }
 
+  record doc-readiness-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    reference-count: u32,
+  }
+
+  record doc-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-readiness-card>,
+  }
+
+  record doc-readiness-board {
+    total-docs: u32,
+    columns: list<doc-readiness-column>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -167,6 +192,10 @@ interface docs {
   /// Extract forge-local references from product docs so PRDs, specs, BDD
   /// scenarios, issues, epics, and pull requests can be traced together.
   summarize-references: func(input: summarize-doc-input) -> result<doc-reference-summary, error>;
+
+  /// Group product docs by readiness signals from acceptance criteria,
+  /// BDD scenarios, and forge-local traceability links.
+  readiness-board: func(input: doc-catalog-input) -> result<doc-readiness-board, error>;
 }
 
 world ext-docs {

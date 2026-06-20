@@ -1535,6 +1535,77 @@ expect_status "ext_docs summarize-references extracts forge traceability links" 
 json_assert "ext_docs summarize-references returns internal references only" "$TMP_DIR/docs-references.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.referenceCount === 4 && json.references.some((reference) => reference.kind === "epic" && reference.target === "comtrya://epic/epc_01KVJZ0TRACE" && reference.label === "repository docs epic") && json.references.some((reference) => reference.kind === "issue-number" && reference.target === "#42") && json.references.some((reference) => reference.kind === "doc" && reference.target === "comtrya://doc/scenario/repository-docs-surface") && json.references.some((reference) => reference.kind === "pull-request" && reference.target === "comtrya://pull-request/pr_01KVJZ0TRACE") && json.references.every((reference) => reference.line > 0)'
 
+DOC_READINESS_PAYLOAD="$TMP_DIR/docs-readiness-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-outline.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Outline\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without acceptance criteria.",
+          },
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Project docs render beside implementation\n" +
+              "- [ ] Scenario docs can be summarized without shell-specific parsing\n\n" +
+              "## Traceability\n\n" +
+              "Tracks comtrya://epic/epc_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see specs, PRDs, and BDD scenarios\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_READINESS_PAYLOAD"
+expect_status "ext_docs readiness-board groups docs by criteria and scenarios" 200 "$TMP_DIR/docs-readiness.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_READINESS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/readiness-board"
+json_assert "ext_docs readiness-board returns product readiness lanes" "$TMP_DIR/docs-readiness.json" \
+  'json.totalDocs === 3 && json.columns.find((column) => column.key === "needs-criteria")?.count === 1 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Repository Docs Outline" && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistTotal === 2 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.referenceCount === 1 && json.columns.find((column) => column.key === "ready")?.docs?.[0]?.scenarioCount === 1'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

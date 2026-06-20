@@ -126,9 +126,10 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocReference,
-    DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocReadinessBoard,
+    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
+    SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2673,6 +2674,45 @@ fn doc_reference_to_json(reference: &DocReference) -> Value {
     })
 }
 
+fn doc_readiness_board_to_json(board: &DocReadinessBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_readiness_column_to_json(column: &DocReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_readiness_card_to_json(card: &DocReadinessCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "checklistTotal": card.checklist_total,
+        "checklistChecked": card.checklist_checked,
+        "scenarioCount": card.scenario_count,
+        "referenceCount": card.reference_count,
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -2876,6 +2916,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_reference_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "readiness-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse readiness-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("readiness-board call: {e}"),
+                    )
+                })?;
+            doc_readiness_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
