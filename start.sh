@@ -2930,6 +2930,70 @@ expect_status "review-board moves review pull requests into review lane" 200 "$T
 json_assert "review board has the in-review PR card" "$TMP_DIR/rx-pr-review-board-review.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
 
+expect_status "review-decision-board starts reviewed PRs in awaiting lane" 200 "$TMP_DIR/rx-pr-review-decision-awaiting.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the awaiting-review PR card" "$TMP_DIR/rx-pr-review-decision-awaiting.json" \
+  "json.total === 1 && json.columns.length === 6 && json.columns.find((c) => c.key === \"awaiting-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.latestReview === null && card.terminal === false)"
+
+expect_status "submit-review records a review comment" 200 "$TMP_DIR/rx-pr-review-comment.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"COMMENT\",\"bodyMarkdown\":\"left implementation notes\",\"reviewerRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review comment returns a pull review" "$TMP_DIR/rx-pr-review-comment.json" \
+  "json.id.startsWith(\"prr_\") && json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"COMMENT\" && json.bodyMarkdown === \"left implementation notes\""
+
+expect_status "review-decision-board moves commented PRs into comments lane" 200 "$TMP_DIR/rx-pr-review-decision-commented.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the commented PR card" "$TMP_DIR/rx-pr-review-decision-commented.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"commented\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.commentCount === 1 && card.latestReview.decision === \"COMMENT\")"
+
+expect_status "submit-review records an approval" 200 "$TMP_DIR/rx-pr-review-approve.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review approval returns an approval decision" "$TMP_DIR/rx-pr-review-approve.json" \
+  "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"APPROVE\""
+
+expect_status "review-decision-board moves approved PRs into approved lane" 200 "$TMP_DIR/rx-pr-review-decision-approved.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the approved PR card" "$TMP_DIR/rx-pr-review-decision-approved.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"approved\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.approvalCount === 1 && card.commentCount === 1 && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "submit-review records requested changes" 200 "$TMP_DIR/rx-pr-review-request-changes.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"REQUEST_CHANGES\",\"bodyMarkdown\":\"needs a contract test\",\"reviewerRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review request changes returns a change request" "$TMP_DIR/rx-pr-review-request-changes.json" \
+  "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"REQUEST_CHANGES\" && json.bodyMarkdown === \"needs a contract test\""
+
+expect_status "list-pull-reviews returns review decisions" 200 "$TMP_DIR/rx-pr-review-list.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-pull-reviews"
+json_assert "list-pull-reviews returns all recorded reviews" "$TMP_DIR/rx-pr-review-list.json" \
+  'json.length === 3 && json.map((review) => review.decision).includes("COMMENT") && json.map((review) => review.decision).includes("APPROVE") && json.map((review) => review.decision).includes("REQUEST_CHANGES")'
+
+expect_status "review-decision-board moves change-requested PRs into changes lane" 200 "$TMP_DIR/rx-pr-review-decision-changes.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the changes-requested PR card" "$TMP_DIR/rx-pr-review-decision-changes.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"changes-requested\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.changeRequestCount === 1 && card.approvalCount === 1 && card.commentCount === 1 && card.latestReview.decision === \"REQUEST_CHANGES\")"
+
 expect_status "merge-readiness-board waits for pending checks" 200 "$TMP_DIR/rx-pr-merge-readiness-waiting.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -3007,6 +3071,20 @@ expect_status "merge-readiness-board keeps merged pull requests terminal" 200 "$
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
 json_assert "merge readiness board has the merged terminal PR card" "$TMP_DIR/rx-pr-merge-readiness-merged.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.blocked === false && card.waiting === false)"
+
+expect_status "review-decision-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-review-decision-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-decision-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.latestReview.decision === \"REQUEST_CHANGES\")"
+
+expect_status "submit-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
 
 expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

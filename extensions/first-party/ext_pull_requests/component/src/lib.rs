@@ -11,10 +11,12 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput,
-    PrState, PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
-    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReviewBoard,
-    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest,
+    ListPullReviewsInput, MergePullInput, PrState, PullMergeCheckSummary, PullMergeReadinessBoard,
+    PullMergeReadinessBoardInput, PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest,
+    PullReview, PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    PullReviewDecision, PullReviewDecisionBoard, PullReviewDecisionBoardInput,
+    PullReviewDecisionCard, PullReviewDecisionColumn, SubmitReviewInput,
 };
 use bindings::exports::comtrya::platform::reactor::{
     Guest as ReactorGuest, MutationCall, Reaction,
@@ -25,10 +27,12 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 const COLLECTION: &str = "pull_requests";
+const REVIEW_COLLECTION: &str = "pull_request_reviews";
 // Renamed from "_meta" (was shared with ext_issues, causing a
 // collection_owners BTreeMap last-write-wins collision — see #153).
 const COUNTER_COLLECTION: &str = "ext_pull_requests_meta";
 const PULL_MERGED_EVENT: &str = "dev.comtrya.pull-request.merged";
+const PULL_REVIEWED_EVENT: &str = "dev.comtrya.pull-request.reviewed";
 const CLOSES_RELATION: &str = "comtrya://rel/com.comtrya.pulls/closes";
 const ISSUE_REF_PREFIX: &str = "comtrya://issue/";
 const CLOSE_ISSUE_MUTATION: &str = "ext_issues/issues.close-issue";
@@ -107,6 +111,34 @@ impl StoredPullRequest {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredPullReview {
+    id: String,
+    pull_id: String,
+    pull_request_ref: String,
+    repository: String,
+    reviewer_ref: String,
+    decision: String,
+    body_markdown: String,
+    created_at: String,
+}
+
+impl StoredPullReview {
+    fn to_wit(&self) -> PullReview {
+        PullReview {
+            id: self.id.clone(),
+            pull_id: self.pull_id.clone(),
+            pull_request_ref: self.pull_request_ref.clone(),
+            repository: self.repository.clone(),
+            reviewer_ref: self.reviewer_ref.clone(),
+            decision: review_decision_from_str(&self.decision),
+            body_markdown: self.body_markdown.clone(),
+            created_at: self.created_at.clone(),
+        }
+    }
+}
+
 struct RepositoryScope {
     workspace_id: Option<String>,
     repository_id: Option<String>,
@@ -129,12 +161,65 @@ enum MergeReadinessLane {
     Closed,
 }
 
+enum ReviewDecisionLane {
+    Awaiting,
+    Commented,
+    Approved,
+    ChangesRequested,
+    Merged,
+    Closed,
+}
+
+#[derive(Default)]
+struct ReviewStats {
+    latest_review: Option<PullReview>,
+    approval_count: u32,
+    change_request_count: u32,
+    comment_count: u32,
+}
+
 fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     Error {
         code,
         message: message.into(),
         path: None,
     }
+}
+
+fn review_decision_to_str(decision: PullReviewDecision) -> &'static str {
+    match decision {
+        PullReviewDecision::Comment => "COMMENT",
+        PullReviewDecision::Approve => "APPROVE",
+        PullReviewDecision::RequestChanges => "REQUEST_CHANGES",
+    }
+}
+
+fn review_decision_from_str(decision: &str) -> PullReviewDecision {
+    match decision {
+        "APPROVE" => PullReviewDecision::Approve,
+        "REQUEST_CHANGES" => PullReviewDecision::RequestChanges,
+        _ => PullReviewDecision::Comment,
+    }
+}
+
+fn validate_review_body(decision: PullReviewDecision, body: &str) -> Result<(), Error> {
+    if body.len() > MAX_BODY_LEN {
+        return Err(err(
+            ErrorCode::BadInput,
+            format!("review body must be at most {MAX_BODY_LEN} bytes"),
+        ));
+    }
+    if matches!(
+        decision,
+        PullReviewDecision::Comment | PullReviewDecision::RequestChanges
+    ) && body.trim().is_empty()
+    {
+        return Err(err(
+            ErrorCode::BadInput,
+            "comment and request-changes reviews require a body",
+        ));
+    }
+    Ok(())
 }
 
 fn state_to_str(state: PrState) -> &'static str {
@@ -297,6 +382,61 @@ fn merge_readiness_columns(cards: Vec<PullMergeReadinessCard>) -> Vec<PullMergeR
     ]
 }
 
+fn review_decision_lane(card: &PullReviewDecisionCard) -> ReviewDecisionLane {
+    match card.pull_request.state {
+        PrState::Merged => ReviewDecisionLane::Merged,
+        PrState::Closed => ReviewDecisionLane::Closed,
+        _ => match card.latest_review.as_ref().map(|review| review.decision) {
+            Some(PullReviewDecision::Approve) => ReviewDecisionLane::Approved,
+            Some(PullReviewDecision::RequestChanges) => ReviewDecisionLane::ChangesRequested,
+            Some(PullReviewDecision::Comment) => ReviewDecisionLane::Commented,
+            None => ReviewDecisionLane::Awaiting,
+        },
+    }
+}
+
+fn review_decision_column(
+    key: &str,
+    label: &str,
+    cards: Vec<PullReviewDecisionCard>,
+) -> PullReviewDecisionColumn {
+    PullReviewDecisionColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn review_decision_columns(cards: Vec<PullReviewDecisionCard>) -> Vec<PullReviewDecisionColumn> {
+    let mut awaiting = Vec::new();
+    let mut commented = Vec::new();
+    let mut approved = Vec::new();
+    let mut changes_requested = Vec::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match review_decision_lane(&card) {
+            ReviewDecisionLane::Awaiting => awaiting.push(card),
+            ReviewDecisionLane::Commented => commented.push(card),
+            ReviewDecisionLane::Approved => approved.push(card),
+            ReviewDecisionLane::ChangesRequested => changes_requested.push(card),
+            ReviewDecisionLane::Merged => merged.push(card),
+            ReviewDecisionLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        review_decision_column("awaiting-review", "Awaiting review", awaiting),
+        review_decision_column("commented", "Review comments", commented),
+        review_decision_column("approved", "Approved", approved),
+        review_decision_column("changes-requested", "Changes requested", changes_requested),
+        review_decision_column("merged", "Merged", merged),
+        review_decision_column("closed", "Closed", closed),
+    ]
+}
+
 fn repository_scope(repository: &str) -> RepositoryScope {
     let Some(rest) = repository.strip_prefix("comtrya://") else {
         return RepositoryScope {
@@ -391,11 +531,41 @@ fn decode(id: &str, bytes: &[u8]) -> Result<StoredPullRequest, Error> {
     })
 }
 
+fn decode_review(id: &str, bytes: &[u8]) -> Result<StoredPullReview, Error> {
+    serde_json::from_slice(bytes).map_err(|error| {
+        err(
+            ErrorCode::Internal,
+            format!("parse pull review {id}: {error}"),
+        )
+    })
+}
+
 fn read_stored(id: &str) -> Result<Option<StoredPullRequest>, Error> {
     let Some(snap) = storage::get(COLLECTION, id)? else {
         return Ok(None);
     };
     Ok(Some(decode(id, &snap.data)?))
+}
+
+fn scan_pull_reviews(
+    mut visit: impl FnMut(StoredPullReview) -> Result<bool, Error>,
+) -> Result<(), Error> {
+    let mut after = None;
+    loop {
+        let page = storage::list_all(REVIEW_COLLECTION, 1024, after.as_ref())?;
+        for bytes in page.docs {
+            let Ok(stored) = decode_review("<list>", &bytes) else {
+                continue;
+            };
+            if visit(stored)? {
+                return Ok(());
+            }
+        }
+        match page.next_page {
+            Some(next) => after = Some(next),
+            None => return Ok(()),
+        }
+    }
 }
 
 fn scan_pull_requests(
@@ -590,6 +760,29 @@ fn commit_update(id: &str, stored: &StoredPullRequest, version: &str) -> Result<
     storage::update_commit(COLLECTION, id, version, &bytes)
 }
 
+fn persist_review(review: &StoredPullReview) -> Result<(), Error> {
+    let bytes = serde_json::to_vec(review).map_err(|error| {
+        err(
+            ErrorCode::Internal,
+            format!("serialise pull review: {error}"),
+        )
+    })?;
+    storage::create(
+        REVIEW_COLLECTION,
+        &review.id,
+        &bytes,
+        &storage::DocumentMetadata {
+            resource_uri: pull_review_uri(&review.id),
+            resource_refs: vec![
+                pull_review_uri(&review.id),
+                review.pull_request_ref.clone(),
+                review.repository.clone(),
+                review.reviewer_ref.clone(),
+            ],
+        },
+    )
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|error| err(ErrorCode::Internal, format!("serialise event: {error}")))?;
@@ -611,6 +804,15 @@ struct PullEventPayload<'a> {
     merged_by_ref: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     closed_by_ref: Option<&'a str>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewEventPayload<'a> {
+    pull_request_ref: &'a str,
+    review_ref: &'a str,
+    reviewer_ref: &'a str,
+    decision: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -637,6 +839,10 @@ fn pull_request_uri(id: &str) -> String {
     // URI ("pull_request") would never match the schema-valid form
     // ("pull-request"). Fixes #167.
     format!("comtrya://pull-request/{id}")
+}
+
+fn pull_review_uri(id: &str) -> String {
+    format!("comtrya://pull-review/{id}")
 }
 
 impl PullsGuest for Component {
@@ -800,6 +1006,76 @@ impl PullsGuest for Component {
         Ok(stored.to_wit())
     }
 
+    fn submit_review(input: SubmitReviewInput) -> Result<PullReview, Error> {
+        validate_review_body(input.decision, &input.body_markdown)?;
+        let Some(pull) = read_stored(&input.pull_id)? else {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("pull request {} does not exist", input.pull_id),
+            ));
+        };
+        if matches!(pull.state.as_str(), "MERGED" | "CLOSED") {
+            return Err(err(
+                ErrorCode::Conflict,
+                "cannot review a terminal pull request",
+            ));
+        }
+        let reviewer_ref = match input.reviewer_ref {
+            Some(reviewer_ref) => reviewer_ref,
+            None => identity::current_principal()?,
+        };
+        let id = ids::mint("pull-review")?;
+        let pull_request_ref = pull_request_uri(&pull.id);
+        let decision = review_decision_to_str(input.decision).to_string();
+        let review = StoredPullReview {
+            id: id.clone(),
+            pull_id: pull.id,
+            pull_request_ref,
+            repository: pull.repository,
+            reviewer_ref,
+            decision,
+            body_markdown: input.body_markdown,
+            created_at: time::now_iso(),
+        };
+        persist_review(&review)?;
+        let review_ref = pull_review_uri(&review.id);
+        emit(
+            PULL_REVIEWED_EVENT,
+            &PullReviewEventPayload {
+                pull_request_ref: &review.pull_request_ref,
+                review_ref: &review_ref,
+                reviewer_ref: &review.reviewer_ref,
+                decision: &review.decision,
+            },
+            &review.pull_request_ref,
+        )?;
+        Ok(review.to_wit())
+    }
+
+    fn list_pull_reviews(input: ListPullReviewsInput) -> Result<Vec<PullReview>, Error> {
+        if read_stored(&input.pull_id)?.is_none() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("pull request {} does not exist", input.pull_id),
+            ));
+        }
+        let limit = input.limit.min(1024) as usize;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let mut reviews = Vec::new();
+        scan_pull_reviews(|stored| {
+            if stored.pull_id == input.pull_id {
+                reviews.push(stored.to_wit());
+                if reviews.len() >= limit {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })?;
+        Ok(reviews)
+    }
+
     fn get_pull(id: String) -> Result<Option<PullRequest>, Error> {
         Ok(read_stored(&id)?.map(|stored| stored.to_wit()))
     }
@@ -888,6 +1164,67 @@ impl PullsGuest for Component {
             columns: merge_readiness_columns(cards),
         })
     }
+
+    fn review_decision_board(
+        input: PullReviewDecisionBoardInput,
+    ) -> Result<PullReviewDecisionBoard, Error> {
+        let mut reviews_by_pull = BTreeMap::<String, ReviewStats>::new();
+        scan_pull_reviews(|stored| {
+            if stored.repository == input.repository {
+                let review = stored.to_wit();
+                let stats = reviews_by_pull.entry(review.pull_id.clone()).or_default();
+                match review.decision {
+                    PullReviewDecision::Approve => {
+                        stats.approval_count = stats.approval_count.saturating_add(1);
+                    }
+                    PullReviewDecision::RequestChanges => {
+                        stats.change_request_count = stats.change_request_count.saturating_add(1);
+                    }
+                    PullReviewDecision::Comment => {
+                        stats.comment_count = stats.comment_count.saturating_add(1);
+                    }
+                }
+                let is_newer = stats.latest_review.as_ref().is_none_or(|latest| {
+                    (latest.created_at.as_str(), latest.id.as_str())
+                        <= (review.created_at.as_str(), review.id.as_str())
+                });
+                if is_newer {
+                    stats.latest_review = Some(review);
+                }
+            }
+            Ok(false)
+        })?;
+
+        let limit = input.limit.min(1024) as usize;
+        let mut cards = Vec::new();
+        if limit > 0 {
+            scan_pull_requests(|stored| {
+                if repository_matches(&stored, &input.repository) {
+                    let pull_request = stored.to_wit();
+                    let stats = reviews_by_pull.remove(&pull_request.id).unwrap_or_default();
+                    let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+                    cards.push(PullReviewDecisionCard {
+                        pull_request,
+                        latest_review: stats.latest_review,
+                        approval_count: stats.approval_count,
+                        change_request_count: stats.change_request_count,
+                        comment_count: stats.comment_count,
+                        terminal,
+                    });
+                    if cards.len() >= limit {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })?;
+        }
+        let total = cards.len() as u32;
+        Ok(PullReviewDecisionBoard {
+            repository: input.repository,
+            total,
+            columns: review_decision_columns(cards),
+        })
+    }
 }
 
 impl ReactorGuest for Component {
@@ -962,9 +1299,10 @@ bindings::export!(Component with_types_in bindings);
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_readiness_columns, merge_readiness_flags, review_columns, state_from_str,
-        state_to_str, validate_state_transition, ErrorCode, PrState, PullMergeCheckSummary,
-        PullMergeReadinessCard, PullRequest, PullReviewCard,
+        merge_readiness_columns, merge_readiness_flags, review_columns, review_decision_columns,
+        state_from_str, state_to_str, validate_review_body, validate_state_transition, ErrorCode,
+        PrState, PullMergeCheckSummary, PullMergeReadinessCard, PullRequest, PullReview,
+        PullReviewCard, PullReviewDecision, PullReviewDecisionCard,
     };
 
     /// #6 P0-6 regression: REVIEW round-trips losslessly through the
@@ -1157,6 +1495,125 @@ mod tests {
         assert!(columns[4].cards[0].terminal);
         assert_eq!(columns[5].cards[0].pull_request.id, "closed");
         assert!(columns[5].cards[0].terminal);
+    }
+
+    fn pull_review(id: &str, pull_id: &str, decision: PullReviewDecision) -> PullReview {
+        PullReview {
+            id: id.to_string(),
+            pull_id: pull_id.to_string(),
+            pull_request_ref: format!("comtrya://pull-request/{pull_id}"),
+            repository: "comtrya://workspace/ws/repository/repo".to_string(),
+            reviewer_ref: "comtrya://user/reviewer".to_string(),
+            decision,
+            body_markdown: "review body".to_string(),
+            created_at: format!("2026-06-20T00:00:0{}Z", id.len()),
+        }
+    }
+
+    #[test]
+    fn review_decision_columns_group_by_latest_review_and_terminal_state() {
+        let awaiting = PullReviewDecisionCard {
+            pull_request: pull_with_state("awaiting", PrState::Review),
+            latest_review: None,
+            approval_count: 0,
+            change_request_count: 0,
+            comment_count: 0,
+            terminal: false,
+        };
+        let commented = PullReviewDecisionCard {
+            pull_request: pull_with_state("commented", PrState::Review),
+            latest_review: Some(pull_review(
+                "comment",
+                "commented",
+                PullReviewDecision::Comment,
+            )),
+            approval_count: 0,
+            change_request_count: 0,
+            comment_count: 1,
+            terminal: false,
+        };
+        let approved = PullReviewDecisionCard {
+            pull_request: pull_with_state("approved", PrState::Review),
+            latest_review: Some(pull_review(
+                "approve",
+                "approved",
+                PullReviewDecision::Approve,
+            )),
+            approval_count: 1,
+            change_request_count: 0,
+            comment_count: 0,
+            terminal: false,
+        };
+        let changes_requested = PullReviewDecisionCard {
+            pull_request: pull_with_state("changes", PrState::Review),
+            latest_review: Some(pull_review(
+                "changes",
+                "changes",
+                PullReviewDecision::RequestChanges,
+            )),
+            approval_count: 0,
+            change_request_count: 1,
+            comment_count: 0,
+            terminal: false,
+        };
+        let merged = PullReviewDecisionCard {
+            pull_request: pull_with_state("merged", PrState::Merged),
+            latest_review: None,
+            approval_count: 0,
+            change_request_count: 0,
+            comment_count: 0,
+            terminal: true,
+        };
+        let closed = PullReviewDecisionCard {
+            pull_request: pull_with_state("closed", PrState::Closed),
+            latest_review: None,
+            approval_count: 0,
+            change_request_count: 0,
+            comment_count: 0,
+            terminal: true,
+        };
+
+        let columns = review_decision_columns(vec![
+            awaiting,
+            commented,
+            approved,
+            changes_requested,
+            merged,
+            closed,
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "awaiting-review",
+                "commented",
+                "approved",
+                "changes-requested",
+                "merged",
+                "closed"
+            ]
+        );
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 6);
+        assert_eq!(columns[0].cards[0].pull_request.id, "awaiting");
+        assert_eq!(columns[1].cards[0].pull_request.id, "commented");
+        assert_eq!(columns[2].cards[0].pull_request.id, "approved");
+        assert_eq!(columns[3].cards[0].pull_request.id, "changes");
+        assert_eq!(columns[4].cards[0].pull_request.id, "merged");
+        assert!(columns[4].cards[0].terminal);
+        assert_eq!(columns[5].cards[0].pull_request.id, "closed");
+        assert!(columns[5].cards[0].terminal);
+    }
+
+    #[test]
+    fn validate_review_body_requires_body_for_comments_and_change_requests() {
+        assert!(validate_review_body(PullReviewDecision::Approve, "").is_ok());
+        let comment = validate_review_body(PullReviewDecision::Comment, "")
+            .expect_err("comment reviews need text");
+        assert!(matches!(comment.code, ErrorCode::BadInput));
+        let request_changes = validate_review_body(PullReviewDecision::RequestChanges, "")
+            .expect_err("request-changes reviews need text");
+        assert!(matches!(request_changes.code, ErrorCode::BadInput));
     }
 
     #[test]

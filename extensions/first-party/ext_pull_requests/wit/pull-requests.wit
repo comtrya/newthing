@@ -61,6 +61,35 @@ interface pulls {
     state: pr-state,
   }
 
+  variant pull-review-decision {
+    comment,
+    approve,
+    request-changes,
+  }
+
+  record submit-review-input {
+    pull-id: id,
+    decision: pull-review-decision,
+    body-markdown: string,
+    reviewer-ref: option<uri>,
+  }
+
+  record list-pull-reviews-input {
+    pull-id: id,
+    %limit: u32,
+  }
+
+  record pull-review {
+    %id: id,
+    pull-id: id,
+    pull-request-ref: uri,
+    repository: uri,
+    reviewer-ref: uri,
+    decision: pull-review-decision,
+    body-markdown: string,
+    created-at: iso-timestamp,
+  }
+
   record pull-review-board-input {
     repository: uri,
     %limit: u32,
@@ -121,14 +150,44 @@ interface pulls {
     columns: list<pull-merge-readiness-column>,
   }
 
+  record pull-review-decision-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-decision-card {
+    pull-request: pull-request,
+    latest-review: option<pull-review>,
+    approval-count: u32,
+    change-request-count: u32,
+    comment-count: u32,
+    terminal: bool,
+  }
+
+  record pull-review-decision-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-decision-card>,
+  }
+
+  record pull-review-decision-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-decision-column>,
+  }
+
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
   change-state-pull: func(input: change-state-pull-input) -> result<pull-request, error>;
+  submit-review: func(input: submit-review-input) -> result<pull-review, error>;
+  list-pull-reviews: func(input: list-pull-reviews-input) -> result<list<pull-review>, error>;
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
   merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
+  review-decision-board: func(input: pull-review-decision-board-input) -> result<pull-review-decision-board, error>;
 }
 
 world ext-pull-requests {

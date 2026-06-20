@@ -100,10 +100,12 @@ mod ext_pull_requests_bindings {
 
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ChangeStatePullInput, ClosePullInput, CreatePullInput, MergePullInput, PrState,
-    PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
-    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReviewBoard,
-    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, ListPullReviewsInput, MergePullInput,
+    PrState, PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
+    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReview, PullReviewBoard,
+    PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
+    PullReviewDecisionBoard, PullReviewDecisionBoardInput, PullReviewDecisionCard,
+    PullReviewDecisionColumn, SubmitReviewInput,
 };
 
 mod ext_checks_bindings {
@@ -356,6 +358,22 @@ struct ChangeStatePullInputJson {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SubmitReviewInputJson {
+    pull_id: String,
+    decision: String,
+    body_markdown: String,
+    reviewer_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListPullReviewsInputJson {
+    pull_id: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PullReviewBoardInputJson {
     repository: String,
     limit: u32,
@@ -379,6 +397,13 @@ struct PullMergeReadinessBoardInputJson {
     repository: String,
     #[serde(default)]
     check_summaries: Vec<PullMergeCheckSummaryJson>,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewDecisionBoardInputJson {
+    repository: String,
     limit: u32,
 }
 
@@ -1971,6 +1996,93 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "submit-review" => {
+            let parsed: SubmitReviewInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse submit-review input: {e}"),
+                )
+            })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before writing a review.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("submit-review repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = SubmitReviewInput {
+                pull_id: parsed.pull_id,
+                decision: pull_review_decision_from_json(&parsed.decision)?,
+                body_markdown: parsed.body_markdown,
+                reviewer_ref: parsed.reviewer_ref,
+            };
+            let result = pulls
+                .call_submit_review(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("submit-review call: {e}"),
+                    )
+                })?;
+            pull_review_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "list-pull-reviews" => {
+            let parsed: ListPullReviewsInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse list-pull-reviews input: {e}"),
+                )
+            })?;
+            // Read keyed by pull id: load to learn the repository, then gate.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-pull-reviews repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = ListPullReviewsInput {
+                pull_id: parsed.pull_id,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_list_pull_reviews(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-pull-reviews call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(pulls_error_to_canonical)?
+                    .iter()
+                    .map(pull_review_to_json)
+                    .collect(),
+            )
+        }
         "get-pull" => {
             let id = string_payload(&input, "get-pull")?;
             let result = pulls.call_get_pull(&mut wasm_store, &id).map_err(|e| {
@@ -2075,6 +2187,28 @@ pub fn dispatch_ext_pull_requests(
                     )
                 })?;
             pull_merge_readiness_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "review-decision-board" => {
+            let parsed: PullReviewDecisionBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse review-decision-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullReviewDecisionBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_review_decision_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("review-decision-board call: {e}"),
+                    )
+                })?;
+            pull_review_decision_board_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
@@ -3114,6 +3248,19 @@ fn pull_review_card_to_json(card: &PullReviewCard) -> Value {
     })
 }
 
+fn pull_review_to_json(review: &PullReview) -> Value {
+    serde_json::json!({
+        "id": review.id,
+        "pullId": review.pull_id,
+        "pullRequestRef": review.pull_request_ref,
+        "repository": review.repository,
+        "reviewerRef": review.reviewer_ref,
+        "decision": pull_review_decision_to_graphql(review.decision),
+        "bodyMarkdown": review.body_markdown,
+        "createdAt": review.created_at,
+    })
+}
+
 fn pull_merge_readiness_board_to_json(board: &PullMergeReadinessBoard) -> Value {
     serde_json::json!({
         "repository": board.repository,
@@ -3164,6 +3311,42 @@ fn pull_merge_check_summary_to_json(summary: &PullMergeCheckSummary) -> Value {
     })
 }
 
+fn pull_review_decision_board_to_json(board: &PullReviewDecisionBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_review_decision_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_decision_column_to_json(column: &PullReviewDecisionColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_review_decision_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_decision_card_to_json(card: &PullReviewDecisionCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
+        "approvalCount": card.approval_count,
+        "changeRequestCount": card.change_request_count,
+        "commentCount": card.comment_count,
+        "terminal": card.terminal,
+    })
+}
+
 fn pull_state_to_graphql(state: PrState) -> &'static str {
     match state {
         PrState::Draft => "DRAFT",
@@ -3171,6 +3354,26 @@ fn pull_state_to_graphql(state: PrState) -> &'static str {
         PrState::Review => "REVIEW",
         PrState::Merged => "MERGED",
         PrState::Closed => "CLOSED",
+    }
+}
+
+fn pull_review_decision_to_graphql(decision: PullReviewDecision) -> &'static str {
+    match decision {
+        PullReviewDecision::Comment => "COMMENT",
+        PullReviewDecision::Approve => "APPROVE",
+        PullReviewDecision::RequestChanges => "REQUEST_CHANGES",
+    }
+}
+
+fn pull_review_decision_from_json(decision: &str) -> Result<PullReviewDecision, wit_types::Error> {
+    match decision {
+        "COMMENT" => Ok(PullReviewDecision::Comment),
+        "APPROVE" => Ok(PullReviewDecision::Approve),
+        "REQUEST_CHANGES" => Ok(PullReviewDecision::RequestChanges),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown pull review decision '{other}'"),
+        )),
     }
 }
 

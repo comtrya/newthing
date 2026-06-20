@@ -24,6 +24,7 @@
     ],
     "resourceKinds": [
       { "name": "pull-request", "prefix": "pul", "scope": "repository" },
+      { "name": "pull-review", "prefix": "prr", "scope": "repository" },
       { "name": "pull-counter", "prefix": "puc", "scope": "repository" }
     ],
     "collections": [
@@ -33,6 +34,15 @@
         "indexes": [
           { "name": "by_repository_state_updated", "fields": ["repositoryId", "state", "updatedAt"], "unique": false },
           { "name": "by_repository_number", "fields": ["repositoryId", "number"], "unique": true }
+        ]
+      },
+      {
+        "name": "pull_request_reviews",
+        "ownerExtension": "ext_pull_requests",
+        "indexes": [
+          { "name": "by_pull_created", "fields": ["pullId", "createdAt"], "unique": false },
+          { "name": "by_repository_created", "fields": ["repository", "createdAt"], "unique": false },
+          { "name": "by_reviewer_created", "fields": ["reviewerRef", "createdAt"], "unique": false }
         ]
       },
       {
@@ -64,7 +74,8 @@
   "allowedEmits": [
     "dev.comtrya.pull-request.created",
     "dev.comtrya.pull-request.merged",
-    "dev.comtrya.pull-request.closed"
+    "dev.comtrya.pull-request.closed",
+    "dev.comtrya.pull-request.reviewed"
   ],
   "allowedEventReads": [],
   "requiresExtensionPoints": [
@@ -74,7 +85,8 @@
     { "op": "pulls.create-pull", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
     { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
     { "op": "pulls.review-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
-    { "op": "pulls.merge-readiness-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+    { "op": "pulls.merge-readiness-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.review-decision-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "scope": "repository",
