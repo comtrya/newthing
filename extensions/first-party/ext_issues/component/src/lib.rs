@@ -21,7 +21,8 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueLabelBoard,
+    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
+    IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
     IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
     UpdateIssueInput,
@@ -753,6 +754,84 @@ fn label_board_columns(issues: Vec<Issue>) -> Vec<IssueLabelColumn> {
     columns
 }
 
+fn issue_assignee_key(assignee: &str) -> String {
+    let raw = assignee
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(assignee);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "assignee".to_string()
+    } else {
+        format!("assignee-{key}")
+    }
+}
+
+fn assignee_column(
+    key: &str,
+    label: &str,
+    assignee: Option<String>,
+    cards: Vec<IssueAssigneeCard>,
+) -> IssueAssigneeColumn {
+    IssueAssigneeColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        assignee,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn assignee_board_columns(issues: Vec<Issue>) -> Vec<IssueAssigneeColumn> {
+    let mut unassigned = Vec::new();
+    let mut assigned: BTreeMap<String, (String, Vec<IssueAssigneeCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let assignees: Vec<String> = issue
+            .assignees
+            .iter()
+            .map(|assignee| assignee.trim())
+            .filter(|assignee| !assignee.is_empty())
+            .map(str::to_string)
+            .collect();
+        if assignees.is_empty() {
+            unassigned.push(IssueAssigneeCard { issue });
+            continue;
+        }
+        for assignee in assignees {
+            let key = issue_assignee_key(&assignee);
+            let entry = assigned
+                .entry(key)
+                .or_insert_with(|| (assignee, Vec::new()));
+            entry.1.push(IssueAssigneeCard {
+                issue: issue.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![assignee_column(
+        "unassigned",
+        "Unassigned",
+        None,
+        unassigned,
+    )];
+    columns.extend(assigned.into_iter().map(|(key, (assignee, cards))| {
+        assignee_column(&key, &assignee, Some(assignee.clone()), cards)
+    }));
+    columns
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -1036,6 +1115,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn assignee_board(input: IssueAssigneeBoardInput) -> Result<IssueAssigneeBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueAssigneeBoard {
+            repository: input.repository,
+            total,
+            columns: assignee_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1195,5 +1284,45 @@ mod tests {
         assert_eq!(columns[1].cards[0].issue.id, "bug");
         assert_eq!(columns[2].cards[0].issue.id, "ux");
         assert_eq!(columns[3].cards[0].issue.id, "bug");
+    }
+
+    #[test]
+    fn assignee_board_columns_group_unassigned_and_multi_assigned_work() {
+        let unassigned = issue("unassigned", IssueState::Open);
+        let mut rawkode = issue("rawkode", IssueState::Open);
+        rawkode.assignees = vec!["comtrya://user/rawkode".to_string()];
+        let mut paired = issue("paired", IssueState::Open);
+        paired.assignees = vec![
+            "comtrya://team/platform-maintainers".to_string(),
+            "comtrya://user/rawkode".to_string(),
+        ];
+
+        let columns = assignee_board_columns(vec![unassigned, rawkode, paired]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "unassigned",
+                "assignee-team-platform-maintainers",
+                "assignee-user-rawkode",
+            ]
+        );
+        assert_eq!(columns[0].assignee, None);
+        assert_eq!(columns[0].cards[0].issue.id, "unassigned");
+        assert_eq!(
+            columns[1].assignee.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[1].cards[0].issue.id, "paired");
+        assert_eq!(columns[2].count, 2);
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "paired"]
+        );
     }
 }

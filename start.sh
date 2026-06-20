@@ -2208,6 +2208,14 @@ expect_status "label-board groups issues by labels and unlabeled lane" 200 "$TMP
 json_assert "label board exposes unlabeled and label lanes" "$TMP_DIR/iss-label-board.json" \
   "json.total === 3 && json.columns.find((c) => c.key === \"unlabeled\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"label-kind-ux\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"label-kind-bug\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\") && json.columns.find((c) => c.key === \"label-priority-p0\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\")"
 
+expect_status "assignee-board groups issues by owner and unassigned lane" 200 "$TMP_DIR/iss-assignee-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/assignee-board"
+json_assert "assignee board exposes unassigned and rawkode lanes" "$TMP_DIR/iss-assignee-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"assignee-user-rawkode\").assignee === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"assignee-user-rawkode\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\")"
+
 expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
