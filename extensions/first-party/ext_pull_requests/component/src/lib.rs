@@ -11,8 +11,8 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput, PrState, PullRequest,
-    PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput,
+    PrState, PullRequest, PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 use bindings::exports::comtrya::platform::reactor::{
     Guest as ReactorGuest, MutationCall, Reaction,
@@ -141,6 +141,28 @@ fn state_from_str(state: &str) -> PrState {
         "MERGED" => PrState::Merged,
         "CLOSED" => PrState::Closed,
         _ => PrState::Draft,
+    }
+}
+
+fn validate_state_transition(current: &str, requested: PrState) -> Result<&'static str, Error> {
+    let requested = state_to_str(requested);
+    if current == requested {
+        return Ok(requested);
+    }
+    match (current, requested) {
+        ("DRAFT" | "READY" | "REVIEW", "DRAFT" | "READY" | "REVIEW") => Ok(requested),
+        ("MERGED", _) | ("CLOSED", _) => Err(err(
+            ErrorCode::Conflict,
+            format!("cannot change state of a terminal {current} pull request"),
+        )),
+        (_, "MERGED" | "CLOSED") => Err(err(
+            ErrorCode::BadInput,
+            "use merge-pull or close-pull for terminal pull request states",
+        )),
+        _ => Err(err(
+            ErrorCode::Conflict,
+            format!("cannot change pull request state from {current} to {requested}"),
+        )),
     }
 }
 
@@ -680,6 +702,18 @@ impl PullsGuest for Component {
         Ok(stored.to_wit())
     }
 
+    fn change_state_pull(input: ChangeStatePullInput) -> Result<PullRequest, Error> {
+        let snap = storage::update_begin(COLLECTION, &input.id)?;
+        let mut stored = decode(&input.id, &snap.data)?;
+        let next = validate_state_transition(&stored.state, input.state)?;
+        if stored.state != next {
+            stored.state = next.to_string();
+            stored.updated_at = time::now_iso();
+            commit_update(&input.id, &stored, &snap.version)?;
+        }
+        Ok(stored.to_wit())
+    }
+
     fn get_pull(id: String) -> Result<Option<PullRequest>, Error> {
         Ok(read_stored(&id)?.map(|stored| stored.to_wit()))
     }
@@ -802,7 +836,8 @@ bindings::export!(Component with_types_in bindings);
 #[cfg(test)]
 mod tests {
     use super::{
-        review_columns, state_from_str, state_to_str, PrState, PullRequest, PullReviewCard,
+        review_columns, state_from_str, state_to_str, validate_state_transition, ErrorCode,
+        PrState, PullRequest, PullReviewCard,
     };
 
     /// #6 P0-6 regression: REVIEW round-trips losslessly through the
@@ -890,5 +925,45 @@ mod tests {
         assert!(columns[3].cards[0].terminal);
         assert_eq!(columns[4].cards[0].pull_request.id, "closed");
         assert!(columns[4].cards[0].terminal);
+    }
+
+    #[test]
+    fn state_transition_allows_review_flow_and_blocks_terminal_states() {
+        assert_eq!(
+            validate_state_transition("DRAFT", PrState::Ready).expect("draft to ready"),
+            "READY"
+        );
+        assert_eq!(
+            validate_state_transition("READY", PrState::Review).expect("ready to review"),
+            "REVIEW"
+        );
+        assert_eq!(
+            validate_state_transition("REVIEW", PrState::Ready).expect("review to ready"),
+            "READY"
+        );
+        assert_eq!(
+            validate_state_transition("READY", PrState::Draft).expect("ready to draft"),
+            "DRAFT"
+        );
+        assert_eq!(
+            validate_state_transition("REVIEW", PrState::Draft).expect("review to draft"),
+            "DRAFT"
+        );
+        assert_eq!(
+            validate_state_transition("DRAFT", PrState::Review).expect("draft to review"),
+            "REVIEW"
+        );
+        assert_eq!(
+            validate_state_transition("REVIEW", PrState::Review).expect("idempotent"),
+            "REVIEW"
+        );
+
+        let terminal = validate_state_transition("MERGED", PrState::Ready)
+            .expect_err("terminal states cannot reopen through change-state-pull");
+        assert!(matches!(terminal.code, ErrorCode::Conflict));
+
+        let merge = validate_state_transition("REVIEW", PrState::Merged)
+            .expect_err("merge remains a dedicated operation");
+        assert!(matches!(merge.code, ErrorCode::BadInput));
     }
 }

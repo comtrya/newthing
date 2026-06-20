@@ -2687,6 +2687,68 @@ expect_status "review-board groups draft pull requests" 200 "$TMP_DIR/rx-pr-revi
 json_assert "review board has the draft PR card" "$TMP_DIR/rx-pr-review-board-draft.json" \
   "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"draft\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
 
+expect_status "change-state-pull transitions draft PR to READY" 200 "$TMP_DIR/rx-pr-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"READY\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is READY after change-state-pull" "$TMP_DIR/rx-pr-ready.json" \
+  'json.state === "READY"'
+
+expect_status "review-board moves ready pull requests into ready lane" 200 "$TMP_DIR/rx-pr-review-board-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the ready PR card" "$TMP_DIR/rx-pr-review-board-ready.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"ready\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "change-state-pull transitions READY PR to REVIEW" 200 "$TMP_DIR/rx-pr-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"REVIEW\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is REVIEW after change-state-pull" "$TMP_DIR/rx-pr-review.json" \
+  'json.state === "REVIEW"'
+
+expect_status "review-board moves review pull requests into review lane" 200 "$TMP_DIR/rx-pr-review-board-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the in-review PR card" "$TMP_DIR/rx-pr-review-board-review.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "change-state-pull transitions REVIEW PR back to DRAFT" 200 "$TMP_DIR/rx-pr-back-to-draft.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"DRAFT\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is DRAFT after change-state-pull" "$TMP_DIR/rx-pr-back-to-draft.json" \
+  'json.state === "DRAFT"'
+
+expect_status "review-board moves returned draft pull requests into draft lane" 200 "$TMP_DIR/rx-pr-review-board-draft-return.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the returned draft PR card" "$TMP_DIR/rx-pr-review-board-draft-return.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"draft\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "change-state-pull transitions DRAFT PR directly to REVIEW" 200 "$TMP_DIR/rx-pr-draft-to-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"REVIEW\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is REVIEW after direct change-state-pull" "$TMP_DIR/rx-pr-draft-to-review.json" \
+  'json.state === "REVIEW"'
+
+expect_status "change-state-pull rejects terminal merge state" 400 "$TMP_DIR/rx-pr-change-state-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"MERGED\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+
 expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

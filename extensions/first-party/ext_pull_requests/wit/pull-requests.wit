@@ -56,6 +56,11 @@ interface pulls {
     closed-by-ref: option<uri>,
   }
 
+  record change-state-pull-input {
+    %id: id,
+    state: pr-state,
+  }
+
   record pull-review-board-input {
     repository: uri,
     %limit: u32,
@@ -82,6 +87,7 @@ interface pulls {
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
+  change-state-pull: func(input: change-state-pull-input) -> result<pull-request, error>;
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;

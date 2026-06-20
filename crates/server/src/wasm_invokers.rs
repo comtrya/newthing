@@ -94,8 +94,8 @@ mod ext_pull_requests_bindings {
 
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest, PullReviewBoard,
-    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
+    PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 
 mod ext_checks_bindings {
@@ -290,6 +290,13 @@ struct MergePullInputJson {
 struct ClosePullInputJson {
     id: String,
     closed_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ChangeStatePullInputJson {
+    id: String,
+    state: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -1650,6 +1657,46 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "change-state-pull" => {
+            let parsed: ChangeStatePullInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse change-state-pull input: {e}"),
+                )
+            })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before mutating.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("change-state-pull repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = ChangeStatePullInput {
+                id: parsed.id,
+                state: pull_state_from_json(&parsed.state)?,
+            };
+            let result = pulls
+                .call_change_state_pull(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("change-state-pull call: {e}"),
+                    )
+                })?;
+            pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         "get-pull" => {
             let id = string_payload(&input, "get-pull")?;
             let result = pulls.call_get_pull(&mut wasm_store, &id).map_err(|e| {
@@ -2455,6 +2502,20 @@ fn pull_state_to_graphql(state: PrState) -> &'static str {
         PrState::Review => "REVIEW",
         PrState::Merged => "MERGED",
         PrState::Closed => "CLOSED",
+    }
+}
+
+fn pull_state_from_json(state: &str) -> Result<PrState, wit_types::Error> {
+    match state {
+        "DRAFT" => Ok(PrState::Draft),
+        "READY" => Ok(PrState::Ready),
+        "REVIEW" => Ok(PrState::Review),
+        "MERGED" => Ok(PrState::Merged),
+        "CLOSED" => Ok(PrState::Closed),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown pull request state '{other}'"),
+        )),
     }
 }
 
@@ -3426,5 +3487,19 @@ mod tests {
         assert_eq!(pull_state_to_graphql(PrState::Ready), "READY");
         assert_eq!(pull_state_to_graphql(PrState::Merged), "MERGED");
         assert_eq!(pull_state_to_graphql(PrState::Closed), "CLOSED");
+    }
+
+    #[test]
+    fn pr_state_from_json_accepts_review_wire_case() {
+        assert!(matches!(
+            pull_state_from_json("REVIEW").expect("review state"),
+            PrState::Review
+        ));
+    }
+
+    #[test]
+    fn pr_state_from_json_rejects_unknown_wire_case() {
+        let error = pull_state_from_json("CHANGES_REQUESTED").expect_err("unknown state");
+        assert!(matches!(error.code, wit_types::ErrorCode::BadInput));
     }
 }
