@@ -1431,6 +1431,43 @@ expect_status "ext_docs status-board groups docs into product lanes" 200 "$TMP_D
 json_assert "ext_docs status-board returns draft active done and missing lanes" "$TMP_DIR/docs-status-board.json" \
   'json.totalDocs === 4 && json.columns.find((column) => column.key === "draft")?.count === 1 && json.columns.find((column) => column.key === "draft")?.docs?.[0]?.title === "Next Docs Surface" && json.columns.find((column) => column.key === "active")?.count === 1 && json.columns.find((column) => column.key === "active")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "done")?.count === 1 && json.columns.find((column) => column.key === "missing")?.count === 1 && json.columns.find((column) => column.key === "missing")?.docs?.[0]?.status === ""'
 
+DOC_SCENARIOS_PAYLOAD="$TMP_DIR/docs-scenarios-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository docs are discoverable from project context\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "```gherkin\n" +
+      "Feature: Repository docs\n\n" +
+      "Background:\n" +
+      "  Given the Comtrya repository has opted into ext_docs\n\n" +
+      "Scenario: Open project docs\n" +
+      "  Given a maintainer opens a repository\n" +
+      "  When they view project docs\n" +
+      "  Then they see specs, PRDs, and BDD scenarios\n\n" +
+      "Scenario Outline: Filter docs by status\n" +
+      "  Given docs have <status>\n" +
+      "  When the catalog is summarized\n" +
+      "  Then the status lane is <lane>\n" +
+      "```\n",
+  }),
+);
+' "$DOC_SCENARIOS_PAYLOAD"
+expect_status "ext_docs summarize-scenarios extracts BDD structure" 200 "$TMP_DIR/docs-scenarios.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SCENARIOS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-scenarios"
+json_assert "ext_docs summarize-scenarios returns feature scenarios and steps" "$TMP_DIR/docs-scenarios.json" \
+  'json.path === "crates/server/docs/scenarios/repository-docs-surface.mdx" && json.title === "Repository docs are discoverable from project context" && json.feature === "Repository docs" && json.scenarioCount === 3 && json.stepCount === 7 && json.scenarios[0].kind === "background" && json.scenarios[0].stepCount === 1 && json.scenarios[1].kind === "scenario" && json.scenarios[1].title === "Open project docs" && json.scenarios[1].steps.some((step) => step.keyword === "Then" && step.text.includes("specs, PRDs, and BDD scenarios")) && json.scenarios[2].kind === "scenario-outline"'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

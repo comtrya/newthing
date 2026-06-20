@@ -8,8 +8,9 @@ mod bindings;
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
-    DocCatalog, DocCatalogInput, DocProperty, DocStatusBoard, DocStatusCard, DocStatusColumn,
-    DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
+    BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocProperty, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -118,6 +119,161 @@ fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
     })
 }
 
+fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
+    let path = validate_doc_path(input.path)?;
+    validate_preview_len(&input.preview)?;
+
+    let (_has_front_matter, properties, body) = parse_front_matter(&input.preview);
+    let title = front_matter_value(&properties, "title").unwrap_or_else(|| fallback_title(&path));
+    let mut feature = front_matter_value(&properties, "feature");
+    let mut scenarios = Vec::new();
+    let mut current = None;
+
+    for raw_line in body.lines() {
+        let line = normalize_bdd_line(raw_line);
+        if line.is_empty() || line.starts_with("```") || line.starts_with("~~~") {
+            continue;
+        }
+
+        if let Some(raw_feature) = strip_ascii_prefix(line, "Feature:") {
+            let cleaned = raw_feature.trim();
+            if !cleaned.is_empty() {
+                feature = Some(cleaned.to_string());
+            }
+            continue;
+        }
+
+        if let Some((kind, title)) = bdd_scenario_heading(line) {
+            finish_bdd_scenario(&mut scenarios, &mut current);
+            current = Some(BddScenarioDraft::new(kind, title));
+            continue;
+        }
+
+        if let Some(step) = bdd_step(line) {
+            current
+                .get_or_insert_with(|| BddScenarioDraft::new("background", "Background"))
+                .steps
+                .push(step);
+        }
+    }
+
+    finish_bdd_scenario(&mut scenarios, &mut current);
+    let step_count = scenarios
+        .iter()
+        .map(|scenario| scenario.step_count)
+        .sum::<u32>();
+
+    Ok(BddSummary {
+        path,
+        title,
+        feature,
+        scenario_count: scenarios.len() as u32,
+        step_count,
+        scenarios,
+    })
+}
+
+#[derive(Default)]
+struct BddScenarioDraft {
+    kind: String,
+    title: String,
+    steps: Vec<BddStep>,
+}
+
+impl BddScenarioDraft {
+    fn new(kind: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            title: title.into(),
+            steps: Vec::new(),
+        }
+    }
+
+    fn finish(self) -> BddScenario {
+        BddScenario {
+            kind: self.kind,
+            title: self.title,
+            step_count: self.steps.len() as u32,
+            steps: self.steps,
+        }
+    }
+}
+
+fn finish_bdd_scenario(scenarios: &mut Vec<BddScenario>, current: &mut Option<BddScenarioDraft>) {
+    if let Some(scenario) = current.take() {
+        scenarios.push(scenario.finish());
+    }
+}
+
+fn normalize_bdd_line(line: &str) -> &str {
+    let mut line = line.trim();
+    while let Some(rest) = line.strip_prefix('>') {
+        line = rest.trim_start();
+    }
+    if let Some(rest) = line.strip_prefix("- ") {
+        return rest.trim_start();
+    }
+    if let Some(rest) = line.strip_prefix("+ ") {
+        return rest.trim_start();
+    }
+    strip_ordered_list_marker(line)
+}
+
+fn strip_ordered_list_marker(line: &str) -> &str {
+    let Some((marker, rest)) = line.split_once(". ") else {
+        return line;
+    };
+    if marker.chars().all(|ch| ch.is_ascii_digit()) {
+        rest.trim_start()
+    } else {
+        line
+    }
+}
+
+fn bdd_scenario_heading(line: &str) -> Option<(&'static str, String)> {
+    [
+        ("Scenario Outline:", "scenario-outline", "Scenario Outline"),
+        ("Scenario:", "scenario", "Scenario"),
+        ("Example:", "example", "Example"),
+        ("Background:", "background", "Background"),
+    ]
+    .into_iter()
+    .find_map(|(prefix, kind, fallback_title)| {
+        strip_ascii_prefix(line, prefix).map(|raw_title| {
+            let title = clean_optional_label(raw_title.to_string())
+                .unwrap_or_else(|| fallback_title.to_string());
+            (kind, title)
+        })
+    })
+}
+
+fn bdd_step(line: &str) -> Option<BddStep> {
+    ["Given", "When", "Then", "And", "But", "*"]
+        .into_iter()
+        .find_map(|keyword| {
+            let rest = strip_ascii_prefix(line, keyword)?;
+            let starts_with_separator = rest
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_ascii_whitespace());
+            if !starts_with_separator {
+                return None;
+            }
+            let text = rest.trim();
+            (!text.is_empty()).then(|| BddStep {
+                keyword: keyword.to_string(),
+                text: text.to_string(),
+            })
+        })
+}
+
+fn strip_ascii_prefix<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
+    let candidate = line.get(..prefix.len())?;
+    candidate
+        .eq_ignore_ascii_case(prefix)
+        .then(|| &line[prefix.len()..])
+}
+
 fn summarize_doc_type(input: DocTypeInput) -> Result<DocTypeSummary, Error> {
     let project_name = required_field("project name", input.project_name)?;
     let type_name = required_field("doc type name", input.type_name)?;
@@ -164,6 +320,16 @@ fn property_value(doc: &DocSummary, key: &str) -> Option<String> {
                 .key
                 .eq_ignore_ascii_case(key)
                 .then(|| property.value.trim())
+        })
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn front_matter_value(properties: &[(String, String)], key: &str) -> Option<String> {
+    properties
+        .iter()
+        .find_map(|(property_key, value)| {
+            property_key.eq_ignore_ascii_case(key).then(|| value.trim())
         })
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
@@ -308,6 +474,10 @@ impl DocsGuest for Component {
     fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
         crate::status_board(input)
     }
+
+    fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
+        crate::summarize_scenarios(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -328,7 +498,9 @@ mod tests {
         DocCatalogInput, DocTypeInput, SummarizeDocInput,
     };
 
-    use super::{status_board, summarize_catalog, summarize_preview, MAX_CATALOG_DOCS};
+    use super::{
+        status_board, summarize_catalog, summarize_preview, summarize_scenarios, MAX_CATALOG_DOCS,
+    };
 
     #[test]
     fn summary_uses_front_matter_title_and_excerpt() {
@@ -534,5 +706,60 @@ mod tests {
             .expect("missing status column");
         assert_eq!(missing.count, 1);
         assert_eq!(missing.docs[0].status, "");
+    }
+
+    #[test]
+    fn summarize_scenarios_extracts_bdd_feature_and_steps() {
+        let summary = summarize_scenarios(SummarizeDocInput {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx".to_string(),
+            preview: r#"---
+title: Repository docs are discoverable from project context
+status: active
+---
+
+```gherkin
+Feature: Repository docs
+
+Background:
+  Given the Comtrya repository has opted into ext_docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see specs, PRDs, and BDD scenarios
+
+Scenario Outline: Filter docs by status
+  Given docs have <status>
+  When the catalog is summarized
+  Then the status lane is <lane>
+```
+"#
+            .to_string(),
+        })
+        .expect("BDD summary should parse");
+
+        assert_eq!(
+            summary.path,
+            "crates/server/docs/scenarios/repository-docs-surface.mdx"
+        );
+        assert_eq!(
+            summary.title,
+            "Repository docs are discoverable from project context"
+        );
+        assert_eq!(summary.feature.as_deref(), Some("Repository docs"));
+        assert_eq!(summary.scenario_count, 3);
+        assert_eq!(summary.step_count, 7);
+        assert_eq!(summary.scenarios[0].kind, "background");
+        assert_eq!(summary.scenarios[0].title, "Background");
+        assert_eq!(summary.scenarios[0].step_count, 1);
+        assert_eq!(summary.scenarios[1].kind, "scenario");
+        assert_eq!(summary.scenarios[1].title, "Open project docs");
+        assert_eq!(summary.scenarios[1].steps[0].keyword, "Given");
+        assert_eq!(summary.scenarios[1].steps[1].keyword, "When");
+        assert_eq!(summary.scenarios[1].steps[2].keyword, "Then");
+        assert!(summary.scenarios[1].steps[2]
+            .text
+            .contains("specs, PRDs, and BDD scenarios"));
+        assert_eq!(summary.scenarios[2].kind, "scenario-outline");
     }
 }

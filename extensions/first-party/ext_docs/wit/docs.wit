@@ -84,6 +84,27 @@ interface docs {
     columns: list<doc-status-column>,
   }
 
+  record bdd-step {
+    keyword: string,
+    text: string,
+  }
+
+  record bdd-scenario {
+    kind: string,
+    title: string,
+    step-count: u32,
+    steps: list<bdd-step>,
+  }
+
+  record bdd-summary {
+    path: string,
+    title: string,
+    feature: option<string>,
+    scenario-count: u32,
+    step-count: u32,
+    scenarios: list<bdd-scenario>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -100,6 +121,10 @@ interface docs {
   /// Status comes from front matter; missing or unknown statuses are surfaced
   /// explicitly so project docs do not look healthier than they are.
   status-board: func(input: doc-catalog-input) -> result<doc-status-board, error>;
+
+  /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
+  /// indexed beside PRDs and specs without the shell parsing Gherkin itself.
+  summarize-scenarios: func(input: summarize-doc-input) -> result<bdd-summary, error>;
 }
 
 world ext-docs {

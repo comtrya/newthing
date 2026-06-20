@@ -125,9 +125,9 @@ mod ext_docs_bindings {
 
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
-    DocCatalog, DocCatalogInput as DocsDocCatalogInput, DocProperty, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
+    DocProperty, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2581,6 +2581,41 @@ fn doc_status_card_to_json(card: &DocStatusCard) -> Value {
     })
 }
 
+fn bdd_summary_to_json(summary: &BddSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "feature": summary.feature,
+        "scenarioCount": summary.scenario_count,
+        "stepCount": summary.step_count,
+        "scenarios": summary
+            .scenarios
+            .iter()
+            .map(bdd_scenario_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn bdd_scenario_to_json(scenario: &BddScenario) -> Value {
+    serde_json::json!({
+        "kind": scenario.kind,
+        "title": scenario.title,
+        "stepCount": scenario.step_count,
+        "steps": scenario
+            .steps
+            .iter()
+            .map(bdd_step_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn bdd_step_to_json(step: &BddStep) -> Value {
+    serde_json::json!({
+        "keyword": step.keyword,
+        "text": step.text,
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -2721,6 +2756,27 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_status_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-scenarios" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-scenarios input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_scenarios(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-scenarios call: {e}"),
+                    )
+                })?;
+            bdd_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
