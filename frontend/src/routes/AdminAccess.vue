@@ -74,7 +74,7 @@ const accessStats = computed(() => {
           <h1>Authentication and authorization</h1>
           <div class="subline">
             <template v-if="telemetry">
-              Live metadata from the local session, credential, rate-limit, and OIDC stores.
+              Current access state across sessions, credentials, rate limits, and OIDC issuers.
             </template>
             <template v-else-if="loading">Loading access telemetry...</template>
             <template v-else>Access telemetry unavailable</template>
