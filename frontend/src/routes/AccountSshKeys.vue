@@ -159,7 +159,10 @@ onMounted(() => {
       <div v-if="removePrompt" class="glass revoke-confirm">
         <div class="section-hd">
           <div class="section-hd-title">Delete SSH key "{{ removePrompt.name }}"?</div>
-          <div class="section-hd-sub">{{ removePrompt.fingerprint }}</div>
+          <div class="section-hd-sub">
+            Fingerprint {{ removePrompt.fingerprint }}. This key will no longer be able to
+            authenticate Git over SSH.
+          </div>
           <div class="spacer" />
           <button class="btn" type="button" :disabled="removeBusy" @click="cancelRemove">
             <span>Cancel</span>
