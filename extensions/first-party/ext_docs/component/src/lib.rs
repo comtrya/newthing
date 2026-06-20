@@ -6,13 +6,15 @@
 
 mod bindings;
 
+use std::collections::HashMap;
+
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
-    DocChecklistSection, DocChecklistSummary, DocProperty, DocReadinessBoard, DocReadinessCard,
-    DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
-    SummarizeDocInput,
+    DocChecklistSection, DocChecklistSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
+    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
+    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -331,6 +333,45 @@ fn summarize_references(input: SummarizeDocInput) -> Result<DocReferenceSummary,
     })
 }
 
+fn summarize_outline(input: SummarizeDocInput) -> Result<DocOutlineSummary, Error> {
+    let path = validate_doc_path(input.path)?;
+    validate_preview_len(&input.preview)?;
+
+    let (_has_front_matter, properties, body) = parse_front_matter(&input.preview);
+    let title = front_matter_value(&properties, "title").unwrap_or_else(|| fallback_title(&path));
+    let mut headings = Vec::new();
+    let mut slug_counts = HashMap::new();
+    let mut in_fence = false;
+
+    for (line_index, raw_line) in body.lines().enumerate() {
+        let line = normalize_markdown_line(raw_line);
+        if line.starts_with("```") || line.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || line.is_empty() {
+            continue;
+        }
+
+        if let Some((level, title)) = markdown_heading_with_level(line) {
+            let slug = unique_heading_slug(heading_slug(&title), &mut slug_counts);
+            headings.push(DocOutlineHeading {
+                level,
+                title,
+                slug,
+                line: line_index as u32 + 1,
+            });
+        }
+    }
+
+    Ok(DocOutlineSummary {
+        path,
+        title,
+        heading_count: headings.len() as u32,
+        headings,
+    })
+}
+
 fn extract_markdown_link_references(
     line: &str,
     line_number: u32,
@@ -512,6 +553,10 @@ fn normalize_markdown_line(line: &str) -> &str {
 }
 
 fn markdown_heading(line: &str) -> Option<String> {
+    markdown_heading_with_level(line).map(|(_level, title)| title)
+}
+
+fn markdown_heading_with_level(line: &str) -> Option<(u32, String)> {
     let level = line.chars().take_while(|ch| *ch == '#').count();
     if level == 0 || level > 6 {
         return None;
@@ -525,6 +570,41 @@ fn markdown_heading(line: &str) -> Option<String> {
         return None;
     }
     clean_optional_label(rest.trim().trim_end_matches('#').trim().to_string())
+        .map(|title| (level as u32, title))
+}
+
+fn heading_slug(title: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_separator = false;
+
+    for ch in title.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if pending_separator && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(ch.to_ascii_lowercase());
+            pending_separator = false;
+        } else {
+            pending_separator = true;
+        }
+    }
+
+    if slug.is_empty() {
+        "section".to_string()
+    } else {
+        slug
+    }
+}
+
+fn unique_heading_slug(base: String, counts: &mut HashMap<String, u32>) -> String {
+    let count = counts.entry(base.clone()).or_insert(0);
+    *count += 1;
+
+    if *count == 1 {
+        base
+    } else {
+        format!("{base}-{count}")
+    }
 }
 
 fn checklist_item(line: &str) -> Option<DocChecklistItem> {
@@ -903,6 +983,10 @@ impl DocsGuest for Component {
         crate::summarize_references(input)
     }
 
+    fn summarize_outline(input: SummarizeDocInput) -> Result<DocOutlineSummary, Error> {
+        crate::summarize_outline(input)
+    }
+
     fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
         crate::readiness_board(input)
     }
@@ -927,8 +1011,8 @@ mod tests {
     };
 
     use super::{
-        readiness_board, status_board, summarize_catalog, summarize_checklists, summarize_preview,
-        summarize_references, summarize_scenarios, MAX_CATALOG_DOCS,
+        readiness_board, status_board, summarize_catalog, summarize_checklists, summarize_outline,
+        summarize_preview, summarize_references, summarize_scenarios, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1290,6 +1374,49 @@ comtrya://issue/ignored
             .references
             .iter()
             .all(|reference| reference.line > 0));
+    }
+
+    #[test]
+    fn summarize_outline_extracts_markdown_headings() {
+        let summary = summarize_outline(SummarizeDocInput {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx".to_string(),
+            preview: r#"---
+title: Repository Docs Surface
+status: active
+---
+
+# Repository Docs Surface
+
+## Acceptance Criteria
+
+```md
+## Ignored Example
+```
+
+### Rollout
+
+## Acceptance Criteria
+"#
+            .to_string(),
+        })
+        .expect("outline summary should parse");
+
+        assert_eq!(summary.title, "Repository Docs Surface");
+        assert_eq!(summary.heading_count, 4);
+        assert_eq!(summary.headings[0].level, 1);
+        assert_eq!(summary.headings[0].title, "Repository Docs Surface");
+        assert_eq!(summary.headings[0].slug, "repository-docs-surface");
+        assert_eq!(summary.headings[0].line, 2);
+        assert_eq!(summary.headings[1].level, 2);
+        assert_eq!(summary.headings[1].slug, "acceptance-criteria");
+        assert_eq!(summary.headings[2].level, 3);
+        assert_eq!(summary.headings[2].slug, "rollout");
+        assert_eq!(summary.headings[3].level, 2);
+        assert_eq!(summary.headings[3].slug, "acceptance-criteria-2");
+        assert!(summary
+            .headings
+            .iter()
+            .all(|heading| heading.title != "Ignored Example"));
     }
 
     #[test]

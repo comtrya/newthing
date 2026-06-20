@@ -139,6 +139,20 @@ interface docs {
     references: list<doc-reference>,
   }
 
+  record doc-outline-heading {
+    level: u32,
+    title: string,
+    slug: string,
+    line: u32,
+  }
+
+  record doc-outline-summary {
+    path: string,
+    title: string,
+    heading-count: u32,
+    headings: list<doc-outline-heading>,
+  }
+
   record doc-readiness-card {
     project-name: string,
     type-name: string,
@@ -192,6 +206,10 @@ interface docs {
   /// Extract forge-local references from product docs so PRDs, specs, BDD
   /// scenarios, issues, epics, and pull requests can be traced together.
   summarize-references: func(input: summarize-doc-input) -> result<doc-reference-summary, error>;
+
+  /// Extract a Markdown/MDX heading outline so docs surfaces can render
+  /// familiar in-page navigation without shell-side Markdown parsing.
+  summarize-outline: func(input: summarize-doc-input) -> result<doc-outline-summary, error>;
 
   /// Group product docs by readiness signals from acceptance criteria,
   /// BDD scenarios, and forge-local traceability links.

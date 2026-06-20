@@ -126,10 +126,10 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocReadinessBoard,
-    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard,
-    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocOutlineHeading,
+    DocOutlineSummary, DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn,
+    DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2674,6 +2674,28 @@ fn doc_reference_to_json(reference: &DocReference) -> Value {
     })
 }
 
+fn doc_outline_summary_to_json(summary: &DocOutlineSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "headingCount": summary.heading_count,
+        "headings": summary
+            .headings
+            .iter()
+            .map(doc_outline_heading_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_outline_heading_to_json(heading: &DocOutlineHeading) -> Value {
+    serde_json::json!({
+        "level": heading.level,
+        "title": heading.title,
+        "slug": heading.slug,
+        "line": heading.line,
+    })
+}
+
 fn doc_readiness_board_to_json(board: &DocReadinessBoard) -> Value {
     serde_json::json!({
         "totalDocs": board.total_docs,
@@ -2916,6 +2938,27 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_reference_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-outline" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-outline input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_outline(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-outline call: {e}"),
+                    )
+                })?;
+            doc_outline_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "readiness-board" => {
             let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {

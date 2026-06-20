@@ -1535,6 +1535,37 @@ expect_status "ext_docs summarize-references extracts forge traceability links" 
 json_assert "ext_docs summarize-references returns internal references only" "$TMP_DIR/docs-references.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.referenceCount === 4 && json.references.some((reference) => reference.kind === "epic" && reference.target === "comtrya://epic/epc_01KVJZ0TRACE" && reference.label === "repository docs epic") && json.references.some((reference) => reference.kind === "issue-number" && reference.target === "#42") && json.references.some((reference) => reference.kind === "doc" && reference.target === "comtrya://doc/scenario/repository-docs-surface") && json.references.some((reference) => reference.kind === "pull-request" && reference.target === "comtrya://pull-request/pr_01KVJZ0TRACE") && json.references.every((reference) => reference.line > 0)'
 
+DOC_OUTLINE_PAYLOAD="$TMP_DIR/docs-outline-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Acceptance Criteria\n\n" +
+      "```md\n" +
+      "## Ignored Example\n" +
+      "```\n\n" +
+      "### Rollout\n\n" +
+      "## Acceptance Criteria\n",
+  }),
+);
+' "$DOC_OUTLINE_PAYLOAD"
+expect_status "ext_docs summarize-outline extracts doc navigation headings" 200 "$TMP_DIR/docs-outline.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_OUTLINE_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-outline"
+json_assert "ext_docs summarize-outline returns heading levels and slugs" "$TMP_DIR/docs-outline.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.headingCount === 4 && json.headings[0].level === 1 && json.headings[0].slug === "repository-docs-surface" && json.headings[0].line === 2 && json.headings[1].level === 2 && json.headings[1].slug === "acceptance-criteria" && json.headings[2].level === 3 && json.headings[2].slug === "rollout" && json.headings[3].slug === "acceptance-criteria-2" && json.headings.every((heading) => heading.title !== "Ignored Example")'
+
 DOC_READINESS_PAYLOAD="$TMP_DIR/docs-readiness-payload.json"
 "$BUN" --eval '
 const fs = require("fs");
