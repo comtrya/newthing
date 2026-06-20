@@ -84,12 +84,16 @@ const overviewStats = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "repositories", value: String(data.storage.repositories.count) },
-    { label: "extensions", value: String(data.extensions.length) },
-    { label: "sessions", value: String(data.access.activeSessions) },
-    { label: "event log", value: formatBytes(data.storage.events.bytes) },
+    { label: "Repositories", value: String(data.storage.repositories.count) },
+    { label: "Extensions", value: String(data.extensions.length) },
+    { label: "Sessions", value: String(data.access.activeSessions) },
+    { label: "Event log", value: formatBytes(data.storage.events.bytes) },
   ];
 });
+
+function readinessStatusLabel(ready: boolean): string {
+  return ready ? "Ready" : "Degraded";
+}
 
 function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   if (service.status === "ok") return "ok";
@@ -105,12 +109,12 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
       <div class="page-header">
         <div>
           <div class="eyebrow" style="margin-bottom: 6px">
-            {{ telemetry?.instance.publicURL || "local instance" }}
+            {{ telemetry?.instance.publicURL || "Local instance" }}
           </div>
-          <h1 class="serif">Instance overview</h1>
+          <h1>Instance overview</h1>
           <div class="subline">
             <template v-if="telemetry">
-              {{ telemetry.instance.name }} · {{ telemetry.instance.mode }} ·
+              {{ telemetry.instance.name }} · {{ titleCaseWords(telemetry.instance.mode) }} ·
               <span class="mono">{{ telemetry.instance.version }}</span>
             </template>
             <template v-else-if="loading">Loading admin telemetry...</template>
@@ -139,15 +143,15 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
             </div>
             <div class="chips">
               <Chip :tone="telemetry.readiness.ready ? 'ok' : 'warn'" dot>
-                {{ telemetry.readiness.ready ? "ready" : "degraded" }}
+                {{ readinessStatusLabel(telemetry.readiness.ready) }}
               </Chip>
-              <Chip mono>{{ formatDuration(telemetry.instance.uptimeSeconds) }} uptime</Chip>
+              <Chip>{{ formatDuration(telemetry.instance.uptimeSeconds) }} uptime</Chip>
             </div>
           </div>
 
           <div v-for="stat in overviewStats" :key="stat.label" class="stat-card">
             <div class="eyebrow">{{ stat.label }}</div>
-            <div class="mono stat-value">{{ stat.value }}</div>
+            <div class="stat-value">{{ stat.value }}</div>
           </div>
         </div>
 
@@ -261,10 +265,19 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -305,6 +318,11 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   margin-top: 10px;
   flex-wrap: wrap;
 }
+.chips :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+}
 .stat-card {
   min-width: 0;
 }
@@ -312,6 +330,8 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   font-size: 24px;
   margin-top: 8px;
   color: var(--fg);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .grid {
   display: grid;
