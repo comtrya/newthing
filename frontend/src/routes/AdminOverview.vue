@@ -28,6 +28,23 @@ const readinessChecks = computed(() =>
   })),
 );
 
+const serviceRows = computed(() =>
+  (telemetry.value?.services ?? []).map((service) => ({
+    ...service,
+    label: serviceLabel(service.name),
+    statusLabel: serviceStatusLabel(service.status),
+  })),
+);
+
+const serviceLabels: Record<string, string> = {
+  "event-stream": "Event stream",
+  "extension-runtime": "Extension runtime",
+  "git-http": "Git smart HTTP",
+  graphql: "GraphQL",
+  persistence: "Persistence",
+  server: "Server",
+};
+
 const readinessLabels: Record<string, string> = {
   auditLogWritable: "Audit log",
   configValid: "Configuration",
@@ -39,6 +56,16 @@ const readinessLabels: Record<string, string> = {
   productionTlsTerminated: "TLS termination",
   repositoryRoot: "Repository root",
 };
+
+function serviceLabel(name: string): string {
+  return serviceLabels[name] ?? titleCaseWords(name);
+}
+
+function serviceStatusLabel(status: string): string {
+  if (status === "ok") return "Operational";
+  if (status === "error") return "Failed";
+  return titleCaseWords(status);
+}
 
 function readinessCheckLabel(name: string): string {
   return readinessLabels[name] ?? titleCaseWords(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2"));
@@ -132,16 +159,16 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
                 {{ healthyServices }} / {{ telemetry.services.length }} healthy
               </div>
             </div>
-            <div class="rows">
-              <div v-for="service in telemetry.services" :key="service.name" class="row">
+            <div class="rows services">
+              <div v-for="service in serviceRows" :key="service.name" class="row">
                 <span class="row-icon" :class="service.status === 'ok' ? 'ok' : 'warn'">
                   <Icon :name="service.status === 'ok' ? 'check' : 'clock'" />
                 </span>
                 <div class="row-main">
-                  <div class="row-title mono">{{ service.name }}</div>
+                  <div class="row-title">{{ service.label }}</div>
                   <div class="row-detail">{{ service.detail }}</div>
                 </div>
-                <Chip :tone="serviceTone(service)" mono>{{ service.status }}</Chip>
+                <Chip :tone="serviceTone(service)">{{ service.statusLabel }}</Chip>
               </div>
             </div>
           </div>
@@ -319,6 +346,7 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
+.rows.services :deep(.chip),
 .rows.compact :deep(.chip) {
   font-family: var(--font-sans);
   font-size: 11px;
