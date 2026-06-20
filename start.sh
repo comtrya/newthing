@@ -1468,6 +1468,40 @@ expect_status "ext_docs summarize-scenarios extracts BDD structure" 200 "$TMP_DI
 json_assert "ext_docs summarize-scenarios returns feature scenarios and steps" "$TMP_DIR/docs-scenarios.json" \
   'json.path === "crates/server/docs/scenarios/repository-docs-surface.mdx" && json.title === "Repository docs are discoverable from project context" && json.feature === "Repository docs" && json.scenarioCount === 3 && json.stepCount === 7 && json.scenarios[0].kind === "background" && json.scenarios[0].stepCount === 1 && json.scenarios[1].kind === "scenario" && json.scenarios[1].title === "Open project docs" && json.scenarios[1].steps.some((step) => step.keyword === "Then" && step.text.includes("specs, PRDs, and BDD scenarios")) && json.scenarios[2].kind === "scenario-outline"'
 
+DOC_CHECKLISTS_PAYLOAD="$TMP_DIR/docs-checklists-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Acceptance Criteria\n\n" +
+      "- [x] Project docs render beside implementation\n" +
+      "- [ ] Scenario docs can be summarized without shell-specific parsing\n\n" +
+      "```md\n" +
+      "- [ ] ignored example item\n" +
+      "```\n\n" +
+      "## Rollout\n\n" +
+      "1. [ ] Seed demo docs for specs and PRDs\n" +
+      "+ [X] Gate docs operations in smoke\n",
+  }),
+);
+' "$DOC_CHECKLISTS_PAYLOAD"
+expect_status "ext_docs summarize-checklists extracts acceptance criteria" 200 "$TMP_DIR/docs-checklists.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CHECKLISTS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-checklists"
+json_assert "ext_docs summarize-checklists returns checklist sections" "$TMP_DIR/docs-checklists.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.totalItems === 4 && json.checkedItems === 2 && json.sections.length === 2 && json.sections[0].heading === "Acceptance Criteria" && json.sections[0].itemCount === 2 && json.sections[0].checkedCount === 1 && json.sections[0].items.some((item) => item.checked === false && item.text.includes("Scenario docs can be summarized")) && json.sections[1].heading === "Rollout" && json.sections[1].checkedCount === 1'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

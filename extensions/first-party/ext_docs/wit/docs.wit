@@ -105,6 +105,26 @@ interface docs {
     scenarios: list<bdd-scenario>,
   }
 
+  record doc-checklist-item {
+    text: string,
+    checked: bool,
+  }
+
+  record doc-checklist-section {
+    heading: string,
+    item-count: u32,
+    checked-count: u32,
+    items: list<doc-checklist-item>,
+  }
+
+  record doc-checklist-summary {
+    path: string,
+    title: string,
+    total-items: u32,
+    checked-items: u32,
+    sections: list<doc-checklist-section>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -125,6 +145,10 @@ interface docs {
   /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
   /// indexed beside PRDs and specs without the shell parsing Gherkin itself.
   summarize-scenarios: func(input: summarize-doc-input) -> result<bdd-summary, error>;
+
+  /// Extract Markdown task-list sections from PRDs and specs so acceptance
+  /// criteria and rollout readiness can be surfaced by extension UIs.
+  summarize-checklists: func(input: summarize-doc-input) -> result<doc-checklist-summary, error>;
 }
 
 world ext-docs {

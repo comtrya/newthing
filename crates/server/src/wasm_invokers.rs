@@ -126,8 +126,9 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocProperty, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
+    SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2616,6 +2617,40 @@ fn bdd_step_to_json(step: &BddStep) -> Value {
     })
 }
 
+fn doc_checklist_summary_to_json(summary: &DocChecklistSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "totalItems": summary.total_items,
+        "checkedItems": summary.checked_items,
+        "sections": summary
+            .sections
+            .iter()
+            .map(doc_checklist_section_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_checklist_section_to_json(section: &DocChecklistSection) -> Value {
+    serde_json::json!({
+        "heading": section.heading,
+        "itemCount": section.item_count,
+        "checkedCount": section.checked_count,
+        "items": section
+            .items
+            .iter()
+            .map(doc_checklist_item_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_checklist_item_to_json(item: &DocChecklistItem) -> Value {
+    serde_json::json!({
+        "text": item.text,
+        "checked": item.checked,
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -2777,6 +2812,27 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             bdd_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-checklists" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-checklists input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_checklists(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-checklists call: {e}"),
+                    )
+                })?;
+            doc_checklist_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(

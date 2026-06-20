@@ -8,8 +8,9 @@ mod bindings;
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
-    BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocProperty, DocStatusBoard,
-    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
+    DocChecklistSection, DocChecklistSummary, DocProperty, DocStatusBoard, DocStatusCard,
+    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
     SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
@@ -171,6 +172,155 @@ fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
         step_count,
         scenarios,
     })
+}
+
+fn summarize_checklists(input: SummarizeDocInput) -> Result<DocChecklistSummary, Error> {
+    let path = validate_doc_path(input.path)?;
+    validate_preview_len(&input.preview)?;
+
+    let (_has_front_matter, properties, body) = parse_front_matter(&input.preview);
+    let title = front_matter_value(&properties, "title").unwrap_or_else(|| fallback_title(&path));
+    let mut sections = Vec::new();
+    let mut current_heading = None;
+    let mut in_fence = false;
+
+    for raw_line in body.lines() {
+        let line = normalize_markdown_line(raw_line);
+        if line.starts_with("```") || line.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || line.is_empty() {
+            continue;
+        }
+
+        if let Some(heading) = markdown_heading(line) {
+            current_heading = Some(heading);
+            continue;
+        }
+
+        if let Some(item) = checklist_item(line) {
+            push_checklist_item(&mut sections, current_heading.as_deref(), item);
+        }
+    }
+
+    let sections = sections
+        .into_iter()
+        .map(DocChecklistSectionDraft::finish)
+        .collect::<Vec<_>>();
+    let total_items = sections
+        .iter()
+        .map(|section| section.item_count)
+        .sum::<u32>();
+    let checked_items = sections
+        .iter()
+        .map(|section| section.checked_count)
+        .sum::<u32>();
+
+    Ok(DocChecklistSummary {
+        path,
+        title,
+        total_items,
+        checked_items,
+        sections,
+    })
+}
+
+struct DocChecklistSectionDraft {
+    heading: String,
+    items: Vec<DocChecklistItem>,
+}
+
+impl DocChecklistSectionDraft {
+    fn new(heading: impl Into<String>) -> Self {
+        Self {
+            heading: heading.into(),
+            items: Vec::new(),
+        }
+    }
+
+    fn finish(self) -> DocChecklistSection {
+        let checked_count = self.items.iter().filter(|item| item.checked).count() as u32;
+        DocChecklistSection {
+            heading: self.heading,
+            item_count: self.items.len() as u32,
+            checked_count,
+            items: self.items,
+        }
+    }
+}
+
+fn push_checklist_item(
+    sections: &mut Vec<DocChecklistSectionDraft>,
+    heading: Option<&str>,
+    item: DocChecklistItem,
+) {
+    let heading = heading.unwrap_or("Checklist");
+    let needs_section = sections
+        .last()
+        .map(|section| section.heading != heading)
+        .unwrap_or(true);
+    if needs_section {
+        sections.push(DocChecklistSectionDraft::new(heading));
+    }
+    sections
+        .last_mut()
+        .expect("checklist section should exist")
+        .items
+        .push(item);
+}
+
+fn normalize_markdown_line(line: &str) -> &str {
+    let mut line = line.trim();
+    while let Some(rest) = line.strip_prefix('>') {
+        line = rest.trim_start();
+    }
+    line
+}
+
+fn markdown_heading(line: &str) -> Option<String> {
+    let level = line.chars().take_while(|ch| *ch == '#').count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let rest = line.get(level..)?;
+    if !rest
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_whitespace())
+    {
+        return None;
+    }
+    clean_optional_label(rest.trim().trim_end_matches('#').trim().to_string())
+}
+
+fn checklist_item(line: &str) -> Option<DocChecklistItem> {
+    let item = strip_markdown_list_marker(line)?;
+    let (checked, rest) = if let Some(rest) = item.strip_prefix("[ ]") {
+        (false, rest)
+    } else if let Some(rest) = item
+        .strip_prefix("[x]")
+        .or_else(|| item.strip_prefix("[X]"))
+    {
+        (true, rest)
+    } else {
+        return None;
+    };
+    let text = rest.trim();
+    (!text.is_empty()).then(|| DocChecklistItem {
+        text: text.to_string(),
+        checked,
+    })
+}
+
+fn strip_markdown_list_marker(line: &str) -> Option<&str> {
+    ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|prefix| line.strip_prefix(prefix))
+        .or_else(|| {
+            let (marker, rest) = line.split_once(". ")?;
+            marker.chars().all(|ch| ch.is_ascii_digit()).then_some(rest)
+        })
 }
 
 #[derive(Default)]
@@ -478,6 +628,10 @@ impl DocsGuest for Component {
     fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
         crate::summarize_scenarios(input)
     }
+
+    fn summarize_checklists(input: SummarizeDocInput) -> Result<DocChecklistSummary, Error> {
+        crate::summarize_checklists(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -499,7 +653,8 @@ mod tests {
     };
 
     use super::{
-        status_board, summarize_catalog, summarize_preview, summarize_scenarios, MAX_CATALOG_DOCS,
+        status_board, summarize_catalog, summarize_checklists, summarize_preview,
+        summarize_scenarios, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -761,5 +916,55 @@ Scenario Outline: Filter docs by status
             .text
             .contains("specs, PRDs, and BDD scenarios"));
         assert_eq!(summary.scenarios[2].kind, "scenario-outline");
+    }
+
+    #[test]
+    fn summarize_checklists_extracts_prd_acceptance_sections() {
+        let summary = summarize_checklists(SummarizeDocInput {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx".to_string(),
+            preview: r#"---
+title: Repository Docs Surface
+status: active
+---
+
+# Repository Docs Surface
+
+## Acceptance Criteria
+
+- [x] Project docs render beside implementation
+- [ ] Scenario docs can be summarized without shell-specific parsing
+
+```md
+- [ ] ignored example item
+```
+
+## Rollout
+
+1. [ ] Seed demo docs for specs and PRDs
++ [X] Gate docs operations in smoke
+"#
+            .to_string(),
+        })
+        .expect("checklist summary should parse");
+
+        assert_eq!(
+            summary.path,
+            "crates/server/docs/prds/repository-docs-surface.mdx"
+        );
+        assert_eq!(summary.title, "Repository Docs Surface");
+        assert_eq!(summary.total_items, 4);
+        assert_eq!(summary.checked_items, 2);
+        assert_eq!(summary.sections.len(), 2);
+        assert_eq!(summary.sections[0].heading, "Acceptance Criteria");
+        assert_eq!(summary.sections[0].item_count, 2);
+        assert_eq!(summary.sections[0].checked_count, 1);
+        assert_eq!(
+            summary.sections[0].items[1].text,
+            "Scenario docs can be summarized without shell-specific parsing"
+        );
+        assert!(!summary.sections[0].items[1].checked);
+        assert_eq!(summary.sections[1].heading, "Rollout");
+        assert_eq!(summary.sections[1].item_count, 2);
+        assert_eq!(summary.sections[1].checked_count, 1);
     }
 }
