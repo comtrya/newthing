@@ -2153,10 +2153,11 @@ ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.id')"
 expect_status "open-issue increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\"]}" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\"],\"assignees\":[\"comtrya://user/rawkode\"]}" \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
   'json.number === 2'
+ISSUE_TWO_ID="$(json_value "$TMP_DIR/iss-create-2.json" 'json.id')"
 
 expect_status "open-issue rejects empty title" 400 "$TMP_DIR/iss-bad.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -2173,6 +2174,14 @@ expect_status "list-issues returns the issues, newest first" 200 "$TMP_DIR/iss-l
   "$FRONTEND_URL/api/ops/ext_issues/issues/list-issues"
 json_assert "list returns 2 open issues, latest number first" "$TMP_DIR/iss-list.json" \
   'json.length === 2 && json[0].number === 2 && json[1].number === 1 && json.every((i) => i.state === "open")'
+
+expect_status "triage-board groups unassigned and assigned issue lanes" 200 "$TMP_DIR/iss-triage.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/triage-board"
+json_assert "triage board has needs-owner and assigned cards" "$TMP_DIR/iss-triage.json" \
+  "json.total === 2 && json.columns.length === 4 && json.columns.find((c) => c.key === \"needs-owner\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"assigned\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.issue.assignees.includes(\"comtrya://user/rawkode\"))"
 
 expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

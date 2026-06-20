@@ -63,6 +63,28 @@ interface issues {
     closed: u64,
   }
 
+  record issue-triage-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-triage-card {
+    issue: issue,
+  }
+
+  record issue-triage-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<issue-triage-card>,
+  }
+
+  record issue-triage-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-triage-column>,
+  }
+
   record open-issue-input {
     repository: uri,
     title: string,
@@ -126,6 +148,10 @@ interface issues {
   update-issue: func(input: update-issue-input) -> result<issue, error>;
   get-issue: func(%id: id) -> result<option<issue>, error>;
   list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
+  /// Familiar issue triage lanes for work queues. Closed issues are terminal;
+  /// open issues that opt out of auto-close are separated from ordinary
+  /// owner assignment lanes so maintainers can find manual follow-up work.
+  triage-board: func(input: issue-triage-board-input) -> result<issue-triage-board, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
   by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
   by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;

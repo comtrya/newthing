@@ -21,8 +21,9 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
+    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState, IssueStateCounts,
+    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
+    UpdateIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -638,6 +639,55 @@ fn state_counts_for_refs(refs: &[String]) -> Result<IssueStateCounts, Error> {
     Ok(IssueStateCounts { open, closed })
 }
 
+#[derive(Clone, Copy)]
+enum TriageLane {
+    NeedsOwner,
+    Assigned,
+    ManualClose,
+    Closed,
+}
+
+fn triage_lane(issue: &Issue) -> TriageLane {
+    match issue.state {
+        IssueState::Closed => TriageLane::Closed,
+        _ if issue.close_on_merge == Some(false) => TriageLane::ManualClose,
+        _ if issue.assignees.is_empty() => TriageLane::NeedsOwner,
+        _ => TriageLane::Assigned,
+    }
+}
+
+fn triage_column(key: &str, label: &str, cards: Vec<IssueTriageCard>) -> IssueTriageColumn {
+    IssueTriageColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn triage_columns(cards: Vec<IssueTriageCard>) -> Vec<IssueTriageColumn> {
+    let mut needs_owner = Vec::new();
+    let mut assigned = Vec::new();
+    let mut manual_close = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match triage_lane(&card.issue) {
+            TriageLane::NeedsOwner => needs_owner.push(card),
+            TriageLane::Assigned => assigned.push(card),
+            TriageLane::ManualClose => manual_close.push(card),
+            TriageLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        triage_column("needs-owner", "Needs owner", needs_owner),
+        triage_column("assigned", "Assigned", assigned),
+        triage_column("manual-close", "Manual close", manual_close),
+        triage_column("closed", "Closed", closed),
+    ]
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -897,6 +947,20 @@ impl IssuesGuest for Component {
             .collect())
     }
 
+    fn triage_board(input: IssueTriageBoardInput) -> Result<IssueTriageBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let mut cards = Vec::with_capacity(issues.len());
+        for issue in issues {
+            cards.push(IssueTriageCard { issue });
+        }
+        let total = cards.len() as u32;
+        Ok(IssueTriageBoard {
+            repository: input.repository,
+            total,
+            columns: triage_columns(cards),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -977,3 +1041,57 @@ impl ReactorGuest for Component {
 }
 
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn issue(id: &str, state: IssueState) -> Issue {
+        Issue {
+            id: id.to_string(),
+            repository: "comtrya://workspace/ws_test/repository/repo_test".to_string(),
+            title: id.to_string(),
+            body_markdown: String::new(),
+            state,
+            number: 1,
+            author_ref: "comtrya://user/rawkode".to_string(),
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+            closed_at: None,
+            closed_by_ref: None,
+            state_reason: None,
+            project_name: None,
+            labels: Vec::new(),
+            close_on_merge: None,
+            assignees: Vec::new(),
+        }
+    }
+
+    fn card(issue: Issue) -> IssueTriageCard {
+        IssueTriageCard { issue }
+    }
+
+    #[test]
+    fn triage_columns_group_by_owner_policy_and_terminal_state() {
+        let mut assigned = issue("assigned", IssueState::Open);
+        assigned.assignees = vec!["comtrya://user/rawkode".to_string()];
+        let mut manual = issue("manual", IssueState::Open);
+        manual.close_on_merge = Some(false);
+        manual.assignees = vec!["comtrya://user/rawkode".to_string()];
+
+        let columns = triage_columns(vec![
+            card(issue("needs-owner", IssueState::Open)),
+            card(assigned),
+            card(manual),
+            card(issue("closed", IssueState::Closed)),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["needs-owner", "assigned", "manual-close", "closed"]);
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 4);
+        assert_eq!(columns[0].cards[0].issue.id, "needs-owner");
+        assert_eq!(columns[1].cards[0].issue.id, "assigned");
+        assert_eq!(columns[2].cards[0].issue.id, "manual");
+        assert_eq!(columns[3].cards[0].issue.id, "closed");
+    }
+}

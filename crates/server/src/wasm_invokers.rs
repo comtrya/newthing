@@ -67,7 +67,8 @@ mod ext_issues_bindings {
 use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
+    IssueStateCounts, IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn,
+    OpenIssueInput, UpdateIssueInput,
 };
 
 mod ext_epics_bindings {
@@ -203,6 +204,13 @@ struct UpdateIssueInputJson {
     /// `null` or absent → keep existing labels; `[]` → clear labels.
     #[serde(default)]
     labels: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueTriageBoardInputJson {
+    repository: String,
+    limit: u32,
 }
 
 /// Input for `update-epic`. Same optional-field semantics as `UpdateIssueInputJson`.
@@ -723,6 +731,27 @@ pub fn dispatch_ext_issues(
                     .map(issue_to_json)
                     .collect(),
             )
+        }
+        "triage-board" => {
+            let parsed: IssueTriageBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse triage-board input: {e}"),
+                )
+            })?;
+            let wit_input = IssueTriageBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_triage_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("triage-board call: {e}"),
+                    )
+                })?;
+            issue_triage_board_to_json(&result.map_err(local_error_to_canonical)?)
         }
         "by-ref-issue" => {
             let ref_uri = string_payload(&input, "by-ref-issue")?;
@@ -2068,6 +2097,37 @@ fn issue_to_json(issue: &Issue) -> Value {
         "labels": issue.labels,
         "closeOnMerge": issue.close_on_merge,
         "assignees": issue.assignees,
+    })
+}
+
+fn issue_triage_board_to_json(board: &IssueTriageBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_triage_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_triage_column_to_json(column: &IssueTriageColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_triage_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_triage_card_to_json(card: &IssueTriageCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
     })
 }
 
