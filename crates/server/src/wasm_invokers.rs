@@ -129,9 +129,10 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
     DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary,
     DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference,
-    DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
-    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocReferenceSummary, DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTraceabilityBoard, DocTraceabilityCard,
+    DocTraceabilityColumn, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
+    SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2620,6 +2621,45 @@ fn bdd_step_to_json(step: &BddStep) -> Value {
     })
 }
 
+fn doc_scenario_board_to_json(board: &DocScenarioBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_scenario_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_scenario_column_to_json(column: &DocScenarioColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_scenario_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_scenario_card_to_json(card: &DocScenarioCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "feature": card.feature,
+        "scenarioCount": card.scenario_count,
+        "stepCount": card.step_count,
+        "scenariosWithoutSteps": card.scenarios_without_steps,
+    })
+}
+
 fn doc_checklist_summary_to_json(summary: &DocChecklistSummary) -> Value {
     serde_json::json!({
         "path": summary.path,
@@ -3003,6 +3043,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             bdd_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "scenario-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse scenario-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_scenario_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("scenario-board call: {e}"),
+                    )
+                })?;
+            doc_scenario_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "summarize-checklists" => {
             let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {

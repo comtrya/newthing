@@ -14,9 +14,9 @@ use bindings::exports::comtrya::ext_docs::docs::{
     DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
     DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
     DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
-    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTraceabilityBoard,
-    DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
-    SummarizeDocInput,
+    DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard,
+    DocStatusColumn, DocSummary, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
+    DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -331,6 +331,70 @@ fn traceability_board(input: DocCatalogInput) -> Result<DocTraceabilityBoard, Er
             ),
             traceability_column("doc-linked", "Doc linked", doc_linked),
             traceability_column("other-linked", "Other links", other_linked),
+        ],
+    })
+}
+
+fn scenario_board(input: DocCatalogInput) -> Result<DocScenarioBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut missing_feature = Vec::new();
+    let mut missing_scenarios = Vec::new();
+    let mut needs_steps = Vec::new();
+    let mut ready = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = required_field("project name", doc_type.project_name)?;
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let scenarios = summarize_scenarios(SummarizeDocInput {
+                path,
+                preview: file.preview,
+            })?;
+            let scenarios_without_steps = scenarios
+                .scenarios
+                .iter()
+                .filter(|scenario| scenario.step_count == 0)
+                .count() as u32;
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let card = DocScenarioCard {
+                project_name: project_name.clone(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                feature: scenarios.feature,
+                scenario_count: scenarios.scenario_count,
+                step_count: scenarios.step_count,
+                scenarios_without_steps,
+            };
+
+            match scenario_lane(&card) {
+                ScenarioLane::MissingFeature => missing_feature.push(card),
+                ScenarioLane::MissingScenarios => missing_scenarios.push(card),
+                ScenarioLane::NeedsSteps => needs_steps.push(card),
+                ScenarioLane::Ready => ready.push(card),
+            }
+            total_docs += 1;
+        }
+    }
+
+    Ok(DocScenarioBoard {
+        total_docs,
+        columns: vec![
+            scenario_column("missing-feature", "Missing feature", missing_feature),
+            scenario_column("missing-scenarios", "Missing scenarios", missing_scenarios),
+            scenario_column("needs-steps", "Needs steps", needs_steps),
+            scenario_column("ready", "Ready", ready),
         ],
     })
 }
@@ -1098,6 +1162,19 @@ fn traceability_column(
     }
 }
 
+fn scenario_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocScenarioCard>,
+) -> DocScenarioColumn {
+    DocScenarioColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 enum StatusLane {
     Draft,
     Active,
@@ -1140,6 +1217,13 @@ enum TraceabilityLane {
     ImplementationLinked,
     DocLinked,
     OtherLinked,
+}
+
+enum ScenarioLane {
+    MissingFeature,
+    MissingScenarios,
+    NeedsSteps,
+    Ready,
 }
 
 fn readiness_lane(card: &DocReadinessCard) -> ReadinessLane {
@@ -1190,6 +1274,22 @@ fn traceability_lane(card: &DocTraceabilityCard) -> TraceabilityLane {
 
 fn is_implementation_reference(kind: &str) -> bool {
     matches!(kind, "epic" | "issue" | "issue-number" | "pull-request")
+}
+
+fn scenario_lane(card: &DocScenarioCard) -> ScenarioLane {
+    if card.feature.is_none() {
+        return ScenarioLane::MissingFeature;
+    }
+
+    if card.scenario_count == 0 {
+        return ScenarioLane::MissingScenarios;
+    }
+
+    if card.step_count == 0 || card.scenarios_without_steps > 0 {
+        return ScenarioLane::NeedsSteps;
+    }
+
+    ScenarioLane::Ready
 }
 
 fn required_field(label: &str, value: String) -> Result<String, Error> {
@@ -1299,6 +1399,10 @@ impl DocsGuest for Component {
         crate::summarize_scenarios(input)
     }
 
+    fn scenario_board(input: DocCatalogInput) -> Result<DocScenarioBoard, Error> {
+        crate::scenario_board(input)
+    }
+
     fn summarize_checklists(input: SummarizeDocInput) -> Result<DocChecklistSummary, Error> {
         crate::summarize_checklists(input)
     }
@@ -1347,9 +1451,9 @@ mod tests {
     };
 
     use super::{
-        decision_board, readiness_board, status_board, summarize_catalog, summarize_checklists,
-        summarize_decisions, summarize_outline, summarize_preview, summarize_references,
-        summarize_scenarios, traceability_board, MAX_CATALOG_DOCS,
+        decision_board, readiness_board, scenario_board, status_board, summarize_catalog,
+        summarize_checklists, summarize_decisions, summarize_outline, summarize_preview,
+        summarize_references, summarize_scenarios, traceability_board, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1611,6 +1715,125 @@ Scenario Outline: Filter docs by status
             .text
             .contains("specs, PRDs, and BDD scenarios"));
         assert_eq!(summary.scenarios[2].kind, "scenario-outline");
+    }
+
+    #[test]
+    fn scenario_board_groups_docs_by_bdd_coverage() {
+        let board = scenario_board(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: "scenario".to_string(),
+                label: "BDD Scenarios".to_string(),
+                description: None,
+                slug: "server/docs/scenarios".to_string(),
+                files: vec![
+                    SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/missing-feature.mdx".to_string(),
+                        preview: r#"---
+title: Missing Feature
+status: draft
+---
+
+```gherkin
+Scenario: Missing feature
+  Given a scenario exists without a feature
+```
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/missing-scenarios.mdx".to_string(),
+                        preview: r#"---
+title: Missing Scenarios
+status: review
+---
+
+```gherkin
+Feature: Repository docs
+```
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/needs-steps.mdx".to_string(),
+                        preview: r#"---
+title: Needs Steps
+status: active
+---
+
+```gherkin
+Feature: Repository docs
+
+Scenario: Open project docs
+```
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/ready.mdx".to_string(),
+                        preview: r#"---
+title: Ready Scenario
+status: accepted
+---
+
+```gherkin
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see PRDs and BDD scenarios
+```
+"#
+                        .to_string(),
+                    },
+                ],
+            }],
+        })
+        .expect("scenario board should summarize");
+
+        assert_eq!(board.total_docs, 4);
+
+        let missing_feature = board
+            .columns
+            .iter()
+            .find(|column| column.key == "missing-feature")
+            .expect("missing feature column");
+        assert_eq!(missing_feature.count, 1);
+        assert_eq!(missing_feature.docs[0].title, "Missing Feature");
+        assert_eq!(missing_feature.docs[0].scenario_count, 1);
+        assert_eq!(missing_feature.docs[0].feature.as_deref(), None);
+
+        let missing_scenarios = board
+            .columns
+            .iter()
+            .find(|column| column.key == "missing-scenarios")
+            .expect("missing scenarios column");
+        assert_eq!(missing_scenarios.count, 1);
+        assert_eq!(
+            missing_scenarios.docs[0].feature.as_deref(),
+            Some("Repository docs")
+        );
+        assert_eq!(missing_scenarios.docs[0].scenario_count, 0);
+
+        let needs_steps = board
+            .columns
+            .iter()
+            .find(|column| column.key == "needs-steps")
+            .expect("needs steps column");
+        assert_eq!(needs_steps.count, 1);
+        assert_eq!(needs_steps.docs[0].scenarios_without_steps, 1);
+        assert_eq!(needs_steps.docs[0].status, "active");
+        assert_eq!(needs_steps.docs[0].type_label, "BDD Scenarios");
+
+        let ready = board
+            .columns
+            .iter()
+            .find(|column| column.key == "ready")
+            .expect("ready column");
+        assert_eq!(ready.count, 1);
+        assert_eq!(ready.docs[0].step_count, 3);
+        assert_eq!(ready.docs[0].status, "accepted");
     }
 
     #[test]

@@ -1468,6 +1468,84 @@ expect_status "ext_docs summarize-scenarios extracts BDD structure" 200 "$TMP_DI
 json_assert "ext_docs summarize-scenarios returns feature scenarios and steps" "$TMP_DIR/docs-scenarios.json" \
   'json.path === "crates/server/docs/scenarios/repository-docs-surface.mdx" && json.title === "Repository docs are discoverable from project context" && json.feature === "Repository docs" && json.scenarioCount === 3 && json.stepCount === 7 && json.scenarios[0].kind === "background" && json.scenarios[0].stepCount === 1 && json.scenarios[1].kind === "scenario" && json.scenarios[1].title === "Open project docs" && json.scenarios[1].steps.some((step) => step.keyword === "Then" && step.text.includes("specs, PRDs, and BDD scenarios")) && json.scenarios[2].kind === "scenario-outline"'
 
+DOC_SCENARIO_BOARD_PAYLOAD="$TMP_DIR/docs-scenario-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/missing-feature.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Feature\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Scenario: Missing feature\n" +
+              "  Given a scenario exists without a feature\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/missing-scenarios.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Scenarios\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/needs-steps.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Steps\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready Scenario\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see PRDs and BDD scenarios\n" +
+              "```\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_SCENARIO_BOARD_PAYLOAD"
+expect_status "ext_docs scenario-board groups BDD coverage" 200 "$TMP_DIR/docs-scenario-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SCENARIO_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/scenario-board"
+json_assert "ext_docs scenario-board returns missing feature scenarios steps and ready lanes" "$TMP_DIR/docs-scenario-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "missing-feature")?.docs?.[0]?.feature === null && json.columns.find((column) => column.key === "missing-feature")?.docs?.[0]?.scenarioCount === 1 && json.columns.find((column) => column.key === "missing-scenarios")?.docs?.[0]?.scenarioCount === 0 && json.columns.find((column) => column.key === "needs-steps")?.docs?.[0]?.scenariosWithoutSteps === 1 && json.columns.find((column) => column.key === "ready")?.docs?.[0]?.stepCount === 3'
+
 DOC_CHECKLISTS_PAYLOAD="$TMP_DIR/docs-checklists-payload.json"
 "$BUN" --eval '
 const fs = require("fs");
