@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.10;
+package comtrya:ext-issues@0.1.11;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -134,6 +134,29 @@ interface issues {
     columns: list<issue-assignee-column>,
   }
 
+  record issue-project-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-project-card {
+    issue: issue,
+  }
+
+  record issue-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    cards: list<issue-project-card>,
+  }
+
+  record issue-project-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-project-column>,
+  }
+
   record open-issue-input {
     repository: uri,
     title: string,
@@ -207,6 +230,9 @@ interface issues {
   /// Familiar ownership lanes. Unassigned work is explicit, while assigned
   /// work appears once per assignee so owners can scan their active slice.
   assignee-board: func(input: issue-assignee-board-input) -> result<issue-assignee-board, error>;
+  /// Familiar product/project lanes. Unscoped work is explicit, while scoped
+  /// issues are grouped by their stamped project name.
+  project-board: func(input: issue-project-board-input) -> result<issue-project-board, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
   by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
   by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;

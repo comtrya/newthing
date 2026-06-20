@@ -68,7 +68,8 @@ use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueAssigneeBoard,
     IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
-    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueState, IssueStateCounts,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueProjectBoard,
+    IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
     UpdateIssueInput,
 };
@@ -226,6 +227,13 @@ struct IssueLabelBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssueAssigneeBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueProjectBoardInputJson {
     repository: String,
     limit: u32,
 }
@@ -826,6 +834,28 @@ pub fn dispatch_ext_issues(
                     )
                 })?;
             issue_assignee_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: IssueProjectBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse project-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueProjectBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            issue_project_board_to_json(&result.map_err(local_error_to_canonical)?)
         }
         "by-ref-issue" => {
             let ref_uri = string_payload(&input, "by-ref-issue")?;
@@ -2324,6 +2354,38 @@ fn issue_assignee_column_to_json(column: &IssueAssigneeColumn) -> Value {
 }
 
 fn issue_assignee_card_to_json(card: &IssueAssigneeCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_project_board_to_json(board: &IssueProjectBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_project_column_to_json(column: &IssueProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_project_card_to_json(card: &IssueProjectCard) -> Value {
     serde_json::json!({
         "issue": issue_to_json(&card.issue),
     })

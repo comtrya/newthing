@@ -2216,6 +2216,14 @@ expect_status "assignee-board groups issues by owner and unassigned lane" 200 "$
 json_assert "assignee board exposes unassigned and rawkode lanes" "$TMP_DIR/iss-assignee-board.json" \
   "json.total === 3 && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"assignee-user-rawkode\").assignee === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"assignee-user-rawkode\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\")"
 
+expect_status "project-board groups issues by project and unscoped lane" 200 "$TMP_DIR/iss-project-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/project-board"
+json_assert "project board exposes unscoped and kernel lanes" "$TMP_DIR/iss-project-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unscoped\").projectName === null && json.columns.find((c) => c.key === \"unscoped\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"project-kernel\").projectName === \"kernel\" && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\")"
+
 expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

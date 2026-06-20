@@ -10213,6 +10213,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_issues");
         assert_eq!(info.interface_name, "issues");
         assert_eq!(info.op_name, "close-issue");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("project-board"),
+        )
+        .expect("project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "project-board");
     }
 
     #[test]

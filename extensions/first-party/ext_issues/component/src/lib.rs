@@ -23,7 +23,8 @@ use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
     IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
-    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueState, IssueStateCounts,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueProjectBoard,
+    IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
     UpdateIssueInput,
 };
@@ -832,6 +833,70 @@ fn assignee_board_columns(issues: Vec<Issue>) -> Vec<IssueAssigneeColumn> {
     columns
 }
 
+fn issue_project_key(project_name: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in project_name.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        format!("project-{key}")
+    }
+}
+
+fn project_column(
+    key: &str,
+    label: &str,
+    project_name: Option<String>,
+    cards: Vec<IssueProjectCard>,
+) -> IssueProjectColumn {
+    IssueProjectColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        project_name,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn project_board_columns(issues: Vec<Issue>) -> Vec<IssueProjectColumn> {
+    let mut unscoped = Vec::new();
+    let mut scoped: BTreeMap<String, (String, Vec<IssueProjectCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let project_name = issue
+            .project_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|project_name| !project_name.is_empty())
+            .map(str::to_string);
+        let Some(project_name) = project_name else {
+            unscoped.push(IssueProjectCard { issue });
+            continue;
+        };
+        let key = issue_project_key(&project_name);
+        let entry = scoped
+            .entry(key)
+            .or_insert_with(|| (project_name, Vec::new()));
+        entry.1.push(IssueProjectCard { issue });
+    }
+
+    let mut columns = vec![project_column("unscoped", "Unscoped", None, unscoped)];
+    columns.extend(scoped.into_iter().map(|(key, (project_name, cards))| {
+        project_column(&key, &project_name, Some(project_name.clone()), cards)
+    }));
+    columns
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -1125,6 +1190,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn project_board(input: IssueProjectBoardInput) -> Result<IssueProjectBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueProjectBoard {
+            repository: input.repository,
+            total,
+            columns: project_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1324,5 +1399,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["rawkode", "paired"]
         );
+    }
+
+    #[test]
+    fn project_board_columns_group_unscoped_and_project_work() {
+        let unscoped = issue("unscoped", IssueState::Open);
+        let mut kernel = issue("kernel", IssueState::Open);
+        kernel.project_name = Some("kernel".to_string());
+        let mut product = issue("product", IssueState::Open);
+        product.project_name = Some("Product Design".to_string());
+        let mut another_kernel = issue("another-kernel", IssueState::Open);
+        another_kernel.project_name = Some("kernel".to_string());
+
+        let columns = project_board_columns(vec![unscoped, kernel, product, another_kernel]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            ["unscoped", "project-kernel", "project-product-design"]
+        );
+        assert_eq!(columns[0].project_name, None);
+        assert_eq!(columns[0].cards[0].issue.id, "unscoped");
+        assert_eq!(columns[1].project_name.as_deref(), Some("kernel"));
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(columns[1].cards[0].issue.id, "kernel");
+        assert_eq!(columns[1].cards[1].issue.id, "another-kernel");
+        assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
+        assert_eq!(columns[2].cards[0].issue.id, "product");
     }
 }
