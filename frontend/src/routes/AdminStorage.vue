@@ -69,14 +69,14 @@ function titleCaseWords(value: string): string {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Storage telemetry</div>
+          <div class="eyebrow" style="margin-bottom: 6px">Storage</div>
           <h1>Runtime storage paths</h1>
           <div class="subline">
             <template v-if="telemetry">
               Live filesystem counts from the configured data directory.
             </template>
-            <template v-else-if="loading">Loading storage telemetry...</template>
-            <template v-else>Storage telemetry unavailable</template>
+            <template v-else-if="loading">Loading storage details...</template>
+            <template v-else>Storage details unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -87,7 +87,7 @@ function titleCaseWords(value: string): string {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>Storage details could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
