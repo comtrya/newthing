@@ -245,7 +245,7 @@ const accessStats = computed(() => {
         <div class="grid two">
           <div class="glass">
             <div class="section-hd">
-              <div class="section-hd-title">Credential store</div>
+              <div class="section-hd-title">Credentials</div>
               <div class="section-hd-sub">Stored credentials and sessions</div>
             </div>
             <div class="kv-list">
