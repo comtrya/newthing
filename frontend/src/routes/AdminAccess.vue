@@ -46,8 +46,8 @@ function formatOidcIssuerCount(count: number): string {
   return `${count} configured issuer${count === 1 ? "" : "s"}`;
 }
 
-function formatUnsupportedSurfaceCount(count: number): string {
-  return `${count} unsupported surface${count === 1 ? "" : "s"}`;
+function formatUnavailableAdminPageCount(count: number): string {
+  return `${count} unavailable page${count === 1 ? "" : "s"}`;
 }
 
 onMounted(() => void loadSessions());
@@ -270,9 +270,9 @@ const accessStats = computed(() => {
 
           <div class="glass">
             <div class="section-hd">
-              <div class="section-hd-title">Unsupported admin surfaces</div>
+              <div class="section-hd-title">Unavailable admin pages</div>
               <div class="section-hd-sub">
-                {{ formatUnsupportedSurfaceCount(telemetry.readiness.unsupported.length) }}
+                {{ formatUnavailableAdminPageCount(telemetry.readiness.unsupported.length) }}
               </div>
             </div>
             <div v-if="telemetry.readiness.unsupported.length" class="rows">
@@ -288,7 +288,7 @@ const accessStats = computed(() => {
                 </div>
               </div>
             </div>
-            <div v-else class="empty">No unsupported access surfaces were reported.</div>
+            <div v-else class="empty">All access pages are available.</div>
           </div>
         </div>
       </template>
