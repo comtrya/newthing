@@ -2679,6 +2679,14 @@ REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.id')"
 REACTOR_PR_REF="comtrya://pull-request/$REACTOR_PR_ID"
 REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
 
+expect_status "review-board groups draft pull requests" 200 "$TMP_DIR/rx-pr-review-board-draft.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the draft PR card" "$TMP_DIR/rx-pr-review-board-draft.json" \
+  "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"draft\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
 expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -2694,6 +2702,14 @@ expect_status "merge-pull transitions to MERGED" 200 "$TMP_DIR/rx-merge.json" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-pull"
 json_assert "pr is MERGED with mergedAt timestamp" "$TMP_DIR/rx-merge.json" \
   'json.state === "MERGED" && typeof json.mergedAt === "string"'
+
+expect_status "review-board moves merged pull requests into terminal lane" 200 "$TMP_DIR/rx-pr-review-board-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-board-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true)"
 
 expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

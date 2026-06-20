@@ -12,6 +12,7 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
     ClosePullInput, CreatePullInput, Guest as PullsGuest, MergePullInput, PrState, PullRequest,
+    PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 use bindings::exports::comtrya::platform::reactor::{
     Guest as ReactorGuest, MutationCall, Reaction,
@@ -107,6 +108,14 @@ struct RepositoryScope {
     repository_id: Option<String>,
 }
 
+enum ReviewLane {
+    Draft,
+    Ready,
+    Review,
+    Merged,
+    Closed,
+}
+
 fn err(code: ErrorCode, message: impl Into<String>) -> Error {
     Error {
         code,
@@ -133,6 +142,51 @@ fn state_from_str(state: &str) -> PrState {
         "CLOSED" => PrState::Closed,
         _ => PrState::Draft,
     }
+}
+
+fn review_lane(pull: &PullRequest) -> ReviewLane {
+    match pull.state {
+        PrState::Draft => ReviewLane::Draft,
+        PrState::Ready => ReviewLane::Ready,
+        PrState::Review => ReviewLane::Review,
+        PrState::Merged => ReviewLane::Merged,
+        PrState::Closed => ReviewLane::Closed,
+    }
+}
+
+fn review_column(key: &str, label: &str, cards: Vec<PullReviewCard>) -> PullReviewColumn {
+    PullReviewColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn review_columns(cards: Vec<PullReviewCard>) -> Vec<PullReviewColumn> {
+    let mut drafts = Vec::new();
+    let mut ready = Vec::new();
+    let mut review = Vec::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match review_lane(&card.pull_request) {
+            ReviewLane::Draft => drafts.push(card),
+            ReviewLane::Ready => ready.push(card),
+            ReviewLane::Review => review.push(card),
+            ReviewLane::Merged => merged.push(card),
+            ReviewLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        review_column("draft", "Draft", drafts),
+        review_column("ready", "Ready", ready),
+        review_column("review", "In review", review),
+        review_column("merged", "Merged", merged),
+        review_column("closed", "Closed", closed),
+    ]
 }
 
 fn repository_scope(repository: &str) -> RepositoryScope {
@@ -632,6 +686,9 @@ impl PullsGuest for Component {
 
     fn list_pulls(repository: String, limit: u32) -> Result<Vec<PullRequest>, Error> {
         let limit = limit.min(1024) as usize;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         scan_pull_requests(|stored| {
             if repository_matches(&stored, &repository) {
@@ -643,6 +700,33 @@ impl PullsGuest for Component {
             Ok(false)
         })?;
         Ok(out)
+    }
+
+    fn review_board(input: PullReviewBoardInput) -> Result<PullReviewBoard, Error> {
+        let limit = input.limit.min(1024) as usize;
+        let mut cards = Vec::new();
+        if limit > 0 {
+            scan_pull_requests(|stored| {
+                if repository_matches(&stored, &input.repository) {
+                    let pull_request = stored.to_wit();
+                    let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+                    cards.push(PullReviewCard {
+                        pull_request,
+                        terminal,
+                    });
+                    if cards.len() >= limit {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })?;
+        }
+        let total = cards.len() as u32;
+        Ok(PullReviewBoard {
+            repository: input.repository,
+            total,
+            columns: review_columns(cards),
+        })
     }
 }
 
@@ -717,7 +801,9 @@ bindings::export!(Component with_types_in bindings);
 
 #[cfg(test)]
 mod tests {
-    use super::{PrState, state_from_str, state_to_str};
+    use super::{
+        review_columns, state_from_str, state_to_str, PrState, PullRequest, PullReviewCard,
+    };
 
     /// #6 P0-6 regression: REVIEW round-trips losslessly through the
     /// component's state_to_str/state_from_str pair. Guards against
@@ -746,5 +832,63 @@ mod tests {
             // since PrState doesn't impl PartialEq).
             assert_eq!(state_to_str(state_from_str(s)), s);
         }
+    }
+
+    fn pull_with_state(id: &str, state: PrState) -> PullRequest {
+        PullRequest {
+            id: id.to_string(),
+            repository: "comtrya://workspace/ws/repository/repo".to_string(),
+            workspace: Some("comtrya://workspace/ws".to_string()),
+            number: 1,
+            title: id.to_string(),
+            body_markdown: String::new(),
+            state,
+            author_ref: "comtrya://user/rawkode".to_string(),
+            head_ref: "feature/x".to_string(),
+            base_ref: "main".to_string(),
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+            merged_at: None,
+            merged_by_ref: None,
+            closed_at: None,
+            closed_by_ref: None,
+        }
+    }
+
+    #[test]
+    fn review_columns_group_cards_by_pr_state() {
+        let columns = review_columns(vec![
+            PullReviewCard {
+                pull_request: pull_with_state("draft", PrState::Draft),
+                terminal: false,
+            },
+            PullReviewCard {
+                pull_request: pull_with_state("ready", PrState::Ready),
+                terminal: false,
+            },
+            PullReviewCard {
+                pull_request: pull_with_state("review", PrState::Review),
+                terminal: false,
+            },
+            PullReviewCard {
+                pull_request: pull_with_state("merged", PrState::Merged),
+                terminal: true,
+            },
+            PullReviewCard {
+                pull_request: pull_with_state("closed", PrState::Closed),
+                terminal: true,
+            },
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["draft", "ready", "review", "merged", "closed"]);
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 5);
+        assert_eq!(columns[0].cards[0].pull_request.id, "draft");
+        assert_eq!(columns[1].cards[0].pull_request.id, "ready");
+        assert_eq!(columns[2].cards[0].pull_request.id, "review");
+        assert_eq!(columns[3].cards[0].pull_request.id, "merged");
+        assert!(columns[3].cards[0].terminal);
+        assert_eq!(columns[4].cards[0].pull_request.id, "closed");
+        assert!(columns[4].cards[0].terminal);
     }
 }

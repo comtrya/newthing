@@ -56,11 +56,35 @@ interface pulls {
     closed-by-ref: option<uri>,
   }
 
+  record pull-review-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-review-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-card>,
+  }
+
+  record pull-review-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-column>,
+  }
+
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
+  review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
 }
 
 world ext-pull-requests {

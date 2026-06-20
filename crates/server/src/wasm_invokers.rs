@@ -94,7 +94,8 @@ mod ext_pull_requests_bindings {
 
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
+    ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest, PullReviewBoard,
+    PullReviewBoardInput, PullReviewCard, PullReviewColumn,
 };
 
 mod ext_checks_bindings {
@@ -289,6 +290,13 @@ struct MergePullInputJson {
 struct ClosePullInputJson {
     id: String,
     closed_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewBoardInputJson {
+    repository: String,
+    limit: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -1691,6 +1699,27 @@ pub fn dispatch_ext_pull_requests(
                     .collect(),
             )
         }
+        "review-board" => {
+            let parsed: PullReviewBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse review-board input: {e}"),
+                )
+            })?;
+            let wit_input = PullReviewBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_review_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("review-board call: {e}"),
+                    )
+                })?;
+            pull_review_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -2384,6 +2413,38 @@ fn pull_request_to_json(pull: &PullRequest) -> Value {
         "mergedByRef": pull.merged_by_ref,
         "closedAt": pull.closed_at,
         "closedByRef": pull.closed_by_ref,
+    })
+}
+
+fn pull_review_board_to_json(board: &PullReviewBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_review_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_column_to_json(column: &PullReviewColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_review_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_card_to_json(card: &PullReviewCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
     })
 }
 
