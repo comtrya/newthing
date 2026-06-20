@@ -135,6 +135,10 @@ function formatUnix(ts: number | null | undefined): string {
   }
 }
 
+function formatLastUsed(ts: number | null | undefined): string {
+  return ts ? formatUnix(ts) : "Never used";
+}
+
 function tokenStatus(token: GitPersonalAccessToken): {
   label: string;
   state: "active" | "revoked" | "expired";
@@ -324,7 +328,7 @@ onMounted(() => {
             </div>
             <div><Chip :tone="tokenStatus(token).tone">{{ tokenStatus(token).label }}</Chip></div>
             <div class="mono">{{ formatUnix(token.expiresAt) }}</div>
-            <div class="mono">{{ formatUnix(token.lastUsedAt) }}</div>
+            <div class="mono">{{ formatLastUsed(token.lastUsedAt) }}</div>
             <div class="mono">{{ formatUnix(token.createdAt) }}</div>
             <div>
               <button
