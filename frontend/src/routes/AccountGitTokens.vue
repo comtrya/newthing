@@ -179,7 +179,9 @@ onMounted(() => {
 
       <div v-if="justMinted" class="glass just-minted">
         <div class="section-hd">
-          <div class="section-hd-title">New token: {{ justMinted.record.name }}</div>
+          <div class="section-hd-title">
+            New personal access token: {{ justMinted.record.name }}
+          </div>
           <div class="section-hd-sub">
             Copy this now. The plaintext will not be shown again.
           </div>
