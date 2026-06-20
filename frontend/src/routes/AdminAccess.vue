@@ -70,7 +70,7 @@ const accessStats = computed(() => {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Access telemetry</div>
+          <div class="eyebrow" style="margin-bottom: 6px">Access controls</div>
           <h1>Authentication and authorization</h1>
           <div class="subline">
             <template v-if="telemetry">
