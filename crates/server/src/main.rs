@@ -10280,6 +10280,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_sprints");
         assert_eq!(info.interface_name, "sprints");
         assert_eq!(info.op_name, "kanban-project-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_sprints",
+            &sprints_route("planning-board"),
+        )
+        .expect("sprint planning board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_sprints");
+        assert_eq!(info.interface_name, "sprints");
+        assert_eq!(info.op_name, "planning-board");
     }
 
     #[test]

@@ -157,7 +157,8 @@ use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
     CreateSprintInput, KanbanBoard, KanbanCard, KanbanCardState, KanbanColumn, KanbanInput,
     KanbanSwimlane, ListSprintsInput, MembersInput, ProjectKanbanBoard, Sprint, SprintBoard,
-    SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintState,
+    SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintPlanningBoard,
+    SprintPlanningCard, SprintPlanningColumn, SprintState,
 };
 
 #[derive(serde::Deserialize)]
@@ -1628,6 +1629,27 @@ pub fn dispatch_ext_sprints(
                 })?;
             sprint_board_to_json(&result.map_err(sprints_error_to_canonical)?)
         }
+        "planning-board" => {
+            let parsed: ListSprintsInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse planning-board input: {e}"),
+                )
+            })?;
+            let wit_input = ListSprintsInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_planning_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("planning-board call: {e}"),
+                    )
+                })?;
+            sprint_planning_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
         "kanban-for-issues" => {
             let parsed: KanbanInputJson = serde_json::from_value(input).map_err(|e| {
                 wit_error(
@@ -2755,6 +2777,38 @@ fn sprint_board_issue_state_to_json(state: SprintBoardIssueState) -> &'static st
         SprintBoardIssueState::Closed => "closed",
         SprintBoardIssueState::Missing => "missing",
     }
+}
+
+fn sprint_planning_board_to_json(board: &SprintPlanningBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(sprint_planning_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_planning_column_to_json(column: &SprintPlanningColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(sprint_planning_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_planning_card_to_json(card: &SprintPlanningCard) -> Value {
+    serde_json::json!({
+        "sprint": sprint_to_json(&card.sprint),
+    })
 }
 
 fn kanban_board_to_json(board: &KanbanBoard) -> Value {

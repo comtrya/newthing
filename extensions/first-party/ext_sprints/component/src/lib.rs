@@ -13,7 +13,8 @@ use bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput, ChangeStateInput, CreateSprintInput, Guest as SprintsGuest, KanbanBoard,
     KanbanCard, KanbanCardState, KanbanColumn, KanbanInput, KanbanSwimlane, ListSprintsInput,
     MembersInput, ProjectKanbanBoard, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
-    SprintBoardIssueState, SprintState,
+    SprintBoardIssueState, SprintPlanningBoard, SprintPlanningCard, SprintPlanningColumn,
+    SprintState,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -393,6 +394,43 @@ fn board_column(
         count: issues.len() as u32,
         issues,
     }
+}
+
+fn planning_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    cards: Vec<SprintPlanningCard>,
+) -> SprintPlanningColumn {
+    SprintPlanningColumn {
+        key: key.into(),
+        label: label.into(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn planning_board_columns(sprints: Vec<Sprint>) -> Vec<SprintPlanningColumn> {
+    let mut planned = Vec::new();
+    let mut active = Vec::new();
+    let mut completed = Vec::new();
+    let mut canceled = Vec::new();
+
+    for sprint in sprints {
+        let card = SprintPlanningCard { sprint };
+        match card.sprint.state {
+            SprintState::Active => active.push(card),
+            SprintState::Completed => completed.push(card),
+            SprintState::Canceled => canceled.push(card),
+            SprintState::Planned => planned.push(card),
+        }
+    }
+
+    vec![
+        planning_column("planned", "Planned", planned),
+        planning_column("active", "Active", active),
+        planning_column("completed", "Completed", completed),
+        planning_column("canceled", "Canceled", canceled),
+    ]
 }
 
 fn kanban_card_state(state: &str) -> KanbanCardState {
@@ -790,6 +828,20 @@ impl SprintsGuest for Component {
         })
     }
 
+    fn planning_board(input: ListSprintsInput) -> Result<SprintPlanningBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let sprints = Self::list_sprints(ListSprintsInput {
+            workspace: workspace.clone(),
+            limit: input.limit,
+        })?;
+        let total = sprints.len() as u32;
+        Ok(SprintPlanningBoard {
+            workspace,
+            total,
+            columns: planning_board_columns(sprints),
+        })
+    }
+
     fn kanban_for_issues(input: KanbanInput) -> Result<KanbanBoard, Error> {
         let (_, workspace) = workspace_uri(input.workspace.trim())?;
         let issue_refs = normalize_issue_refs(input.issue_refs, input.limit)?;
@@ -839,6 +891,21 @@ impl ReactorGuest for Component {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sprint(id: &str, number: u32, state: SprintState) -> Sprint {
+        Sprint {
+            id: id.to_string(),
+            workspace: "comtrya://workspace/ws_test".to_string(),
+            title: id.to_string(),
+            number,
+            state,
+            goal: None,
+            start_date: None,
+            end_date: None,
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+        }
+    }
 
     fn issue(
         id: &str,
@@ -935,6 +1002,26 @@ mod tests {
         assert_eq!(swimlanes[2].key, "project-product");
         assert_eq!(swimlanes[2].project_name.as_deref(), Some("product"));
         assert_eq!(swimlanes[2].total, 1);
+    }
+
+    #[test]
+    fn planning_board_columns_group_sprints_by_lifecycle_state() {
+        let columns = planning_board_columns(vec![
+            sprint("spr_done", 3, SprintState::Completed),
+            sprint("spr_planned", 1, SprintState::Planned),
+            sprint("spr_active", 2, SprintState::Active),
+            sprint("spr_canceled", 4, SprintState::Canceled),
+        ]);
+
+        assert_eq!(columns.len(), 4);
+        assert_eq!(columns[0].key, "planned");
+        assert_eq!(columns[0].cards[0].sprint.id, "spr_planned");
+        assert_eq!(columns[1].key, "active");
+        assert_eq!(columns[1].cards[0].sprint.id, "spr_active");
+        assert_eq!(columns[2].key, "completed");
+        assert_eq!(columns[2].cards[0].sprint.id, "spr_done");
+        assert_eq!(columns[3].key, "canceled");
+        assert_eq!(columns[3].cards[0].sprint.id, "spr_canceled");
     }
 }
 

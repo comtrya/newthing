@@ -2692,6 +2692,14 @@ expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
 json_assert "list-sprints has 1 sprint" "$TMP_DIR/spr-list.json" \
   'json.length === 1'
 
+expect_status "planning-board groups sprints by lifecycle" 200 "$TMP_DIR/spr-planning-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/planning-board"
+json_assert "planning board exposes active sprint lane" "$TMP_DIR/spr-planning-board.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 1 && json.columns.length === 4 && json.columns.find((column) => column.key === \"planned\")?.count === 0 && json.columns.find((column) => column.key === \"active\")?.count === 1 && json.columns.find((column) => column.key === \"active\")?.cards?.[0]?.sprint?.id === \"$SPRINT_ID\" && json.columns.find((column) => column.key === \"completed\")?.count === 0 && json.columns.find((column) => column.key === \"canceled\")?.count === 0"
+
 expect_status "change-state-sprint ACTIVE to COMPLETED" 200 "$TMP_DIR/spr-completed.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
