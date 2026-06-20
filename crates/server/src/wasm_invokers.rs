@@ -130,6 +130,7 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary,
     DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference,
     DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
     DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
@@ -2675,6 +2676,50 @@ fn doc_reference_to_json(reference: &DocReference) -> Value {
     })
 }
 
+fn doc_traceability_board_to_json(board: &DocTraceabilityBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_traceability_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_traceability_column_to_json(column: &DocTraceabilityColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_traceability_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_traceability_card_to_json(card: &DocTraceabilityCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "referenceCount": card.reference_count,
+        "implementationReferenceCount": card.implementation_reference_count,
+        "docReferenceCount": card.doc_reference_count,
+        "otherReferenceCount": card.other_reference_count,
+        "references": card
+            .references
+            .iter()
+            .map(doc_reference_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn doc_outline_summary_to_json(summary: &DocOutlineSummary) -> Value {
     serde_json::json!({
         "path": summary.path,
@@ -3000,6 +3045,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_reference_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "traceability-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse traceability-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_traceability_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("traceability-board call: {e}"),
+                    )
+                })?;
+            doc_traceability_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "summarize-outline" => {
             let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {

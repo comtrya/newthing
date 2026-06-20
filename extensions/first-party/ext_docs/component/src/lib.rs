@@ -14,8 +14,9 @@ use bindings::exports::comtrya::ext_docs::docs::{
     DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
     DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
     DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
-    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTraceabilityBoard,
+    DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -253,6 +254,83 @@ fn decision_board(input: DocCatalogInput) -> Result<DocDecisionBoard, Error> {
                 "Missing review state",
                 missing_review_state,
             ),
+        ],
+    })
+}
+
+fn traceability_board(input: DocCatalogInput) -> Result<DocTraceabilityBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut unlinked = Vec::new();
+    let mut implementation_linked = Vec::new();
+    let mut doc_linked = Vec::new();
+    let mut other_linked = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = required_field("project name", doc_type.project_name)?;
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let references = summarize_references(SummarizeDocInput {
+                path,
+                preview: file.preview,
+            })?;
+            let implementation_reference_count = references
+                .references
+                .iter()
+                .filter(|reference| is_implementation_reference(&reference.kind))
+                .count() as u32;
+            let doc_reference_count = references
+                .references
+                .iter()
+                .filter(|reference| reference.kind == "doc")
+                .count() as u32;
+            let other_reference_count = references
+                .reference_count
+                .saturating_sub(implementation_reference_count + doc_reference_count);
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let card = DocTraceabilityCard {
+                project_name: project_name.clone(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                reference_count: references.reference_count,
+                implementation_reference_count,
+                doc_reference_count,
+                other_reference_count,
+                references: references.references,
+            };
+
+            match traceability_lane(&card) {
+                TraceabilityLane::Unlinked => unlinked.push(card),
+                TraceabilityLane::ImplementationLinked => implementation_linked.push(card),
+                TraceabilityLane::DocLinked => doc_linked.push(card),
+                TraceabilityLane::OtherLinked => other_linked.push(card),
+            }
+            total_docs += 1;
+        }
+    }
+
+    Ok(DocTraceabilityBoard {
+        total_docs,
+        columns: vec![
+            traceability_column("unlinked", "Unlinked", unlinked),
+            traceability_column(
+                "implementation-linked",
+                "Implementation linked",
+                implementation_linked,
+            ),
+            traceability_column("doc-linked", "Doc linked", doc_linked),
+            traceability_column("other-linked", "Other links", other_linked),
         ],
     })
 }
@@ -1007,6 +1085,19 @@ fn decision_column(
     }
 }
 
+fn traceability_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocTraceabilityCard>,
+) -> DocTraceabilityColumn {
+    DocTraceabilityColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 enum StatusLane {
     Draft,
     Active,
@@ -1044,6 +1135,13 @@ enum DecisionLane {
     MissingReviewState,
 }
 
+enum TraceabilityLane {
+    Unlinked,
+    ImplementationLinked,
+    DocLinked,
+    OtherLinked,
+}
+
 fn readiness_lane(card: &DocReadinessCard) -> ReadinessLane {
     if card.checklist_total > card.checklist_checked {
         return ReadinessLane::InProgress;
@@ -1072,6 +1170,26 @@ fn decision_lane(card: &DocDecisionCard) -> DecisionLane {
     }
 
     DecisionLane::MissingReviewState
+}
+
+fn traceability_lane(card: &DocTraceabilityCard) -> TraceabilityLane {
+    if card.implementation_reference_count > 0 {
+        return TraceabilityLane::ImplementationLinked;
+    }
+
+    if card.doc_reference_count > 0 {
+        return TraceabilityLane::DocLinked;
+    }
+
+    if card.other_reference_count > 0 {
+        return TraceabilityLane::OtherLinked;
+    }
+
+    TraceabilityLane::Unlinked
+}
+
+fn is_implementation_reference(kind: &str) -> bool {
+    matches!(kind, "epic" | "issue" | "issue-number" | "pull-request")
 }
 
 fn required_field(label: &str, value: String) -> Result<String, Error> {
@@ -1189,6 +1307,10 @@ impl DocsGuest for Component {
         crate::summarize_references(input)
     }
 
+    fn traceability_board(input: DocCatalogInput) -> Result<DocTraceabilityBoard, Error> {
+        crate::traceability_board(input)
+    }
+
     fn summarize_outline(input: SummarizeDocInput) -> Result<DocOutlineSummary, Error> {
         crate::summarize_outline(input)
     }
@@ -1227,7 +1349,7 @@ mod tests {
     use super::{
         decision_board, readiness_board, status_board, summarize_catalog, summarize_checklists,
         summarize_decisions, summarize_outline, summarize_preview, summarize_references,
-        summarize_scenarios, MAX_CATALOG_DOCS,
+        summarize_scenarios, traceability_board, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1589,6 +1711,113 @@ comtrya://issue/ignored
             .references
             .iter()
             .all(|reference| reference.line > 0));
+    }
+
+    #[test]
+    fn traceability_board_groups_docs_by_link_coverage() {
+        let board = traceability_board(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: "prd".to_string(),
+                label: "Backend PRDs".to_string(),
+                description: None,
+                slug: "server/docs/prds".to_string(),
+                files: vec![
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/unlinked.mdx".to_string(),
+                        preview: r#"---
+title: Unlinked PRD
+status: draft
+---
+
+Intent without implementation links.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/implementation-linked.mdx".to_string(),
+                        preview: r#"---
+title: Implementation Linked PRD
+status: active
+---
+
+Tracks comtrya://epic/epc_01KVJZ0TRACE, #42, and comtrya://pull-request/pr_01KVJZ0TRACE.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/doc-linked.mdx".to_string(),
+                        preview: r#"---
+title: Doc Linked PRD
+status: review
+---
+
+Scenario coverage lives at comtrya://doc/scenario/repository-docs-surface.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/other-linked.mdx".to_string(),
+                        preview: r#"---
+title: Other Linked PRD
+status: planned
+---
+
+Release note lives at comtrya://release/rel_01KVJZ0TRACE.
+"#
+                        .to_string(),
+                    },
+                ],
+            }],
+        })
+        .expect("traceability board should summarize");
+
+        assert_eq!(board.total_docs, 4);
+
+        let unlinked = board
+            .columns
+            .iter()
+            .find(|column| column.key == "unlinked")
+            .expect("unlinked column");
+        assert_eq!(unlinked.count, 1);
+        assert_eq!(unlinked.docs[0].title, "Unlinked PRD");
+        assert_eq!(unlinked.docs[0].reference_count, 0);
+
+        let implementation_linked = board
+            .columns
+            .iter()
+            .find(|column| column.key == "implementation-linked")
+            .expect("implementation linked column");
+        assert_eq!(implementation_linked.count, 1);
+        assert_eq!(
+            implementation_linked.docs[0].title,
+            "Implementation Linked PRD"
+        );
+        assert_eq!(
+            implementation_linked.docs[0].implementation_reference_count,
+            3
+        );
+        assert_eq!(implementation_linked.docs[0].status, "active");
+        assert_eq!(implementation_linked.docs[0].type_label, "Backend PRDs");
+        assert_eq!(implementation_linked.docs[0].references.len(), 3);
+
+        let doc_linked = board
+            .columns
+            .iter()
+            .find(|column| column.key == "doc-linked")
+            .expect("doc linked column");
+        assert_eq!(doc_linked.count, 1);
+        assert_eq!(doc_linked.docs[0].doc_reference_count, 1);
+        assert_eq!(doc_linked.docs[0].references[0].kind, "doc");
+
+        let other_linked = board
+            .columns
+            .iter()
+            .find(|column| column.key == "other-linked")
+            .expect("other linked column");
+        assert_eq!(other_linked.count, 1);
+        assert_eq!(other_linked.docs[0].other_reference_count, 1);
+        assert_eq!(other_linked.docs[0].references[0].kind, "release");
     }
 
     #[test]

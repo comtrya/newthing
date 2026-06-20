@@ -1535,6 +1535,70 @@ expect_status "ext_docs summarize-references extracts forge traceability links" 
 json_assert "ext_docs summarize-references returns internal references only" "$TMP_DIR/docs-references.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.referenceCount === 4 && json.references.some((reference) => reference.kind === "epic" && reference.target === "comtrya://epic/epc_01KVJZ0TRACE" && reference.label === "repository docs epic") && json.references.some((reference) => reference.kind === "issue-number" && reference.target === "#42") && json.references.some((reference) => reference.kind === "doc" && reference.target === "comtrya://doc/scenario/repository-docs-surface") && json.references.some((reference) => reference.kind === "pull-request" && reference.target === "comtrya://pull-request/pr_01KVJZ0TRACE") && json.references.every((reference) => reference.line > 0)'
 
+DOC_TRACEABILITY_PAYLOAD="$TMP_DIR/docs-traceability-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/unlinked.mdx",
+            preview:
+              "---\n" +
+              "title: Unlinked PRD\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "Intent without implementation links.\n",
+          },
+          {
+            path: "crates/server/docs/prds/implementation-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Implementation Linked PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Tracks comtrya://epic/epc_01KVJZ0TRACE, #42, and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+          {
+            path: "crates/server/docs/prds/doc-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Doc Linked PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "Scenario coverage lives at comtrya://doc/scenario/repository-docs-surface.\n",
+          },
+          {
+            path: "crates/server/docs/prds/other-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Other Linked PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Release note lives at comtrya://release/rel_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_TRACEABILITY_PAYLOAD"
+expect_status "ext_docs traceability-board groups docs by forge links" 200 "$TMP_DIR/docs-traceability.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_TRACEABILITY_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/traceability-board"
+json_assert "ext_docs traceability-board returns unlinked implementation doc and other lanes" "$TMP_DIR/docs-traceability.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "unlinked")?.docs?.[0]?.referenceCount === 0 && json.columns.find((column) => column.key === "implementation-linked")?.docs?.[0]?.implementationReferenceCount === 3 && json.columns.find((column) => column.key === "implementation-linked")?.docs?.[0]?.references?.some((reference) => reference.kind === "pull-request") && json.columns.find((column) => column.key === "doc-linked")?.docs?.[0]?.docReferenceCount === 1 && json.columns.find((column) => column.key === "other-linked")?.docs?.[0]?.otherReferenceCount === 1'
+
 DOC_OUTLINE_PAYLOAD="$TMP_DIR/docs-outline-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

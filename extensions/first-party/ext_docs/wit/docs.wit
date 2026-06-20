@@ -139,6 +139,32 @@ interface docs {
     references: list<doc-reference>,
   }
 
+  record doc-traceability-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    reference-count: u32,
+    implementation-reference-count: u32,
+    doc-reference-count: u32,
+    other-reference-count: u32,
+    references: list<doc-reference>,
+  }
+
+  record doc-traceability-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-traceability-card>,
+  }
+
+  record doc-traceability-board {
+    total-docs: u32,
+    columns: list<doc-traceability-column>,
+  }
+
   record doc-outline-heading {
     level: u32,
     title: string,
@@ -245,6 +271,10 @@ interface docs {
   /// Extract forge-local references from product docs so PRDs, specs, BDD
   /// scenarios, issues, epics, and pull requests can be traced together.
   summarize-references: func(input: summarize-doc-input) -> result<doc-reference-summary, error>;
+
+  /// Group product docs by implementation and document traceability so
+  /// unlinked PRDs/specs/scenarios are visible before work drifts away.
+  traceability-board: func(input: doc-catalog-input) -> result<doc-traceability-board, error>;
 
   /// Extract a Markdown/MDX heading outline so docs surfaces can render
   /// familiar in-page navigation without shell-side Markdown parsing.
