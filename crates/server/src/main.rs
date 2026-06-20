@@ -10233,6 +10233,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_epics");
         assert_eq!(info.interface_name, "epics");
         assert_eq!(info.op_name, "owner-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("project-board"),
+        )
+        .expect("epic project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "project-board");
     }
 
     #[test]

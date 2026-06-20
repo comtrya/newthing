@@ -11,8 +11,9 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicOwnerBoard, EpicOwnerCard,
-    EpicOwnerColumn, EpicProgress, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState,
-    Guest as EpicsGuest, OwnerBoardInput, RoadmapBoardInput, UpdateEpicInput,
+    EpicOwnerColumn, EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn,
+    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, Guest as EpicsGuest,
+    OwnerBoardInput, ProjectBoardInput, RoadmapBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -553,6 +554,71 @@ fn owner_columns(cards: Vec<EpicOwnerCard>) -> Vec<EpicOwnerColumn> {
     columns
 }
 
+fn epic_project_key(project_name: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in project_name.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        format!("project-{key}")
+    }
+}
+
+fn project_column(
+    key: &str,
+    label: &str,
+    project_name: Option<String>,
+    cards: Vec<EpicProjectCard>,
+) -> EpicProjectColumn {
+    EpicProjectColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        project_name,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn project_columns(cards: Vec<EpicProjectCard>) -> Vec<EpicProjectColumn> {
+    let mut unscoped = Vec::new();
+    let mut scoped: BTreeMap<String, (String, Vec<EpicProjectCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let project_name = card
+            .epic
+            .project_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|project_name| !project_name.is_empty())
+            .map(str::to_string);
+        let Some(project_name) = project_name else {
+            unscoped.push(card);
+            continue;
+        };
+        let key = epic_project_key(&project_name);
+        let entry = scoped
+            .entry(key)
+            .or_insert_with(|| (project_name, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![project_column("unscoped", "Unscoped", None, unscoped)];
+    columns.extend(scoped.into_iter().map(|(key, (project_name, cards))| {
+        project_column(&key, &project_name, Some(project_name.clone()), cards)
+    }));
+    columns
+}
+
 impl EpicsGuest for Component {
     fn create_epic(input: CreateEpicInput) -> Result<Epic, Error> {
         let (workspace_id, workspace) = workspace_uri(input.workspace.trim())?;
@@ -855,6 +921,27 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn project_board(input: ProjectBoardInput) -> Result<EpicProjectBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicProjectCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicProjectBoard {
+            workspace,
+            total,
+            columns: project_columns(cards),
+        })
+    }
+
     fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "issue", limit)
     }
@@ -924,6 +1011,15 @@ mod tests {
         }
     }
 
+    fn project_card(id: &str, project_name: Option<&str>) -> EpicProjectCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.project_name = project_name.map(str::to_string);
+        EpicProjectCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
     #[test]
     fn roadmap_columns_group_cards_by_epic_state() {
         let columns = roadmap_columns(vec![
@@ -985,5 +1081,35 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["rawkode", "rawkode-two"]
         );
+    }
+
+    #[test]
+    fn project_columns_group_unscoped_and_project_epics() {
+        let columns = project_columns(vec![
+            project_card("unscoped", None),
+            project_card("kernel", Some("kernel")),
+            project_card("product", Some("Product Design")),
+            project_card("kernel-two", Some("kernel")),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["unscoped", "project-kernel", "project-product-design"]
+        );
+        assert_eq!(columns[0].project_name, None);
+        assert_eq!(columns[0].cards[0].epic.id, "unscoped");
+        assert_eq!(columns[1].project_name.as_deref(), Some("kernel"));
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["kernel", "kernel-two"]
+        );
+        assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
+        assert_eq!(columns[2].cards[0].epic.id, "product");
     }
 }

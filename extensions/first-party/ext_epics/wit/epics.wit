@@ -4,7 +4,7 @@
 // machine is PLANNED → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.6;
+package comtrya:ext-epics@0.1.7;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -135,6 +135,30 @@ interface epics {
     columns: list<epic-owner-column>,
   }
 
+  record project-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-project-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    cards: list<epic-project-card>,
+  }
+
+  record epic-project-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-project-column>,
+  }
+
   create-epic: func(input: create-epic-input) -> result<epic, error>;
   change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   assign-project: func(input: assign-project-input) -> result<epic, error>;
@@ -151,6 +175,9 @@ interface epics {
   /// Familiar ownership lanes for planning surfaces. Unowned epics are
   /// explicit, while owned epics are grouped by their typed owner ref.
   owner-board: func(input: owner-board-input) -> result<epic-owner-board, error>;
+  /// Familiar Project lanes for product planning surfaces. Unscoped
+  /// epics stay visible instead of disappearing from Project views.
+  project-board: func(input: project-board-input) -> result<epic-project-board, error>;
   /// Issues that are members of this epic. Capped server-side at
   /// `min(limit, 1024)`; silently truncated beyond that. Per the
   /// per-extension list-op convention (see `docs/wit-platform-design.md`).

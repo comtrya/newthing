@@ -84,8 +84,9 @@ mod ext_epics_bindings {
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
-    EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicProgress, EpicRoadmapBoard,
-    EpicRoadmapCard, EpicRoadmapColumn, EpicState, OwnerBoardInput, RoadmapBoardInput,
+    EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicProgress, EpicProjectBoard,
+    EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn,
+    EpicState, OwnerBoardInput, ProjectBoardInput as EpicsProjectBoardInput, RoadmapBoardInput,
     UpdateEpicInput,
 };
 
@@ -267,6 +268,13 @@ struct RoadmapBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OwnerBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicProjectBoardInputJson {
     workspace: String,
     limit: u32,
 }
@@ -1262,6 +1270,27 @@ pub fn dispatch_ext_epics(
                     )
                 })?;
             epic_owner_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: EpicProjectBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse project-board input: {e}"),
+                )
+            })?;
+            let wit_input = EpicsProjectBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            epic_project_board_to_json(&result.map_err(epic_error_to_canonical)?)
         }
         "issues-in-epic" => {
             let ref_uri = string_field(&input, "ref", "issues-in-epic")?;
@@ -2518,6 +2547,40 @@ fn epic_owner_column_to_json(column: &EpicOwnerColumn) -> Value {
 }
 
 fn epic_owner_card_to_json(card: &EpicOwnerCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_project_board_to_json(board: &EpicProjectBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_project_column_to_json(column: &EpicProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_project_card_to_json(card: &EpicProjectCard) -> Value {
     serde_json::json!({
         "epic": epic_to_json(&card.epic),
         "progress": epic_progress_to_json(&card.progress),
