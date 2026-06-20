@@ -114,7 +114,9 @@ mod ext_checks_bindings {
 use ext_checks_bindings::ExtChecks;
 use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
     CheckReadinessBoard, CheckReadinessBoardInput, CheckReadinessCard, CheckReadinessColumn,
-    CheckRun, CheckState, RecordCheckInput,
+    CheckRun, CheckState, ExpectedCheck, ExpectedCheckReadinessBoard,
+    ExpectedCheckReadinessBoardInput, ExpectedCheckReadinessCard, ExpectedCheckReadinessColumn,
+    RecordCheckInput,
 };
 
 mod ext_workspace_home_bindings {
@@ -375,6 +377,24 @@ struct CheckReadinessBoardInputJson {
     repository: String,
     #[serde(default, rename = "commitOID")]
     commit_oid: Option<String>,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpectedCheckJson {
+    name: String,
+    required: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpectedCheckReadinessBoardInputJson {
+    repository: String,
+    #[serde(rename = "commitOID")]
+    commit_oid: String,
+    #[serde(default)]
+    expected: Vec<ExpectedCheckJson>,
     limit: u32,
 }
 
@@ -2032,9 +2052,8 @@ pub fn dispatch_ext_checks(
         ));
     }
     let input = parse_payload(payload)?;
-    // Repository-scoped opt-in gate. Both ext_checks ops carry the target
-    // repo inline (record-check, list-checks); the typed route table gates
-    // them here before the component runs.
+    // Repository-scoped opt-in gate. ext_checks ops carry the target repo
+    // inline; the typed route table gates them here before the component runs.
     let gate_store = store.clone();
     gate_route_pre_invoke(
         registry,
@@ -2151,6 +2170,37 @@ pub fn dispatch_ext_checks(
                     )
                 })?;
             check_readiness_board_to_json(&result.map_err(checks_error_to_canonical)?)
+        }
+        "expected-readiness-board" => {
+            let parsed: ExpectedCheckReadinessBoardInputJson = serde_json::from_value(input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse expected-readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = ExpectedCheckReadinessBoardInput {
+                repository: parsed.repository,
+                commit_oid: parsed.commit_oid,
+                expected: parsed
+                    .expected
+                    .into_iter()
+                    .map(|expected| ExpectedCheck {
+                        name: expected.name,
+                        required: expected.required,
+                    })
+                    .collect(),
+                limit: parsed.limit,
+            };
+            let result = checks
+                .call_expected_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("expected-readiness-board call: {e}"),
+                    )
+                })?;
+            expected_check_readiness_board_to_json(&result.map_err(checks_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
@@ -3093,6 +3143,42 @@ fn check_readiness_card_to_json(card: &CheckReadinessCard) -> Value {
     serde_json::json!({
         "check": check_run_to_json(&card.check),
         "blocking": card.blocking,
+    })
+}
+
+fn expected_check_readiness_board_to_json(board: &ExpectedCheckReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "commitOID": board.commit_oid,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(expected_check_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_check_readiness_column_to_json(column: &ExpectedCheckReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(expected_check_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_check_readiness_card_to_json(card: &ExpectedCheckReadinessCard) -> Value {
+    serde_json::json!({
+        "name": card.name,
+        "required": card.required,
+        "check": card.check.as_ref().map(check_run_to_json),
+        "blocking": card.blocking,
+        "missing": card.missing,
     })
 }
 

@@ -10302,6 +10302,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_checks");
         assert_eq!(info.interface_name, "checks");
         assert_eq!(info.op_name, "readiness-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_checks",
+            &checks_route("expected-readiness-board"),
+        )
+        .expect("expected checks readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_checks");
+        assert_eq!(info.interface_name, "checks");
+        assert_eq!(info.op_name, "expected-readiness-board");
     }
 
     #[test]
