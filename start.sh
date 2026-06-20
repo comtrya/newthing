@@ -2488,6 +2488,14 @@ expect_status "epic project-board groups epics by project and unscoped lane" 200
 json_assert "epic project board exposes unscoped and kernel lanes with progress" "$TMP_DIR/epc-project-board.json" \
   "json.total === 2 && json.columns.find((c) => c.key === \"unscoped\").projectName === null && json.columns.find((c) => c.key === \"unscoped\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"project-kernel\").projectName === \"kernel\" && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
 
+expect_status "target-board groups epics by target date health" 200 "$TMP_DIR/epc-target-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/target-board"
+json_assert "target board exposes no-target and completed lanes with progress" "$TMP_DIR/epc-target-board.json" \
+  "json.total === 2 && /^\\d{4}-\\d{2}-\\d{2}$/.test(json.today) && json.columns.length === 6 && json.columns.find((c) => c.key === \"no-target\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"completed\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
 expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

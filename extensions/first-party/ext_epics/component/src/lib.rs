@@ -12,8 +12,9 @@ use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicOwnerBoard, EpicOwnerCard,
     EpicOwnerColumn, EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn,
-    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, Guest as EpicsGuest,
-    OwnerBoardInput, ProjectBoardInput, RoadmapBoardInput, UpdateEpicInput,
+    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, EpicTargetBoard,
+    EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest, OwnerBoardInput, ProjectBoardInput,
+    RoadmapBoardInput, TargetBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -619,6 +620,85 @@ fn project_columns(cards: Vec<EpicProjectCard>) -> Vec<EpicProjectColumn> {
     columns
 }
 
+#[derive(Clone, Copy)]
+enum TargetLane {
+    NoTarget,
+    Overdue,
+    DueToday,
+    Upcoming,
+    Completed,
+    InvalidTarget,
+}
+
+fn iso_date_prefix(value: &str) -> Option<&str> {
+    let date = value.trim().get(..10)?;
+    let bytes = date.as_bytes();
+    let valid = bytes.len() == 10
+        && bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+    valid.then_some(date)
+}
+
+fn target_lane(epic: &Epic, today: &str) -> TargetLane {
+    if matches!(epic.state, EpicState::Done | EpicState::Canceled) {
+        return TargetLane::Completed;
+    }
+    let Some(target_date) = epic.target_date.as_deref() else {
+        return TargetLane::NoTarget;
+    };
+    let Some(target_date) = iso_date_prefix(target_date) else {
+        return TargetLane::InvalidTarget;
+    };
+    if target_date < today {
+        TargetLane::Overdue
+    } else if target_date == today {
+        TargetLane::DueToday
+    } else {
+        TargetLane::Upcoming
+    }
+}
+
+fn target_column(key: &str, label: &str, cards: Vec<EpicTargetCard>) -> EpicTargetColumn {
+    EpicTargetColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn target_columns(cards: Vec<EpicTargetCard>, today: &str) -> Vec<EpicTargetColumn> {
+    let mut no_target = Vec::new();
+    let mut overdue = Vec::new();
+    let mut due_today = Vec::new();
+    let mut upcoming = Vec::new();
+    let mut completed = Vec::new();
+    let mut invalid_target = Vec::new();
+
+    for card in cards {
+        match target_lane(&card.epic, today) {
+            TargetLane::NoTarget => no_target.push(card),
+            TargetLane::Overdue => overdue.push(card),
+            TargetLane::DueToday => due_today.push(card),
+            TargetLane::Upcoming => upcoming.push(card),
+            TargetLane::Completed => completed.push(card),
+            TargetLane::InvalidTarget => invalid_target.push(card),
+        }
+    }
+
+    vec![
+        target_column("no-target", "No target", no_target),
+        target_column("overdue", "Overdue", overdue),
+        target_column("due-today", "Due today", due_today),
+        target_column("upcoming", "Upcoming", upcoming),
+        target_column("completed", "Completed", completed),
+        target_column("invalid-target", "Invalid target", invalid_target),
+    ]
+}
+
 impl EpicsGuest for Component {
     fn create_epic(input: CreateEpicInput) -> Result<Epic, Error> {
         let (workspace_id, workspace) = workspace_uri(input.workspace.trim())?;
@@ -942,6 +1022,31 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn target_board(input: TargetBoardInput) -> Result<EpicTargetBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let today = iso_date_prefix(&time::now_iso())
+            .unwrap_or("0000-00-00")
+            .to_string();
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicTargetCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicTargetBoard {
+            workspace,
+            today: today.clone(),
+            total,
+            columns: target_columns(cards, &today),
+        })
+    }
+
     fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "issue", limit)
     }
@@ -1015,6 +1120,15 @@ mod tests {
         let mut epic = epic(id, EpicState::Planned);
         epic.project_name = project_name.map(str::to_string);
         EpicProjectCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    fn target_card(id: &str, state: EpicState, target_date: Option<&str>) -> EpicTargetCard {
+        let mut epic = epic(id, state);
+        epic.target_date = target_date.map(str::to_string);
+        EpicTargetCard {
             epic,
             progress: progress(0),
         }
@@ -1111,5 +1225,39 @@ mod tests {
         );
         assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
         assert_eq!(columns[2].cards[0].epic.id, "product");
+    }
+
+    #[test]
+    fn target_columns_group_epics_by_target_health() {
+        let columns = target_columns(
+            vec![
+                target_card("untargeted", EpicState::Planned, None),
+                target_card("late", EpicState::InProgress, Some("2026-06-19")),
+                target_card("today", EpicState::AtRisk, Some("2026-06-20")),
+                target_card("next", EpicState::Planned, Some("2026-06-21")),
+                target_card("done", EpicState::Done, Some("2026-06-01")),
+                target_card("bad", EpicState::Planned, Some("soon")),
+            ],
+            "2026-06-20",
+        );
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "no-target",
+                "overdue",
+                "due-today",
+                "upcoming",
+                "completed",
+                "invalid-target"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "untargeted");
+        assert_eq!(columns[1].cards[0].epic.id, "late");
+        assert_eq!(columns[2].cards[0].epic.id, "today");
+        assert_eq!(columns[3].cards[0].epic.id, "next");
+        assert_eq!(columns[4].cards[0].epic.id, "done");
+        assert_eq!(columns[5].cards[0].epic.id, "bad");
     }
 }
