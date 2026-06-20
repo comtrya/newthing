@@ -4,13 +4,15 @@ mod bindings;
 
 use bindings::comtrya::platform::events;
 use bindings::comtrya::platform::ids;
+use bindings::comtrya::platform::ops;
 use bindings::comtrya::platform::relations;
 use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput, ChangeStateInput, CreateSprintInput, Guest as SprintsGuest, ListSprintsInput,
-    MembersInput, Sprint, SprintState,
+    MembersInput, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
+    SprintBoardIssueState, SprintState,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -53,6 +55,15 @@ struct WorkspaceCounter {
     id: String,
     storage_id: String,
     next: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueLookup {
+    id: String,
+    title: String,
+    state: String,
+    number: u64,
 }
 
 impl StoredSprint {
@@ -319,6 +330,62 @@ fn read_by_ref(ref_uri: &str) -> Result<Option<StoredSprint>, Error> {
     read_stored(&id)
 }
 
+fn issue_uris_in_sprint(sprint_ref: &str, limit: u32) -> Result<Vec<String>, Error> {
+    let prefix = "comtrya://issue/";
+    let cap = limit.min(1024) as usize;
+    let mut out: Vec<String> = Vec::with_capacity(cap.min(64));
+    let mut after: Option<bindings::comtrya::platform::types::PageToken> = None;
+    loop {
+        let page = relations::incoming(sprint_ref, Some(PART_OF), 1024, after.as_ref())?;
+        let next = page.next_page;
+        for relation in page.relations {
+            if relation.source.starts_with(prefix) {
+                out.push(relation.source);
+                if out.len() >= cap {
+                    return Ok(out);
+                }
+            }
+        }
+        match next {
+            Some(cursor) => after = Some(cursor),
+            None => break,
+        }
+    }
+    Ok(out)
+}
+
+fn issue_lookups(refs: &[String]) -> Result<Vec<Option<IssueLookup>>, Error> {
+    if refs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let payload = serde_json::to_vec(refs)
+        .map_err(|error| err(ErrorCode::Internal, format!("serialise issue refs: {error}")))?;
+    let bytes = ops::invoke("ext_issues", "issues.by-refs-issue", &payload)?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| err(ErrorCode::Internal, format!("parse issue refs: {error}")))
+}
+
+fn board_issue_state(state: &str) -> SprintBoardIssueState {
+    match state {
+        "closed" => SprintBoardIssueState::Closed,
+        "reopened" => SprintBoardIssueState::Reopened,
+        _ => SprintBoardIssueState::Open,
+    }
+}
+
+fn board_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    issues: Vec<SprintBoardIssue>,
+) -> SprintBoardColumn {
+    SprintBoardColumn {
+        key: key.into(),
+        label: label.into(),
+        count: issues.len() as u32,
+        issues,
+    }
+}
+
 fn sprint_uri(id: &str) -> String {
     format!("comtrya://sprint/{id}")
 }
@@ -457,27 +524,62 @@ impl SprintsGuest for Component {
     }
 
     fn issues_in_sprint(input: MembersInput) -> Result<Vec<String>, Error> {
-        let prefix = "comtrya://issue/";
-        let cap = input.limit.min(1024) as usize;
-        let mut out: Vec<String> = Vec::with_capacity(cap.min(64));
-        let mut after: Option<bindings::comtrya::platform::types::PageToken> = None;
-        loop {
-            let page = relations::incoming(&input.ref_, Some(PART_OF), 1024, after.as_ref())?;
-            let next = page.next_page;
-            for relation in page.relations {
-                if relation.source.starts_with(prefix) {
-                    out.push(relation.source);
-                    if out.len() >= cap {
-                        return Ok(out);
-                    }
-                }
-            }
-            match next {
-                Some(cursor) => after = Some(cursor),
-                None => break,
+        issue_uris_in_sprint(&input.ref_, input.limit)
+    }
+
+    fn board_for_sprint(input: MembersInput) -> Result<SprintBoard, Error> {
+        if read_by_ref(&input.ref_)?.is_none() {
+            return Err(err(
+                ErrorCode::NotFound,
+                format!("sprint not found: {}", input.ref_),
+            ));
+        }
+
+        let issue_refs = issue_uris_in_sprint(&input.ref_, input.limit)?;
+        let lookups = issue_lookups(&issue_refs)?;
+        let mut open = Vec::new();
+        let mut closed = Vec::new();
+        let mut missing = Vec::new();
+
+        for (index, issue_ref) in issue_refs.iter().enumerate() {
+            let Some(issue) = lookups.get(index).and_then(Option::as_ref) else {
+                missing.push(SprintBoardIssue {
+                    issue_ref: issue_ref.clone(),
+                    id: None,
+                    number: None,
+                    title: issue_ref.clone(),
+                    state: SprintBoardIssueState::Missing,
+                });
+                continue;
+            };
+
+            let board_issue = SprintBoardIssue {
+                issue_ref: issue_ref.clone(),
+                id: Some(issue.id.clone()),
+                number: Some(issue.number),
+                title: issue.title.clone(),
+                state: board_issue_state(&issue.state),
+            };
+            if issue.state == "closed" {
+                closed.push(board_issue);
+            } else {
+                open.push(board_issue);
             }
         }
-        Ok(out)
+
+        let mut columns = vec![
+            board_column("open", "Open", open),
+            board_column("closed", "Done", closed),
+        ];
+        if !missing.is_empty() {
+            columns.push(board_column("missing", "Missing", missing));
+        }
+
+        Ok(SprintBoard {
+            sprint_ref: input.ref_,
+            total: issue_refs.len() as u32,
+            columns,
+        })
     }
 }
 

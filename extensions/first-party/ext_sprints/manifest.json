@@ -59,11 +59,14 @@
     "storage.read", "storage.write",
     "relations.read", "relations.write",
     "events.write",
-    "time", "ids", "log"
+    "time", "ids", "ops", "log"
   ],
   "allowedEmits": [
     "dev.comtrya.sprint.created",
     "dev.comtrya.sprint.state-changed"
+  ],
+  "requiresExtensionPoints": [
+    { "provider": "ext_issues", "point": "issue-membership", "version": 1 }
   ],
   "reactor": {
     "allowedMutations": [],

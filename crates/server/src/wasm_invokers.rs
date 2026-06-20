@@ -138,7 +138,8 @@ mod ext_sprints_bindings {
 use ext_sprints_bindings::ExtSprints;
 use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
-    CreateSprintInput, ListSprintsInput, MembersInput, Sprint, SprintState,
+    CreateSprintInput, ListSprintsInput, MembersInput, Sprint, SprintBoard, SprintBoardColumn,
+    SprintBoardIssue, SprintBoardIssueState, SprintState,
 };
 
 #[derive(serde::Deserialize)]
@@ -1319,6 +1320,27 @@ pub fn dispatch_ext_sprints(
                     .collect(),
             )
         }
+        "board-for-sprint" => {
+            let parsed: MembersInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse board-for-sprint input: {e}"),
+                )
+            })?;
+            let wit_input = MembersInput {
+                ref_: parsed.ref_,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_board_for_sprint(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("board-for-sprint call: {e}"),
+                    )
+                })?;
+            sprint_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -2036,6 +2058,50 @@ fn sprint_to_json(sprint: &Sprint) -> Value {
         "createdAt": sprint.created_at,
         "updatedAt": sprint.updated_at,
     })
+}
+
+fn sprint_board_to_json(board: &SprintBoard) -> Value {
+    serde_json::json!({
+        "sprintRef": board.sprint_ref,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(sprint_board_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_board_column_to_json(column: &SprintBoardColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "issues": column
+            .issues
+            .iter()
+            .map(sprint_board_issue_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_board_issue_to_json(issue: &SprintBoardIssue) -> Value {
+    serde_json::json!({
+        "issueRef": issue.issue_ref,
+        "id": issue.id,
+        "number": issue.number,
+        "title": issue.title,
+        "state": sprint_board_issue_state_to_json(issue.state),
+    })
+}
+
+fn sprint_board_issue_state_to_json(state: SprintBoardIssueState) -> &'static str {
+    match state {
+        SprintBoardIssueState::Open => "open",
+        SprintBoardIssueState::Reopened => "reopened",
+        SprintBoardIssueState::Closed => "closed",
+        SprintBoardIssueState::Missing => "missing",
+    }
 }
 
 fn sprint_state_to_graphql(state: SprintState) -> &'static str {

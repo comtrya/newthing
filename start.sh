@@ -1912,6 +1912,14 @@ expect_status "issues-in-sprint returns the assigned issue" 200 "$TMP_DIR/spr-is
 json_assert "issues-in-sprint has the issue URN" "$TMP_DIR/spr-issues.json" \
   "json.length === 1 && json[0] === \"comtrya://issue/$ISSUE_ONE_ID\""
 
+expect_status "board-for-sprint groups the assigned issue" 200 "$TMP_DIR/spr-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"ref\":\"$SPRINT_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/board-for-sprint"
+json_assert "sprint board has one open card and empty done column" "$TMP_DIR/spr-board.json" \
+  "json.sprintRef === \"$SPRINT_REF\" && json.total === 1 && json.columns.find((column) => column.key === \"open\")?.count === 1 && json.columns.find((column) => column.key === \"open\")?.issues?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"closed\")?.count === 0"
+
 expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

@@ -105,7 +105,7 @@
     {
       "id": "issue-membership",
       "version": 1,
-      "ops": ["issues.state-counts-for-refs-issue"]
+      "ops": ["issues.by-refs-issue", "issues.state-counts-for-refs-issue"]
     },
     {
       "id": "issue-linkage",
