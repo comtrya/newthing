@@ -28,7 +28,7 @@ const scope = computed(() => repoPath.value || "Workspace");
 
     <article class="runtime-empty-panel">
       <h2>No workflow runs yet</h2>
-      <p>Workflow runs will appear here when they are recorded for this scope.</p>
+      <p>Workflow runs will appear here when workflows run in this workspace.</p>
     </article>
   </section>
 </template>
