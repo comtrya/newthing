@@ -84,6 +84,29 @@ interface docs {
     columns: list<doc-status-column>,
   }
 
+  record doc-owner-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+  }
+
+  record doc-owner-column {
+    key: string,
+    label: string,
+    owner: option<string>,
+    count: u32,
+    docs: list<doc-owner-card>,
+  }
+
+  record doc-owner-board {
+    total-docs: u32,
+    columns: list<doc-owner-column>,
+  }
+
   record bdd-step {
     keyword: string,
     text: string,
@@ -284,6 +307,10 @@ interface docs {
   /// Status comes from front matter; missing or unknown statuses are surfaced
   /// explicitly so project docs do not look healthier than they are.
   status-board: func(input: doc-catalog-input) -> result<doc-status-board, error>;
+
+  /// Group project docs by front-matter owner so specs, PRDs, and BDD scenarios
+  /// can be reviewed by responsibility instead of only by type or lifecycle.
+  owner-board: func(input: doc-catalog-input) -> result<doc-owner-board, error>;
 
   /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
   /// indexed beside PRDs and specs without the shell parsing Gherkin itself.

@@ -131,11 +131,11 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
     DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
     DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary,
-    DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference,
-    DocReferenceSummary, DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard,
-    DocStatusCard, DocStatusColumn, DocSummary, DocTraceabilityBoard, DocTraceabilityCard,
-    DocTraceabilityColumn, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    DocOwnerBoard, DocOwnerCard, DocOwnerColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
+    DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
+    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2830,6 +2830,43 @@ fn doc_status_card_to_json(card: &DocStatusCard) -> Value {
     })
 }
 
+fn doc_owner_board_to_json(board: &DocOwnerBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_owner_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_owner_column_to_json(column: &DocOwnerColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "owner": column.owner,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_owner_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_owner_card_to_json(card: &DocOwnerCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+    })
+}
+
 fn bdd_summary_to_json(summary: &BddSummary) -> Value {
     serde_json::json!({
         "path": summary.path,
@@ -3266,6 +3303,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_status_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "owner-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse owner-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_owner_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("owner-board call: {e}"),
+                    )
+                })?;
+            doc_owner_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "summarize-scenarios" => {
             let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {

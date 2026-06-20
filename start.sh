@@ -1431,6 +1431,14 @@ expect_status "ext_docs status-board groups docs into product lanes" 200 "$TMP_D
 json_assert "ext_docs status-board returns draft active done and missing lanes" "$TMP_DIR/docs-status-board.json" \
   'json.totalDocs === 4 && json.columns.find((column) => column.key === "draft")?.count === 1 && json.columns.find((column) => column.key === "draft")?.docs?.[0]?.title === "Next Docs Surface" && json.columns.find((column) => column.key === "active")?.count === 1 && json.columns.find((column) => column.key === "active")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "done")?.count === 1 && json.columns.find((column) => column.key === "missing")?.count === 1 && json.columns.find((column) => column.key === "missing")?.docs?.[0]?.status === ""'
 
+expect_status "ext_docs owner-board groups docs by front matter owner" 200 "$TMP_DIR/docs-owner-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_STATUS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/owner-board"
+json_assert "ext_docs owner-board returns owner and unowned lanes" "$TMP_DIR/docs-owner-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "unowned")?.count === 3 && json.columns.find((column) => column.key === "unowned")?.owner === null && json.columns.find((column) => column.key === "owner-platform-maintainers")?.count === 1 && json.columns.find((column) => column.key === "owner-platform-maintainers")?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "owner-platform-maintainers")?.docs?.[0]?.status === "active"'
+
 DOC_SCENARIOS_PAYLOAD="$TMP_DIR/docs-scenarios-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

@@ -6,17 +6,18 @@
 
 mod bindings;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
     DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
-    DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
-    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
-    DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
-    DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
+    DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocOwnerBoard,
+    DocOwnerCard, DocOwnerColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
+    DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
+    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -126,6 +127,37 @@ fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
     }
 
     Ok(DocStatusBoard {
+        total_docs: catalog.total_docs,
+        columns,
+    })
+}
+
+fn owner_board(input: DocCatalogInput) -> Result<DocOwnerBoard, Error> {
+    let catalog = summarize_catalog(input)?;
+    let mut owned = BTreeMap::<String, (String, Vec<DocOwnerCard>)>::new();
+    let mut unowned = Vec::new();
+
+    for doc_type in &catalog.types {
+        for doc in &doc_type.docs {
+            let card = owner_card(doc_type, doc);
+            if let Some(owner) = card.owner.as_ref() {
+                let key = owner_key(owner);
+                let entry = owned
+                    .entry(key)
+                    .or_insert_with(|| (owner.to_string(), Vec::new()));
+                entry.1.push(card);
+            } else {
+                unowned.push(card);
+            }
+        }
+    }
+
+    let mut columns = vec![owner_column("unowned", "Unowned", None, unowned)];
+    columns.extend(owned.into_iter().map(|(key, (owner, docs))| {
+        owner_column(format!("owner-{key}"), owner.clone(), Some(owner), docs)
+    }));
+
+    Ok(DocOwnerBoard {
         total_docs: catalog.total_docs,
         columns,
     })
@@ -1087,6 +1119,18 @@ fn status_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocStatusCard {
     }
 }
 
+fn owner_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocOwnerCard {
+    DocOwnerCard {
+        project_name: doc_type.project_name.clone(),
+        type_name: doc_type.type_name.clone(),
+        type_label: doc_type.label.clone(),
+        path: doc.path.clone(),
+        title: doc.title.clone(),
+        status: property_value(doc, "status").unwrap_or_default(),
+        owner: property_value(doc, "owner"),
+    }
+}
+
 fn property_value(doc: &DocSummary, key: &str) -> Option<String> {
     doc.properties
         .iter()
@@ -1118,6 +1162,21 @@ fn status_column(
     DocStatusColumn {
         key: key.into(),
         label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
+fn owner_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    owner: Option<String>,
+    docs: Vec<DocOwnerCard>,
+) -> DocOwnerColumn {
+    DocOwnerColumn {
+        key: key.into(),
+        label: label.into(),
+        owner,
         count: docs.len() as u32,
         docs,
     }
@@ -1197,6 +1256,28 @@ fn status_lane(status: &str) -> StatusLane {
 
 fn normalize_status(status: &str) -> String {
     status.trim().to_ascii_lowercase().replace([' ', '_'], "-")
+}
+
+fn owner_key(owner: &str) -> String {
+    let mut key = String::new();
+    let mut last_was_dash = false;
+    for ch in owner.trim().chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            key.push(ch);
+            last_was_dash = false;
+        } else if !last_was_dash && !key.is_empty() {
+            key.push('-');
+            last_was_dash = true;
+        }
+    }
+    while key.ends_with('-') {
+        key.pop();
+    }
+    if key.is_empty() {
+        "unknown".to_string()
+    } else {
+        key
+    }
 }
 
 enum ReadinessLane {
@@ -1395,6 +1476,10 @@ impl DocsGuest for Component {
         crate::status_board(input)
     }
 
+    fn owner_board(input: DocCatalogInput) -> Result<DocOwnerBoard, Error> {
+        crate::owner_board(input)
+    }
+
     fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
         crate::summarize_scenarios(input)
     }
@@ -1451,9 +1536,10 @@ mod tests {
     };
 
     use super::{
-        decision_board, readiness_board, scenario_board, status_board, summarize_catalog,
-        summarize_checklists, summarize_decisions, summarize_outline, summarize_preview,
-        summarize_references, summarize_scenarios, traceability_board, MAX_CATALOG_DOCS,
+        decision_board, owner_board, readiness_board, scenario_board, status_board,
+        summarize_catalog, summarize_checklists, summarize_decisions, summarize_outline,
+        summarize_preview, summarize_references, summarize_scenarios, traceability_board,
+        MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1660,6 +1746,83 @@ mod tests {
             .expect("missing status column");
         assert_eq!(missing.count, 1);
         assert_eq!(missing.docs[0].status, "");
+    }
+
+    #[test]
+    fn owner_board_groups_docs_by_front_matter_owner() {
+        let board = owner_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                                .to_string(),
+                            preview:
+                                "---\ntitle: Repository Docs Surface\nowner: Platform Maintainers\nstatus: active\n---\n\nIntent."
+                                    .to_string(),
+                        },
+                        SummarizeDocInput {
+                            path: "crates/server/docs/prds/next-docs-surface.mdx".to_string(),
+                            preview:
+                                "---\ntitle: Next Docs Surface\nowner: product\nstatus: planned\n---\n\nIntent."
+                                    .to_string(),
+                        },
+                    ],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/missing-owner.mdx".to_string(),
+                        preview: "---\ntitle: Missing Owner Scenario\nstatus: review\n---\n\nGiven..."
+                            .to_string(),
+                    }],
+                },
+            ],
+        })
+        .expect("owner board should summarize");
+
+        assert_eq!(board.total_docs, 3);
+        assert_eq!(board.columns.len(), 3);
+
+        let unowned = board
+            .columns
+            .iter()
+            .find(|column| column.key == "unowned")
+            .expect("unowned column");
+        assert_eq!(unowned.label, "Unowned");
+        assert_eq!(unowned.owner, None);
+        assert_eq!(unowned.count, 1);
+        assert_eq!(unowned.docs[0].type_label, "BDD Scenarios");
+
+        let platform = board
+            .columns
+            .iter()
+            .find(|column| column.key == "owner-platform-maintainers")
+            .expect("platform owner column");
+        assert_eq!(platform.label, "Platform Maintainers");
+        assert_eq!(platform.owner.as_deref(), Some("Platform Maintainers"));
+        assert_eq!(platform.docs[0].status, "active");
+        assert_eq!(
+            platform.docs[0].owner.as_deref(),
+            Some("Platform Maintainers")
+        );
+
+        let product = board
+            .columns
+            .iter()
+            .find(|column| column.key == "owner-product")
+            .expect("product owner column");
+        assert_eq!(product.count, 1);
+        assert_eq!(product.docs[0].title, "Next Docs Surface");
     }
 
     #[test]
