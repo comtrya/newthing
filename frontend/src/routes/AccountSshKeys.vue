@@ -168,7 +168,7 @@ onMounted(() => {
 
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
-          <div class="section-hd-title">Add a new key</div>
+          <div class="section-hd-title">Add new SSH key</div>
           <div class="section-hd-sub">Paste your <code>~/.ssh/id_ed25519.pub</code> or <code>~/.ssh/id_rsa.pub</code></div>
         </div>
         <form class="form-panel" @submit.prevent="submit">
@@ -188,7 +188,7 @@ onMounted(() => {
           </label>
           <div v-if="formError" class="error-inline">{{ formError }}</div>
           <button class="btn primary" type="submit" :disabled="submitting || !formName.trim() || !formKey.trim()">
-            <Icon name="plus" /><span>{{ submitting ? "Adding…" : "Add key" }}</span>
+            <Icon name="plus" /><span>{{ submitting ? "Adding…" : "Add SSH key" }}</span>
           </button>
         </form>
       </div>
