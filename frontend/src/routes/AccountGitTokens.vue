@@ -295,7 +295,7 @@ onMounted(() => {
               {{ tokens.length }} personal access token{{ tokens.length === 1 ? "" : "s" }}
             </template>
             <template v-else-if="loading">Loading…</template>
-            <template v-else>No personal access tokens yet.</template>
+            <template v-else>You have not generated any personal access tokens yet.</template>
           </div>
         </div>
         <div v-if="tokens.length" class="token-table">
