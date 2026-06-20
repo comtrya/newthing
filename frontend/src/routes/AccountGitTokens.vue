@@ -206,7 +206,7 @@ onMounted(() => {
 
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
-          <div class="section-hd-title">Mint a new token</div>
+          <div class="section-hd-title">Generate new token</div>
           <div class="section-hd-sub">
             Token name is shown only to you; pick something that identifies the
             machine or CI runner using it.
@@ -248,7 +248,7 @@ onMounted(() => {
           </label>
           <div v-if="formError" class="error-inline">{{ formError }}</div>
           <button class="btn primary" type="submit" :disabled="!canSubmit">
-            <Icon name="plus" /><span>{{ submitting ? "Minting..." : "Mint token" }}</span>
+            <Icon name="plus" /><span>{{ submitting ? "Generating..." : "Generate token" }}</span>
           </button>
         </form>
       </div>
