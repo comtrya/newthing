@@ -10166,6 +10166,10 @@ mod tests {
         format!("sprints.{op}")
     }
 
+    fn checks_route(op: &str) -> String {
+        format!("checks.{op}")
+    }
+
     #[test]
     fn repository_browser_previews_wit_files() {
         assert!(is_text_preview_path(
@@ -10289,6 +10293,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_sprints");
         assert_eq!(info.interface_name, "sprints");
         assert_eq!(info.op_name, "planning-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_checks",
+            &checks_route("readiness-board"),
+        )
+        .expect("checks readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_checks");
+        assert_eq!(info.interface_name, "checks");
+        assert_eq!(info.op_name, "readiness-board");
     }
 
     #[test]

@@ -2230,6 +2230,40 @@ json_assert "comments.delete returns true" "$TMP_DIR/cmt-delete.json" \
 # not resolve a repo. Issue numbering stays per-workspace (by-number-issue keys
 # on workspaceId), so this does not perturb the number assertions below.
 ISSUE_REPOSITORY_URI="$REPO_RESOURCE"
+
+expect_status "record required failing check for readiness board" 200 "$TMP_DIR/check-required-failure.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"cargo test\",\"state\":\"FAILURE\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record optional failing check for readiness board" 200 "$TMP_DIR/check-optional-failure.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"docs link check\",\"state\":\"FAILURE\",\"required\":false}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record running check for readiness board" 200 "$TMP_DIR/check-running.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"deploy preview\",\"state\":\"RUNNING\",\"required\":false}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record passing check for readiness board" 200 "$TMP_DIR/check-passing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"cargo fmt\",\"state\":\"SUCCESS\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record off-commit check for readiness board filter" 200 "$TMP_DIR/check-other-commit.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"deadbeef\",\"name\":\"old cargo test\",\"state\":\"FAILURE\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "readiness-board groups checks by merge relevance" 200 "$TMP_DIR/check-readiness-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/readiness-board"
+json_assert "readiness board exposes required optional progress and passing lanes" "$TMP_DIR/check-readiness-board.json" \
+  "json.repository === \"$ISSUE_REPOSITORY_URI\" && json.commitOID === \"abc123\" && json.total === 4 && json.columns.length === 4 && json.columns.find((c) => c.key === \"required-action\").cards.some((card) => card.blocking === true && card.check.name === \"cargo test\") && json.columns.find((c) => c.key === \"optional-failures\").cards.some((card) => card.blocking === false && card.check.name === \"docs link check\") && json.columns.find((c) => c.key === \"in-progress\").cards.some((card) => card.check.name === \"deploy preview\") && json.columns.find((c) => c.key === \"passing\").cards.some((card) => card.check.name === \"cargo fmt\") && !json.columns.flatMap((c) => c.cards).some((card) => card.check.commitOID === \"deadbeef\")"
+
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

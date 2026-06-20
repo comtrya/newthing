@@ -113,6 +113,7 @@ mod ext_checks_bindings {
 
 use ext_checks_bindings::ExtChecks;
 use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
+    CheckReadinessBoard, CheckReadinessBoardInput, CheckReadinessCard, CheckReadinessColumn,
     CheckRun, CheckState, RecordCheckInput,
 };
 
@@ -366,6 +367,15 @@ struct RecordCheckInputJson {
     state: String,
     conclusion: Option<String>,
     required: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckReadinessBoardInputJson {
+    repository: String,
+    #[serde(default, rename = "commitOID")]
+    commit_oid: Option<String>,
+    limit: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -2119,6 +2129,29 @@ pub fn dispatch_ext_checks(
                     .collect(),
             )
         }
+        "readiness-board" => {
+            let parsed: CheckReadinessBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = CheckReadinessBoardInput {
+                repository: parsed.repository,
+                commit_oid: parsed.commit_oid,
+                limit: parsed.limit,
+            };
+            let result = checks
+                .call_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("readiness-board call: {e}"),
+                    )
+                })?;
+            check_readiness_board_to_json(&result.map_err(checks_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -3027,6 +3060,39 @@ fn check_run_to_json(check: &CheckRun) -> Value {
         "required": check.required,
         "createdAt": check.created_at,
         "updatedAt": check.updated_at,
+    })
+}
+
+fn check_readiness_board_to_json(board: &CheckReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "commitOID": board.commit_oid,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(check_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn check_readiness_column_to_json(column: &CheckReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(check_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn check_readiness_card_to_json(card: &CheckReadinessCard) -> Value {
+    serde_json::json!({
+        "check": check_run_to_json(&card.check),
+        "blocking": card.blocking,
     })
 }
 
