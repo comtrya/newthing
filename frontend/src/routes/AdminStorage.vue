@@ -38,6 +38,29 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
 function statusLabel(path: TelemetryPath): string {
   return path.exists ? "Present" : "Missing";
 }
+
+const backendKindLabels: Record<string, string> = {
+  "cloudflare-artifacts": "Cloudflare artifacts",
+  local: "Local",
+  s3: "S3",
+};
+
+function backendNameLabel(name: string): string {
+  return titleCaseWords(name);
+}
+
+function backendKindLabel(kind: string): string {
+  return backendKindLabels[kind] ?? titleCaseWords(kind);
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 </script>
 
 <template>
@@ -132,8 +155,8 @@ function statusLabel(path: TelemetryPath): string {
                 <span class="backend-icon"><Icon name="ds" /></span>
                 <div class="backend-main">
                   <div class="backend-title">
-                    <span class="mono">{{ backend.name }}</span>
-                    <Chip mono>{{ backend.kind }}</Chip>
+                    <span :title="backend.name">{{ backendNameLabel(backend.name) }}</span>
+                    <Chip :title="backend.kind">{{ backendKindLabel(backend.kind) }}</Chip>
                   </div>
                   <div class="backend-detail mono">
                     {{ backend.configuredPath || telemetry.storage.repositories.root.path }}
@@ -332,6 +355,12 @@ function statusLabel(path: TelemetryPath): string {
   align-items: center;
   color: var(--fg);
   font-size: 12px;
+  font-weight: 600;
+}
+.backend-title :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .backend-detail,
 .log-path {
