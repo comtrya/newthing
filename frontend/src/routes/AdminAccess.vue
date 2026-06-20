@@ -44,10 +44,10 @@ const accessStats = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "active sessions", value: data.access.activeSessions },
-    { label: "active credentials", value: data.access.activeCredentials },
-    { label: "rate limit rows", value: data.access.rateLimitRows },
-    { label: "oidc issuers", value: data.access.oidcIssuers.length },
+    { label: "Active sessions", value: data.access.activeSessions },
+    { label: "Active credentials", value: data.access.activeCredentials },
+    { label: "Rate limit rows", value: data.access.rateLimitRows },
+    { label: "OIDC issuers", value: data.access.oidcIssuers.length },
   ];
 });
 </script>
@@ -59,7 +59,7 @@ const accessStats = computed(() => {
       <div class="page-header">
         <div>
           <div class="eyebrow" style="margin-bottom: 6px">Access telemetry</div>
-          <h1 class="serif">Authentication and authorization</h1>
+          <h1>Authentication and authorization</h1>
           <div class="subline">
             <template v-if="telemetry">
               Live metadata from the local session, credential, rate-limit, and OIDC stores.
@@ -83,7 +83,7 @@ const accessStats = computed(() => {
         <div class="stat-grid">
           <div v-for="stat in accessStats" :key="stat.label" class="glass stat-card">
             <div class="eyebrow">{{ stat.label }}</div>
-            <div class="mono stat-value">{{ stat.value }}</div>
+            <div class="stat-value">{{ stat.value }}</div>
           </div>
         </div>
 
@@ -300,10 +300,19 @@ const accessStats = computed(() => {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -331,7 +340,9 @@ const accessStats = computed(() => {
   padding: 16px;
 }
 .stat-value {
+  font-family: var(--font-sans);
   font-size: 28px;
+  font-weight: 600;
   color: var(--fg);
   margin-top: 8px;
 }
