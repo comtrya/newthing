@@ -238,20 +238,20 @@ const accessStats = computed(() => {
             </div>
             <div class="kv-list">
               <div>
-                <span>active credentials</span>
-                <strong class="mono">{{ telemetry.access.activeCredentials }}</strong>
+                <span>Active credentials</span>
+                <strong>{{ telemetry.access.activeCredentials }}</strong>
               </div>
               <div>
-                <span>active sessions</span>
-                <strong class="mono">{{ telemetry.access.activeSessions }}</strong>
+                <span>Active sessions</span>
+                <strong>{{ telemetry.access.activeSessions }}</strong>
               </div>
               <div>
-                <span>rate limit rows</span>
-                <strong class="mono">{{ telemetry.access.rateLimitRows }}</strong>
+                <span>Rate limit rows</span>
+                <strong>{{ telemetry.access.rateLimitRows }}</strong>
               </div>
               <div>
-                <span>sampled at</span>
-                <strong class="mono">{{ formatUnixTime(telemetry.instance.now) }}</strong>
+                <span>Sampled at</span>
+                <strong>{{ formatUnixTime(telemetry.instance.now) }}</strong>
               </div>
             </div>
           </div>
@@ -450,6 +450,7 @@ const accessStats = computed(() => {
 .kv-list strong,
 .path {
   font-size: 11px;
+  letter-spacing: 0;
   color: var(--fg-2);
   font-weight: 500;
   overflow: hidden;
