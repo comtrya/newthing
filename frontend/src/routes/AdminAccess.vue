@@ -42,8 +42,8 @@ function formatActiveSessionCount(count: number): string {
   return `${count} active session${count === 1 ? "" : "s"}`;
 }
 
-function formatOidcIssuerCount(count: number): string {
-  return `${count} configured issuer${count === 1 ? "" : "s"}`;
+function formatSignInProviderCount(count: number): string {
+  return `${count} sign-in provider${count === 1 ? "" : "s"}`;
 }
 
 function formatUnavailableAdminPageCount(count: number): string {
@@ -59,7 +59,7 @@ const accessStats = computed(() => {
     { label: "Active sessions", value: data.access.activeSessions },
     { label: "Active credentials", value: data.access.activeCredentials },
     { label: "Rate limit entries", value: data.access.rateLimitRows },
-    { label: "OIDC issuers", value: data.access.oidcIssuers.length },
+    { label: "Sign-in providers", value: data.access.oidcIssuers.length },
   ];
 });
 </script>
@@ -74,7 +74,7 @@ const accessStats = computed(() => {
           <h1>Authentication and authorization</h1>
           <div class="subline">
             <template v-if="telemetry">
-              Current access state across sessions, credentials, rate limits, and OIDC issuers.
+              Current access state across sessions, credentials, rate limits, and sign-in providers.
             </template>
             <template v-else-if="loading">Loading access telemetry...</template>
             <template v-else>Access telemetry unavailable</template>
@@ -151,9 +151,9 @@ const accessStats = computed(() => {
 
         <div class="glass" style="margin-bottom: 16px">
           <div class="section-hd">
-            <div class="section-hd-title">OIDC issuers</div>
+            <div class="section-hd-title">Sign-in providers</div>
             <div class="section-hd-sub">
-              {{ formatOidcIssuerCount(telemetry.access.oidcIssuers.length) }}
+              {{ formatSignInProviderCount(telemetry.access.oidcIssuers.length) }}
             </div>
           </div>
           <div v-if="telemetry.access.oidcIssuers.length" class="rows">
@@ -196,7 +196,7 @@ const accessStats = computed(() => {
               </div>
             </div>
           </div>
-          <div v-else class="empty">No OIDC issuers are configured for this instance.</div>
+          <div v-else class="empty">No sign-in providers are configured for this instance.</div>
         </div>
 
         <!-- Active sessions with per-session revoke -->
