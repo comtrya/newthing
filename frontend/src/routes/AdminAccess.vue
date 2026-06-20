@@ -208,7 +208,7 @@ const accessStats = computed(() => {
             </div>
             <div class="spacer" />
             <button class="btn" type="button" :disabled="sessionsLoading" @click="loadSessions">
-              <Icon name="retry" /><span>Refresh</span>
+              <Icon name="retry" /><span>Refresh sessions</span>
             </button>
           </div>
           <div v-if="sessionsError" class="error-panel">{{ sessionsError }}</div>
@@ -235,7 +235,7 @@ const accessStats = computed(() => {
                 title="Revoke this session immediately"
                 @click="handleRevokeSession(session.sessionId)"
               >
-                <Icon name="x" /><span>Revoke</span>
+                <Icon name="x" /><span>Revoke session</span>
               </button>
             </div>
           </div>
