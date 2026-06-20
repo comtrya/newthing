@@ -22,9 +22,36 @@ const healthyServices = computed(
 const readinessChecks = computed(() =>
   Object.entries(telemetry.value?.readiness.checks ?? {}).map(([name, ok]) => ({
     name,
+    label: readinessCheckLabel(name),
     ok,
+    status: ok ? "Passing" : "Failing",
   })),
 );
+
+const readinessLabels: Record<string, string> = {
+  auditLogWritable: "Audit log",
+  configValid: "Configuration",
+  dataDirWritable: "Data directory",
+  eventLogWritable: "Event log",
+  extensionStorageDocuments: "Extension storage documents",
+  extensionStorageSchema: "Extension storage schema",
+  operatorCodeConfigured: "Operator code",
+  productionTlsTerminated: "TLS termination",
+  repositoryRoot: "Repository root",
+};
+
+function readinessCheckLabel(name: string): string {
+  return readinessLabels[name] ?? titleCaseWords(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2"));
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
 
 const overviewStats = computed(() => {
   const data = telemetry.value;
@@ -130,10 +157,10 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
                   <Icon :name="check.ok ? 'check' : 'x'" />
                 </span>
                 <div class="row-main">
-                  <div class="row-title mono">{{ check.name }}</div>
+                  <div class="row-title">{{ check.label }}</div>
                 </div>
-                <Chip :tone="check.ok ? 'ok' : 'err'" mono>
-                  {{ check.ok ? "pass" : "fail" }}
+                <Chip :tone="check.ok ? 'ok' : 'err'">
+                  {{ check.status }}
                 </Chip>
               </div>
             </div>
@@ -291,6 +318,11 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
 .rows.compact {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.rows.compact :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .row {
   display: flex;
