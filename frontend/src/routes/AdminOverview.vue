@@ -117,8 +117,8 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
               {{ telemetry.instance.name }} · {{ titleCaseWords(telemetry.instance.mode) }} ·
               <span class="mono">{{ telemetry.instance.version }}</span>
             </template>
-            <template v-else-if="loading">Loading admin telemetry...</template>
-            <template v-else>Admin telemetry unavailable</template>
+            <template v-else-if="loading">Loading instance status...</template>
+            <template v-else>Instance status unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -129,7 +129,7 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>The instance status could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
