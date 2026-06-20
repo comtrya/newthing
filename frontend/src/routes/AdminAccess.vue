@@ -48,7 +48,7 @@ function formatSignInProviderCount(count: number): string {
 }
 
 function formatUnavailableAdminPageCount(count: number): string {
-  return `${count} unavailable page${count === 1 ? "" : "s"}`;
+  return `${count} unavailable settings page${count === 1 ? "" : "s"}`;
 }
 
 function formatSessionPrincipal(principal: string): string {
@@ -285,7 +285,7 @@ const accessStats = computed(() => {
 
           <div class="glass">
             <div class="section-hd">
-              <div class="section-hd-title">Unavailable admin pages</div>
+              <div class="section-hd-title">Unavailable settings pages</div>
               <div class="section-hd-sub">
                 {{ formatUnavailableAdminPageCount(telemetry.readiness.unsupported.length) }}
               </div>
@@ -303,7 +303,7 @@ const accessStats = computed(() => {
                 </div>
               </div>
             </div>
-            <div v-else class="empty">All access pages are available.</div>
+            <div v-else class="empty">All access settings pages are available.</div>
           </div>
         </div>
       </template>
