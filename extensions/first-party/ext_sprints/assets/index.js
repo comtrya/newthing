@@ -4462,7 +4462,10 @@ var Zs = {
 	byRefSprint: async (e) => go("ext_sprints", "sprints", "by-ref-sprint", e),
 	changeStateSprint: async (e) => go("ext_sprints", "sprints", "change-state-sprint", e),
 	assignIssue: async (e) => go("ext_sprints", "sprints", "assign-issue", e),
-	issuesInSprint: async (e) => go("ext_sprints", "sprints", "issues-in-sprint", e)
+	issuesInSprint: async (e) => go("ext_sprints", "sprints", "issues-in-sprint", e),
+	boardForSprint: async (e) => go("ext_sprints", "sprints", "board-for-sprint", e),
+	kanbanForIssues: async (e) => go("ext_sprints", "sprints", "kanban-for-issues", e),
+	kanbanProjectBoard: async (e) => go("ext_sprints", "sprints", "kanban-project-board", e)
 };
 //#endregion
 //#region ../extensions/first-party/ext_sprints/ui/src/api.ts

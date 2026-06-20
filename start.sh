@@ -2674,7 +2674,15 @@ expect_status "kanban-for-issues groups workspace issue refs" 200 "$TMP_DIR/spr-
   --data "{\"workspace\":\"$WORKSPACE_REF\",\"issueRefs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"],\"limit\":1024}" \
   "$FRONTEND_URL/api/ops/ext_sprints/sprints/kanban-for-issues"
 json_assert "kanban board has todo and missing cards" "$TMP_DIR/spr-kanban.json" \
-  "json.workspace === \"$WORKSPACE_REF\" && json.total === 2 && json.columns.find((column) => column.key === \"todo\")?.count === 1 && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"done\")?.count === 0 && json.columns.find((column) => column.key === \"missing\")?.count === 1"
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 2 && json.columns.find((column) => column.key === \"todo\")?.count === 1 && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.projectName === \"kernel\" && json.columns.find((column) => column.key === \"done\")?.count === 0 && json.columns.find((column) => column.key === \"missing\")?.count === 1 && json.columns.find((column) => column.key === \"missing\")?.cards?.[0]?.projectName === null"
+
+expect_status "kanban-project-board groups issue refs by project swimlane" 200 "$TMP_DIR/spr-kanban-project.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"issueRefs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/$ISSUE_TWO_ID\",\"comtrya://issue/$ISSUE_UNLABELED_ID\",\"comtrya://issue/$ISSUE_B_ID\",\"comtrya://issue/iss_00000000000000000000000000\"],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/kanban-project-board"
+json_assert "kanban project board exposes unscoped and kernel swimlanes" "$TMP_DIR/spr-kanban-project.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 5 && json.swimlanes[0]?.key === \"unscoped\" && json.swimlanes[0]?.projectName === null && json.swimlanes[0]?.total === 3 && json.swimlanes[0]?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_UNLABELED_ID\") && json.swimlanes[0]?.columns.find((column) => column.key === \"done\")?.cards?.some((card) => card.id === \"$ISSUE_B_ID\") && json.swimlanes[0]?.columns.find((column) => column.key === \"missing\")?.count === 1 && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.projectName === \"kernel\" && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.total === 2 && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_ONE_ID\" && card.projectName === \"kernel\") && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_TWO_ID\" && card.projectName === \"kernel\")"
 
 expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

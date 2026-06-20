@@ -11,12 +11,14 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput, ChangeStateInput, CreateSprintInput, Guest as SprintsGuest, KanbanBoard,
-    KanbanCard, KanbanCardState, KanbanColumn, KanbanInput, ListSprintsInput, MembersInput, Sprint,
-    SprintBoard, SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintState,
+    KanbanCard, KanbanCardState, KanbanColumn, KanbanInput, KanbanSwimlane, ListSprintsInput,
+    MembersInput, ProjectKanbanBoard, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
+    SprintBoardIssueState, SprintState,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const COLLECTION: &str = "sprints";
 const COUNTER_COLLECTION: &str = "ext_sprints_meta";
@@ -65,6 +67,8 @@ struct IssueLookup {
     title: String,
     state: String,
     number: u64,
+    #[serde(default)]
+    project_name: Option<String>,
 }
 
 impl StoredSprint {
@@ -412,6 +416,164 @@ fn kanban_column(
     }
 }
 
+fn kanban_card(issue_ref: &str, issue: &IssueLookup) -> KanbanCard {
+    KanbanCard {
+        issue_ref: issue_ref.to_string(),
+        id: Some(issue.id.clone()),
+        number: Some(issue.number),
+        title: issue.title.clone(),
+        state: kanban_card_state(&issue.state),
+        project_name: issue
+            .project_name
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+    }
+}
+
+fn missing_kanban_card(issue_ref: &str) -> KanbanCard {
+    KanbanCard {
+        issue_ref: issue_ref.to_string(),
+        id: None,
+        number: None,
+        title: issue_ref.to_string(),
+        state: KanbanCardState::Missing,
+        project_name: None,
+    }
+}
+
+fn push_kanban_card(
+    todo: &mut Vec<KanbanCard>,
+    done: &mut Vec<KanbanCard>,
+    missing: &mut Vec<KanbanCard>,
+    card: KanbanCard,
+) {
+    match card.state {
+        KanbanCardState::Closed => done.push(card),
+        KanbanCardState::Missing => missing.push(card),
+        KanbanCardState::Open | KanbanCardState::Reopened => todo.push(card),
+    }
+}
+
+fn kanban_columns(
+    todo: Vec<KanbanCard>,
+    done: Vec<KanbanCard>,
+    missing: Vec<KanbanCard>,
+) -> Vec<KanbanColumn> {
+    let mut columns = vec![
+        kanban_column("todo", "Todo", todo),
+        kanban_column("done", "Done", done),
+    ];
+    if !missing.is_empty() {
+        columns.push(kanban_column("missing", "Missing", missing));
+    }
+    columns
+}
+
+#[derive(Default)]
+struct KanbanLaneCards {
+    label: String,
+    project_name: Option<String>,
+    todo: Vec<KanbanCard>,
+    done: Vec<KanbanCard>,
+    missing: Vec<KanbanCard>,
+}
+
+fn normalized_lane_key(project_name: Option<&str>) -> String {
+    let Some(project_name) = project_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return "unscoped".to_string();
+    };
+    let mut key = String::with_capacity(project_name.len());
+    let mut last_dash = false;
+    for ch in project_name.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            key.push(ch);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "project-other".to_string()
+    } else {
+        format!("project-{key}")
+    }
+}
+
+fn new_lane(project_name: Option<String>) -> KanbanLaneCards {
+    match project_name {
+        Some(project_name) => KanbanLaneCards {
+            label: project_name.clone(),
+            project_name: Some(project_name),
+            ..KanbanLaneCards::default()
+        },
+        None => KanbanLaneCards {
+            label: "Unscoped".to_string(),
+            project_name: None,
+            ..KanbanLaneCards::default()
+        },
+    }
+}
+
+fn kanban_project_swimlanes(
+    issue_refs: &[String],
+    lookups: &[Option<IssueLookup>],
+) -> Vec<KanbanSwimlane> {
+    let mut lanes: BTreeMap<String, KanbanLaneCards> = BTreeMap::new();
+    lanes.insert("unscoped".to_string(), new_lane(None));
+
+    for (index, issue_ref) in issue_refs.iter().enumerate() {
+        let card = match lookups.get(index).and_then(Option::as_ref) {
+            Some(issue) => kanban_card(issue_ref, issue),
+            None => missing_kanban_card(issue_ref),
+        };
+        let project_name = card
+            .project_name
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let lane_key = normalized_lane_key(project_name.as_deref());
+        let lane = lanes
+            .entry(lane_key)
+            .or_insert_with(|| new_lane(project_name.clone()));
+        push_kanban_card(&mut lane.todo, &mut lane.done, &mut lane.missing, card);
+    }
+
+    let mut swimlanes: Vec<KanbanSwimlane> = lanes
+        .into_iter()
+        .filter_map(|(key, lane)| {
+            let total = lane.todo.len() + lane.done.len() + lane.missing.len();
+            if total == 0 {
+                return None;
+            }
+            Some(KanbanSwimlane {
+                key,
+                label: lane.label,
+                project_name: lane.project_name,
+                total: total as u32,
+                columns: kanban_columns(lane.todo, lane.done, lane.missing),
+            })
+        })
+        .collect();
+    swimlanes.sort_by(
+        |left, right| match (left.key.as_str(), right.key.as_str()) {
+            ("unscoped", "unscoped") => std::cmp::Ordering::Equal,
+            ("unscoped", _) => std::cmp::Ordering::Less,
+            (_, "unscoped") => std::cmp::Ordering::Greater,
+            _ => left
+                .label
+                .cmp(&right.label)
+                .then_with(|| left.key.cmp(&right.key)),
+        },
+    );
+    swimlanes
+}
+
 fn normalize_issue_refs(issue_refs: Vec<String>, limit: u32) -> Result<Vec<String>, Error> {
     let cap = limit.min(MAX_BOARD_ISSUES as u32) as usize;
     if cap == 0 {
@@ -637,43 +799,29 @@ impl SprintsGuest for Component {
         let mut missing = Vec::new();
 
         for (index, issue_ref) in issue_refs.iter().enumerate() {
-            let Some(issue) = lookups.get(index).and_then(Option::as_ref) else {
-                missing.push(KanbanCard {
-                    issue_ref: issue_ref.clone(),
-                    id: None,
-                    number: None,
-                    title: issue_ref.clone(),
-                    state: KanbanCardState::Missing,
-                });
-                continue;
+            let card = match lookups.get(index).and_then(Option::as_ref) {
+                Some(issue) => kanban_card(issue_ref, issue),
+                None => missing_kanban_card(issue_ref),
             };
-
-            let card = KanbanCard {
-                issue_ref: issue_ref.clone(),
-                id: Some(issue.id.clone()),
-                number: Some(issue.number),
-                title: issue.title.clone(),
-                state: kanban_card_state(&issue.state),
-            };
-            if issue.state == "closed" {
-                done.push(card);
-            } else {
-                todo.push(card);
-            }
-        }
-
-        let mut columns = vec![
-            kanban_column("todo", "Todo", todo),
-            kanban_column("done", "Done", done),
-        ];
-        if !missing.is_empty() {
-            columns.push(kanban_column("missing", "Missing", missing));
+            push_kanban_card(&mut todo, &mut done, &mut missing, card);
         }
 
         Ok(KanbanBoard {
             workspace,
             total: issue_refs.len() as u32,
-            columns,
+            columns: kanban_columns(todo, done, missing),
+        })
+    }
+
+    fn kanban_project_board(input: KanbanInput) -> Result<ProjectKanbanBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let issue_refs = normalize_issue_refs(input.issue_refs, input.limit)?;
+        let lookups = issue_lookups(&issue_refs)?;
+
+        Ok(ProjectKanbanBoard {
+            workspace,
+            total: issue_refs.len() as u32,
+            swimlanes: kanban_project_swimlanes(&issue_refs, &lookups),
         })
     }
 }
@@ -685,6 +833,108 @@ impl ReactorGuest for Component {
 
     fn on_event(_triggering_event: Event) -> Result<Vec<Reaction>, Error> {
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn issue(
+        id: &str,
+        title: &str,
+        state: &str,
+        number: u64,
+        project_name: Option<&str>,
+    ) -> IssueLookup {
+        IssueLookup {
+            id: id.to_string(),
+            title: title.to_string(),
+            state: state.to_string(),
+            number,
+            project_name: project_name.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn kanban_project_swimlanes_group_unscoped_projects_and_missing_refs() {
+        let issue_refs = vec![
+            "comtrya://issue/iss_missing".to_string(),
+            "comtrya://issue/iss_kernel_open".to_string(),
+            "comtrya://issue/iss_product_open".to_string(),
+            "comtrya://issue/iss_kernel_done".to_string(),
+        ];
+        let lookups = vec![
+            None,
+            Some(issue(
+                "iss_kernel_open",
+                "kernel work",
+                "open",
+                1,
+                Some("kernel"),
+            )),
+            Some(issue(
+                "iss_product_open",
+                "product work",
+                "open",
+                2,
+                Some("product"),
+            )),
+            Some(issue(
+                "iss_kernel_done",
+                "kernel done",
+                "closed",
+                3,
+                Some("kernel"),
+            )),
+        ];
+
+        let swimlanes = kanban_project_swimlanes(&issue_refs, &lookups);
+
+        assert_eq!(swimlanes.len(), 3);
+        assert_eq!(swimlanes[0].key, "unscoped");
+        assert_eq!(swimlanes[0].project_name, None);
+        assert_eq!(swimlanes[0].total, 1);
+        assert_eq!(
+            swimlanes[0]
+                .columns
+                .iter()
+                .find(|column| column.key == "missing")
+                .expect("missing column")
+                .cards[0]
+                .issue_ref,
+            "comtrya://issue/iss_missing"
+        );
+
+        assert_eq!(swimlanes[1].key, "project-kernel");
+        assert_eq!(swimlanes[1].project_name.as_deref(), Some("kernel"));
+        assert_eq!(swimlanes[1].total, 2);
+        assert_eq!(
+            swimlanes[1]
+                .columns
+                .iter()
+                .find(|column| column.key == "todo")
+                .expect("todo column")
+                .cards[0]
+                .id
+                .as_deref(),
+            Some("iss_kernel_open")
+        );
+        assert_eq!(
+            swimlanes[1]
+                .columns
+                .iter()
+                .find(|column| column.key == "done")
+                .expect("done column")
+                .cards[0]
+                .id
+                .as_deref(),
+            Some("iss_kernel_done")
+        );
+
+        assert_eq!(swimlanes[2].key, "project-product");
+        assert_eq!(swimlanes[2].project_name.as_deref(), Some("product"));
+        assert_eq!(swimlanes[2].total, 1);
     }
 }
 

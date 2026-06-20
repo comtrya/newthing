@@ -10162,6 +10162,10 @@ mod tests {
         format!("docs.{op}")
     }
 
+    fn sprints_route(op: &str) -> String {
+        format!("sprints.{op}")
+    }
+
     #[test]
     fn repository_browser_previews_wit_files() {
         assert!(is_text_preview_path(
@@ -10267,6 +10271,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_docs");
         assert_eq!(info.interface_name, "docs");
         assert_eq!(info.op_name, "project-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_sprints",
+            &sprints_route("kanban-project-board"),
+        )
+        .expect("sprint kanban project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_sprints");
+        assert_eq!(info.interface_name, "sprints");
+        assert_eq!(info.op_name, "kanban-project-board");
     }
 
     #[test]

@@ -156,8 +156,8 @@ use ext_sprints_bindings::ExtSprints;
 use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
     CreateSprintInput, KanbanBoard, KanbanCard, KanbanCardState, KanbanColumn, KanbanInput,
-    ListSprintsInput, MembersInput, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
-    SprintBoardIssueState, SprintState,
+    KanbanSwimlane, ListSprintsInput, MembersInput, ProjectKanbanBoard, Sprint, SprintBoard,
+    SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintState,
 };
 
 #[derive(serde::Deserialize)]
@@ -1650,6 +1650,28 @@ pub fn dispatch_ext_sprints(
                 })?;
             kanban_board_to_json(&result.map_err(sprints_error_to_canonical)?)
         }
+        "kanban-project-board" => {
+            let parsed: KanbanInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse kanban-project-board input: {e}"),
+                )
+            })?;
+            let wit_input = KanbanInput {
+                workspace: parsed.workspace,
+                issue_refs: parsed.issue_refs,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_kanban_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("kanban-project-board call: {e}"),
+                    )
+                })?;
+            kanban_project_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -2748,6 +2770,33 @@ fn kanban_board_to_json(board: &KanbanBoard) -> Value {
     })
 }
 
+fn kanban_project_board_to_json(board: &ProjectKanbanBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "swimlanes": board
+            .swimlanes
+            .iter()
+            .map(kanban_swimlane_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_swimlane_to_json(swimlane: &KanbanSwimlane) -> Value {
+    serde_json::json!({
+        "key": swimlane.key,
+        "label": swimlane.label,
+        "projectName": swimlane.project_name,
+        "total": swimlane.total,
+        "columns": swimlane
+            .columns
+            .iter()
+            .map(kanban_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn kanban_column_to_json(column: &KanbanColumn) -> Value {
     serde_json::json!({
         "key": column.key,
@@ -2768,6 +2817,7 @@ fn kanban_card_to_json(card: &KanbanCard) -> Value {
         "number": card.number,
         "title": card.title,
         "state": kanban_card_state_to_json(card.state),
+        "projectName": card.project_name,
     })
 }
 
