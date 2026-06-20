@@ -1566,6 +1566,43 @@ expect_status "ext_docs summarize-outline extracts doc navigation headings" 200 
 json_assert "ext_docs summarize-outline returns heading levels and slugs" "$TMP_DIR/docs-outline.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.headingCount === 4 && json.headings[0].level === 1 && json.headings[0].slug === "repository-docs-surface" && json.headings[0].line === 2 && json.headings[1].level === 2 && json.headings[1].slug === "acceptance-criteria" && json.headings[2].level === 3 && json.headings[2].slug === "rollout" && json.headings[3].slug === "acceptance-criteria-2" && json.headings.every((heading) => heading.title !== "Ignored Example")'
 
+DOC_DECISIONS_PAYLOAD="$TMP_DIR/docs-decisions-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Decisions\n\n" +
+      "- Use ext_docs for product-doc semantics.\n" +
+      "- Decision: Keep shell queries generic.\n\n" +
+      "## Open Questions\n\n" +
+      "- [ ] Should PRDs expose owner filters?\n" +
+      "Question: Which doc types should render first?\n\n" +
+      "## Risks\n\n" +
+      "- Risk: Stale docs may look authoritative.\n\n" +
+      "```md\n" +
+      "- Risk: ignored fenced example\n" +
+      "Decision: ignored fenced decision\n" +
+      "```\n",
+  }),
+);
+' "$DOC_DECISIONS_PAYLOAD"
+expect_status "ext_docs summarize-decisions extracts product review state" 200 "$TMP_DIR/docs-decisions.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_DECISIONS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-decisions"
+json_assert "ext_docs summarize-decisions returns decisions questions and risks" "$TMP_DIR/docs-decisions.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.decisionCount === 2 && json.openQuestionCount === 2 && json.riskCount === 1 && json.items.length === 5 && json.items[0].kind === "decision" && json.items[0].text === "Use ext_docs for product-doc semantics." && json.items[1].text === "Keep shell queries generic." && json.items[2].kind === "open-question" && json.items[2].text === "Should PRDs expose owner filters?" && json.items[3].text === "Which doc types should render first?" && json.items[4].kind === "risk" && json.items.every((item) => item.line > 0 && !item.text.includes("ignored fenced"))'
+
 DOC_READINESS_PAYLOAD="$TMP_DIR/docs-readiness-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

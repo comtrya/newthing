@@ -153,6 +153,21 @@ interface docs {
     headings: list<doc-outline-heading>,
   }
 
+  record doc-decision-item {
+    kind: string,
+    text: string,
+    line: u32,
+  }
+
+  record doc-decision-summary {
+    path: string,
+    title: string,
+    decision-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+    items: list<doc-decision-item>,
+  }
+
   record doc-readiness-card {
     project-name: string,
     type-name: string,
@@ -210,6 +225,10 @@ interface docs {
   /// Extract a Markdown/MDX heading outline so docs surfaces can render
   /// familiar in-page navigation without shell-side Markdown parsing.
   summarize-outline: func(input: summarize-doc-input) -> result<doc-outline-summary, error>;
+
+  /// Extract decisions, open questions, and risks from PRDs/specs so product
+  /// docs can expose review state without shell-side Markdown parsing.
+  summarize-decisions: func(input: summarize-doc-input) -> result<doc-decision-summary, error>;
 
   /// Group product docs by readiness signals from acceptance criteria,
   /// BDD scenarios, and forge-local traceability links.

@@ -126,10 +126,11 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocOutlineHeading,
-    DocOutlineSummary, DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn,
-    DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionItem,
+    DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty, DocReadinessBoard,
+    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
+    SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2696,6 +2697,29 @@ fn doc_outline_heading_to_json(heading: &DocOutlineHeading) -> Value {
     })
 }
 
+fn doc_decision_summary_to_json(summary: &DocDecisionSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "decisionCount": summary.decision_count,
+        "openQuestionCount": summary.open_question_count,
+        "riskCount": summary.risk_count,
+        "items": summary
+            .items
+            .iter()
+            .map(doc_decision_item_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_item_to_json(item: &DocDecisionItem) -> Value {
+    serde_json::json!({
+        "kind": item.kind,
+        "text": item.text,
+        "line": item.line,
+    })
+}
+
 fn doc_readiness_board_to_json(board: &DocReadinessBoard) -> Value {
     serde_json::json!({
         "totalDocs": board.total_docs,
@@ -2959,6 +2983,27 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_outline_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-decisions" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-decisions input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_decisions(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-decisions call: {e}"),
+                    )
+                })?;
+            doc_decision_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "readiness-board" => {
             let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {

@@ -11,10 +11,11 @@ use std::collections::HashMap;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
-    DocChecklistSection, DocChecklistSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
-    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
-    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocChecklistSection, DocChecklistSummary, DocDecisionItem, DocDecisionSummary,
+    DocOutlineHeading, DocOutlineSummary, DocProperty, DocReadinessBoard, DocReadinessCard,
+    DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard,
+    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -370,6 +371,113 @@ fn summarize_outline(input: SummarizeDocInput) -> Result<DocOutlineSummary, Erro
         heading_count: headings.len() as u32,
         headings,
     })
+}
+
+fn summarize_decisions(input: SummarizeDocInput) -> Result<DocDecisionSummary, Error> {
+    let path = validate_doc_path(input.path)?;
+    validate_preview_len(&input.preview)?;
+
+    let (_has_front_matter, properties, body) = parse_front_matter(&input.preview);
+    let title = front_matter_value(&properties, "title").unwrap_or_else(|| fallback_title(&path));
+    let mut items = Vec::new();
+    let mut current_kind = None;
+    let mut in_fence = false;
+
+    for (line_index, raw_line) in body.lines().enumerate() {
+        let line = normalize_markdown_line(raw_line);
+        if line.starts_with("```") || line.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || line.is_empty() {
+            continue;
+        }
+
+        let line_number = line_index as u32 + 1;
+        if let Some((_level, heading)) = markdown_heading_with_level(line) {
+            current_kind = decision_heading_kind(&heading);
+            if let Some((kind, text)) = prefixed_decision_text(&heading) {
+                push_decision_item(&mut items, kind, text, line_number);
+            }
+            continue;
+        }
+
+        if let Some((kind, text)) = prefixed_decision_text(line) {
+            push_decision_item(&mut items, kind, text, line_number);
+            continue;
+        }
+
+        if let Some(kind) = current_kind {
+            if let Some(text) = section_decision_text(line) {
+                push_decision_item(&mut items, kind, text, line_number);
+            }
+        }
+    }
+
+    Ok(DocDecisionSummary {
+        path,
+        title,
+        decision_count: decision_kind_count(&items, "decision"),
+        open_question_count: decision_kind_count(&items, "open-question"),
+        risk_count: decision_kind_count(&items, "risk"),
+        items,
+    })
+}
+
+fn decision_heading_kind(title: &str) -> Option<&'static str> {
+    match heading_slug(title).as_str() {
+        "decision" | "decisions" | "design-decisions" | "accepted-decisions" => Some("decision"),
+        "open-question" | "open-questions" | "questions" | "unknowns" => Some("open-question"),
+        "risk" | "risks" | "risk-mitigations" | "risks-mitigations" => Some("risk"),
+        _ => None,
+    }
+}
+
+fn prefixed_decision_text(line: &str) -> Option<(&'static str, String)> {
+    let line = strip_task_marker(strip_markdown_list_marker(line).unwrap_or(line)).trim();
+    [
+        ("Decision:", "decision"),
+        ("Decided:", "decision"),
+        ("Open question:", "open-question"),
+        ("Question:", "open-question"),
+        ("Risk:", "risk"),
+    ]
+    .into_iter()
+    .find_map(|(prefix, kind)| {
+        strip_ascii_prefix(line, prefix)
+            .and_then(|text| clean_optional_label(text.to_string()).map(|cleaned| (kind, cleaned)))
+    })
+}
+
+fn section_decision_text(line: &str) -> Option<String> {
+    let text = strip_markdown_list_marker(line)?;
+    clean_optional_label(strip_task_marker(text).to_string())
+}
+
+fn strip_task_marker(text: &str) -> &str {
+    let text = text.trim();
+    ["[ ]", "[x]", "[X]"]
+        .into_iter()
+        .find_map(|prefix| text.strip_prefix(prefix))
+        .map(str::trim)
+        .unwrap_or(text)
+}
+
+fn push_decision_item(
+    items: &mut Vec<DocDecisionItem>,
+    kind: &'static str,
+    text: String,
+    line: u32,
+) {
+    items.push(DocDecisionItem {
+        kind: kind.to_string(),
+        text,
+        line,
+    });
+}
+
+fn decision_kind_count(items: &[DocDecisionItem], kind: &str) -> u32 {
+    items.iter().filter(|item| item.kind == kind).count() as u32
 }
 
 fn extract_markdown_link_references(
@@ -987,6 +1095,10 @@ impl DocsGuest for Component {
         crate::summarize_outline(input)
     }
 
+    fn summarize_decisions(input: SummarizeDocInput) -> Result<DocDecisionSummary, Error> {
+        crate::summarize_decisions(input)
+    }
+
     fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
         crate::readiness_board(input)
     }
@@ -1011,8 +1123,9 @@ mod tests {
     };
 
     use super::{
-        readiness_board, status_board, summarize_catalog, summarize_checklists, summarize_outline,
-        summarize_preview, summarize_references, summarize_scenarios, MAX_CATALOG_DOCS,
+        readiness_board, status_board, summarize_catalog, summarize_checklists,
+        summarize_decisions, summarize_outline, summarize_preview, summarize_references,
+        summarize_scenarios, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1417,6 +1530,65 @@ status: active
             .headings
             .iter()
             .all(|heading| heading.title != "Ignored Example"));
+    }
+
+    #[test]
+    fn summarize_decisions_extracts_decisions_questions_and_risks() {
+        let summary = summarize_decisions(SummarizeDocInput {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx".to_string(),
+            preview: r#"---
+title: Repository Docs Surface
+status: active
+---
+
+# Repository Docs Surface
+
+## Decisions
+
+- Use ext_docs for product-doc semantics.
+- Decision: Keep shell queries generic.
+
+## Open Questions
+
+- [ ] Should PRDs expose owner filters?
+Question: Which doc types should render first?
+
+## Risks
+
+- Risk: Stale docs may look authoritative.
+
+```md
+- Risk: ignored fenced example
+Decision: ignored fenced decision
+```
+"#
+            .to_string(),
+        })
+        .expect("decision summary should parse");
+
+        assert_eq!(summary.title, "Repository Docs Surface");
+        assert_eq!(summary.decision_count, 2);
+        assert_eq!(summary.open_question_count, 2);
+        assert_eq!(summary.risk_count, 1);
+        assert_eq!(summary.items.len(), 5);
+        assert_eq!(summary.items[0].kind, "decision");
+        assert_eq!(
+            summary.items[0].text,
+            "Use ext_docs for product-doc semantics."
+        );
+        assert_eq!(summary.items[1].text, "Keep shell queries generic.");
+        assert_eq!(summary.items[2].kind, "open-question");
+        assert_eq!(summary.items[2].text, "Should PRDs expose owner filters?");
+        assert_eq!(
+            summary.items[3].text,
+            "Which doc types should render first?"
+        );
+        assert_eq!(summary.items[4].kind, "risk");
+        assert!(summary.items.iter().all(|item| item.line > 0));
+        assert!(summary
+            .items
+            .iter()
+            .all(|item| !item.text.contains("ignored fenced")));
     }
 
     #[test]
