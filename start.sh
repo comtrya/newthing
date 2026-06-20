@@ -1367,6 +1367,79 @@ expect_status "ext_docs tag-board groups docs by front matter tags" 200 "$TMP_DI
 json_assert "ext_docs tag-board returns untagged and topic lanes" "$TMP_DIR/docs-tag-board.json" \
   'json.totalDocs === 2 && json.columns.find((column) => column.key === "untagged")?.count === 1 && json.columns.find((column) => column.key === "untagged")?.docs?.[0]?.typeName === "prd" && json.columns.find((column) => column.key === "tag-bdd")?.docs?.[0]?.tags?.includes("bdd") && json.columns.find((column) => column.key === "tag-docs")?.count === 1 && json.columns.find((column) => column.key === "tag-projects")?.docs?.[0]?.title === "Repository docs are discoverable from project context"'
 
+DOC_PROJECT_BOARD_PAYLOAD="$TMP_DIR/docs-project-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "tags: docs, product\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside implementation.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+        ],
+      },
+      {
+        projectName: "",
+        typeName: "prd",
+        label: "Repo PRDs",
+        slug: "docs/prds",
+        files: [
+          {
+            path: "docs/prds/repo-level-governance.mdx",
+            preview:
+              "---\n" +
+              "title: Repo-level Governance\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "Some planning docs are intentionally repo-level.",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_PROJECT_BOARD_PAYLOAD"
+expect_status "ext_docs project-board groups docs by project" 200 "$TMP_DIR/docs-project-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_PROJECT_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/project-board"
+json_assert "ext_docs project-board returns unscoped and project lanes" "$TMP_DIR/docs-project-board.json" \
+  'json.totalDocs === 3 && json.columns.find((column) => column.key === "unscoped")?.projectName === null && json.columns.find((column) => column.key === "unscoped")?.count === 1 && json.columns.find((column) => column.key === "unscoped")?.docs?.[0]?.title === "Repo-level Governance" && json.columns.find((column) => column.key === "project-backend")?.projectName === "backend" && json.columns.find((column) => column.key === "project-backend")?.count === 2 && json.columns.find((column) => column.key === "project-backend")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "project-backend")?.docs?.[0]?.tags?.includes("product") && json.columns.find((column) => column.key === "project-backend")?.docs?.[1]?.typeName === "scenario"'
+
 DOC_STATUS_PAYLOAD="$TMP_DIR/docs-status-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

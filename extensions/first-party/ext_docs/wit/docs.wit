@@ -130,6 +130,30 @@ interface docs {
     columns: list<doc-tag-column>,
   }
 
+  record doc-project-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+    tags: list<string>,
+  }
+
+  record doc-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    docs: list<doc-project-card>,
+  }
+
+  record doc-project-board {
+    total-docs: u32,
+    columns: list<doc-project-column>,
+  }
+
   record bdd-step {
     keyword: string,
     text: string,
@@ -338,6 +362,10 @@ interface docs {
   /// Group project docs by front-matter tags so specs, PRDs, and BDD scenarios
   /// can be browsed by product area without shell-side taxonomy parsing.
   tag-board: func(input: doc-catalog-input) -> result<doc-tag-board, error>;
+
+  /// Group project docs by their owning project, with an explicit Unscoped lane
+  /// for docs that are intentionally repo-level rather than project-specific.
+  project-board: func(input: doc-catalog-input) -> result<doc-project-board, error>;
 
   /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
   /// indexed beside PRDs and specs without the shell parsing Gherkin itself.

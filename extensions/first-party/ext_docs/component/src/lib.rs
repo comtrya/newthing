@@ -13,11 +13,12 @@ use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
     DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
     DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocOwnerBoard,
-    DocOwnerCard, DocOwnerColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
-    DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
-    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTagBoard,
-    DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
-    DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
+    DocOwnerCard, DocOwnerColumn, DocProjectBoard, DocProjectCard, DocProjectColumn, DocProperty,
+    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
+    DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard,
+    DocStatusColumn, DocSummary, DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard,
+    DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -195,6 +196,70 @@ fn tag_board(input: DocCatalogInput) -> Result<DocTagBoard, Error> {
 
     Ok(DocTagBoard {
         total_docs: catalog.total_docs,
+        columns,
+    })
+}
+
+fn project_board(input: DocCatalogInput) -> Result<DocProjectBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut scoped = BTreeMap::<String, (String, Vec<DocProjectCard>)>::new();
+    let mut unscoped = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = clean_optional_label(doc_type.project_name);
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let owner = property_value(&summary, "owner");
+            let tags = property_value(&summary, "tags")
+                .map(|value| parse_tag_list(&value))
+                .unwrap_or_default();
+            let card = DocProjectCard {
+                project_name: project_name.clone().unwrap_or_default(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                owner,
+                tags,
+            };
+
+            if let Some(project) = project_name.as_ref() {
+                let key = project_key(project);
+                let entry = scoped
+                    .entry(key)
+                    .or_insert_with(|| (project.to_string(), Vec::new()));
+                entry.1.push(card);
+            } else {
+                unscoped.push(card);
+            }
+
+            total_docs += 1;
+        }
+    }
+
+    let mut columns = vec![project_column("unscoped", "Unscoped", None, unscoped)];
+    columns.extend(scoped.into_iter().map(|(key, (project, docs))| {
+        project_column(
+            format!("project-{key}"),
+            project.clone(),
+            Some(project),
+            docs,
+        )
+    }));
+
+    Ok(DocProjectBoard {
+        total_docs,
         columns,
     })
 }
@@ -1247,6 +1312,21 @@ fn tag_column(
     }
 }
 
+fn project_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    project_name: Option<String>,
+    docs: Vec<DocProjectCard>,
+) -> DocProjectColumn {
+    DocProjectColumn {
+        key: key.into(),
+        label: label.into(),
+        project_name,
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 fn readiness_column(
     key: impl Into<String>,
     label: impl Into<String>,
@@ -1347,6 +1427,10 @@ fn owner_key(owner: &str) -> String {
 
 fn tag_key(tag: &str) -> String {
     owner_key(tag)
+}
+
+fn project_key(project: &str) -> String {
+    owner_key(project)
 }
 
 fn parse_tag_list(value: &str) -> Vec<String> {
@@ -1579,6 +1663,10 @@ impl DocsGuest for Component {
         crate::tag_board(input)
     }
 
+    fn project_board(input: DocCatalogInput) -> Result<DocProjectBoard, Error> {
+        crate::project_board(input)
+    }
+
     fn summarize_scenarios(input: SummarizeDocInput) -> Result<BddSummary, Error> {
         crate::summarize_scenarios(input)
     }
@@ -1635,7 +1723,7 @@ mod tests {
     };
 
     use super::{
-        decision_board, owner_board, readiness_board, scenario_board, status_board,
+        decision_board, owner_board, project_board, readiness_board, scenario_board, status_board,
         summarize_catalog, summarize_checklists, summarize_decisions, summarize_outline,
         summarize_preview, summarize_references, summarize_scenarios, tag_board,
         traceability_board, MAX_CATALOG_DOCS,
@@ -2004,6 +2092,115 @@ mod tests {
             .expect("bdd tag column");
         assert_eq!(bdd.count, 1);
         assert_eq!(bdd.docs[0].title, "Repository docs are discoverable");
+    }
+
+    #[test]
+    fn project_board_groups_docs_by_project_and_unscoped_lane() {
+        let board = project_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository Docs Surface\nowner: platform-maintainers\nstatus: active\ntags: docs, product\n---\n\nIntent."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository docs are discoverable\nstatus: review\n---\n\nGiven..."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "frontend shell".to_string(),
+                    type_name: "spec".to_string(),
+                    label: "Frontend Specs".to_string(),
+                    description: None,
+                    slug: "frontend/docs/specs".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "frontend/docs/specs/shell-navigation.mdx".to_string(),
+                        preview:
+                            "---\ntitle: Shell Navigation\nstatus: planned\nowner: design\n---\n\nIntent."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: " ".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Repo PRDs".to_string(),
+                    description: None,
+                    slug: "docs/prds".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "docs/prds/repo-level-governance.mdx".to_string(),
+                        preview:
+                            "---\ntitle: Repo-level Governance\nstatus: draft\n---\n\nIntent."
+                                .to_string(),
+                    }],
+                },
+            ],
+        })
+        .expect("project board should summarize");
+
+        assert_eq!(board.total_docs, 4);
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .map(|column| column.key.as_str())
+                .collect::<Vec<_>>(),
+            ["unscoped", "project-backend", "project-frontend-shell"]
+        );
+
+        let unscoped = board
+            .columns
+            .iter()
+            .find(|column| column.key == "unscoped")
+            .expect("unscoped column");
+        assert_eq!(unscoped.label, "Unscoped");
+        assert_eq!(unscoped.project_name, None);
+        assert_eq!(unscoped.count, 1);
+        assert_eq!(unscoped.docs[0].project_name, "");
+        assert_eq!(unscoped.docs[0].title, "Repo-level Governance");
+
+        let backend = board
+            .columns
+            .iter()
+            .find(|column| column.key == "project-backend")
+            .expect("backend project column");
+        assert_eq!(backend.label, "backend");
+        assert_eq!(backend.project_name.as_deref(), Some("backend"));
+        assert_eq!(backend.count, 2);
+        assert_eq!(backend.docs[0].type_label, "Backend PRDs");
+        assert_eq!(
+            backend.docs[0].owner.as_deref(),
+            Some("platform-maintainers")
+        );
+        assert_eq!(backend.docs[0].tags, ["docs", "product"]);
+        assert_eq!(backend.docs[1].type_name, "scenario");
+
+        let frontend = board
+            .columns
+            .iter()
+            .find(|column| column.key == "project-frontend-shell")
+            .expect("frontend shell project column");
+        assert_eq!(frontend.count, 1);
+        assert_eq!(frontend.docs[0].status, "planned");
+        assert_eq!(frontend.docs[0].owner.as_deref(), Some("design"));
     }
 
     #[test]

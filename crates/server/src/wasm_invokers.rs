@@ -137,10 +137,11 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
     DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
     DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary,
-    DocOwnerBoard, DocOwnerCard, DocOwnerColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
-    DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
-    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTagBoard,
-    DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
+    DocOwnerBoard, DocOwnerCard, DocOwnerColumn, DocProjectBoard, DocProjectCard, DocProjectColumn,
+    DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference,
+    DocReferenceSummary, DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard,
+    DocStatusCard, DocStatusColumn, DocSummary, DocTagBoard, DocTagCard, DocTagColumn,
+    DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
     DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
@@ -3277,6 +3278,44 @@ fn doc_tag_card_to_json(card: &DocTagCard) -> Value {
     })
 }
 
+fn doc_project_board_to_json(board: &DocProjectBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_project_column_to_json(column: &DocProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_project_card_to_json(card: &DocProjectCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+        "tags": card.tags,
+    })
+}
+
 fn bdd_summary_to_json(summary: &BddSummary) -> Value {
     serde_json::json!({
         "path": summary.path,
@@ -3749,6 +3788,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_tag_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse project-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            doc_project_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "summarize-scenarios" => {
             let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
