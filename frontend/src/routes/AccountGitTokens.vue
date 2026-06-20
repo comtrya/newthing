@@ -288,7 +288,7 @@ onMounted(() => {
           <div class="section-hd-title">Personal access tokens</div>
           <div class="section-hd-sub">
             <template v-if="tokens.length">
-              {{ tokens.length }} token{{ tokens.length === 1 ? "" : "s" }}
+              {{ tokens.length }} personal access token{{ tokens.length === 1 ? "" : "s" }}
             </template>
             <template v-else-if="loading">Loading…</template>
             <template v-else>No personal access tokens yet.</template>
