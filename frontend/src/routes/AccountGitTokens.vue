@@ -261,7 +261,9 @@ onMounted(() => {
 
       <div v-if="revokePrompt" class="glass revoke-confirm" data-smoke="revoke-confirm">
         <div class="section-hd">
-          <div class="section-hd-title">Revoke "{{ revokePrompt.name }}"?</div>
+          <div class="section-hd-title">
+            Revoke personal access token "{{ revokePrompt.name }}"?
+          </div>
           <div class="section-hd-sub">
             The token will stop working immediately for every git operation.
           </div>
@@ -276,7 +278,7 @@ onMounted(() => {
             @click="confirmRevoke"
             data-smoke="revoke-confirm-yes"
           >
-            <Icon name="x" /><span>{{ revokeBusy ? "Revoking…" : "Yes, revoke" }}</span>
+            <Icon name="x" /><span>{{ revokeBusy ? "Revoking…" : "Revoke token" }}</span>
           </button>
         </div>
       </div>
