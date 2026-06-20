@@ -10,9 +10,9 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_sprints::sprints::{
-    AssignIssueInput, ChangeStateInput, CreateSprintInput, Guest as SprintsGuest, ListSprintsInput,
-    MembersInput, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
-    SprintBoardIssueState, SprintState,
+    AssignIssueInput, ChangeStateInput, CreateSprintInput, Guest as SprintsGuest, KanbanBoard,
+    KanbanCard, KanbanCardState, KanbanColumn, KanbanInput, ListSprintsInput, MembersInput, Sprint,
+    SprintBoard, SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintState,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 const COLLECTION: &str = "sprints";
 const COUNTER_COLLECTION: &str = "ext_sprints_meta";
 const MAX_TITLE_LEN: usize = 512;
+const MAX_BOARD_ISSUES: usize = 1024;
 const PART_OF: &str = "comtrya://rel/part-of";
 const COUNTER_RETRY_LIMIT: u32 = 8;
 
@@ -358,8 +359,12 @@ fn issue_lookups(refs: &[String]) -> Result<Vec<Option<IssueLookup>>, Error> {
     if refs.is_empty() {
         return Ok(Vec::new());
     }
-    let payload = serde_json::to_vec(refs)
-        .map_err(|error| err(ErrorCode::Internal, format!("serialise issue refs: {error}")))?;
+    let payload = serde_json::to_vec(refs).map_err(|error| {
+        err(
+            ErrorCode::Internal,
+            format!("serialise issue refs: {error}"),
+        )
+    })?;
     let bytes = ops::invoke("ext_issues", "issues.by-refs-issue", &payload)?;
     serde_json::from_slice(&bytes)
         .map_err(|error| err(ErrorCode::Internal, format!("parse issue refs: {error}")))
@@ -384,6 +389,47 @@ fn board_column(
         count: issues.len() as u32,
         issues,
     }
+}
+
+fn kanban_card_state(state: &str) -> KanbanCardState {
+    match state {
+        "closed" => KanbanCardState::Closed,
+        "reopened" => KanbanCardState::Reopened,
+        _ => KanbanCardState::Open,
+    }
+}
+
+fn kanban_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    cards: Vec<KanbanCard>,
+) -> KanbanColumn {
+    KanbanColumn {
+        key: key.into(),
+        label: label.into(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn normalize_issue_refs(issue_refs: Vec<String>, limit: u32) -> Result<Vec<String>, Error> {
+    let cap = limit.min(MAX_BOARD_ISSUES as u32) as usize;
+    if cap == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut refs = Vec::with_capacity(cap.min(issue_refs.len()));
+    for issue_ref in issue_refs.into_iter().take(cap) {
+        let trimmed = issue_ref.trim();
+        if !trimmed.starts_with("comtrya://issue/") {
+            return Err(err(
+                ErrorCode::BadInput,
+                "kanban issue refs must be comtrya://issue/<id>",
+            ));
+        }
+        refs.push(trimmed.to_string());
+    }
+    Ok(refs)
 }
 
 fn sprint_uri(id: &str) -> String {
@@ -577,6 +623,55 @@ impl SprintsGuest for Component {
 
         Ok(SprintBoard {
             sprint_ref: input.ref_,
+            total: issue_refs.len() as u32,
+            columns,
+        })
+    }
+
+    fn kanban_for_issues(input: KanbanInput) -> Result<KanbanBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let issue_refs = normalize_issue_refs(input.issue_refs, input.limit)?;
+        let lookups = issue_lookups(&issue_refs)?;
+        let mut todo = Vec::new();
+        let mut done = Vec::new();
+        let mut missing = Vec::new();
+
+        for (index, issue_ref) in issue_refs.iter().enumerate() {
+            let Some(issue) = lookups.get(index).and_then(Option::as_ref) else {
+                missing.push(KanbanCard {
+                    issue_ref: issue_ref.clone(),
+                    id: None,
+                    number: None,
+                    title: issue_ref.clone(),
+                    state: KanbanCardState::Missing,
+                });
+                continue;
+            };
+
+            let card = KanbanCard {
+                issue_ref: issue_ref.clone(),
+                id: Some(issue.id.clone()),
+                number: Some(issue.number),
+                title: issue.title.clone(),
+                state: kanban_card_state(&issue.state),
+            };
+            if issue.state == "closed" {
+                done.push(card);
+            } else {
+                todo.push(card);
+            }
+        }
+
+        let mut columns = vec![
+            kanban_column("todo", "Todo", todo),
+            kanban_column("done", "Done", done),
+        ];
+        if !missing.is_empty() {
+            columns.push(kanban_column("missing", "Missing", missing));
+        }
+
+        Ok(KanbanBoard {
+            workspace,
             total: issue_refs.len() as u32,
             columns,
         })

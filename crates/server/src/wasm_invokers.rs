@@ -139,8 +139,9 @@ mod ext_sprints_bindings {
 use ext_sprints_bindings::ExtSprints;
 use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
-    CreateSprintInput, ListSprintsInput, MembersInput, Sprint, SprintBoard, SprintBoardColumn,
-    SprintBoardIssue, SprintBoardIssueState, SprintState,
+    CreateSprintInput, KanbanBoard, KanbanCard, KanbanCardState, KanbanColumn, KanbanInput,
+    ListSprintsInput, MembersInput, Sprint, SprintBoard, SprintBoardColumn, SprintBoardIssue,
+    SprintBoardIssueState, SprintState,
 };
 
 #[derive(serde::Deserialize)]
@@ -319,6 +320,15 @@ struct AssignIssueInputJson {
 struct MembersInputJson {
     #[serde(rename = "ref")]
     ref_: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanInputJson {
+    workspace: String,
+    #[serde(default)]
+    issue_refs: Vec<String>,
     limit: u32,
 }
 
@@ -1362,6 +1372,28 @@ pub fn dispatch_ext_sprints(
                 })?;
             sprint_board_to_json(&result.map_err(sprints_error_to_canonical)?)
         }
+        "kanban-for-issues" => {
+            let parsed: KanbanInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse kanban-for-issues input: {e}"),
+                )
+            })?;
+            let wit_input = KanbanInput {
+                workspace: parsed.workspace,
+                issue_refs: parsed.issue_refs,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_kanban_for_issues(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("kanban-for-issues call: {e}"),
+                    )
+                })?;
+            kanban_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -2122,6 +2154,51 @@ fn sprint_board_issue_state_to_json(state: SprintBoardIssueState) -> &'static st
         SprintBoardIssueState::Reopened => "reopened",
         SprintBoardIssueState::Closed => "closed",
         SprintBoardIssueState::Missing => "missing",
+    }
+}
+
+fn kanban_board_to_json(board: &KanbanBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(kanban_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_column_to_json(column: &KanbanColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(kanban_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_card_to_json(card: &KanbanCard) -> Value {
+    serde_json::json!({
+        "issueRef": card.issue_ref,
+        "id": card.id,
+        "number": card.number,
+        "title": card.title,
+        "state": kanban_card_state_to_json(card.state),
+    })
+}
+
+fn kanban_card_state_to_json(state: KanbanCardState) -> &'static str {
+    match state {
+        KanbanCardState::Open => "open",
+        KanbanCardState::Reopened => "reopened",
+        KanbanCardState::Closed => "closed",
+        KanbanCardState::Missing => "missing",
     }
 }
 

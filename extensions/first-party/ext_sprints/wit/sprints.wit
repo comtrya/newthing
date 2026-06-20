@@ -57,6 +57,12 @@ interface sprints {
     %limit: u32,
   }
 
+  record kanban-input {
+    workspace: uri,
+    issue-refs: list<uri>,
+    %limit: u32,
+  }
+
   variant sprint-board-issue-state {
     open,
     reopened,
@@ -85,6 +91,34 @@ interface sprints {
     columns: list<sprint-board-column>,
   }
 
+  variant kanban-card-state {
+    open,
+    reopened,
+    closed,
+    missing,
+  }
+
+  record kanban-card {
+    issue-ref: uri,
+    %id: option<id>,
+    number: option<u64>,
+    title: string,
+    state: kanban-card-state,
+  }
+
+  record kanban-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<kanban-card>,
+  }
+
+  record kanban-board {
+    workspace: uri,
+    total: u32,
+    columns: list<kanban-column>,
+  }
+
   create-sprint: func(input: create-sprint-input) -> result<sprint, error>;
   get-sprint: func(%id: string) -> result<option<sprint>, error>;
   list-sprints: func(input: list-sprints-input) -> result<list<sprint>, error>;
@@ -93,6 +127,7 @@ interface sprints {
   assign-issue: func(input: assign-issue-input) -> result<bool, error>;
   issues-in-sprint: func(input: members-input) -> result<list<string>, error>;
   board-for-sprint: func(input: members-input) -> result<sprint-board, error>;
+  kanban-for-issues: func(input: kanban-input) -> result<kanban-board, error>;
 }
 
 world ext-sprints {

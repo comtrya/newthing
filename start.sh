@@ -1981,6 +1981,14 @@ expect_status "board-for-sprint groups the assigned issue" 200 "$TMP_DIR/spr-boa
 json_assert "sprint board has one open card and empty done column" "$TMP_DIR/spr-board.json" \
   "json.sprintRef === \"$SPRINT_REF\" && json.total === 1 && json.columns.find((column) => column.key === \"open\")?.count === 1 && json.columns.find((column) => column.key === \"open\")?.issues?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"closed\")?.count === 0"
 
+expect_status "kanban-for-issues groups workspace issue refs" 200 "$TMP_DIR/spr-kanban.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"issueRefs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/kanban-for-issues"
+json_assert "kanban board has todo and missing cards" "$TMP_DIR/spr-kanban.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 2 && json.columns.find((column) => column.key === \"todo\")?.count === 1 && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"done\")?.count === 0 && json.columns.find((column) => column.key === \"missing\")?.count === 1"
+
 expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
