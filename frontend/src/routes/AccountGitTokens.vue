@@ -212,7 +212,7 @@ onMounted(() => {
 
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
-          <div class="section-hd-title">Generate new token</div>
+          <div class="section-hd-title">Generate new personal access token</div>
           <div class="section-hd-sub">
             Note is shown only to you; pick something that identifies the
             machine or CI runner using it.
