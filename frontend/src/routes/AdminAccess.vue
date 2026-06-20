@@ -90,7 +90,7 @@ const accessStats = computed(() => {
         <div class="glass" style="margin-bottom: 16px">
           <div class="section-hd">
             <div class="section-hd-title">Configuration sync</div>
-            <div class="section-hd-sub">GitOps config repo</div>
+            <div class="section-hd-sub">GitOps configuration repository</div>
             <div class="spacer" />
             <button
               class="btn"
@@ -103,36 +103,36 @@ const accessStats = computed(() => {
           </div>
           <div v-if="configSync?.configured" class="kv-list">
             <div>
-              <span>repo</span>
+              <span>Repository</span>
               <strong class="mono">{{ configSync.repoUrl }}</strong>
             </div>
             <div>
-              <span>last commit</span>
+              <span>Last commit</span>
               <strong class="mono">{{
                 configSync.lastCommit ? configSync.lastCommit.slice(0, 12) : "unknown"
               }}</strong>
             </div>
             <div>
-              <span>last synced</span>
+              <span>Last synced</span>
               <strong class="mono">{{
                 formatUnixTime(configSync.lastSyncedUnix ?? undefined)
               }}</strong>
             </div>
             <div>
-              <span>interval</span>
+              <span>Interval</span>
               <strong class="mono">{{ configSync.intervalSeconds }}s</strong>
             </div>
             <div v-if="configSync.pendingExtensionReload">
-              <span>extensions</span>
-              <Chip mono tone="warn">restart required to apply</Chip>
+              <span>Extensions</span>
+              <Chip tone="warn">Restart required</Chip>
             </div>
             <div v-if="configSync.lastError">
-              <span>last error</span>
+              <span>Last error</span>
               <strong class="mono" style="color: var(--err)">{{ configSync.lastError }}</strong>
             </div>
           </div>
           <div v-else class="empty">
-            This instance is not configured with a config repo
+            This instance is not configured with a configuration repository
             (COMTRYA_CONFIG_REPO_URL is unset).
           </div>
         </div>
@@ -441,7 +441,10 @@ const accessStats = computed(() => {
 }
 .kv-list span,
 .detail {
+  font-family: var(--font-sans);
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--fg-3);
 }
 .kv-list strong,
