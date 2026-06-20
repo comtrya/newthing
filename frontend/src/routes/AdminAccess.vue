@@ -246,7 +246,7 @@ const accessStats = computed(() => {
           <div class="glass">
             <div class="section-hd">
               <div class="section-hd-title">Credential store</div>
-              <div class="section-hd-sub">SQLite-backed runtime counts</div>
+              <div class="section-hd-sub">Stored credentials and sessions</div>
             </div>
             <div class="kv-list">
               <div>
