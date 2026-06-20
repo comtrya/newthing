@@ -137,6 +137,10 @@ function cloneCopyStatus(copied: boolean, unavailable: boolean): string {
   return "Copy clone command";
 }
 
+function cloneCommandTitle(vcs: string | null | undefined): string {
+  return vcs === "jj" ? "Use this URL with jj git clone." : "Use this URL with git clone.";
+}
+
 describe("clone action copy", () => {
   test("uses familiar Code language before switching to Copied feedback", () => {
     expect(cloneActionLabel(false)).toBe("Code");
@@ -147,6 +151,12 @@ describe("clone action copy", () => {
     expect(cloneCopyStatus(false, false)).toBe("Copy clone command");
     expect(cloneCopyStatus(true, false)).toBe("Clone command copied");
     expect(cloneCopyStatus(false, true)).toBe("Copy unavailable");
+  });
+
+  test("uses clone-command language instead of transport internals", () => {
+    expect(cloneCommandTitle("git")).toBe("Use this URL with git clone.");
+    expect(cloneCommandTitle("jj")).toBe("Use this URL with jj git clone.");
+    expect(cloneCommandTitle(undefined)).toBe("Use this URL with git clone.");
   });
 });
 

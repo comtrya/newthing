@@ -285,8 +285,8 @@ const cloneCommand = computed(() =>
 );
 const cloneCommandTitle = computed(() =>
   repository.value?.vcs === "jj"
-    ? "Clones into a jj-on-git colocated repository (vcs declared as jj in this repo's comtrya.cue)."
-    : "Clones the repository over git Smart HTTP.",
+    ? "Use this URL with jj git clone."
+    : "Use this URL with git clone.",
 );
 const cloneCopied = ref(false);
 const cloneCopyUnavailable = ref(false);
