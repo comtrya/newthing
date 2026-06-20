@@ -116,8 +116,8 @@ const accessStats = computed(() => {
 
         <div class="glass" style="margin-bottom: 16px">
           <div class="section-hd">
-            <div class="section-hd-title">Configuration sync</div>
-            <div class="section-hd-sub">GitOps configuration repository</div>
+            <div class="section-hd-title">Configuration repository</div>
+            <div class="section-hd-sub">Repository-backed access settings</div>
             <div class="spacer" />
             <button
               class="btn"
