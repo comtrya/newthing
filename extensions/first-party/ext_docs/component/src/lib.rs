@@ -9,9 +9,9 @@ mod bindings;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
-    DocChecklistSection, DocChecklistSummary, DocProperty, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
-    SummarizeDocInput,
+    DocChecklistSection, DocChecklistSummary, DocProperty, DocReference, DocReferenceSummary,
+    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -224,6 +224,167 @@ fn summarize_checklists(input: SummarizeDocInput) -> Result<DocChecklistSummary,
         checked_items,
         sections,
     })
+}
+
+fn summarize_references(input: SummarizeDocInput) -> Result<DocReferenceSummary, Error> {
+    let path = validate_doc_path(input.path)?;
+    validate_preview_len(&input.preview)?;
+
+    let (_has_front_matter, properties, body) = parse_front_matter(&input.preview);
+    let title = front_matter_value(&properties, "title").unwrap_or_else(|| fallback_title(&path));
+    let mut references = Vec::new();
+    let mut in_fence = false;
+
+    for (line_index, raw_line) in body.lines().enumerate() {
+        let line = normalize_markdown_line(raw_line);
+        if line.starts_with("```") || line.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || line.is_empty() {
+            continue;
+        }
+
+        let line_number = line_index as u32 + 1;
+        extract_markdown_link_references(line, line_number, &mut references);
+        extract_plain_uri_references(line, line_number, &mut references);
+        extract_issue_number_references(line, line_number, &mut references);
+    }
+
+    Ok(DocReferenceSummary {
+        path,
+        title,
+        reference_count: references.len() as u32,
+        references,
+    })
+}
+
+fn extract_markdown_link_references(
+    line: &str,
+    line_number: u32,
+    references: &mut Vec<DocReference>,
+) {
+    let mut remaining = line;
+    while let Some(open_label) = remaining.find('[') {
+        let after_open = &remaining[open_label + 1..];
+        let Some(close_label) = after_open.find(']') else {
+            break;
+        };
+        let label = &after_open[..close_label];
+        let after_label = &after_open[close_label + 1..];
+        if !after_label.starts_with('(') {
+            remaining = after_label;
+            continue;
+        }
+        let after_open_target = &after_label[1..];
+        let Some(close_target) = after_open_target.find(')') else {
+            break;
+        };
+        let raw_target = after_open_target[..close_target]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        if let Some(reference) = doc_reference(raw_target, Some(label), line_number) {
+            push_reference_once(references, reference);
+        }
+        remaining = &after_open_target[close_target + 1..];
+    }
+}
+
+fn extract_plain_uri_references(line: &str, line_number: u32, references: &mut Vec<DocReference>) {
+    let mut search_start = 0;
+    while let Some(offset) = line[search_start..].find("comtrya://") {
+        let start = search_start + offset;
+        if start > 0 && line.as_bytes()[start - 1] == b'(' {
+            search_start = start + "comtrya://".len();
+            continue;
+        }
+
+        let raw_target = reference_token(&line[start..]);
+        if let Some(reference) = doc_reference(raw_target, None, line_number) {
+            push_reference_once(references, reference);
+        }
+        search_start = start + raw_target.len().max("comtrya://".len());
+    }
+}
+
+fn extract_issue_number_references(
+    line: &str,
+    line_number: u32,
+    references: &mut Vec<DocReference>,
+) {
+    let bytes = line.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() {
+        if bytes[idx] != b'#' || idx + 1 >= bytes.len() || !bytes[idx + 1].is_ascii_digit() {
+            idx += 1;
+            continue;
+        }
+        if idx > 0 && is_reference_word_byte(bytes[idx - 1]) {
+            idx += 1;
+            continue;
+        }
+
+        let mut end = idx + 2;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        let target = &line[idx..end];
+        if let Some(reference) = doc_reference(target, None, line_number) {
+            push_reference_once(references, reference);
+        }
+        idx = end;
+    }
+}
+
+fn reference_token(raw: &str) -> &str {
+    let end = raw
+        .find(|ch: char| {
+            ch.is_ascii_whitespace()
+                || matches!(ch, ')' | ']' | '}' | '>' | '"' | '\'' | '`' | ',' | ';')
+        })
+        .unwrap_or(raw.len());
+    raw[..end].trim_end_matches(['.', '!', '?', ':'])
+}
+
+fn doc_reference(target: &str, label: Option<&str>, line: u32) -> Option<DocReference> {
+    let target = target.trim();
+    if target.is_empty() {
+        return None;
+    }
+
+    let kind = reference_kind(target)?;
+    let label = label.and_then(|value| clean_optional_label(value.to_string()));
+    Some(DocReference {
+        kind,
+        target: target.to_string(),
+        label,
+        line,
+    })
+}
+
+fn reference_kind(target: &str) -> Option<String> {
+    if target.starts_with('#') && target[1..].chars().all(|ch| ch.is_ascii_digit()) {
+        return Some("issue-number".to_string());
+    }
+
+    let rest = target.strip_prefix("comtrya://")?;
+    let kind = rest.split('/').next().unwrap_or_default().trim();
+    (!kind.is_empty()).then(|| kind.to_string())
+}
+
+fn push_reference_once(references: &mut Vec<DocReference>, reference: DocReference) {
+    if references
+        .iter()
+        .any(|existing| existing.target == reference.target && existing.line == reference.line)
+    {
+        return;
+    }
+    references.push(reference);
+}
+
+fn is_reference_word_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
 }
 
 struct DocChecklistSectionDraft {
@@ -632,6 +793,10 @@ impl DocsGuest for Component {
     fn summarize_checklists(input: SummarizeDocInput) -> Result<DocChecklistSummary, Error> {
         crate::summarize_checklists(input)
     }
+
+    fn summarize_references(input: SummarizeDocInput) -> Result<DocReferenceSummary, Error> {
+        crate::summarize_references(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -654,7 +819,7 @@ mod tests {
 
     use super::{
         status_board, summarize_catalog, summarize_checklists, summarize_preview,
-        summarize_scenarios, MAX_CATALOG_DOCS,
+        summarize_references, summarize_scenarios, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -966,5 +1131,55 @@ status: active
         assert_eq!(summary.sections[1].heading, "Rollout");
         assert_eq!(summary.sections[1].item_count, 2);
         assert_eq!(summary.sections[1].checked_count, 1);
+    }
+
+    #[test]
+    fn summarize_references_extracts_forge_traceability_links() {
+        let summary = summarize_references(SummarizeDocInput {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx".to_string(),
+            preview: r#"---
+title: Repository Docs Surface
+status: active
+---
+
+## Traceability
+
+This PRD tracks [repository docs epic](comtrya://epic/epc_01KVJZ0TRACE) and #42.
+BDD scenarios link to comtrya://doc/scenario/repository-docs-surface.
+Implementation ships through comtrya://pull-request/pr_01KVJZ0TRACE.
+[External reference](https://example.com/spec) is ignored.
+
+```md
+comtrya://issue/ignored
+#999
+```
+"#
+            .to_string(),
+        })
+        .expect("reference summary should parse");
+
+        assert_eq!(summary.title, "Repository Docs Surface");
+        assert_eq!(summary.reference_count, 4);
+        assert_eq!(summary.references[0].kind, "epic");
+        assert_eq!(
+            summary.references[0].target,
+            "comtrya://epic/epc_01KVJZ0TRACE"
+        );
+        assert_eq!(
+            summary.references[0].label.as_deref(),
+            Some("repository docs epic")
+        );
+        assert_eq!(summary.references[1].kind, "issue-number");
+        assert_eq!(summary.references[1].target, "#42");
+        assert_eq!(summary.references[2].kind, "doc");
+        assert_eq!(
+            summary.references[2].target,
+            "comtrya://doc/scenario/repository-docs-surface"
+        );
+        assert_eq!(summary.references[3].kind, "pull-request");
+        assert!(summary
+            .references
+            .iter()
+            .all(|reference| reference.line > 0));
     }
 }

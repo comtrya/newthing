@@ -1502,6 +1502,39 @@ expect_status "ext_docs summarize-checklists extracts acceptance criteria" 200 "
 json_assert "ext_docs summarize-checklists returns checklist sections" "$TMP_DIR/docs-checklists.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.totalItems === 4 && json.checkedItems === 2 && json.sections.length === 2 && json.sections[0].heading === "Acceptance Criteria" && json.sections[0].itemCount === 2 && json.sections[0].checkedCount === 1 && json.sections[0].items.some((item) => item.checked === false && item.text.includes("Scenario docs can be summarized")) && json.sections[1].heading === "Rollout" && json.sections[1].checkedCount === 1'
 
+DOC_REFERENCES_PAYLOAD="$TMP_DIR/docs-references-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "## Traceability\n\n" +
+      "This PRD tracks [repository docs epic](comtrya://epic/epc_01KVJZ0TRACE) and #42.\n" +
+      "BDD scenarios link to comtrya://doc/scenario/repository-docs-surface.\n" +
+      "Implementation ships through comtrya://pull-request/pr_01KVJZ0TRACE.\n" +
+      "[External reference](https://example.com/spec) is ignored.\n\n" +
+      "```md\n" +
+      "comtrya://issue/ignored\n" +
+      "#999\n" +
+      "```\n",
+  }),
+);
+' "$DOC_REFERENCES_PAYLOAD"
+expect_status "ext_docs summarize-references extracts forge traceability links" 200 "$TMP_DIR/docs-references.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_REFERENCES_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-references"
+json_assert "ext_docs summarize-references returns internal references only" "$TMP_DIR/docs-references.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.referenceCount === 4 && json.references.some((reference) => reference.kind === "epic" && reference.target === "comtrya://epic/epc_01KVJZ0TRACE" && reference.label === "repository docs epic") && json.references.some((reference) => reference.kind === "issue-number" && reference.target === "#42") && json.references.some((reference) => reference.kind === "doc" && reference.target === "comtrya://doc/scenario/repository-docs-surface") && json.references.some((reference) => reference.kind === "pull-request" && reference.target === "comtrya://pull-request/pr_01KVJZ0TRACE") && json.references.every((reference) => reference.line > 0)'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

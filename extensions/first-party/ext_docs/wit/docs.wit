@@ -125,6 +125,20 @@ interface docs {
     sections: list<doc-checklist-section>,
   }
 
+  record doc-reference {
+    kind: string,
+    target: string,
+    label: option<string>,
+    line: u32,
+  }
+
+  record doc-reference-summary {
+    path: string,
+    title: string,
+    reference-count: u32,
+    references: list<doc-reference>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -149,6 +163,10 @@ interface docs {
   /// Extract Markdown task-list sections from PRDs and specs so acceptance
   /// criteria and rollout readiness can be surfaced by extension UIs.
   summarize-checklists: func(input: summarize-doc-input) -> result<doc-checklist-summary, error>;
+
+  /// Extract forge-local references from product docs so PRDs, specs, BDD
+  /// scenarios, issues, epics, and pull requests can be traced together.
+  summarize-references: func(input: summarize-doc-input) -> result<doc-reference-summary, error>;
 }
 
 world ext-docs {

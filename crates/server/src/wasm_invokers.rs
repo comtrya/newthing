@@ -126,9 +126,9 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocStatusBoard,
-    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocProperty, DocReference,
+    DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2651,6 +2651,28 @@ fn doc_checklist_item_to_json(item: &DocChecklistItem) -> Value {
     })
 }
 
+fn doc_reference_summary_to_json(summary: &DocReferenceSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "referenceCount": summary.reference_count,
+        "references": summary
+            .references
+            .iter()
+            .map(doc_reference_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_reference_to_json(reference: &DocReference) -> Value {
+    serde_json::json!({
+        "kind": reference.kind,
+        "target": reference.target,
+        "label": reference.label,
+        "line": reference.line,
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -2833,6 +2855,27 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_checklist_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-references" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-references input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_references(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-references call: {e}"),
+                    )
+                })?;
+            doc_reference_summary_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
