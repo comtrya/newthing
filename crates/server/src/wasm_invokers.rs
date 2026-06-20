@@ -126,11 +126,11 @@ mod ext_docs_bindings {
 use ext_docs_bindings::ExtDocs;
 use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
-    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionItem,
-    DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty, DocReadinessBoard,
-    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard,
-    DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
+    DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary,
+    DocProperty, DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference,
+    DocReferenceSummary, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -2720,6 +2720,44 @@ fn doc_decision_item_to_json(item: &DocDecisionItem) -> Value {
     })
 }
 
+fn doc_decision_board_to_json(board: &DocDecisionBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_decision_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_column_to_json(column: &DocDecisionColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_decision_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_card_to_json(card: &DocDecisionCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "decisionCount": card.decision_count,
+        "openQuestionCount": card.open_question_count,
+        "riskCount": card.risk_count,
+    })
+}
+
 fn doc_readiness_board_to_json(board: &DocReadinessBoard) -> Value {
     serde_json::json!({
         "totalDocs": board.total_docs,
@@ -3004,6 +3042,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_decision_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "decision-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse decision-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_decision_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("decision-board call: {e}"),
+                    )
+                })?;
+            doc_decision_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "readiness-board" => {
             let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {

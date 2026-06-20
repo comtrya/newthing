@@ -168,6 +168,30 @@ interface docs {
     items: list<doc-decision-item>,
   }
 
+  record doc-decision-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    decision-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-decision-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-decision-card>,
+  }
+
+  record doc-decision-board {
+    total-docs: u32,
+    columns: list<doc-decision-column>,
+  }
+
   record doc-readiness-card {
     project-name: string,
     type-name: string,
@@ -229,6 +253,10 @@ interface docs {
   /// Extract decisions, open questions, and risks from PRDs/specs so product
   /// docs can expose review state without shell-side Markdown parsing.
   summarize-decisions: func(input: summarize-doc-input) -> result<doc-decision-summary, error>;
+
+  /// Group product docs by decision-review state so PRDs/specs with open
+  /// questions or risks are visible before they drift away from implementation.
+  decision-board: func(input: doc-catalog-input) -> result<doc-decision-board, error>;
 
   /// Group product docs by readiness signals from acceptance criteria,
   /// BDD scenarios, and forge-local traceability links.

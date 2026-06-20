@@ -1603,6 +1603,73 @@ expect_status "ext_docs summarize-decisions extracts product review state" 200 "
 json_assert "ext_docs summarize-decisions returns decisions questions and risks" "$TMP_DIR/docs-decisions.json" \
   'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.decisionCount === 2 && json.openQuestionCount === 2 && json.riskCount === 1 && json.items.length === 5 && json.items[0].kind === "decision" && json.items[0].text === "Use ext_docs for product-doc semantics." && json.items[1].text === "Keep shell queries generic." && json.items[2].kind === "open-question" && json.items[2].text === "Should PRDs expose owner filters?" && json.items[3].text === "Which doc types should render first?" && json.items[4].kind === "risk" && json.items.every((item) => item.line > 0 && !item.text.includes("ignored fenced"))'
 
+DOC_DECISION_BOARD_PAYLOAD="$TMP_DIR/docs-decision-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/open-question.mdx",
+            preview:
+              "---\n" +
+              "title: Open Question PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Open Questions\n\n" +
+              "- [ ] Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/risky.mdx",
+            preview:
+              "---\n" +
+              "title: Risky PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Risks\n\n" +
+              "- Risk: Stale docs may look authoritative.\n",
+          },
+          {
+            path: "crates/server/docs/prds/decided.mdx",
+            preview:
+              "---\n" +
+              "title: Decided PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Decisions\n\n" +
+              "- Use ext_docs for product-doc semantics.\n",
+          },
+          {
+            path: "crates/server/docs/prds/missing-review-state.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Review State PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without decision review state.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_DECISION_BOARD_PAYLOAD"
+expect_status "ext_docs decision-board groups docs by review state" 200 "$TMP_DIR/docs-decision-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_DECISION_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/decision-board"
+json_assert "ext_docs decision-board returns open questions risks decided and missing lanes" "$TMP_DIR/docs-decision-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.title === "Open Question PRD" && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.typeLabel === "Backend PRDs" && json.columns.find((column) => column.key === "risks")?.docs?.[0]?.riskCount === 1 && json.columns.find((column) => column.key === "decided")?.docs?.[0]?.decisionCount === 1 && json.columns.find((column) => column.key === "decided")?.docs?.[0]?.status === "accepted" && json.columns.find((column) => column.key === "missing-review-state")?.docs?.[0]?.title === "Missing Review State PRD"'
+
 DOC_READINESS_PAYLOAD="$TMP_DIR/docs-readiness-payload.json"
 "$BUN" --eval '
 const fs = require("fs");

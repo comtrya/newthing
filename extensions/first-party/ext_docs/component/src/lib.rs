@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
-    DocChecklistSection, DocChecklistSummary, DocDecisionItem, DocDecisionSummary,
-    DocOutlineHeading, DocOutlineSummary, DocProperty, DocReadinessBoard, DocReadinessCard,
-    DocReadinessColumn, DocReference, DocReferenceSummary, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
-    SummarizeDocInput,
+    DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
+    DocDecisionItem, DocDecisionSummary, DocOutlineHeading, DocOutlineSummary, DocProperty,
+    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
+    DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -191,6 +191,68 @@ fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
             readiness_column("needs-criteria", "Needs criteria", needs_criteria),
             readiness_column("in-progress", "In progress", in_progress),
             readiness_column("ready", "Ready", ready),
+        ],
+    })
+}
+
+fn decision_board(input: DocCatalogInput) -> Result<DocDecisionBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut open_questions = Vec::new();
+    let mut risks = Vec::new();
+    let mut decided = Vec::new();
+    let mut missing_review_state = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = required_field("project name", doc_type.project_name)?;
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let decisions = summarize_decisions(SummarizeDocInput {
+                path,
+                preview: file.preview,
+            })?;
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let card = DocDecisionCard {
+                project_name: project_name.clone(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                decision_count: decisions.decision_count,
+                open_question_count: decisions.open_question_count,
+                risk_count: decisions.risk_count,
+            };
+
+            match decision_lane(&card) {
+                DecisionLane::OpenQuestions => open_questions.push(card),
+                DecisionLane::Risks => risks.push(card),
+                DecisionLane::Decided => decided.push(card),
+                DecisionLane::MissingReviewState => missing_review_state.push(card),
+            }
+            total_docs += 1;
+        }
+    }
+
+    Ok(DocDecisionBoard {
+        total_docs,
+        columns: vec![
+            decision_column("open-questions", "Open questions", open_questions),
+            decision_column("risks", "Risks", risks),
+            decision_column("decided", "Decided", decided),
+            decision_column(
+                "missing-review-state",
+                "Missing review state",
+                missing_review_state,
+            ),
         ],
     })
 }
@@ -932,6 +994,19 @@ fn readiness_column(
     }
 }
 
+fn decision_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocDecisionCard>,
+) -> DocDecisionColumn {
+    DocDecisionColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 enum StatusLane {
     Draft,
     Active,
@@ -962,6 +1037,13 @@ enum ReadinessLane {
     Ready,
 }
 
+enum DecisionLane {
+    OpenQuestions,
+    Risks,
+    Decided,
+    MissingReviewState,
+}
+
 fn readiness_lane(card: &DocReadinessCard) -> ReadinessLane {
     if card.checklist_total > card.checklist_checked {
         return ReadinessLane::InProgress;
@@ -974,6 +1056,22 @@ fn readiness_lane(card: &DocReadinessCard) -> ReadinessLane {
     }
 
     ReadinessLane::NeedsCriteria
+}
+
+fn decision_lane(card: &DocDecisionCard) -> DecisionLane {
+    if card.open_question_count > 0 {
+        return DecisionLane::OpenQuestions;
+    }
+
+    if card.risk_count > 0 {
+        return DecisionLane::Risks;
+    }
+
+    if card.decision_count > 0 {
+        return DecisionLane::Decided;
+    }
+
+    DecisionLane::MissingReviewState
 }
 
 fn required_field(label: &str, value: String) -> Result<String, Error> {
@@ -1099,6 +1197,10 @@ impl DocsGuest for Component {
         crate::summarize_decisions(input)
     }
 
+    fn decision_board(input: DocCatalogInput) -> Result<DocDecisionBoard, Error> {
+        crate::decision_board(input)
+    }
+
     fn readiness_board(input: DocCatalogInput) -> Result<DocReadinessBoard, Error> {
         crate::readiness_board(input)
     }
@@ -1123,7 +1225,7 @@ mod tests {
     };
 
     use super::{
-        readiness_board, status_board, summarize_catalog, summarize_checklists,
+        decision_board, readiness_board, status_board, summarize_catalog, summarize_checklists,
         summarize_decisions, summarize_outline, summarize_preview, summarize_references,
         summarize_scenarios, MAX_CATALOG_DOCS,
     };
@@ -1589,6 +1691,114 @@ Decision: ignored fenced decision
             .items
             .iter()
             .all(|item| !item.text.contains("ignored fenced")));
+    }
+
+    #[test]
+    fn decision_board_groups_docs_by_review_state() {
+        let board = decision_board(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: "prd".to_string(),
+                label: "Backend PRDs".to_string(),
+                description: None,
+                slug: "server/docs/prds".to_string(),
+                files: vec![
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/open-question.mdx".to_string(),
+                        preview: r#"---
+title: Open Question PRD
+status: review
+---
+
+## Open Questions
+
+- [ ] Should PRDs expose owner filters?
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/risk.mdx".to_string(),
+                        preview: r#"---
+title: Risky PRD
+status: active
+---
+
+## Risks
+
+- Risk: Stale docs may look authoritative.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/decided.mdx".to_string(),
+                        preview: r#"---
+title: Decided PRD
+status: accepted
+---
+
+## Decisions
+
+- Use ext_docs for product-doc semantics.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/missing-review-state.mdx".to_string(),
+                        preview: r#"---
+title: Missing Review State PRD
+status: planned
+---
+
+Intent without decision review state.
+"#
+                        .to_string(),
+                    },
+                ],
+            }],
+        })
+        .expect("decision board should summarize");
+
+        assert_eq!(board.total_docs, 4);
+
+        let open_questions = board
+            .columns
+            .iter()
+            .find(|column| column.key == "open-questions")
+            .expect("open questions column");
+        assert_eq!(open_questions.count, 1);
+        assert_eq!(open_questions.docs[0].title, "Open Question PRD");
+        assert_eq!(open_questions.docs[0].open_question_count, 1);
+        assert_eq!(open_questions.docs[0].status, "review");
+        assert_eq!(open_questions.docs[0].type_label, "Backend PRDs");
+
+        let risks = board
+            .columns
+            .iter()
+            .find(|column| column.key == "risks")
+            .expect("risks column");
+        assert_eq!(risks.count, 1);
+        assert_eq!(risks.docs[0].title, "Risky PRD");
+        assert_eq!(risks.docs[0].risk_count, 1);
+
+        let decided = board
+            .columns
+            .iter()
+            .find(|column| column.key == "decided")
+            .expect("decided column");
+        assert_eq!(decided.count, 1);
+        assert_eq!(decided.docs[0].decision_count, 1);
+        assert_eq!(decided.docs[0].status, "accepted");
+
+        let missing_review_state = board
+            .columns
+            .iter()
+            .find(|column| column.key == "missing-review-state")
+            .expect("missing review state column");
+        assert_eq!(missing_review_state.count, 1);
+        assert_eq!(
+            missing_review_state.docs[0].title,
+            "Missing Review State PRD"
+        );
     }
 
     #[test]
