@@ -21,13 +21,15 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState, IssueStateCounts,
+    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueLabelBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
     UpdateIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const COLLECTION: &str = "issues";
 const MAX_TITLE_LEN: usize = 512;
@@ -688,6 +690,69 @@ fn triage_columns(cards: Vec<IssueTriageCard>) -> Vec<IssueTriageColumn> {
     ]
 }
 
+fn issue_label_key(label: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in label.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "label".to_string()
+    } else {
+        format!("label-{key}")
+    }
+}
+
+fn label_column(key: &str, label: &str, cards: Vec<IssueLabelCard>) -> IssueLabelColumn {
+    IssueLabelColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn label_board_columns(issues: Vec<Issue>) -> Vec<IssueLabelColumn> {
+    let mut unlabeled = Vec::new();
+    let mut labeled: BTreeMap<String, (String, Vec<IssueLabelCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let labels: Vec<String> = issue
+            .labels
+            .iter()
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .collect();
+        if labels.is_empty() {
+            unlabeled.push(IssueLabelCard { issue });
+            continue;
+        }
+        for label in labels {
+            let key = issue_label_key(&label);
+            let entry = labeled.entry(key).or_insert_with(|| (label, Vec::new()));
+            entry.1.push(IssueLabelCard {
+                issue: issue.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![label_column("unlabeled", "Unlabeled", unlabeled)];
+    columns.extend(
+        labeled
+            .into_iter()
+            .map(|(key, (label, cards))| label_column(&key, &label, cards)),
+    );
+    columns
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -961,6 +1026,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn label_board(input: IssueLabelBoardInput) -> Result<IssueLabelBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueLabelBoard {
+            repository: input.repository,
+            total,
+            columns: label_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1093,5 +1168,32 @@ mod tests {
         assert_eq!(columns[1].cards[0].issue.id, "assigned");
         assert_eq!(columns[2].cards[0].issue.id, "manual");
         assert_eq!(columns[3].cards[0].issue.id, "closed");
+    }
+
+    #[test]
+    fn label_board_columns_group_unlabeled_and_labeled_work() {
+        let unlabeled = issue("unlabeled", IssueState::Open);
+        let mut bug = issue("bug", IssueState::Open);
+        bug.labels = vec!["kind::bug".to_string(), "priority::p1".to_string()];
+        let mut ux = issue("ux", IssueState::Open);
+        ux.labels = vec!["kind::ux".to_string()];
+
+        let columns = label_board_columns(vec![unlabeled, bug, ux]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "unlabeled",
+                "label-kind-bug",
+                "label-kind-ux",
+                "label-priority-p1"
+            ]
+        );
+        assert_eq!(columns[0].count, 1);
+        assert_eq!(columns[0].cards[0].issue.id, "unlabeled");
+        assert_eq!(columns[1].cards[0].issue.id, "bug");
+        assert_eq!(columns[2].cards[0].issue.id, "ux");
+        assert_eq!(columns[3].cards[0].issue.id, "bug");
     }
 }

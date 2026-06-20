@@ -2191,6 +2191,23 @@ expect_status "triage-board groups unassigned and assigned issue lanes" 200 "$TM
 json_assert "triage board has needs-owner and assigned cards" "$TMP_DIR/iss-triage.json" \
   "json.total === 2 && json.columns.length === 4 && json.columns.find((c) => c.key === \"needs-owner\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"assigned\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.issue.assignees.includes(\"comtrya://user/rawkode\"))"
 
+expect_status "open-issue for label-board smoke" 200 "$TMP_DIR/iss-label-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"unlabeled follow-up\",\"bodyMarkdown\":\"Visible in the label board's Unlabeled lane.\"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+json_assert "label-board smoke issue opened without labels" "$TMP_DIR/iss-label-create.json" \
+  'json.state === "open" && Array.isArray(json.labels) && json.labels.length === 0'
+ISSUE_UNLABELED_ID="$(json_value "$TMP_DIR/iss-label-create.json" 'json.id')"
+
+expect_status "label-board groups issues by labels and unlabeled lane" 200 "$TMP_DIR/iss-label-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/label-board"
+json_assert "label board exposes unlabeled and label lanes" "$TMP_DIR/iss-label-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unlabeled\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"label-kind-ux\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"label-kind-bug\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\") && json.columns.find((c) => c.key === \"label-priority-p0\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\")"
+
 expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
