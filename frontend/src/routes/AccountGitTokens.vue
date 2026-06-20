@@ -277,13 +277,13 @@ onMounted(() => {
 
       <div class="glass">
         <div class="section-hd">
-          <div class="section-hd-title">Existing tokens</div>
+          <div class="section-hd-title">Personal access tokens</div>
           <div class="section-hd-sub">
             <template v-if="tokens.length">
               {{ tokens.length }} token{{ tokens.length === 1 ? "" : "s" }}
             </template>
             <template v-else-if="loading">Loading…</template>
-            <template v-else>No tokens yet.</template>
+            <template v-else>No personal access tokens yet.</template>
           </div>
         </div>
         <div v-if="tokens.length" class="token-table">
