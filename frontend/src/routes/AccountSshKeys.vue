@@ -197,7 +197,7 @@ onMounted(() => {
         <div class="section-hd">
           <div class="section-hd-title">SSH keys</div>
           <div class="section-hd-sub">
-            <template v-if="keys.length">{{ keys.length }} key{{ keys.length === 1 ? "" : "s" }}</template>
+            <template v-if="keys.length">{{ keys.length }} SSH key{{ keys.length === 1 ? "" : "s" }}</template>
             <template v-else-if="loading">Loading…</template>
             <template v-else>No SSH keys yet.</template>
           </div>
