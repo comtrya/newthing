@@ -62,6 +62,31 @@ interface docs {
     types: list<doc-type-summary>,
   }
 
+  record doc-type-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    slug: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+    tags: list<string>,
+  }
+
+  record doc-type-column {
+    key: string,
+    label: string,
+    type-name: string,
+    count: u32,
+    docs: list<doc-type-card>,
+  }
+
+  record doc-type-board {
+    total-docs: u32,
+    columns: list<doc-type-column>,
+  }
+
   record doc-status-card {
     project-name: string,
     type-name: string,
@@ -376,6 +401,11 @@ interface docs {
   /// The kernel or UI supplies the project/type/file enumeration; ext_docs
   /// owns parsing and summary semantics for every file in the catalog.
   summarize-catalog: func(input: doc-catalog-input) -> result<doc-catalog, error>;
+
+  /// Group already-enumerated project docs by declared doc type so PRDs,
+  /// specs, BDD scenarios, ADRs, and user-defined types are visible even
+  /// when a configured type has no files yet.
+  type-board: func(input: doc-catalog-input) -> result<doc-type-board, error>;
 
   /// Group already-enumerated project docs into familiar product-status lanes.
   /// Status comes from front matter; missing or unknown statuses are surfaced

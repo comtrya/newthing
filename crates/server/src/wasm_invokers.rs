@@ -155,8 +155,8 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
     DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard,
     DocStatusColumn, DocSummary, DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard,
-    DocTraceabilityCard, DocTraceabilityColumn, DocTypeInput as DocsDocTypeInput, DocTypeSummary,
-    SummarizeDocInput as DocsSummarizeDocInput,
+    DocTraceabilityCard, DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
 mod ext_sprints_bindings {
@@ -4134,6 +4134,45 @@ fn doc_type_summary_to_json(summary: &DocTypeSummary) -> Value {
     })
 }
 
+fn doc_type_board_to_json(board: &DocTypeBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_type_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_column_to_json(column: &DocTypeColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "typeName": column.type_name,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_type_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_card_to_json(card: &DocTypeCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "slug": card.slug,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+        "tags": card.tags,
+    })
+}
+
 fn doc_status_board_to_json(board: &DocStatusBoard) -> Value {
     serde_json::json!({
         "totalDocs": board.total_docs,
@@ -4741,6 +4780,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_catalog_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "type-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse type-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_type_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("type-board call: {e}"),
+                    )
+                })?;
+            doc_type_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         "status-board" => {
             let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {

@@ -10288,6 +10288,13 @@ mod tests {
         assert_eq!(info.op_name, "tag-board");
 
         let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("type-board"))
+                .expect("docs type board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "type-board");
+
+        let info =
             crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("project-board"))
                 .expect("docs project board route should resolve to DispatchInfo");
         assert_eq!(info.extension_id, "ext_docs");

@@ -18,7 +18,8 @@ use bindings::exports::comtrya::ext_docs::docs::{
     DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard,
     DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
     DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard,
-    DocTraceabilityColumn, DocTypeInput, DocTypeSummary, Guest as DocsGuest, SummarizeDocInput,
+    DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn, DocTypeInput, DocTypeSummary,
+    Guest as DocsGuest, SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -69,6 +70,41 @@ fn summarize_catalog(input: DocCatalogInput) -> Result<DocCatalog, Error> {
     }
 
     Ok(DocCatalog { total_docs, types })
+}
+
+fn type_board(input: DocCatalogInput) -> Result<DocTypeBoard, Error> {
+    let catalog = summarize_catalog(input)?;
+    let mut by_type = BTreeMap::<String, (String, String, Vec<DocTypeCard>)>::new();
+
+    for doc_type in &catalog.types {
+        let key = doc_type_key(&doc_type.type_name);
+        let entry = by_type.entry(key).or_insert_with(|| {
+            (
+                doc_type.label.clone(),
+                doc_type.type_name.clone(),
+                Vec::new(),
+            )
+        });
+        if entry.0 != doc_type.label {
+            entry.0 = entry.1.clone();
+        }
+
+        for doc in &doc_type.docs {
+            entry.2.push(type_card(doc_type, doc));
+        }
+    }
+
+    let columns = by_type
+        .into_iter()
+        .map(|(key, (label, type_name, docs))| {
+            type_column(format!("type-{key}"), label, type_name, docs)
+        })
+        .collect();
+
+    Ok(DocTypeBoard {
+        total_docs: catalog.total_docs,
+        columns,
+    })
 }
 
 fn validate_catalog_size(input: &DocCatalogInput) -> Result<(), Error> {
@@ -1296,6 +1332,22 @@ fn summarize_doc_type(input: DocTypeInput) -> Result<DocTypeSummary, Error> {
     })
 }
 
+fn type_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocTypeCard {
+    DocTypeCard {
+        project_name: doc_type.project_name.clone(),
+        type_name: doc_type.type_name.clone(),
+        type_label: doc_type.label.clone(),
+        slug: doc_type.slug.clone(),
+        path: doc.path.clone(),
+        title: doc.title.clone(),
+        status: property_value(doc, "status").unwrap_or_default(),
+        owner: property_value(doc, "owner"),
+        tags: property_value(doc, "tags")
+            .map(|value| parse_tag_list(&value))
+            .unwrap_or_default(),
+    }
+}
+
 fn status_card(doc_type: &DocTypeSummary, doc: &DocSummary) -> DocStatusCard {
     let status = property_value(doc, "status").unwrap_or_default();
     DocStatusCard {
@@ -1356,6 +1408,21 @@ fn front_matter_value(properties: &[(String, String)], key: &str) -> Option<Stri
         })
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
+}
+
+fn type_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    type_name: impl Into<String>,
+    docs: Vec<DocTypeCard>,
+) -> DocTypeColumn {
+    DocTypeColumn {
+        key: key.into(),
+        label: label.into(),
+        type_name: type_name.into(),
+        count: docs.len() as u32,
+        docs,
+    }
 }
 
 fn status_column(
@@ -1529,6 +1596,10 @@ fn owner_key(owner: &str) -> String {
 
 fn tag_key(tag: &str) -> String {
     owner_key(tag)
+}
+
+fn doc_type_key(type_name: &str) -> String {
+    owner_key(type_name)
 }
 
 fn project_key(project: &str) -> String {
@@ -1783,6 +1854,10 @@ impl DocsGuest for Component {
         crate::summarize_catalog(input)
     }
 
+    fn type_board(input: DocCatalogInput) -> Result<DocTypeBoard, Error> {
+        crate::type_board(input)
+    }
+
     fn status_board(input: DocCatalogInput) -> Result<DocStatusBoard, Error> {
         crate::status_board(input)
     }
@@ -1862,7 +1937,7 @@ mod tests {
         decision_board, handoff_board, owner_board, project_board, readiness_board, scenario_board,
         status_board, summarize_catalog, summarize_checklists, summarize_decisions,
         summarize_outline, summarize_preview, summarize_references, summarize_scenarios, tag_board,
-        traceability_board, MAX_CATALOG_DOCS,
+        traceability_board, type_board, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -1982,6 +2057,107 @@ mod tests {
         .expect_err("catalog limit should be enforced");
 
         assert!(err.message.contains("4096"));
+    }
+
+    #[test]
+    fn type_board_groups_docs_by_configured_type() {
+        let board = type_board(DocCatalogInput {
+            types: vec![
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Backend PRDs".to_string(),
+                    description: None,
+                    slug: "server/docs/prds".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/prds/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository Docs Surface\nowner: Platform Maintainers\nstatus: active\ntags: [docs, product]\n---\n\nIntent."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "frontend".to_string(),
+                    type_name: "prd".to_string(),
+                    label: "Frontend PRDs".to_string(),
+                    description: None,
+                    slug: "frontend/docs/prds".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "frontend/docs/prds/shell-navigation.mdx".to_string(),
+                        preview:
+                            "---\ntitle: Shell Navigation\nstatus: planned\n---\n\nIntent."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "scenario".to_string(),
+                    label: "BDD Scenarios".to_string(),
+                    description: None,
+                    slug: "server/docs/scenarios".to_string(),
+                    files: vec![SummarizeDocInput {
+                        path: "crates/server/docs/scenarios/repository-docs-surface.mdx"
+                            .to_string(),
+                        preview:
+                            "---\ntitle: Repository docs are discoverable\nstatus: review\ntags: bdd, docs\n---\n\nGiven..."
+                                .to_string(),
+                    }],
+                },
+                DocTypeInput {
+                    project_name: "backend".to_string(),
+                    type_name: "spec".to_string(),
+                    label: "Specs".to_string(),
+                    description: None,
+                    slug: "server/docs/specs".to_string(),
+                    files: Vec::new(),
+                },
+            ],
+        })
+        .expect("type board should summarize");
+
+        assert_eq!(board.total_docs, 3);
+        assert_eq!(
+            board
+                .columns
+                .iter()
+                .map(|column| column.key.as_str())
+                .collect::<Vec<_>>(),
+            ["type-prd", "type-scenario", "type-spec"]
+        );
+
+        let prds = board
+            .columns
+            .iter()
+            .find(|column| column.key == "type-prd")
+            .expect("prd column");
+        assert_eq!(prds.label, "prd");
+        assert_eq!(prds.type_name, "prd");
+        assert_eq!(prds.count, 2);
+        assert_eq!(prds.docs[0].project_name, "backend");
+        assert_eq!(prds.docs[0].type_label, "Backend PRDs");
+        assert_eq!(prds.docs[0].slug, "server/docs/prds");
+        assert_eq!(prds.docs[0].owner.as_deref(), Some("Platform Maintainers"));
+        assert_eq!(prds.docs[0].tags, ["docs", "product"]);
+        assert_eq!(prds.docs[1].project_name, "frontend");
+        assert_eq!(prds.docs[1].type_label, "Frontend PRDs");
+
+        let scenarios = board
+            .columns
+            .iter()
+            .find(|column| column.key == "type-scenario")
+            .expect("scenario column");
+        assert_eq!(scenarios.count, 1);
+        assert_eq!(scenarios.docs[0].tags, ["bdd", "docs"]);
+
+        let specs = board
+            .columns
+            .iter()
+            .find(|column| column.key == "type-spec")
+            .expect("spec column");
+        assert_eq!(specs.label, "Specs");
+        assert_eq!(specs.count, 0);
+        assert!(specs.docs.is_empty());
     }
 
     #[test]
