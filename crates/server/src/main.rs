@@ -10232,6 +10232,42 @@ mod tests {
 
         let info = crate::generated_dispatch::dispatch_wit_route(
             "ext_issues",
+            &issue_route("triage-board"),
+        )
+        .expect("triage board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "triage-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("label-board"),
+        )
+        .expect("label board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "label-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("assignee-board"),
+        )
+        .expect("assignee board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "assignee-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("author-board"),
+        )
+        .expect("author board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "author-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
             &issue_route("project-board"),
         )
         .expect("project board route should resolve to DispatchInfo");

@@ -115,7 +115,15 @@
   ],
   "dispatchRoutes": [
     { "op": "issues.open-issue", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
-    { "op": "issues.list-issues", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+    { "op": "issues.list-issues", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.triage-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.label-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.assignee-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.author-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.project-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.priority-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.milestone-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "issues.workflow-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "allowedMutations": [],

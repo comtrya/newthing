@@ -22,7 +22,8 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
-    IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
+    IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueAuthorBoard,
+    IssueAuthorBoardInput, IssueAuthorCard, IssueAuthorColumn, IssueLabelBoard,
     IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueMilestoneBoard,
     IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
     IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
@@ -836,6 +837,81 @@ fn assignee_board_columns(issues: Vec<Issue>) -> Vec<IssueAssigneeColumn> {
     columns
 }
 
+fn issue_author_key(author_ref: &str) -> String {
+    let raw = author_ref
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(author_ref);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "author".to_string()
+    } else {
+        format!("author-{key}")
+    }
+}
+
+fn issue_author_label(author_ref: &str) -> String {
+    author_ref
+        .strip_prefix("comtrya://user/")
+        .or_else(|| author_ref.strip_prefix("comtrya://team/"))
+        .or_else(|| author_ref.strip_prefix("comtrya://org/"))
+        .unwrap_or(author_ref)
+        .to_string()
+}
+
+fn author_column(
+    key: &str,
+    label: &str,
+    author_ref: Option<String>,
+    cards: Vec<IssueAuthorCard>,
+) -> IssueAuthorColumn {
+    IssueAuthorColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        author_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn author_board_columns(issues: Vec<Issue>) -> Vec<IssueAuthorColumn> {
+    let mut by_author = BTreeMap::<String, Vec<IssueAuthorCard>>::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        if matches!(issue.state, IssueState::Closed) {
+            closed.push(IssueAuthorCard { issue });
+            continue;
+        }
+        by_author
+            .entry(issue.author_ref.clone())
+            .or_default()
+            .push(IssueAuthorCard { issue });
+    }
+
+    let mut columns = by_author
+        .into_iter()
+        .map(|(author_ref, cards)| {
+            let key = issue_author_key(&author_ref);
+            let label = issue_author_label(&author_ref);
+            author_column(&key, &label, Some(author_ref), cards)
+        })
+        .collect::<Vec<_>>();
+    columns.push(author_column("closed", "Closed", None, closed));
+    columns
+}
+
 fn issue_project_key(project_name: &str) -> String {
     let mut key = String::new();
     let mut last_dash = false;
@@ -1540,6 +1616,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn author_board(input: IssueAuthorBoardInput) -> Result<IssueAuthorBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueAuthorBoard {
+            repository: input.repository,
+            total,
+            columns: author_board_columns(issues),
+        })
+    }
+
     fn project_board(input: IssueProjectBoardInput) -> Result<IssueProjectBoard, Error> {
         let issues = Self::list_issues(input.repository.clone(), input.limit)?;
         let total = issues.len() as u32;
@@ -1779,6 +1865,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["rawkode", "paired"]
         );
+    }
+
+    #[test]
+    fn author_board_columns_group_active_authors_and_closed_issues() {
+        let mut rawkode = issue("rawkode", IssueState::Open);
+        rawkode.author_ref = "comtrya://user/rawkode".to_string();
+        let mut platform = issue("platform", IssueState::Reopened);
+        platform.author_ref = "comtrya://team/platform-maintainers".to_string();
+        let mut rawkode_followup = issue("rawkode-followup", IssueState::Open);
+        rawkode_followup.author_ref = "comtrya://user/rawkode".to_string();
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.author_ref = "comtrya://team/platform-maintainers".to_string();
+
+        let columns = author_board_columns(vec![rawkode, platform, rawkode_followup, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "author-team-platform-maintainers",
+                "author-user-rawkode",
+                "closed",
+            ]
+        );
+        assert_eq!(
+            columns[0].author_ref.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[0].label, "platform-maintainers");
+        assert_eq!(columns[0].cards[0].issue.id, "platform");
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "rawkode-followup"]
+        );
+        assert_eq!(columns[2].author_ref, None);
+        assert_eq!(columns[2].cards[0].issue.id, "closed");
     }
 
     #[test]

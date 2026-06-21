@@ -2585,6 +2585,14 @@ write_issue_closed_wasm_event "$ISSUE_ONE_ID" "$TMP_DIR/iss-close-event.json"
 json_assert "close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
   'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
 
+expect_status "author-board groups active authors and closed issues" 200 "$TMP_DIR/iss-author-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/author-board"
+json_assert "author board exposes current author and closed lanes" "$TMP_DIR/iss-author-board.json" \
+  "json.total === 3 && json.columns.some((c) => c.authorRef && c.cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\") && c.cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && c.cards.every((card) => card.issue.state !== \"closed\" && card.issue.authorRef === c.authorRef)) && json.columns.find((c) => c.key === \"closed\")?.authorRef === null && json.columns.find((c) => c.key === \"closed\")?.cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.issue.state === \"closed\")"
+
 expect_status "priority-board groups issues by priority and terminal state" 200 "$TMP_DIR/iss-priority-board.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

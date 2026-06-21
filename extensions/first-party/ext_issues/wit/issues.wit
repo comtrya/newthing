@@ -134,6 +134,29 @@ interface issues {
     columns: list<issue-assignee-column>,
   }
 
+  record issue-author-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-author-card {
+    issue: issue,
+  }
+
+  record issue-author-column {
+    key: string,
+    label: string,
+    author-ref: option<uri>,
+    count: u32,
+    cards: list<issue-author-card>,
+  }
+
+  record issue-author-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-author-column>,
+  }
+
   record issue-project-board-input {
     repository: uri,
     %limit: u32,
@@ -305,6 +328,9 @@ interface issues {
   /// Familiar ownership lanes. Unassigned work is explicit, while assigned
   /// work appears once per assignee so owners can scan their active slice.
   assignee-board: func(input: issue-assignee-board-input) -> result<issue-assignee-board, error>;
+  /// Familiar authored-by lanes. Closed issues are terminal, while active
+  /// issues are grouped by their creator so contributors can scan their work.
+  author-board: func(input: issue-author-board-input) -> result<issue-author-board, error>;
   /// Familiar product/project lanes. Unscoped work is explicit, while scoped
   /// issues are grouped by their stamped project name.
   project-board: func(input: issue-project-board-input) -> result<issue-project-board, error>;
