@@ -106,7 +106,8 @@ use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, ListPullReviewsInput,
     ListReviewRequestsInput, MergePullInput, PrState, PullAuthorBoard, PullAuthorBoardInput,
     PullAuthorCard, PullAuthorColumn, PullBaseBranchBoard, PullBaseBranchBoardInput,
-    PullBaseBranchCard, PullBaseBranchColumn, PullMergeCheckSummary, PullMergeReadinessBoard,
+    PullBaseBranchCard, PullBaseBranchColumn, PullHeadBranchBoard, PullHeadBranchBoardInput,
+    PullHeadBranchCard, PullHeadBranchColumn, PullMergeCheckSummary, PullMergeReadinessBoard,
     PullMergeReadinessBoardInput, PullMergeReadinessCard, PullMergeReadinessColumn,
     PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard, PullReviewBoardInput,
     PullReviewCard, PullReviewColumn, PullReviewDecision, PullReviewDecisionBoard,
@@ -435,6 +436,13 @@ struct PullAuthorBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PullBaseBranchBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullHeadBranchBoardInputJson {
     repository: String,
     limit: u32,
 }
@@ -2425,6 +2433,28 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_base_branch_board_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "head-branch-board" => {
+            let parsed: PullHeadBranchBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse head-branch-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullHeadBranchBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_head_branch_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("head-branch-board call: {e}"),
+                    )
+                })?;
+            pull_head_branch_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         "merge-readiness-board" => {
             let parsed: PullMergeReadinessBoardInputJson =
                 serde_json::from_value(input).map_err(|e| {
@@ -3728,6 +3758,39 @@ fn pull_base_branch_column_to_json(column: &PullBaseBranchColumn) -> Value {
 }
 
 fn pull_base_branch_card_to_json(card: &PullBaseBranchCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_head_branch_board_to_json(board: &PullHeadBranchBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_head_branch_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_head_branch_column_to_json(column: &PullHeadBranchColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "headRef": column.head_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_head_branch_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_head_branch_card_to_json(card: &PullHeadBranchCard) -> Value {
     serde_json::json!({
         "pullRequest": pull_request_to_json(&card.pull_request),
         "terminal": card.terminal,

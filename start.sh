@@ -3493,6 +3493,14 @@ expect_status "base-branch-board groups active targets and terminal pull request
 json_assert "base branch board has main and release lanes plus terminal lanes" "$TMP_DIR/pr-base-branch-board.json" \
   "json.total === 4 && json.columns.find((c) => c.key === \"base-main\")?.baseRef === \"main\" && json.columns.find((c) => c.key === \"base-main\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"base-release-2026-06\")?.baseRef === \"release/2026.06\" && json.columns.find((c) => c.key === \"base-release-2026-06\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
 
+expect_status "head-branch-board groups active sources and terminal pull requests" 200 "$TMP_DIR/pr-head-branch-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/head-branch-board"
+json_assert "head branch board has feature lanes plus terminal lanes" "$TMP_DIR/pr-head-branch-board.json" \
+  "json.total === 4 && json.columns.find((c) => c.key === \"head-feature-author-rawkode\")?.headRef === \"feature/author-rawkode\" && json.columns.find((c) => c.key === \"head-feature-author-rawkode\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"head-feature-author-platform\")?.headRef === \"feature/author-platform\" && json.columns.find((c) => c.key === \"head-feature-author-platform\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
+
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="$SMOKE_SOURCE_URL"
 expect_status "importRepository (clone) mutation through Vue shell" 200 "$TMP_DIR/import-repo.json" \

@@ -183,6 +183,30 @@ interface pulls {
     columns: list<pull-base-branch-column>,
   }
 
+  record pull-head-branch-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-head-branch-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-head-branch-column {
+    key: string,
+    label: string,
+    head-ref: option<string>,
+    count: u32,
+    cards: list<pull-head-branch-card>,
+  }
+
+  record pull-head-branch-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-head-branch-column>,
+  }
+
   record pull-merge-check-summary {
     pull-id: id,
     required-missing: u32,
@@ -328,6 +352,7 @@ interface pulls {
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
   author-board: func(input: pull-author-board-input) -> result<pull-author-board, error>;
   base-branch-board: func(input: pull-base-branch-board-input) -> result<pull-base-branch-board, error>;
+  head-branch-board: func(input: pull-head-branch-board-input) -> result<pull-head-branch-board, error>;
   merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
   review-decision-board: func(input: pull-review-decision-board-input) -> result<pull-review-decision-board, error>;
   review-request-board: func(input: pull-review-request-board-input) -> result<pull-review-request-board, error>;
