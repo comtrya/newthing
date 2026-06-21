@@ -2074,6 +2074,124 @@ expect_status "ext_docs handoff-board groups docs by implementation handoff stat
 json_assert "ext_docs handoff-board returns product handoff lanes" "$TMP_DIR/docs-handoff.json" \
   'json.totalDocs === 5 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Needs Criteria PRD" && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.scenarioCount === 0 && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.implementationReferenceCount === 0 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.scenarioCount === 1 && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.implementationReferenceCount === 2'
 
+DOC_IMPLEMENTATION_PAYLOAD="$TMP_DIR/docs-implementation-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/needs-acceptance.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Acceptance PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without accepted criteria or scenarios.\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-review.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Review PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n\n" +
+              "## Open Questions\n\n" +
+              "Question: Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/done-unlinked.mdx",
+            preview:
+              "---\n" +
+              "title: Done Unlinked PRD\n" +
+              "status: shipped\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/in-implementation.mdx",
+            preview:
+              "---\n" +
+              "title: In Implementation PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+          {
+            path: "crates/server/docs/prds/implemented.mdx",
+            preview:
+              "---\n" +
+              "title: Implemented PRD\n" +
+              "status: done\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Delivered by comtrya://issue/42 and comtrya://doc/scenario/repository-docs-surface.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_IMPLEMENTATION_PAYLOAD"
+expect_status "ext_docs implementation-board groups docs by delivery state" 200 "$TMP_DIR/docs-implementation.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_IMPLEMENTATION_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/implementation-board"
+json_assert "ext_docs implementation-board returns delivery lanes" "$TMP_DIR/docs-implementation.json" \
+  'json.totalDocs === 6 && json.columns.find((column) => column.key === "needs-acceptance")?.docs?.[0]?.title === "Needs Acceptance PRD" && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "needs-implementation-link")?.docs?.[0]?.title === "Done Unlinked PRD" && json.columns.find((column) => column.key === "ready-to-build")?.docs?.[0]?.status === "accepted" && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.implementationReferenceCount === 2 && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.referenceCount === 2 && json.columns.find((column) => column.key === "implemented")?.docs?.[0]?.implementationReferenceCount === 1 && json.columns.find((column) => column.key === "implemented")?.docs?.[0]?.docReferenceCount === 1'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \

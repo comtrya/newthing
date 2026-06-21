@@ -13,13 +13,14 @@ use bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput, DocChecklistItem,
     DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard, DocDecisionColumn,
     DocDecisionItem, DocDecisionSummary, DocHandoffBoard, DocHandoffCard, DocHandoffColumn,
-    DocOutlineHeading, DocOutlineSummary, DocOwnerBoard, DocOwnerCard, DocOwnerColumn,
-    DocProjectBoard, DocProjectCard, DocProjectColumn, DocProperty, DocReadinessBoard,
-    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard,
-    DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
-    DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard,
-    DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn, DocTypeInput, DocTypeSummary,
-    Guest as DocsGuest, SummarizeDocInput,
+    DocImplementationBoard, DocImplementationCard, DocImplementationColumn, DocOutlineHeading,
+    DocOutlineSummary, DocOwnerBoard, DocOwnerCard, DocOwnerColumn, DocProjectBoard,
+    DocProjectCard, DocProjectColumn, DocProperty, DocReadinessBoard, DocReadinessCard,
+    DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard, DocScenarioCard,
+    DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary, DocTagBoard,
+    DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard, DocTraceabilityColumn,
+    DocTypeBoard, DocTypeCard, DocTypeColumn, DocTypeInput, DocTypeSummary, Guest as DocsGuest,
+    SummarizeDocInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -450,6 +451,107 @@ fn handoff_board(input: DocCatalogInput) -> Result<DocHandoffBoard, Error> {
                 ready_for_implementation,
             ),
             handoff_column("in-implementation", "In implementation", in_implementation),
+        ],
+    })
+}
+
+fn implementation_board(input: DocCatalogInput) -> Result<DocImplementationBoard, Error> {
+    validate_catalog_size(&input)?;
+
+    let mut needs_acceptance = Vec::new();
+    let mut needs_product_review = Vec::new();
+    let mut needs_implementation_link = Vec::new();
+    let mut ready_to_build = Vec::new();
+    let mut in_implementation = Vec::new();
+    let mut implemented = Vec::new();
+    let mut total_docs = 0_u32;
+
+    for doc_type in input.types {
+        let project_name = required_field("project name", doc_type.project_name)?;
+        let type_name = required_field("doc type name", doc_type.type_name)?;
+        let label = clean_optional_label(doc_type.label).unwrap_or_else(|| type_name.clone());
+        required_field("doc type slug", doc_type.slug)?;
+
+        for file in doc_type.files {
+            let path = validate_doc_path(file.path)?;
+            validate_preview_len(&file.preview)?;
+
+            let summary = summarize_preview(&path, &file.preview);
+            let checklists = summarize_checklists(SummarizeDocInput {
+                path: path.clone(),
+                preview: file.preview.clone(),
+            })?;
+            let scenarios = summarize_scenarios(SummarizeDocInput {
+                path: path.clone(),
+                preview: file.preview.clone(),
+            })?;
+            let references = summarize_references(SummarizeDocInput {
+                path: path.clone(),
+                preview: file.preview.clone(),
+            })?;
+            let decisions = summarize_decisions(SummarizeDocInput {
+                path,
+                preview: file.preview,
+            })?;
+            let implementation_reference_count = references
+                .references
+                .iter()
+                .filter(|reference| is_implementation_reference(&reference.kind))
+                .count() as u32;
+            let doc_reference_count = references
+                .references
+                .iter()
+                .filter(|reference| reference.kind == "doc")
+                .count() as u32;
+            let status = property_value(&summary, "status").unwrap_or_default();
+            let card = DocImplementationCard {
+                project_name: project_name.clone(),
+                type_name: type_name.clone(),
+                type_label: label.clone(),
+                path: summary.path,
+                title: summary.title,
+                status,
+                checklist_total: checklists.total_items,
+                checklist_checked: checklists.checked_items,
+                scenario_count: scenarios.scenario_count,
+                reference_count: references.reference_count,
+                implementation_reference_count,
+                doc_reference_count,
+                open_question_count: decisions.open_question_count,
+                risk_count: decisions.risk_count,
+            };
+
+            match implementation_lane(&card) {
+                ImplementationLane::NeedsAcceptance => needs_acceptance.push(card),
+                ImplementationLane::NeedsProductReview => needs_product_review.push(card),
+                ImplementationLane::NeedsImplementationLink => {
+                    needs_implementation_link.push(card);
+                }
+                ImplementationLane::ReadyToBuild => ready_to_build.push(card),
+                ImplementationLane::InImplementation => in_implementation.push(card),
+                ImplementationLane::Implemented => implemented.push(card),
+            }
+            total_docs += 1;
+        }
+    }
+
+    Ok(DocImplementationBoard {
+        total_docs,
+        columns: vec![
+            implementation_column("needs-acceptance", "Needs acceptance", needs_acceptance),
+            implementation_column(
+                "needs-product-review",
+                "Needs product review",
+                needs_product_review,
+            ),
+            implementation_column(
+                "needs-implementation-link",
+                "Needs implementation link",
+                needs_implementation_link,
+            ),
+            implementation_column("ready-to-build", "Ready to build", ready_to_build),
+            implementation_column("in-implementation", "In implementation", in_implementation),
+            implementation_column("implemented", "Implemented", implemented),
         ],
     })
 }
@@ -1509,6 +1611,19 @@ fn handoff_column(
     }
 }
 
+fn implementation_column(
+    key: impl Into<String>,
+    label: impl Into<String>,
+    docs: Vec<DocImplementationCard>,
+) -> DocImplementationColumn {
+    DocImplementationColumn {
+        key: key.into(),
+        label: label.into(),
+        count: docs.len() as u32,
+        docs,
+    }
+}
+
 fn decision_column(
     key: impl Into<String>,
     label: impl Into<String>,
@@ -1646,6 +1761,15 @@ enum HandoffLane {
     InImplementation,
 }
 
+enum ImplementationLane {
+    NeedsAcceptance,
+    NeedsProductReview,
+    NeedsImplementationLink,
+    ReadyToBuild,
+    InImplementation,
+    Implemented,
+}
+
 enum DecisionLane {
     OpenQuestions,
     Risks,
@@ -1701,6 +1825,37 @@ fn handoff_lane(card: &DocHandoffCard) -> HandoffLane {
     }
 
     HandoffLane::ReadyForImplementation
+}
+
+fn implementation_lane(card: &DocImplementationCard) -> ImplementationLane {
+    if card.implementation_reference_count > 0 && is_done_status(&card.status) {
+        return ImplementationLane::Implemented;
+    }
+
+    if card.implementation_reference_count > 0 {
+        return ImplementationLane::InImplementation;
+    }
+
+    if is_done_status(&card.status) {
+        return ImplementationLane::NeedsImplementationLink;
+    }
+
+    if card.checklist_total > card.checklist_checked || card.scenario_count == 0 {
+        return ImplementationLane::NeedsAcceptance;
+    }
+
+    if card.open_question_count > 0 || card.risk_count > 0 {
+        return ImplementationLane::NeedsProductReview;
+    }
+
+    ImplementationLane::ReadyToBuild
+}
+
+fn is_done_status(status: &str) -> bool {
+    matches!(
+        normalize_status(status).as_str(),
+        "closed" | "complete" | "completed" | "done" | "shipped"
+    )
 }
 
 fn decision_lane(card: &DocDecisionCard) -> DecisionLane {
@@ -1913,6 +2068,10 @@ impl DocsGuest for Component {
     fn handoff_board(input: DocCatalogInput) -> Result<DocHandoffBoard, Error> {
         crate::handoff_board(input)
     }
+
+    fn implementation_board(input: DocCatalogInput) -> Result<DocImplementationBoard, Error> {
+        crate::implementation_board(input)
+    }
 }
 
 impl ReactorGuest for Component {
@@ -1934,10 +2093,10 @@ mod tests {
     };
 
     use super::{
-        decision_board, handoff_board, owner_board, project_board, readiness_board, scenario_board,
-        status_board, summarize_catalog, summarize_checklists, summarize_decisions,
-        summarize_outline, summarize_preview, summarize_references, summarize_scenarios, tag_board,
-        traceability_board, type_board, MAX_CATALOG_DOCS,
+        decision_board, handoff_board, implementation_board, owner_board, project_board,
+        readiness_board, scenario_board, status_board, summarize_catalog, summarize_checklists,
+        summarize_decisions, summarize_outline, summarize_preview, summarize_references,
+        summarize_scenarios, tag_board, traceability_board, type_board, MAX_CATALOG_DOCS,
     };
 
     #[test]
@@ -3360,5 +3519,207 @@ Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.
         assert_eq!(in_implementation.docs[0].title, "In Implementation PRD");
         assert_eq!(in_implementation.docs[0].implementation_reference_count, 2);
         assert_eq!(in_implementation.docs[0].status, "active");
+    }
+
+    #[test]
+    fn implementation_board_groups_docs_by_delivery_state() {
+        let board = implementation_board(DocCatalogInput {
+            types: vec![DocTypeInput {
+                project_name: "backend".to_string(),
+                type_name: "prd".to_string(),
+                label: "Backend PRDs".to_string(),
+                description: None,
+                slug: "server/docs/prds".to_string(),
+                files: vec![
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/needs-acceptance.mdx".to_string(),
+                        preview: r#"---
+title: Needs Acceptance PRD
+status: planned
+---
+
+Intent without accepted criteria or scenarios.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/needs-review.mdx".to_string(),
+                        preview: r#"---
+title: Needs Review PRD
+status: review
+---
+
+## Acceptance Criteria
+
+- [x] Product intent is clear
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see implementation-ready context
+
+## Open Questions
+
+Question: Should PRDs expose owner filters?
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/done-unlinked.mdx".to_string(),
+                        preview: r#"---
+title: Done Unlinked PRD
+status: shipped
+---
+
+## Acceptance Criteria
+
+- [x] Product intent is clear
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see implementation-ready context
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/ready.mdx".to_string(),
+                        preview: r#"---
+title: Ready PRD
+status: accepted
+---
+
+## Acceptance Criteria
+
+- [x] Product intent is clear
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see implementation-ready context
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/in-implementation.mdx".to_string(),
+                        preview: r#"---
+title: In Implementation PRD
+status: active
+---
+
+## Acceptance Criteria
+
+- [x] Product intent is clear
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see linked implementation work
+
+## Traceability
+
+Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.
+"#
+                        .to_string(),
+                    },
+                    SummarizeDocInput {
+                        path: "crates/server/docs/prds/implemented.mdx".to_string(),
+                        preview: r#"---
+title: Implemented PRD
+status: done
+---
+
+## Acceptance Criteria
+
+- [x] Product intent is clear
+
+Feature: Repository docs
+
+Scenario: Open project docs
+  Given a maintainer opens a repository
+  When they view project docs
+  Then they see linked implementation work
+
+## Traceability
+
+Delivered by comtrya://issue/42 and comtrya://doc/scenario/repository-docs-surface.
+"#
+                        .to_string(),
+                    },
+                ],
+            }],
+        })
+        .expect("implementation board should summarize");
+
+        assert_eq!(board.total_docs, 6);
+
+        let needs_acceptance = board
+            .columns
+            .iter()
+            .find(|column| column.key == "needs-acceptance")
+            .expect("needs acceptance column");
+        assert_eq!(needs_acceptance.count, 1);
+        assert_eq!(needs_acceptance.docs[0].title, "Needs Acceptance PRD");
+        assert_eq!(needs_acceptance.docs[0].scenario_count, 0);
+
+        let needs_product_review = board
+            .columns
+            .iter()
+            .find(|column| column.key == "needs-product-review")
+            .expect("needs product review column");
+        assert_eq!(needs_product_review.count, 1);
+        assert_eq!(needs_product_review.docs[0].open_question_count, 1);
+        assert_eq!(needs_product_review.docs[0].checklist_checked, 1);
+
+        let needs_implementation_link = board
+            .columns
+            .iter()
+            .find(|column| column.key == "needs-implementation-link")
+            .expect("needs implementation link column");
+        assert_eq!(needs_implementation_link.count, 1);
+        assert_eq!(needs_implementation_link.docs[0].title, "Done Unlinked PRD");
+        assert_eq!(
+            needs_implementation_link.docs[0].implementation_reference_count,
+            0
+        );
+
+        let ready = board
+            .columns
+            .iter()
+            .find(|column| column.key == "ready-to-build")
+            .expect("ready to build column");
+        assert_eq!(ready.count, 1);
+        assert_eq!(ready.docs[0].title, "Ready PRD");
+        assert_eq!(ready.docs[0].status, "accepted");
+        assert_eq!(ready.docs[0].type_label, "Backend PRDs");
+
+        let in_implementation = board
+            .columns
+            .iter()
+            .find(|column| column.key == "in-implementation")
+            .expect("in implementation column");
+        assert_eq!(in_implementation.count, 1);
+        assert_eq!(in_implementation.docs[0].title, "In Implementation PRD");
+        assert_eq!(in_implementation.docs[0].implementation_reference_count, 2);
+        assert_eq!(in_implementation.docs[0].reference_count, 2);
+
+        let implemented = board
+            .columns
+            .iter()
+            .find(|column| column.key == "implemented")
+            .expect("implemented column");
+        assert_eq!(implemented.count, 1);
+        assert_eq!(implemented.docs[0].title, "Implemented PRD");
+        assert_eq!(implemented.docs[0].implementation_reference_count, 1);
+        assert_eq!(implemented.docs[0].doc_reference_count, 1);
+        assert_eq!(implemented.docs[0].status, "done");
     }
 }

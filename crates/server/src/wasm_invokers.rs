@@ -151,12 +151,13 @@ use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
     BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
     DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
     DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocHandoffBoard, DocHandoffCard,
-    DocHandoffColumn, DocOutlineHeading, DocOutlineSummary, DocOwnerBoard, DocOwnerCard,
-    DocOwnerColumn, DocProjectBoard, DocProjectCard, DocProjectColumn, DocProperty,
-    DocReadinessBoard, DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary,
-    DocScenarioBoard, DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard,
-    DocStatusColumn, DocSummary, DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard,
-    DocTraceabilityCard, DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn,
+    DocHandoffColumn, DocImplementationBoard, DocImplementationCard, DocImplementationColumn,
+    DocOutlineHeading, DocOutlineSummary, DocOwnerBoard, DocOwnerCard, DocOwnerColumn,
+    DocProjectBoard, DocProjectCard, DocProjectColumn, DocProperty, DocReadinessBoard,
+    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard,
+    DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard,
+    DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn,
     DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
 };
 
@@ -4722,6 +4723,49 @@ fn doc_handoff_card_to_json(card: &DocHandoffCard) -> Value {
     })
 }
 
+fn doc_implementation_board_to_json(board: &DocImplementationBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_implementation_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_implementation_column_to_json(column: &DocImplementationColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_implementation_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_implementation_card_to_json(card: &DocImplementationCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "checklistTotal": card.checklist_total,
+        "checklistChecked": card.checklist_checked,
+        "scenarioCount": card.scenario_count,
+        "referenceCount": card.reference_count,
+        "implementationReferenceCount": card.implementation_reference_count,
+        "docReferenceCount": card.doc_reference_count,
+        "openQuestionCount": card.open_question_count,
+        "riskCount": card.risk_count,
+    })
+}
+
 fn doc_property_to_json(property: &DocProperty) -> Value {
     serde_json::json!({
         "key": property.key,
@@ -5129,6 +5173,24 @@ pub fn dispatch_ext_docs(
                     )
                 })?;
             doc_handoff_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "implementation-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse implementation-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_implementation_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("implementation-board call: {e}"),
+                    )
+                })?;
+            doc_implementation_board_to_json(&result.map_err(docs_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(

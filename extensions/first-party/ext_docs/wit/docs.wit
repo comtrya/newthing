@@ -390,6 +390,35 @@ interface docs {
     columns: list<doc-handoff-column>,
   }
 
+  record doc-implementation-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    reference-count: u32,
+    implementation-reference-count: u32,
+    doc-reference-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-implementation-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-implementation-card>,
+  }
+
+  record doc-implementation-board {
+    total-docs: u32,
+    columns: list<doc-implementation-column>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -463,6 +492,11 @@ interface docs {
   /// Group product docs by implementation handoff state so specs, PRDs, and
   /// BDD scenarios can move from product review into linked forge work.
   handoff-board: func(input: doc-catalog-input) -> result<doc-handoff-board, error>;
+
+  /// Group product docs by implementation delivery state so specs, PRDs, and
+  /// BDD scenarios expose acceptance coverage, review blockers, linked forge
+  /// work, and implemented requirements in one familiar queue.
+  implementation-board: func(input: doc-catalog-input) -> result<doc-implementation-board, error>;
 }
 
 world ext-docs {
