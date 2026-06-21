@@ -4,6 +4,7 @@ import { createEpic, listEpics } from "./api";
 import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
+import EpicRoadmapBoard from "./EpicRoadmapBoard.vue";
 import EpicsList from "./EpicsList.vue";
 import IssueEpicLinker from "./IssueEpicLinker.vue";
 import {
@@ -19,6 +20,7 @@ const EXTENSION_ID = "ext_epics";
 const EPIC_CARD_TAG = "comtrya-epic-card";
 const EPICS_BOARD_TAG = "comtrya-epics-board";
 const EPICS_INDEX_TAG = "comtrya-epics-index";
+const EPICS_ROADMAP_TAG = "comtrya-epics-roadmap";
 const EPIC_DETAIL_TAG = "comtrya-epic-detail";
 const ISSUE_EPIC_LINKER_TAG = "comtrya-issue-epic-linker";
 const EPIC_NEW_TAG = "comtrya-epic-new";
@@ -69,6 +71,7 @@ defineExtensionWidget({
 });
 defineExtensionWidget({ tagName: EPICS_BOARD_TAG, component: EpicsList });
 defineExtensionWidget({ tagName: EPICS_INDEX_TAG, component: EpicsList });
+defineExtensionWidget({ tagName: EPICS_ROADMAP_TAG, component: EpicRoadmapBoard });
 defineExtensionWidget({ tagName: EPIC_DETAIL_TAG, component: EpicDetail });
 defineExtensionWidget({ tagName: ISSUE_EPIC_LINKER_TAG, component: IssueEpicLinker });
 defineEpicNewElement();
@@ -111,6 +114,10 @@ const extension: ExtensionDefinition = {
     });
     host.registerRoute("/", {
       element: EPICS_INDEX_TAG,
+      requiredPermission: "epics.read",
+    });
+    host.registerRoute("/board", {
+      element: EPICS_ROADMAP_TAG,
       requiredPermission: "epics.read",
     });
     host.registerRoute("/new", {

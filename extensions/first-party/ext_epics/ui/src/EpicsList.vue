@@ -9,6 +9,7 @@ import {
 import { assignEpicProject, createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
+  epicBoardHref as buildEpicBoardHref,
   defaultWorkspaceId,
   epicRef,
   newEpicHref as buildNewEpicHref,
@@ -253,6 +254,14 @@ const newEpicHref = computed(() => {
   return props.projectName
     ? `${base}&projectName=${encodeURIComponent(props.projectName)}`
     : base;
+});
+const boardHref = computed(() => {
+  if (typeof window === "undefined") return buildEpicBoardHref(props.workspaceId);
+  const path = window.location.pathname.replace(/\/$/, "");
+  if (path.endsWith("/epics")) {
+    return `${path}/board${window.location.search}`;
+  }
+  return buildEpicBoardHref(props.workspaceId);
 });
 
 /**
@@ -534,7 +543,10 @@ async function loadEpics(): Promise<void> {
   <section class="epics-list" :data-state="loadState" data-smoke="epics-list">
     <header class="epics-list-header">
       <h3>{{ title }}</h3>
-      <a v-if="showNewLink" :href="newEpicHref">+ new</a>
+      <div class="epics-list-actions">
+        <a :href="boardHref">board</a>
+        <a v-if="showNewLink" :href="newEpicHref">+ new</a>
+      </div>
     </header>
 
     <div
@@ -742,6 +754,12 @@ async function loadEpics(): Promise<void> {
 .epic-line {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
+}
+
+.epics-list-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .epics-list-header a {

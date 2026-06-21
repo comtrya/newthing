@@ -16,6 +16,7 @@ export type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 export interface Epic {
   id: string;
   workspaceId: string;
+  number?: number | null;
   title: string;
   bodyMarkdown?: string | null;
   state: EpicState;
@@ -81,6 +82,10 @@ export function epicHref(epic: Pick<Epic, "workspaceId" | "id">): string {
     EXT_EPICS_ROUTE_PREFIX,
     `/${epic.workspaceId}/${epic.id}`,
   );
+}
+
+export function epicBoardHref(workspaceId: string): string {
+  return `${buildExtensionUrl(EXT_EPICS_ROUTE_PREFIX, "/board")}?workspaceId=${workspaceId}`;
 }
 
 export function newEpicHref(workspaceId: string): string {
