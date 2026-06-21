@@ -61,7 +61,13 @@ reset_generated_path() {
 
 create_smoke_source_repo() {
   local repo_dir="$1"
-  mkdir -p "$repo_dir/cue.mod" "$repo_dir/docs/rfcs" "$repo_dir/crates/server" "$repo_dir/frontend/src"
+  mkdir -p \
+    "$repo_dir/cue.mod" \
+    "$repo_dir/docs/prds" \
+    "$repo_dir/docs/rfcs" \
+    "$repo_dir/docs/scenarios" \
+    "$repo_dir/crates/server" \
+    "$repo_dir/frontend/src"
   git -C "$repo_dir" init --initial-branch=main >/dev/null 2>&1 \
     || git -C "$repo_dir" init >/dev/null 2>&1
   git -C "$repo_dir" config user.name "Comtrya Smoke"
@@ -91,15 +97,100 @@ package comtrya
 // Per-repo extension opt-in (#137 / Phase 2). Repository-scoped extension
 // features (issues, pulls, checks) and the issue→epic part-of participation
 // gate are off unless the repo opts in via `repository.extensions`. The smoke
-// exercises all four, so it enables them here. Authored without the published
-// schema import because the imported smoke repo doesn't vendor that CUE module;
-// the kernel reads `repository.extensions` as a plain array.
-repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_sprints"]
+// exercises the product workbench extensions, so it enables them here. Authored
+// without the published schema import because the imported smoke repo doesn't
+// vendor that CUE module; the kernel reads `repository.extensions` as a plain
+// array and enriches `projects.*.docs` from ext_docs' registered schema.
+repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_sprints", "ext_docs"]
 
 projects: kernel: {
 	root: "."
 	labels: ["runtime"]
+	docs: {
+		prd: {
+			slug: "docs/prds"
+			label: "PRDs"
+			description: "Product requirements that explain why a repository change exists."
+			properties: {
+				title: string
+				owner: string
+				status: string
+				audience: string
+				tags: [...string]
+			}
+		}
+		scenario: {
+			slug: "docs/scenarios"
+			label: "BDD Scenarios"
+			description: "Behavior scenarios that describe user-visible forge workflows."
+			properties: {
+				title: string
+				feature: string
+				owner: string
+				status: string
+				tags: [...string]
+			}
+		}
+	}
 }
+EOF
+  cat >"$repo_dir/docs/prds/repository-workbench.mdx" <<'EOF'
+---
+title: Repository Workbench
+owner: platform-maintainers
+status: active
+audience: maintainers
+tags: [forge, docs, workbench]
+---
+
+The repository workbench should make product intent visible beside code,
+issues, epics, sprints, pull requests, and checks.
+
+## Acceptance Criteria
+
+- [x] Repository overview links to product docs.
+- [x] PRDs and BDD scenarios are grouped by lifecycle state.
+- [ ] Implementation links are traced back to issues, epics, and pull requests.
+
+## Decisions
+
+- Keep docs repo-resident and extension-owned.
+- Use the same per-repo workbench shell as issues, epics, checks, and sprints.
+
+## Questions
+
+Question: Should doc review requests become first-class inbox items?
+
+## Risks
+
+Risk: Product intent can drift if implementation links are not visible.
+
+Delivered by comtrya://issue/42 and comtrya://doc/scenario/repository-workbench.
+EOF
+  cat >"$repo_dir/docs/scenarios/repository-workbench.mdx" <<'EOF'
+---
+title: Repository docs are discoverable
+feature: repository-docs
+owner: platform-maintainers
+status: active
+tags: [forge, docs, bdd]
+---
+
+Feature: Repository docs workbench
+
+  Background:
+    Given the repository has opted into ext_docs
+
+  Scenario: Open product docs from the repository
+    Given a maintainer is viewing the repository overview
+    When they open the docs workbench
+    Then they see PRDs and BDD scenarios beside code and delivery work
+
+  Scenario: Review implementation readiness
+    Given a PRD has acceptance criteria
+    And a BDD scenario links to the behavior
+    When the maintainer opens the readiness board
+    Then the doc is grouped by handoff state
 EOF
   cat >"$repo_dir/docs/rfcs/0001-runtime-smoke.md" <<'EOF'
 ---

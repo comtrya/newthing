@@ -133,6 +133,7 @@ const props = defineProps<{
   repositoryId?: string | null;
   repositoryPath?: string | null;
   repositorySegments?: string[];
+  extensionSlot?: string | null;
   /**
    * When set (typically on a project home page), DocsPanel renders only
    * the named Project's doc types instead of every Project in the repo.
@@ -148,6 +149,7 @@ const blobs = ref<RepositoryBlob[]>([]);
 const allProjects = computed<ComtryaProject[]>(
   () => config.value?.projects ?? [],
 );
+const isOverviewSummary = computed(() => props.extensionSlot === "repository.main");
 
 const projects = computed<ComtryaProject[]>(() => {
   if (!props.projectName) return allProjects.value;
@@ -180,6 +182,47 @@ const boardTabs: Array<{ id: DocsBoardId; label: string }> = [
   { id: "implementation", label: "Implementation" },
 ];
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
+const docTypeSummaries = computed(() => {
+  const byKey = new Map<string, { key: string; label: string; count: number }>();
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      const key = entry.key;
+      const current = byKey.get(key) ?? {
+        key,
+        label: entry.type.label || key,
+        count: 0,
+      };
+      current.count += filesForType(project, entry.type).length;
+      byKey.set(key, current);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => {
+    const byCount = b.count - a.count;
+    if (byCount !== 0) return byCount;
+    return a.label.localeCompare(b.label);
+  });
+});
+const visibleDocTypeSummaries = computed(() =>
+  docTypeSummaries.value.filter((entry) => entry.count > 0).slice(0, 4),
+);
+const docsRouteHref = computed(() => {
+  const path = (props.repositoryPath ?? "")
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(encodeURIComponent)
+    .join("/");
+  const params = new URLSearchParams();
+  if (props.workspaceId) params.set("workspaceId", props.workspaceId);
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  const query = params.toString();
+  return `/r/${path || "repository"}/docs${query ? `?${query}` : ""}`;
+});
+const overviewHeadline = computed(() => {
+  if (loadState.value === "loading") return "Loading";
+  if (loadState.value === "error" || config.value?.error) return "Unavailable";
+  if (totalDocs.value === 0) return "No docs";
+  return `${totalDocs.value} docs`;
+});
 
 function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
   return {
@@ -210,6 +253,11 @@ function toggleDoc(path: string): void {
 
 function focusDoc(path: string): void {
   focusedDocPath.value = path;
+}
+
+function openDocsWorkbench(event: MouseEvent): void {
+  event.preventDefault();
+  window.location.assign(docsRouteHref.value);
 }
 
 /** Flat list of every visible doc path in render order — for j/k nav. */
@@ -278,7 +326,10 @@ useShortcuts({
 onMounted(() => {
   void load();
 });
-watch([() => props.repositoryPath, () => props.projectName], () => void load());
+watch(
+  [() => props.repositoryPath, () => props.projectName, () => props.extensionSlot],
+  () => void load(),
+);
 
 async function load(): Promise<void> {
   loadState.value = "loading";
@@ -302,7 +353,13 @@ async function load(): Promise<void> {
     config.value = resolved?.comtryaConfig ?? null;
     blobs.value = resolved?.blobs ?? [];
     loadState.value = "ready";
-    void loadDocBoards();
+    if (isOverviewSummary.value) {
+      boards.value = emptyBoards();
+      boardState.value = "ready";
+      boardError.value = null;
+    } else {
+      void loadDocBoards();
+    }
   } catch (caught) {
     loadState.value = "error";
     error.value = caught instanceof Error ? caught.message : String(caught);
@@ -565,7 +622,72 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
 </script>
 
 <template>
-  <section class="docs-panel" data-smoke="docs-panel">
+  <section
+    class="docs-panel"
+    :class="{ 'docs-panel--summary': isOverviewSummary }"
+    data-smoke="docs-panel"
+  >
+    <article
+      v-if="isOverviewSummary"
+      class="docs-overview-card"
+      data-smoke="docs-overview-card"
+    >
+      <header class="docs-overview-head">
+        <div>
+          <p class="docs-overview-eyebrow">{{ repositoryPath || "Repository" }}</p>
+          <h2>Specs &amp; Docs</h2>
+        </div>
+        <span class="docs-overview-pill">{{ overviewHeadline }}</span>
+      </header>
+
+      <p v-if="loadState === 'error'" class="docs-overview-message error" role="alert">
+        {{ error }}
+      </p>
+      <p v-else-if="config?.error" class="docs-overview-message error" role="alert">
+        {{ config.error }}
+      </p>
+      <p v-else-if="loadState === 'loading'" class="docs-overview-message">
+        Reading the repo docs catalog...
+      </p>
+      <template v-else-if="totalDocs > 0">
+        <p class="docs-overview-copy">
+          Product intent, PRDs, and BDD scenarios live with the repository.
+        </p>
+        <dl class="docs-overview-stats" aria-label="Docs summary">
+          <div>
+            <dt>Docs</dt>
+            <dd>{{ totalDocs }}</dd>
+          </div>
+          <div>
+            <dt>Types</dt>
+            <dd>{{ docTypeSummaries.length }}</dd>
+          </div>
+          <div>
+            <dt>Projects</dt>
+            <dd>{{ projects.length }}</dd>
+          </div>
+        </dl>
+        <ul class="docs-overview-types" aria-label="Doc types">
+          <li v-for="entry in visibleDocTypeSummaries" :key="entry.key">
+            <span>{{ entry.label }}</span>
+            <strong>{{ entry.count }}</strong>
+          </li>
+        </ul>
+        <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
+          Open docs workbench
+        </a>
+      </template>
+      <template v-else>
+        <p class="docs-overview-message">
+          No specs, PRDs, or BDD scenarios declared for this repository.
+        </p>
+        <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
+          Open docs workbench
+        </a>
+      </template>
+    </article>
+
+    <template v-else>
     <header class="docs-head">
       <div class="title-block">
         <h2>Docs</h2>
@@ -742,6 +864,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
         </p>
       </section>
     </article>
+    </template>
   </section>
 </template>
 
@@ -750,6 +873,171 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
   display: grid;
   gap: 14px;
   font-family: var(--font-sans, system-ui);
+  min-width: 0;
+}
+
+.docs-panel--summary {
+  gap: 0;
+}
+
+.docs-overview-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-overview-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.docs-overview-head h2 {
+  margin: 0;
+  font-family: var(--font-sans, system-ui);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.docs-overview-eyebrow {
+  margin: 0 0 4px;
+  overflow: hidden;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-sans, system-ui);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-overview-pill {
+  flex: 0 0 auto;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 8px;
+  color: var(--accent, #3b82f6);
+  background: var(--accent-soft, rgba(59,130,246,0.14));
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.docs-overview-copy,
+.docs-overview-message {
+  margin: 0;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.docs-overview-message {
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 10px 12px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-message.error {
+  color: var(--err, #f87171);
+  border-color: var(--err-soft, rgba(248,113,113,0.2));
+  background: var(--err-soft, rgba(248,113,113,0.12));
+}
+
+.docs-overview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.docs-overview-stats > div {
+  min-width: 0;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 9px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-stats dt {
+  overflow-wrap: anywhere;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.docs-overview-stats dd {
+  margin: 6px 0 0;
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.docs-overview-types {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-overview-types li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  padding: 8px 9px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-types span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-overview-types strong {
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.docs-overview-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 10px;
+  color: var(--fg, rgba(255,255,255,0.94));
+  background: var(--surface, rgba(255,255,255,0.03));
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.docs-overview-link:hover {
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
 }
 
 .docs-panel .docs-head {
