@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { parseQueryFilters, useShortcuts } from "@comtrya/sdk-vue";
-import { listPulls } from "./api";
+import {
+  listPulls,
+  mergeReadinessBoard,
+  type PullMergeReadinessBoard,
+  type PullMergeReadinessCard,
+  type PullMergeReadinessColumn,
+} from "./api";
+import {
+  READINESS_LANE_KEYS,
+  readinessTone,
+  readinessView,
+  type PullReadinessView,
+} from "./merge-readiness";
 import {
   classifyAuthor,
   defaultWorkspaceId,
@@ -51,6 +63,9 @@ const search = ref("");
  */
 const authorFilter = ref("");
 const pulls = ref<PullRequest[]>([]);
+const readinessBoard = ref<PullMergeReadinessBoard | null>(null);
+const readinessLoadState = ref<LoadState>("idle");
+const readinessError = ref<string | null>(null);
 const loadState = ref<LoadState>("idle");
 const error = ref<string | null>(null);
 const focusedIndex = ref(0);
@@ -201,6 +216,41 @@ const counts = computed(() => {
   return out;
 });
 
+interface PullReadinessEntry {
+  card: PullMergeReadinessCard;
+  view: PullReadinessView;
+}
+
+const readinessColumns = computed<PullMergeReadinessColumn[]>(() => {
+  const columns = readinessBoard.value?.columns ?? [];
+  return READINESS_LANE_KEYS.map((key) => columns.find((column) => column.key === key))
+    .filter((column): column is PullMergeReadinessColumn => Boolean(column));
+});
+
+const readinessByPullId = computed(() => {
+  const out = new Map<string, PullReadinessEntry>();
+  for (const column of readinessColumns.value) {
+    for (const card of column.cards) {
+      out.set(card.pullRequest.id, {
+        card,
+        view: readinessView(card, column.key, column.label),
+      });
+    }
+  }
+  return out;
+});
+
+const queueRows = computed(() =>
+  filtered.value.map((pull) => ({
+    pull,
+    readiness: readinessByPullId.value.get(pull.id)?.view ?? null,
+  })),
+);
+
+function columnTone(key: string): PullReadinessView["tone"] {
+  return readinessTone(key);
+}
+
 /**
  * URL-persisted filter + search state.
  *
@@ -342,7 +392,9 @@ function pullDetailHref(pull: Pick<PullRequest, "id">): string {
 
 async function load(): Promise<void> {
   loadState.value = "loading";
+  readinessLoadState.value = "loading";
   error.value = null;
+  readinessError.value = null;
   try {
     const list = await listPulls({
       workspaceId: workspaceId.value,
@@ -354,10 +406,33 @@ async function load(): Promise<void> {
       return bd - ad;
     });
     loadState.value = pulls.value.length > 0 ? "ready" : "empty";
+    await reloadReadiness();
   } catch (caught) {
     pulls.value = [];
+    readinessBoard.value = null;
     loadState.value = "error";
-    error.value = caught instanceof Error ? caught.message : String(caught);
+    const message = caught instanceof Error ? caught.message : String(caught);
+    error.value = message;
+    readinessLoadState.value = "idle";
+  }
+}
+
+async function reloadReadiness(): Promise<void> {
+  readinessLoadState.value = "loading";
+  readinessError.value = null;
+  try {
+    const next = await mergeReadinessBoard({
+      workspaceId: workspaceId.value,
+      repositoryId: repositoryId.value,
+      requiredApprovals: 1,
+      limit: 256,
+    });
+    readinessBoard.value = next;
+    readinessLoadState.value = next.total > 0 ? "ready" : "empty";
+  } catch (caught) {
+    readinessBoard.value = null;
+    readinessLoadState.value = "error";
+    readinessError.value = caught instanceof Error ? caught.message : String(caught);
   }
 }
 
@@ -435,6 +510,38 @@ async function load(): Promise<void> {
       </div>
     </header>
 
+    <section
+      v-if="readinessLoadState === 'ready' && readinessColumns.length > 0"
+      class="pulls-readiness-board"
+      data-smoke="pulls-merge-readiness-board"
+      aria-label="Merge readiness lanes"
+    >
+      <header>
+        <div>
+          <h3>Merge readiness</h3>
+          <span>{{ readinessBoard?.total ?? 0 }} tracked</span>
+        </div>
+        <button type="button" @click="reloadReadiness">Refresh</button>
+      </header>
+      <div class="pulls-readiness-lanes">
+        <div
+          v-for="column in readinessColumns"
+          :key="column.key"
+          :class="['pulls-readiness-lane', `tone-${columnTone(column.key)}`]"
+        >
+          <span>{{ column.label }}</span>
+          <strong>{{ column.count }}</strong>
+        </div>
+      </div>
+    </section>
+    <p
+      v-else-if="readinessLoadState === 'error' && loadState !== 'error'"
+      class="pulls-readiness-error"
+      role="alert"
+    >
+      Could not load merge readiness: {{ readinessError }}
+    </p>
+
     <p v-if="loadState === 'loading'" class="pulls-empty">Loading pull requests…</p>
     <p v-else-if="loadState === 'error'" class="pulls-error" role="alert">{{ error }}</p>
     <p v-else-if="pulls.length === 0" class="pulls-empty">
@@ -447,7 +554,7 @@ async function load(): Promise<void> {
 
     <ol v-else class="pulls-list" role="listbox" aria-label="Pull requests">
       <li
-        v-for="(pull, index) in filtered"
+        v-for="({ pull, readiness }, index) in queueRows"
         :key="pull.id"
         :class="['pulls-row', { focused: index === focusedIndex }]"
         role="option"
@@ -462,6 +569,24 @@ async function load(): Promise<void> {
               <span :class="['pulls-state', stateTone(pull.state).className]">
                 {{ stateTone(pull.state).label }}
               </span>
+              <span
+                v-if="readiness"
+                :class="['pulls-readiness-chip', `tone-${readiness.tone}`]"
+                data-smoke="pulls-readiness-chip"
+                :title="readiness.title"
+              >
+                {{ readiness.laneLabel }}
+              </span>
+              <span
+                v-if="readiness"
+                class="pulls-readiness-metric"
+                :title="readiness.checkLabel"
+              >{{ readiness.checkLabel }}</span>
+              <span
+                v-if="readiness"
+                class="pulls-readiness-metric"
+                :title="readiness.reviewLabel"
+              >{{ readiness.reviewLabel }}</span>
               <code class="pulls-branch">
                 {{ pull.headRef }} <span>→</span> {{ pull.baseRef }}
               </code>
@@ -605,6 +730,117 @@ async function load(): Promise<void> {
   border-top: 0.5px solid var(--fg, rgba(255,255,255,0.94));
 }
 
+.pulls-readiness-board {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+}
+
+.pulls-readiness-board header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.pulls-readiness-board h3 {
+  margin: 0;
+  font-family: var(--font-serif, system-ui);
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.pulls-readiness-board header span,
+.pulls-readiness-board header button,
+.pulls-readiness-error {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.pulls-readiness-board header span {
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.pulls-readiness-board header button {
+  border: 0.5px solid currentColor;
+  background: transparent;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  cursor: pointer;
+  padding: 3px 8px;
+}
+
+.pulls-readiness-board header button:hover {
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.pulls-readiness-lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 6px;
+}
+
+.pulls-readiness-lane {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 8px;
+  border: 0.5px solid currentColor;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.pulls-readiness-lane span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulls-readiness-lane strong {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.pulls-readiness-lane.tone-blocked,
+.pulls-readiness-chip.tone-blocked {
+  color: var(--accent-err, #c9341c);
+}
+
+.pulls-readiness-lane.tone-review,
+.pulls-readiness-chip.tone-review {
+  color: var(--accent-blue, #1d55a6);
+}
+
+.pulls-readiness-lane.tone-checks,
+.pulls-readiness-chip.tone-checks {
+  color: var(--accent-yellow, #c89300);
+}
+
+.pulls-readiness-lane.tone-ready,
+.pulls-readiness-chip.tone-ready {
+  color: var(--accent-teal, #087f6f);
+}
+
+.pulls-readiness-lane.tone-terminal,
+.pulls-readiness-chip.tone-terminal {
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.pulls-readiness-lane.tone-draft,
+.pulls-readiness-chip.tone-draft {
+  color: var(--fg-4, rgba(255,255,255,0.34));
+}
+
+.pulls-readiness-error {
+  margin: 0;
+  color: var(--accent-err, #c9341c);
+}
+
 .pulls-row {
   border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
 }
@@ -687,6 +923,28 @@ async function load(): Promise<void> {
 
 .pulls-state.pr-state-closed {
   color: var(--accent-err, #c9341c);
+}
+
+.pulls-readiness-chip,
+.pulls-readiness-metric {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulls-readiness-chip {
+  border: 0.5px solid currentColor;
+  padding: 0 6px;
+  font-size: 11px;
+  text-transform: lowercase;
+}
+
+.pulls-readiness-metric {
+  color: var(--fg-4, rgba(255,255,255,0.34));
 }
 
 .pulls-branch {
@@ -906,5 +1164,24 @@ async function load(): Promise<void> {
   padding: 0 4px;
   font-family: var(--font-mono, monospace);
   font-size: 10px;
+}
+
+@media (max-width: 720px) {
+  .pulls-row-link {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .pulls-row-age {
+    grid-column: 2;
+  }
+
+  .pulls-readiness-board header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pulls-readiness-lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>
