@@ -89,11 +89,12 @@ use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
     EpicLabelBoard, EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn,
-    EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard,
-    EpicRoadmapCard, EpicRoadmapColumn, EpicState, EpicTargetBoard, EpicTargetCard,
-    EpicTargetColumn, LabelBoardInput as EpicsLabelBoardInput, OwnerBoardInput,
-    ProjectBoardInput as EpicsProjectBoardInput, RoadmapBoardInput, TargetBoardInput,
-    UpdateEpicInput,
+    EpicPriorityBoard, EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard,
+    EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn,
+    EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn,
+    LabelBoardInput as EpicsLabelBoardInput, OwnerBoardInput,
+    PriorityBoardInput as EpicsPriorityBoardInput, ProjectBoardInput as EpicsProjectBoardInput,
+    RoadmapBoardInput, TargetBoardInput, UpdateEpicInput,
 };
 
 mod ext_pull_requests_bindings {
@@ -333,6 +334,13 @@ struct EpicProjectBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EpicLabelBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicPriorityBoardInputJson {
     workspace: String,
     limit: u32,
 }
@@ -1587,6 +1595,28 @@ pub fn dispatch_ext_epics(
                     )
                 })?;
             epic_label_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "priority-board" => {
+            let parsed: EpicPriorityBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse priority-board input: {e}"),
+                    )
+                })?;
+            let wit_input = EpicsPriorityBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_priority_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("priority-board call: {e}"),
+                    )
+                })?;
+            epic_priority_board_to_json(&result.map_err(epic_error_to_canonical)?)
         }
         "target-board" => {
             let parsed: TargetBoardInputJson = serde_json::from_value(input).map_err(|e| {
@@ -3506,6 +3536,42 @@ fn epic_label_card_to_json(card: &EpicLabelCard) -> Value {
     serde_json::json!({
         "epic": epic_to_json(&card.epic),
         "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_priority_board_to_json(board: &EpicPriorityBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_priority_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_priority_column_to_json(column: &EpicPriorityColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "priority": column.priority,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_priority_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_priority_card_to_json(card: &EpicPriorityCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+        "priority": card.priority,
+        "priorityLabel": card.priority_label,
     })
 }
 

@@ -184,6 +184,32 @@ interface epics {
     columns: list<epic-label-column>,
   }
 
+  record priority-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-priority-card {
+    epic: epic,
+    progress: epic-progress,
+    priority: option<string>,
+    priority-label: option<string>,
+  }
+
+  record epic-priority-column {
+    key: string,
+    label: string,
+    priority: option<string>,
+    count: u32,
+    cards: list<epic-priority-card>,
+  }
+
+  record epic-priority-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-priority-column>,
+  }
+
   record target-board-input {
     workspace: uri,
     %limit: u32,
@@ -230,6 +256,10 @@ interface epics {
   /// Familiar label lanes for planning surfaces. Unlabeled epics stay
   /// explicit, and multi-label epics appear in every matching lane.
   label-board: func(input: label-board-input) -> result<epic-label-board, error>;
+  /// Familiar priority lanes for product planning. Active epics are
+  /// grouped from priority labels such as `priority::p1`, while done
+  /// and canceled epics stay in a terminal completed lane.
+  priority-board: func(input: priority-board-input) -> result<epic-priority-board, error>;
   /// Familiar target-date lanes for release planning. Completed epics
   /// stay separate from overdue/upcoming work, and untargeted epics
   /// remain visible as planning debt.

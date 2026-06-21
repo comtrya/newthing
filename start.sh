@@ -2721,7 +2721,7 @@ json_assert "outgoing part-of points at the epic URI" "$TMP_DIR/iss-rel.json" \
 expect_status "create-epic" 200 "$TMP_DIR/epc-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"Q4 platform launch\",\"bodyMarkdown\":\"big stuff\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[\"planning\"],\"parentEpicRef\":null}" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"Q4 platform launch\",\"bodyMarkdown\":\"big stuff\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[\"planning\",\"priority::p1\"],\"parentEpicRef\":null}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "epic created with epc_ id, state=PLANNED" "$TMP_DIR/epc-create.json" \
   'json.id.startsWith("epc_") && json.state === "PLANNED"'
@@ -2869,6 +2869,14 @@ expect_status "epic label-board groups epics by label and unlabeled lane" 200 "$
   "$FRONTEND_URL/api/ops/ext_epics/epics/label-board"
 json_assert "epic label board exposes planning and unlabeled lanes with progress" "$TMP_DIR/epc-label-board.json" \
   "json.total === 2 && json.columns.find((c) => c.key === \"unlabeled\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\" && typeof card.progress.percentComplete === \"number\") && json.columns.find((c) => c.key === \"label-planning\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67)"
+
+expect_status "epic priority-board groups epics by priority and terminal state" 200 "$TMP_DIR/epc-priority-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/priority-board"
+json_assert "epic priority board exposes P1 and completed lanes with progress" "$TMP_DIR/epc-priority-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"p0\").cards.length === 0 && json.columns.find((c) => c.key === \"p1\").priority === \"p1\" && json.columns.find((c) => c.key === \"p1\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.priority === \"p1\" && card.priorityLabel === \"priority::p1\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"completed\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\" && card.priority === null)"
 
 expect_status "target-board groups epics by target date health" 200 "$TMP_DIR/epc-target-board.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

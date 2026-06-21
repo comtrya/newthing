@@ -84,6 +84,7 @@
     { "op": "epics.owner-board", "scope": "instance" },
     { "op": "epics.project-board", "scope": "instance" },
     { "op": "epics.label-board", "scope": "instance" },
+    { "op": "epics.priority-board", "scope": "instance" },
     { "op": "epics.target-board", "scope": "instance" }
   ],
   "reactor": {

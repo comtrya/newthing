@@ -11,10 +11,11 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicLabelBoard,
-    EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicProgress,
-    EpicProjectBoard, EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard,
-    EpicRoadmapColumn, EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn,
-    Guest as EpicsGuest, LabelBoardInput, OwnerBoardInput, ProjectBoardInput, RoadmapBoardInput,
+    EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn,
+    EpicPriorityBoard, EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard,
+    EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn,
+    EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest,
+    LabelBoardInput, OwnerBoardInput, PriorityBoardInput, ProjectBoardInput, RoadmapBoardInput,
     TargetBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
@@ -686,6 +687,104 @@ fn label_columns(cards: Vec<EpicLabelCard>) -> Vec<EpicLabelColumn> {
     columns
 }
 
+fn priority_column(
+    key: &str,
+    label: &str,
+    priority: Option<&str>,
+    cards: Vec<EpicPriorityCard>,
+) -> EpicPriorityColumn {
+    EpicPriorityColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        priority: priority.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn priority_columns(cards: Vec<EpicPriorityCard>) -> Vec<EpicPriorityColumn> {
+    let mut p0 = Vec::new();
+    let mut p1 = Vec::new();
+    let mut p2 = Vec::new();
+    let mut p3 = Vec::new();
+    let mut unprioritized = Vec::new();
+    let mut completed = Vec::new();
+
+    for card in cards {
+        if matches!(card.epic.state, EpicState::Done | EpicState::Canceled) {
+            completed.push(card);
+            continue;
+        }
+        match card.priority.as_deref() {
+            Some("p0") => p0.push(card),
+            Some("p1") => p1.push(card),
+            Some("p2") => p2.push(card),
+            Some("p3") => p3.push(card),
+            _ => unprioritized.push(card),
+        }
+    }
+
+    vec![
+        priority_column("p0", "P0 critical", Some("p0"), p0),
+        priority_column("p1", "P1 high", Some("p1"), p1),
+        priority_column("p2", "P2 medium", Some("p2"), p2),
+        priority_column("p3", "P3 low", Some("p3"), p3),
+        priority_column("unprioritized", "No priority", None, unprioritized),
+        priority_column("completed", "Completed", None, completed),
+    ]
+}
+
+struct EpicPriority {
+    key: &'static str,
+    rank: u8,
+    source_label: String,
+}
+
+fn epic_priority(epic: &Epic) -> Option<EpicPriority> {
+    epic.labels
+        .iter()
+        .filter_map(|label| priority_from_label(label))
+        .min_by_key(|priority| priority.rank)
+}
+
+fn priority_from_label(label: &str) -> Option<EpicPriority> {
+    let normalized = normalize_priority_label(label);
+    let key = match normalized.as_str() {
+        "p0" | "0" | "critical" | "urgent" | "blocker" => "p0",
+        "p1" | "1" | "high" => "p1",
+        "p2" | "2" | "medium" | "normal" => "p2",
+        "p3" | "3" | "low" | "minor" => "p3",
+        _ => return None,
+    };
+    Some(EpicPriority {
+        key,
+        rank: priority_rank(key),
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_priority_label(label: &str) -> String {
+    let trimmed = label.trim().to_ascii_lowercase();
+    let value = ["priority", "prio"]
+        .into_iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(trimmed.as_str())
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'));
+    value
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string()
+}
+
+fn priority_rank(key: &str) -> u8 {
+    match key {
+        "p0" => 0,
+        "p1" => 1,
+        "p2" => 2,
+        "p3" => 3,
+        _ => u8::MAX,
+    }
+}
+
 #[derive(Clone, Copy)]
 enum TargetLane {
     NoTarget,
@@ -1109,6 +1208,35 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn priority_board(input: PriorityBoardInput) -> Result<EpicPriorityBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            let priority = epic_priority(&epic);
+            cards.push(EpicPriorityCard {
+                epic,
+                progress,
+                priority: priority.as_ref().map(|priority| priority.key.to_string()),
+                priority_label: priority
+                    .as_ref()
+                    .map(|priority| priority.source_label.clone()),
+            });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicPriorityBoard {
+            workspace,
+            total,
+            columns: priority_columns(cards),
+        })
+    }
+
     fn target_board(input: TargetBoardInput) -> Result<EpicTargetBoard, Error> {
         let (_, workspace) = workspace_uri(input.workspace.trim())?;
         let limit = input.limit.min(1024);
@@ -1218,6 +1346,20 @@ mod tests {
         EpicLabelCard {
             epic,
             progress: progress(0),
+        }
+    }
+
+    fn priority_card(id: &str, state: EpicState, labels: &[&str]) -> EpicPriorityCard {
+        let mut epic = epic(id, state);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        let priority = epic_priority(&epic);
+        EpicPriorityCard {
+            epic,
+            progress: progress(0),
+            priority: priority.as_ref().map(|priority| priority.key.to_string()),
+            priority_label: priority
+                .as_ref()
+                .map(|priority| priority.source_label.clone()),
         }
     }
 
@@ -1360,6 +1502,44 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["release", "multi"]
         );
+    }
+
+    #[test]
+    fn priority_columns_group_active_epics_by_highest_priority() {
+        let columns = priority_columns(vec![
+            priority_card("blocker", EpicState::AtRisk, &["priority::p1", "urgent"]),
+            priority_card("high", EpicState::InProgress, &["prio/high"]),
+            priority_card("medium", EpicState::Planned, &["P2"]),
+            priority_card("low", EpicState::Planned, &["minor"]),
+            priority_card("none", EpicState::Planned, &["planning"]),
+            priority_card("done", EpicState::Done, &["priority::p0"]),
+            priority_card("canceled", EpicState::Canceled, &[]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["p0", "p1", "p2", "p3", "unprioritized", "completed"]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "blocker");
+        assert_eq!(columns[0].cards[0].priority.as_deref(), Some("p0"));
+        assert_eq!(
+            columns[0].cards[0].priority_label.as_deref(),
+            Some("urgent")
+        );
+        assert_eq!(columns[1].cards[0].epic.id, "high");
+        assert_eq!(columns[2].cards[0].epic.id, "medium");
+        assert_eq!(columns[3].cards[0].epic.id, "low");
+        assert_eq!(columns[4].cards[0].epic.id, "none");
+        assert_eq!(
+            columns[5]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["done", "canceled"]
+        );
+        assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
     }
 
     #[test]
