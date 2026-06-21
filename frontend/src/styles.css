@@ -468,6 +468,20 @@ kbd {
   min-height: 0;
 }
 
+.sb-work {
+  gap: 4px;
+}
+
+.sb-work-list {
+  display: grid;
+  gap: 1px;
+}
+
+.sb-work-link {
+  font-size: 12.5px;
+  padding-block: 5px;
+}
+
 .sb-section-head {
   display: flex;
   align-items: baseline;

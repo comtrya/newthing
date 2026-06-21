@@ -19,6 +19,7 @@ import {
   recordRouteVisit,
 } from "./recents";
 import { fetchOidcProviders, type OidcProvider } from "./auth";
+import { workspaceWorkLinks } from "./workspace-work-links";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
@@ -31,9 +32,11 @@ interface ShellRepositorySummary {
 }
 
 const workspace = ref<{
+  id: string | null;
   name: string;
   repositories: ShellRepositorySummary[];
 }>({
+  id: null,
   name: "Workspace",
   repositories: [],
 });
@@ -163,6 +166,9 @@ const sortedRepositories = computed(() =>
     a.path.localeCompare(b.path),
   ),
 );
+const workspaceWorkItems = computed(() =>
+  workspaceWorkLinks(workspace.value.id, route.path),
+);
 
 /**
  * Currently-viewed repo path, computed from the route params so we
@@ -248,6 +254,7 @@ async function loadShellSummary(): Promise<void> {
     viewerAuthenticated.value = envelope.data?.viewer?.authenticated === true;
     workspace.value = {
       ...workspace.value,
+      id: envelope.data?.workspace?.id ?? workspace.value.id,
       name: envelope.data?.workspace?.name ?? workspace.value.name,
       repositories: envelope.data?.workspace?.repositories ?? [],
     };
@@ -406,6 +413,26 @@ async function loadAuthProviders(): Promise<void> {
             :class="{ 'sb-link-active': route.path.startsWith('/releases') }"
           >Releases</RouterLink>
         </nav>
+
+        <section
+          class="sb-section sb-work"
+          aria-label="Work"
+          data-smoke="sidebar-work"
+        >
+          <header class="sb-section-head">
+            <span class="sb-overline">Work</span>
+          </header>
+          <nav class="sb-work-list">
+            <RouterLink
+              v-for="item in workspaceWorkItems"
+              :key="item.id"
+              :to="item.href"
+              class="sb-link sb-work-link"
+              :class="{ 'sb-link-active': item.active }"
+              :data-smoke="`sidebar-work-${item.id}`"
+            >{{ item.label }}</RouterLink>
+          </nav>
+        </section>
 
         <section
           v-if="recents.length > 0"

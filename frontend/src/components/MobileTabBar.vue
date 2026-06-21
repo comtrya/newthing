@@ -35,6 +35,18 @@ const tabs: TabItem[] = [
     matches: (p) => p.startsWith("/pipelines"),
   },
   {
+    id: "work",
+    to: "/x/issues/",
+    icon: "issue",
+    label: "Work",
+    matches: (p) =>
+      p.startsWith("/x/issues") ||
+      p.startsWith("/x/pulls") ||
+      p.startsWith("/x/epics") ||
+      p.startsWith("/x/sprints") ||
+      p.startsWith("/x/docs"),
+  },
+  {
     id: "releases",
     to: "/releases",
     icon: "tag",
