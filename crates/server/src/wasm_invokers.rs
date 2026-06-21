@@ -88,11 +88,12 @@ mod ext_epics_bindings {
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
-    EpicLabelBoard, EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn,
-    EpicPriorityBoard, EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard,
-    EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn,
-    EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn,
-    LabelBoardInput as EpicsLabelBoardInput, OwnerBoardInput,
+    EpicLabelBoard, EpicLabelCard, EpicLabelColumn, EpicMilestoneBoard, EpicMilestoneCard,
+    EpicMilestoneColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicPriorityBoard,
+    EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard, EpicProjectCard,
+    EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState,
+    EpicTargetBoard, EpicTargetCard, EpicTargetColumn, LabelBoardInput as EpicsLabelBoardInput,
+    MilestoneBoardInput as EpicsMilestoneBoardInput, OwnerBoardInput,
     PriorityBoardInput as EpicsPriorityBoardInput, ProjectBoardInput as EpicsProjectBoardInput,
     RoadmapBoardInput, TargetBoardInput, UpdateEpicInput,
 };
@@ -341,6 +342,13 @@ struct EpicLabelBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EpicPriorityBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicMilestoneBoardInputJson {
     workspace: String,
     limit: u32,
 }
@@ -1617,6 +1625,28 @@ pub fn dispatch_ext_epics(
                     )
                 })?;
             epic_priority_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "milestone-board" => {
+            let parsed: EpicMilestoneBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse milestone-board input: {e}"),
+                    )
+                })?;
+            let wit_input = EpicsMilestoneBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_milestone_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("milestone-board call: {e}"),
+                    )
+                })?;
+            epic_milestone_board_to_json(&result.map_err(epic_error_to_canonical)?)
         }
         "target-board" => {
             let parsed: TargetBoardInputJson = serde_json::from_value(input).map_err(|e| {
@@ -3572,6 +3602,42 @@ fn epic_priority_card_to_json(card: &EpicPriorityCard) -> Value {
         "progress": epic_progress_to_json(&card.progress),
         "priority": card.priority,
         "priorityLabel": card.priority_label,
+    })
+}
+
+fn epic_milestone_board_to_json(board: &EpicMilestoneBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_milestone_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_milestone_column_to_json(column: &EpicMilestoneColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "milestone": column.milestone,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_milestone_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_milestone_card_to_json(card: &EpicMilestoneCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+        "milestone": card.milestone,
+        "milestoneLabel": card.milestone_label,
     })
 }
 

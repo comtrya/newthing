@@ -210,6 +210,32 @@ interface epics {
     columns: list<epic-priority-column>,
   }
 
+  record milestone-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-milestone-card {
+    epic: epic,
+    progress: epic-progress,
+    milestone: option<string>,
+    milestone-label: option<string>,
+  }
+
+  record epic-milestone-column {
+    key: string,
+    label: string,
+    milestone: option<string>,
+    count: u32,
+    cards: list<epic-milestone-card>,
+  }
+
+  record epic-milestone-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-milestone-column>,
+  }
+
   record target-board-input {
     workspace: uri,
     %limit: u32,
@@ -260,6 +286,10 @@ interface epics {
   /// grouped from priority labels such as `priority::p1`, while done
   /// and canceled epics stay in a terminal completed lane.
   priority-board: func(input: priority-board-input) -> result<epic-priority-board, error>;
+  /// Familiar milestone/release lanes for roadmap planning. Active epics
+  /// are grouped from labels such as `milestone::Q4` or `release/Q4`,
+  /// while done and canceled epics stay in a terminal completed lane.
+  milestone-board: func(input: milestone-board-input) -> result<epic-milestone-board, error>;
   /// Familiar target-date lanes for release planning. Completed epics
   /// stay separate from overdue/upcoming work, and untargeted epics
   /// remain visible as planning debt.

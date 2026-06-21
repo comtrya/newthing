@@ -11,12 +11,13 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicLabelBoard,
-    EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn,
-    EpicPriorityBoard, EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard,
-    EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn,
-    EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest,
-    LabelBoardInput, OwnerBoardInput, PriorityBoardInput, ProjectBoardInput, RoadmapBoardInput,
-    TargetBoardInput, UpdateEpicInput,
+    EpicLabelCard, EpicLabelColumn, EpicMilestoneBoard, EpicMilestoneCard, EpicMilestoneColumn,
+    EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicPriorityBoard, EpicPriorityCard,
+    EpicPriorityColumn, EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn,
+    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, EpicTargetBoard,
+    EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest, LabelBoardInput, MilestoneBoardInput,
+    OwnerBoardInput, PriorityBoardInput, ProjectBoardInput, RoadmapBoardInput, TargetBoardInput,
+    UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -785,6 +786,119 @@ fn priority_rank(key: &str) -> u8 {
     }
 }
 
+fn milestone_column(
+    key: &str,
+    label: &str,
+    milestone: Option<String>,
+    cards: Vec<EpicMilestoneCard>,
+) -> EpicMilestoneColumn {
+    EpicMilestoneColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        milestone,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn milestone_columns(cards: Vec<EpicMilestoneCard>) -> Vec<EpicMilestoneColumn> {
+    let mut unscheduled = Vec::new();
+    let mut scheduled: BTreeMap<String, (String, Vec<EpicMilestoneCard>)> = BTreeMap::new();
+    let mut completed = Vec::new();
+
+    for card in cards {
+        if matches!(card.epic.state, EpicState::Done | EpicState::Canceled) {
+            completed.push(card);
+            continue;
+        }
+        let Some(milestone) = card.milestone.clone() else {
+            unscheduled.push(card);
+            continue;
+        };
+        let key = epic_milestone_key(&milestone);
+        let entry = scheduled
+            .entry(key)
+            .or_insert_with(|| (milestone, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![milestone_column(
+        "no-milestone",
+        "No milestone",
+        None,
+        unscheduled,
+    )];
+    columns.extend(scheduled.into_iter().map(|(key, (milestone, cards))| {
+        milestone_column(&key, &milestone, Some(milestone.clone()), cards)
+    }));
+    columns.push(milestone_column(
+        "completed",
+        "Completed",
+        None,
+        completed,
+    ));
+    columns
+}
+
+struct EpicMilestone {
+    value: String,
+    source_label: String,
+}
+
+fn epic_milestone(epic: &Epic) -> Option<EpicMilestone> {
+    epic.labels
+        .iter()
+        .find_map(|label| milestone_from_label(label))
+}
+
+fn milestone_from_label(label: &str) -> Option<EpicMilestone> {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["milestone", "release"] {
+        if !lower.starts_with(prefix) {
+            continue;
+        }
+        let raw_rest = &trimmed[prefix.len()..];
+        if !raw_rest
+            .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+        {
+            continue;
+        }
+        let value = raw_rest
+            .trim_start()
+            .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+            .trim();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(EpicMilestone {
+            value: value.to_string(),
+            source_label: trimmed.to_string(),
+        });
+    }
+    None
+}
+
+fn epic_milestone_key(milestone: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in milestone.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "milestone".to_string()
+    } else {
+        format!("milestone-{key}")
+    }
+}
+
 #[derive(Clone, Copy)]
 enum TargetLane {
     NoTarget,
@@ -1237,6 +1351,35 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn milestone_board(input: MilestoneBoardInput) -> Result<EpicMilestoneBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            let milestone = epic_milestone(&epic);
+            cards.push(EpicMilestoneCard {
+                epic,
+                progress,
+                milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+                milestone_label: milestone
+                    .as_ref()
+                    .map(|milestone| milestone.source_label.clone()),
+            });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicMilestoneBoard {
+            workspace,
+            total,
+            columns: milestone_columns(cards),
+        })
+    }
+
     fn target_board(input: TargetBoardInput) -> Result<EpicTargetBoard, Error> {
         let (_, workspace) = workspace_uri(input.workspace.trim())?;
         let limit = input.limit.min(1024);
@@ -1360,6 +1503,20 @@ mod tests {
             priority_label: priority
                 .as_ref()
                 .map(|priority| priority.source_label.clone()),
+        }
+    }
+
+    fn milestone_card(id: &str, state: EpicState, labels: &[&str]) -> EpicMilestoneCard {
+        let mut epic = epic(id, state);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        let milestone = epic_milestone(&epic);
+        EpicMilestoneCard {
+            epic,
+            progress: progress(0),
+            milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+            milestone_label: milestone
+                .as_ref()
+                .map(|milestone| milestone.source_label.clone()),
         }
     }
 
@@ -1540,6 +1697,50 @@ mod tests {
             ["done", "canceled"]
         );
         assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
+    }
+
+    #[test]
+    fn milestone_columns_group_active_epics_by_release_label() {
+        let columns = milestone_columns(vec![
+            milestone_card("unscheduled", EpicState::Planned, &["planning"]),
+            milestone_card("q4", EpicState::InProgress, &["milestone::Q4"]),
+            milestone_card("launch", EpicState::AtRisk, &["release/Launch GA"]),
+            milestone_card("q4-two", EpicState::Planned, &["milestone-Q4"]),
+            milestone_card("done", EpicState::Done, &["milestone::Q4"]),
+            milestone_card("canceled", EpicState::Canceled, &[]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "no-milestone",
+                "milestone-launch-ga",
+                "milestone-q4",
+                "completed"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "unscheduled");
+        assert_eq!(columns[1].milestone.as_deref(), Some("Launch GA"));
+        assert_eq!(columns[1].cards[0].milestone_label.as_deref(), Some("release/Launch GA"));
+        assert_eq!(columns[2].milestone.as_deref(), Some("Q4"));
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["q4", "q4-two"]
+        );
+        assert_eq!(
+            columns[3]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["done", "canceled"]
+        );
+        assert_eq!(columns[3].cards[0].milestone.as_deref(), Some("Q4"));
     }
 
     #[test]

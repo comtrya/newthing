@@ -10343,6 +10343,15 @@ mod tests {
         assert_eq!(info.interface_name, "epics");
         assert_eq!(info.op_name, "priority-board");
 
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("milestone-board"),
+        )
+        .expect("epic milestone board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "milestone-board");
+
         let info =
             crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("target-board"))
                 .expect("epic target board route should resolve to DispatchInfo");
