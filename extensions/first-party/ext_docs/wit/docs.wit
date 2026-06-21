@@ -338,6 +338,33 @@ interface docs {
     columns: list<doc-readiness-column>,
   }
 
+  record doc-handoff-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    implementation-reference-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-handoff-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-handoff-card>,
+  }
+
+  record doc-handoff-board {
+    total-docs: u32,
+    columns: list<doc-handoff-column>,
+  }
+
   /// Liveness ping.
   ping: func() -> result<string, error>;
 
@@ -402,6 +429,10 @@ interface docs {
   /// Group product docs by readiness signals from acceptance criteria,
   /// BDD scenarios, and forge-local traceability links.
   readiness-board: func(input: doc-catalog-input) -> result<doc-readiness-board, error>;
+
+  /// Group product docs by implementation handoff state so specs, PRDs, and
+  /// BDD scenarios can move from product review into linked forge work.
+  handoff-board: func(input: doc-catalog-input) -> result<doc-handoff-board, error>;
 }
 
 world ext-docs {

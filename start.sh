@@ -1972,6 +1972,100 @@ expect_status "ext_docs readiness-board groups docs by criteria and scenarios" 2
 json_assert "ext_docs readiness-board returns product readiness lanes" "$TMP_DIR/docs-readiness.json" \
   'json.totalDocs === 3 && json.columns.find((column) => column.key === "needs-criteria")?.count === 1 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Repository Docs Outline" && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistTotal === 2 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.referenceCount === 1 && json.columns.find((column) => column.key === "ready")?.docs?.[0]?.scenarioCount === 1'
 
+DOC_HANDOFF_PAYLOAD="$TMP_DIR/docs-handoff-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/needs-criteria.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Criteria PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without accepted criteria or scenarios.\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-scenarios.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Scenarios PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Project docs render beside implementation\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-review.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Review PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n\n" +
+              "## Open Questions\n\n" +
+              "Question: Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/in-implementation.mdx",
+            preview:
+              "---\n" +
+              "title: In Implementation PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_HANDOFF_PAYLOAD"
+expect_status "ext_docs handoff-board groups docs by implementation handoff state" 200 "$TMP_DIR/docs-handoff.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_HANDOFF_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/handoff-board"
+json_assert "ext_docs handoff-board returns product handoff lanes" "$TMP_DIR/docs-handoff.json" \
+  'json.totalDocs === 5 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Needs Criteria PRD" && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.scenarioCount === 0 && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.implementationReferenceCount === 0 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.scenarioCount === 1 && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.implementationReferenceCount === 2'
+
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
     "$TMP_DIR/frontend-browser-evidence.json" \
