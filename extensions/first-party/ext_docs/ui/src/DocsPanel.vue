@@ -18,8 +18,9 @@
  */
 
 import { computed, onMounted, ref, watch } from "vue";
-import { getGraphQLClient } from "@comtrya/sdk-core";
+import { getGraphQLClient, type OpResult } from "@comtrya/sdk-core";
 import { bodyExcerpt, renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
+import { extDocsXDocs } from "../../dist/ext_docs.client";
 
 interface DocProperty {
   // intentionally any — typed by the per-type `properties` CUE block
@@ -64,6 +65,69 @@ interface RepositoryPayload {
   };
 }
 
+type DocsBoardId =
+  | "status"
+  | "scenario"
+  | "readiness"
+  | "decision"
+  | "handoff"
+  | "traceability"
+  | "implementation";
+
+interface SummarizeDocInput {
+  path: string;
+  preview: string;
+}
+
+interface DocCatalogTypeInput {
+  projectName: string;
+  typeName: string;
+  label: string;
+  description: string | null;
+  slug: string;
+  files: SummarizeDocInput[];
+}
+
+interface DocCatalogInput {
+  types: DocCatalogTypeInput[];
+}
+
+interface DocBoardCard {
+  projectName?: string;
+  typeName?: string;
+  typeLabel?: string;
+  path?: string;
+  title?: string;
+  status?: string | null;
+  owner?: string | null;
+  tags?: string[];
+  feature?: string | null;
+  scenarioCount?: number;
+  stepCount?: number;
+  scenariosWithoutSteps?: number;
+  checklistTotal?: number;
+  checklistChecked?: number;
+  referenceCount?: number;
+  implementationReferenceCount?: number;
+  docReferenceCount?: number;
+  otherReferenceCount?: number;
+  decisionCount?: number;
+  openQuestionCount?: number;
+  riskCount?: number;
+}
+
+interface DocBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  docs: DocBoardCard[];
+}
+
+interface DocBoard {
+  totalDocs: number;
+  columns: DocBoardColumn[];
+}
+
 const props = defineProps<{
   workspaceId?: string;
   repositoryId?: string | null;
@@ -102,6 +166,38 @@ const totalDocs = computed(() => {
 
 const expandedDocPath = ref<string | null>(null);
 const focusedDocPath = ref<string | null>(null);
+const boardState = ref<"idle" | "loading" | "ready" | "error">("idle");
+const boardError = ref<string | null>(null);
+const activeBoardId = ref<DocsBoardId>("status");
+const boards = ref<Record<DocsBoardId, DocBoard | null>>(emptyBoards());
+const boardTabs: Array<{ id: DocsBoardId; label: string }> = [
+  { id: "status", label: "Status" },
+  { id: "scenario", label: "Scenarios" },
+  { id: "readiness", label: "Readiness" },
+  { id: "decision", label: "Review" },
+  { id: "handoff", label: "Handoff" },
+  { id: "traceability", label: "Traceability" },
+  { id: "implementation", label: "Implementation" },
+];
+const activeBoard = computed(() => boards.value[activeBoardId.value]);
+
+function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
+  return {
+    status: null,
+    scenario: null,
+    readiness: null,
+    decision: null,
+    handoff: null,
+    traceability: null,
+    implementation: null,
+  };
+}
+
+function resetBoards(): void {
+  boards.value = emptyBoards();
+  boardState.value = "idle";
+  boardError.value = null;
+}
 
 function isExpanded(path: string): boolean {
   return expandedDocPath.value === path;
@@ -182,11 +278,12 @@ useShortcuts({
 onMounted(() => {
   void load();
 });
-watch(() => props.repositoryPath, () => void load());
+watch([() => props.repositoryPath, () => props.projectName], () => void load());
 
 async function load(): Promise<void> {
   loadState.value = "loading";
   error.value = null;
+  resetBoards();
   try {
     const segments = props.repositorySegments ?? [];
     if (segments.length === 0) {
@@ -205,9 +302,11 @@ async function load(): Promise<void> {
     config.value = resolved?.comtryaConfig ?? null;
     blobs.value = resolved?.blobs ?? [];
     loadState.value = "ready";
+    void loadDocBoards();
   } catch (caught) {
     loadState.value = "error";
     error.value = caught instanceof Error ? caught.message : String(caught);
+    resetBoards();
   }
 }
 
@@ -230,6 +329,7 @@ interface DocFile {
   title: string;
   frontMatter: DocProperty;
   body: string;
+  preview: string;
 }
 
 function parseFrontMatter(raw: string | undefined | null): { props: DocProperty; body: string } {
@@ -288,6 +388,7 @@ function filesForType(project: ComtryaProject, type: DocType): DocFile[] {
         title,
         frontMatter: props,
         body,
+        preview: blob.preview ?? "",
       };
     })
     .sort((a, b) => a.fileName.localeCompare(b.fileName));
@@ -325,6 +426,142 @@ function describeFrontMatterValue(value: unknown): string {
   }
   return String(value);
 }
+
+function docCatalogInput(): DocCatalogInput {
+  const types: DocCatalogTypeInput[] = [];
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      types.push({
+        projectName: project.name ?? "(unnamed project)",
+        typeName: entry.key,
+        label: entry.type.label || entry.key,
+        description: entry.type.description ?? null,
+        slug: entry.type.slug ?? "",
+        files: filesForType(project, entry.type).map((doc) => ({
+          path: doc.path,
+          preview: doc.preview,
+        })),
+      });
+    }
+  }
+  return { types };
+}
+
+function opValue<T>(result: OpResult<unknown>, label: string): T {
+  if (result.ok) return result.value as T;
+  throw new Error(`${label}: ${result.error.message}`);
+}
+
+async function loadDocBoards(): Promise<void> {
+  const input = docCatalogInput();
+  if (!input.types.some((type) => type.files.length > 0)) {
+    boards.value = emptyBoards();
+    boardState.value = "ready";
+    boardError.value = null;
+    return;
+  }
+
+  boardState.value = "loading";
+  boardError.value = null;
+  try {
+    const [
+      status,
+      scenario,
+      readiness,
+      decision,
+      handoff,
+      traceability,
+      implementation,
+    ] = await Promise.all([
+      extDocsXDocs.statusBoard(input),
+      extDocsXDocs.scenarioBoard(input),
+      extDocsXDocs.readinessBoard(input),
+      extDocsXDocs.decisionBoard(input),
+      extDocsXDocs.handoffBoard(input),
+      extDocsXDocs.traceabilityBoard(input),
+      extDocsXDocs.implementationBoard(input),
+    ]);
+    boards.value = {
+      status: opValue<DocBoard>(status, "status board"),
+      scenario: opValue<DocBoard>(scenario, "scenario board"),
+      readiness: opValue<DocBoard>(readiness, "readiness board"),
+      decision: opValue<DocBoard>(decision, "review board"),
+      handoff: opValue<DocBoard>(handoff, "handoff board"),
+      traceability: opValue<DocBoard>(traceability, "traceability board"),
+      implementation: opValue<DocBoard>(implementation, "implementation board"),
+    };
+    boardState.value = "ready";
+  } catch (caught) {
+    boards.value = emptyBoards();
+    boardState.value = "error";
+    boardError.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+function boardTabTotal(id: DocsBoardId): number {
+  return boards.value[id]?.totalDocs ?? 0;
+}
+
+function cardTypeLabel(card: DocBoardCard): string {
+  return card.typeLabel || card.typeName || "doc";
+}
+
+function metricRows(card: DocBoardCard): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+  if (card.status) rows.push({ label: "status", value: card.status });
+  if (card.projectName) rows.push({ label: "project", value: card.projectName });
+  if (card.owner) rows.push({ label: "owner", value: card.owner });
+  if (card.feature) rows.push({ label: "feature", value: card.feature });
+  if (Array.isArray(card.tags) && card.tags.length > 0) {
+    rows.push({ label: "tags", value: card.tags.join(", ") });
+  }
+  if (typeof card.scenarioCount === "number") {
+    rows.push({ label: "scenarios", value: String(card.scenarioCount) });
+  }
+  if (typeof card.stepCount === "number") {
+    rows.push({ label: "steps", value: String(card.stepCount) });
+  }
+  if (
+    typeof card.scenariosWithoutSteps === "number" &&
+    card.scenariosWithoutSteps > 0
+  ) {
+    rows.push({
+      label: "empty",
+      value: String(card.scenariosWithoutSteps),
+    });
+  }
+  if (typeof card.checklistTotal === "number") {
+    rows.push({
+      label: "checklist",
+      value: `${card.checklistChecked ?? 0}/${card.checklistTotal}`,
+    });
+  }
+  if (typeof card.referenceCount === "number") {
+    rows.push({ label: "refs", value: String(card.referenceCount) });
+  }
+  if (typeof card.implementationReferenceCount === "number") {
+    rows.push({
+      label: "impl refs",
+      value: String(card.implementationReferenceCount),
+    });
+  }
+  if (typeof card.docReferenceCount === "number") {
+    rows.push({ label: "doc refs", value: String(card.docReferenceCount) });
+  }
+  if (typeof card.otherReferenceCount === "number" && card.otherReferenceCount > 0) {
+    rows.push({ label: "other refs", value: String(card.otherReferenceCount) });
+  }
+  if (typeof card.decisionCount === "number") {
+    rows.push({ label: "decisions", value: String(card.decisionCount) });
+  }
+  if (typeof card.openQuestionCount === "number") {
+    rows.push({ label: "questions", value: String(card.openQuestionCount) });
+  }
+  if (typeof card.riskCount === "number") {
+    rows.push({ label: "risks", value: String(card.riskCount) });
+  }
+  return rows;
+}
 </script>
 
 <template>
@@ -351,6 +588,81 @@ function describeFrontMatterValue(value: unknown): string {
 
     <p v-if="loadState === 'error'" class="muted error" role="alert">{{ error }}</p>
     <p v-else-if="config?.error" class="muted error" role="alert">{{ config.error }}</p>
+
+    <section
+      v-if="loadState === 'ready' && totalDocs > 0"
+      class="docs-workbench"
+      data-smoke="docs-workbench"
+    >
+      <header class="docs-workbench-head">
+        <div class="docs-workbench-title">
+          <h3>Product review</h3>
+          <span class="muted">
+            {{ activeBoard?.totalDocs ?? totalDocs }} doc<template v-if="(activeBoard?.totalDocs ?? totalDocs) !== 1">s</template>
+          </span>
+        </div>
+        <nav class="docs-board-tabs" aria-label="Docs workbench views">
+          <button
+            v-for="tab in boardTabs"
+            :key="tab.id"
+            type="button"
+            :class="['docs-board-tab', { active: activeBoardId === tab.id }]"
+            :aria-pressed="activeBoardId === tab.id"
+            @click="activeBoardId = tab.id"
+          >
+            <span>{{ tab.label }}</span>
+            <strong>{{ boardTabTotal(tab.id) }}</strong>
+          </button>
+        </nav>
+      </header>
+
+      <p v-if="boardState === 'loading'" class="muted docs-board-status">
+        Loading docs board…
+      </p>
+      <p
+        v-else-if="boardState === 'error'"
+        class="muted error docs-board-status"
+        role="alert"
+      >
+        {{ boardError }}
+      </p>
+      <div
+        v-else-if="activeBoard"
+        class="docs-board"
+        :data-board="activeBoardId"
+      >
+        <section
+          v-for="column in activeBoard.columns"
+          :key="column.key"
+          class="docs-board-column"
+        >
+          <header class="docs-board-column-head">
+            <h4>{{ column.label }}</h4>
+            <span>{{ column.count }}</span>
+          </header>
+          <ol v-if="column.docs.length > 0" class="docs-board-cards">
+            <li
+              v-for="doc in column.docs"
+              :key="doc.path"
+              class="docs-board-card"
+            >
+              <header class="docs-board-card-head">
+                <span class="docs-board-type">{{ cardTypeLabel(doc) }}</span>
+                <strong>{{ doc.title || doc.path }}</strong>
+              </header>
+              <code v-if="doc.path" class="docs-board-path">{{ doc.path }}</code>
+              <dl v-if="metricRows(doc).length > 0" class="docs-board-metrics">
+                <template v-for="row in metricRows(doc)" :key="`${doc.path}-${row.label}`">
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.value }}</dd>
+                </template>
+              </dl>
+            </li>
+          </ol>
+          <p v-else class="muted docs-board-empty">No docs</p>
+        </section>
+      </div>
+    </section>
 
     <article
       v-for="project in projects"
@@ -478,6 +790,197 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .muted.error {
   color: var(--accent-err, #c9341c);
+}
+
+.docs-panel .docs-workbench {
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-workbench-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+}
+
+.docs-panel .docs-workbench-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.docs-panel .docs-workbench-title h3 {
+  margin: 0;
+  font-family: var(--font-serif, system-ui);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.docs-panel .docs-board-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.docs-panel .docs-board-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 100%;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: 6px;
+  background: var(--bg, #0a0b0e);
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.docs-panel .docs-board-tab:hover,
+.docs-panel .docs-board-tab.active {
+  border-color: var(--fg-3, rgba(255,255,255,0.52));
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-panel .docs-board-tab.active {
+  background: var(--bg-2, #0e1014);
+}
+
+.docs-panel .docs-board-tab strong {
+  min-width: 16px;
+  border-radius: 6px;
+  padding: 3px 5px;
+  background: var(--surface-2, rgba(255,255,255,0.06));
+  color: var(--fg, rgba(255,255,255,0.94));
+  text-align: center;
+  font-weight: 700;
+}
+
+.docs-panel .docs-board-status {
+  margin: 0;
+  padding: 12px;
+}
+
+.docs-panel .docs-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  align-items: start;
+}
+
+.docs-panel .docs-board-column {
+  min-width: 0;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
+}
+
+.docs-panel .docs-board-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+}
+
+.docs-panel .docs-board-column-head h4 {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-panel .docs-board-column-head span {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-board-cards {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.docs-panel .docs-board-card {
+  min-width: 0;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-board-card-head {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.docs-panel .docs-board-card-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-serif, system-ui);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.docs-panel .docs-board-type {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--accent-blue, #1d55a6);
+}
+
+.docs-panel .docs-board-path {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-board-metrics {
+  display: grid;
+  grid-template-columns: minmax(64px, max-content) 1fr;
+  gap: 2px 8px;
+  margin: 8px 0 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.docs-panel .docs-board-metrics dt {
+  color: var(--fg-4, rgba(255,255,255,0.34));
+}
+
+.docs-panel .docs-board-metrics dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+}
+
+.docs-panel .docs-board-empty {
+  margin: 0;
+  padding: 8px 10px 10px;
 }
 
 .docs-panel .docs-project {
@@ -734,5 +1237,15 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .no-files {
   margin: 0;
+}
+
+@media (max-width: 760px) {
+  .docs-panel .docs-workbench-head {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-panel .docs-board-tabs {
+    justify-content: flex-start;
+  }
 }
 </style>
