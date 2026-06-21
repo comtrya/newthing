@@ -66,6 +66,10 @@ interface RepositoryPayload {
 }
 
 type DocsBoardId =
+  | "type"
+  | "project"
+  | "owner"
+  | "tag"
   | "status"
   | "scenario"
   | "readiness"
@@ -170,9 +174,13 @@ const expandedDocPath = ref<string | null>(null);
 const focusedDocPath = ref<string | null>(null);
 const boardState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const boardError = ref<string | null>(null);
-const activeBoardId = ref<DocsBoardId>("status");
+const activeBoardId = ref<DocsBoardId>("type");
 const boards = ref<Record<DocsBoardId, DocBoard | null>>(emptyBoards());
 const boardTabs: Array<{ id: DocsBoardId; label: string }> = [
+  { id: "type", label: "Types" },
+  { id: "project", label: "Projects" },
+  { id: "owner", label: "Owners" },
+  { id: "tag", label: "Tags" },
   { id: "status", label: "Status" },
   { id: "scenario", label: "Scenarios" },
   { id: "readiness", label: "Readiness" },
@@ -226,6 +234,10 @@ const overviewHeadline = computed(() => {
 
 function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
   return {
+    type: null,
+    project: null,
+    owner: null,
+    tag: null,
     status: null,
     scenario: null,
     readiness: null,
@@ -522,6 +534,10 @@ async function loadDocBoards(): Promise<void> {
   boardError.value = null;
   try {
     const [
+      type,
+      project,
+      owner,
+      tag,
       status,
       scenario,
       readiness,
@@ -530,6 +546,10 @@ async function loadDocBoards(): Promise<void> {
       traceability,
       implementation,
     ] = await Promise.all([
+      extDocsXDocs.typeBoard(input),
+      extDocsXDocs.projectBoard(input),
+      extDocsXDocs.ownerBoard(input),
+      extDocsXDocs.tagBoard(input),
       extDocsXDocs.statusBoard(input),
       extDocsXDocs.scenarioBoard(input),
       extDocsXDocs.readinessBoard(input),
@@ -539,6 +559,10 @@ async function loadDocBoards(): Promise<void> {
       extDocsXDocs.implementationBoard(input),
     ]);
     boards.value = {
+      type: opValue<DocBoard>(type, "type board"),
+      project: opValue<DocBoard>(project, "project board"),
+      owner: opValue<DocBoard>(owner, "owner board"),
+      tag: opValue<DocBoard>(tag, "tag board"),
       status: opValue<DocBoard>(status, "status board"),
       scenario: opValue<DocBoard>(scenario, "scenario board"),
       readiness: opValue<DocBoard>(readiness, "readiness board"),
@@ -718,7 +742,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
     >
       <header class="docs-workbench-head">
         <div class="docs-workbench-title">
-          <h3>Product review</h3>
+          <h3>Docs workbench</h3>
           <span class="muted">
             {{ activeBoard?.totalDocs ?? totalDocs }} doc<template v-if="(activeBoard?.totalDocs ?? totalDocs) !== 1">s</template>
           </span>
