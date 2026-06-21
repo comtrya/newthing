@@ -2963,6 +2963,14 @@ expect_status "review-request-board shows requested reviewer needs review" 200 "
 json_assert "review request board has the missing requested reviewer" "$TMP_DIR/rx-pr-review-request-board-needs.json" \
   "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"needs-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.requestedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.completedReviewerRefs.length === 0)"
 
+expect_status "reviewer-queue shows requested review for reviewer" 200 "$TMP_DIR/rx-pr-reviewer-queue-needs.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the pending request" "$TMP_DIR/rx-pr-reviewer-queue-needs.json" \
+  "json.reviewerRef === \"$REACTOR_REVIEWER_REF\" && json.total === 1 && json.columns.length === 4 && json.columns.find((c) => c.key === \"needs-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.reviewRequest.completedReview === null && card.terminal === false)"
+
 expect_status "submit-review records a review comment" 200 "$TMP_DIR/rx-pr-review-comment.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -2986,6 +2994,14 @@ expect_status "review-request-board moves completed review requests" 200 "$TMP_D
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
 json_assert "review request board has the completed reviewer" "$TMP_DIR/rx-pr-review-request-board-reviewed.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"reviewed\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.length === 0 && card.latestReview.decision === \"COMMENT\")"
+
+expect_status "reviewer-queue moves completed review request" 200 "$TMP_DIR/rx-pr-reviewer-queue-reviewed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the completed request" "$TMP_DIR/rx-pr-reviewer-queue-reviewed.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"reviewed\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.reviewRequest.completedReview.decision === \"COMMENT\" && card.latestReview.decision === \"COMMENT\")"
 
 expect_status "review-decision-board moves commented PRs into comments lane" 200 "$TMP_DIR/rx-pr-review-decision-commented.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -3152,6 +3168,14 @@ expect_status "review-request-board keeps merged pull requests terminal" 200 "$T
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
 json_assert "review request board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-request-board-merged.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "reviewer-queue keeps merged requests terminal" 200 "$TMP_DIR/rx-pr-reviewer-queue-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the merged terminal card" "$TMP_DIR/rx-pr-reviewer-queue-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.reviewRequest.completedReview.decision === \"APPROVE\" && card.latestReview.decision === \"APPROVE\")"
 
 expect_status "submit-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-terminal.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

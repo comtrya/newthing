@@ -107,8 +107,9 @@ use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
     PullReviewDecisionBoard, PullReviewDecisionBoardInput, PullReviewDecisionCard,
     PullReviewDecisionColumn, PullReviewRequest, PullReviewRequestBoard,
-    PullReviewRequestBoardInput, PullReviewRequestCard, PullReviewRequestColumn,
-    RequestReviewInput, SubmitReviewInput,
+    PullReviewRequestBoardInput, PullReviewRequestCard, PullReviewRequestColumn, PullReviewerQueue,
+    PullReviewerQueueCard, PullReviewerQueueColumn, PullReviewerQueueInput, RequestReviewInput,
+    SubmitReviewInput,
 };
 
 mod ext_checks_bindings {
@@ -430,6 +431,14 @@ struct PullReviewDecisionBoardInputJson {
 #[serde(rename_all = "camelCase")]
 struct PullReviewRequestBoardInputJson {
     repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewerQueueInputJson {
+    repository: String,
+    reviewer_ref: Option<String>,
     limit: u32,
 }
 
@@ -2346,6 +2355,29 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_review_request_board_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "reviewer-queue" => {
+            let parsed: PullReviewerQueueInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse reviewer-queue input: {e}"),
+                    )
+                })?;
+            let wit_input = PullReviewerQueueInput {
+                repository: parsed.repository,
+                reviewer_ref: parsed.reviewer_ref,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_reviewer_queue(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("reviewer-queue call: {e}"),
+                    )
+                })?;
+            pull_reviewer_queue_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -3545,6 +3577,41 @@ fn pull_review_request_card_to_json(card: &PullReviewRequestCard) -> Value {
         "requestedReviewerRefs": card.requested_reviewer_refs,
         "completedReviewerRefs": card.completed_reviewer_refs,
         "missingReviewerRefs": card.missing_reviewer_refs,
+        "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_reviewer_queue_to_json(queue: &PullReviewerQueue) -> Value {
+    serde_json::json!({
+        "repository": queue.repository,
+        "reviewerRef": queue.reviewer_ref,
+        "total": queue.total,
+        "columns": queue
+            .columns
+            .iter()
+            .map(pull_reviewer_queue_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_reviewer_queue_column_to_json(column: &PullReviewerQueueColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_reviewer_queue_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_reviewer_queue_card_to_json(card: &PullReviewerQueueCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "reviewRequest": pull_review_request_to_json(&card.review_request),
         "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
         "terminal": card.terminal,
     })

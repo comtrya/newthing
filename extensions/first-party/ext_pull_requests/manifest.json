@@ -98,7 +98,8 @@
     { "op": "pulls.review-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
     { "op": "pulls.merge-readiness-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
     { "op": "pulls.review-decision-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
-    { "op": "pulls.review-request-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+    { "op": "pulls.review-request-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.reviewer-queue", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "scope": "repository",

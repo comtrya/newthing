@@ -18,8 +18,9 @@ use bindings::exports::comtrya::ext_pull_requests::pulls::{
     PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
     PullReviewDecisionBoard, PullReviewDecisionBoardInput, PullReviewDecisionCard,
     PullReviewDecisionColumn, PullReviewRequest, PullReviewRequestBoard,
-    PullReviewRequestBoardInput, PullReviewRequestCard, PullReviewRequestColumn,
-    RequestReviewInput, SubmitReviewInput,
+    PullReviewRequestBoardInput, PullReviewRequestCard, PullReviewRequestColumn, PullReviewerQueue,
+    PullReviewerQueueCard, PullReviewerQueueColumn, PullReviewerQueueInput, RequestReviewInput,
+    SubmitReviewInput,
 };
 use bindings::exports::comtrya::platform::reactor::{
     Guest as ReactorGuest, MutationCall, Reaction,
@@ -208,6 +209,13 @@ enum ReviewRequestLane {
     NeedsReview,
     Reviewed,
     Unrequested,
+    Merged,
+    Closed,
+}
+
+enum ReviewerQueueLane {
+    NeedsReview,
+    Reviewed,
     Merged,
     Closed,
 }
@@ -636,6 +644,51 @@ fn review_request_columns(cards: Vec<PullReviewRequestCard>) -> Vec<PullReviewRe
         review_request_column("unrequested", "Unrequested", unrequested),
         review_request_column("merged", "Merged", merged),
         review_request_column("closed", "Closed", closed),
+    ]
+}
+
+fn reviewer_queue_lane(card: &PullReviewerQueueCard) -> ReviewerQueueLane {
+    match card.pull_request.state {
+        PrState::Merged => ReviewerQueueLane::Merged,
+        PrState::Closed => ReviewerQueueLane::Closed,
+        _ if card.review_request.completed_review.is_some() => ReviewerQueueLane::Reviewed,
+        _ => ReviewerQueueLane::NeedsReview,
+    }
+}
+
+fn reviewer_queue_column(
+    key: &str,
+    label: &str,
+    cards: Vec<PullReviewerQueueCard>,
+) -> PullReviewerQueueColumn {
+    PullReviewerQueueColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn reviewer_queue_columns(cards: Vec<PullReviewerQueueCard>) -> Vec<PullReviewerQueueColumn> {
+    let mut needs_review = Vec::new();
+    let mut reviewed = Vec::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match reviewer_queue_lane(&card) {
+            ReviewerQueueLane::NeedsReview => needs_review.push(card),
+            ReviewerQueueLane::Reviewed => reviewed.push(card),
+            ReviewerQueueLane::Merged => merged.push(card),
+            ReviewerQueueLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        reviewer_queue_column("needs-review", "Needs review", needs_review),
+        reviewer_queue_column("reviewed", "Reviewed", reviewed),
+        reviewer_queue_column("merged", "Merged", merged),
+        reviewer_queue_column("closed", "Closed", closed),
     ]
 }
 
@@ -1699,6 +1752,86 @@ impl PullsGuest for Component {
             columns: review_request_columns(cards),
         })
     }
+
+    fn reviewer_queue(input: PullReviewerQueueInput) -> Result<PullReviewerQueue, Error> {
+        let reviewer_ref = match input.reviewer_ref {
+            Some(reviewer_ref) => {
+                validate_reviewer_ref(&reviewer_ref)?;
+                reviewer_ref
+            }
+            None => identity::current_principal()?,
+        };
+
+        let mut pulls_by_id = BTreeMap::<String, PullRequest>::new();
+        scan_pull_requests(|stored| {
+            if repository_matches(&stored, &input.repository) {
+                let pull_request = stored.to_wit();
+                pulls_by_id.insert(pull_request.id.clone(), pull_request);
+            }
+            Ok(false)
+        })?;
+
+        let mut reviews_by_pull = BTreeMap::<String, ReviewStats>::new();
+        let mut reviews_by_pull_reviewer = BTreeMap::<(String, String), PullReview>::new();
+        scan_pull_reviews(|stored| {
+            if stored.repository == input.repository {
+                let review = stored.to_wit();
+                let stats = reviews_by_pull.entry(review.pull_id.clone()).or_default();
+                if is_newer_review(&review, stats.latest_review.as_ref()) {
+                    stats.latest_review = Some(review.clone());
+                }
+                let key = (review.pull_id.clone(), review.reviewer_ref.clone());
+                if is_newer_review(&review, reviews_by_pull_reviewer.get(&key)) {
+                    reviews_by_pull_reviewer.insert(key, review);
+                }
+            }
+            Ok(false)
+        })?;
+
+        let limit = input.limit.min(1024) as usize;
+        let mut requests = Vec::new();
+        if limit > 0 {
+            scan_pull_review_requests(|stored| {
+                if stored.repository == input.repository && stored.reviewer_ref == reviewer_ref {
+                    requests.push(stored);
+                }
+                Ok(false)
+            })?;
+            requests.sort_by(|left, right| {
+                right
+                    .requested_at
+                    .cmp(&left.requested_at)
+                    .then_with(|| right.id.cmp(&left.id))
+            });
+        }
+
+        let mut cards = Vec::new();
+        for request in requests.into_iter().take(limit) {
+            let Some(pull_request) = pulls_by_id.get(&request.pull_id).cloned() else {
+                continue;
+            };
+            let latest_review = reviews_by_pull
+                .get(&pull_request.id)
+                .and_then(|stats| stats.latest_review.clone());
+            let completed_review =
+                completed_review_for_request(&request, &reviews_by_pull_reviewer);
+            let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+            cards.push(PullReviewerQueueCard {
+                pull_request,
+                review_request: request.to_wit(completed_review),
+                latest_review,
+                terminal,
+            });
+        }
+
+        let total = cards.len() as u32;
+        Ok(PullReviewerQueue {
+            repository: input.repository,
+            reviewer_ref,
+            total,
+            columns: reviewer_queue_columns(cards),
+        })
+    }
 }
 
 impl ReactorGuest for Component {
@@ -1774,11 +1907,12 @@ bindings::export!(Component with_types_in bindings);
 mod tests {
     use super::{
         completed_review_for_request, merge_readiness_columns, merge_readiness_flags,
-        review_columns, review_decision_columns, review_request_columns, state_from_str,
-        state_to_str, validate_review_body, validate_reviewer_ref, validate_state_transition,
-        ActiveReviewStats, ErrorCode, PrState, PullMergeCheckSummary, PullMergeReadinessCard,
-        PullMergeReviewSummary, PullRequest, PullReview, PullReviewCard, PullReviewDecision,
-        PullReviewDecisionCard, PullReviewRequestCard, StoredPullReviewRequest,
+        review_columns, review_decision_columns, review_request_columns, reviewer_queue_columns,
+        state_from_str, state_to_str, validate_review_body, validate_reviewer_ref,
+        validate_state_transition, ActiveReviewStats, ErrorCode, PrState, PullMergeCheckSummary,
+        PullMergeReadinessCard, PullMergeReviewSummary, PullRequest, PullReview, PullReviewCard,
+        PullReviewDecision, PullReviewDecisionCard, PullReviewRequestCard, PullReviewerQueueCard,
+        StoredPullReviewRequest,
     };
 
     use std::collections::BTreeMap;
@@ -2226,6 +2360,62 @@ mod tests {
         assert!(columns[3].cards[0].terminal);
         assert_eq!(columns[4].cards[0].pull_request.id, "closed");
         assert!(columns[4].cards[0].terminal);
+    }
+
+    #[test]
+    fn reviewer_queue_columns_group_by_completion_and_terminal_state() {
+        let pending_request = review_request("pending-request", "needs", "comtrya://user/reviewer");
+        let reviewed_request =
+            review_request("reviewed-request", "reviewed", "comtrya://user/reviewer");
+        let reviewed = pull_review_by(
+            "reviewed",
+            "reviewed",
+            "comtrya://user/reviewer",
+            "2026-06-20T00:00:03Z",
+        );
+        let merged_request = review_request("merged-request", "merged", "comtrya://user/reviewer");
+        let closed_request = review_request("closed-request", "closed", "comtrya://user/reviewer");
+
+        let columns = reviewer_queue_columns(vec![
+            PullReviewerQueueCard {
+                pull_request: pull_with_state("needs", PrState::Review),
+                review_request: pending_request.to_wit(None),
+                latest_review: None,
+                terminal: false,
+            },
+            PullReviewerQueueCard {
+                pull_request: pull_with_state("reviewed", PrState::Review),
+                review_request: reviewed_request.to_wit(Some(reviewed.clone())),
+                latest_review: Some(reviewed),
+                terminal: false,
+            },
+            PullReviewerQueueCard {
+                pull_request: pull_with_state("merged", PrState::Merged),
+                review_request: merged_request.to_wit(None),
+                latest_review: None,
+                terminal: true,
+            },
+            PullReviewerQueueCard {
+                pull_request: pull_with_state("closed", PrState::Closed),
+                review_request: closed_request.to_wit(None),
+                latest_review: None,
+                terminal: true,
+            },
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["needs-review", "reviewed", "merged", "closed"]);
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 4);
+        assert_eq!(columns[0].cards[0].pull_request.id, "needs");
+        assert_eq!(columns[1].cards[0].pull_request.id, "reviewed");
+        assert!(columns[1].cards[0]
+            .review_request
+            .completed_review
+            .is_some());
+        assert_eq!(columns[2].cards[0].pull_request.id, "merged");
+        assert!(columns[2].cards[0].terminal);
+        assert_eq!(columns[3].cards[0].pull_request.id, "closed");
+        assert!(columns[3].cards[0].terminal);
     }
 
     #[test]

@@ -10338,6 +10338,15 @@ mod tests {
         assert_eq!(info.extension_id, "ext_pull_requests");
         assert_eq!(info.interface_name, "pulls");
         assert_eq!(info.op_name, "review-request-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.reviewer-queue",
+        )
+        .expect("pull reviewer queue route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "reviewer-queue");
     }
 
     #[test]
