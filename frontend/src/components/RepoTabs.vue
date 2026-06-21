@@ -182,6 +182,7 @@ function isActive(tab: Tab): boolean {
   if (tab.id === "code") {
     return route.path === prefix
       || isRepoSubsurface("branches")
+      || isRepoSubsurface("tags")
       || isRepoSubsurface("commits");
   }
   // Config is a leaf; use exact match so we don't accidentally

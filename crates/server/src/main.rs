@@ -7947,6 +7947,43 @@ fn git_branches(git_dir: &Path) -> Result<Vec<Value>, String> {
         .collect())
 }
 
+fn git_tags(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let output = git_text(
+        git_dir,
+        &[
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--format=%(refname:short)%00%(objecttype)%00%(objectname)%00%(*objectname)%00%(creatordate:relative)%00%(subject)",
+            "refs/tags",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\0');
+            let name = parts.next()?;
+            let kind = parts.next().unwrap_or("commit");
+            let oid = parts.next().unwrap_or("");
+            if name.is_empty() || oid.is_empty() {
+                return None;
+            }
+            let peeled = parts.next().unwrap_or("");
+            let target = if peeled.is_empty() { oid } else { peeled };
+            let time = parts.next().unwrap_or("");
+            let subject = parts.next().unwrap_or("");
+            Some(json!({
+                "name": name,
+                "kind": kind,
+                "oid": oid,
+                "target": target,
+                "targetShort": target.chars().take(12).collect::<String>(),
+                "time": time,
+                "subject": subject,
+            }))
+        })
+        .collect())
+}
+
 fn branch_distance(git_dir: &Path, branch: &str) -> Result<(u32, u32), String> {
     if branch == "main" {
         return Ok((0, 0));
@@ -8103,6 +8140,7 @@ fn repo_git_data_for_query(git_dir: &Path, query: &str) -> Value {
     let wants_head_oid = query_requests_field(query, "headOid");
     let wants_refs = query_requests_field(query, "refs");
     let wants_branches = query_requests_field(query, "branches");
+    let wants_tags = query_requests_field(query, "tags");
     let wants_commits = query_requests_field(query, "commits");
     let wants_tree_entries = query_requests_field(query, "treeEntries");
     let wants_files = query_requests_field(query, "files");
@@ -8133,6 +8171,12 @@ fn repo_git_data_for_query(git_dir: &Path, query: &str) -> Value {
         object.insert(
             "branches".to_string(),
             json!(git_branches(git_dir).unwrap_or_default()),
+        );
+    }
+    if wants_tags {
+        object.insert(
+            "tags".to_string(),
+            json!(git_tags(git_dir).unwrap_or_default()),
         );
     }
     if wants_commits {
@@ -10601,6 +10645,18 @@ mod tests {
             "git commit",
         )
         .unwrap();
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).args([
+                "-c",
+                "tag.gpgSign=false",
+                "-c",
+                "tag.forceSignAnnotated=false",
+                "tag",
+                "v0.1.0",
+            ]),
+            "git tag",
+        )
+        .unwrap();
 
         run_command(
             Command::new("git").arg("-C").arg(&repo).args([
@@ -10996,7 +11052,7 @@ mod tests {
 
         let data = repo_git_data_for_query(
             &git_dir,
-            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch headOid refs { name target } branches { name } commits { oid } treeEntries { path } files { path } blobs { path } } } }",
+            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch headOid refs { name target } branches { name } tags { name target targetShort kind } commits { oid } treeEntries { path } files { path } blobs { path } } } }",
         );
 
         assert_eq!(repository["path"], "comtrya/comtrya");
@@ -11012,6 +11068,12 @@ mod tests {
                 .iter()
                 .any(|branch| branch["name"] == "main")
         );
+        assert!(data["tags"].as_array().unwrap().iter().any(|tag| {
+            tag["name"] == "v0.1.0"
+                && tag["target"] == data["headOid"]
+                && tag["targetShort"] == &data["headOid"].as_str().unwrap()[..12]
+                && tag["kind"] == "commit"
+        }));
         assert!(!data["commits"].as_array().unwrap().is_empty());
         assert!(
             data["treeEntries"]
@@ -11054,6 +11116,7 @@ mod tests {
                 .any(|file| file["path"] == "README.md")
         );
         assert!(files.get("commits").is_none());
+        assert!(files.get("tags").is_none());
         assert!(files.get("blobs").is_none());
     }
 

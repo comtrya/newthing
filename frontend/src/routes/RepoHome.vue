@@ -41,6 +41,7 @@ const props = withDefaults(defineProps<{
     | "overview"
     | "code"
     | "branches"
+    | "tags"
     | "commits"
     | "config"
     | "pipelines"
@@ -86,6 +87,16 @@ interface RepositoryBranch {
   behind: number;
 }
 
+interface RepositoryTag {
+  name: string;
+  kind: string;
+  oid: string;
+  target: string;
+  targetShort: string;
+  time?: string | null;
+  subject?: string | null;
+}
+
 interface RepositoryCommit {
   oid: string;
   shortOid: string;
@@ -121,6 +132,7 @@ interface RepositoryIdentity {
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
   branches?: RepositoryBranch[] | null;
+  tags?: RepositoryTag[] | null;
   commits?: RepositoryCommit[] | null;
   labels?: LabelCatalogEntry[] | null;
   labelCatalog?: Record<string, LabelCatalogEntry> | null;
@@ -208,6 +220,15 @@ const REPOSITORY_OVERVIEW_QUERY = `query ShellRepoOverview($segments: [String!]!
         ahead
         behind
       }
+      tags {
+        name
+        kind
+        oid
+        target
+        targetShort
+        time
+        subject
+      }
       commits {
         oid
         shortOid
@@ -253,7 +274,7 @@ const loadError = ref<string | null>(null);
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
 const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
-  if (props.view === "overview" || props.view === "branches" || props.view === "commits") return "overview";
+  if (props.view === "overview" || props.view === "branches" || props.view === "tags" || props.view === "commits") return "overview";
   if (props.view === "config") return "config";
   return "context";
 });
@@ -290,6 +311,7 @@ const repositoryUpdatedLabel = computed(() =>
 const repoHomeHref = computed(() => `/r/${repoPath.value}`);
 const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
 const repoBranchesHref = computed(() => `/r/${repoPath.value}/branches`);
+const repoTagsHref = computed(() => `/r/${repoPath.value}/tags`);
 const repoCommitsHref = computed(() => `/r/${repoPath.value}/commits`);
 
 /**
@@ -566,6 +588,14 @@ function branchDistanceLabel(branch: RepositoryBranch): string {
   return parts.length ? `${parts.join(" · ")} ${repositoryDefaultRef.value}` : `even with ${repositoryDefaultRef.value}`;
 }
 
+const tags = computed<RepositoryTag[]>(
+  () => repository.value?.tags ?? [],
+);
+const tagsCountLabel = computed(() => nounCountLabel(tags.value.length, "tag"));
+function tagKindLabel(tag: RepositoryTag): string {
+  return tag.kind === "tag" ? "annotated tag" : "lightweight tag";
+}
+
 /**
  * Recent commits panel (iter 54). The kernel pre-computes `commits`
  * via `git_commits` — up to 8 latest entries on the default branch
@@ -818,6 +848,7 @@ function mergeRepositoryIdentity(
     blobs: preserveHeavy ? previous.blobs : next.blobs,
     bookmarks: preserveHeavy ? previous.bookmarks : next.bookmarks,
     branches: preserveHeavy ? previous.branches : next.branches,
+    tags: preserveHeavy ? previous.tags : next.tags,
     commits: preserveHeavy ? previous.commits : next.commits,
     labels: mode === "context" ? previous.labels : next.labels,
     labelCatalog: next.labelCatalog ?? previous.labelCatalog,
@@ -1238,6 +1269,10 @@ function mergeRepositoryIdentity(
             <Icon name="commit" />
             <span>Commits</span>
           </RouterLink>
+          <RouterLink class="repo-branches-code-link" :to="repoTagsHref">
+            <Icon name="tag" />
+            <span>Tags</span>
+          </RouterLink>
         </div>
       </header>
 
@@ -1280,6 +1315,63 @@ function mergeRepositoryIdentity(
       </ol>
     </section>
 
+    <section v-else-if="view === 'tags'" class="repo-tags-page" data-smoke="repo-tags-page">
+      <header class="repo-tags-page-head">
+        <div>
+          <h2>Tags</h2>
+          <p class="repo-tags-count" data-smoke="repo-tags-count">
+            {{ tagsCountLabel }} in {{ displayPath }}
+          </p>
+        </div>
+        <div class="repo-tags-page-actions">
+          <RouterLink class="repo-tags-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-tags-code-link" :to="repoBranchesHref">
+            <Icon name="branch" />
+            <span>Branches</span>
+          </RouterLink>
+          <RouterLink class="repo-tags-code-link" :to="repoCommitsHref">
+            <Icon name="commit" />
+            <span>Commits</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <p v-if="tags.length === 0" class="repo-tags-empty">
+        No tags recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-tags-list" aria-label="Repository tags">
+        <li
+          v-for="tag in tags"
+          :key="tag.name"
+          class="repo-tag-row"
+          data-smoke="repo-tag-row"
+        >
+          <div class="repo-tag-main">
+            <span class="repo-tag-name">
+              <Icon name="tag" />
+              <span>{{ tag.name }}</span>
+            </span>
+            <span class="repo-tag-meta">
+              <span>{{ tagKindLabel(tag) }}</span>
+              <span v-if="tag.time">{{ tag.time }}</span>
+              <span v-if="tag.subject">{{ tag.subject }}</span>
+            </span>
+          </div>
+          <RouterLink
+            class="repo-tag-target"
+            :to="commitHref(tag.target)"
+            :title="tag.target"
+            data-smoke="repo-tag-target"
+          >
+            {{ tag.targetShort || tag.target.slice(0, 12) }}
+          </RouterLink>
+        </li>
+      </ol>
+    </section>
+
     <section v-else-if="view === 'commits'" class="repo-commits-page" data-smoke="repo-commits-page">
       <header class="repo-commits-page-head">
         <div>
@@ -1294,6 +1386,10 @@ function mergeRepositoryIdentity(
           <RouterLink class="repo-commits-code-link" :to="repoBranchesHref">
             <Icon name="branch" />
             <span>Branches</span>
+          </RouterLink>
+          <RouterLink class="repo-commits-code-link" :to="repoTagsHref">
+            <Icon name="tag" />
+            <span>Tags</span>
           </RouterLink>
         </div>
       </header>

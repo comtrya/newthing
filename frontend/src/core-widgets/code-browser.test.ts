@@ -24,6 +24,7 @@ test("core code browser renders familiar branch and commit controls", async () =
                 behind: 0,
               },
             ],
+            tags: [{ name: "v0.1.0" }],
             commits: [
               {
                 oid: "1234567890abcdef1234567890abcdef12345678",
@@ -65,6 +66,9 @@ test("core code browser renders familiar branch and commit controls", async () =
   );
   expect(element.querySelector('[data-smoke="repo-code-branches-link"]')?.getAttribute("href")).toBe(
     "/r/comtrya/dogfood/branches",
+  );
+  expect(element.querySelector('[data-smoke="repo-code-tags-link"]')?.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/tags",
   );
   expect(element.querySelector('[data-smoke="repo-code-history-link"]')?.getAttribute("href")).toBe(
     "/r/comtrya/dogfood/commits",

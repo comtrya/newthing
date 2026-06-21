@@ -135,6 +135,15 @@ export const shellRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: shellRoutePaths.repoTags,
+    name: "repo-tags",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "tags",
+    }),
+  },
+  {
     path: shellRoutePaths.repoCommits,
     name: "repo-commits",
     component: RepoHome,

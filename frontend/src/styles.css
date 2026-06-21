@@ -2023,6 +2023,147 @@ kbd {
   text-underline-offset: 3px;
 }
 
+.shell-app .repo-tags-page {
+  margin-top: 28px;
+  display: grid;
+  gap: 14px;
+  max-width: 980px;
+}
+
+.shell-app .repo-tags-page-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: 14px 16px;
+}
+
+.shell-app .repo-tags-page-head h2 {
+  margin: 0;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.shell-app .repo-tags-page-head p {
+  margin: 3px 0 0;
+  color: var(--fg-3);
+  font-size: 13px;
+}
+
+.shell-app .repo-tags-page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shell-app .repo-tags-code-link {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--fg-2);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 10px;
+}
+
+.shell-app .repo-tags-code-link:hover,
+.shell-app .repo-tags-code-link:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.shell-app .repo-tags-empty {
+  margin: 0;
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--fg-3);
+  background: var(--surface);
+  padding: 16px;
+}
+
+.shell-app .repo-tags-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border: 0.5px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  overflow: hidden;
+  list-style: none;
+}
+
+.shell-app .repo-tag-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 0.5px solid var(--line);
+  padding: 12px 14px;
+}
+
+.shell-app .repo-tag-row:last-child { border-bottom: 0; }
+
+.shell-app .repo-tag-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.shell-app .repo-tag-name {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.shell-app .repo-tag-name > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-app .repo-tag-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--fg-3);
+  font-size: 12px;
+}
+
+.shell-app .repo-tag-target {
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.shell-app .repo-tag-target:hover,
+.shell-app .repo-tag-target:focus-visible {
+  color: var(--accent);
+  outline: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* ── Repo overview / code / config ─────────────────────────── */
 
 .shell-app .repo-overview {
@@ -2413,6 +2554,7 @@ kbd {
 
 .shell-app a.repo-code-ref-pill,
 .shell-app .repo-code-branches-link,
+.shell-app .repo-code-tags-link,
 .shell-app .repo-code-history-link,
 .shell-app .repo-code-latest-commit-link {
   text-decoration: none;
@@ -2422,6 +2564,8 @@ kbd {
 .shell-app a.repo-code-ref-pill:focus-visible,
 .shell-app .repo-code-branches-link:hover,
 .shell-app .repo-code-branches-link:focus-visible,
+.shell-app .repo-code-tags-link:hover,
+.shell-app .repo-code-tags-link:focus-visible,
 .shell-app .repo-code-history-link:hover,
 .shell-app .repo-code-history-link:focus-visible,
 .shell-app .repo-code-latest-commit-link:hover,
@@ -2431,6 +2575,7 @@ kbd {
 }
 
 .shell-app .repo-code-branches-link,
+.shell-app .repo-code-tags-link,
 .shell-app .repo-code-history-link {
   min-height: 28px;
   display: inline-flex;
@@ -3352,6 +3497,7 @@ kbd {
   }
 
   .shell-app .repo-branches-page-head,
+  .shell-app .repo-tags-page-head,
   .shell-app .repo-commits-page-head {
     flex-direction: column;
     align-items: stretch;
@@ -3361,16 +3507,22 @@ kbd {
     align-items: stretch;
   }
 
+  .shell-app .repo-tags-page-actions {
+    align-items: stretch;
+  }
+
   .shell-app .repo-commits-page-actions {
     align-items: stretch;
   }
 
   .shell-app .repo-commits-code-link,
+  .shell-app .repo-tags-code-link,
   .shell-app .repo-branches-code-link {
     justify-content: center;
   }
 
   .shell-app .repo-branch-row,
+  .shell-app .repo-tag-row,
   .shell-app .repo-commit-row {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3379,6 +3531,10 @@ kbd {
   .shell-app .repo-commit-refs {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .shell-app .repo-tag-target {
+    justify-self: flex-start;
   }
 
   /* Touch-friendly buttons */

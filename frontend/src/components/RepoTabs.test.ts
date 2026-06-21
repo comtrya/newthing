@@ -113,6 +113,7 @@ function isActive(opts: {
   if (opts.tabId === "code") {
     return opts.routePath === prefix
       || isRepoSubsurface("branches")
+      || isRepoSubsurface("tags")
       || isRepoSubsurface("commits");
   }
   if (opts.tabId === "config" || opts.tabId === "pipelines" || opts.tabId === "releases") {
@@ -367,9 +368,11 @@ describe("RepoTabs active route matching", () => {
     const repoHomePath = "/r/comtrya/dogfood";
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/code`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/branches`, repoHomePath })).toBe(true);
+    expect(isActive({ tabId: "code", routePath: `${repoHomePath}/tags`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/commits`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/commits/1234567`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "overview", routePath: `${repoHomePath}/branches`, repoHomePath })).toBe(false);
+    expect(isActive({ tabId: "overview", routePath: `${repoHomePath}/tags`, repoHomePath })).toBe(false);
     expect(isActive({ tabId: "overview", routePath: `${repoHomePath}/commits`, repoHomePath })).toBe(false);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/branches-old`, repoHomePath })).toBe(false);
   });

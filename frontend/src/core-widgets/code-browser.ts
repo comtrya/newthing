@@ -16,6 +16,7 @@ interface RepoCodePayload {
   defaultBranch: string | null;
   headOid: string | null;
   branches?: RepoCodeBranch[] | null;
+  tags?: RepoCodeTag[] | null;
   commits?: RepoCodeCommit[] | null;
   files: RepoFile[];
 }
@@ -26,6 +27,10 @@ interface RepoCodeBranch {
   commit: string;
   ahead: number;
   behind: number;
+}
+
+interface RepoCodeTag {
+  name: string;
 }
 
 interface RepoCodeCommit {
@@ -44,6 +49,7 @@ const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
       defaultBranch
       headOid
       branches { name oid commit ahead behind }
+      tags { name }
       commits { oid shortOid subject author time }
       files { path size kind preview }
     }
@@ -240,6 +246,8 @@ function buildBrowserToolbar(
   secondary.className = "repo-code-toolbar-secondary";
   const branches = buildBranchesLink(repo);
   if (branches) secondary.append(branches);
+  const tags = buildTagsLink(repo);
+  if (tags) secondary.append(tags);
   const history = buildHistoryLink(repo);
   if (history) secondary.append(history);
   secondary.append(meta);
@@ -294,6 +302,16 @@ function buildBranchesLink(repo: RepoCodePayload): HTMLAnchorElement | null {
   link.dataset.smoke = "repo-code-branches-link";
   link.href = branchListHref(repo.path);
   link.append(icon("branch"), textNode("Branches"));
+  return link;
+}
+
+function buildTagsLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.tags?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-tags-link";
+  link.dataset.smoke = "repo-code-tags-link";
+  link.href = tagListHref(repo.path);
+  link.append(icon("tag"), textNode("Tags"));
   return link;
 }
 
@@ -512,6 +530,10 @@ function branchListHref(repoPath: string): string {
   return `${repoPathHref(repoPath)}/branches`;
 }
 
+function tagListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/tags`;
+}
+
 function commitListHref(repoPath: string): string {
   return `${repoPathHref(repoPath)}/commits`;
 }
@@ -677,7 +699,7 @@ function renderPlainPreview(file: RepoFile, body: HTMLElement): void {
   body.append(wrap);
 }
 
-function icon(name: "branch" | "commit" | "copy" | "file" | "folder"): HTMLElement {
+function icon(name: "branch" | "commit" | "copy" | "file" | "folder" | "tag"): HTMLElement {
   const span = document.createElement("span");
   span.className = `repo-code-icon repo-code-icon--${name}`;
   span.innerHTML = Ic[name];
