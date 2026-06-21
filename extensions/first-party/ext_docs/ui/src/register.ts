@@ -42,6 +42,10 @@ const extension: ExtensionDefinition = {
       element: DOCS_PANEL_TAG,
       requiredPermission: "workspace.read",
     });
+    host.registerRoute("/:board", {
+      element: DOCS_PANEL_TAG,
+      requiredPermission: "workspace.read",
+    });
   },
 };
 

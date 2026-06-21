@@ -17,10 +17,16 @@
  * the `docs` field vanish from `comtryaConfig`.
  */
 
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, type OpResult } from "@comtrya/sdk-core";
 import { bodyExcerpt, renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
 import { extDocsXDocs } from "../../dist/ext_docs.client";
+import {
+  DOCS_BOARD_TABS,
+  docsBoardFromRouteSubPath,
+  docsBoardHref,
+  type DocsBoardId,
+} from "./docs-workbench-route";
 
 interface DocProperty {
   // intentionally any — typed by the per-type `properties` CUE block
@@ -64,19 +70,6 @@ interface RepositoryPayload {
     repositoryByPath?: ResolvedRepository | null;
   };
 }
-
-type DocsBoardId =
-  | "type"
-  | "project"
-  | "owner"
-  | "tag"
-  | "status"
-  | "scenario"
-  | "readiness"
-  | "decision"
-  | "handoff"
-  | "traceability"
-  | "implementation";
 
 interface SummarizeDocInput {
   path: string;
@@ -132,6 +125,13 @@ interface DocBoard {
   columns: DocBoardColumn[];
 }
 
+interface ExtensionRouteParams {
+  scope?: string;
+  routePrefix?: string;
+  subPath?: string;
+  params?: Record<string, string | undefined>;
+}
+
 const props = defineProps<{
   workspaceId?: string;
   repositoryId?: string | null;
@@ -143,6 +143,7 @@ const props = defineProps<{
    * the named Project's doc types instead of every Project in the repo.
    */
   projectName?: string;
+  routeParams?: ExtensionRouteParams;
 }>();
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
@@ -176,19 +177,7 @@ const boardState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const boardError = ref<string | null>(null);
 const activeBoardId = ref<DocsBoardId>("type");
 const boards = ref<Record<DocsBoardId, DocBoard | null>>(emptyBoards());
-const boardTabs: Array<{ id: DocsBoardId; label: string }> = [
-  { id: "type", label: "Types" },
-  { id: "project", label: "Projects" },
-  { id: "owner", label: "Owners" },
-  { id: "tag", label: "Tags" },
-  { id: "status", label: "Status" },
-  { id: "scenario", label: "Scenarios" },
-  { id: "readiness", label: "Readiness" },
-  { id: "decision", label: "Review" },
-  { id: "handoff", label: "Handoff" },
-  { id: "traceability", label: "Traceability" },
-  { id: "implementation", label: "Implementation" },
-];
+const boardTabs = DOCS_BOARD_TABS;
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
 const docTypeSummaries = computed(() => {
   const byKey = new Map<string, { key: string; label: string; count: number }>();
@@ -336,12 +325,67 @@ useShortcuts({
 });
 
 onMounted(() => {
+  syncBoardFromRoute();
+  window.addEventListener("popstate", syncBoardFromLocation);
   void load();
+});
+onUnmounted(() => {
+  window.removeEventListener("popstate", syncBoardFromLocation);
 });
 watch(
   [() => props.repositoryPath, () => props.projectName, () => props.extensionSlot],
   () => void load(),
 );
+watch(
+  () => props.routeParams?.subPath,
+  () => syncBoardFromRoute(),
+);
+
+function syncBoardFromRoute(): void {
+  activeBoardId.value = docsBoardFromRouteSubPath(props.routeParams?.subPath);
+}
+
+function syncBoardFromLocation(): void {
+  activeBoardId.value = docsBoardFromRouteSubPath(currentDocsSubPath());
+}
+
+function currentDocsSubPath(): string {
+  if (typeof window === "undefined") return props.routeParams?.subPath ?? "/";
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  if (segments[0] === "x" && segments[1] === "docs") {
+    return routeSubPathFromSegments(segments.slice(2));
+  }
+  const docsIndex = segments.lastIndexOf("docs");
+  if (docsIndex >= 0) {
+    return routeSubPathFromSegments(segments.slice(docsIndex + 1));
+  }
+  return props.routeParams?.subPath ?? "/";
+}
+
+function boardHref(boardId: DocsBoardId): string {
+  if (typeof window === "undefined") return "#";
+  return docsBoardHref({
+    boardId,
+    pathname: window.location.pathname,
+    routeSubPath: currentDocsSubPath(),
+    search: window.location.search,
+  });
+}
+
+function selectBoard(boardId: DocsBoardId, event: MouseEvent): void {
+  event.preventDefault();
+  activeBoardId.value = boardId;
+  if (typeof window === "undefined") return;
+  const href = boardHref(boardId);
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (href !== current) {
+    window.history.pushState({}, "", href);
+  }
+}
+
+function routeSubPathFromSegments(segments: string[]): string {
+  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+}
 
 async function load(): Promise<void> {
   loadState.value = "loading";
@@ -748,17 +792,17 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
           </span>
         </div>
         <nav class="docs-board-tabs" aria-label="Docs workbench views">
-          <button
+          <a
             v-for="tab in boardTabs"
             :key="tab.id"
-            type="button"
+            :href="boardHref(tab.id)"
             :class="['docs-board-tab', { active: activeBoardId === tab.id }]"
-            :aria-pressed="activeBoardId === tab.id"
-            @click="activeBoardId = tab.id"
+            :aria-current="activeBoardId === tab.id ? 'page' : undefined"
+            @click="selectBoard(tab.id, $event)"
           >
             <span>{{ tab.label }}</span>
             <strong>{{ boardTabTotal(tab.id) }}</strong>
-          </button>
+          </a>
         </nav>
       </header>
 
