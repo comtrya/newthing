@@ -157,6 +157,31 @@ interface issues {
     columns: list<issue-project-column>,
   }
 
+  record issue-priority-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-priority-card {
+    issue: issue,
+    priority: option<string>,
+    priority-label: option<string>,
+  }
+
+  record issue-priority-column {
+    key: string,
+    label: string,
+    priority: option<string>,
+    count: u32,
+    cards: list<issue-priority-card>,
+  }
+
+  record issue-priority-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-priority-column>,
+  }
+
   record open-issue-input {
     repository: uri,
     title: string,
@@ -233,6 +258,9 @@ interface issues {
   /// Familiar product/project lanes. Unscoped work is explicit, while scoped
   /// issues are grouped by their stamped project name.
   project-board: func(input: issue-project-board-input) -> result<issue-project-board, error>;
+  /// Familiar priority lanes derived from issue labels. Closed issues are
+  /// terminal, while open issues use their highest priority label.
+  priority-board: func(input: issue-priority-board-input) -> result<issue-priority-board, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
   by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
   by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;

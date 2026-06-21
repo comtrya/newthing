@@ -2459,6 +2459,14 @@ write_issue_closed_wasm_event "$ISSUE_ONE_ID" "$TMP_DIR/iss-close-event.json"
 json_assert "close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
   'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
 
+expect_status "priority-board groups issues by priority and terminal state" 200 "$TMP_DIR/iss-priority-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/priority-board"
+json_assert "priority board exposes priority unprioritized and closed lanes" "$TMP_DIR/iss-priority-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"p0\").cards.length === 0 && json.columns.find((c) => c.key === \"p1\").priority === \"p1\" && json.columns.find((c) => c.key === \"p1\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.priority === \"p1\" && card.priorityLabel === \"priority::p1\") && json.columns.find((c) => c.key === \"unprioritized\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.priority === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.priority === \"p0\")"
+
 expect_status "reopen-issue returns to open" 200 "$TMP_DIR/iss-reopen.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \

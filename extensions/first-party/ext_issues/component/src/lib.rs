@@ -23,7 +23,8 @@ use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
     IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
-    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueProjectBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssuePriorityBoard,
+    IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
     IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
     UpdateIssueInput,
@@ -897,6 +898,113 @@ fn project_board_columns(issues: Vec<Issue>) -> Vec<IssueProjectColumn> {
     columns
 }
 
+fn priority_column(
+    key: &str,
+    label: &str,
+    priority: Option<&str>,
+    cards: Vec<IssuePriorityCard>,
+) -> IssuePriorityColumn {
+    IssuePriorityColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        priority: priority.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn priority_board_columns(issues: Vec<Issue>) -> Vec<IssuePriorityColumn> {
+    let mut p0 = Vec::new();
+    let mut p1 = Vec::new();
+    let mut p2 = Vec::new();
+    let mut p3 = Vec::new();
+    let mut unprioritized = Vec::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let priority = issue_priority(&issue);
+        let card = IssuePriorityCard {
+            issue,
+            priority: priority.as_ref().map(|priority| priority.key.to_string()),
+            priority_label: priority
+                .as_ref()
+                .map(|priority| priority.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        match priority.map(|priority| priority.key) {
+            Some("p0") => p0.push(card),
+            Some("p1") => p1.push(card),
+            Some("p2") => p2.push(card),
+            Some("p3") => p3.push(card),
+            _ => unprioritized.push(card),
+        }
+    }
+
+    vec![
+        priority_column("p0", "P0 critical", Some("p0"), p0),
+        priority_column("p1", "P1 high", Some("p1"), p1),
+        priority_column("p2", "P2 medium", Some("p2"), p2),
+        priority_column("p3", "P3 low", Some("p3"), p3),
+        priority_column("unprioritized", "No priority", None, unprioritized),
+        priority_column("closed", "Closed", None, closed),
+    ]
+}
+
+struct IssuePriority {
+    key: &'static str,
+    rank: u8,
+    source_label: String,
+}
+
+fn issue_priority(issue: &Issue) -> Option<IssuePriority> {
+    issue
+        .labels
+        .iter()
+        .filter_map(|label| priority_from_label(label))
+        .min_by_key(|priority| priority.rank)
+}
+
+fn priority_from_label(label: &str) -> Option<IssuePriority> {
+    let normalized = normalize_priority_label(label);
+    let key = match normalized.as_str() {
+        "p0" | "0" | "critical" | "urgent" | "blocker" => "p0",
+        "p1" | "1" | "high" => "p1",
+        "p2" | "2" | "medium" | "normal" => "p2",
+        "p3" | "3" | "low" | "minor" => "p3",
+        _ => return None,
+    };
+    Some(IssuePriority {
+        key,
+        rank: priority_rank(key),
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_priority_label(label: &str) -> String {
+    let trimmed = label.trim().to_ascii_lowercase();
+    let value = ["priority", "prio"]
+        .into_iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(trimmed.as_str())
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'));
+    value
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string()
+}
+
+fn priority_rank(key: &str) -> u8 {
+    match key {
+        "p0" => 0,
+        "p1" => 1,
+        "p2" => 2,
+        "p3" => 3,
+        _ => u8::MAX,
+    }
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -1200,6 +1308,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn priority_board(input: IssuePriorityBoardInput) -> Result<IssuePriorityBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssuePriorityBoard {
+            repository: input.repository,
+            total,
+            columns: priority_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1426,5 +1544,51 @@ mod tests {
         assert_eq!(columns[1].cards[1].issue.id, "another-kernel");
         assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
         assert_eq!(columns[2].cards[0].issue.id, "product");
+    }
+
+    #[test]
+    fn priority_board_columns_group_active_work_by_highest_priority_label() {
+        let unprioritized = issue("unprioritized", IssueState::Open);
+        let mut p0 = issue("p0", IssueState::Open);
+        p0.labels = vec!["priority::p0".to_string()];
+        let mut p1 = issue("p1", IssueState::Open);
+        p1.labels = vec!["kind::bug".to_string(), "high".to_string()];
+        let mut p2 = issue("p2", IssueState::Open);
+        p2.labels = vec!["priority:medium".to_string()];
+        let mut p3 = issue("p3", IssueState::Open);
+        p3.labels = vec!["prio/low".to_string()];
+        let mut highest = issue("highest", IssueState::Open);
+        highest.labels = vec!["priority::p3".to_string(), "priority::p1".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["priority::p0".to_string()];
+
+        let columns = priority_board_columns(vec![unprioritized, p0, p1, p2, p3, highest, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(keys, ["p0", "p1", "p2", "p3", "unprioritized", "closed"]);
+        assert_eq!(columns[0].cards[0].issue.id, "p0");
+        assert_eq!(columns[0].cards[0].priority.as_deref(), Some("p0"));
+        assert_eq!(
+            columns[0].cards[0].priority_label.as_deref(),
+            Some("priority::p0")
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["p1", "highest"]
+        );
+        assert_eq!(
+            columns[1].cards[1].priority_label.as_deref(),
+            Some("priority::p1")
+        );
+        assert_eq!(columns[2].cards[0].issue.id, "p2");
+        assert_eq!(columns[3].cards[0].issue.id, "p3");
+        assert_eq!(columns[4].cards[0].issue.id, "unprioritized");
+        assert_eq!(columns[4].cards[0].priority, None);
+        assert_eq!(columns[5].cards[0].issue.id, "closed");
+        assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
     }
 }
