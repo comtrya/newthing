@@ -5163,6 +5163,7 @@ var Nl = {
 	triageBoard: async (e) => Y("ext_issues", "issues", "triage-board", e),
 	labelBoard: async (e) => Y("ext_issues", "issues", "label-board", e),
 	assigneeBoard: async (e) => Y("ext_issues", "issues", "assignee-board", e),
+	authorBoard: async (e) => Y("ext_issues", "issues", "author-board", e),
 	projectBoard: async (e) => Y("ext_issues", "issues", "project-board", e),
 	priorityBoard: async (e) => Y("ext_issues", "issues", "priority-board", e),
 	milestoneBoard: async (e) => Y("ext_issues", "issues", "milestone-board", e),
@@ -5345,9 +5346,9 @@ var cu = ["data-state"], lu = ["data-issue-id"], uu = { class: "issue-card-title
 }, _u = { class: "issue-line muted" }, vu = { class: "issue-line warn" }, yu = /* @__PURE__ */ Bn({
 	__name: "IssueCard",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
-		issue: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
+		issue: { type: [Object, null] },
 		ref: { type: String },
 		resourceRef: { type: String }
 	},
@@ -5517,16 +5518,16 @@ var Ou = ["data-state", "data-issue-id"], ku = {
 }, ld = ["href", "title"], ud = { class: "issue-owners" }, dd = ["data-author-kind", "title"], fd = { class: "chip-glyph" }, pd = { class: "issue-line muted" }, md = "comtrya-issue-relationships", hd = "comtrya-slot-mount", gd = /* @__PURE__ */ xu(/* @__PURE__ */ Bn({
 	__name: "IssueDetail",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		relationshipRegistry: { type: Object },
-		issue: { type: null },
+		issue: { type: [Object, null] },
 		workspaceId: { type: String },
 		repositoryId: { type: [String, null] },
 		repositoryPath: { type: [String, null] },
 		number: { type: [Number, String] },
-		routeParams: { type: null },
-		labelCatalog: { type: null }
+		routeParams: { type: Object },
+		labelCatalog: { type: [Object, null] }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ L("idle"), r = /* @__PURE__ */ L("idle"), i = /* @__PURE__ */ L(null), a = /* @__PURE__ */ L(null), o = /* @__PURE__ */ L(t.issue ?? null), s = /* @__PURE__ */ L(0), c = J(() => t.client ?? t.comtryaClient), l = J(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? nu()), u = J(() => o.value ?? t.issue ?? null), d = J(() => su(u.value?.state)), f = J(() => !!u.value?.bodyMarkdown?.trim()), p = J(() => f.value ? pl(u.value?.bodyMarkdown ?? "", { workspaceId: l.value }) : ""), m = /* @__PURE__ */ L(null);
@@ -5883,10 +5884,10 @@ var Ou = ["data-state", "data-issue-id"], ku = {
 }, jd = "issue", Md = /* @__PURE__ */ xu(/* @__PURE__ */ Bn({
 	__name: "IssueRelationships",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		relationshipRegistry: { type: Object },
-		issue: { type: null },
+		issue: { type: Object },
 		workspaceId: { type: String },
 		repositoryId: { type: [String, null] },
 		repositoryPath: { type: [String, null] },
@@ -6242,8 +6243,8 @@ var Id = {
 }, Pf = ["title"], Ff = /* @__PURE__ */ xu(/* @__PURE__ */ Bn({
 	__name: "IssuesList",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		issues: { type: [Array, null] },
 		workspaceId: {
 			default: nu(),
@@ -6253,7 +6254,7 @@ var Id = {
 			default: null,
 			type: [String, null]
 		},
-		routeParams: { type: null },
+		routeParams: { type: Object },
 		state: {
 			default: null,
 			type: [String, null]
@@ -6272,7 +6273,7 @@ var Id = {
 		},
 		labelCatalog: {
 			default: null,
-			type: null
+			type: [Object, null]
 		}
 	},
 	setup(e) {

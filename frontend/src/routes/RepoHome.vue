@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
+import RepoPullRequestsPanel from "../components/RepoPullRequestsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
@@ -960,6 +961,13 @@ function mergeRepositoryIdentity(
         </section>
 
         <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
+
+        <RepoPullRequestsPanel
+          v-if="repositoryExtensionEnabled(enabledExtensions ?? [], 'pulls')"
+          :workspace-id="workspaceId"
+          :repository-id="repositoryId"
+          :repository-path="displayPath"
+        />
 
         <section
           v-if="bookmarks.length > 0"

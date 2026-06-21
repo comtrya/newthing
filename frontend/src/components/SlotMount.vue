@@ -51,6 +51,13 @@ function renderSlot(): void {
     return;
   }
 
+  if (canReuseChildren(target, contributions.value)) {
+    for (const child of Array.from(target.children)) {
+      updateContributionElement(child as HTMLElement & Record<string, unknown>);
+    }
+    return;
+  }
+
   target.replaceChildren(
     ...contributions.value.map((entry) => buildContributionElement(entry)),
   );
@@ -61,6 +68,14 @@ function buildContributionElement(entry: ResolvedWidget): HTMLElement {
     Record<string, unknown>;
   node.dataset.extensionId = entry.extensionId;
   node.dataset.extensionSlot = props.name;
+  node.dataset.extensionWidget = entry.id;
+  updateContributionElement(node);
+  return node;
+}
+
+function updateContributionElement(
+  node: HTMLElement & Record<string, unknown>,
+): void {
   node.extensionSlot = props.name;
   for (const [key, value] of Object.entries(extensionElementContext())) {
     node[key] = value;
@@ -68,7 +83,16 @@ function buildContributionElement(entry: ResolvedWidget): HTMLElement {
   for (const [key, value] of Object.entries(props.elementContext)) {
     node[key] = value;
   }
-  return node;
+}
+
+function canReuseChildren(target: HTMLElement, entries: ResolvedWidget[]): boolean {
+  const children = Array.from(target.children) as HTMLElement[];
+  if (children.length !== entries.length) return false;
+  return entries.every((entry, index) => {
+    const child = children[index];
+    return child?.dataset.extensionWidget === entry.id &&
+      child.tagName.toLowerCase() === entry.element;
+  });
 }
 
 function buildPlaceholder(): HTMLElement {

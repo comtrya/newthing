@@ -6,7 +6,7 @@ export function defaultWorkspaceId(): string {
   return activeWorkspaceId() ?? "";
 }
 
-export type PrState = "DRAFT" | "READY" | "MERGED" | "CLOSED";
+export type PrState = "DRAFT" | "READY" | "REVIEW" | "MERGED" | "CLOSED";
 
 export interface PullRequest {
   id: string;
@@ -66,6 +66,8 @@ export function stateTone(state: PrState | string | undefined): PrTone {
       return { label: "open", className: "pr-state-ready" };
     case "DRAFT":
       return { label: "draft", className: "pr-state-draft" };
+    case "REVIEW":
+      return { label: "review", className: "pr-state-review" };
     case "MERGED":
       return { label: "merged", className: "pr-state-merged" };
     case "CLOSED":

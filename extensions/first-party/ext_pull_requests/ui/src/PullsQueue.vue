@@ -26,11 +26,12 @@ const props = defineProps<{
   repositoryPath?: string | null;
 }>();
 
-type Filter = "OPEN" | "DRAFT" | "MERGED" | "CLOSED" | "ALL";
+type Filter = "OPEN" | "DRAFT" | "REVIEW" | "MERGED" | "CLOSED" | "ALL";
 
 const FILTERS: Array<{ id: Filter; label: string; key: string }> = [
   { id: "OPEN", label: "Open", key: "o" },
   { id: "DRAFT", label: "Draft", key: "d" },
+  { id: "REVIEW", label: "Review", key: "r" },
   { id: "MERGED", label: "Merged", key: "m" },
   { id: "CLOSED", label: "Closed", key: "c" },
   { id: "ALL", label: "All", key: "a" },
@@ -62,7 +63,7 @@ const repositoryPath = computed(() => props.repositoryPath ?? props.host?.reposi
 
 const matchesFilter = (pull: PullRequest, f: Filter): boolean => {
   if (f === "ALL") return true;
-  if (f === "OPEN") return pull.state === "READY";
+  if (f === "OPEN") return pull.state !== "MERGED" && pull.state !== "CLOSED";
   return pull.state === (f as PrState);
 };
 
@@ -84,6 +85,10 @@ const QUEUE_FILTER_KEYS = ["is", "author"] as const;
 const STATE_TOKEN_TO_FILTER: Record<string, Filter> = {
   open: "OPEN",
   draft: "DRAFT",
+  review: "REVIEW",
+  reviews: "REVIEW",
+  "in-review": "REVIEW",
+  in_review: "REVIEW",
   merged: "MERGED",
   closed: "CLOSED",
   all: "ALL",
@@ -181,13 +186,15 @@ const counts = computed(() => {
   const out: Record<Filter, number> = {
     OPEN: 0,
     DRAFT: 0,
+    REVIEW: 0,
     MERGED: 0,
     CLOSED: 0,
     ALL: pulls.value.length,
   };
   for (const p of pulls.value) {
-    if (p.state === "READY") out.OPEN += 1;
+    if (p.state !== "MERGED" && p.state !== "CLOSED") out.OPEN += 1;
     if (p.state === "DRAFT") out.DRAFT += 1;
+    if (p.state === "REVIEW") out.REVIEW += 1;
     if (p.state === "MERGED") out.MERGED += 1;
     if (p.state === "CLOSED") out.CLOSED += 1;
   }
@@ -203,7 +210,14 @@ const counts = computed(() => {
  * for browser back/forward across saved filter URLs, suppression
  * guard so the initial read doesn't immediately write back.
  */
-const URL_FILTER_VALUES = new Set<Filter>(["OPEN", "DRAFT", "MERGED", "CLOSED", "ALL"]);
+const URL_FILTER_VALUES = new Set<Filter>([
+  "OPEN",
+  "DRAFT",
+  "REVIEW",
+  "MERGED",
+  "CLOSED",
+  "ALL",
+]);
 
 function readUrlState(): void {
   if (typeof window === "undefined") return;
@@ -394,7 +408,7 @@ async function load(): Promise<void> {
           :title="chip.tone === 'unknown' ? `Unknown filter key: ${chip.key}` : chip.value"
         >{{ chip.label }}</span>
         <span class="query-chips-hint">
-          syntax: <code>is:open</code> · <code>is:draft</code> · <code>author:&lt;urn&gt;</code>
+          syntax: <code>is:open</code> | <code>is:draft</code> | <code>is:review</code> | <code>author:&lt;urn&gt;</code>
         </span>
       </div>
 
@@ -473,7 +487,8 @@ async function load(): Promise<void> {
       <span>
         <kbd>j</kbd> <kbd>k</kbd> navigate · <kbd>↵</kbd> open ·
         <kbd>/</kbd> search ·
-        <kbd>o</kbd> open <kbd>d</kbd> draft <kbd>m</kbd> merged <kbd>c</kbd> closed <kbd>a</kbd> all
+        <kbd>o</kbd> open <kbd>d</kbd> draft <kbd>r</kbd> review
+        <kbd>m</kbd> merged <kbd>c</kbd> closed <kbd>a</kbd> all
       </span>
     </footer>
   </section>
@@ -650,7 +665,7 @@ async function load(): Promise<void> {
   border: 0.5px solid currentColor;
   padding: 0 6px;
   font-size: 11px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -660,6 +675,10 @@ async function load(): Promise<void> {
 
 .pulls-state.pr-state-draft {
   color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.pulls-state.pr-state-review {
+  color: var(--accent-blue, #1d55a6);
 }
 
 .pulls-state.pr-state-merged {

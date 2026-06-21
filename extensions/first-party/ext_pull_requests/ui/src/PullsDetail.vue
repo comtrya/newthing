@@ -714,11 +714,12 @@ async function onClose(): Promise<void> {
 .pull-chip.tone-state {
   border-color: currentColor;
   text-transform: lowercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .pull-chip.tone-state.pr-state-ready   { color: var(--accent-teal, #087f6f); }
 .pull-chip.tone-state.pr-state-draft   { color: var(--fg-3, rgba(255,255,255,0.52)); }
+.pull-chip.tone-state.pr-state-review  { color: var(--accent-blue, #1d55a6); }
 .pull-chip.tone-state.pr-state-merged  { color: var(--accent-blue, #1d55a6); }
 .pull-chip.tone-state.pr-state-closed  { color: var(--accent-err, #c9341c); }
 

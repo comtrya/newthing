@@ -4572,8 +4572,8 @@ var hc = {
 }, _c = { class: "summary" }, vc = { class: "src" }, yc = { class: "t" }, bc = /* @__PURE__ */ Rn({
 	__name: "HomeActivity",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null }
+		client: { type: Object },
+		comtryaClient: { type: Object }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = da(() => t.client ?? t.comtryaClient);
@@ -4648,8 +4648,8 @@ var hc = {
 }, jc = { class: "rail-strap" }, Mc = { class: "count" }, Nc = { class: "name" }, Pc = { class: "prefix" }, Fc = { class: "leaf" }, Ic = { class: "stats" }, Lc = /* @__PURE__ */ Sc(/* @__PURE__ */ Rn({
 	__name: "HomeRepositories",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null }
+		client: { type: Object },
+		comtryaClient: { type: Object }
 	},
 	setup(e) {
 		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = da(() => t.client ?? t.comtryaClient);
@@ -4710,8 +4710,8 @@ var hc = {
 }, Vc = { class: "section-strap" }, Hc = { class: "meta" }, Uc = { class: "idn" }, Wc = { class: "title" }, Gc = { class: "sub" }, Kc = { class: "check ok" }, qc = { class: "section" }, Jc = { class: "section-strap" }, Yc = { class: "meta" }, Xc = { class: "idn" }, Zc = { class: "title" }, Qc = { class: "sub" }, $c = { class: "t" }, el = { class: "section" }, tl = { class: "section-strap" }, nl = { class: "meta" }, rl = { class: "idn" }, il = { class: "title" }, al = { class: "sub" }, ol = { class: "t" }, sl = { class: "section" }, cl = { class: "section-strap" }, ll = { class: "meta" }, ul = { class: "title" }, dl = { class: "sub" }, fl = { class: "t" }, pl = /* @__PURE__ */ Sc(/* @__PURE__ */ Rn({
 	__name: "HomeYourWork",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		workspaceId: { type: [String, null] }
 	},
 	setup(e) {

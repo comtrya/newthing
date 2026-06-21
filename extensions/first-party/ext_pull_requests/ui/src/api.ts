@@ -42,6 +42,94 @@ interface WitPullRequest {
   closedByRef?: string | null;
 }
 
+interface WitPullMergeCheckSummary {
+  pullId: string;
+  requiredMissing: number;
+  requiredFailing: number;
+  pending: number;
+  optionalFailing: number;
+  passing: number;
+  total: number;
+}
+
+interface WitPullMergeReviewSummary {
+  requiredApprovals: number;
+  approvalCount: number;
+  changeRequestCount: number;
+  commentCount: number;
+  latestReview?: unknown | null;
+}
+
+interface WitPullMergeReadinessCard {
+  pullRequest: WitPullRequest;
+  terminal: boolean;
+  blocked: boolean;
+  waiting: boolean;
+  checkBlocked: boolean;
+  checkWaiting: boolean;
+  reviewBlocked: boolean;
+  reviewWaiting: boolean;
+  checkSummary?: WitPullMergeCheckSummary | null;
+  reviewSummary: WitPullMergeReviewSummary;
+}
+
+interface WitPullMergeReadinessColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards: WitPullMergeReadinessCard[];
+}
+
+interface WitPullMergeReadinessBoard {
+  repository: string;
+  total: number;
+  columns: WitPullMergeReadinessColumn[];
+}
+
+export interface PullMergeCheckSummary {
+  pullId: string;
+  requiredMissing: number;
+  requiredFailing: number;
+  pending: number;
+  optionalFailing: number;
+  passing: number;
+  total: number;
+}
+
+export interface PullMergeReviewSummary {
+  requiredApprovals: number;
+  approvalCount: number;
+  changeRequestCount: number;
+  commentCount: number;
+  latestReview?: unknown | null;
+}
+
+export interface PullMergeReadinessCard {
+  pullRequest: PullRequest;
+  terminal: boolean;
+  blocked: boolean;
+  waiting: boolean;
+  checkBlocked: boolean;
+  checkWaiting: boolean;
+  reviewBlocked: boolean;
+  reviewWaiting: boolean;
+  checkSummary?: PullMergeCheckSummary | null;
+  reviewSummary: PullMergeReviewSummary;
+}
+
+export interface PullMergeReadinessColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards: PullMergeReadinessCard[];
+}
+
+export interface PullMergeReadinessBoard {
+  repository: string;
+  total: number;
+  columns: PullMergeReadinessColumn[];
+}
+
 const EXTENSION_ID = "ext_pull_requests";
 const INTERFACE = "pulls";
 
@@ -66,6 +154,8 @@ function normalizeState(value: WitPullRequest["state"]): PrState {
   switch (tag.toLowerCase()) {
     case "draft":
       return "DRAFT";
+    case "review":
+      return "REVIEW";
     case "merged":
       return "MERGED";
     case "closed":
@@ -112,6 +202,57 @@ export async function listPulls(input: {
     },
   );
   return unwrap<WitPullRequest[]>(result, "list-pulls").map(normalizePullRequest);
+}
+
+function normalizeReadinessCard(
+  value: WitPullMergeReadinessCard,
+): PullMergeReadinessCard {
+  return {
+    pullRequest: normalizePullRequest(value.pullRequest),
+    terminal: Boolean(value.terminal),
+    blocked: Boolean(value.blocked),
+    waiting: Boolean(value.waiting),
+    checkBlocked: Boolean(value.checkBlocked),
+    checkWaiting: Boolean(value.checkWaiting),
+    reviewBlocked: Boolean(value.reviewBlocked),
+    reviewWaiting: Boolean(value.reviewWaiting),
+    checkSummary: value.checkSummary ?? null,
+    reviewSummary: value.reviewSummary,
+  };
+}
+
+export async function mergeReadinessBoard(input: {
+  workspaceId: string;
+  repositoryId?: string | null;
+  checkSummaries?: PullMergeCheckSummary[];
+  requiredApprovals?: number;
+  limit?: number;
+}): Promise<PullMergeReadinessBoard> {
+  const result = await invokeOp<WitPullMergeReadinessBoard>(
+    EXTENSION_ID,
+    INTERFACE,
+    "merge-readiness-board",
+    {
+      repository: repositoryUri(input.workspaceId, input.repositoryId),
+      checkSummaries: input.checkSummaries ?? [],
+      requiredApprovals: input.requiredApprovals ?? 1,
+      limit: input.limit ?? 256,
+    },
+  );
+  const board = unwrap<WitPullMergeReadinessBoard>(
+    result,
+    "merge-readiness-board",
+  );
+  return {
+    repository: board.repository,
+    total: board.total,
+    columns: board.columns.map((column) => ({
+      key: column.key,
+      label: column.label,
+      count: column.count,
+      cards: column.cards.map(normalizeReadinessCard),
+    })),
+  };
 }
 
 export async function getPull(id: string): Promise<PullRequest | null> {

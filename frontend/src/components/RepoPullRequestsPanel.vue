@@ -1,48 +1,47 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import {
-  mergeReadinessBoard,
-  type PullMergeReadinessBoard,
-  type PullMergeReadinessCard,
-  type PullMergeReadinessColumn,
-} from "./api";
-import {
-  defaultWorkspaceId,
-  pullHref,
-  pullsIndexHref,
-  relativeTime,
-  type LoadState,
-  type PullRequest,
-} from "./types";
+import { invokeOp, type OpResult } from "@comtrya/sdk-core";
 
-interface HostContext {
-  workspaceId?: string;
-  repositoryId?: string | null;
-  repositoryPath?: string | null;
+interface WitPullRequest {
+  id: string;
+  number: number;
+  title: string;
+  state?: string | { tag?: string } | null;
+  headRef: string;
+  baseRef: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 }
 
-const props = defineProps<{
-  host?: HostContext;
-  workspaceId?: string;
-  repositoryId?: string | null;
-  repositoryPath?: string | null;
-}>();
+interface ReadinessCard {
+  pullRequest: WitPullRequest;
+}
 
-type SummaryTone = "blocked" | "review" | "checks" | "ready" | "draft";
-
-interface SummaryItem {
+interface ReadinessColumn {
+  key: string;
   label: string;
-  value: number;
-  tone: SummaryTone;
+  count: number;
+  cards: ReadinessCard[];
+}
+
+interface ReadinessBoard {
+  total: number;
+  columns: ReadinessColumn[];
 }
 
 interface PullPreview {
-  card: PullMergeReadinessCard;
+  card: ReadinessCard;
   laneKey: string;
   laneLabel: string;
 }
 
-const ACTIVE_LANE_KEYS = [
+const props = defineProps<{
+  workspaceId: string | null;
+  repositoryId: string;
+  repositoryPath: string;
+}>();
+
+const ACTIVE_LANES = [
   "draft",
   "blocked-review",
   "blocked-checks",
@@ -51,7 +50,7 @@ const ACTIVE_LANE_KEYS = [
   "ready",
 ] as const;
 
-const PREVIEW_LANE_KEYS = [
+const PREVIEW_LANES = [
   "blocked-review",
   "blocked-checks",
   "needs-review",
@@ -60,26 +59,25 @@ const PREVIEW_LANE_KEYS = [
   "draft",
 ] as const;
 
-const board = ref<PullMergeReadinessBoard | null>(null);
-const loadState = ref<LoadState>("idle");
+const board = ref<ReadinessBoard | null>(null);
+const loadState = ref<"idle" | "loading" | "ready" | "empty" | "error">("idle");
 
-const workspaceId = computed(
-  () => props.workspaceId ?? props.host?.workspaceId ?? defaultWorkspaceId(),
-);
-const repositoryId = computed(() => props.repositoryId ?? props.host?.repositoryId ?? null);
-const repositoryPath = computed(() => props.repositoryPath ?? props.host?.repositoryPath ?? null);
+const repositoryUri = computed(() => {
+  if (!props.workspaceId || !props.repositoryId) return "";
+  return `comtrya://workspace/${props.workspaceId}/repository/${props.repositoryId}`;
+});
 
 const columnsByKey = computed(() => {
-  const out = new Map<string, PullMergeReadinessColumn>();
+  const out = new Map<string, ReadinessColumn>();
   for (const column of board.value?.columns ?? []) out.set(column.key, column);
   return out;
 });
 
 const activeCount = computed(() =>
-  ACTIVE_LANE_KEYS.reduce((sum, key) => sum + laneCount(key), 0),
+  ACTIVE_LANES.reduce((sum, key) => sum + laneCount(key), 0),
 );
 
-const summaryItems = computed<SummaryItem[]>(() => [
+const summaryItems = computed(() => [
   {
     label: "blocked",
     value: laneCount("blocked-review") + laneCount("blocked-checks"),
@@ -95,58 +93,80 @@ const summaryItems = computed<SummaryItem[]>(() => [
     value: laneCount("waiting-checks") + laneCount("blocked-checks"),
     tone: "checks",
   },
-  {
-    label: "ready",
-    value: laneCount("ready"),
-    tone: "ready",
-  },
-  {
-    label: "draft",
-    value: laneCount("draft"),
-    tone: "draft",
-  },
+  { label: "ready", value: laneCount("ready"), tone: "ready" },
+  { label: "draft", value: laneCount("draft"), tone: "draft" },
 ]);
 
-const actionableRows = computed<PullPreview[]>(() => {
-  const rows: PullPreview[] = [];
-  for (const key of PREVIEW_LANE_KEYS) {
+const rows = computed<PullPreview[]>(() => {
+  const next: PullPreview[] = [];
+  for (const key of PREVIEW_LANES) {
     const column = columnsByKey.value.get(key);
     if (!column) continue;
     for (const card of column.cards) {
-      rows.push({
-        card,
-        laneKey: key,
-        laneLabel: column.label,
-      });
+      next.push({ card, laneKey: key, laneLabel: column.label });
     }
   }
-  return rows.slice(0, 5);
+  return next.slice(0, 5);
 });
 
 onMounted(() => void load());
-watch(() => [workspaceId.value, repositoryId.value], () => void load());
+watch(repositoryUri, () => void load());
 
 function laneCount(key: string): number {
   return columnsByKey.value.get(key)?.count ?? 0;
 }
 
-function pullsListHref(): string {
-  return pullsIndexHref(repositoryPath.value);
+function pullHref(pull: WitPullRequest): string {
+  return `${pullsHref()}/${encodeURIComponent(pull.id)}`;
 }
 
-function pullDetailHref(pull: Pick<PullRequest, "id">): string {
-  return pullHref(pull, repositoryPath.value);
+function pullsHref(): string {
+  const segments = props.repositoryPath.split("/").filter(Boolean).map(encodeURIComponent);
+  return `/r/${segments.join("/")}/pulls`;
+}
+
+function relativeTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const then = Date.parse(value);
+  if (Number.isNaN(then)) return value;
+  const diff = Math.max(0, Date.now() - then);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+  if (diff < minute) return "just now";
+  if (diff < hour) return `${Math.floor(diff / minute)}m ago`;
+  if (diff < day) return `${Math.floor(diff / hour)}h ago`;
+  if (diff < week) return `${Math.floor(diff / day)}d ago`;
+  return `${Math.floor(diff / week)}w ago`;
+}
+
+function unwrap<T>(result: OpResult<unknown>): T {
+  if (result.ok) return result.value as T;
+  throw new Error(result.error.message);
 }
 
 async function load(): Promise<void> {
+  if (!repositoryUri.value) {
+    loadState.value = "empty";
+    board.value = null;
+    return;
+  }
+
   loadState.value = "loading";
   try {
-    const next = await mergeReadinessBoard({
-      workspaceId: workspaceId.value,
-      repositoryId: repositoryId.value,
-      requiredApprovals: 1,
-      limit: 64,
-    });
+    const result = await invokeOp<ReadinessBoard>(
+      "ext_pull_requests",
+      "pulls",
+      "merge-readiness-board",
+      {
+        repository: repositoryUri.value,
+        checkSummaries: [],
+        requiredApprovals: 1,
+        limit: 64,
+      },
+    );
+    const next = unwrap<ReadinessBoard>(result);
     board.value = next;
     loadState.value = next.total > 0 ? "ready" : "empty";
   } catch {
@@ -163,7 +183,7 @@ async function load(): Promise<void> {
         <h3>Pull requests</h3>
         <span v-if="board" class="total">{{ board.total }} total</span>
       </div>
-      <a :href="pullsListHref()">{{ activeCount }} active</a>
+      <a :href="pullsHref()">{{ activeCount }} active</a>
     </header>
 
     <div
@@ -185,15 +205,11 @@ async function load(): Promise<void> {
     <p v-if="loadState === 'loading'" class="muted">Loading...</p>
     <p v-else-if="loadState === 'error'" class="muted">Could not load pulls.</p>
     <p v-else-if="loadState === 'empty'" class="muted">No pull requests.</p>
-    <p v-else-if="actionableRows.length === 0" class="muted">No active pull requests.</p>
+    <p v-else-if="rows.length === 0" class="muted">No active pull requests.</p>
 
     <ul v-else>
-      <li
-        v-for="row in actionableRows"
-        :key="row.card.pullRequest.id"
-        data-smoke="pulls-readiness-row"
-      >
-        <a :href="pullDetailHref(row.card.pullRequest)">
+      <li v-for="row in rows" :key="row.card.pullRequest.id" data-smoke="pulls-readiness-row">
+        <a :href="pullHref(row.card.pullRequest)">
           <span class="row-main">
             <span class="num">#{{ row.card.pullRequest.number }}</span>
             <span class="title">{{ row.card.pullRequest.title }}</span>
@@ -292,23 +308,29 @@ async function load(): Promise<void> {
   color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
-.summary-item.tone-blocked .summary-value {
+.summary-item.tone-blocked .summary-value,
+.lane-blocked-checks {
   color: var(--accent-err, #c9341c);
 }
 
-.summary-item.tone-review .summary-value {
+.summary-item.tone-review .summary-value,
+.lane-needs-review,
+.lane-blocked-review {
   color: var(--accent-blue, #1d55a6);
 }
 
-.summary-item.tone-checks .summary-value {
+.summary-item.tone-checks .summary-value,
+.lane-waiting-checks {
   color: var(--accent-warn, #a05f00);
 }
 
-.summary-item.tone-ready .summary-value {
+.summary-item.tone-ready .summary-value,
+.lane-ready {
   color: var(--accent-teal, #087f6f);
 }
 
-.summary-item.tone-draft .summary-value {
+.summary-item.tone-draft .summary-value,
+.lane-draft {
   color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
@@ -355,10 +377,14 @@ async function load(): Promise<void> {
   color: var(--fg-3, rgba(255,255,255,0.52));
 }
 
-.title {
+.title,
+.branch {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.title {
   font-weight: 500;
 }
 
@@ -375,27 +401,6 @@ async function load(): Promise<void> {
   text-transform: uppercase;
 }
 
-.lane-ready {
-  color: var(--accent-teal, #087f6f);
-}
-
-.lane-draft {
-  color: var(--fg-3, rgba(255,255,255,0.52));
-}
-
-.lane-needs-review,
-.lane-blocked-review {
-  color: var(--accent-blue, #1d55a6);
-}
-
-.lane-waiting-checks {
-  color: var(--accent-warn, #a05f00);
-}
-
-.lane-blocked-checks {
-  color: var(--accent-err, #c9341c);
-}
-
 .branch,
 .age {
   font-family: var(--font-mono, monospace);
@@ -405,9 +410,6 @@ async function load(): Promise<void> {
 
 .branch {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .branch span {

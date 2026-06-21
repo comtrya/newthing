@@ -5125,11 +5125,19 @@ var El = {
 	createEpic: async (e) => o("ext_epics", "epics", "create-epic", e),
 	changeStateEpic: async (e) => o("ext_epics", "epics", "change-state-epic", e),
 	assignProject: async (e) => o("ext_epics", "epics", "assign-project", e),
+	updateEpic: async (e) => o("ext_epics", "epics", "update-epic", e),
 	getEpic: async (e) => o("ext_epics", "epics", "get-epic", e),
 	listEpics: async (e) => o("ext_epics", "epics", "list-epics", e),
 	byRefEpic: async (e) => o("ext_epics", "epics", "by-ref-epic", e),
 	byRefsEpic: async (e) => o("ext_epics", "epics", "by-refs-epic", e),
 	progressEpic: async (e) => o("ext_epics", "epics", "progress-epic", e),
+	roadmapBoard: async (e) => o("ext_epics", "epics", "roadmap-board", e),
+	ownerBoard: async (e) => o("ext_epics", "epics", "owner-board", e),
+	projectBoard: async (e) => o("ext_epics", "epics", "project-board", e),
+	labelBoard: async (e) => o("ext_epics", "epics", "label-board", e),
+	priorityBoard: async (e) => o("ext_epics", "epics", "priority-board", e),
+	milestoneBoard: async (e) => o("ext_epics", "epics", "milestone-board", e),
+	targetBoard: async (e) => o("ext_epics", "epics", "target-board", e),
 	issuesInEpic: async (e) => o("ext_epics", "epics", "issues-in-epic", e),
 	childrenOfEpic: async (e) => o("ext_epics", "epics", "children-of-epic", e)
 }, Dl = "query($from: ResourceURN!, $kind: ResourceURN) {\n  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n}", Ol = "mutation($input: RelationCreateInput!) {\n  relations.create(input: $input) { id kind from to source target }\n}", kl = "mutation($input: RelationDeleteInput!) {\n  relations.delete(input: $input)\n}";
@@ -5381,9 +5389,9 @@ var iu = ["data-state"], au = ["data-epic-id"], ou = { class: "epic-card-title" 
 }, hu = { class: "epic-line muted" }, gu = { class: "epic-line warn" }, _u = /* @__PURE__ */ Or({
 	__name: "EpicCard",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
-		epic: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
+		epic: { type: [Object, null] },
 		ref: { type: String },
 		resourceRef: { type: String },
 		activeOwner: { type: [String, null] },
@@ -5659,13 +5667,13 @@ var Mu = ["data-state", "data-epic-id"], Nu = {
 }, Id = /* @__PURE__ */ Or({
 	__name: "EpicDetail",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
-		epic: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
+		epic: { type: [Object, null] },
 		workspaceId: { type: String },
 		id: { type: String },
-		routeParams: { type: null },
-		labelCatalog: { type: null }
+		routeParams: { type: Object },
+		labelCatalog: { type: [Object, null] }
 	},
 	setup(e) {
 		let t = e, n = [
@@ -6035,8 +6043,8 @@ var Mu = ["data-state", "data-epic-id"], Nu = {
 }, _f = /* @__PURE__ */ yu(/* @__PURE__ */ Or({
 	__name: "EpicsList",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		epics: { type: [Array, null] },
 		workspaceId: {
 			default: Gl(),
@@ -6532,8 +6540,8 @@ var Mu = ["data-state", "data-epic-id"], Nu = {
 }, Pf = "comtrya://rel/part-of", Ff = /* @__PURE__ */ yu(/* @__PURE__ */ Or({
 	__name: "IssueEpicLinker",
 	props: {
-		client: { type: null },
-		comtryaClient: { type: null },
+		client: { type: Object },
+		comtryaClient: { type: Object },
 		issue: { type: [Object, null] },
 		workspaceId: { type: String },
 		repositoryId: { type: [String, null] },

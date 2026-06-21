@@ -5032,6 +5032,7 @@ function vl(e, t) {
 function yl(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "draft": return "DRAFT";
+		case "review": return "REVIEW";
 		case "merged": return "MERGED";
 		case "closed": return "CLOSED";
 		default: return "READY";
@@ -5063,76 +5064,108 @@ async function xl(e) {
 		limit: e.limit ?? 256
 	}), "list-pulls").map(bl);
 }
-async function Sl(e) {
+function Sl(e) {
+	return {
+		pullRequest: bl(e.pullRequest),
+		terminal: !!e.terminal,
+		blocked: !!e.blocked,
+		waiting: !!e.waiting,
+		checkBlocked: !!e.checkBlocked,
+		checkWaiting: !!e.checkWaiting,
+		reviewBlocked: !!e.reviewBlocked,
+		reviewWaiting: !!e.reviewWaiting,
+		checkSummary: e.checkSummary ?? null,
+		reviewSummary: e.reviewSummary
+	};
+}
+async function Cl(e) {
+	let t = vl(await Do(hl, gl, "merge-readiness-board", {
+		repository: _l(e.workspaceId, e.repositoryId),
+		checkSummaries: e.checkSummaries ?? [],
+		requiredApprovals: e.requiredApprovals ?? 1,
+		limit: e.limit ?? 256
+	}), "merge-readiness-board");
+	return {
+		repository: t.repository,
+		total: t.total,
+		columns: t.columns.map((e) => ({
+			key: e.key,
+			label: e.label,
+			count: e.count,
+			cards: e.cards.map(Sl)
+		}))
+	};
+}
+async function wl(e) {
 	let t = vl(await Do(hl, gl, "get-pull", e), "get-pull");
 	return t ? bl(t) : null;
 }
-async function Cl(e, t) {
+async function Tl(e, t) {
 	return bl(vl(await Do(hl, gl, "merge-pull", {
 		id: e,
 		mergedByRef: t ?? null
 	}), "merge-pull"));
 }
-async function wl(e, t) {
+async function El(e, t) {
 	return bl(vl(await Do(hl, gl, "close-pull", {
 		id: e,
 		closedByRef: t ?? null
 	}), "close-pull"));
 }
-function Tl(e) {
+function Dl(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "closed": return "CLOSED";
 		case "reopened": return "REOPENED";
 		default: return "OPEN";
 	}
 }
-async function El(e) {
+async function Ol(e) {
 	if (!e) return [];
 	let t = `comtrya://pull-request/${e}`, n = (await Mo().query("query LinkedIssues($from: ResourceURN!, $kind: ResourceURN) {\n      relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n    }", {
 		from: t,
 		kind: "comtrya://rel/com.comtrya.pulls/closes"
 	})).relations?.outgoing ?? [], r = Array.from(new Set(n.map((e) => e.to ?? e.target ?? "").filter((e) => e.startsWith("comtrya://issue/"))));
-	return (await Promise.all(r.map(Dl))).filter((e) => e !== null);
+	return (await Promise.all(r.map(kl))).filter((e) => e !== null);
 }
-async function Dl(e) {
+async function kl(e) {
 	let t = await Do("ext_issues", "issues", "by-ref-issue", e);
 	if (!t.ok) return null;
 	let n = t.value;
 	if (!n || typeof n != "object") return null;
-	let r = typeof n.projectName == "string" && n.projectName.trim().length > 0 ? n.projectName.trim() : null, i = typeof n.repository == "string" ? n.repository : null, a = typeof n.workspace == "string" ? n.workspace : null, o = Ol(i ?? a);
+	let r = typeof n.projectName == "string" && n.projectName.trim().length > 0 ? n.projectName.trim() : null, i = typeof n.repository == "string" ? n.repository : null, a = typeof n.workspace == "string" ? n.workspace : null, o = Al(i ?? a);
 	return {
 		id: typeof n.id == "string" ? n.id : "",
 		number: typeof n.number == "number" ? n.number : null,
 		title: typeof n.title == "string" ? n.title : "(untitled)",
-		state: Tl(n.state),
+		state: Dl(n.state),
 		uri: e,
 		projectName: r,
 		workspaceId: o
 	};
 }
-function Ol(e) {
+function Al(e) {
 	if (!e) return null;
 	let t = e.match(/^comtrya:\/\/workspace\/([^/]+)/);
 	return t ? t[1] ?? null : null;
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/types.ts
-var kl = "pulls";
-function Al() {
+var jl = "pulls";
+function Ml() {
 	return cs() ?? "";
 }
-function jl(e) {
-	return Nl(e) ?? Po("pulls", "/");
-}
-function Ml(e, t) {
-	let n = Nl(t);
-	return n ? `${n}/${encodeURIComponent(e.id)}` : Po(kl, `/${e.id}`);
-}
 function Nl(e) {
+	return Fl(e) ?? Po("pulls", "/");
+}
+function Pl(e, t) {
+	let n = Fl(t);
+	return n ? `${n}/${encodeURIComponent(e.id)}` : Po(jl, `/${e.id}`);
+}
+function Fl(e) {
 	let t = e?.split("/").filter(Boolean) ?? [];
 	return t.length === 0 ? null : `/r/${t.map(encodeURIComponent).join("/")}/pulls`;
 }
-function Pl(e) {
+function Il(e) {
 	switch (e) {
 		case "READY": return {
 			label: "open",
@@ -5141,6 +5174,10 @@ function Pl(e) {
 		case "DRAFT": return {
 			label: "draft",
 			className: "pr-state-draft"
+		};
+		case "REVIEW": return {
+			label: "review",
+			className: "pr-state-review"
 		};
 		case "MERGED": return {
 			label: "merged",
@@ -5156,7 +5193,7 @@ function Pl(e) {
 		};
 	}
 }
-function Fl(e) {
+function Ll(e) {
 	if (!e) return "";
 	let t = Date.parse(e);
 	if (Number.isNaN(t)) return e;
@@ -5165,8 +5202,8 @@ function Fl(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/pr-commands.ts
-var Il = /* @__PURE__ */ new Map();
-function Ll(e) {
+var Rl = /* @__PURE__ */ new Map();
+function zl(e) {
 	return [
 		e.id,
 		e.number,
@@ -5174,7 +5211,7 @@ function Ll(e) {
 		e.state
 	].join("|");
 }
-function Rl(e) {
+function Bl(e) {
 	let t = [];
 	return t.push(as({
 		id: `ext_pull_requests.open.${e.id}`,
@@ -5182,7 +5219,7 @@ function Rl(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: () => {
-			window.location.href = Ml(e);
+			window.location.href = Pl(e);
 		}
 	})), (e.state === "READY" || e.state === "DRAFT") && t.push(as({
 		id: `ext_pull_requests.merge.${e.id}`,
@@ -5190,7 +5227,7 @@ function Rl(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await Cl(e.id);
+			await Tl(e.id);
 		}
 	})), e.state !== "CLOSED" && e.state !== "MERGED" && t.push(as({
 		id: `ext_pull_requests.close.${e.id}`,
@@ -5198,11 +5235,11 @@ function Rl(e) {
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await wl(e.id);
+			await El(e.id);
 		}
 	})), () => t.forEach((e) => e());
 }
-async function zl(e) {
+async function Vl(e) {
 	let t;
 	try {
 		t = await xl({ workspaceId: e });
@@ -5213,19 +5250,19 @@ async function zl(e) {
 	let n = /* @__PURE__ */ new Set();
 	for (let e of t) {
 		n.add(e.id);
-		let t = Ll(e), r = Il.get(e.id);
-		r && r.signature === t || (r?.unregister(), Il.set(e.id, {
+		let t = zl(e), r = Rl.get(e.id);
+		r && r.signature === t || (r?.unregister(), Rl.set(e.id, {
 			signature: t,
-			unregister: Rl(e)
+			unregister: Bl(e)
 		}));
 	}
-	for (let [e, t] of Il) n.has(e) || (t.unregister(), Il.delete(e));
+	for (let [e, t] of Rl) n.has(e) || (t.unregister(), Rl.delete(e));
 }
-function Bl() {
+function Hl() {
 	let e = [], t = !1;
 	return ls().then((n) => {
 		if (!t) {
-			zl(n);
+			Vl(n);
 			for (let t of [
 				"dev.comtrya.pull-request.created",
 				"dev.comtrya.pull-request.merged",
@@ -5233,7 +5270,7 @@ function Bl() {
 			]) e.push(Fo({
 				type: t,
 				onEvent: () => {
-					zl(n);
+					Vl(n);
 				},
 				onError: () => {}
 			}));
@@ -5241,13 +5278,13 @@ function Bl() {
 	}), () => {
 		t = !0;
 		for (let t of e) t();
-		for (let e of Il.values()) e.unregister();
-		Il.clear();
+		for (let e of Rl.values()) e.unregister();
+		Rl.clear();
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/CustomElementHost.vue?vue&type=script&setup=true&lang.ts
-var Vl = /* @__PURE__ */ Vn({
+var Ul = /* @__PURE__ */ Vn({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -5282,12 +5319,12 @@ var Vl = /* @__PURE__ */ Vn({
 			class: "custom-element-host"
 		}, null, 512));
 	}
-}), Hl = ".custom-element-host[data-v-cf896d02]{display:contents}", Ul = (e, t) => {
+}), Wl = ".custom-element-host[data-v-cf896d02]{display:contents}", Gl = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Wl = /* @__PURE__ */ Ul(Vl, [["styles", [Hl]], ["__scopeId", "data-v-cf896d02"]]), Gl = /^diff --git a\/(.+?) b\/(.+)$/, Kl = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
-function ql(e) {
+}, Kl = /* @__PURE__ */ Gl(Ul, [["styles", [Wl]], ["__scopeId", "data-v-cf896d02"]]), ql = /^diff --git a\/(.+?) b\/(.+)$/, Jl = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+function Yl(e) {
 	if (!e) return [];
 	let t = [], n = e.split("\n"), r = null, i = null, a = 0, o = 0, s = () => {
 		r && i && r.hunks.push(i), i = null;
@@ -5295,7 +5332,7 @@ function ql(e) {
 		s(), r && t.push(r), r = null;
 	};
 	for (let e of n) {
-		let t = e.match(Gl);
+		let t = e.match(ql);
 		if (t) {
 			c();
 			let [, e, n] = t;
@@ -5304,7 +5341,7 @@ function ql(e) {
 				newPath: n ?? "",
 				displayPath: n || e || "",
 				status: "modified",
-				language: Yl(n || e || ""),
+				language: Zl(n || e || ""),
 				hunks: [],
 				additions: 0,
 				deletions: 0,
@@ -5330,7 +5367,7 @@ function ql(e) {
 			continue;
 		}
 		if (e.startsWith("index ") || e.startsWith("---") || e.startsWith("+++")) continue;
-		let n = e.match(Kl);
+		let n = e.match(Jl);
 		if (n) {
 			s();
 			let t = Number(n[1] ?? 0), r = Number(n[2] ?? 1), c = Number(n[3] ?? 0);
@@ -5368,7 +5405,7 @@ function ql(e) {
 	}
 	return c(), t;
 }
-var Jl = {
+var Xl = {
 	rs: "rust",
 	ts: "typescript",
 	tsx: "tsx",
@@ -5386,11 +5423,11 @@ var Jl = {
 	css: "css",
 	html: "html"
 };
-function Yl(e) {
+function Zl(e) {
 	let t = e.lastIndexOf(".");
-	return t < 0 ? "plain" : Jl[e.slice(t + 1).toLowerCase()] ?? "plain";
+	return t < 0 ? "plain" : Xl[e.slice(t + 1).toLowerCase()] ?? "plain";
 }
-function Xl(e) {
+function Ql(e) {
 	let t = 0, n = 0;
 	for (let r of e) t += r.additions, n += r.deletions;
 	return {
@@ -5401,44 +5438,44 @@ function Xl(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/diff-styles.ts
-var Zl = "comtrya-diff-view-styles", Ql = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
-function $l() {
-	if (typeof document > "u" || document.getElementById(Zl)) return;
+var $l = "comtrya-diff-view-styles", eu = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
+function tu() {
+	if (typeof document > "u" || document.getElementById($l)) return;
 	let e = document.createElement("style");
-	e.id = Zl, e.textContent = Ql, document.head.appendChild(e);
+	e.id = $l, e.textContent = eu, document.head.appendChild(e);
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/DiffView.vue?vue&type=script&setup=true&lang.ts
-var eu = {
+var nu = {
 	class: "diff-view",
 	"data-smoke": "pulls-diff-view"
-}, tu = { class: "diff-summary" }, nu = { class: "diff-totals" }, ru = { class: "adds" }, iu = { class: "dels" }, au = {
+}, ru = { class: "diff-summary" }, iu = { class: "diff-totals" }, au = { class: "adds" }, ou = { class: "dels" }, su = {
 	key: 0,
 	class: "muted"
-}, ou = {
+}, cu = {
 	key: 1,
 	class: "muted error"
-}, su = {
+}, lu = {
 	key: 2,
 	class: "muted"
-}, cu = {
+}, uu = {
 	key: 3,
 	class: "diff-files"
-}, lu = ["data-diff-file-index"], uu = [
+}, du = ["data-diff-file-index"], fu = [
 	"aria-expanded",
 	"onClick",
 	"onKeydown",
 	"onFocus"
-], du = { class: "caret" }, fu = { class: "file-path" }, pu = {
+], pu = { class: "caret" }, mu = { class: "file-path" }, hu = {
 	key: 0,
 	class: "file-rename"
-}, mu = { class: "file-counts" }, hu = { class: "adds" }, gu = { class: "dels" }, _u = {
+}, gu = { class: "file-counts" }, _u = { class: "adds" }, vu = { class: "dels" }, yu = {
 	key: 0,
 	class: "diff-file-body"
-}, vu = {
+}, bu = {
 	key: 0,
 	class: "muted"
-}, yu = { class: "diff-hunk-head" }, bu = { class: "ln old" }, xu = { class: "ln new" }, Su = { class: "marker" }, Cu = { class: "content" }, wu = /* @__PURE__ */ Vn({
+}, xu = { class: "diff-hunk-head" }, Su = { class: "ln old" }, Cu = { class: "ln new" }, wu = { class: "marker" }, Tu = { class: "content" }, Eu = /* @__PURE__ */ Vn({
 	__name: "DiffView",
 	props: {
 		patch: { type: String },
@@ -5446,8 +5483,8 @@ var eu = {
 		error: { type: [String, null] }
 	},
 	setup(e) {
-		$l();
-		let t = e, n = /* @__PURE__ */ I({}), r = /* @__PURE__ */ I(0), i = X(() => ql(t.patch)), a = X(() => Xl(i.value));
+		tu();
+		let t = e, n = /* @__PURE__ */ I({}), r = /* @__PURE__ */ I(0), i = X(() => Yl(t.patch)), a = X(() => Ql(i.value));
 		Nn(i, (e) => {
 			r.value >= e.length && (r.value = Math.max(0, e.length - 1));
 		}), ps({
@@ -5491,10 +5528,10 @@ var eu = {
 				block: "start"
 			});
 		}
-		return (t, n) => (U(), W("section", eu, [G("header", tu, [n[1] ||= G("h2", null, "Files changed", -1), G("div", nu, [
+		return (t, n) => (U(), W("section", nu, [G("header", ru, [n[1] ||= G("h2", null, "Files changed", -1), G("div", iu, [
 			G("span", null, [q(A(a.value.files) + " file", 1), a.value.files === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))]),
-			G("span", ru, "+" + A(a.value.additions), 1),
-			G("span", iu, "-" + A(a.value.deletions), 1),
+			G("span", au, "+" + A(a.value.additions), 1),
+			G("span", ou, "-" + A(a.value.deletions), 1),
 			n[0] ||= G("span", { class: "hint" }, [
 				G("kbd", null, "n"),
 				q("/"),
@@ -5503,7 +5540,7 @@ var eu = {
 				G("kbd", null, "space"),
 				q(" collapse ")
 			], -1)
-		])]), e.loading ? (U(), W("p", au, "Loading diff…")) : e.error ? (U(), W("p", ou, A(e.error), 1)) : i.value.length === 0 ? (U(), W("p", su, " No diff to show. Push commits to head and base refs to populate this view. ")) : (U(), W("ol", cu, [(U(!0), W(V, null, fr(i.value, (e, t) => (U(), W("li", {
+		])]), e.loading ? (U(), W("p", su, "Loading diff…")) : e.error ? (U(), W("p", cu, A(e.error), 1)) : i.value.length === 0 ? (U(), W("p", lu, " No diff to show. Push commits to head and base refs to populate this view. ")) : (U(), W("ol", uu, [(U(!0), W(V, null, fr(i.value, (e, t) => (U(), W("li", {
 			key: e.displayPath + t,
 			class: k(["diff-file", { focused: t === r.value }]),
 			"data-diff-file-index": t
@@ -5516,91 +5553,91 @@ var eu = {
 			onKeydown: po(uo((t) => o(e.displayPath), ["prevent"]), ["enter"]),
 			onFocus: (e) => r.value = t
 		}, [
-			G("span", du, A(s(e.displayPath) ? "▸" : "▾"), 1),
+			G("span", pu, A(s(e.displayPath) ? "▸" : "▾"), 1),
 			G("span", { class: k(["file-status", `status-${e.status}`]) }, A(c(e)), 3),
-			G("code", fu, A(e.displayPath), 1),
-			e.status === "renamed" && e.oldPath !== e.newPath ? (U(), W("span", pu, [n[2] ||= q(" from ", -1), G("code", null, A(e.oldPath), 1)])) : J("", !0),
-			G("span", mu, [G("span", hu, "+" + A(e.additions), 1), G("span", gu, "-" + A(e.deletions), 1)])
-		], 40, uu), s(e.displayPath) ? J("", !0) : (U(), W("div", _u, [e.binary ? (U(), W("p", vu, "Binary file — no preview.")) : (U(!0), W(V, { key: 1 }, fr(e.hunks, (e, t) => (U(), W("section", {
+			G("code", mu, A(e.displayPath), 1),
+			e.status === "renamed" && e.oldPath !== e.newPath ? (U(), W("span", hu, [n[2] ||= q(" from ", -1), G("code", null, A(e.oldPath), 1)])) : J("", !0),
+			G("span", gu, [G("span", _u, "+" + A(e.additions), 1), G("span", vu, "-" + A(e.deletions), 1)])
+		], 40, fu), s(e.displayPath) ? J("", !0) : (U(), W("div", yu, [e.binary ? (U(), W("p", bu, "Binary file — no preview.")) : (U(!0), W(V, { key: 1 }, fr(e.hunks, (e, t) => (U(), W("section", {
 			key: t,
 			class: "diff-hunk"
-		}, [G("header", yu, [G("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), G("table", null, [G("tbody", null, [(U(!0), W(V, null, fr(e.lines, (e, t) => (U(), W("tr", {
+		}, [G("header", xu, [G("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), G("table", null, [G("tbody", null, [(U(!0), W(V, null, fr(e.lines, (e, t) => (U(), W("tr", {
 			key: t,
 			class: k(["diff-line", `line-${e.kind}`])
 		}, [
-			G("td", bu, A(e.oldNumber ?? ""), 1),
-			G("td", xu, A(e.newNumber ?? ""), 1),
-			G("td", Su, [e.kind === "add" ? (U(), W(V, { key: 0 }, [q("+")], 64)) : e.kind === "del" ? (U(), W(V, { key: 1 }, [q("-")], 64)) : e.kind === "meta" ? (U(), W(V, { key: 2 }, [q("\\")], 64)) : (U(), W(V, { key: 3 }, [], 64))]),
-			G("td", Cu, A(e.text), 1)
-		], 2))), 128))])])]))), 128))]))], 10, lu))), 128))]))]));
+			G("td", Su, A(e.oldNumber ?? ""), 1),
+			G("td", Cu, A(e.newNumber ?? ""), 1),
+			G("td", wu, [e.kind === "add" ? (U(), W(V, { key: 0 }, [q("+")], 64)) : e.kind === "del" ? (U(), W(V, { key: 1 }, [q("-")], 64)) : e.kind === "meta" ? (U(), W(V, { key: 2 }, [q("\\")], 64)) : (U(), W(V, { key: 3 }, [], 64))]),
+			G("td", Tu, A(e.text), 1)
+		], 2))), 128))])])]))), 128))]))], 10, du))), 128))]))]));
 	}
-}), Tu = {
+}), Du = {
 	class: "pulls-detail",
 	"data-smoke": "pulls-detail"
-}, Eu = {
+}, Ou = {
 	key: 0,
 	class: "pulls-empty"
-}, Du = {
+}, ku = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, Ou = {
+}, Au = {
 	key: 2,
 	class: "pulls-empty"
-}, ku = ["href"], Au = { class: "pulls-detail-head" }, ju = { class: "pulls-detail-title" }, Mu = { class: "pulls-detail-number" }, Nu = {
+}, ju = ["href"], Mu = { class: "pulls-detail-head" }, Nu = { class: "pulls-detail-title" }, Pu = { class: "pulls-detail-number" }, Fu = {
 	class: "pulls-chip-row",
 	"aria-label": "Pull request metadata"
-}, Pu = { class: "pull-chip tone-branch" }, Fu = ["title"], Iu = ["data-author-kind", "title"], Lu = { class: "chip-glyph" }, Ru = {
+}, Iu = { class: "pull-chip tone-branch" }, Lu = ["title"], Ru = ["data-author-kind", "title"], zu = { class: "chip-glyph" }, Bu = {
 	key: 0,
 	class: "pull-chip tone-time tone-merged"
-}, zu = {
+}, Vu = {
 	key: 1,
 	class: "pull-chip tone-time tone-closed"
-}, Bu = {
+}, Hu = {
 	key: 2,
 	class: "pull-chip tone-time"
-}, Vu = { class: "pulls-detail-actions" }, Hu = ["disabled"], Uu = ["disabled"], Wu = {
+}, Uu = { class: "pulls-detail-actions" }, Wu = ["disabled"], Gu = ["disabled"], Ku = {
 	key: 0,
 	class: "pulls-action-message"
-}, Gu = {
+}, qu = {
 	key: 0,
 	class: "pulls-detail-body"
-}, Ku = ["innerHTML"], qu = {
+}, Ju = ["innerHTML"], Yu = {
 	key: 1,
 	class: "pulls-detail-body muted"
-}, Ju = {
+}, Xu = {
 	key: 2,
 	class: "pulls-routed",
 	"data-smoke": "pulls-routed",
 	"aria-label": "CUE project routing"
-}, Yu = { class: "muted" }, Xu = { class: "pulls-routed-list" }, Zu = ["href", "title"], Qu = {
+}, Zu = { class: "muted" }, Qu = { class: "pulls-routed-list" }, $u = ["href", "title"], ed = {
 	key: 0,
 	class: "pulls-routed-owners"
-}, $u = ["data-author-kind", "title"], ed = { class: "chip-glyph" }, td = {
+}, td = ["data-author-kind", "title"], nd = { class: "chip-glyph" }, rd = {
 	key: 1,
 	class: "pulls-routed-owners muted"
-}, nd = {
+}, id = {
 	key: 3,
 	class: "pulls-linked-issues",
 	"data-smoke": "pulls-linked-issues"
-}, rd = { class: "muted" }, id = {
+}, ad = { class: "muted" }, od = {
 	key: 0,
 	role: "listbox",
 	"aria-label": "Linked issues"
-}, ad = ["aria-selected", "onMouseenter"], od = ["href"], sd = { class: "issue-num" }, cd = { class: "issue-title" }, ld = ["href", "title"], ud = {
+}, sd = ["aria-selected", "onMouseenter"], cd = ["href"], ld = { class: "issue-num" }, ud = { class: "issue-title" }, dd = ["href", "title"], fd = {
 	key: 1,
 	class: "pulls-linked-foot"
-}, dd = {
+}, pd = {
 	key: 0,
 	class: "pulls-detail-discussion-count"
-}, fd = /* @__PURE__ */ Ul(/* @__PURE__ */ Vn({
+}, md = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
 	__name: "PullsDetail",
 	props: {
-		routeParams: { type: null },
+		routeParams: { type: Object },
 		repositoryPath: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = X(() => t.routeParams?.params?.pullId ?? ""), r = X(() => jl(t.repositoryPath)), i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = /* @__PURE__ */ I(null), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(""), u = /* @__PURE__ */ I(""), d = /* @__PURE__ */ I("idle"), f = /* @__PURE__ */ I(null), p = /* @__PURE__ */ I([]), m = /* @__PURE__ */ I("idle"), h = /* @__PURE__ */ I(-1), g = /* @__PURE__ */ I([]);
+		let t = e, n = X(() => t.routeParams?.params?.pullId ?? ""), r = X(() => Nl(t.repositoryPath)), i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = /* @__PURE__ */ I(null), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(""), u = /* @__PURE__ */ I(""), d = /* @__PURE__ */ I("idle"), f = /* @__PURE__ */ I(null), p = /* @__PURE__ */ I([]), m = /* @__PURE__ */ I("idle"), h = /* @__PURE__ */ I(-1), g = /* @__PURE__ */ I([]);
 		function _(e) {
 			let t = (e ?? "").replace(/^\.\//, "").replace(/\/+$/g, "");
 			return t === "." ? "" : t;
@@ -5611,7 +5648,7 @@ var eu = {
 				name: e.name ?? "",
 				root: _(e.root)
 			})).filter((e) => e.name).sort((e, t) => t.root.length - e.root.length), t = /* @__PURE__ */ new Set();
-			for (let n of ql(l.value)) {
+			for (let n of Yl(l.value)) {
 				let r = n.displayPath.replace(/^\/+/, "");
 				for (let n of e) if (n.root === "" || r === n.root || r.startsWith(`${n.root}/`)) {
 					t.add(n.name);
@@ -5629,7 +5666,7 @@ var eu = {
 				name: e,
 				owners: (g.value.find((t) => t.name === e)?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0)
 			}));
-		}), x = ll, S = X(() => Pl(i.value?.state)), C = X(() => i.value && (i.value.state === "READY" || i.value.state === "DRAFT")), w = X(() => i.value && i.value.state !== "CLOSED" && i.value.state !== "MERGED"), ee = X(() => i.value?.bodyMarkdown ? tl(i.value.bodyMarkdown, { workspaceId: Al() }) : ""), te = X(() => i.value ? `comtrya://pull-request/${i.value.id}` : ""), ne = /* @__PURE__ */ I(null);
+		}), x = ll, S = X(() => Il(i.value?.state)), C = X(() => i.value && (i.value.state === "READY" || i.value.state === "DRAFT")), w = X(() => i.value && i.value.state !== "CLOSED" && i.value.state !== "MERGED"), ee = X(() => i.value?.bodyMarkdown ? tl(i.value.bodyMarkdown, { workspaceId: Ml() }) : ""), te = X(() => i.value ? `comtrya://pull-request/${i.value.id}` : ""), ne = /* @__PURE__ */ I(null);
 		function T(e) {
 			let t = e.detail;
 			t && typeof t.count == "number" && (ne.value = t.count);
@@ -5687,7 +5724,7 @@ var eu = {
 			}
 			a.value = "loading", o.value = null;
 			try {
-				i.value = await Sl(n.value), a.value = i.value ? "ready" : "empty";
+				i.value = await wl(n.value), a.value = i.value ? "ready" : "empty";
 			} catch (e) {
 				a.value = "error", o.value = e instanceof Error ? e.message : String(e);
 			}
@@ -5696,7 +5733,7 @@ var eu = {
 			if (n.value) {
 				m.value = "loading";
 				try {
-					p.value = await El(n.value), m.value = "ready";
+					p.value = await Ol(n.value), m.value = "ready";
 				} catch {
 					p.value = [], m.value = "error";
 				}
@@ -5744,7 +5781,7 @@ var eu = {
 			if (!(!i.value || !C.value)) {
 				s.value = "merging", c.value = null;
 				try {
-					i.value = await Cl(i.value.id), c.value = `Merged pull #${i.value.number}`;
+					i.value = await Tl(i.value.id), c.value = `Merged pull #${i.value.number}`;
 				} catch (e) {
 					c.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -5756,7 +5793,7 @@ var eu = {
 			if (!(!i.value || !w.value)) {
 				s.value = "closing", c.value = null;
 				try {
-					i.value = await wl(i.value.id), c.value = `Closed pull #${i.value.number}`;
+					i.value = await El(i.value.id), c.value = `Closed pull #${i.value.number}`;
 				} catch (e) {
 					c.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -5764,31 +5801,31 @@ var eu = {
 				}
 			}
 		}
-		return (e, t) => (U(), W("article", Tu, [a.value === "loading" ? (U(), W("p", Eu, "Loading pull request…")) : a.value === "error" ? (U(), W("p", Du, A(o.value), 1)) : a.value === "empty" || !i.value ? (U(), W("p", Ou, [
+		return (e, t) => (U(), W("article", Du, [a.value === "loading" ? (U(), W("p", Ou, "Loading pull request…")) : a.value === "error" ? (U(), W("p", ku, A(o.value), 1)) : a.value === "empty" || !i.value ? (U(), W("p", Au, [
 			t[0] ||= q(" No pull request found for ", -1),
 			G("code", null, A(n.value), 1),
 			t[1] ||= q(". ", -1),
 			G("a", {
 				href: r.value,
 				onClick: E
-			}, "← Pull requests", 8, ku)
+			}, "← Pull requests", 8, ju)
 		])) : (U(), W(V, { key: 3 }, [
-			G("header", Au, [G("div", ju, [
+			G("header", Mu, [G("div", Nu, [
 				G("button", {
 					type: "button",
 					class: "back",
 					"aria-label": "Back to pull requests",
 					onClick: E
 				}, "← Pull requests"),
-				G("span", Mu, "#" + A(i.value.number), 1),
+				G("span", Pu, "#" + A(i.value.number), 1),
 				G("h1", null, A(i.value.title), 1)
-			]), G("div", Nu, [
+			]), G("div", Fu, [
 				G("span", { class: k([
 					"pull-chip",
 					"tone-state",
 					S.value.className
 				]) }, A(S.value.label), 3),
-				G("span", Pu, [
+				G("span", Iu, [
 					G("code", null, A(i.value.headRef), 1),
 					t[2] ||= G("span", {
 						class: "branch-arrow",
@@ -5800,62 +5837,62 @@ var eu = {
 					key: `project-${e}`,
 					class: "pull-chip tone-project",
 					title: `Touches files inside the ${e} Project's root`
-				}, [t[3] ||= G("span", { class: "chip-glyph" }, "◇", -1), q(A(e), 1)], 8, Fu))), 128)),
+				}, [t[3] ||= G("span", { class: "chip-glyph" }, "◇", -1), q(A(e), 1)], 8, Lu))), 128)),
 				G("span", {
 					class: "pull-chip tone-author",
 					"data-author-kind": L(ll)(i.value.authorRef).kind,
 					title: `Opened by ${i.value.authorRef}`
-				}, [G("span", Lu, A(L(ll)(i.value.authorRef).glyph), 1), q(" by " + A(L(ll)(i.value.authorRef).label), 1)], 8, Iu),
-				i.value.mergedAt ? (U(), W("span", Ru, " merged " + A(L(Fl)(i.value.mergedAt)), 1)) : i.value.closedAt ? (U(), W("span", zu, " closed " + A(L(Fl)(i.value.closedAt)), 1)) : J("", !0),
-				i.value.createdAt ? (U(), W("span", Bu, " opened " + A(L(Fl)(i.value.createdAt)), 1)) : J("", !0)
+				}, [G("span", zu, A(L(ll)(i.value.authorRef).glyph), 1), q(" by " + A(L(ll)(i.value.authorRef).label), 1)], 8, Ru),
+				i.value.mergedAt ? (U(), W("span", Bu, " merged " + A(L(Ll)(i.value.mergedAt)), 1)) : i.value.closedAt ? (U(), W("span", Vu, " closed " + A(L(Ll)(i.value.closedAt)), 1)) : J("", !0),
+				i.value.createdAt ? (U(), W("span", Hu, " opened " + A(L(Ll)(i.value.createdAt)), 1)) : J("", !0)
 			])]),
-			G("section", Vu, [
+			G("section", Uu, [
 				G("button", {
 					type: "button",
 					class: "pulls-action primary",
 					disabled: !C.value || s.value !== "idle",
 					onClick: ue
-				}, [q(A(s.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= G("kbd", null, "m", -1)], 8, Hu),
+				}, [q(A(s.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= G("kbd", null, "m", -1)], 8, Wu),
 				G("button", {
 					type: "button",
 					class: "pulls-action",
 					disabled: !w.value || s.value !== "idle",
 					onClick: de
-				}, [q(A(s.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= G("kbd", null, "x", -1)], 8, Uu),
-				c.value ? (U(), W("span", Wu, A(c.value), 1)) : J("", !0)
+				}, [q(A(s.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= G("kbd", null, "x", -1)], 8, Gu),
+				c.value ? (U(), W("span", Ku, A(c.value), 1)) : J("", !0)
 			]),
-			ee.value ? (U(), W("section", Gu, [t[6] ||= G("h2", null, "Description", -1), G("div", {
+			ee.value ? (U(), W("section", qu, [t[6] ||= G("h2", null, "Description", -1), G("div", {
 				class: "pulls-detail-body-prose",
 				innerHTML: ee.value
-			}, null, 8, Ku)])) : (U(), W("section", qu, [...t[7] ||= [G("h2", null, "Description", -1), G("p", null, "No description provided.", -1)]])),
-			b.value.length > 0 ? (U(), W("section", Ju, [
-				G("header", null, [t[8] ||= G("h2", null, "Routed to", -1), G("span", Yu, [q(A(b.value.length) + " project", 1), b.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))])]),
-				G("ul", Xu, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("li", {
+			}, null, 8, Ju)])) : (U(), W("section", Yu, [...t[7] ||= [G("h2", null, "Description", -1), G("p", null, "No description provided.", -1)]])),
+			b.value.length > 0 ? (U(), W("section", Xu, [
+				G("header", null, [t[8] ||= G("h2", null, "Routed to", -1), G("span", Zu, [q(A(b.value.length) + " project", 1), b.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))])]),
+				G("ul", Qu, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("li", {
 					key: e.name,
 					class: "pulls-routed-project"
 				}, [G("a", {
 					href: `/x/issues/?project=${encodeURIComponent(e.name)}`,
 					class: "pulls-routed-name",
 					title: `Filter issues to project ${e.name}`
-				}, "◇ " + A(e.name), 9, Zu), e.owners.length > 0 ? (U(), W("ul", Qu, [(U(!0), W(V, null, fr(e.owners, (e) => (U(), W("li", {
+				}, "◇ " + A(e.name), 9, $u), e.owners.length > 0 ? (U(), W("ul", ed, [(U(!0), W(V, null, fr(e.owners, (e) => (U(), W("li", {
 					key: e,
 					class: "pulls-routed-owner",
 					"data-author-kind": L(x)(e).kind,
 					title: e
-				}, [G("span", ed, A(L(x)(e).glyph), 1), q(" " + A(L(x)(e).label), 1)], 8, $u))), 128))])) : (U(), W("span", td, " no owners declared "))]))), 128))]),
+				}, [G("span", nd, A(L(x)(e).glyph), 1), q(" " + A(L(x)(e).label), 1)], 8, td))), 128))])) : (U(), W("span", rd, " no owners declared "))]))), 128))]),
 				t[9] ||= G("p", { class: "pulls-routed-source" }, [
 					q(" From paths the diff touched · issues this PR closes · "),
 					G("code", null, "package comtrya"),
 					q(" owners ")
 				], -1)
 			])) : J("", !0),
-			m.value !== "idle" || p.value.length > 0 ? (U(), W("section", nd, [
-				G("header", null, [t[10] ||= G("h2", null, "Closes", -1), G("span", rd, [m.value === "loading" ? (U(), W(V, { key: 0 }, [q("resolving…")], 64)) : p.value.length === 0 ? (U(), W(V, { key: 1 }, [q(" no linked issues ")], 64)) : (U(), W(V, { key: 2 }, [
+			m.value !== "idle" || p.value.length > 0 ? (U(), W("section", id, [
+				G("header", null, [t[10] ||= G("h2", null, "Closes", -1), G("span", ad, [m.value === "loading" ? (U(), W(V, { key: 0 }, [q("resolving…")], 64)) : p.value.length === 0 ? (U(), W(V, { key: 1 }, [q(" no linked issues ")], 64)) : (U(), W(V, { key: 2 }, [
 					q(A(p.value.length) + " issue", 1),
 					p.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64)),
 					i.value.state === "MERGED" ? (U(), W(V, { key: 1 }, [q(" — auto-closed on merge")], 64)) : (U(), W(V, { key: 2 }, [q(" — will close on merge")], 64))
 				], 64))])]),
-				p.value.length > 0 ? (U(), W("ul", id, [(U(!0), W(V, null, fr(p.value, (e, t) => (U(), W("li", {
+				p.value.length > 0 ? (U(), W("ul", od, [(U(!0), W(V, null, fr(p.value, (e, t) => (U(), W("li", {
 					key: e.uri,
 					class: k({ focused: t === h.value }),
 					"aria-selected": t === h.value,
@@ -5865,16 +5902,16 @@ var eu = {
 					G("a", {
 						href: D(e),
 						class: "issue-link"
-					}, [G("span", sd, [e.number === null ? (U(), W(V, { key: 1 }, [q("issue")], 64)) : (U(), W(V, { key: 0 }, [q("#" + A(e.number), 1)], 64))]), G("span", cd, A(e.title), 1)], 8, od),
+					}, [G("span", ld, [e.number === null ? (U(), W(V, { key: 1 }, [q("issue")], 64)) : (U(), W(V, { key: 0 }, [q("#" + A(e.number), 1)], 64))]), G("span", ud, A(e.title), 1)], 8, cd),
 					e.projectName ? (U(), W("a", {
 						key: 0,
 						class: "issue-project",
 						href: oe(e.projectName),
 						title: `Filter to project ${e.projectName}`
-					}, "◇ " + A(e.projectName), 9, ld)) : J("", !0),
+					}, "◇ " + A(e.projectName), 9, dd)) : J("", !0),
 					G("span", { class: k(["issue-state", O(e.state)]) }, A(e.state.toLowerCase()), 3)
-				], 42, ad))), 128))])) : J("", !0),
-				p.value.length > 0 ? (U(), W("footer", ud, [...t[11] ||= [
+				], 42, sd))), 128))])) : J("", !0),
+				p.value.length > 0 ? (U(), W("footer", fd, [...t[11] ||= [
 					G("kbd", null, "j", -1),
 					q(),
 					G("kbd", null, "k", -1),
@@ -5887,12 +5924,12 @@ var eu = {
 				class: "pulls-detail-discussion",
 				"data-smoke": "pulls-detail-discussion",
 				onCommentThreadUpdate: T
-			}, [G("header", null, [G("h2", null, [t[12] ||= q(" Discussion", -1), ne.value === null ? J("", !0) : (U(), W("span", dd, " (" + A(ne.value) + ")", 1))])]), K(Wl, {
+			}, [G("header", null, [G("h2", null, [t[12] ||= q(" Discussion", -1), ne.value === null ? J("", !0) : (U(), W("span", pd, " (" + A(ne.value) + ")", 1))])]), K(Kl, {
 				tag: "comtrya-comment-thread",
 				attributes: { target: te.value },
 				properties: { target: te.value }
 			}, null, 8, ["attributes", "properties"])], 32),
-			K(wu, {
+			K(Eu, {
 				patch: l.value,
 				loading: d.value === "loading",
 				error: f.value
@@ -5903,19 +5940,30 @@ var eu = {
 			])
 		], 64))]));
 	}
-}), [["styles", [".pulls-detail[data-v-c7f1ae19]{font-family:var(--font-sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-c7f1ae19]{border-bottom:.5px solid var(--fg,#fffffff0);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-c7f1ae19]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);cursor:pointer;background:0 0;border:0;padding:0;font-size:16px;text-decoration:none}.back[data-v-c7f1ae19]:hover{color:var(--fg,#fffffff0)}.pulls-detail-number[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:14px}.pulls-chip-row[data-v-c7f1ae19]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-c7f1ae19]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-c7f1ae19]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-c7f1ae19]{text-transform:lowercase;letter-spacing:.02em;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-c7f1ae19]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-c7f1ae19]{color:var(--fg-3,#ffffff85)}.pull-chip.tone-state.pr-state-merged[data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-c7f1ae19]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-c7f1ae19]{gap:4px}.pull-chip.tone-branch code[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-c7f1ae19]{color:var(--fg-4,#ffffff57);padding:0 2px}.pull-chip.tone-author[data-v-c7f1ae19]{color:var(--fg-2,#ffffffbd)}.pull-chip.tone-author[data-author-kind=agent][data-v-c7f1ae19]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-c7f1ae19]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-c7f1ae19]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-c7f1ae19]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-c7f1ae19]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-c7f1ae19]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-c7f1ae19]{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0);font-family:var(--font-serif,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-c7f1ae19]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-action[disabled][data-v-c7f1ae19]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-detail-body h2[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-c7f1ae19]{color:var(--fg,#fffffff0);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-c7f1ae19],.pulls-detail-body-prose h2[data-v-c7f1ae19],.pulls-detail-body-prose h3[data-v-c7f1ae19],.pulls-detail-body-prose h4[data-v-c7f1ae19],.pulls-detail-body-prose h5[data-v-c7f1ae19],.pulls-detail-body-prose h6[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-c7f1ae19]{font-size:20px}.pulls-detail-body-prose h2[data-v-c7f1ae19]{font-size:17px}.pulls-detail-body-prose h3[data-v-c7f1ae19],.pulls-detail-body-prose h4[data-v-c7f1ae19]{font-size:15px}.pulls-detail-body-prose p[data-v-c7f1ae19]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-c7f1ae19],.pulls-detail-body-prose ol[data-v-c7f1ae19]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-c7f1ae19]{margin:.15em 0}.pulls-detail-body-prose code[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border:.5px solid var(--line,#ffffff12);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-c7f1ae19]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-c7f1ae19]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-c7f1ae19]{font-weight:600}.pulls-detail-body-prose em[data-v-c7f1ae19]{font-style:italic}.pulls-detail-body.muted p[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-routed[data-v-c7f1ae19]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-c7f1ae19]{border-bottom:.5px solid var(--line,#ffffff12);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-routed-list[data-v-c7f1ae19]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-c7f1ae19]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-c7f1ae19]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-c7f1ae19]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-c7f1ae19]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-c7f1ae19]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-c7f1ae19]{color:var(--fg,#fffffff0)}.pulls-routed-owner[data-author-kind=agent][data-v-c7f1ae19]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-c7f1ae19]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);margin:0;font-size:11px}.pulls-routed-source code[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-c7f1ae19]{gap:8px;display:grid}.pulls-linked-issues header[data-v-c7f1ae19]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion[data-v-c7f1ae19]{gap:8px;display:grid}.pulls-detail-discussion>header[data-v-c7f1ae19]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-detail-discussion>header h2[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion-count[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.pulls-linked-issues .muted[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-linked-issues ul[data-v-c7f1ae19]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-c7f1ae19]{border-bottom:.5px solid var(--line,#ffffff12);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-c7f1ae19]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-c7f1ae19]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0);background:var(--bg-2,#0e1014)}.pulls-linked-issues li .issue-link[data-v-c7f1ae19]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--line,#ffffff12);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-c7f1ae19]:hover{color:var(--fg,#fffffff0);border-color:var(--fg,#fffffff0)}.pulls-linked-foot[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-c7f1ae19]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-c7f1ae19]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-c7f1ae19]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-c7f1ae19],.pulls-error[data-v-c7f1ae19]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px}.pulls-error[data-v-c7f1ae19]{color:var(--accent-err,#c9341c)}"]], ["__scopeId", "data-v-c7f1ae19"]]), pd = {
+}), [["styles", [".pulls-detail[data-v-fef353a9]{font-family:var(--font-sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-fef353a9]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-fef353a9]{font-family:var(--font-serif,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);cursor:pointer;background:0 0;border:0;padding:0;font-size:16px;text-decoration:none}.back[data-v-fef353a9]:hover{color:var(--fg,#fffffff0)}.pulls-detail-number[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:14px}.pulls-chip-row[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-fef353a9]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-fef353a9]{text-transform:lowercase;letter-spacing:0;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-fef353a9]{color:var(--fg-3,#ffffff85)}.pull-chip.tone-state.pr-state-review[data-v-fef353a9],.pull-chip.tone-state.pr-state-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-fef353a9]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-fef353a9]{gap:4px}.pull-chip.tone-branch code[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-fef353a9]{color:var(--fg-4,#ffffff57);padding:0 2px}.pull-chip.tone-author[data-v-fef353a9]{color:var(--fg-2,#ffffffbd)}.pull-chip.tone-author[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-fef353a9]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-fef353a9]{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0);font-family:var(--font-serif,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-fef353a9]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-action[disabled][data-v-fef353a9]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-detail-body h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-fef353a9]{color:var(--fg,#fffffff0);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-fef353a9],.pulls-detail-body-prose h2[data-v-fef353a9],.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9],.pulls-detail-body-prose h5[data-v-fef353a9],.pulls-detail-body-prose h6[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-fef353a9]{font-size:20px}.pulls-detail-body-prose h2[data-v-fef353a9]{font-size:17px}.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9]{font-size:15px}.pulls-detail-body-prose p[data-v-fef353a9]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-fef353a9],.pulls-detail-body-prose ol[data-v-fef353a9]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-fef353a9]{margin:.15em 0}.pulls-detail-body-prose code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border:.5px solid var(--line,#ffffff12);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-fef353a9]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-fef353a9]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-fef353a9]{font-weight:600}.pulls-detail-body-prose em[data-v-fef353a9]{font-style:italic}.pulls-detail-body.muted p[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-routed[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-routed-list[data-v-fef353a9]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-fef353a9]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-fef353a9]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-fef353a9]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-fef353a9]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-fef353a9]{color:var(--fg,#fffffff0)}.pulls-routed-owner[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);margin:0;font-size:11px}.pulls-routed-source code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-fef353a9]{gap:8px;display:grid}.pulls-linked-issues header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion[data-v-fef353a9]{gap:8px;display:grid}.pulls-detail-discussion>header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-detail-discussion>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion-count[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.pulls-linked-issues .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-linked-issues ul[data-v-fef353a9]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-fef353a9]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-fef353a9]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0);background:var(--bg-2,#0e1014)}.pulls-linked-issues li .issue-link[data-v-fef353a9]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--line,#ffffff12);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-fef353a9]:hover{color:var(--fg,#fffffff0);border-color:var(--fg,#fffffff0)}.pulls-linked-foot[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-fef353a9]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-fef353a9]{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-fef353a9],.pulls-error[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px}.pulls-error[data-v-fef353a9]{color:var(--accent-err,#c9341c)}"]], ["__scopeId", "data-v-fef353a9"]]), hd = {
 	class: "pulls-overview",
 	"data-smoke": "pulls-overview"
-}, md = ["href"], hd = {
+}, gd = { class: "heading" }, _d = {
 	key: 0,
-	class: "muted"
-}, gd = {
+	class: "total"
+}, vd = ["href"], yd = {
+	key: 0,
+	class: "readiness-summary",
+	"data-smoke": "pulls-readiness-summary",
+	"aria-label": "Pull request readiness summary"
+}, bd = { class: "summary-value" }, xd = { class: "summary-label" }, Sd = {
 	key: 1,
 	class: "muted"
-}, _d = {
+}, Cd = {
 	key: 2,
 	class: "muted"
-}, vd = { key: 3 }, yd = ["href"], bd = { class: "num" }, xd = { class: "title" }, Sd = { class: "age" }, Cd = /* @__PURE__ */ Ul(/* @__PURE__ */ Vn({
+}, wd = {
+	key: 3,
+	class: "muted"
+}, Td = {
+	key: 4,
+	class: "muted"
+}, Ed = { key: 5 }, Dd = ["href"], Od = { class: "row-main" }, kd = { class: "num" }, Ad = { class: "title" }, jd = { class: "row-meta" }, Md = ["title"], Nd = { class: "age" }, Pd = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
 	__name: "PullsOverview",
 	props: {
 		host: { type: Object },
@@ -5924,75 +5972,148 @@ var eu = {
 		repositoryPath: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ I([]), r = /* @__PURE__ */ I("idle"), i = X(() => t.workspaceId ?? t.host?.workspaceId ?? Al()), a = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), o = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), s = X(() => n.value.filter((e) => e.state === "READY" || e.state === "DRAFT").sort((e, t) => {
-			let n = Date.parse(e.updatedAt ?? e.createdAt ?? "") || 0;
-			return (Date.parse(t.updatedAt ?? t.createdAt ?? "") || 0) - n;
-		}).slice(0, 5)), c = X(() => n.value.filter((e) => e.state === "READY").length);
-		nr(() => void d()), Nn(() => [i.value, a.value], () => void d());
-		function l() {
-			return jl(o.value);
+		let t = e, n = [
+			"draft",
+			"blocked-review",
+			"blocked-checks",
+			"needs-review",
+			"waiting-checks",
+			"ready"
+		], r = [
+			"blocked-review",
+			"blocked-checks",
+			"needs-review",
+			"waiting-checks",
+			"ready",
+			"draft"
+		], i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = X(() => t.workspaceId ?? t.host?.workspaceId ?? Ml()), s = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), c = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), l = X(() => {
+			let e = /* @__PURE__ */ new Map();
+			for (let t of i.value?.columns ?? []) e.set(t.key, t);
+			return e;
+		}), u = X(() => n.reduce((e, t) => e + p(t), 0)), d = X(() => [
+			{
+				label: "blocked",
+				value: p("blocked-review") + p("blocked-checks"),
+				tone: "blocked"
+			},
+			{
+				label: "review",
+				value: p("needs-review") + p("blocked-review"),
+				tone: "review"
+			},
+			{
+				label: "checks",
+				value: p("waiting-checks") + p("blocked-checks"),
+				tone: "checks"
+			},
+			{
+				label: "ready",
+				value: p("ready"),
+				tone: "ready"
+			},
+			{
+				label: "draft",
+				value: p("draft"),
+				tone: "draft"
+			}
+		]), f = X(() => {
+			let e = [];
+			for (let t of r) {
+				let n = l.value.get(t);
+				if (n) for (let r of n.cards) e.push({
+					card: r,
+					laneKey: t,
+					laneLabel: n.label
+				});
+			}
+			return e.slice(0, 5);
+		});
+		nr(() => void g()), Nn(() => [o.value, s.value], () => void g());
+		function p(e) {
+			return l.value.get(e)?.count ?? 0;
 		}
-		function u(e) {
-			return Ml(e, o.value);
+		function m() {
+			return Nl(c.value);
 		}
-		async function d() {
-			r.value = "loading";
+		function h(e) {
+			return Pl(e, c.value);
+		}
+		async function g() {
+			a.value = "loading";
 			try {
-				n.value = await xl({
-					workspaceId: i.value,
-					repositoryId: a.value,
-					limit: 32
-				}), r.value = n.value.length > 0 ? "ready" : "empty";
+				let e = await Cl({
+					workspaceId: o.value,
+					repositoryId: s.value,
+					requiredApprovals: 1,
+					limit: 64
+				});
+				i.value = e, a.value = e.total > 0 ? "ready" : "empty";
 			} catch {
-				r.value = "error", n.value = [];
+				a.value = "error", i.value = null;
 			}
 		}
-		return (e, t) => (U(), W("section", pd, [G("header", null, [t[0] ||= G("h3", null, "Pull requests", -1), G("a", { href: l() }, A(c.value) + " open", 9, md)]), r.value === "loading" ? (U(), W("p", hd, "Loading…")) : r.value === "error" ? (U(), W("p", gd, "Could not load pulls.")) : s.value.length === 0 ? (U(), W("p", _d, "No open pull requests.")) : (U(), W("ul", vd, [(U(!0), W(V, null, fr(s.value, (e) => (U(), W("li", { key: e.id }, [G("a", { href: u(e) }, [
-			G("span", bd, "#" + A(e.number), 1),
-			G("span", xd, A(e.title), 1),
-			G("span", { class: k(["state", L(Pl)(e.state).className]) }, A(L(Pl)(e.state).label), 3),
-			G("span", Sd, A(L(Fl)(e.updatedAt ?? e.createdAt)), 1)
-		], 8, yd)]))), 128))]))]));
+		return (e, t) => (U(), W("section", hd, [
+			G("header", null, [G("div", gd, [t[0] ||= G("h3", null, "Pull requests", -1), i.value ? (U(), W("span", _d, A(i.value.total) + " total", 1)) : J("", !0)]), G("a", { href: m() }, A(u.value) + " active", 9, vd)]),
+			a.value === "ready" ? (U(), W("div", yd, [(U(!0), W(V, null, fr(d.value, (e) => (U(), W("div", {
+				key: e.label,
+				class: k(["summary-item", `tone-${e.tone}`])
+			}, [G("span", bd, A(e.value), 1), G("span", xd, A(e.label), 1)], 2))), 128))])) : J("", !0),
+			a.value === "loading" ? (U(), W("p", Sd, "Loading...")) : a.value === "error" ? (U(), W("p", Cd, "Could not load pulls.")) : a.value === "empty" ? (U(), W("p", wd, "No pull requests.")) : f.value.length === 0 ? (U(), W("p", Td, "No active pull requests.")) : (U(), W("ul", Ed, [(U(!0), W(V, null, fr(f.value, (e) => (U(), W("li", {
+				key: e.card.pullRequest.id,
+				"data-smoke": "pulls-readiness-row"
+			}, [G("a", { href: h(e.card.pullRequest) }, [G("span", Od, [
+				G("span", kd, "#" + A(e.card.pullRequest.number), 1),
+				G("span", Ad, A(e.card.pullRequest.title), 1),
+				G("span", { class: k(["lane", `lane-${e.laneKey}`]) }, A(e.laneLabel), 3)
+			]), G("span", jd, [G("span", {
+				class: "branch",
+				title: `${e.card.pullRequest.headRef} -> ${e.card.pullRequest.baseRef}`
+			}, [
+				q(A(e.card.pullRequest.headRef) + " ", 1),
+				t[1] ||= G("span", null, "->", -1),
+				q(" " + A(e.card.pullRequest.baseRef), 1)
+			], 8, Md), G("span", Nd, A(L(Ll)(e.card.pullRequest.updatedAt ?? e.card.pullRequest.createdAt)), 1)])], 8, Dd)]))), 128))]))
+		]));
 	}
-}), [["styles", [".pulls-overview[data-v-a6723eb1]{gap:8px;display:grid}.pulls-overview header[data-v-a6723eb1]{justify-content:space-between;align-items:baseline;display:flex}.pulls-overview h3[data-v-a6723eb1]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-a6723eb1],.muted[data-v-a6723eb1]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px;text-decoration:none}.pulls-overview ul[data-v-a6723eb1]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-a6723eb1]{color:inherit;border-bottom:.5px solid var(--line,#ffffff12);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:8px;padding:6px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-a6723eb1]{border-bottom:0}.num[data-v-a6723eb1]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.title[data-v-a6723eb1]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.state[data-v-a6723eb1]{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.state.pr-state-ready[data-v-a6723eb1]{color:var(--accent-teal,#087f6f)}.state.pr-state-draft[data-v-a6723eb1]{color:var(--fg-3,#ffffff85)}.state.pr-state-merged[data-v-a6723eb1]{color:var(--accent-blue,#1d55a6)}.state.pr-state-closed[data-v-a6723eb1]{color:var(--accent-err,#c9341c)}.age[data-v-a6723eb1]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}"]], ["__scopeId", "data-v-a6723eb1"]]), wd = {
+}), [["styles", [".pulls-overview[data-v-a4e5c322]{gap:10px;display:grid}.pulls-overview header[data-v-a4e5c322]{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.heading[data-v-a4e5c322]{gap:2px;min-width:0;display:grid}.pulls-overview h3[data-v-a4e5c322]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-a4e5c322],.total[data-v-a4e5c322],.muted[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px;text-decoration:none}.pulls-overview header a[data-v-a4e5c322]{white-space:nowrap}.readiness-summary[data-v-a4e5c322]{grid-template-columns:repeat(auto-fit,minmax(52px,1fr));gap:4px;display:grid}.summary-item[data-v-a4e5c322]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);border-radius:6px;gap:2px;min-width:0;padding:6px;display:grid}.summary-value[data-v-a4e5c322]{font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;line-height:1}.summary-label[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--font-mono,monospace);text-transform:uppercase;letter-spacing:0;color:var(--fg-3,#ffffff85);font-size:10px;line-height:1.1;overflow:hidden}.summary-item.tone-blocked .summary-value[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.summary-item.tone-review .summary-value[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.summary-item.tone-checks .summary-value[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.summary-item.tone-ready .summary-value[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.summary-item.tone-draft .summary-value[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.pulls-overview ul[data-v-a4e5c322]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-a4e5c322]{color:inherit;border-bottom:.5px solid var(--line,#ffffff12);gap:4px;padding:8px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-a4e5c322]{border-bottom:0}.row-main[data-v-a4e5c322]{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;display:grid}.row-meta[data-v-a4e5c322]{justify-content:space-between;align-items:center;gap:8px;min-width:0;display:flex}.num[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.title[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.lane[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;max-width:96px;font-family:var(--font-mono,monospace);letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px;overflow:hidden}.lane-ready[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.lane-draft[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.lane-needs-review[data-v-a4e5c322],.lane-blocked-review[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.lane-waiting-checks[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.lane-blocked-checks[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.branch[data-v-a4e5c322],.age[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.branch[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.branch span[data-v-a4e5c322]{color:var(--fg-4,#ffffff57);padding:0 3px}.age[data-v-a4e5c322]{flex:none}"]], ["__scopeId", "data-v-a4e5c322"]]), Fd = {
 	class: "pulls-queue",
 	"data-smoke": "pulls-queue"
-}, Td = { class: "pulls-queue-head" }, Ed = { class: "pulls-queue-controls" }, Dd = {
+}, Id = { class: "pulls-queue-head" }, Ld = { class: "pulls-queue-controls" }, Rd = {
 	class: "pulls-filter-row",
 	role: "tablist",
 	"aria-label": "Filter pull requests by state"
-}, Od = ["aria-selected", "onClick"], kd = { class: "count" }, Ad = { class: "pulls-search" }, jd = {
+}, zd = ["aria-selected", "onClick"], Bd = { class: "count" }, Vd = { class: "pulls-search" }, Hd = {
 	key: 0,
 	class: "pulls-query-chips",
 	"data-smoke": "pulls-query-chips",
 	"aria-label": "Parsed search filters"
-}, Md = ["title"], Nd = {
+}, Ud = ["title"], Wd = {
 	key: 1,
 	class: "pulls-author-filter",
 	"data-smoke": "pulls-author-filter"
-}, Pd = ["data-author-kind", "title"], Fd = { class: "author-glyph" }, Id = {
+}, Gd = ["data-author-kind", "title"], Kd = { class: "author-glyph" }, qd = {
 	key: 0,
 	class: "pulls-empty"
-}, Ld = {
+}, Jd = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, Rd = {
+}, Yd = {
 	key: 2,
 	class: "pulls-empty"
-}, zd = {
+}, Xd = {
 	key: 3,
 	class: "pulls-empty"
-}, Bd = {
+}, Zd = {
 	key: 4,
 	class: "pulls-list",
 	role: "listbox",
 	"aria-label": "Pull requests"
-}, Vd = ["aria-selected", "onMouseenter"], Hd = ["href"], Ud = { class: "pulls-row-number" }, Wd = { class: "pulls-row-body" }, Gd = { class: "pulls-row-title" }, Kd = { class: "pulls-row-meta" }, qd = { class: "pulls-branch" }, Jd = [
+}, Qd = ["aria-selected", "onMouseenter"], $d = ["href"], ef = { class: "pulls-row-number" }, tf = { class: "pulls-row-body" }, nf = { class: "pulls-row-title" }, rf = { class: "pulls-row-meta" }, af = { class: "pulls-branch" }, of = [
 	"data-author-kind",
 	"title",
 	"onClick"
-], Yd = { class: "author-glyph" }, Xd = { class: "author-label" }, Zd = { class: "pulls-row-age" }, Qd = /* @__PURE__ */ Ul(/* @__PURE__ */ Vn({
+], sf = { class: "author-glyph" }, cf = { class: "author-label" }, lf = { class: "pulls-row-age" }, uf = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
 	__name: "PullsQueue",
 	props: {
 		host: { type: Object },
@@ -6013,6 +6134,11 @@ var eu = {
 				key: "d"
 			},
 			{
+				id: "REVIEW",
+				label: "Review",
+				key: "r"
+			},
+			{
 				id: "MERGED",
 				label: "Merged",
 				key: "m"
@@ -6027,9 +6153,13 @@ var eu = {
 				label: "All",
 				key: "a"
 			}
-		], r = /* @__PURE__ */ I("OPEN"), i = /* @__PURE__ */ I(""), a = /* @__PURE__ */ I(""), o = /* @__PURE__ */ I([]), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(0), u = X(() => t.workspaceId ?? t.host?.workspaceId ?? Al()), d = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), p = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "READY" : e.state === t, m = ["is", "author"], h = {
+		], r = /* @__PURE__ */ I("OPEN"), i = /* @__PURE__ */ I(""), a = /* @__PURE__ */ I(""), o = /* @__PURE__ */ I([]), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(0), u = X(() => t.workspaceId ?? t.host?.workspaceId ?? Ml()), d = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), p = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state !== "MERGED" && e.state !== "CLOSED" : e.state === t, m = ["is", "author"], h = {
 			open: "OPEN",
 			draft: "DRAFT",
+			review: "REVIEW",
+			reviews: "REVIEW",
+			"in-review": "REVIEW",
+			in_review: "REVIEW",
 			merged: "MERGED",
 			closed: "CLOSED",
 			all: "ALL"
@@ -6089,15 +6219,17 @@ var eu = {
 			let e = {
 				OPEN: 0,
 				DRAFT: 0,
+				REVIEW: 0,
 				MERGED: 0,
 				CLOSED: 0,
 				ALL: o.value.length
 			};
-			for (let t of o.value) t.state === "READY" && (e.OPEN += 1), t.state === "DRAFT" && (e.DRAFT += 1), t.state === "MERGED" && (e.MERGED += 1), t.state === "CLOSED" && (e.CLOSED += 1);
+			for (let t of o.value) t.state !== "MERGED" && t.state !== "CLOSED" && (e.OPEN += 1), t.state === "DRAFT" && (e.DRAFT += 1), t.state === "REVIEW" && (e.REVIEW += 1), t.state === "MERGED" && (e.MERGED += 1), t.state === "CLOSED" && (e.CLOSED += 1);
 			return e;
 		}), w = new Set([
 			"OPEN",
 			"DRAFT",
+			"REVIEW",
 			"MERGED",
 			"CLOSED",
 			"ALL"
@@ -6166,7 +6298,7 @@ var eu = {
 			i.value &&= (e.preventDefault(), "");
 		}
 		function E(e) {
-			return Ml(e, f.value);
+			return Pl(e, f.value);
 		}
 		async function ie() {
 			s.value = "loading", c.value = null;
@@ -6182,10 +6314,10 @@ var eu = {
 				o.value = [], s.value = "error", c.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		return (e, t) => (U(), W("section", wd, [
-			G("header", Td, [
+		return (e, t) => (U(), W("section", Fd, [
+			G("header", Id, [
 				t[4] ||= G("h2", null, "Pull requests", -1),
-				G("div", Ed, [G("div", Dd, [(U(), W(V, null, fr(n, (e) => G("button", {
+				G("div", Ld, [G("div", Rd, [(U(), W(V, null, fr(n, (e) => G("button", {
 					key: e.id,
 					type: "button",
 					role: "tab",
@@ -6194,9 +6326,9 @@ var eu = {
 					onClick: (t) => r.value = e.id
 				}, [
 					G("span", null, A(e.label), 1),
-					G("span", kd, A(C.value[e.id]), 1),
+					G("span", Bd, A(C.value[e.id]), 1),
 					G("kbd", null, A(e.key), 1)
-				], 10, Od)), 64))]), G("label", Ad, [Dn(G("input", {
+				], 10, zd)), 64))]), G("label", Vd, [Dn(G("input", {
 					"data-pulls-search": "",
 					"onUpdate:modelValue": t[0] ||= (e) => i.value = e,
 					type: "search",
@@ -6204,25 +6336,27 @@ var eu = {
 					autocomplete: "off",
 					onKeydown: po(re, ["esc"])
 				}, null, 544), [[so, i.value]]), t[1] ||= G("kbd", null, "/", -1)])]),
-				b.value.length > 0 ? (U(), W("div", jd, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("span", {
+				b.value.length > 0 ? (U(), W("div", Hd, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("span", {
 					key: `${e.key}:${e.value || "unknown"}`,
 					class: k(["query-chip", `tone-${e.tone}`]),
 					title: e.tone === "unknown" ? `Unknown filter key: ${e.key}` : e.value
-				}, A(e.label), 11, Md))), 128)), t[2] ||= G("span", { class: "query-chips-hint" }, [
+				}, A(e.label), 11, Ud))), 128)), t[2] ||= G("span", { class: "query-chips-hint" }, [
 					q(" syntax: "),
 					G("code", null, "is:open"),
-					q(" · "),
+					q(" | "),
 					G("code", null, "is:draft"),
-					q(" · "),
+					q(" | "),
+					G("code", null, "is:review"),
+					q(" | "),
 					G("code", null, "author:<urn>")
 				], -1)])) : J("", !0),
-				a.value ? (U(), W("div", Nd, [
+				a.value ? (U(), W("div", Wd, [
 					t[3] ||= G("span", { class: "prefix" }, "authored by", -1),
 					G("span", {
 						class: "active-chip",
 						"data-author-kind": L(ll)(a.value).kind,
 						title: a.value
-					}, [G("span", Fd, A(L(ll)(a.value).glyph), 1), q(" " + A(L(ll)(a.value).label), 1)], 8, Pd),
+					}, [G("span", Kd, A(L(ll)(a.value).glyph), 1), q(" " + A(L(ll)(a.value).label), 1)], 8, Gd),
 					G("button", {
 						type: "button",
 						class: "clear",
@@ -6231,11 +6365,11 @@ var eu = {
 					}, "clear ✕")
 				])) : J("", !0)
 			]),
-			s.value === "loading" ? (U(), W("p", Id, "Loading pull requests…")) : s.value === "error" ? (U(), W("p", Ld, A(c.value), 1)) : o.value.length === 0 ? (U(), W("p", Rd, [...t[5] ||= [
+			s.value === "loading" ? (U(), W("p", qd, "Loading pull requests…")) : s.value === "error" ? (U(), W("p", Jd, A(c.value), 1)) : o.value.length === 0 ? (U(), W("p", Yd, [...t[5] ||= [
 				q(" No pull requests yet. Push a branch and open one through the ", -1),
 				G("code", null, "create-pull", -1),
 				q(" op or the SDK. ", -1)
-			]])) : y.value.length === 0 ? (U(), W("p", zd, " No pull requests match the current filter. ")) : (U(), W("ol", Bd, [(U(!0), W(V, null, fr(y.value, (e, n) => (U(), W("li", {
+			]])) : y.value.length === 0 ? (U(), W("p", Xd, " No pull requests match the current filter. ")) : (U(), W("ol", Zd, [(U(!0), W(V, null, fr(y.value, (e, n) => (U(), W("li", {
 				key: e.id,
 				class: k(["pulls-row", { focused: n === l.value }]),
 				role: "option",
@@ -6245,10 +6379,10 @@ var eu = {
 				href: E(e),
 				class: "pulls-row-link"
 			}, [
-				G("span", Ud, "#" + A(e.number), 1),
-				G("span", Wd, [G("span", Gd, A(e.title), 1), G("span", Kd, [
-					G("span", { class: k(["pulls-state", L(Pl)(e.state).className]) }, A(L(Pl)(e.state).label), 3),
-					G("code", qd, [
+				G("span", ef, "#" + A(e.number), 1),
+				G("span", tf, [G("span", nf, A(e.title), 1), G("span", rf, [
+					G("span", { class: k(["pulls-state", L(Il)(e.state).className]) }, A(L(Il)(e.state).label), 3),
+					G("code", af, [
 						q(A(e.headRef) + " ", 1),
 						t[6] ||= G("span", null, "→", -1),
 						q(" " + A(e.baseRef), 1)
@@ -6259,41 +6393,41 @@ var eu = {
 						"data-author-kind": L(ll)(e.authorRef).kind,
 						title: `${e.authorRef}\nClick to filter by this author`,
 						onClick: uo((t) => x(e.authorRef), ["prevent", "stop"])
-					}, [G("span", Yd, A(L(ll)(e.authorRef).glyph), 1), G("span", Xd, A(L(ll)(e.authorRef).label), 1)], 10, Jd)
+					}, [G("span", sf, A(L(ll)(e.authorRef).glyph), 1), G("span", cf, A(L(ll)(e.authorRef).label), 1)], 10, of)
 				])]),
-				G("span", Zd, A(L(Fl)(e.updatedAt ?? e.createdAt)), 1)
-			], 8, Hd)], 42, Vd))), 128))])),
-			t[7] ||= Bi("<footer class=\"pulls-queue-foot\" data-v-4fbb2eed><span data-v-4fbb2eed><kbd data-v-4fbb2eed>j</kbd> <kbd data-v-4fbb2eed>k</kbd> navigate · <kbd data-v-4fbb2eed>↵</kbd> open · <kbd data-v-4fbb2eed>/</kbd> search · <kbd data-v-4fbb2eed>o</kbd> open <kbd data-v-4fbb2eed>d</kbd> draft <kbd data-v-4fbb2eed>m</kbd> merged <kbd data-v-4fbb2eed>c</kbd> closed <kbd data-v-4fbb2eed>a</kbd> all </span></footer>", 1)
+				G("span", lf, A(L(Ll)(e.updatedAt ?? e.createdAt)), 1)
+			], 8, $d)], 42, Qd))), 128))])),
+			t[7] ||= Bi("<footer class=\"pulls-queue-foot\" data-v-b94c1a26><span data-v-b94c1a26><kbd data-v-b94c1a26>j</kbd> <kbd data-v-b94c1a26>k</kbd> navigate · <kbd data-v-b94c1a26>↵</kbd> open · <kbd data-v-b94c1a26>/</kbd> search · <kbd data-v-b94c1a26>o</kbd> open <kbd data-v-b94c1a26>d</kbd> draft <kbd data-v-b94c1a26>r</kbd> review <kbd data-v-b94c1a26>m</kbd> merged <kbd data-v-b94c1a26>c</kbd> closed <kbd data-v-b94c1a26>a</kbd> all </span></footer>", 1)
 		]));
 	}
-}), [["styles", [".pulls-queue[data-v-4fbb2eed]{font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:16px;display:grid}.pulls-queue-head[data-v-4fbb2eed]{gap:12px;display:grid}.pulls-queue-head h2[data-v-4fbb2eed]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-4fbb2eed]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-4fbb2eed]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-4fbb2eed]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-4fbb2eed]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.pulls-filter.active[data-v-4fbb2eed]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-filter .count[data-v-4fbb2eed]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-4fbb2eed]{color:var(--bg-2,#0e1014)}.pulls-filter kbd[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-4fbb2eed]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-4fbb2eed]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-4fbb2eed]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.pulls-list[data-v-4fbb2eed]{border-top:.5px solid var(--fg,#fffffff0);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-4fbb2eed]{border-bottom:.5px solid var(--line,#ffffff12)}.pulls-row.focused[data-v-4fbb2eed]{background:var(--bg-2,#0e1014)}.pulls-row-link[data-v-4fbb2eed]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-4fbb2eed]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.pulls-row-number[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-4fbb2eed]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-4fbb2eed]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-4fbb2eed]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-4fbb2eed]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-4fbb2eed]{color:var(--fg-3,#ffffff85)}.pulls-state.pr-state-merged[data-v-4fbb2eed]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-4fbb2eed]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.pulls-branch span[data-v-4fbb2eed]{color:var(--fg-4,#ffffff57);padding:0 4px}.pulls-author[data-v-4fbb2eed]{color:inherit;font:inherit;font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-4fbb2eed]:hover{background:var(--bg-2,#0e1014);border-color:currentColor}.pulls-author.active[data-v-4fbb2eed]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0);border-style:solid}.pulls-author.active .author-glyph[data-v-4fbb2eed],.pulls-author.active .author-label[data-v-4fbb2eed]{color:inherit}.pulls-query-chips[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-4fbb2eed]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-4fbb2eed]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-4fbb2eed]{color:var(--fg,#fffffff0)}.pulls-query-chips .query-chip.tone-unknown[data-v-4fbb2eed]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-4fbb2eed]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-4fbb2eed]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-4fbb2eed]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-4fbb2eed]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-4fbb2eed]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-4fbb2eed]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-4fbb2eed]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-4fbb2eed]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-4fbb2eed]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-4fbb2eed]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-4fbb2eed]:hover{color:var(--fg,#fffffff0)}.pulls-author .author-glyph[data-v-4fbb2eed]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-4fbb2eed],.pulls-author[data-author-kind=agent] .author-label[data-v-4fbb2eed],.pulls-author[data-author-kind=agent] .author-badge[data-v-4fbb2eed]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-4fbb2eed],.pulls-author[data-author-kind=credential] .author-label[data-v-4fbb2eed],.pulls-author[data-author-kind=credential] .author-badge[data-v-4fbb2eed]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-4fbb2eed],.pulls-author[data-author-kind=bot] .author-label[data-v-4fbb2eed],.pulls-author[data-author-kind=bot] .author-badge[data-v-4fbb2eed]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-4fbb2eed]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.pulls-empty[data-v-4fbb2eed],.pulls-error[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.pulls-error[data-v-4fbb2eed]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-queue-foot kbd[data-v-4fbb2eed]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-4fbb2eed"]]), $d = "ext_pull_requests", ef = "comtrya-pulls-queue", tf = "comtrya-pulls-detail", nf = "comtrya-pulls-overview";
+}), [["styles", [".pulls-queue[data-v-b94c1a26]{font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:16px;display:grid}.pulls-queue-head[data-v-b94c1a26]{gap:12px;display:grid}.pulls-queue-head h2[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-b94c1a26]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-b94c1a26]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-b94c1a26]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.pulls-filter.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-filter .count[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-b94c1a26]{color:var(--bg-2,#0e1014)}.pulls-filter kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-b94c1a26]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.pulls-list[data-v-b94c1a26]{border-top:.5px solid var(--fg,#fffffff0);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-b94c1a26]{border-bottom:.5px solid var(--line,#ffffff12)}.pulls-row.focused[data-v-b94c1a26]{background:var(--bg-2,#0e1014)}.pulls-row-link[data-v-b94c1a26]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.pulls-row-number[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-b94c1a26]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-b94c1a26]{letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-b94c1a26]{color:var(--fg-3,#ffffff85)}.pulls-state.pr-state-review[data-v-b94c1a26],.pulls-state.pr-state-merged[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.pulls-branch span[data-v-b94c1a26]{color:var(--fg-4,#ffffff57);padding:0 4px}.pulls-author[data-v-b94c1a26]{color:inherit;font:inherit;font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);border-color:currentColor}.pulls-author.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0);border-style:solid}.pulls-author.active .author-glyph[data-v-b94c1a26],.pulls-author.active .author-label[data-v-b94c1a26]{color:inherit}.pulls-query-chips[data-v-b94c1a26]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-b94c1a26]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-b94c1a26]{color:var(--fg,#fffffff0)}.pulls-query-chips .query-chip.tone-unknown[data-v-b94c1a26]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-b94c1a26]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-b94c1a26]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-b94c1a26]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-b94c1a26]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-b94c1a26]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-b94c1a26]:hover{color:var(--fg,#fffffff0)}.pulls-author .author-glyph[data-v-b94c1a26]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-badge[data-v-b94c1a26]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-badge[data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-badge[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-b94c1a26]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.pulls-empty[data-v-b94c1a26],.pulls-error[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.pulls-error[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-queue-foot kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-b94c1a26"]]), df = "ext_pull_requests", ff = "comtrya-pulls-queue", pf = "comtrya-pulls-detail", mf = "comtrya-pulls-overview";
 dl({
-	tagName: ef,
-	component: Qd
+	tagName: ff,
+	component: uf
 }), dl({
-	tagName: tf,
-	component: fd
+	tagName: pf,
+	component: md
 }), dl({
-	tagName: nf,
-	component: Cd
+	tagName: mf,
+	component: Pd
 });
-var rf = {
-	id: $d,
+var hf = {
+	id: df,
 	setup(e) {
 		e.registerWidget({
 			id: "pulls-overview",
-			element: nf,
+			element: mf,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/", {
-			element: ef,
+			element: ff,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/:pullId", {
-			element: tf,
+			element: pf,
 			requiredPermission: "pull-requests.read"
-		}), Bl();
+		}), Hl();
 	}
 };
 //#endregion
-export { rf as default };
+export { hf as default };
