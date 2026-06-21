@@ -2881,6 +2881,7 @@ json_assert "pr created with pul_ id and DRAFT state" "$TMP_DIR/rx-pr.json" \
 REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.id')"
 REACTOR_PR_REF="comtrya://pull-request/$REACTOR_PR_ID"
 REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
+REACTOR_REVIEWER_REF="comtrya://user/reviewer"
 
 expect_status "review-board groups draft pull requests" 200 "$TMP_DIR/rx-pr-review-board-draft.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -2938,13 +2939,53 @@ expect_status "review-decision-board starts reviewed PRs in awaiting lane" 200 "
 json_assert "review decision board has the awaiting-review PR card" "$TMP_DIR/rx-pr-review-decision-awaiting.json" \
   "json.total === 1 && json.columns.length === 6 && json.columns.find((c) => c.key === \"awaiting-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.latestReview === null && card.terminal === false)"
 
+expect_status "request-review records requested reviewer" 200 "$TMP_DIR/rx-pr-review-request.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"requestedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/request-review"
+json_assert "request-review returns a pending review request" "$TMP_DIR/rx-pr-review-request.json" \
+  "json.id.startsWith(\"prq_\") && json.pullId === \"$REACTOR_PR_ID\" && json.reviewerRef === \"$REACTOR_REVIEWER_REF\" && json.completedReview === null"
+
+expect_status "list-review-requests returns requested reviewer" 200 "$TMP_DIR/rx-pr-review-requests-pending.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-review-requests"
+json_assert "list-review-requests starts pending" "$TMP_DIR/rx-pr-review-requests-pending.json" \
+  "json.length === 1 && json[0].reviewerRef === \"$REACTOR_REVIEWER_REF\" && json[0].completedReview === null"
+
+expect_status "review-request-board shows requested reviewer needs review" 200 "$TMP_DIR/rx-pr-review-request-board-needs.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the missing requested reviewer" "$TMP_DIR/rx-pr-review-request-board-needs.json" \
+  "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"needs-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.requestedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.completedReviewerRefs.length === 0)"
+
 expect_status "submit-review records a review comment" 200 "$TMP_DIR/rx-pr-review-comment.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"COMMENT\",\"bodyMarkdown\":\"left implementation notes\",\"reviewerRef\":null}" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"COMMENT\",\"bodyMarkdown\":\"left implementation notes\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
 json_assert "submit-review comment returns a pull review" "$TMP_DIR/rx-pr-review-comment.json" \
   "json.id.startsWith(\"prr_\") && json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"COMMENT\" && json.bodyMarkdown === \"left implementation notes\""
+
+expect_status "list-review-requests attaches completed review" 200 "$TMP_DIR/rx-pr-review-requests-completed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-review-requests"
+json_assert "list-review-requests marks reviewer complete" "$TMP_DIR/rx-pr-review-requests-completed.json" \
+  "json.length === 1 && json[0].reviewerRef === \"$REACTOR_REVIEWER_REF\" && json[0].completedReview.decision === \"COMMENT\""
+
+expect_status "review-request-board moves completed review requests" 200 "$TMP_DIR/rx-pr-review-request-board-reviewed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the completed reviewer" "$TMP_DIR/rx-pr-review-request-board-reviewed.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"reviewed\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.length === 0 && card.latestReview.decision === \"COMMENT\")"
 
 expect_status "review-decision-board moves commented PRs into comments lane" 200 "$TMP_DIR/rx-pr-review-decision-commented.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -2957,7 +2998,7 @@ json_assert "review decision board has the commented PR card" "$TMP_DIR/rx-pr-re
 expect_status "submit-review records an approval" 200 "$TMP_DIR/rx-pr-review-approve.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":null}" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
 json_assert "submit-review approval returns an approval decision" "$TMP_DIR/rx-pr-review-approve.json" \
   "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"APPROVE\""
@@ -2973,7 +3014,7 @@ json_assert "review decision board has the approved PR card" "$TMP_DIR/rx-pr-rev
 expect_status "submit-review records requested changes" 200 "$TMP_DIR/rx-pr-review-request-changes.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"REQUEST_CHANGES\",\"bodyMarkdown\":\"needs a contract test\",\"reviewerRef\":null}" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"REQUEST_CHANGES\",\"bodyMarkdown\":\"needs a contract test\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
 json_assert "submit-review request changes returns a change request" "$TMP_DIR/rx-pr-review-request-changes.json" \
   "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"REQUEST_CHANGES\" && json.bodyMarkdown === \"needs a contract test\""
@@ -3005,7 +3046,7 @@ json_assert "merge readiness board has the review-blocked PR card" "$TMP_DIR/rx-
 expect_status "submit-review records a final approval after requested changes" 200 "$TMP_DIR/rx-pr-review-final-approve.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"changes addressed\",\"reviewerRef\":null}" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"changes addressed\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
 json_assert "submit-review final approval returns approval" "$TMP_DIR/rx-pr-review-final-approve.json" \
   "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"APPROVE\" && json.bodyMarkdown === \"changes addressed\""
@@ -3104,11 +3145,25 @@ expect_status "review-decision-board keeps merged pull requests terminal" 200 "$
 json_assert "review decision board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-decision-merged.json" \
   "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.latestReview.decision === \"APPROVE\")"
 
+expect_status "review-request-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-review-request-board-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-request-board-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.latestReview.decision === \"APPROVE\")"
+
 expect_status "submit-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-terminal.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":null}" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+
+expect_status "request-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-request-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"requestedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/request-review"
 
 expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

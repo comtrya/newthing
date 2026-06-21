@@ -90,6 +90,28 @@ interface pulls {
     created-at: iso-timestamp,
   }
 
+  record request-review-input {
+    pull-id: id,
+    reviewer-ref: uri,
+    requested-by-ref: option<uri>,
+  }
+
+  record list-review-requests-input {
+    pull-id: id,
+    %limit: u32,
+  }
+
+  record pull-review-request {
+    %id: id,
+    pull-id: id,
+    pull-request-ref: uri,
+    repository: uri,
+    reviewer-ref: uri,
+    requested-by-ref: uri,
+    requested-at: iso-timestamp,
+    completed-review: option<pull-review>,
+  }
+
   record pull-review-board-input {
     repository: uri,
     %limit: u32,
@@ -191,17 +213,47 @@ interface pulls {
     columns: list<pull-review-decision-column>,
   }
 
+  record pull-review-request-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-request-card {
+    pull-request: pull-request,
+    requested-reviewer-refs: list<uri>,
+    completed-reviewer-refs: list<uri>,
+    missing-reviewer-refs: list<uri>,
+    latest-review: option<pull-review>,
+    terminal: bool,
+  }
+
+  record pull-review-request-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-request-card>,
+  }
+
+  record pull-review-request-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-request-column>,
+  }
+
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
   change-state-pull: func(input: change-state-pull-input) -> result<pull-request, error>;
   submit-review: func(input: submit-review-input) -> result<pull-review, error>;
   list-pull-reviews: func(input: list-pull-reviews-input) -> result<list<pull-review>, error>;
+  request-review: func(input: request-review-input) -> result<pull-review-request, error>;
+  list-review-requests: func(input: list-review-requests-input) -> result<list<pull-review-request>, error>;
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
   merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
   review-decision-board: func(input: pull-review-decision-board-input) -> result<pull-review-decision-board, error>;
+  review-request-board: func(input: pull-review-request-board-input) -> result<pull-review-request-board, error>;
 }
 
 world ext-pull-requests {
