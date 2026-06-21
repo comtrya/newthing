@@ -163,9 +163,11 @@ export function defineCoreSlotMountElement(): void {
         node.dataset.extensionSlot = this.currentName;
         node.extensionSlot = this.currentName;
         for (const [key, value] of Object.entries(extensionElementContext())) {
+          syncContextAttribute(node, key, value);
           node[key] = value;
         }
         for (const [key, value] of Object.entries(this.currentElementContext)) {
+          syncContextAttribute(node, key, value);
           node[key] = value;
         }
         return node;
@@ -185,4 +187,17 @@ function buildPlaceholder(message: string): HTMLElement {
 
 function isRecord(value: unknown): value is ElementContext {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function syncContextAttribute(node: HTMLElement, key: string, value: unknown): void {
+  const attribute = kebabCase(key);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    node.setAttribute(attribute, String(value));
+  } else {
+    node.removeAttribute(attribute);
+  }
+}
+
+function kebabCase(value: string): string {
+  return value.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
 }

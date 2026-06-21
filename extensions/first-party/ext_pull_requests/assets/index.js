@@ -2942,17 +2942,23 @@ function bo(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/session.ts
-var xo, So;
+var xo = "__comtryaSessionState", So = "__comtryaOperatorCode";
 async function Co(e = {}) {
-	return xo && xo.expiresAtMs > Date.now() + 5e3 ? xo.token : (So ||= To(e).finally(() => {
-		So = void 0;
-	}), So);
+	let t = Eo();
+	if (t.current && t.current.expiresAtMs > Date.now() + 5e3) return t.current.token;
+	if (!t.inflight) {
+		let n = To(e).finally(() => {
+			Eo().inflight === n && (Eo().inflight = void 0);
+		});
+		t.inflight = n;
+	}
+	return t.inflight;
 }
 function wo() {
-	xo = void 0;
+	Eo().current = void 0;
 }
 async function To(e) {
-	let t = e.operatorCode ?? Eo(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
+	let t = e.operatorCode ?? Do(), n = e.fetchImpl ?? fetch, r = e.baseUrl ?? "";
 	if (!t) return;
 	let i = await n(`${r}/auth/token-exchange`, {
 		method: "POST",
@@ -2974,28 +2980,38 @@ async function To(e) {
 	if (!i.ok) throw Error(`token-exchange failed (${i.status}): ${await i.text()}`);
 	let a = await i.json();
 	if (!a.accessToken) throw Error("token-exchange response missing accessToken");
-	let o = (a.expiresIn ?? 1800) * 1e3;
-	return xo = {
+	let o = (a.expiresIn ?? 1800) * 1e3, s = {
 		token: a.accessToken,
 		expiresAtMs: Date.now() + o
-	}, xo.token;
+	};
+	return Eo().current = s, s.token;
 }
 function Eo() {
+	let e = Oo();
+	return e[xo] ??= {}, e[xo];
+}
+function Do() {
+	let e = Oo()[So];
+	if (e) return e;
 	try {
-		return {
+		let e = {
 			BASE_URL: "/",
 			DEV: !1,
 			MODE: "production",
 			PROD: !0,
 			SSR: !1
 		}?.PUBLIC_COMTRYA_OPERATOR_CODE;
+		return e && (Oo()[So] = e), e;
 	} catch {
 		return;
 	}
 }
+function Oo() {
+	return globalThis;
+}
 //#endregion
 //#region packages/sdk-core/src/runtime.ts
-async function Do(e, t, n, r, i = {}) {
+async function ko(e, t, n, r, i = {}) {
 	let a = `${i.baseUrl ?? ""}/api/ops/${encodeURIComponent(e)}/${encodeURIComponent(t)}/${encodeURIComponent(n)}`, o = { "content-type": "application/json" }, s = i.token ?? await Co();
 	s && (o.authorization = `Bearer ${s}`);
 	try {
@@ -3015,11 +3031,11 @@ async function Do(e, t, n, r, i = {}) {
 			} catch {
 				n = void 0;
 			}
-			let r = ko(e.status), i = typeof n?.message == "string" ? n.message : void 0;
+			let r = jo(e.status), i = typeof n?.message == "string" ? n.message : void 0;
 			return {
 				ok: !1,
 				error: {
-					code: Oo(n?.code) ?? r,
+					code: Ao(n?.code) ?? r,
 					message: i ?? (t || e.statusText),
 					path: n?.path
 				}
@@ -3039,7 +3055,7 @@ async function Do(e, t, n, r, i = {}) {
 		};
 	}
 }
-function Oo(e) {
+function Ao(e) {
 	switch (e) {
 		case "not-found":
 		case "conflict":
@@ -3051,7 +3067,7 @@ function Oo(e) {
 		default: return;
 	}
 }
-function ko(e) {
+function jo(e) {
 	switch (e) {
 		case 400: return "bad-input";
 		case 401: return "unauthenticated";
@@ -3064,17 +3080,17 @@ function ko(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/graphql-client.ts
-var Ao = {
+var Mo = {
 	endpoint: "/graphql",
 	credentials: "include",
 	fetchImpl: typeof fetch < "u" ? fetch.bind(globalThis) : (() => {
 		throw Error("no fetch implementation available");
 	})
-}, jo;
-function Mo() {
-	return jo ||= No(Ao), jo;
+}, No;
+function Po() {
+	return No ||= Fo(Mo), No;
 }
-function No(e) {
+function Fo(e) {
 	let t = async (t, n) => {
 		let r = await Co(), i = { "Content-Type": "application/json" };
 		r && (i.Authorization = `Bearer ${r}`);
@@ -3105,7 +3121,7 @@ function No(e) {
 }
 //#endregion
 //#region packages/sdk-core/src/route-registry.ts
-function Po(e, t = "/") {
+function Io(e, t = "/") {
 	if (!e || e.length === 0) throw Error("buildExtensionUrl requires a non-empty routePrefix");
 	if (e.includes("/")) throw Error(`routePrefix "${e}" must be a single path segment under /x/`);
 	let n = t.startsWith("/") ? t : `/${t}`, r = n.length;
@@ -3114,45 +3130,45 @@ function Po(e, t = "/") {
 }
 //#endregion
 //#region packages/sdk-core/src/live-events.ts
-function Fo(e) {
+function Lo(e) {
 	let t = e.baseUrl ?? "", n = new AbortController();
-	return Io(t, e, n.signal), () => n.abort();
+	return Ro(t, e, n.signal), () => n.abort();
 }
-async function Io(e, t, n) {
+async function Ro(e, t, n) {
 	try {
-		let r = await Lo(e, n, t.token), i = `${e}/events?session=${encodeURIComponent(r)}`, a = await fetch(i, {
+		let r = await zo(e, n, t.token), i = `${e}/events?session=${encodeURIComponent(r)}`, a = await fetch(i, {
 			credentials: "include",
-			headers: Ro(t.token, { Accept: "text/event-stream" }),
+			headers: Bo(t.token, { Accept: "text/event-stream" }),
 			signal: n
 		});
 		if (!a.ok) throw Error(`event stream failed: HTTP ${a.status}`);
-		await zo(a, t, n);
+		await Vo(a, t, n);
 	} catch (e) {
 		if (n.aborted) return;
 		t.onError?.(e instanceof Error ? e : Error(String(e)));
 	}
 }
-async function Lo(e, t, n) {
+async function zo(e, t, n) {
 	let r = await fetch(`${e}/events/session`, {
 		method: "POST",
 		credentials: "include",
-		headers: Ro(n, { "Content-Type": "application/json" }),
+		headers: Bo(n, { "Content-Type": "application/json" }),
 		body: "{}",
 		signal: t
 	}), i = await r.json();
 	if (!r.ok || !i.session) throw Error(i.errors?.[0]?.message ?? "event stream session failed");
 	return i.session;
 }
-function Ro(e, t) {
+function Bo(e, t) {
 	return e ? {
 		...t,
 		Authorization: `Bearer ${e}`
 	} : t;
 }
-async function zo(e, t, n) {
+async function Vo(e, t, n) {
 	let r = e.body?.getReader();
 	if (!r) {
-		Bo(await e.text(), t);
+		Ho(await e.text(), t);
 		return;
 	}
 	let i = new TextDecoder(), a = "";
@@ -3162,115 +3178,115 @@ async function zo(e, t, n) {
 		a += i.decode(e.value, { stream: !0 });
 		let n = a.split("\n\n");
 		a = n.pop() ?? "";
-		for (let e of n) Vo(e, t);
+		for (let e of n) Uo(e, t);
 	}
-	a += i.decode(), Bo(a, t);
+	a += i.decode(), Ho(a, t);
 }
-function Bo(e, t) {
-	for (let n of e.split("\n\n")) Vo(n, t);
+function Ho(e, t) {
+	for (let n of e.split("\n\n")) Uo(n, t);
 }
-function Vo(e, t) {
+function Uo(e, t) {
 	let n = e.split("\n"), r = n.find((e) => e.startsWith("event: "))?.slice(7), i = n.filter((e) => e.startsWith("data: ")).map((e) => e.slice(6)).join("\n");
 	if (i) try {
-		let e = Ho(JSON.parse(i), r);
+		let e = Wo(JSON.parse(i), r);
 		if (t.type && e.eventType !== t.type || t.source && e.emitterExtension !== t.source && e.sourceUri !== t.source) return;
 		t.onEvent(e);
 	} catch {}
 }
-function Ho(e, t) {
-	let n = Uo(e) ? e : {}, r = Uo(n.data) ? n.data : {}, i = Wo(r.eventType) ?? Wo(n.type) ?? t ?? "";
+function Wo(e, t) {
+	let n = Go(e) ? e : {}, r = Go(n.data) ? n.data : {}, i = Ko(r.eventType) ?? Ko(n.type) ?? t ?? "";
 	return {
-		id: Wo(r.id) ?? Wo(n.id) ?? "",
+		id: Ko(r.id) ?? Ko(n.id) ?? "",
 		eventType: i,
-		payloadB64: Wo(r.payloadB64) ?? "",
-		timestampMs: Go(r.timestampMs) ?? Ko(Go(n.time)) ?? Date.now(),
-		sourceUri: Wo(r.sourceUri) ?? Wo(n.source) ?? "",
-		emitterExtension: Wo(r.emitterExtension) ?? Wo(r.extensionId) ?? Wo(n.source) ?? "",
+		payloadB64: Ko(r.payloadB64) ?? "",
+		timestampMs: qo(r.timestampMs) ?? Jo(qo(n.time)) ?? Date.now(),
+		sourceUri: Ko(r.sourceUri) ?? Ko(n.source) ?? "",
+		emitterExtension: Ko(r.emitterExtension) ?? Ko(r.extensionId) ?? Ko(n.source) ?? "",
 		raw: e
 	};
 }
-function Uo(e) {
+function Go(e) {
 	return typeof e == "object" && !!e;
 }
-function Wo(e) {
+function Ko(e) {
 	return typeof e == "string" ? e : void 0;
 }
-function Go(e) {
+function qo(e) {
 	return typeof e == "number" && Number.isFinite(e) ? e : void 0;
 }
-function Ko(e) {
+function Jo(e) {
 	return e === void 0 ? void 0 : e * 1e3;
 }
 //#endregion
 //#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
-var qo = [
+var Yo = [
 	"Shift",
 	"Meta",
 	"Alt",
 	"Control"
-], Jo = typeof navigator == "object" ? navigator.platform : "", Yo = /Mac|iPod|iPhone|iPad/.test(Jo), Xo = Yo ? "Meta" : "Control", Zo = Jo === "Win32" ? ["Control", "Alt"] : Yo ? ["Alt"] : [];
-function Qo(e, t) {
-	return typeof e.getModifierState == "function" && (e.getModifierState(t) || Zo.includes(t) && e.getModifierState("AltGraph"));
+], Xo = typeof navigator == "object" ? navigator.platform : "", Zo = /Mac|iPod|iPhone|iPad/.test(Xo), Qo = Zo ? "Meta" : "Control", $o = Xo === "Win32" ? ["Control", "Alt"] : Zo ? ["Alt"] : [];
+function es(e, t) {
+	return typeof e.getModifierState == "function" && (e.getModifierState(t) || $o.includes(t) && e.getModifierState("AltGraph"));
 }
-function $o(e) {
+function ts(e) {
 	return e.trim().split(" ").map(function(e) {
 		var t = e.split(/\b\+/), n = t.pop(), r = n.match(/^\((.+)\)$/);
 		return r && (n = RegExp("^" + r[1] + "$")), [t = t.map(function(e) {
-			return e === "$mod" ? Xo : e;
+			return e === "$mod" ? Qo : e;
 		}), n];
 	});
 }
-function es(e, t) {
+function ns(e, t) {
 	var n = t[0], r = t[1];
 	return !((r instanceof RegExp ? !r.test(e.key) && !r.test(e.code) : r.toUpperCase() !== e.key.toUpperCase() && r !== e.code) || n.find(function(t) {
-		return !Qo(e, t);
-	}) || qo.find(function(t) {
-		return !n.includes(t) && r !== t && Qo(e, t);
+		return !es(e, t);
+	}) || Yo.find(function(t) {
+		return !n.includes(t) && r !== t && es(e, t);
 	}));
 }
-function ts(e, t) {
+function rs(e, t) {
 	t === void 0 && (t = {});
 	var n = t.timeout ?? 1e3, r = Object.keys(e).map(function(t) {
-		return [$o(t), e[t]];
+		return [ts(t), e[t]];
 	}), i = /* @__PURE__ */ new Map(), a = null;
 	return function(e) {
 		e instanceof KeyboardEvent && (r.forEach(function(t) {
 			var n = t[0], r = t[1], a = i.get(n) || n;
-			es(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : Qo(e, e.key) || i.delete(n);
+			ns(e, a[0]) ? a.length > 1 ? i.set(n, a.slice(1)) : (i.delete(n), r(e)) : es(e, e.key) || i.delete(n);
 		}), a && clearTimeout(a), a = setTimeout(i.clear.bind(i), n));
 	};
 }
-function ns(e, t, n) {
-	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = ts(t, { timeout: r.timeout });
+function is(e, t, n) {
+	var r = n === void 0 ? {} : n, i = r.event, a = i === void 0 ? "keydown" : i, o = r.capture, s = rs(t, { timeout: r.timeout });
 	return e.addEventListener(a, s, o), function() {
 		e.removeEventListener(a, s, o);
 	};
 }
 //#endregion
 //#region packages/sdk-core/src/command-palette.ts
-var rs = /* @__PURE__ */ new Map(), is = /* @__PURE__ */ new Set();
-function as(e) {
-	rs.set(e.id, e);
-	for (let e of is) e();
+var as = /* @__PURE__ */ new Map(), os = /* @__PURE__ */ new Set();
+function ss(e) {
+	as.set(e.id, e);
+	for (let e of os) e();
 	return () => {
-		rs.delete(e.id);
-		for (let e of is) e();
+		as.delete(e.id);
+		for (let e of os) e();
 	};
 }
 //#endregion
 //#region packages/sdk-core/src/workspace-store.ts
-var os = null, ss = [];
-function cs() {
-	return os;
+var cs = null, ls = [];
+function us() {
+	return cs;
 }
-function ls() {
-	return os === null ? new Promise((e) => {
-		ss.push(e);
-	}) : Promise.resolve(os);
+function ds() {
+	return cs === null ? new Promise((e) => {
+		ls.push(e);
+	}) : Promise.resolve(cs);
 }
 //#endregion
 //#region packages/sdk-vue/src/use-shortcuts.ts
-function us(e) {
+function fs(e) {
 	if (!(e instanceof HTMLElement)) return !1;
 	if (e instanceof HTMLInputElement) {
 		let t = e.type;
@@ -3278,26 +3294,26 @@ function us(e) {
 	}
 	return !!(e instanceof HTMLTextAreaElement || e.isContentEditable);
 }
-function ds(e) {
+function ps(e) {
 	return /Escape/i.test(e) ? !0 : /\$mod|Cmd|Ctrl|Alt|Shift|Meta|Control/i.test(e);
 }
-function fs(e) {
+function ms(e) {
 	let t = {};
 	for (let [n, r] of Object.entries(e)) {
-		if (ds(n)) {
+		if (ps(n)) {
 			t[n] = r;
 			continue;
 		}
 		t[n] = (e) => {
-			us(e.target) || r(e);
+			fs(e.target) || r(e);
 		};
 	}
 	return t;
 }
-function ps(e, t = {}) {
+function hs(e, t = {}) {
 	if (typeof window > "u") return;
-	let n = null, r = fs(e), i = () => {
-		n ||= ns(t.target ?? window, r);
+	let n = null, r = ms(e), i = () => {
+		n ||= is(t.target ?? window, r);
 	}, a = () => {
 		n?.(), n = null;
 	};
@@ -3307,7 +3323,7 @@ function ps(e, t = {}) {
 }
 //#endregion
 //#region node_modules/.bun/marked@18.0.4/node_modules/marked/lib/marked.esm.js
-function ms() {
+function gs() {
 	return {
 		async: !1,
 		breaks: !1,
@@ -3321,12 +3337,12 @@ function ms() {
 		walkTokens: null
 	};
 }
-var hs = ms();
-function gs(e) {
-	hs = e;
-}
-var _s = { exec: () => null };
+var _s = gs();
 function vs(e) {
+	_s = e;
+}
+var ys = { exec: () => null };
+function bs(e) {
 	let t = [];
 	return (n) => {
 		let r = Math.max(0, Math.min(3, n - 1)), i = t[r];
@@ -3343,7 +3359,7 @@ function Z(e, t = "") {
 	};
 	return r;
 }
-var ys = ((e = "") => {
+var xs = ((e = "") => {
 	try {
 		return !!RegExp("(?<=1)(?<!1)" + e);
 	} catch {
@@ -3400,102 +3416,102 @@ var ys = ((e = "") => {
 	notSpaceStart: /^\S*/,
 	endingNewline: /\n$/,
 	listItemRegex: (e) => RegExp(`^( {0,3}${e})((?:[	 ][^\\n]*)?(?:\\n|$))`),
-	nextBulletRegex: vs((e) => RegExp(`^ {0,${e}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)),
-	hrRegex: vs((e) => RegExp(`^ {0,${e}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)),
-	fencesBeginRegex: vs((e) => RegExp(`^ {0,${e}}(?:\`\`\`|~~~)`)),
-	headingBeginRegex: vs((e) => RegExp(`^ {0,${e}}#`)),
-	htmlBeginRegex: vs((e) => RegExp(`^ {0,${e}}<(?:[a-z].*>|!--)`, "i")),
-	blockquoteBeginRegex: vs((e) => RegExp(`^ {0,${e}}>`))
-}, bs = /^(?:[ \t]*(?:\n|$))+/, xs = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/, Ss = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/, Cs = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/, ws = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/, Ts = / {0,3}(?:[*+-]|\d{1,9}[.)])/, Es = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/, Ds = Z(Es).replace(/bull/g, Ts).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex(), Os = Z(Es).replace(/bull/g, Ts).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(), ks = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/, As = /^[^\n]+/, js = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/, Ms = Z(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", js).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(), Ns = Z(/^(bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g, Ts).getRegex(), Ps = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul", Fs = /<!--(?:-?>|[\s\S]*?(?:-->|$))/, Is = Z("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", Fs).replace("tag", Ps).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(), Ls = Z(ks).replace("hr", Cs).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Ps).getRegex(), Rs = {
-	blockquote: Z(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Ls).getRegex(),
-	code: xs,
-	def: Ms,
-	fences: Ss,
-	heading: ws,
-	hr: Cs,
-	html: Is,
-	lheading: Ds,
-	list: Ns,
-	newline: bs,
-	paragraph: Ls,
-	table: _s,
-	text: As
-}, zs = Z("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", Cs).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Ps).getRegex(), Bs = {
-	...Rs,
-	lheading: Os,
-	table: zs,
-	paragraph: Z(ks).replace("hr", Cs).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", zs).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Ps).getRegex()
-}, Vs = {
-	...Rs,
-	html: Z("^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:\"[^\"]*\"|'[^']*'|\\s[^'\"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))").replace("comment", Fs).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),
+	nextBulletRegex: bs((e) => RegExp(`^ {0,${e}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)),
+	hrRegex: bs((e) => RegExp(`^ {0,${e}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)),
+	fencesBeginRegex: bs((e) => RegExp(`^ {0,${e}}(?:\`\`\`|~~~)`)),
+	headingBeginRegex: bs((e) => RegExp(`^ {0,${e}}#`)),
+	htmlBeginRegex: bs((e) => RegExp(`^ {0,${e}}<(?:[a-z].*>|!--)`, "i")),
+	blockquoteBeginRegex: bs((e) => RegExp(`^ {0,${e}}>`))
+}, Ss = /^(?:[ \t]*(?:\n|$))+/, Cs = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/, ws = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/, Ts = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/, Es = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/, Ds = / {0,3}(?:[*+-]|\d{1,9}[.)])/, Os = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/, ks = Z(Os).replace(/bull/g, Ds).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex(), As = Z(Os).replace(/bull/g, Ds).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(), js = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/, Ms = /^[^\n]+/, Ns = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/, Ps = Z(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", Ns).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(), Fs = Z(/^(bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g, Ds).getRegex(), Is = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul", Ls = /<!--(?:-?>|[\s\S]*?(?:-->|$))/, Rs = Z("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", Ls).replace("tag", Is).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(), zs = Z(js).replace("hr", Ts).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Is).getRegex(), Bs = {
+	blockquote: Z(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", zs).getRegex(),
+	code: Cs,
+	def: Ps,
+	fences: ws,
+	heading: Es,
+	hr: Ts,
+	html: Rs,
+	lheading: ks,
+	list: Fs,
+	newline: Ss,
+	paragraph: zs,
+	table: ys,
+	text: Ms
+}, Vs = Z("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", Ts).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Is).getRegex(), Hs = {
+	...Bs,
+	lheading: As,
+	table: Vs,
+	paragraph: Z(js).replace("hr", Ts).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", Vs).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Is).getRegex()
+}, Us = {
+	...Bs,
+	html: Z("^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:\"[^\"]*\"|'[^']*'|\\s[^'\"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))").replace("comment", Ls).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),
 	def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/,
 	heading: /^(#{1,6})(.*)(?:\n+|$)/,
-	fences: _s,
+	fences: ys,
 	lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/,
-	paragraph: Z(ks).replace("hr", Cs).replace("heading", " *#{1,6} *[^\n]").replace("lheading", Ds).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex()
-}, Hs = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/, Us = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/, Ws = /^( {2,}|\\)\n(?!\s*$)/, Gs = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/, Ks = /[\p{P}\p{S}]/u, qs = /[\s\p{P}\p{S}]/u, Js = /[^\s\p{P}\p{S}]/u, Ys = Z(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, qs).getRegex(), Xs = /(?!~)[\p{P}\p{S}]/u, Zs = /(?!~)[\s\p{P}\p{S}]/u, Qs = /(?:[^\s\p{P}\p{S}]|~)/u, $s = Z(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", ys ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex(), ec = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/, tc = Z(ec, "u").replace(/punct/g, Ks).getRegex(), nc = Z(ec, "u").replace(/punct/g, Xs).getRegex(), rc = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)", ic = Z(rc, "gu").replace(/notPunctSpace/g, Js).replace(/punctSpace/g, qs).replace(/punct/g, Ks).getRegex(), ac = Z(rc, "gu").replace(/notPunctSpace/g, Qs).replace(/punctSpace/g, Zs).replace(/punct/g, Xs).getRegex(), oc = Z("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, Js).replace(/punctSpace/g, qs).replace(/punct/g, Ks).getRegex(), sc = Z(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, Ks).getRegex(), cc = Z("^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)", "gu").replace(/notPunctSpace/g, Js).replace(/punctSpace/g, qs).replace(/punct/g, Ks).getRegex(), lc = Z(/\\(punct)/, "gu").replace(/punct/g, Ks).getRegex(), uc = Z(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(), dc = Z(Fs).replace("(?:-->|$)", "-->").getRegex(), fc = Z("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", dc).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(), pc = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/, mc = Z(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", pc).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(), hc = Z(/^!?\[(label)\]\[(ref)\]/).replace("label", pc).replace("ref", js).getRegex(), gc = Z(/^!?\[(ref)\](?:\[\])?/).replace("ref", js).getRegex(), _c = Z("reflink|nolink(?!\\()", "g").replace("reflink", hc).replace("nolink", gc).getRegex(), vc = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/, yc = {
-	_backpedal: _s,
-	anyPunctuation: lc,
-	autolink: uc,
-	blockSkip: $s,
-	br: Ws,
-	code: Us,
-	del: _s,
-	delLDelim: _s,
-	delRDelim: _s,
-	emStrongLDelim: tc,
-	emStrongRDelimAst: ic,
-	emStrongRDelimUnd: oc,
-	escape: Hs,
-	link: mc,
-	nolink: gc,
-	punctuation: Ys,
-	reflink: hc,
-	reflinkSearch: _c,
-	tag: fc,
-	text: Gs,
-	url: _s
-}, bc = {
-	...yc,
-	link: Z(/^!?\[(label)\]\((.*?)\)/).replace("label", pc).getRegex(),
-	reflink: Z(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", pc).getRegex()
-}, xc = {
-	...yc,
-	emStrongRDelimAst: ac,
-	emStrongLDelim: nc,
-	delLDelim: sc,
-	delRDelim: cc,
-	url: Z(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", vc).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),
-	_backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/,
-	del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/,
-	text: Z(/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", vc).getRegex()
+	paragraph: Z(js).replace("hr", Ts).replace("heading", " *#{1,6} *[^\n]").replace("lheading", ks).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex()
+}, Ws = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/, Gs = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/, Ks = /^( {2,}|\\)\n(?!\s*$)/, qs = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/, Js = /[\p{P}\p{S}]/u, Ys = /[\s\p{P}\p{S}]/u, Xs = /[^\s\p{P}\p{S}]/u, Zs = Z(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, Ys).getRegex(), Qs = /(?!~)[\p{P}\p{S}]/u, $s = /(?!~)[\s\p{P}\p{S}]/u, ec = /(?:[^\s\p{P}\p{S}]|~)/u, tc = Z(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", xs ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex(), nc = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/, rc = Z(nc, "u").replace(/punct/g, Js).getRegex(), ic = Z(nc, "u").replace(/punct/g, Qs).getRegex(), ac = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)", oc = Z(ac, "gu").replace(/notPunctSpace/g, Xs).replace(/punctSpace/g, Ys).replace(/punct/g, Js).getRegex(), sc = Z(ac, "gu").replace(/notPunctSpace/g, ec).replace(/punctSpace/g, $s).replace(/punct/g, Qs).getRegex(), cc = Z("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, Xs).replace(/punctSpace/g, Ys).replace(/punct/g, Js).getRegex(), lc = Z(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, Js).getRegex(), uc = Z("^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)", "gu").replace(/notPunctSpace/g, Xs).replace(/punctSpace/g, Ys).replace(/punct/g, Js).getRegex(), dc = Z(/\\(punct)/, "gu").replace(/punct/g, Js).getRegex(), fc = Z(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(), pc = Z(Ls).replace("(?:-->|$)", "-->").getRegex(), mc = Z("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", pc).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(), hc = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/, gc = Z(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", hc).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(), _c = Z(/^!?\[(label)\]\[(ref)\]/).replace("label", hc).replace("ref", Ns).getRegex(), vc = Z(/^!?\[(ref)\](?:\[\])?/).replace("ref", Ns).getRegex(), yc = Z("reflink|nolink(?!\\()", "g").replace("reflink", _c).replace("nolink", vc).getRegex(), bc = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/, xc = {
+	_backpedal: ys,
+	anyPunctuation: dc,
+	autolink: fc,
+	blockSkip: tc,
+	br: Ks,
+	code: Gs,
+	del: ys,
+	delLDelim: ys,
+	delRDelim: ys,
+	emStrongLDelim: rc,
+	emStrongRDelimAst: oc,
+	emStrongRDelimUnd: cc,
+	escape: Ws,
+	link: gc,
+	nolink: vc,
+	punctuation: Zs,
+	reflink: _c,
+	reflinkSearch: yc,
+	tag: mc,
+	text: qs,
+	url: ys
 }, Sc = {
 	...xc,
-	br: Z(Ws).replace("{2,}", "*").getRegex(),
-	text: Z(xc.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex()
+	link: Z(/^!?\[(label)\]\((.*?)\)/).replace("label", hc).getRegex(),
+	reflink: Z(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", hc).getRegex()
 }, Cc = {
-	normal: Rs,
-	gfm: Bs,
-	pedantic: Vs
+	...xc,
+	emStrongRDelimAst: sc,
+	emStrongLDelim: ic,
+	delLDelim: lc,
+	delRDelim: uc,
+	url: Z(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", bc).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),
+	_backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/,
+	del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/,
+	text: Z(/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", bc).getRegex()
 }, wc = {
-	normal: yc,
-	gfm: xc,
-	breaks: Sc,
-	pedantic: bc
+	...Cc,
+	br: Z(Ks).replace("{2,}", "*").getRegex(),
+	text: Z(Cc.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex()
 }, Tc = {
+	normal: Bs,
+	gfm: Hs,
+	pedantic: Us
+}, Ec = {
+	normal: xc,
+	gfm: Cc,
+	breaks: wc,
+	pedantic: Sc
+}, Dc = {
 	"&": "&amp;",
 	"<": "&lt;",
 	">": "&gt;",
 	"\"": "&quot;",
 	"'": "&#39;"
-}, Ec = (e) => Tc[e];
-function Dc(e, t) {
+}, Oc = (e) => Dc[e];
+function kc(e, t) {
 	if (t) {
-		if (Q.escapeTest.test(e)) return e.replace(Q.escapeReplace, Ec);
-	} else if (Q.escapeTestNoEncode.test(e)) return e.replace(Q.escapeReplaceNoEncode, Ec);
+		if (Q.escapeTest.test(e)) return e.replace(Q.escapeReplace, Oc);
+	} else if (Q.escapeTestNoEncode.test(e)) return e.replace(Q.escapeReplaceNoEncode, Oc);
 	return e;
 }
-function Oc(e) {
+function Ac(e) {
 	try {
 		e = encodeURI(e).replace(Q.percentDecode, "%");
 	} catch {
@@ -3503,7 +3519,7 @@ function Oc(e) {
 	}
 	return e;
 }
-function kc(e, t) {
+function jc(e, t) {
 	let n = e.replace(Q.findPipe, (e, t, n) => {
 		let r = !1, i = t;
 		for (; --i >= 0 && n[i] === "\\";) r = !r;
@@ -3514,7 +3530,7 @@ function kc(e, t) {
 	for (; r < n.length; r++) n[r] = n[r].trim().replace(Q.slashPipe, "|");
 	return n;
 }
-function Ac(e, t, n) {
+function Mc(e, t, n) {
 	let r = e.length;
 	if (r === 0) return "";
 	let i = 0;
@@ -3526,12 +3542,12 @@ function Ac(e, t, n) {
 	}
 	return e.slice(0, r - i);
 }
-function jc(e) {
+function Nc(e) {
 	let t = e.split("\n"), n = t.length - 1;
 	for (; n >= 0 && Q.blankLine.test(t[n]);) n--;
 	return t.length - n <= 2 ? e : t.slice(0, n + 1).join("\n");
 }
-function Mc(e, t) {
+function Pc(e, t) {
 	if (e.indexOf(t[1]) === -1) return -1;
 	let n = 0;
 	for (let r = 0; r < e.length; r++) if (e[r] === "\\") r++;
@@ -3539,7 +3555,7 @@ function Mc(e, t) {
 	else if (e[r] === t[1] && (n--, n < 0)) return r;
 	return n > 0 ? -2 : -1;
 }
-function Nc(e, t = 0) {
+function Fc(e, t = 0) {
 	let n = t, r = "";
 	for (let t of e) if (t === "	") {
 		let e = 4 - n % 4;
@@ -3547,7 +3563,7 @@ function Nc(e, t = 0) {
 	} else r += t, n++;
 	return r;
 }
-function Pc(e, t, n, r, i) {
+function Ic(e, t, n, r, i) {
 	let a = t.href, o = t.title || null, s = e[1].replace(i.other.outputLinkReplace, "$1");
 	r.state.inLink = !0;
 	let c = {
@@ -3560,7 +3576,7 @@ function Pc(e, t, n, r, i) {
 	};
 	return r.state.inLink = !1, c;
 }
-function Fc(e, t, n) {
+function Lc(e, t, n) {
 	let r = e.match(n.other.indentCodeCompensation);
 	if (r === null) return t;
 	let i = r[1];
@@ -3571,12 +3587,12 @@ function Fc(e, t, n) {
 		return r.length >= i.length ? e.slice(i.length) : e;
 	}).join("\n");
 }
-var Ic = class {
+var Rc = class {
 	options;
 	rules;
 	lexer;
 	constructor(e) {
-		this.options = e || hs;
+		this.options = e || _s;
 	}
 	space(e) {
 		let t = this.rules.block.newline.exec(e);
@@ -3588,7 +3604,7 @@ var Ic = class {
 	code(e) {
 		let t = this.rules.block.code.exec(e);
 		if (t) {
-			let e = this.options.pedantic ? t[0] : jc(t[0]);
+			let e = this.options.pedantic ? t[0] : Nc(t[0]);
 			return {
 				type: "code",
 				raw: e,
@@ -3600,7 +3616,7 @@ var Ic = class {
 	fences(e) {
 		let t = this.rules.block.fences.exec(e);
 		if (t) {
-			let e = t[0], n = Fc(e, t[3] || "", this.rules);
+			let e = t[0], n = Lc(e, t[3] || "", this.rules);
 			return {
 				type: "code",
 				raw: e,
@@ -3614,12 +3630,12 @@ var Ic = class {
 		if (t) {
 			let e = t[2].trim();
 			if (this.rules.other.endingHash.test(e)) {
-				let t = Ac(e, "#");
+				let t = Mc(e, "#");
 				(this.options.pedantic || !t || this.rules.other.endingSpaceChar.test(t)) && (e = t.trim());
 			}
 			return {
 				type: "heading",
-				raw: Ac(t[0], "\n"),
+				raw: Mc(t[0], "\n"),
 				depth: t[1].length,
 				text: e,
 				tokens: this.lexer.inline(e)
@@ -3630,13 +3646,13 @@ var Ic = class {
 		let t = this.rules.block.hr.exec(e);
 		if (t) return {
 			type: "hr",
-			raw: Ac(t[0], "\n")
+			raw: Mc(t[0], "\n")
 		};
 	}
 	blockquote(e) {
 		let t = this.rules.block.blockquote.exec(e);
 		if (t) {
-			let e = Ac(t[0], "\n").split("\n"), n = "", r = "", i = [];
+			let e = Mc(t[0], "\n").split("\n"), n = "", r = "", i = [];
 			for (; e.length > 0;) {
 				let t = !1, a = [], o;
 				for (o = 0; o < e.length; o++) if (this.rules.other.blockquoteStart.test(e[o])) a.push(e[o]), t = !0;
@@ -3686,7 +3702,7 @@ ${c}` : c;
 				let n = !1, r = "", s = "";
 				if (!(t = a.exec(e)) || this.rules.block.hr.test(e)) break;
 				r = t[0], e = e.substring(r.length);
-				let c = Nc(t[2].split("\n", 1)[0], t[1].length), l = e.split("\n", 1)[0], u = !c.trim(), d = 0;
+				let c = Fc(t[2].split("\n", 1)[0], t[1].length), l = e.split("\n", 1)[0], u = !c.trim(), d = 0;
 				if (this.options.pedantic ? (d = 2, s = c.trimStart()) : u ? d = t[1].length + 1 : (d = c.search(this.rules.other.nonSpaceChar), d = d > 4 ? 1 : d, s = c.slice(d), d += t[1].length), u && this.rules.other.blankLine.test(l) && (r += l + "\n", e = e.substring(l.length + 1), n = !0), !n) {
 					let t = this.rules.other.nextBulletRegex(d), n = this.rules.other.hrRegex(d), i = this.rules.other.fencesBeginRegex(d), a = this.rules.other.headingBeginRegex(d), o = this.rules.other.htmlBeginRegex(d), f = this.rules.other.blockquoteBeginRegex(d);
 					for (; e;) {
@@ -3752,7 +3768,7 @@ ${c}` : c;
 	html(e) {
 		let t = this.rules.block.html.exec(e);
 		if (t) {
-			let e = jc(t[0]);
+			let e = Nc(t[0]);
 			return {
 				type: "html",
 				block: !0,
@@ -3769,7 +3785,7 @@ ${c}` : c;
 			return {
 				type: "def",
 				tag: e,
-				raw: Ac(t[0], "\n"),
+				raw: Mc(t[0], "\n"),
 				href: n,
 				title: r
 			};
@@ -3778,9 +3794,9 @@ ${c}` : c;
 	table(e) {
 		let t = this.rules.block.table.exec(e);
 		if (!t || !this.rules.other.tableDelimiter.test(t[2])) return;
-		let n = kc(t[1]), r = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), i = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split("\n") : [], a = {
+		let n = jc(t[1]), r = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), i = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split("\n") : [], a = {
 			type: "table",
-			raw: Ac(t[0], "\n"),
+			raw: Mc(t[0], "\n"),
 			header: [],
 			align: [],
 			rows: []
@@ -3793,7 +3809,7 @@ ${c}` : c;
 				header: !0,
 				align: a.align[e]
 			});
-			for (let e of i) a.rows.push(kc(e, a.header.length).map((e, t) => ({
+			for (let e of i) a.rows.push(jc(e, a.header.length).map((e, t) => ({
 				text: e,
 				tokens: this.lexer.inline(e),
 				header: !1,
@@ -3808,7 +3824,7 @@ ${c}` : c;
 			let e = t[1].trim();
 			return {
 				type: "heading",
-				raw: Ac(t[0], "\n"),
+				raw: Mc(t[0], "\n"),
 				depth: t[2].charAt(0) === "=" ? 1 : 2,
 				text: e,
 				tokens: this.lexer.inline(e)
@@ -3861,10 +3877,10 @@ ${c}` : c;
 			let e = t[2].trim();
 			if (!this.options.pedantic && this.rules.other.startAngleBracket.test(e)) {
 				if (!this.rules.other.endAngleBracket.test(e)) return;
-				let t = Ac(e.slice(0, -1), "\\");
+				let t = Mc(e.slice(0, -1), "\\");
 				if ((e.length - t.length) % 2 == 0) return;
 			} else {
-				let e = Mc(t[2], "()");
+				let e = Pc(t[2], "()");
 				if (e === -2) return;
 				if (e > -1) {
 					let n = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + e;
@@ -3876,7 +3892,7 @@ ${c}` : c;
 				let e = this.rules.other.pedanticHrefTitle.exec(n);
 				e && (n = e[1], r = e[3]);
 			} else r = t[3] ? t[3].slice(1, -1) : "";
-			return n = n.trim(), this.rules.other.startAngleBracket.test(n) && (n = this.options.pedantic && !this.rules.other.endAngleBracket.test(e) ? n.slice(1) : n.slice(1, -1)), Pc(t, {
+			return n = n.trim(), this.rules.other.startAngleBracket.test(n) && (n = this.options.pedantic && !this.rules.other.endAngleBracket.test(e) ? n.slice(1) : n.slice(1, -1)), Ic(t, {
 				href: n && n.replace(this.rules.inline.anyPunctuation, "$1"),
 				title: r && r.replace(this.rules.inline.anyPunctuation, "$1")
 			}, t[0], this.lexer, this.rules);
@@ -3894,7 +3910,7 @@ ${c}` : c;
 					text: e
 				};
 			}
-			return Pc(n, e, n[0], this.lexer, this.rules);
+			return Ic(n, e, n[0], this.lexer, this.rules);
 		}
 	}
 	emStrong(e, t, n = "") {
@@ -4026,29 +4042,29 @@ ${c}` : c;
 			};
 		}
 	}
-}, Lc = class e {
+}, zc = class e {
 	tokens;
 	options;
 	state;
 	inlineQueue;
 	tokenizer;
 	constructor(e) {
-		this.tokens = [], this.tokens.links = Object.create(null), this.options = e || hs, this.options.tokenizer = this.options.tokenizer || new Ic(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = {
+		this.tokens = [], this.tokens.links = Object.create(null), this.options = e || _s, this.options.tokenizer = this.options.tokenizer || new Rc(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = {
 			inLink: !1,
 			inRawBlock: !1,
 			top: !0
 		};
 		let t = {
 			other: Q,
-			block: Cc.normal,
-			inline: wc.normal
+			block: Tc.normal,
+			inline: Ec.normal
 		};
-		this.options.pedantic ? (t.block = Cc.pedantic, t.inline = wc.pedantic) : this.options.gfm && (t.block = Cc.gfm, this.options.breaks ? t.inline = wc.breaks : t.inline = wc.gfm), this.tokenizer.rules = t;
+		this.options.pedantic ? (t.block = Tc.pedantic, t.inline = Ec.pedantic) : this.options.gfm && (t.block = Tc.gfm, this.options.breaks ? t.inline = Ec.breaks : t.inline = Ec.gfm), this.tokenizer.rules = t;
 	}
 	static get rules() {
 		return {
-			block: Cc,
-			inline: wc
+			block: Tc,
+			inline: Ec
 		};
 	}
 	static lex(t, n) {
@@ -4248,18 +4264,18 @@ ${c}` : c;
 		if (this.options.silent) console.error(t);
 		else throw Error(t);
 	}
-}, Rc = class {
+}, Bc = class {
 	options;
 	parser;
 	constructor(e) {
-		this.options = e || hs;
+		this.options = e || _s;
 	}
 	space(e) {
 		return "";
 	}
 	code({ text: e, lang: t, escaped: n }) {
 		let r = (t || "").match(Q.notSpaceStart)?.[0], i = e.replace(Q.endingNewline, "") + "\n";
-		return r ? "<pre><code class=\"language-" + Dc(r) + "\">" + (n ? i : Dc(i, !0)) + "</code></pre>\n" : "<pre><code>" + (n ? i : Dc(i, !0)) + "</code></pre>\n";
+		return r ? "<pre><code class=\"language-" + kc(r) + "\">" + (n ? i : kc(i, !0)) + "</code></pre>\n" : "<pre><code>" + (n ? i : kc(i, !0)) + "</code></pre>\n";
 	}
 	blockquote({ tokens: e }) {
 		return `<blockquote>
@@ -4329,7 +4345,7 @@ ${e}</tr>
 		return `<em>${this.parser.parseInline(e)}</em>`;
 	}
 	codespan({ text: e }) {
-		return `<code>${Dc(e, !0)}</code>`;
+		return `<code>${kc(e, !0)}</code>`;
 	}
 	br(e) {
 		return "<br>";
@@ -4338,24 +4354,24 @@ ${e}</tr>
 		return `<del>${this.parser.parseInline(e)}</del>`;
 	}
 	link({ href: e, title: t, tokens: n }) {
-		let r = this.parser.parseInline(n), i = Oc(e);
+		let r = this.parser.parseInline(n), i = Ac(e);
 		if (i === null) return r;
 		e = i;
 		let a = "<a href=\"" + e + "\"";
-		return t && (a += " title=\"" + Dc(t) + "\""), a += ">" + r + "</a>", a;
+		return t && (a += " title=\"" + kc(t) + "\""), a += ">" + r + "</a>", a;
 	}
 	image({ href: e, title: t, text: n, tokens: r }) {
 		r && (n = this.parser.parseInline(r, this.parser.textRenderer));
-		let i = Oc(e);
-		if (i === null) return Dc(n);
+		let i = Ac(e);
+		if (i === null) return kc(n);
 		e = i;
-		let a = `<img src="${e}" alt="${Dc(n)}"`;
-		return t && (a += ` title="${Dc(t)}"`), a += ">", a;
+		let a = `<img src="${e}" alt="${kc(n)}"`;
+		return t && (a += ` title="${kc(t)}"`), a += ">", a;
 	}
 	text(e) {
-		return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : Dc(e.text);
+		return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : kc(e.text);
 	}
-}, zc = class {
+}, Vc = class {
 	strong({ text: e }) {
 		return e;
 	}
@@ -4386,12 +4402,12 @@ ${e}</tr>
 	checkbox({ raw: e }) {
 		return e;
 	}
-}, Bc = class e {
+}, Hc = class e {
 	options;
 	renderer;
 	textRenderer;
 	constructor(e) {
-		this.options = e || hs, this.options.renderer = this.options.renderer || new Rc(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new zc();
+		this.options = e || _s, this.options.renderer = this.options.renderer || new Bc(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new Vc();
 	}
 	static parse(t, n) {
 		return new e(n).parse(t);
@@ -4537,11 +4553,11 @@ ${e}</tr>
 		}
 		return n;
 	}
-}, Vc = class {
+}, Uc = class {
 	options;
 	block;
 	constructor(e) {
-		this.options = e || hs;
+		this.options = e || _s;
 	}
 	static passThroughHooks = new Set([
 		"preprocess",
@@ -4567,22 +4583,22 @@ ${e}</tr>
 		return e;
 	}
 	provideLexer(e = this.block) {
-		return e ? Lc.lex : Lc.lexInline;
+		return e ? zc.lex : zc.lexInline;
 	}
 	provideParser(e = this.block) {
-		return e ? Bc.parse : Bc.parseInline;
+		return e ? Hc.parse : Hc.parseInline;
 	}
-}, Hc = class {
-	defaults = ms();
+}, Wc = class {
+	defaults = gs();
 	options = this.setOptions;
 	parse = this.parseMarkdown(!0);
 	parseInline = this.parseMarkdown(!1);
-	Parser = Bc;
-	Renderer = Rc;
-	TextRenderer = zc;
-	Lexer = Lc;
-	Tokenizer = Ic;
-	Hooks = Vc;
+	Parser = Hc;
+	Renderer = Bc;
+	TextRenderer = Vc;
+	Lexer = zc;
+	Tokenizer = Rc;
+	Hooks = Uc;
 	constructor(...e) {
 		this.use(...e);
 	}
@@ -4633,7 +4649,7 @@ ${e}</tr>
 				}
 				"childTokens" in e && e.childTokens && (t.childTokens[e.name] = e.childTokens);
 			}), n.extensions = t), e.renderer) {
-				let t = this.defaults.renderer || new Rc(this.defaults);
+				let t = this.defaults.renderer || new Bc(this.defaults);
 				for (let n in e.renderer) {
 					if (!(n in t)) throw Error(`renderer '${n}' does not exist`);
 					if (["options", "parser"].includes(n)) continue;
@@ -4646,7 +4662,7 @@ ${e}</tr>
 				n.renderer = t;
 			}
 			if (e.tokenizer) {
-				let t = this.defaults.tokenizer || new Ic(this.defaults);
+				let t = this.defaults.tokenizer || new Rc(this.defaults);
 				for (let n in e.tokenizer) {
 					if (!(n in t)) throw Error(`tokenizer '${n}' does not exist`);
 					if ([
@@ -4663,13 +4679,13 @@ ${e}</tr>
 				n.tokenizer = t;
 			}
 			if (e.hooks) {
-				let t = this.defaults.hooks || new Vc();
+				let t = this.defaults.hooks || new Uc();
 				for (let n in e.hooks) {
 					if (!(n in t)) throw Error(`hook '${n}' does not exist`);
 					if (["options", "block"].includes(n)) continue;
 					let r = n, i = e.hooks[r], a = t[r];
-					Vc.passThroughHooks.has(n) ? t[r] = (e) => {
-						if (this.defaults.async && Vc.passThroughHooksRespectAsync.has(n)) return (async () => {
+					Uc.passThroughHooks.has(n) ? t[r] = (e) => {
+						if (this.defaults.async && Uc.passThroughHooksRespectAsync.has(n)) return (async () => {
 							let n = await i.call(t, e);
 							return a.call(t, n);
 						})();
@@ -4706,10 +4722,10 @@ ${e}</tr>
 		}, this;
 	}
 	lexer(e, t) {
-		return Lc.lex(e, t ?? this.defaults);
+		return zc.lex(e, t ?? this.defaults);
 	}
 	parser(e, t) {
-		return Bc.parse(e, t ?? this.defaults);
+		return Hc.parse(e, t ?? this.defaults);
 	}
 	parseMarkdown(e) {
 		return (t, n) => {
@@ -4721,16 +4737,16 @@ ${e}</tr>
 			if (typeof t > "u" || t === null) return a(/* @__PURE__ */ Error("marked(): input parameter is undefined or null"));
 			if (typeof t != "string") return a(/* @__PURE__ */ Error("marked(): input parameter is of type " + Object.prototype.toString.call(t) + ", string expected"));
 			if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
-				let n = i.hooks ? await i.hooks.preprocess(t) : t, r = await (i.hooks ? await i.hooks.provideLexer(e) : e ? Lc.lex : Lc.lexInline)(n, i), a = i.hooks ? await i.hooks.processAllTokens(r) : r;
+				let n = i.hooks ? await i.hooks.preprocess(t) : t, r = await (i.hooks ? await i.hooks.provideLexer(e) : e ? zc.lex : zc.lexInline)(n, i), a = i.hooks ? await i.hooks.processAllTokens(r) : r;
 				i.walkTokens && await Promise.all(this.walkTokens(a, i.walkTokens));
-				let o = await (i.hooks ? await i.hooks.provideParser(e) : e ? Bc.parse : Bc.parseInline)(a, i);
+				let o = await (i.hooks ? await i.hooks.provideParser(e) : e ? Hc.parse : Hc.parseInline)(a, i);
 				return i.hooks ? await i.hooks.postprocess(o) : o;
 			})().catch(a);
 			try {
 				i.hooks && (t = i.hooks.preprocess(t));
-				let n = (i.hooks ? i.hooks.provideLexer(e) : e ? Lc.lex : Lc.lexInline)(t, i);
+				let n = (i.hooks ? i.hooks.provideLexer(e) : e ? zc.lex : zc.lexInline)(t, i);
 				i.hooks && (n = i.hooks.processAllTokens(n)), i.walkTokens && this.walkTokens(n, i.walkTokens);
-				let r = (i.hooks ? i.hooks.provideParser(e) : e ? Bc.parse : Bc.parseInline)(n, i);
+				let r = (i.hooks ? i.hooks.provideParser(e) : e ? Hc.parse : Hc.parseInline)(n, i);
 				return i.hooks && (r = i.hooks.postprocess(r)), r;
 			} catch (e) {
 				return a(e);
@@ -4740,27 +4756,27 @@ ${e}</tr>
 	onError(e, t) {
 		return (n) => {
 			if (n.message += "\nPlease report this to https://github.com/markedjs/marked.", e) {
-				let e = "<p>An error occurred:</p><pre>" + Dc(n.message + "", !0) + "</pre>";
+				let e = "<p>An error occurred:</p><pre>" + kc(n.message + "", !0) + "</pre>";
 				return t ? Promise.resolve(e) : e;
 			}
 			if (t) return Promise.reject(n);
 			throw n;
 		};
 	}
-}, Uc = new Hc();
+}, Gc = new Wc();
 function $(e, t) {
-	return Uc.parse(e, t);
+	return Gc.parse(e, t);
 }
 $.options = $.setOptions = function(e) {
-	return Uc.setOptions(e), $.defaults = Uc.defaults, gs($.defaults), $;
-}, $.getDefaults = ms, $.defaults = hs, $.use = function(...e) {
-	return Uc.use(...e), $.defaults = Uc.defaults, gs($.defaults), $;
+	return Gc.setOptions(e), $.defaults = Gc.defaults, vs($.defaults), $;
+}, $.getDefaults = gs, $.defaults = _s, $.use = function(...e) {
+	return Gc.use(...e), $.defaults = Gc.defaults, vs($.defaults), $;
 }, $.walkTokens = function(e, t) {
-	return Uc.walkTokens(e, t);
-}, $.parseInline = Uc.parseInline, $.Parser = Bc, $.parser = Bc.parse, $.Renderer = Rc, $.TextRenderer = zc, $.Lexer = Lc, $.lexer = Lc.lex, $.Tokenizer = Ic, $.Hooks = Vc, $.parse = $, $.options, $.setOptions, $.use, $.walkTokens, $.parseInline, Bc.parse, Lc.lex;
+	return Gc.walkTokens(e, t);
+}, $.parseInline = Gc.parseInline, $.Parser = Hc, $.parser = Hc.parse, $.Renderer = Bc, $.TextRenderer = Vc, $.Lexer = zc, $.lexer = zc.lex, $.Tokenizer = Rc, $.Hooks = Uc, $.parse = $, $.options, $.setOptions, $.use, $.walkTokens, $.parseInline, Hc.parse, zc.lex;
 //#endregion
 //#region packages/sdk-vue/src/markdown.ts
-var Wc = new Set(/* @__PURE__ */ "h1.h2.h3.h4.h5.h6.p.ul.ol.li.strong.em.b.i.code.pre.a.img.br.hr.blockquote.table.thead.tbody.tfoot.tr.th.td.dl.dt.dd.details.summary.sup.sub.del.ins.s.mark.abbr.cite.q.figure.figcaption.caption.span.div.section.article.aside.header.footer.nav.main".split(".")), Gc = new Set([
+var Kc = new Set(/* @__PURE__ */ "h1.h2.h3.h4.h5.h6.p.ul.ol.li.strong.em.b.i.code.pre.a.img.br.hr.blockquote.table.thead.tbody.tfoot.tr.th.td.dl.dt.dd.details.summary.sup.sub.del.ins.s.mark.abbr.cite.q.figure.figcaption.caption.span.div.section.article.aside.header.footer.nav.main".split(".")), qc = new Set([
 	"class",
 	"id",
 	"title",
@@ -4773,7 +4789,7 @@ var Wc = new Set(/* @__PURE__ */ "h1.h2.h3.h4.h5.h6.p.ul.ol.li.strong.em.b.i.cod
 	"aria-controls",
 	"role",
 	"data-lang"
-]), Kc = {
+]), Jc = {
 	a: new Set([
 		"href",
 		"rel",
@@ -4792,29 +4808,29 @@ var Wc = new Set(/* @__PURE__ */ "h1.h2.h3.h4.h5.h6.p.ul.ol.li.strong.em.b.i.cod
 		"scope"
 	]),
 	td: new Set(["colspan", "rowspan"])
-}, qc = /^\s*(?:javascript|vbscript|data)\s*:/i;
-function Jc(e) {
-	return !qc.test(e);
+}, Yc = /^\s*(?:javascript|vbscript|data)\s*:/i;
+function Xc(e) {
+	return !Yc.test(e);
 }
-function Yc(e) {
+function Zc(e) {
 	return e.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function Xc(e, t) {
+function Qc(e, t) {
 	if (!t.trim()) return "";
 	let n = [], r = /\s+([a-zA-Z][a-zA-Z0-9_:-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=>]+)))?/g, i, a = !1, o = [];
 	for (; (i = r.exec(t)) !== null;) {
 		let t = (i[1] ?? "").toLowerCase(), n = i[2] ?? i[3] ?? i[4] ?? "";
 		if (t.startsWith("on")) continue;
-		let r = Kc[e];
-		(Gc.has(t) || r && r.has(t)) && ((t === "href" || t === "src") && !Jc(n) || (t === "rel" && (a = !0), o.push({
+		let r = Jc[e];
+		(qc.has(t) || r && r.has(t)) && ((t === "href" || t === "src") && !Xc(n) || (t === "rel" && (a = !0), o.push({
 			name: t,
 			value: n
 		})));
 	}
-	for (let { name: e, value: t } of o) n.push(" " + e + "=\"" + Yc(t) + "\"");
+	for (let { name: e, value: t } of o) n.push(" " + e + "=\"" + Zc(t) + "\"");
 	return e === "a" && !a && n.push(" rel=\"noopener noreferrer\""), n.join("");
 }
-var Zc = [
+var $c = [
 	"script",
 	"style",
 	"iframe",
@@ -4827,7 +4843,7 @@ var Zc = [
 	"textarea",
 	"svg",
 	"math"
-], Qc = new Set([
+], el = new Set([
 	"input",
 	"button",
 	"meta",
@@ -4835,9 +4851,9 @@ var Zc = [
 	"base",
 	"applet"
 ]);
-function $c(e) {
+function tl(e) {
 	let t = e;
-	for (let e of Zc) {
+	for (let e of $c) {
 		let n = RegExp("<" + e + "(\\s[^>]*)?>([\\s\\S]*?)<\\/" + e + ">", "gi");
 		t = t.replace(n, "");
 		let r = RegExp("<" + e + "(\\s[^>]*)?>", "gi");
@@ -4847,30 +4863,30 @@ function $c(e) {
 	}
 	return t = t.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9-]*)(\s[^>]*)?(\/?)>/g, (e, t, n, r, i) => {
 		let a = n.toLowerCase();
-		if (Qc.has(a) || !Wc.has(a)) return "";
-		let o = Xc(a, r ?? ""), s = i ? " /" : "";
+		if (el.has(a) || !Kc.has(a)) return "";
+		let o = Qc(a, r ?? ""), s = i ? " /" : "";
 		return "<" + t + a + o + s + ">";
 	}), t;
 }
-function el(e, t) {
+function nl(e, t) {
 	let n = encodeURIComponent(t);
 	return e.split(/(<code[^>]*>[\s\S]*?<\/code>)/).map((e, t) => t % 2 == 1 ? e : e.replace(/(^|[^\w&])#(\d+)\b/g, (e, t, r) => t + "<a href=\"/x/issues/" + n + "/" + r + "\" class=\"issue-ref\">#" + r + "</a>")).join("");
 }
-function tl(e, t = {}) {
+function rl(e, t = {}) {
 	if (!e) return "";
-	let n = $c(new Hc().parse(e, { async: !1 }));
-	return t.workspaceId && (n = el(n, t.workspaceId)), n;
+	let n = tl(new Wc().parse(e, { async: !1 }));
+	return t.workspaceId && (n = nl(n, t.workspaceId)), n;
 }
 //#endregion
 //#region packages/sdk-vue/src/parse-query.ts
-function nl(e, t) {
+function il(e, t) {
 	let n = {}, r = /* @__PURE__ */ new Set(), i = [], a = new Set(t);
 	if (!e || !e.trim()) return {
 		text: "",
 		filters: n,
 		unknown: []
 	};
-	let o = rl(e);
+	let o = al(e);
 	for (let e of o) {
 		if (e.kind === "plain") {
 			i.push(e.text);
@@ -4884,13 +4900,13 @@ function nl(e, t) {
 		unknown: Array.from(r)
 	};
 }
-function rl(e) {
+function al(e) {
 	let t = [], n = e.length, r = 0;
 	for (; r < n;) {
-		for (; r < n && il(e.charCodeAt(r));) r += 1;
+		for (; r < n && ol(e.charCodeAt(r));) r += 1;
 		if (r >= n) break;
 		let i = r, a = -1;
-		for (; r < n && !il(e.charCodeAt(r));) {
+		for (; r < n && !ol(e.charCodeAt(r));) {
 			if (e.charCodeAt(r) === 58 && a === -1 && (a = r, r + 1 < n && e.charCodeAt(r + 1) === 34)) {
 				for (r += 2; r < n && e.charCodeAt(r) !== 34;) r += 1;
 				r < n && (r += 1);
@@ -4901,7 +4917,7 @@ function rl(e) {
 		let o = e.slice(i, r);
 		if (a > i) {
 			let n = e.slice(i, a);
-			if (al(n)) {
+			if (sl(n)) {
 				let i = n.toLowerCase(), o = a + 1, s = e.slice(o, r);
 				s.startsWith("\"") && s.endsWith("\"") && s.length >= 2 && (s = s.slice(1, -1)), t.push({
 					kind: "kv",
@@ -4918,39 +4934,39 @@ function rl(e) {
 	}
 	return t;
 }
-function il(e) {
+function ol(e) {
 	return e === 32 || e === 9 || e === 10 || e === 13;
 }
-function al(e) {
-	if (e.length === 0 || !ol(e.charCodeAt(0))) return !1;
+function sl(e) {
+	if (e.length === 0 || !cl(e.charCodeAt(0))) return !1;
 	for (let t = 1; t < e.length; t += 1) {
 		let n = e.charCodeAt(t);
-		if (!ol(n) && !sl(n) && n !== 95 && n !== 45) return !1;
+		if (!cl(n) && !ll(n) && n !== 95 && n !== 45) return !1;
 	}
 	return !0;
 }
-function ol(e) {
+function cl(e) {
 	return e >= 65 && e <= 90 || e >= 97 && e <= 122;
 }
-function sl(e) {
+function ll(e) {
 	return e >= 48 && e <= 57;
 }
 //#endregion
 //#region packages/sdk-vue/src/classify-principal.ts
-var cl = {
+var ul = {
 	kind: "unknown",
 	label: "unknown",
 	glyph: "·",
 	tone: "neutral"
 };
-function ll(e) {
-	if (!e) return cl;
+function dl(e) {
+	if (!e) return ul;
 	let [t = "", ...n] = e.replace(/^comtrya:\/\//, "").split("/"), r = n.join("/") || e;
 	switch (t) {
 		case "user": return {
 			kind: "human",
 			label: r,
-			glyph: ul(r),
+			glyph: fl(r),
 			tone: "human"
 		};
 		case "agent": return {
@@ -4980,18 +4996,18 @@ function ll(e) {
 		default: return {
 			kind: "unknown",
 			label: r,
-			glyph: ul(r) || "·",
+			glyph: fl(r) || "·",
 			tone: "neutral"
 		};
 	}
 }
-function ul(e) {
+function fl(e) {
 	return e.slice(0, 1).toUpperCase();
 }
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function dl(e) {
-	fl(e.tagName, e.component);
+function pl(e) {
+	ml(e.tagName, e.component);
 	let t = /* @__PURE__ */ $a(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -4999,37 +5015,37 @@ function dl(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(ml(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(gl(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function fl(e, t) {
+function ml(e, t) {
 	if (typeof document > "u") return;
-	let n = pl(t);
+	let n = hl(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function pl(e) {
+function hl(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function ml(e) {
+function gl(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
-var hl = "ext_pull_requests", gl = "pulls";
-function _l(e, t) {
+var _l = "ext_pull_requests", vl = "pulls";
+function yl(e, t) {
 	return t ? `comtrya://workspace/${e}/repository/${t}` : `comtrya://workspace/${e}`;
 }
-function vl(e, t) {
+function bl(e, t) {
 	if (e.ok) return e.value;
 	throw Error(`${t}: ${e.error.message}`);
 }
-function yl(e) {
+function xl(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "draft": return "DRAFT";
 		case "review": return "REVIEW";
@@ -5038,7 +5054,7 @@ function yl(e) {
 		default: return "READY";
 	}
 }
-function bl(e) {
+function Sl(e) {
 	return {
 		id: e.id,
 		repository: e.repository,
@@ -5046,7 +5062,7 @@ function bl(e) {
 		number: e.number,
 		title: e.title,
 		bodyMarkdown: e.bodyMarkdown ?? "",
-		state: yl(e.state),
+		state: xl(e.state),
 		authorRef: e.authorRef,
 		headRef: e.headRef,
 		baseRef: e.baseRef,
@@ -5058,15 +5074,15 @@ function bl(e) {
 		closedByRef: e.closedByRef ?? null
 	};
 }
-async function xl(e) {
-	return vl(await Do(hl, gl, "list-pulls", {
-		repository: _l(e.workspaceId, e.repositoryId),
+async function Cl(e) {
+	return bl(await ko(_l, vl, "list-pulls", {
+		repository: yl(e.workspaceId, e.repositoryId),
 		limit: e.limit ?? 256
-	}), "list-pulls").map(bl);
+	}), "list-pulls").map(Sl);
 }
-function Sl(e) {
+function wl(e) {
 	return {
-		pullRequest: bl(e.pullRequest),
+		pullRequest: Sl(e.pullRequest),
 		terminal: !!e.terminal,
 		blocked: !!e.blocked,
 		waiting: !!e.waiting,
@@ -5078,9 +5094,9 @@ function Sl(e) {
 		reviewSummary: e.reviewSummary
 	};
 }
-async function Cl(e) {
-	let t = vl(await Do(hl, gl, "merge-readiness-board", {
-		repository: _l(e.workspaceId, e.repositoryId),
+async function Tl(e) {
+	let t = bl(await ko(_l, vl, "merge-readiness-board", {
+		repository: yl(e.workspaceId, e.repositoryId),
 		checkSummaries: e.checkSummaries ?? [],
 		requiredApprovals: e.requiredApprovals ?? 1,
 		limit: e.limit ?? 256
@@ -5092,80 +5108,80 @@ async function Cl(e) {
 			key: e.key,
 			label: e.label,
 			count: e.count,
-			cards: e.cards.map(Sl)
+			cards: e.cards.map(wl)
 		}))
 	};
 }
-async function wl(e) {
-	let t = vl(await Do(hl, gl, "get-pull", e), "get-pull");
-	return t ? bl(t) : null;
+async function El(e) {
+	let t = bl(await ko(_l, vl, "get-pull", e), "get-pull");
+	return t ? Sl(t) : null;
 }
-async function Tl(e, t) {
-	return bl(vl(await Do(hl, gl, "merge-pull", {
+async function Dl(e, t) {
+	return Sl(bl(await ko(_l, vl, "merge-pull", {
 		id: e,
 		mergedByRef: t ?? null
 	}), "merge-pull"));
 }
-async function El(e, t) {
-	return bl(vl(await Do(hl, gl, "close-pull", {
+async function Ol(e, t) {
+	return Sl(bl(await ko(_l, vl, "close-pull", {
 		id: e,
 		closedByRef: t ?? null
 	}), "close-pull"));
 }
-function Dl(e) {
+function kl(e) {
 	switch ((typeof e == "string" ? e : e && typeof e == "object" && typeof e.tag == "string" ? e.tag : "").toLowerCase()) {
 		case "closed": return "CLOSED";
 		case "reopened": return "REOPENED";
 		default: return "OPEN";
 	}
 }
-async function Ol(e) {
+async function Al(e) {
 	if (!e) return [];
-	let t = `comtrya://pull-request/${e}`, n = (await Mo().query("query LinkedIssues($from: ResourceURN!, $kind: ResourceURN) {\n      relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n    }", {
+	let t = `comtrya://pull-request/${e}`, n = (await Po().query("query LinkedIssues($from: ResourceURN!, $kind: ResourceURN) {\n      relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n    }", {
 		from: t,
 		kind: "comtrya://rel/com.comtrya.pulls/closes"
 	})).relations?.outgoing ?? [], r = Array.from(new Set(n.map((e) => e.to ?? e.target ?? "").filter((e) => e.startsWith("comtrya://issue/"))));
-	return (await Promise.all(r.map(kl))).filter((e) => e !== null);
+	return (await Promise.all(r.map(jl))).filter((e) => e !== null);
 }
-async function kl(e) {
-	let t = await Do("ext_issues", "issues", "by-ref-issue", e);
+async function jl(e) {
+	let t = await ko("ext_issues", "issues", "by-ref-issue", e);
 	if (!t.ok) return null;
 	let n = t.value;
 	if (!n || typeof n != "object") return null;
-	let r = typeof n.projectName == "string" && n.projectName.trim().length > 0 ? n.projectName.trim() : null, i = typeof n.repository == "string" ? n.repository : null, a = typeof n.workspace == "string" ? n.workspace : null, o = Al(i ?? a);
+	let r = typeof n.projectName == "string" && n.projectName.trim().length > 0 ? n.projectName.trim() : null, i = typeof n.repository == "string" ? n.repository : null, a = typeof n.workspace == "string" ? n.workspace : null, o = Ml(i ?? a);
 	return {
 		id: typeof n.id == "string" ? n.id : "",
 		number: typeof n.number == "number" ? n.number : null,
 		title: typeof n.title == "string" ? n.title : "(untitled)",
-		state: Dl(n.state),
+		state: kl(n.state),
 		uri: e,
 		projectName: r,
 		workspaceId: o
 	};
 }
-function Al(e) {
+function Ml(e) {
 	if (!e) return null;
 	let t = e.match(/^comtrya:\/\/workspace\/([^/]+)/);
 	return t ? t[1] ?? null : null;
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/types.ts
-var jl = "pulls";
-function Ml() {
-	return cs() ?? "";
-}
-function Nl(e) {
-	return Fl(e) ?? Po("pulls", "/");
-}
-function Pl(e, t) {
-	let n = Fl(t);
-	return n ? `${n}/${encodeURIComponent(e.id)}` : Po(jl, `/${e.id}`);
+var Nl = "pulls";
+function Pl() {
+	return us() ?? "";
 }
 function Fl(e) {
+	return Ll(e) ?? Io("pulls", "/");
+}
+function Il(e, t) {
+	let n = Ll(t);
+	return n ? `${n}/${encodeURIComponent(e.id)}` : Io(Nl, `/${e.id}`);
+}
+function Ll(e) {
 	let t = e?.split("/").filter(Boolean) ?? [];
 	return t.length === 0 ? null : `/r/${t.map(encodeURIComponent).join("/")}/pulls`;
 }
-function Il(e) {
+function Rl(e) {
 	switch (e) {
 		case "READY": return {
 			label: "open",
@@ -5193,7 +5209,7 @@ function Il(e) {
 		};
 	}
 }
-function Ll(e) {
+function zl(e) {
 	if (!e) return "";
 	let t = Date.parse(e);
 	if (Number.isNaN(t)) return e;
@@ -5202,8 +5218,8 @@ function Ll(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/pr-commands.ts
-var Rl = /* @__PURE__ */ new Map();
-function zl(e) {
+var Bl = /* @__PURE__ */ new Map();
+function Vl(e) {
 	return [
 		e.id,
 		e.number,
@@ -5211,38 +5227,38 @@ function zl(e) {
 		e.state
 	].join("|");
 }
-function Bl(e) {
+function Hl(e) {
 	let t = [];
-	return t.push(as({
+	return t.push(ss({
 		id: `ext_pull_requests.open.${e.id}`,
 		title: `Open PR #${e.number} — ${e.title}`,
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: () => {
-			window.location.href = Pl(e);
+			window.location.href = Il(e);
 		}
-	})), (e.state === "READY" || e.state === "DRAFT") && t.push(as({
+	})), (e.state === "READY" || e.state === "DRAFT") && t.push(ss({
 		id: `ext_pull_requests.merge.${e.id}`,
 		title: `Merge PR #${e.number} — ${e.title}`,
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await Tl(e.id);
+			await Dl(e.id);
 		}
-	})), e.state !== "CLOSED" && e.state !== "MERGED" && t.push(as({
+	})), e.state !== "CLOSED" && e.state !== "MERGED" && t.push(ss({
 		id: `ext_pull_requests.close.${e.id}`,
 		title: `Close PR #${e.number} — ${e.title}`,
 		category: "Pull requests",
 		extensionId: "ext_pull_requests",
 		run: async () => {
-			await El(e.id);
+			await Ol(e.id);
 		}
 	})), () => t.forEach((e) => e());
 }
-async function Vl(e) {
+async function Ul(e) {
 	let t;
 	try {
-		t = await xl({ workspaceId: e });
+		t = await Cl({ workspaceId: e });
 	} catch (e) {
 		console.warn("[ext_pull_requests] palette sync failed:", e);
 		return;
@@ -5250,27 +5266,27 @@ async function Vl(e) {
 	let n = /* @__PURE__ */ new Set();
 	for (let e of t) {
 		n.add(e.id);
-		let t = zl(e), r = Rl.get(e.id);
-		r && r.signature === t || (r?.unregister(), Rl.set(e.id, {
+		let t = Vl(e), r = Bl.get(e.id);
+		r && r.signature === t || (r?.unregister(), Bl.set(e.id, {
 			signature: t,
-			unregister: Bl(e)
+			unregister: Hl(e)
 		}));
 	}
-	for (let [e, t] of Rl) n.has(e) || (t.unregister(), Rl.delete(e));
+	for (let [e, t] of Bl) n.has(e) || (t.unregister(), Bl.delete(e));
 }
-function Hl() {
+function Wl() {
 	let e = [], t = !1;
-	return ls().then((n) => {
+	return ds().then((n) => {
 		if (!t) {
-			Vl(n);
+			Ul(n);
 			for (let t of [
 				"dev.comtrya.pull-request.created",
 				"dev.comtrya.pull-request.merged",
 				"dev.comtrya.pull-request.closed"
-			]) e.push(Fo({
+			]) e.push(Lo({
 				type: t,
 				onEvent: () => {
-					Vl(n);
+					Ul(n);
 				},
 				onError: () => {}
 			}));
@@ -5278,13 +5294,13 @@ function Hl() {
 	}), () => {
 		t = !0;
 		for (let t of e) t();
-		for (let e of Rl.values()) e.unregister();
-		Rl.clear();
+		for (let e of Bl.values()) e.unregister();
+		Bl.clear();
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/CustomElementHost.vue?vue&type=script&setup=true&lang.ts
-var Ul = /* @__PURE__ */ Vn({
+var Gl = /* @__PURE__ */ Vn({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -5319,12 +5335,12 @@ var Ul = /* @__PURE__ */ Vn({
 			class: "custom-element-host"
 		}, null, 512));
 	}
-}), Wl = ".custom-element-host[data-v-cf896d02]{display:contents}", Gl = (e, t) => {
+}), Kl = ".custom-element-host[data-v-cf896d02]{display:contents}", ql = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Kl = /* @__PURE__ */ Gl(Ul, [["styles", [Wl]], ["__scopeId", "data-v-cf896d02"]]), ql = /^diff --git a\/(.+?) b\/(.+)$/, Jl = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
-function Yl(e) {
+}, Jl = /* @__PURE__ */ ql(Gl, [["styles", [Kl]], ["__scopeId", "data-v-cf896d02"]]), Yl = /^diff --git a\/(.+?) b\/(.+)$/, Xl = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/;
+function Zl(e) {
 	if (!e) return [];
 	let t = [], n = e.split("\n"), r = null, i = null, a = 0, o = 0, s = () => {
 		r && i && r.hunks.push(i), i = null;
@@ -5332,7 +5348,7 @@ function Yl(e) {
 		s(), r && t.push(r), r = null;
 	};
 	for (let e of n) {
-		let t = e.match(ql);
+		let t = e.match(Yl);
 		if (t) {
 			c();
 			let [, e, n] = t;
@@ -5341,7 +5357,7 @@ function Yl(e) {
 				newPath: n ?? "",
 				displayPath: n || e || "",
 				status: "modified",
-				language: Zl(n || e || ""),
+				language: $l(n || e || ""),
 				hunks: [],
 				additions: 0,
 				deletions: 0,
@@ -5367,7 +5383,7 @@ function Yl(e) {
 			continue;
 		}
 		if (e.startsWith("index ") || e.startsWith("---") || e.startsWith("+++")) continue;
-		let n = e.match(Jl);
+		let n = e.match(Xl);
 		if (n) {
 			s();
 			let t = Number(n[1] ?? 0), r = Number(n[2] ?? 1), c = Number(n[3] ?? 0);
@@ -5405,7 +5421,7 @@ function Yl(e) {
 	}
 	return c(), t;
 }
-var Xl = {
+var Ql = {
 	rs: "rust",
 	ts: "typescript",
 	tsx: "tsx",
@@ -5423,11 +5439,11 @@ var Xl = {
 	css: "css",
 	html: "html"
 };
-function Zl(e) {
+function $l(e) {
 	let t = e.lastIndexOf(".");
-	return t < 0 ? "plain" : Xl[e.slice(t + 1).toLowerCase()] ?? "plain";
+	return t < 0 ? "plain" : Ql[e.slice(t + 1).toLowerCase()] ?? "plain";
 }
-function Ql(e) {
+function eu(e) {
 	let t = 0, n = 0;
 	for (let r of e) t += r.additions, n += r.deletions;
 	return {
@@ -5438,44 +5454,44 @@ function Ql(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/diff-styles.ts
-var $l = "comtrya-diff-view-styles", eu = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
-function tu() {
-	if (typeof document > "u" || document.getElementById($l)) return;
+var tu = "comtrya-diff-view-styles", nu = "\n.diff-view {\n  display: grid;\n  gap: 14px;\n  font-family: var(--sans, system-ui);\n}\n\n.diff-summary {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  flex-wrap: wrap;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 8px;\n}\n\n.diff-summary h2 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 18px;\n}\n\n.diff-totals {\n  display: inline-flex;\n  flex-wrap: wrap;\n  gap: 10px 14px;\n  align-items: baseline;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-totals .adds { color: var(--accent-teal, #087f6f); }\n.diff-totals .dels { color: var(--accent-err, #c9341c); }\n.diff-totals .hint { color: var(--ink-fainter, #918b80); }\n\n.diff-totals .hint kbd {\n  border: 1px solid currentColor;\n  padding: 0 4px;\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n}\n\n.diff-view .muted {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-view .muted.error { color: var(--accent-err, #c9341c); }\n\n.diff-files {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n  gap: 14px;\n}\n\n.diff-file {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--paper, #fffdf8);\n}\n\n.diff-file.focused {\n  box-shadow: -3px 0 0 0 var(--accent-orange, #e34a20);\n}\n\n.diff-file-head {\n  display: grid;\n  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;\n  gap: 10px;\n  align-items: center;\n  padding: 8px 10px;\n  border-bottom: 1px solid var(--rule-light, #d8d1c4);\n  cursor: pointer;\n  background: var(--paper-tint, #f2efe7);\n}\n\n.diff-file-head:hover,\n.diff-file-head:focus-visible {\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 80%, var(--ink, #111));\n  outline: none;\n}\n\n.diff-file-head .caret {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-status {\n  font-family: var(--mono, monospace);\n  font-size: 10px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  padding: 1px 6px;\n  border: 1px solid currentColor;\n}\n\n.status-added { color: var(--accent-teal, #087f6f); }\n.status-deleted { color: var(--accent-err, #c9341c); }\n.status-modified { color: var(--accent-blue, #1d55a6); }\n.status-renamed { color: var(--accent-yellow, #c89300); }\n\n.file-path {\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.file-rename {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.file-counts {\n  display: inline-flex;\n  gap: 8px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n}\n\n.file-counts .adds { color: var(--accent-teal, #087f6f); }\n.file-counts .dels { color: var(--accent-err, #c9341c); }\n\n.diff-file-body { display: grid; gap: 0; }\n\n.diff-hunk { border-top: 1px solid var(--rule-light, #d8d1c4); }\n.diff-hunk:first-child { border-top: 0; }\n\n.diff-hunk-head {\n  background: var(--paper-tint, #f2efe7);\n  padding: 4px 10px;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #68645c);\n}\n\n.diff-hunk table {\n  width: 100%;\n  border-collapse: collapse;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  line-height: 1.45;\n}\n\n.diff-line.line-add {\n  background: color-mix(in srgb, var(--accent-teal, #087f6f) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-del {\n  background: color-mix(in srgb, var(--accent-err, #c9341c) 10%, var(--paper, #fffdf8));\n}\n\n.diff-line.line-meta { color: var(--ink-fainter, #918b80); }\n\n.diff-line td {\n  padding: 0;\n  vertical-align: top;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.diff-line .ln {\n  width: 48px;\n  padding: 0 8px;\n  color: var(--ink-fainter, #918b80);\n  text-align: right;\n  user-select: none;\n  background: color-mix(in srgb, var(--paper-tint, #f2efe7) 60%, var(--paper, #fffdf8));\n  border-right: 1px solid var(--rule-light, #d8d1c4);\n  font-variant-numeric: tabular-nums;\n}\n\n.diff-line.line-add .ln.new,\n.diff-line.line-del .ln.old {\n  color: var(--ink-soft, #2c2b28);\n}\n\n.diff-line .marker {\n  width: 18px;\n  padding: 0 4px;\n  text-align: center;\n  color: var(--ink-faint, #68645c);\n  user-select: none;\n}\n\n.diff-line.line-add .marker { color: var(--accent-teal, #087f6f); }\n.diff-line.line-del .marker { color: var(--accent-err, #c9341c); }\n.diff-line .content { padding: 0 8px; }\n";
+function ru() {
+	if (typeof document > "u" || document.getElementById(tu)) return;
 	let e = document.createElement("style");
-	e.id = $l, e.textContent = eu, document.head.appendChild(e);
+	e.id = tu, e.textContent = nu, document.head.appendChild(e);
 }
 //#endregion
 //#region ../extensions/first-party/ext_pull_requests/ui/src/DiffView.vue?vue&type=script&setup=true&lang.ts
-var nu = {
+var iu = {
 	class: "diff-view",
 	"data-smoke": "pulls-diff-view"
-}, ru = { class: "diff-summary" }, iu = { class: "diff-totals" }, au = { class: "adds" }, ou = { class: "dels" }, su = {
+}, au = { class: "diff-summary" }, ou = { class: "diff-totals" }, su = { class: "adds" }, cu = { class: "dels" }, lu = {
 	key: 0,
 	class: "muted"
-}, cu = {
+}, uu = {
 	key: 1,
 	class: "muted error"
-}, lu = {
+}, du = {
 	key: 2,
 	class: "muted"
-}, uu = {
+}, fu = {
 	key: 3,
 	class: "diff-files"
-}, du = ["data-diff-file-index"], fu = [
+}, pu = ["data-diff-file-index"], mu = [
 	"aria-expanded",
 	"onClick",
 	"onKeydown",
 	"onFocus"
-], pu = { class: "caret" }, mu = { class: "file-path" }, hu = {
+], hu = { class: "caret" }, gu = { class: "file-path" }, _u = {
 	key: 0,
 	class: "file-rename"
-}, gu = { class: "file-counts" }, _u = { class: "adds" }, vu = { class: "dels" }, yu = {
+}, vu = { class: "file-counts" }, yu = { class: "adds" }, bu = { class: "dels" }, xu = {
 	key: 0,
 	class: "diff-file-body"
-}, bu = {
+}, Su = {
 	key: 0,
 	class: "muted"
-}, xu = { class: "diff-hunk-head" }, Su = { class: "ln old" }, Cu = { class: "ln new" }, wu = { class: "marker" }, Tu = { class: "content" }, Eu = /* @__PURE__ */ Vn({
+}, Cu = { class: "diff-hunk-head" }, wu = { class: "ln old" }, Tu = { class: "ln new" }, Eu = { class: "marker" }, Du = { class: "content" }, Ou = /* @__PURE__ */ Vn({
 	__name: "DiffView",
 	props: {
 		patch: { type: String },
@@ -5483,11 +5499,11 @@ var nu = {
 		error: { type: [String, null] }
 	},
 	setup(e) {
-		tu();
-		let t = e, n = /* @__PURE__ */ I({}), r = /* @__PURE__ */ I(0), i = X(() => Yl(t.patch)), a = X(() => Ql(i.value));
+		ru();
+		let t = e, n = /* @__PURE__ */ I({}), r = /* @__PURE__ */ I(0), i = X(() => Zl(t.patch)), a = X(() => eu(i.value));
 		Nn(i, (e) => {
 			r.value >= e.length && (r.value = Math.max(0, e.length - 1));
-		}), ps({
+		}), hs({
 			"]": (e) => {
 				i.value.length !== 0 && (e.preventDefault(), l(Math.min(r.value + 1, i.value.length - 1)));
 			},
@@ -5528,10 +5544,10 @@ var nu = {
 				block: "start"
 			});
 		}
-		return (t, n) => (U(), W("section", nu, [G("header", ru, [n[1] ||= G("h2", null, "Files changed", -1), G("div", iu, [
+		return (t, n) => (U(), W("section", iu, [G("header", au, [n[1] ||= G("h2", null, "Files changed", -1), G("div", ou, [
 			G("span", null, [q(A(a.value.files) + " file", 1), a.value.files === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))]),
-			G("span", au, "+" + A(a.value.additions), 1),
-			G("span", ou, "-" + A(a.value.deletions), 1),
+			G("span", su, "+" + A(a.value.additions), 1),
+			G("span", cu, "-" + A(a.value.deletions), 1),
 			n[0] ||= G("span", { class: "hint" }, [
 				G("kbd", null, "n"),
 				q("/"),
@@ -5540,7 +5556,7 @@ var nu = {
 				G("kbd", null, "space"),
 				q(" collapse ")
 			], -1)
-		])]), e.loading ? (U(), W("p", su, "Loading diff…")) : e.error ? (U(), W("p", cu, A(e.error), 1)) : i.value.length === 0 ? (U(), W("p", lu, " No diff to show. Push commits to head and base refs to populate this view. ")) : (U(), W("ol", uu, [(U(!0), W(V, null, fr(i.value, (e, t) => (U(), W("li", {
+		])]), e.loading ? (U(), W("p", lu, "Loading diff…")) : e.error ? (U(), W("p", uu, A(e.error), 1)) : i.value.length === 0 ? (U(), W("p", du, " No diff to show. Push commits to head and base refs to populate this view. ")) : (U(), W("ol", fu, [(U(!0), W(V, null, fr(i.value, (e, t) => (U(), W("li", {
 			key: e.displayPath + t,
 			class: k(["diff-file", { focused: t === r.value }]),
 			"data-diff-file-index": t
@@ -5553,91 +5569,91 @@ var nu = {
 			onKeydown: po(uo((t) => o(e.displayPath), ["prevent"]), ["enter"]),
 			onFocus: (e) => r.value = t
 		}, [
-			G("span", pu, A(s(e.displayPath) ? "▸" : "▾"), 1),
+			G("span", hu, A(s(e.displayPath) ? "▸" : "▾"), 1),
 			G("span", { class: k(["file-status", `status-${e.status}`]) }, A(c(e)), 3),
-			G("code", mu, A(e.displayPath), 1),
-			e.status === "renamed" && e.oldPath !== e.newPath ? (U(), W("span", hu, [n[2] ||= q(" from ", -1), G("code", null, A(e.oldPath), 1)])) : J("", !0),
-			G("span", gu, [G("span", _u, "+" + A(e.additions), 1), G("span", vu, "-" + A(e.deletions), 1)])
-		], 40, fu), s(e.displayPath) ? J("", !0) : (U(), W("div", yu, [e.binary ? (U(), W("p", bu, "Binary file — no preview.")) : (U(!0), W(V, { key: 1 }, fr(e.hunks, (e, t) => (U(), W("section", {
+			G("code", gu, A(e.displayPath), 1),
+			e.status === "renamed" && e.oldPath !== e.newPath ? (U(), W("span", _u, [n[2] ||= q(" from ", -1), G("code", null, A(e.oldPath), 1)])) : J("", !0),
+			G("span", vu, [G("span", yu, "+" + A(e.additions), 1), G("span", bu, "-" + A(e.deletions), 1)])
+		], 40, mu), s(e.displayPath) ? J("", !0) : (U(), W("div", xu, [e.binary ? (U(), W("p", Su, "Binary file — no preview.")) : (U(!0), W(V, { key: 1 }, fr(e.hunks, (e, t) => (U(), W("section", {
 			key: t,
 			class: "diff-hunk"
-		}, [G("header", xu, [G("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), G("table", null, [G("tbody", null, [(U(!0), W(V, null, fr(e.lines, (e, t) => (U(), W("tr", {
+		}, [G("header", Cu, [G("code", null, A(e.header.replace(/^@@ /, "").replace(/ @@$/, "")), 1)]), G("table", null, [G("tbody", null, [(U(!0), W(V, null, fr(e.lines, (e, t) => (U(), W("tr", {
 			key: t,
 			class: k(["diff-line", `line-${e.kind}`])
 		}, [
-			G("td", Su, A(e.oldNumber ?? ""), 1),
-			G("td", Cu, A(e.newNumber ?? ""), 1),
-			G("td", wu, [e.kind === "add" ? (U(), W(V, { key: 0 }, [q("+")], 64)) : e.kind === "del" ? (U(), W(V, { key: 1 }, [q("-")], 64)) : e.kind === "meta" ? (U(), W(V, { key: 2 }, [q("\\")], 64)) : (U(), W(V, { key: 3 }, [], 64))]),
-			G("td", Tu, A(e.text), 1)
-		], 2))), 128))])])]))), 128))]))], 10, du))), 128))]))]));
+			G("td", wu, A(e.oldNumber ?? ""), 1),
+			G("td", Tu, A(e.newNumber ?? ""), 1),
+			G("td", Eu, [e.kind === "add" ? (U(), W(V, { key: 0 }, [q("+")], 64)) : e.kind === "del" ? (U(), W(V, { key: 1 }, [q("-")], 64)) : e.kind === "meta" ? (U(), W(V, { key: 2 }, [q("\\")], 64)) : (U(), W(V, { key: 3 }, [], 64))]),
+			G("td", Du, A(e.text), 1)
+		], 2))), 128))])])]))), 128))]))], 10, pu))), 128))]))]));
 	}
-}), Du = {
+}), ku = {
 	class: "pulls-detail",
 	"data-smoke": "pulls-detail"
-}, Ou = {
+}, Au = {
 	key: 0,
 	class: "pulls-empty"
-}, ku = {
+}, ju = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, Au = {
+}, Mu = {
 	key: 2,
 	class: "pulls-empty"
-}, ju = ["href"], Mu = { class: "pulls-detail-head" }, Nu = { class: "pulls-detail-title" }, Pu = { class: "pulls-detail-number" }, Fu = {
+}, Nu = ["href"], Pu = { class: "pulls-detail-head" }, Fu = { class: "pulls-detail-title" }, Iu = { class: "pulls-detail-number" }, Lu = {
 	class: "pulls-chip-row",
 	"aria-label": "Pull request metadata"
-}, Iu = { class: "pull-chip tone-branch" }, Lu = ["title"], Ru = ["data-author-kind", "title"], zu = { class: "chip-glyph" }, Bu = {
+}, Ru = { class: "pull-chip tone-branch" }, zu = ["title"], Bu = ["data-author-kind", "title"], Vu = { class: "chip-glyph" }, Hu = {
 	key: 0,
 	class: "pull-chip tone-time tone-merged"
-}, Vu = {
+}, Uu = {
 	key: 1,
 	class: "pull-chip tone-time tone-closed"
-}, Hu = {
+}, Wu = {
 	key: 2,
 	class: "pull-chip tone-time"
-}, Uu = { class: "pulls-detail-actions" }, Wu = ["disabled"], Gu = ["disabled"], Ku = {
+}, Gu = { class: "pulls-detail-actions" }, Ku = ["disabled"], qu = ["disabled"], Ju = {
 	key: 0,
 	class: "pulls-action-message"
-}, qu = {
+}, Yu = {
 	key: 0,
 	class: "pulls-detail-body"
-}, Ju = ["innerHTML"], Yu = {
+}, Xu = ["innerHTML"], Zu = {
 	key: 1,
 	class: "pulls-detail-body muted"
-}, Xu = {
+}, Qu = {
 	key: 2,
 	class: "pulls-routed",
 	"data-smoke": "pulls-routed",
 	"aria-label": "CUE project routing"
-}, Zu = { class: "muted" }, Qu = { class: "pulls-routed-list" }, $u = ["href", "title"], ed = {
+}, $u = { class: "muted" }, ed = { class: "pulls-routed-list" }, td = ["href", "title"], nd = {
 	key: 0,
 	class: "pulls-routed-owners"
-}, td = ["data-author-kind", "title"], nd = { class: "chip-glyph" }, rd = {
+}, rd = ["data-author-kind", "title"], id = { class: "chip-glyph" }, ad = {
 	key: 1,
 	class: "pulls-routed-owners muted"
-}, id = {
+}, od = {
 	key: 3,
 	class: "pulls-linked-issues",
 	"data-smoke": "pulls-linked-issues"
-}, ad = { class: "muted" }, od = {
+}, sd = { class: "muted" }, cd = {
 	key: 0,
 	role: "listbox",
 	"aria-label": "Linked issues"
-}, sd = ["aria-selected", "onMouseenter"], cd = ["href"], ld = { class: "issue-num" }, ud = { class: "issue-title" }, dd = ["href", "title"], fd = {
+}, ld = ["aria-selected", "onMouseenter"], ud = ["href"], dd = { class: "issue-num" }, fd = { class: "issue-title" }, pd = ["href", "title"], md = {
 	key: 1,
 	class: "pulls-linked-foot"
-}, pd = {
+}, hd = {
 	key: 0,
 	class: "pulls-detail-discussion-count"
-}, md = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
+}, gd = /* @__PURE__ */ ql(/* @__PURE__ */ Vn({
 	__name: "PullsDetail",
 	props: {
-		routeParams: { type: Object },
+		routeParams: { type: null },
 		repositoryPath: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = X(() => t.routeParams?.params?.pullId ?? ""), r = X(() => Nl(t.repositoryPath)), i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = /* @__PURE__ */ I(null), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(""), u = /* @__PURE__ */ I(""), d = /* @__PURE__ */ I("idle"), f = /* @__PURE__ */ I(null), p = /* @__PURE__ */ I([]), m = /* @__PURE__ */ I("idle"), h = /* @__PURE__ */ I(-1), g = /* @__PURE__ */ I([]);
+		let t = e, n = X(() => t.routeParams?.params?.pullId ?? ""), r = X(() => Fl(t.repositoryPath)), i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = /* @__PURE__ */ I(null), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(""), u = /* @__PURE__ */ I(""), d = /* @__PURE__ */ I("idle"), f = /* @__PURE__ */ I(null), p = /* @__PURE__ */ I([]), m = /* @__PURE__ */ I("idle"), h = /* @__PURE__ */ I(-1), g = /* @__PURE__ */ I([]);
 		function _(e) {
 			let t = (e ?? "").replace(/^\.\//, "").replace(/\/+$/g, "");
 			return t === "." ? "" : t;
@@ -5648,7 +5664,7 @@ var nu = {
 				name: e.name ?? "",
 				root: _(e.root)
 			})).filter((e) => e.name).sort((e, t) => t.root.length - e.root.length), t = /* @__PURE__ */ new Set();
-			for (let n of Yl(l.value)) {
+			for (let n of Zl(l.value)) {
 				let r = n.displayPath.replace(/^\/+/, "");
 				for (let n of e) if (n.root === "" || r === n.root || r.startsWith(`${n.root}/`)) {
 					t.add(n.name);
@@ -5666,7 +5682,7 @@ var nu = {
 				name: e,
 				owners: (g.value.find((t) => t.name === e)?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0)
 			}));
-		}), x = ll, S = X(() => Il(i.value?.state)), C = X(() => i.value && (i.value.state === "READY" || i.value.state === "DRAFT")), w = X(() => i.value && i.value.state !== "CLOSED" && i.value.state !== "MERGED"), ee = X(() => i.value?.bodyMarkdown ? tl(i.value.bodyMarkdown, { workspaceId: Ml() }) : ""), te = X(() => i.value ? `comtrya://pull-request/${i.value.id}` : ""), ne = /* @__PURE__ */ I(null);
+		}), x = dl, S = X(() => Rl(i.value?.state)), C = X(() => i.value && (i.value.state === "READY" || i.value.state === "DRAFT")), w = X(() => i.value && i.value.state !== "CLOSED" && i.value.state !== "MERGED"), ee = X(() => i.value?.bodyMarkdown ? rl(i.value.bodyMarkdown, { workspaceId: Pl() }) : ""), te = X(() => i.value ? `comtrya://pull-request/${i.value.id}` : ""), ne = /* @__PURE__ */ I(null);
 		function T(e) {
 			let t = e.detail;
 			t && typeof t.count == "number" && (ne.value = t.count);
@@ -5678,7 +5694,7 @@ var nu = {
 				"dev.comtrya.issues.opened",
 				"dev.comtrya.issues.closed",
 				"dev.comtrya.issues.reopened"
-			]) re.push(Fo({
+			]) re.push(Lo({
 				type: e,
 				onEvent: () => void ae(),
 				onError: () => {}
@@ -5686,7 +5702,7 @@ var nu = {
 		}), or(() => {
 			for (let e of re) e();
 			re.length = 0;
-		}), Nn(n, () => void ae()), ps({
+		}), Nn(n, () => void ae()), hs({
 			m: (e) => {
 				C.value && (e.preventDefault(), ue());
 			},
@@ -5724,7 +5740,7 @@ var nu = {
 			}
 			a.value = "loading", o.value = null;
 			try {
-				i.value = await wl(n.value), a.value = i.value ? "ready" : "empty";
+				i.value = await El(n.value), a.value = i.value ? "ready" : "empty";
 			} catch (e) {
 				a.value = "error", o.value = e instanceof Error ? e.message : String(e);
 			}
@@ -5733,7 +5749,7 @@ var nu = {
 			if (n.value) {
 				m.value = "loading";
 				try {
-					p.value = await Ol(n.value), m.value = "ready";
+					p.value = await Al(n.value), m.value = "ready";
 				} catch {
 					p.value = [], m.value = "error";
 				}
@@ -5760,7 +5776,7 @@ var nu = {
 					l.value = "", u.value = "", g.value = [], d.value = "ready";
 					return;
 				}
-				let t = await Mo().query("query PullProjects($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig } }\n      }", { segments: e });
+				let t = await Po().query("query PullProjects($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig } }\n      }", { segments: e });
 				l.value = "", u.value = "", g.value = t.workspace?.repositoryByPath?.comtryaConfig?.projects ?? [], d.value = "ready";
 			} catch (e) {
 				d.value = "error", f.value = e instanceof Error ? e.message : String(e);
@@ -5781,7 +5797,7 @@ var nu = {
 			if (!(!i.value || !C.value)) {
 				s.value = "merging", c.value = null;
 				try {
-					i.value = await Tl(i.value.id), c.value = `Merged pull #${i.value.number}`;
+					i.value = await Dl(i.value.id), c.value = `Merged pull #${i.value.number}`;
 				} catch (e) {
 					c.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -5793,7 +5809,7 @@ var nu = {
 			if (!(!i.value || !w.value)) {
 				s.value = "closing", c.value = null;
 				try {
-					i.value = await El(i.value.id), c.value = `Closed pull #${i.value.number}`;
+					i.value = await Ol(i.value.id), c.value = `Closed pull #${i.value.number}`;
 				} catch (e) {
 					c.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -5801,31 +5817,31 @@ var nu = {
 				}
 			}
 		}
-		return (e, t) => (U(), W("article", Du, [a.value === "loading" ? (U(), W("p", Ou, "Loading pull request…")) : a.value === "error" ? (U(), W("p", ku, A(o.value), 1)) : a.value === "empty" || !i.value ? (U(), W("p", Au, [
+		return (e, t) => (U(), W("article", ku, [a.value === "loading" ? (U(), W("p", Au, "Loading pull request…")) : a.value === "error" ? (U(), W("p", ju, A(o.value), 1)) : a.value === "empty" || !i.value ? (U(), W("p", Mu, [
 			t[0] ||= q(" No pull request found for ", -1),
 			G("code", null, A(n.value), 1),
 			t[1] ||= q(". ", -1),
 			G("a", {
 				href: r.value,
 				onClick: E
-			}, "← Pull requests", 8, ju)
+			}, "← Pull requests", 8, Nu)
 		])) : (U(), W(V, { key: 3 }, [
-			G("header", Mu, [G("div", Nu, [
+			G("header", Pu, [G("div", Fu, [
 				G("button", {
 					type: "button",
 					class: "back",
 					"aria-label": "Back to pull requests",
 					onClick: E
 				}, "← Pull requests"),
-				G("span", Pu, "#" + A(i.value.number), 1),
+				G("span", Iu, "#" + A(i.value.number), 1),
 				G("h1", null, A(i.value.title), 1)
-			]), G("div", Fu, [
+			]), G("div", Lu, [
 				G("span", { class: k([
 					"pull-chip",
 					"tone-state",
 					S.value.className
 				]) }, A(S.value.label), 3),
-				G("span", Iu, [
+				G("span", Ru, [
 					G("code", null, A(i.value.headRef), 1),
 					t[2] ||= G("span", {
 						class: "branch-arrow",
@@ -5837,62 +5853,62 @@ var nu = {
 					key: `project-${e}`,
 					class: "pull-chip tone-project",
 					title: `Touches files inside the ${e} Project's root`
-				}, [t[3] ||= G("span", { class: "chip-glyph" }, "◇", -1), q(A(e), 1)], 8, Lu))), 128)),
+				}, [t[3] ||= G("span", { class: "chip-glyph" }, "◇", -1), q(A(e), 1)], 8, zu))), 128)),
 				G("span", {
 					class: "pull-chip tone-author",
-					"data-author-kind": L(ll)(i.value.authorRef).kind,
+					"data-author-kind": L(dl)(i.value.authorRef).kind,
 					title: `Opened by ${i.value.authorRef}`
-				}, [G("span", zu, A(L(ll)(i.value.authorRef).glyph), 1), q(" by " + A(L(ll)(i.value.authorRef).label), 1)], 8, Ru),
-				i.value.mergedAt ? (U(), W("span", Bu, " merged " + A(L(Ll)(i.value.mergedAt)), 1)) : i.value.closedAt ? (U(), W("span", Vu, " closed " + A(L(Ll)(i.value.closedAt)), 1)) : J("", !0),
-				i.value.createdAt ? (U(), W("span", Hu, " opened " + A(L(Ll)(i.value.createdAt)), 1)) : J("", !0)
+				}, [G("span", Vu, A(L(dl)(i.value.authorRef).glyph), 1), q(" by " + A(L(dl)(i.value.authorRef).label), 1)], 8, Bu),
+				i.value.mergedAt ? (U(), W("span", Hu, " merged " + A(L(zl)(i.value.mergedAt)), 1)) : i.value.closedAt ? (U(), W("span", Uu, " closed " + A(L(zl)(i.value.closedAt)), 1)) : J("", !0),
+				i.value.createdAt ? (U(), W("span", Wu, " opened " + A(L(zl)(i.value.createdAt)), 1)) : J("", !0)
 			])]),
-			G("section", Uu, [
+			G("section", Gu, [
 				G("button", {
 					type: "button",
 					class: "pulls-action primary",
 					disabled: !C.value || s.value !== "idle",
 					onClick: ue
-				}, [q(A(s.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= G("kbd", null, "m", -1)], 8, Wu),
+				}, [q(A(s.value === "merging" ? "Merging…" : "Merge") + " ", 1), t[4] ||= G("kbd", null, "m", -1)], 8, Ku),
 				G("button", {
 					type: "button",
 					class: "pulls-action",
 					disabled: !w.value || s.value !== "idle",
 					onClick: de
-				}, [q(A(s.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= G("kbd", null, "x", -1)], 8, Gu),
-				c.value ? (U(), W("span", Ku, A(c.value), 1)) : J("", !0)
+				}, [q(A(s.value === "closing" ? "Closing…" : "Close") + " ", 1), t[5] ||= G("kbd", null, "x", -1)], 8, qu),
+				c.value ? (U(), W("span", Ju, A(c.value), 1)) : J("", !0)
 			]),
-			ee.value ? (U(), W("section", qu, [t[6] ||= G("h2", null, "Description", -1), G("div", {
+			ee.value ? (U(), W("section", Yu, [t[6] ||= G("h2", null, "Description", -1), G("div", {
 				class: "pulls-detail-body-prose",
 				innerHTML: ee.value
-			}, null, 8, Ju)])) : (U(), W("section", Yu, [...t[7] ||= [G("h2", null, "Description", -1), G("p", null, "No description provided.", -1)]])),
-			b.value.length > 0 ? (U(), W("section", Xu, [
-				G("header", null, [t[8] ||= G("h2", null, "Routed to", -1), G("span", Zu, [q(A(b.value.length) + " project", 1), b.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))])]),
-				G("ul", Qu, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("li", {
+			}, null, 8, Xu)])) : (U(), W("section", Zu, [...t[7] ||= [G("h2", null, "Description", -1), G("p", null, "No description provided.", -1)]])),
+			b.value.length > 0 ? (U(), W("section", Qu, [
+				G("header", null, [t[8] ||= G("h2", null, "Routed to", -1), G("span", $u, [q(A(b.value.length) + " project", 1), b.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64))])]),
+				G("ul", ed, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("li", {
 					key: e.name,
 					class: "pulls-routed-project"
 				}, [G("a", {
 					href: `/x/issues/?project=${encodeURIComponent(e.name)}`,
 					class: "pulls-routed-name",
 					title: `Filter issues to project ${e.name}`
-				}, "◇ " + A(e.name), 9, $u), e.owners.length > 0 ? (U(), W("ul", ed, [(U(!0), W(V, null, fr(e.owners, (e) => (U(), W("li", {
+				}, "◇ " + A(e.name), 9, td), e.owners.length > 0 ? (U(), W("ul", nd, [(U(!0), W(V, null, fr(e.owners, (e) => (U(), W("li", {
 					key: e,
 					class: "pulls-routed-owner",
 					"data-author-kind": L(x)(e).kind,
 					title: e
-				}, [G("span", nd, A(L(x)(e).glyph), 1), q(" " + A(L(x)(e).label), 1)], 8, td))), 128))])) : (U(), W("span", rd, " no owners declared "))]))), 128))]),
+				}, [G("span", id, A(L(x)(e).glyph), 1), q(" " + A(L(x)(e).label), 1)], 8, rd))), 128))])) : (U(), W("span", ad, " no owners declared "))]))), 128))]),
 				t[9] ||= G("p", { class: "pulls-routed-source" }, [
 					q(" From paths the diff touched · issues this PR closes · "),
 					G("code", null, "package comtrya"),
 					q(" owners ")
 				], -1)
 			])) : J("", !0),
-			m.value !== "idle" || p.value.length > 0 ? (U(), W("section", id, [
-				G("header", null, [t[10] ||= G("h2", null, "Closes", -1), G("span", ad, [m.value === "loading" ? (U(), W(V, { key: 0 }, [q("resolving…")], 64)) : p.value.length === 0 ? (U(), W(V, { key: 1 }, [q(" no linked issues ")], 64)) : (U(), W(V, { key: 2 }, [
+			m.value !== "idle" || p.value.length > 0 ? (U(), W("section", od, [
+				G("header", null, [t[10] ||= G("h2", null, "Closes", -1), G("span", sd, [m.value === "loading" ? (U(), W(V, { key: 0 }, [q("resolving…")], 64)) : p.value.length === 0 ? (U(), W(V, { key: 1 }, [q(" no linked issues ")], 64)) : (U(), W(V, { key: 2 }, [
 					q(A(p.value.length) + " issue", 1),
 					p.value.length === 1 ? J("", !0) : (U(), W(V, { key: 0 }, [q("s")], 64)),
 					i.value.state === "MERGED" ? (U(), W(V, { key: 1 }, [q(" — auto-closed on merge")], 64)) : (U(), W(V, { key: 2 }, [q(" — will close on merge")], 64))
 				], 64))])]),
-				p.value.length > 0 ? (U(), W("ul", od, [(U(!0), W(V, null, fr(p.value, (e, t) => (U(), W("li", {
+				p.value.length > 0 ? (U(), W("ul", cd, [(U(!0), W(V, null, fr(p.value, (e, t) => (U(), W("li", {
 					key: e.uri,
 					class: k({ focused: t === h.value }),
 					"aria-selected": t === h.value,
@@ -5902,16 +5918,16 @@ var nu = {
 					G("a", {
 						href: D(e),
 						class: "issue-link"
-					}, [G("span", ld, [e.number === null ? (U(), W(V, { key: 1 }, [q("issue")], 64)) : (U(), W(V, { key: 0 }, [q("#" + A(e.number), 1)], 64))]), G("span", ud, A(e.title), 1)], 8, cd),
+					}, [G("span", dd, [e.number === null ? (U(), W(V, { key: 1 }, [q("issue")], 64)) : (U(), W(V, { key: 0 }, [q("#" + A(e.number), 1)], 64))]), G("span", fd, A(e.title), 1)], 8, ud),
 					e.projectName ? (U(), W("a", {
 						key: 0,
 						class: "issue-project",
 						href: oe(e.projectName),
 						title: `Filter to project ${e.projectName}`
-					}, "◇ " + A(e.projectName), 9, dd)) : J("", !0),
+					}, "◇ " + A(e.projectName), 9, pd)) : J("", !0),
 					G("span", { class: k(["issue-state", O(e.state)]) }, A(e.state.toLowerCase()), 3)
-				], 42, sd))), 128))])) : J("", !0),
-				p.value.length > 0 ? (U(), W("footer", fd, [...t[11] ||= [
+				], 42, ld))), 128))])) : J("", !0),
+				p.value.length > 0 ? (U(), W("footer", md, [...t[11] ||= [
 					G("kbd", null, "j", -1),
 					q(),
 					G("kbd", null, "k", -1),
@@ -5924,12 +5940,12 @@ var nu = {
 				class: "pulls-detail-discussion",
 				"data-smoke": "pulls-detail-discussion",
 				onCommentThreadUpdate: T
-			}, [G("header", null, [G("h2", null, [t[12] ||= q(" Discussion", -1), ne.value === null ? J("", !0) : (U(), W("span", pd, " (" + A(ne.value) + ")", 1))])]), K(Kl, {
+			}, [G("header", null, [G("h2", null, [t[12] ||= q(" Discussion", -1), ne.value === null ? J("", !0) : (U(), W("span", hd, " (" + A(ne.value) + ")", 1))])]), K(Jl, {
 				tag: "comtrya-comment-thread",
 				attributes: { target: te.value },
 				properties: { target: te.value }
 			}, null, 8, ["attributes", "properties"])], 32),
-			K(Eu, {
+			K(Ou, {
 				patch: l.value,
 				loading: d.value === "loading",
 				error: f.value
@@ -5940,30 +5956,30 @@ var nu = {
 			])
 		], 64))]));
 	}
-}), [["styles", [".pulls-detail[data-v-fef353a9]{font-family:var(--font-sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-fef353a9]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-fef353a9]{font-family:var(--font-serif,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);cursor:pointer;background:0 0;border:0;padding:0;font-size:16px;text-decoration:none}.back[data-v-fef353a9]:hover{color:var(--fg,#fffffff0)}.pulls-detail-number[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:14px}.pulls-chip-row[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-fef353a9]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-fef353a9]{text-transform:lowercase;letter-spacing:0;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-fef353a9]{color:var(--fg-3,#ffffff85)}.pull-chip.tone-state.pr-state-review[data-v-fef353a9],.pull-chip.tone-state.pr-state-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-fef353a9]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-fef353a9]{gap:4px}.pull-chip.tone-branch code[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-fef353a9]{color:var(--fg-4,#ffffff57);padding:0 2px}.pull-chip.tone-author[data-v-fef353a9]{color:var(--fg-2,#ffffffbd)}.pull-chip.tone-author[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-fef353a9]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-fef353a9]{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0);font-family:var(--font-serif,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-fef353a9]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-action[disabled][data-v-fef353a9]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-detail-body h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-fef353a9]{color:var(--fg,#fffffff0);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-fef353a9],.pulls-detail-body-prose h2[data-v-fef353a9],.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9],.pulls-detail-body-prose h5[data-v-fef353a9],.pulls-detail-body-prose h6[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-fef353a9]{font-size:20px}.pulls-detail-body-prose h2[data-v-fef353a9]{font-size:17px}.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9]{font-size:15px}.pulls-detail-body-prose p[data-v-fef353a9]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-fef353a9],.pulls-detail-body-prose ol[data-v-fef353a9]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-fef353a9]{margin:.15em 0}.pulls-detail-body-prose code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border:.5px solid var(--line,#ffffff12);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-fef353a9]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-fef353a9]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-fef353a9]{font-weight:600}.pulls-detail-body-prose em[data-v-fef353a9]{font-style:italic}.pulls-detail-body.muted p[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-routed[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-routed-list[data-v-fef353a9]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-fef353a9]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-fef353a9]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-fef353a9]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-fef353a9]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-fef353a9]{color:var(--fg,#fffffff0)}.pulls-routed-owner[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);margin:0;font-size:11px}.pulls-routed-source code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-fef353a9]{gap:8px;display:grid}.pulls-linked-issues header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion[data-v-fef353a9]{gap:8px;display:grid}.pulls-detail-discussion>header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-detail-discussion>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion-count[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.pulls-linked-issues .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-linked-issues ul[data-v-fef353a9]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-fef353a9]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-fef353a9]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0);background:var(--bg-2,#0e1014)}.pulls-linked-issues li .issue-link[data-v-fef353a9]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--line,#ffffff12);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-fef353a9]:hover{color:var(--fg,#fffffff0);border-color:var(--fg,#fffffff0)}.pulls-linked-foot[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-fef353a9]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-fef353a9]{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-fef353a9],.pulls-error[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px}.pulls-error[data-v-fef353a9]{color:var(--accent-err,#c9341c)}"]], ["__scopeId", "data-v-fef353a9"]]), hd = {
+}), [["styles", [".pulls-detail[data-v-fef353a9]{font-family:var(--font-sans,system-ui);gap:22px;display:grid}.pulls-detail-head[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);gap:12px;padding-bottom:16px;display:grid}.pulls-detail-title[data-v-fef353a9]{flex-wrap:wrap;align-items:baseline;gap:12px;display:flex}.pulls-detail-title h1[data-v-fef353a9]{font-family:var(--font-serif,system-ui);flex:320px;margin:0;font-size:28px;line-height:1.1}.back[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);cursor:pointer;background:0 0;border:0;padding:0;font-size:16px;text-decoration:none}.back[data-v-fef353a9]:hover{color:var(--fg,#fffffff0)}.pulls-detail-number[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:14px}.pulls-chip-row[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 0;display:flex}.pull-chip[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.pull-chip .chip-glyph[data-v-fef353a9]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.pull-chip.tone-state[data-v-fef353a9]{text-transform:lowercase;letter-spacing:0;border-color:currentColor}.pull-chip.tone-state.pr-state-ready[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-state.pr-state-draft[data-v-fef353a9]{color:var(--fg-3,#ffffff85)}.pull-chip.tone-state.pr-state-review[data-v-fef353a9],.pull-chip.tone-state.pr-state-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-state.pr-state-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pull-chip.tone-project[data-v-fef353a9]{color:var(--accent-blue,#1d55a6);cursor:help;border-color:currentColor}.pull-chip.tone-branch[data-v-fef353a9]{gap:4px}.pull-chip.tone-branch code[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:11px}.pull-chip.tone-branch .branch-arrow[data-v-fef353a9]{color:var(--fg-4,#ffffff57);padding:0 2px}.pull-chip.tone-author[data-v-fef353a9]{color:var(--fg-2,#ffffffbd)}.pull-chip.tone-author[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pull-chip.tone-author[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pull-chip.tone-author[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-author[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pull-chip.tone-time[data-v-fef353a9]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.pull-chip.tone-time.tone-merged[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pull-chip.tone-time.tone-closed[data-v-fef353a9]{color:var(--accent-err,#c9341c)}.pulls-detail-actions[data-v-fef353a9]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.pulls-action[data-v-fef353a9]{border:.5px solid var(--fg,#fffffff0);background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0);font-family:var(--font-serif,system-ui);cursor:pointer;align-items:center;gap:8px;padding:8px 14px;font-weight:600;display:inline-flex}.pulls-action.primary[data-v-fef353a9]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-action[disabled][data-v-fef353a9]{opacity:.5;cursor:not-allowed}.pulls-action kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-action-message[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-detail-body h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0 0 8px;font-size:16px}.pulls-detail-body-prose[data-v-fef353a9]{color:var(--fg,#fffffff0);font-size:14px;line-height:1.6}.pulls-detail-body-prose h1[data-v-fef353a9],.pulls-detail-body-prose h2[data-v-fef353a9],.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9],.pulls-detail-body-prose h5[data-v-fef353a9],.pulls-detail-body-prose h6[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:1.1em 0 .4em;font-weight:600;line-height:1.25}.pulls-detail-body-prose h1[data-v-fef353a9]{font-size:20px}.pulls-detail-body-prose h2[data-v-fef353a9]{font-size:17px}.pulls-detail-body-prose h3[data-v-fef353a9],.pulls-detail-body-prose h4[data-v-fef353a9]{font-size:15px}.pulls-detail-body-prose p[data-v-fef353a9]{margin:.55em 0}.pulls-detail-body-prose ul[data-v-fef353a9],.pulls-detail-body-prose ol[data-v-fef353a9]{margin:.4em 0 .6em;padding-left:22px}.pulls-detail-body-prose li[data-v-fef353a9]{margin:.15em 0}.pulls-detail-body-prose code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border-radius:2px;padding:1px 5px;font-size:.88em}.pulls-detail-body-prose pre[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);border:.5px solid var(--line,#ffffff12);white-space:pre;word-break:normal;margin:.7em 0;padding:12px 14px;font-size:12.5px;line-height:1.55;overflow-x:auto}.pulls-detail-body-prose pre code[data-v-fef353a9]{font-size:inherit;background:0 0;padding:0}.pulls-detail-body-prose a[data-v-fef353a9]{color:var(--accent-teal,#087f6f);text-underline-offset:2px;text-decoration:underline}.pulls-detail-body-prose strong[data-v-fef353a9]{font-weight:600}.pulls-detail-body-prose em[data-v-fef353a9]{font-style:italic}.pulls-detail-body.muted p[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-routed[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);gap:10px;padding:12px 14px;display:grid}.pulls-routed>header[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:6px;display:flex}.pulls-routed>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:16px}.pulls-routed>header .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-routed-list[data-v-fef353a9]{gap:10px;margin:0;padding:0;list-style:none;display:grid}.pulls-routed-project[data-v-fef353a9]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);gap:6px;padding:8px 10px;display:grid}.pulls-routed-name[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;font-size:12px;text-decoration:none}.pulls-routed-name[data-v-fef353a9]:hover{text-underline-offset:2px;text-decoration:underline}.pulls-routed-owners[data-v-fef353a9]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.pulls-routed-owners.muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px;font-style:italic}.pulls-routed-owner[data-v-fef353a9]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.pulls-routed-owner .chip-glyph[data-v-fef353a9]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.pulls-routed-owner[data-author-kind=team][data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-routed-owner[data-author-kind=human][data-v-fef353a9]{color:var(--fg,#fffffff0)}.pulls-routed-owner[data-author-kind=agent][data-v-fef353a9]{color:#6b3fa0}.pulls-routed-owner[data-author-kind=bot][data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-routed-owner[data-author-kind=credential][data-v-fef353a9]{color:var(--accent-yellow,#c89300)}.pulls-routed-source[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);margin:0;font-size:11px}.pulls-routed-source code[data-v-fef353a9]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-linked-issues[data-v-fef353a9]{gap:8px;display:grid}.pulls-linked-issues header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-linked-issues h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion[data-v-fef353a9]{gap:8px;display:grid}.pulls-detail-discussion>header[data-v-fef353a9]{border-bottom:.5px solid var(--fg,#fffffff0);justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:4px;display:flex}.pulls-detail-discussion>header h2[data-v-fef353a9]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px}.pulls-detail-discussion-count[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.pulls-linked-issues .muted[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px}.pulls-linked-issues ul[data-v-fef353a9]{margin:0;padding:0;list-style:none;display:grid}.pulls-linked-issues li[data-v-fef353a9]{border-bottom:.5px solid var(--line,#ffffff12);grid-template-columns:auto minmax(0,1fr) auto auto;align-items:baseline;gap:12px;padding:8px 10px;display:grid;position:relative}.pulls-linked-issues li[data-v-fef353a9]:last-child{border-bottom:0}.pulls-linked-issues li.focused[data-v-fef353a9]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0);background:var(--bg-2,#0e1014)}.pulls-linked-issues li .issue-link[data-v-fef353a9]{color:inherit;text-decoration:none;display:contents}.pulls-linked-issues .issue-project[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--line,#ffffff12);letter-spacing:.02em;white-space:nowrap;padding:1px 7px;font-size:11px;text-decoration:none}.pulls-linked-issues .issue-project[data-v-fef353a9]:hover{color:var(--fg,#fffffff0);border-color:var(--fg,#fffffff0)}.pulls-linked-foot[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:6px;font-size:11px}.pulls-linked-foot kbd[data-v-fef353a9]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.pulls-linked-issues .issue-num[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums;font-size:12px}.pulls-linked-issues .issue-title[data-v-fef353a9]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.pulls-linked-issues .issue-state[data-v-fef353a9]{font-family:var(--font-mono,monospace);letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 5px;font-size:10px}.pulls-linked-issues .issue-state-open[data-v-fef353a9]{color:var(--accent-teal,#087f6f)}.pulls-linked-issues .issue-state-closed[data-v-fef353a9]{color:var(--accent-blue,#1d55a6)}.pulls-empty[data-v-fef353a9],.pulls-error[data-v-fef353a9]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px}.pulls-error[data-v-fef353a9]{color:var(--accent-err,#c9341c)}"]], ["__scopeId", "data-v-fef353a9"]]), _d = {
 	class: "pulls-overview",
 	"data-smoke": "pulls-overview"
-}, gd = { class: "heading" }, _d = {
+}, vd = { class: "heading" }, yd = {
 	key: 0,
 	class: "total"
-}, vd = ["href"], yd = {
+}, bd = ["href"], xd = {
 	key: 0,
 	class: "readiness-summary",
 	"data-smoke": "pulls-readiness-summary",
 	"aria-label": "Pull request readiness summary"
-}, bd = { class: "summary-value" }, xd = { class: "summary-label" }, Sd = {
+}, Sd = { class: "summary-value" }, Cd = { class: "summary-label" }, wd = {
 	key: 1,
 	class: "muted"
-}, Cd = {
+}, Td = {
 	key: 2,
 	class: "muted"
-}, wd = {
+}, Ed = {
 	key: 3,
 	class: "muted"
-}, Td = {
+}, Dd = {
 	key: 4,
 	class: "muted"
-}, Ed = { key: 5 }, Dd = ["href"], Od = { class: "row-main" }, kd = { class: "num" }, Ad = { class: "title" }, jd = { class: "row-meta" }, Md = ["title"], Nd = { class: "age" }, Pd = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
+}, Od = { key: 5 }, kd = ["href"], Ad = { class: "row-main" }, jd = { class: "num" }, Md = { class: "title" }, Nd = { class: "row-meta" }, Pd = ["title"], Fd = { class: "age" }, Id = /* @__PURE__ */ ql(/* @__PURE__ */ Vn({
 	__name: "PullsOverview",
 	props: {
 		host: { type: Object },
@@ -5986,7 +6002,7 @@ var nu = {
 			"waiting-checks",
 			"ready",
 			"draft"
-		], i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = X(() => t.workspaceId ?? t.host?.workspaceId ?? Ml()), s = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), c = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), l = X(() => {
+		], i = /* @__PURE__ */ I(null), a = /* @__PURE__ */ I("idle"), o = X(() => t.workspaceId ?? t.host?.workspaceId ?? Pl()), s = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), c = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), l = X(() => {
 			let e = /* @__PURE__ */ new Map();
 			for (let t of i.value?.columns ?? []) e.set(t.key, t);
 			return e;
@@ -6033,15 +6049,15 @@ var nu = {
 			return l.value.get(e)?.count ?? 0;
 		}
 		function m() {
-			return Nl(c.value);
+			return Fl(c.value);
 		}
 		function h(e) {
-			return Pl(e, c.value);
+			return Il(e, c.value);
 		}
 		async function g() {
 			a.value = "loading";
 			try {
-				let e = await Cl({
+				let e = await Tl({
 					workspaceId: o.value,
 					repositoryId: s.value,
 					requiredApprovals: 1,
@@ -6052,68 +6068,68 @@ var nu = {
 				a.value = "error", i.value = null;
 			}
 		}
-		return (e, t) => (U(), W("section", hd, [
-			G("header", null, [G("div", gd, [t[0] ||= G("h3", null, "Pull requests", -1), i.value ? (U(), W("span", _d, A(i.value.total) + " total", 1)) : J("", !0)]), G("a", { href: m() }, A(u.value) + " active", 9, vd)]),
-			a.value === "ready" ? (U(), W("div", yd, [(U(!0), W(V, null, fr(d.value, (e) => (U(), W("div", {
+		return (e, t) => (U(), W("section", _d, [
+			G("header", null, [G("div", vd, [t[0] ||= G("h3", null, "Pull requests", -1), i.value ? (U(), W("span", yd, A(i.value.total) + " total", 1)) : J("", !0)]), G("a", { href: m() }, A(u.value) + " active", 9, bd)]),
+			a.value === "ready" ? (U(), W("div", xd, [(U(!0), W(V, null, fr(d.value, (e) => (U(), W("div", {
 				key: e.label,
 				class: k(["summary-item", `tone-${e.tone}`])
-			}, [G("span", bd, A(e.value), 1), G("span", xd, A(e.label), 1)], 2))), 128))])) : J("", !0),
-			a.value === "loading" ? (U(), W("p", Sd, "Loading...")) : a.value === "error" ? (U(), W("p", Cd, "Could not load pulls.")) : a.value === "empty" ? (U(), W("p", wd, "No pull requests.")) : f.value.length === 0 ? (U(), W("p", Td, "No active pull requests.")) : (U(), W("ul", Ed, [(U(!0), W(V, null, fr(f.value, (e) => (U(), W("li", {
+			}, [G("span", Sd, A(e.value), 1), G("span", Cd, A(e.label), 1)], 2))), 128))])) : J("", !0),
+			a.value === "loading" ? (U(), W("p", wd, "Loading...")) : a.value === "error" ? (U(), W("p", Td, "Could not load pulls.")) : a.value === "empty" ? (U(), W("p", Ed, "No pull requests.")) : f.value.length === 0 ? (U(), W("p", Dd, "No active pull requests.")) : (U(), W("ul", Od, [(U(!0), W(V, null, fr(f.value, (e) => (U(), W("li", {
 				key: e.card.pullRequest.id,
 				"data-smoke": "pulls-readiness-row"
-			}, [G("a", { href: h(e.card.pullRequest) }, [G("span", Od, [
-				G("span", kd, "#" + A(e.card.pullRequest.number), 1),
-				G("span", Ad, A(e.card.pullRequest.title), 1),
+			}, [G("a", { href: h(e.card.pullRequest) }, [G("span", Ad, [
+				G("span", jd, "#" + A(e.card.pullRequest.number), 1),
+				G("span", Md, A(e.card.pullRequest.title), 1),
 				G("span", { class: k(["lane", `lane-${e.laneKey}`]) }, A(e.laneLabel), 3)
-			]), G("span", jd, [G("span", {
+			]), G("span", Nd, [G("span", {
 				class: "branch",
 				title: `${e.card.pullRequest.headRef} -> ${e.card.pullRequest.baseRef}`
 			}, [
 				q(A(e.card.pullRequest.headRef) + " ", 1),
 				t[1] ||= G("span", null, "->", -1),
 				q(" " + A(e.card.pullRequest.baseRef), 1)
-			], 8, Md), G("span", Nd, A(L(Ll)(e.card.pullRequest.updatedAt ?? e.card.pullRequest.createdAt)), 1)])], 8, Dd)]))), 128))]))
+			], 8, Pd), G("span", Fd, A(L(zl)(e.card.pullRequest.updatedAt ?? e.card.pullRequest.createdAt)), 1)])], 8, kd)]))), 128))]))
 		]));
 	}
-}), [["styles", [".pulls-overview[data-v-a4e5c322]{gap:10px;display:grid}.pulls-overview header[data-v-a4e5c322]{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.heading[data-v-a4e5c322]{gap:2px;min-width:0;display:grid}.pulls-overview h3[data-v-a4e5c322]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-a4e5c322],.total[data-v-a4e5c322],.muted[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px;text-decoration:none}.pulls-overview header a[data-v-a4e5c322]{white-space:nowrap}.readiness-summary[data-v-a4e5c322]{grid-template-columns:repeat(auto-fit,minmax(52px,1fr));gap:4px;display:grid}.summary-item[data-v-a4e5c322]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);border-radius:6px;gap:2px;min-width:0;padding:6px;display:grid}.summary-value[data-v-a4e5c322]{font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;line-height:1}.summary-label[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--font-mono,monospace);text-transform:uppercase;letter-spacing:0;color:var(--fg-3,#ffffff85);font-size:10px;line-height:1.1;overflow:hidden}.summary-item.tone-blocked .summary-value[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.summary-item.tone-review .summary-value[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.summary-item.tone-checks .summary-value[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.summary-item.tone-ready .summary-value[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.summary-item.tone-draft .summary-value[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.pulls-overview ul[data-v-a4e5c322]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-a4e5c322]{color:inherit;border-bottom:.5px solid var(--line,#ffffff12);gap:4px;padding:8px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-a4e5c322]{border-bottom:0}.row-main[data-v-a4e5c322]{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;display:grid}.row-meta[data-v-a4e5c322]{justify-content:space-between;align-items:center;gap:8px;min-width:0;display:flex}.num[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.title[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.lane[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;max-width:96px;font-family:var(--font-mono,monospace);letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px;overflow:hidden}.lane-ready[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.lane-draft[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.lane-needs-review[data-v-a4e5c322],.lane-blocked-review[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.lane-waiting-checks[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.lane-blocked-checks[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.branch[data-v-a4e5c322],.age[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.branch[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.branch span[data-v-a4e5c322]{color:var(--fg-4,#ffffff57);padding:0 3px}.age[data-v-a4e5c322]{flex:none}"]], ["__scopeId", "data-v-a4e5c322"]]), Fd = {
+}), [["styles", [".pulls-overview[data-v-a4e5c322]{gap:10px;display:grid}.pulls-overview header[data-v-a4e5c322]{justify-content:space-between;align-items:flex-start;gap:12px;display:flex}.heading[data-v-a4e5c322]{gap:2px;min-width:0;display:grid}.pulls-overview h3[data-v-a4e5c322]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.pulls-overview header a[data-v-a4e5c322],.total[data-v-a4e5c322],.muted[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:12px;text-decoration:none}.pulls-overview header a[data-v-a4e5c322]{white-space:nowrap}.readiness-summary[data-v-a4e5c322]{grid-template-columns:repeat(auto-fit,minmax(52px,1fr));gap:4px;display:grid}.summary-item[data-v-a4e5c322]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);border-radius:6px;gap:2px;min-width:0;padding:6px;display:grid}.summary-value[data-v-a4e5c322]{font-family:var(--font-mono,monospace);font-size:14px;font-weight:700;line-height:1}.summary-label[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;font-family:var(--font-mono,monospace);text-transform:uppercase;letter-spacing:0;color:var(--fg-3,#ffffff85);font-size:10px;line-height:1.1;overflow:hidden}.summary-item.tone-blocked .summary-value[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.summary-item.tone-review .summary-value[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.summary-item.tone-checks .summary-value[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.summary-item.tone-ready .summary-value[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.summary-item.tone-draft .summary-value[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.pulls-overview ul[data-v-a4e5c322]{gap:4px;margin:0;padding:0;list-style:none;display:grid}.pulls-overview li a[data-v-a4e5c322]{color:inherit;border-bottom:.5px solid var(--line,#ffffff12);gap:4px;padding:8px 0;text-decoration:none;display:grid}.pulls-overview li:last-child a[data-v-a4e5c322]{border-bottom:0}.row-main[data-v-a4e5c322]{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;display:grid}.row-meta[data-v-a4e5c322]{justify-content:space-between;align-items:center;gap:8px;min-width:0;display:flex}.num[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.title[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;font-weight:500;overflow:hidden}.lane[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;max-width:96px;font-family:var(--font-mono,monospace);letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px;overflow:hidden}.lane-ready[data-v-a4e5c322]{color:var(--accent-teal,#087f6f)}.lane-draft[data-v-a4e5c322]{color:var(--fg-3,#ffffff85)}.lane-needs-review[data-v-a4e5c322],.lane-blocked-review[data-v-a4e5c322]{color:var(--accent-blue,#1d55a6)}.lane-waiting-checks[data-v-a4e5c322]{color:var(--accent-warn,#a05f00)}.lane-blocked-checks[data-v-a4e5c322]{color:var(--accent-err,#c9341c)}.branch[data-v-a4e5c322],.age[data-v-a4e5c322]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.branch[data-v-a4e5c322]{text-overflow:ellipsis;white-space:nowrap;min-width:0;overflow:hidden}.branch span[data-v-a4e5c322]{color:var(--fg-4,#ffffff57);padding:0 3px}.age[data-v-a4e5c322]{flex:none}"]], ["__scopeId", "data-v-a4e5c322"]]), Ld = {
 	class: "pulls-queue",
 	"data-smoke": "pulls-queue"
-}, Id = { class: "pulls-queue-head" }, Ld = { class: "pulls-queue-controls" }, Rd = {
+}, Rd = { class: "pulls-queue-head" }, zd = { class: "pulls-queue-controls" }, Bd = {
 	class: "pulls-filter-row",
 	role: "tablist",
 	"aria-label": "Filter pull requests by state"
-}, zd = ["aria-selected", "onClick"], Bd = { class: "count" }, Vd = { class: "pulls-search" }, Hd = {
+}, Vd = ["aria-selected", "onClick"], Hd = { class: "count" }, Ud = { class: "pulls-search" }, Wd = {
 	key: 0,
 	class: "pulls-query-chips",
 	"data-smoke": "pulls-query-chips",
 	"aria-label": "Parsed search filters"
-}, Ud = ["title"], Wd = {
+}, Gd = ["title"], Kd = {
 	key: 1,
 	class: "pulls-author-filter",
 	"data-smoke": "pulls-author-filter"
-}, Gd = ["data-author-kind", "title"], Kd = { class: "author-glyph" }, qd = {
+}, qd = ["data-author-kind", "title"], Jd = { class: "author-glyph" }, Yd = {
 	key: 0,
 	class: "pulls-empty"
-}, Jd = {
+}, Xd = {
 	key: 1,
 	class: "pulls-error",
 	role: "alert"
-}, Yd = {
+}, Zd = {
 	key: 2,
 	class: "pulls-empty"
-}, Xd = {
+}, Qd = {
 	key: 3,
 	class: "pulls-empty"
-}, Zd = {
+}, $d = {
 	key: 4,
 	class: "pulls-list",
 	role: "listbox",
 	"aria-label": "Pull requests"
-}, Qd = ["aria-selected", "onMouseenter"], $d = ["href"], ef = { class: "pulls-row-number" }, tf = { class: "pulls-row-body" }, nf = { class: "pulls-row-title" }, rf = { class: "pulls-row-meta" }, af = { class: "pulls-branch" }, of = [
+}, ef = ["aria-selected", "onMouseenter"], tf = ["href"], nf = { class: "pulls-row-number" }, rf = { class: "pulls-row-body" }, af = { class: "pulls-row-title" }, of = { class: "pulls-row-meta" }, sf = { class: "pulls-branch" }, cf = [
 	"data-author-kind",
 	"title",
 	"onClick"
-], sf = { class: "author-glyph" }, cf = { class: "author-label" }, lf = { class: "pulls-row-age" }, uf = /* @__PURE__ */ Gl(/* @__PURE__ */ Vn({
+], lf = { class: "author-glyph" }, uf = { class: "author-label" }, df = { class: "pulls-row-age" }, ff = /* @__PURE__ */ ql(/* @__PURE__ */ Vn({
 	__name: "PullsQueue",
 	props: {
 		host: { type: Object },
@@ -6153,7 +6169,7 @@ var nu = {
 				label: "All",
 				key: "a"
 			}
-		], r = /* @__PURE__ */ I("OPEN"), i = /* @__PURE__ */ I(""), a = /* @__PURE__ */ I(""), o = /* @__PURE__ */ I([]), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(0), u = X(() => t.workspaceId ?? t.host?.workspaceId ?? Ml()), d = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), p = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state !== "MERGED" && e.state !== "CLOSED" : e.state === t, m = ["is", "author"], h = {
+		], r = /* @__PURE__ */ I("OPEN"), i = /* @__PURE__ */ I(""), a = /* @__PURE__ */ I(""), o = /* @__PURE__ */ I([]), s = /* @__PURE__ */ I("idle"), c = /* @__PURE__ */ I(null), l = /* @__PURE__ */ I(0), u = X(() => t.workspaceId ?? t.host?.workspaceId ?? Pl()), d = X(() => t.repositoryId ?? t.host?.repositoryId ?? null), f = X(() => t.repositoryPath ?? t.host?.repositoryPath ?? null), p = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state !== "MERGED" && e.state !== "CLOSED" : e.state === t, m = ["is", "author"], h = {
 			open: "OPEN",
 			draft: "DRAFT",
 			review: "REVIEW",
@@ -6163,7 +6179,7 @@ var nu = {
 			merged: "MERGED",
 			closed: "CLOSED",
 			all: "ALL"
-		}, g = X(() => nl(i.value, m)), _ = X(() => {
+		}, g = X(() => il(i.value, m)), _ = X(() => {
 			let e = g.value.filters.is ?? [];
 			for (let t of e) {
 				let e = h[t.toLowerCase()];
@@ -6178,7 +6194,7 @@ var nu = {
 			let e = g.value.text.trim().toLowerCase(), t = v.value, n = _.value;
 			return o.value.filter((e) => p(e, n)).filter((e) => t ? e.authorRef === t : !0).filter((t) => {
 				if (!e) return !0;
-				let n = ll(t.authorRef);
+				let n = dl(t.authorRef);
 				return `${t.number} ${t.title} ${t.headRef} ${t.baseRef} ${n.label} ${n.kind}`.toLowerCase().includes(e);
 			});
 		}), b = X(() => {
@@ -6193,7 +6209,7 @@ var nu = {
 				});
 			}
 			for (let t of g.value.filters.author ?? []) {
-				let n = ll(t);
+				let n = dl(t);
 				e.push({
 					key: "author",
 					value: t,
@@ -6270,7 +6286,7 @@ var nu = {
 			a
 		], () => {
 			ne || te();
-		}), ps({
+		}), hs({
 			j: (e) => {
 				e.preventDefault(), l.value = Math.min(l.value + 1, Math.max(0, y.value.length - 1));
 			},
@@ -6298,12 +6314,12 @@ var nu = {
 			i.value &&= (e.preventDefault(), "");
 		}
 		function E(e) {
-			return Pl(e, f.value);
+			return Il(e, f.value);
 		}
 		async function ie() {
 			s.value = "loading", c.value = null;
 			try {
-				o.value = (await xl({
+				o.value = (await Cl({
 					workspaceId: u.value,
 					repositoryId: d.value
 				})).sort((e, t) => {
@@ -6314,10 +6330,10 @@ var nu = {
 				o.value = [], s.value = "error", c.value = e instanceof Error ? e.message : String(e);
 			}
 		}
-		return (e, t) => (U(), W("section", Fd, [
-			G("header", Id, [
+		return (e, t) => (U(), W("section", Ld, [
+			G("header", Rd, [
 				t[4] ||= G("h2", null, "Pull requests", -1),
-				G("div", Ld, [G("div", Rd, [(U(), W(V, null, fr(n, (e) => G("button", {
+				G("div", zd, [G("div", Bd, [(U(), W(V, null, fr(n, (e) => G("button", {
 					key: e.id,
 					type: "button",
 					role: "tab",
@@ -6326,9 +6342,9 @@ var nu = {
 					onClick: (t) => r.value = e.id
 				}, [
 					G("span", null, A(e.label), 1),
-					G("span", Bd, A(C.value[e.id]), 1),
+					G("span", Hd, A(C.value[e.id]), 1),
 					G("kbd", null, A(e.key), 1)
-				], 10, zd)), 64))]), G("label", Vd, [Dn(G("input", {
+				], 10, Vd)), 64))]), G("label", Ud, [Dn(G("input", {
 					"data-pulls-search": "",
 					"onUpdate:modelValue": t[0] ||= (e) => i.value = e,
 					type: "search",
@@ -6336,11 +6352,11 @@ var nu = {
 					autocomplete: "off",
 					onKeydown: po(re, ["esc"])
 				}, null, 544), [[so, i.value]]), t[1] ||= G("kbd", null, "/", -1)])]),
-				b.value.length > 0 ? (U(), W("div", Hd, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("span", {
+				b.value.length > 0 ? (U(), W("div", Wd, [(U(!0), W(V, null, fr(b.value, (e) => (U(), W("span", {
 					key: `${e.key}:${e.value || "unknown"}`,
 					class: k(["query-chip", `tone-${e.tone}`]),
 					title: e.tone === "unknown" ? `Unknown filter key: ${e.key}` : e.value
-				}, A(e.label), 11, Ud))), 128)), t[2] ||= G("span", { class: "query-chips-hint" }, [
+				}, A(e.label), 11, Gd))), 128)), t[2] ||= G("span", { class: "query-chips-hint" }, [
 					q(" syntax: "),
 					G("code", null, "is:open"),
 					q(" | "),
@@ -6350,13 +6366,13 @@ var nu = {
 					q(" | "),
 					G("code", null, "author:<urn>")
 				], -1)])) : J("", !0),
-				a.value ? (U(), W("div", Wd, [
+				a.value ? (U(), W("div", Kd, [
 					t[3] ||= G("span", { class: "prefix" }, "authored by", -1),
 					G("span", {
 						class: "active-chip",
-						"data-author-kind": L(ll)(a.value).kind,
+						"data-author-kind": L(dl)(a.value).kind,
 						title: a.value
-					}, [G("span", Kd, A(L(ll)(a.value).glyph), 1), q(" " + A(L(ll)(a.value).label), 1)], 8, Gd),
+					}, [G("span", Jd, A(L(dl)(a.value).glyph), 1), q(" " + A(L(dl)(a.value).label), 1)], 8, qd),
 					G("button", {
 						type: "button",
 						class: "clear",
@@ -6365,11 +6381,11 @@ var nu = {
 					}, "clear ✕")
 				])) : J("", !0)
 			]),
-			s.value === "loading" ? (U(), W("p", qd, "Loading pull requests…")) : s.value === "error" ? (U(), W("p", Jd, A(c.value), 1)) : o.value.length === 0 ? (U(), W("p", Yd, [...t[5] ||= [
+			s.value === "loading" ? (U(), W("p", Yd, "Loading pull requests…")) : s.value === "error" ? (U(), W("p", Xd, A(c.value), 1)) : o.value.length === 0 ? (U(), W("p", Zd, [...t[5] ||= [
 				q(" No pull requests yet. Push a branch and open one through the ", -1),
 				G("code", null, "create-pull", -1),
 				q(" op or the SDK. ", -1)
-			]])) : y.value.length === 0 ? (U(), W("p", Xd, " No pull requests match the current filter. ")) : (U(), W("ol", Zd, [(U(!0), W(V, null, fr(y.value, (e, n) => (U(), W("li", {
+			]])) : y.value.length === 0 ? (U(), W("p", Qd, " No pull requests match the current filter. ")) : (U(), W("ol", $d, [(U(!0), W(V, null, fr(y.value, (e, n) => (U(), W("li", {
 				key: e.id,
 				class: k(["pulls-row", { focused: n === l.value }]),
 				role: "option",
@@ -6379,10 +6395,10 @@ var nu = {
 				href: E(e),
 				class: "pulls-row-link"
 			}, [
-				G("span", ef, "#" + A(e.number), 1),
-				G("span", tf, [G("span", nf, A(e.title), 1), G("span", rf, [
-					G("span", { class: k(["pulls-state", L(Il)(e.state).className]) }, A(L(Il)(e.state).label), 3),
-					G("code", af, [
+				G("span", nf, "#" + A(e.number), 1),
+				G("span", rf, [G("span", af, A(e.title), 1), G("span", of, [
+					G("span", { class: k(["pulls-state", L(Rl)(e.state).className]) }, A(L(Rl)(e.state).label), 3),
+					G("code", sf, [
 						q(A(e.headRef) + " ", 1),
 						t[6] ||= G("span", null, "→", -1),
 						q(" " + A(e.baseRef), 1)
@@ -6390,44 +6406,44 @@ var nu = {
 					G("button", {
 						type: "button",
 						class: k(["pulls-author", { active: a.value === e.authorRef }]),
-						"data-author-kind": L(ll)(e.authorRef).kind,
+						"data-author-kind": L(dl)(e.authorRef).kind,
 						title: `${e.authorRef}\nClick to filter by this author`,
 						onClick: uo((t) => x(e.authorRef), ["prevent", "stop"])
-					}, [G("span", sf, A(L(ll)(e.authorRef).glyph), 1), G("span", cf, A(L(ll)(e.authorRef).label), 1)], 10, of)
+					}, [G("span", lf, A(L(dl)(e.authorRef).glyph), 1), G("span", uf, A(L(dl)(e.authorRef).label), 1)], 10, cf)
 				])]),
-				G("span", lf, A(L(Ll)(e.updatedAt ?? e.createdAt)), 1)
-			], 8, $d)], 42, Qd))), 128))])),
+				G("span", df, A(L(zl)(e.updatedAt ?? e.createdAt)), 1)
+			], 8, tf)], 42, ef))), 128))])),
 			t[7] ||= Bi("<footer class=\"pulls-queue-foot\" data-v-b94c1a26><span data-v-b94c1a26><kbd data-v-b94c1a26>j</kbd> <kbd data-v-b94c1a26>k</kbd> navigate · <kbd data-v-b94c1a26>↵</kbd> open · <kbd data-v-b94c1a26>/</kbd> search · <kbd data-v-b94c1a26>o</kbd> open <kbd data-v-b94c1a26>d</kbd> draft <kbd data-v-b94c1a26>r</kbd> review <kbd data-v-b94c1a26>m</kbd> merged <kbd data-v-b94c1a26>c</kbd> closed <kbd data-v-b94c1a26>a</kbd> all </span></footer>", 1)
 		]));
 	}
-}), [["styles", [".pulls-queue[data-v-b94c1a26]{font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:16px;display:grid}.pulls-queue-head[data-v-b94c1a26]{gap:12px;display:grid}.pulls-queue-head h2[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-b94c1a26]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-b94c1a26]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-b94c1a26]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.pulls-filter.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-filter .count[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-b94c1a26]{color:var(--bg-2,#0e1014)}.pulls-filter kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-b94c1a26]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.pulls-list[data-v-b94c1a26]{border-top:.5px solid var(--fg,#fffffff0);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-b94c1a26]{border-bottom:.5px solid var(--line,#ffffff12)}.pulls-row.focused[data-v-b94c1a26]{background:var(--bg-2,#0e1014)}.pulls-row-link[data-v-b94c1a26]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.pulls-row-number[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-b94c1a26]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-b94c1a26]{letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-b94c1a26]{color:var(--fg-3,#ffffff85)}.pulls-state.pr-state-review[data-v-b94c1a26],.pulls-state.pr-state-merged[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.pulls-branch span[data-v-b94c1a26]{color:var(--fg-4,#ffffff57);padding:0 4px}.pulls-author[data-v-b94c1a26]{color:inherit;font:inherit;font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);border-color:currentColor}.pulls-author.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0);border-style:solid}.pulls-author.active .author-glyph[data-v-b94c1a26],.pulls-author.active .author-label[data-v-b94c1a26]{color:inherit}.pulls-query-chips[data-v-b94c1a26]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-b94c1a26]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-b94c1a26]{color:var(--fg,#fffffff0)}.pulls-query-chips .query-chip.tone-unknown[data-v-b94c1a26]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-b94c1a26]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-b94c1a26]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-b94c1a26]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-b94c1a26]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-b94c1a26]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-b94c1a26]:hover{color:var(--fg,#fffffff0)}.pulls-author .author-glyph[data-v-b94c1a26]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-badge[data-v-b94c1a26]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-badge[data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-badge[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-b94c1a26]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.pulls-empty[data-v-b94c1a26],.pulls-error[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.pulls-error[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-queue-foot kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-b94c1a26"]]), df = "ext_pull_requests", ff = "comtrya-pulls-queue", pf = "comtrya-pulls-detail", mf = "comtrya-pulls-overview";
-dl({
-	tagName: ff,
-	component: uf
-}), dl({
-	tagName: pf,
-	component: md
-}), dl({
+}), [["styles", [".pulls-queue[data-v-b94c1a26]{font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:16px;display:grid}.pulls-queue-head[data-v-b94c1a26]{gap:12px;display:grid}.pulls-queue-head h2[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.pulls-queue-controls[data-v-b94c1a26]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;display:flex}.pulls-filter-row[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.pulls-filter[data-v-b94c1a26]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.pulls-filter[data-v-b94c1a26]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.pulls-filter.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.pulls-filter .count[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.pulls-filter.active .count[data-v-b94c1a26]{color:var(--bg-2,#0e1014)}.pulls-filter kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.pulls-search[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:240px;max-width:420px;padding:4px 10px;display:inline-flex}.pulls-search input[data-v-b94c1a26]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.pulls-search kbd[data-v-b94c1a26]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.pulls-list[data-v-b94c1a26]{border-top:.5px solid var(--fg,#fffffff0);margin:0;padding:0;list-style:none;display:grid}.pulls-row[data-v-b94c1a26]{border-bottom:.5px solid var(--line,#ffffff12)}.pulls-row.focused[data-v-b94c1a26]{background:var(--bg-2,#0e1014)}.pulls-row-link[data-v-b94c1a26]{color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.pulls-row-link[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.pulls-row-number[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.pulls-row-body[data-v-b94c1a26]{gap:4px;min-width:0;display:grid}.pulls-row-title[data-v-b94c1a26]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.pulls-row-meta[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.pulls-state[data-v-b94c1a26]{letter-spacing:0;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.pulls-state.pr-state-ready[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-state.pr-state-draft[data-v-b94c1a26]{color:var(--fg-3,#ffffff85)}.pulls-state.pr-state-review[data-v-b94c1a26],.pulls-state.pr-state-merged[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-state.pr-state-closed[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-branch[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);font-size:12px}.pulls-branch span[data-v-b94c1a26]{color:var(--fg-4,#ffffff57);padding:0 4px}.pulls-author[data-v-b94c1a26]{color:inherit;font:inherit;font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:1px dashed #0000;align-items:center;gap:5px;padding:0 5px;font-size:12px;display:inline-flex}.pulls-author[data-v-b94c1a26]:hover{background:var(--bg-2,#0e1014);border-color:currentColor}.pulls-author.active[data-v-b94c1a26]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0);border-style:solid}.pulls-author.active .author-glyph[data-v-b94c1a26],.pulls-author.active .author-label[data-v-b94c1a26]{color:inherit}.pulls-query-chips[data-v-b94c1a26]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.pulls-query-chips .query-chip[data-v-b94c1a26]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.pulls-query-chips .query-chip.tone-is[data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-query-chips .query-chip.tone-author[data-v-b94c1a26]{color:var(--fg,#fffffff0)}.pulls-query-chips .query-chip.tone-unknown[data-v-b94c1a26]{color:var(--accent-warn,#c89300);border-style:dashed}.pulls-query-chips .query-chips-hint[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.pulls-query-chips .query-chips-hint code[data-v-b94c1a26]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.pulls-author-filter[data-v-b94c1a26]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.pulls-author-filter .prefix[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.pulls-author-filter .active-chip[data-v-b94c1a26]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.pulls-author-filter .active-chip[data-author-kind=agent][data-v-b94c1a26]{color:#6b3fa0}.pulls-author-filter .active-chip[data-author-kind=credential][data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author-filter .active-chip[data-author-kind=bot][data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author-filter .active-chip[data-author-kind=team][data-v-b94c1a26]{color:var(--accent-teal,#087f6f)}.pulls-author-filter .author-glyph[data-v-b94c1a26]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.pulls-author-filter .clear[data-v-b94c1a26]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.pulls-author-filter .clear[data-v-b94c1a26]:hover{color:var(--fg,#fffffff0)}.pulls-author .author-glyph[data-v-b94c1a26]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.pulls-author[data-author-kind=agent] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=agent] .author-badge[data-v-b94c1a26]{color:#6b3fa0}.pulls-author[data-author-kind=credential] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=credential] .author-badge[data-v-b94c1a26]{color:var(--accent-yellow,#c89300)}.pulls-author[data-author-kind=bot] .author-glyph[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-label[data-v-b94c1a26],.pulls-author[data-author-kind=bot] .author-badge[data-v-b94c1a26]{color:var(--accent-blue,#1d55a6)}.pulls-author .author-badge[data-v-b94c1a26]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.pulls-row-age[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.pulls-empty[data-v-b94c1a26],.pulls-error[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.pulls-error[data-v-b94c1a26]{color:var(--accent-err,#c9341c)}.pulls-queue-foot[data-v-b94c1a26]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.pulls-queue-foot kbd[data-v-b94c1a26]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}"]], ["__scopeId", "data-v-b94c1a26"]]), pf = "ext_pull_requests", mf = "comtrya-pulls-queue", hf = "comtrya-pulls-detail", gf = "comtrya-pulls-overview";
+pl({
 	tagName: mf,
-	component: Pd
+	component: ff
+}), pl({
+	tagName: hf,
+	component: gd
+}), pl({
+	tagName: gf,
+	component: Id
 });
-var hf = {
-	id: df,
+var _f = {
+	id: pf,
 	setup(e) {
 		e.registerWidget({
 			id: "pulls-overview",
-			element: mf,
+			element: gf,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/", {
-			element: ff,
+			element: mf,
 			requiredPermission: "pull-requests.read"
 		}), e.registerRoute("/:pullId", {
-			element: pf,
+			element: hf,
 			requiredPermission: "pull-requests.read"
-		}), Hl();
+		}), Wl();
 	}
 };
 //#endregion
-export { hf as default };
+export { _f as default };

@@ -1731,9 +1731,40 @@ kbd {
 }
 
 .shell-app .repo-overview-main { min-width: 0; }
-.shell-app .repo-overview-rail { display: flex; flex-direction: column; gap: 20px; }
+.shell-app .repo-overview-rail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
 .shell-app .repo-overview-rail .repo-bookmarks,
 .shell-app .repo-overview-rail > * { margin-top: 0; }
+.shell-app .repo-overview-main .slot-frame { margin-top: 20px; }
+.shell-app .repo-overview .slot-frame--bare .slot-mount {
+  gap: 20px;
+  min-height: 0;
+}
+.shell-app .repo-overview .slot-frame,
+.shell-app .repo-overview .slot-mount,
+.shell-app .repo-overview .slot-mount > [data-extension-widget] {
+  max-width: 100%;
+  min-width: 0;
+}
+.shell-app .repo-overview .slot-mount > [data-extension-widget] {
+  display: block;
+  width: 100%;
+}
+.shell-app .repo-overview-rail .epics-list-header,
+.shell-app .repo-overview-rail .epics-quick-add {
+  max-width: 100%;
+  min-width: 0;
+}
+.shell-app .repo-overview-rail .epics-quick-add {
+  flex-wrap: wrap;
+}
+.shell-app .repo-overview-rail .epics-quick-add .quick-add-hint {
+  white-space: normal;
+}
 
 @media (max-width: 960px) {
   .shell-app .repo-overview { grid-template-columns: minmax(0, 1fr); }

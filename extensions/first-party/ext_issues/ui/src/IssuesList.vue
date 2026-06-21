@@ -1013,6 +1013,7 @@ async function submitQuickAdd(): Promise<void> {
 
 <style scoped>
 .issues-queue {
+  min-width: 0;
   display: grid;
   gap: 14px;
   font-family: var(--font-sans, system-ui);
@@ -1020,11 +1021,13 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-queue-head {
+  min-width: 0;
   display: grid;
   gap: 12px;
 }
 
 .head-row {
+  min-width: 0;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -1048,6 +1051,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-controls {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1216,6 +1220,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-quick-add {
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1356,12 +1361,12 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-search {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   border: 0.5px solid var(--fg, rgba(255,255,255,0.94));
   padding: 4px 10px;
-  min-width: 240px;
   flex: 1 1 240px;
   max-width: 420px;
 }
@@ -1397,6 +1402,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-list {
+  min-width: 0;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1405,6 +1411,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-row {
+  min-width: 0;
   border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
   position: relative;
 }
@@ -1539,6 +1546,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-row-link {
+  min-width: 0;
   display: grid;
   grid-template-columns: 56px 1fr auto;
   gap: 14px;
@@ -1740,6 +1748,7 @@ async function submitQuickAdd(): Promise<void> {
 }
 
 .issues-foot {
+  min-width: 0;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--fg-3, rgba(255,255,255,0.52));
@@ -1750,5 +1759,57 @@ async function submitQuickAdd(): Promise<void> {
   padding: 0 4px;
   font-family: var(--font-mono, monospace);
   font-size: 10px;
+}
+
+@media (max-width: 520px) {
+  .head-row,
+  .issues-controls,
+  .issues-quick-add {
+    align-items: stretch;
+  }
+
+  .head-row {
+    flex-wrap: wrap;
+  }
+
+  .issues-new {
+    justify-self: start;
+  }
+
+  .issues-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .issues-search {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+  }
+
+  .issues-quick-add {
+    flex-wrap: wrap;
+  }
+
+  .quick-add-status,
+  .quick-add-hint {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .issues-row-link {
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+
+  .issues-row-age {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .issues-foot {
+    overflow-wrap: anywhere;
+  }
 }
 </style>

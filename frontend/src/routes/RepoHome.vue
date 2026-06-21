@@ -2,7 +2,6 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
-import RepoPullRequestsPanel from "../components/RepoPullRequestsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
@@ -240,7 +239,7 @@ const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
   if (props.view === "config") return "config";
   return "context";
 });
-const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
+const repositoryId = computed(() => repository.value?.id ?? null);
 const displayPath = computed(() => repository.value?.path ?? repoPath.value);
 const repositoryGroups = computed(() =>
   repository.value?.groups?.length ? repository.value.groups : props.groups,
@@ -688,7 +687,7 @@ function formatReadmeSize(size: number | null | undefined): string | null {
 
 const repoContext = computed<Record<string, unknown>>(() => ({
   workspaceId: workspaceId.value ?? undefined,
-  repositoryId: repositoryId.value,
+  repositoryId: repositoryId.value ?? undefined,
   repositoryGroups: repository.value?.groups ?? props.groups,
   repositoryName: repository.value?.name ?? props.repo,
   repositoryPath: repository.value?.path ?? repoPath.value,
@@ -909,6 +908,17 @@ function mergeRepositoryIdentity(
         <section v-else class="repo-readme repo-readme-empty">
           <p>No README at the repo root. Add one to introduce this repository.</p>
         </section>
+
+        <SlotMount
+          v-if="repositoryId"
+          name="repository.main"
+          label="Repository work"
+          :element-context="repoContext"
+          :enabled-extensions="enabledExtensions"
+          smoke-prefix="repo-slot"
+          :framed="false"
+          hide-empty
+        />
       </main>
 
       <aside class="repo-overview-rail">
@@ -962,11 +972,15 @@ function mergeRepositoryIdentity(
 
         <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
 
-        <RepoPullRequestsPanel
-          v-if="repositoryExtensionEnabled(enabledExtensions ?? [], 'pulls')"
-          :workspace-id="workspaceId"
-          :repository-id="repositoryId"
-          :repository-path="displayPath"
+        <SlotMount
+          v-if="repositoryId"
+          name="repository.sidebar"
+          label="Repository side work"
+          :element-context="repoContext"
+          :enabled-extensions="enabledExtensions"
+          smoke-prefix="repo-slot"
+          :framed="false"
+          hide-empty
         />
 
         <section

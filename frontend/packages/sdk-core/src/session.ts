@@ -25,8 +25,13 @@ interface SessionState {
   expiresAtMs: number;
 }
 
-let current: SessionState | undefined;
-let inflight: Promise<string | undefined> | undefined;
+interface SharedSessionState {
+  current?: SessionState;
+  inflight?: Promise<string | undefined>;
+}
+
+const SESSION_STATE_KEY = "__comtryaSessionState";
+const OPERATOR_CODE_KEY = "__comtryaOperatorCode";
 
 export interface SessionBootstrapOptions {
   /** Override the kernel base URL (defaults to same-origin). */
@@ -41,26 +46,32 @@ export interface SessionBootstrapOptions {
 export async function getSessionToken(
   options: SessionBootstrapOptions = {},
 ): Promise<string | undefined> {
-  if (current && current.expiresAtMs > Date.now() + 5_000) {
-    return current.token;
+  const state = sharedSessionState();
+  if (state.current && state.current.expiresAtMs > Date.now() + 5_000) {
+    return state.current.token;
   }
-  if (!inflight) {
-    inflight = bootstrap(options).finally(() => {
-      inflight = undefined;
+  if (!state.inflight) {
+    const pending = bootstrap(options).finally(() => {
+      if (sharedSessionState().inflight === pending) {
+        sharedSessionState().inflight = undefined;
+      }
     });
+    state.inflight = pending;
   }
-  return inflight;
+  return state.inflight;
 }
 
 /** Clears the cached session. Called by transports when they receive 401. */
 export function clearSessionToken(): void {
-  current = undefined;
+  sharedSessionState().current = undefined;
 }
 
 /** Test-only — fully reset module state. */
 export function _resetSessionForTesting(): void {
-  current = undefined;
-  inflight = undefined;
+  const state = sharedSessionState();
+  state.current = undefined;
+  state.inflight = undefined;
+  sharedSessionGlobal()[OPERATOR_CODE_KEY] = undefined;
 }
 
 async function bootstrap(
@@ -109,22 +120,46 @@ async function bootstrap(
     throw new Error("token-exchange response missing accessToken");
   }
   const ttlMs = (body.expiresIn ?? 1800) * 1000;
-  current = {
+  const current = {
     token: body.accessToken,
     expiresAtMs: Date.now() + ttlMs,
   };
+  sharedSessionState().current = current;
   return current.token;
 }
 
+function sharedSessionState(): SharedSessionState {
+  const global = sharedSessionGlobal();
+  global[SESSION_STATE_KEY] ??= {};
+  return global[SESSION_STATE_KEY];
+}
+
 function readBuildEnv(): string | undefined {
+  const sharedOperatorCode = sharedSessionGlobal()[OPERATOR_CODE_KEY];
+  if (sharedOperatorCode) return sharedOperatorCode;
+
   // Vite inlines `import.meta.env.PUBLIC_*` at build time when
   // `envPrefix` includes `PUBLIC_`. Outside Vite (Node/Bun tests),
   // `import.meta.env` may be undefined — guard accordingly.
   try {
     const env = (import.meta as ImportMeta & { env?: Record<string, string> })
       .env;
-    return env?.PUBLIC_COMTRYA_OPERATOR_CODE;
+    const operatorCode = env?.PUBLIC_COMTRYA_OPERATOR_CODE;
+    if (operatorCode) {
+      sharedSessionGlobal()[OPERATOR_CODE_KEY] = operatorCode;
+    }
+    return operatorCode;
   } catch {
     return undefined;
   }
+}
+
+function sharedSessionGlobal(): typeof globalThis & {
+  [SESSION_STATE_KEY]?: SharedSessionState;
+  [OPERATOR_CODE_KEY]?: string;
+} {
+  return globalThis as typeof globalThis & {
+    [SESSION_STATE_KEY]?: SharedSessionState;
+    [OPERATOR_CODE_KEY]?: string;
+  };
 }

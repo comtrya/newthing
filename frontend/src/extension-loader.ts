@@ -132,9 +132,11 @@ export async function loadShellExtensions(): Promise<ExtensionLoadFailure[]> {
   };
   setExtensionRuntimeContext(runtimeContext);
 
-  for (const extension of boot.extensionInstallations ?? []) {
-    await loadOneExtension(extension, runtimeContext, failures);
-  }
+  await Promise.all(
+    (boot.extensionInstallations ?? []).map((extension) =>
+      loadOneExtension(extension, runtimeContext, failures)
+    ),
+  );
   return failures;
 }
 

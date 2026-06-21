@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { type OpResult } from "@comtrya/sdk-core";
-import { extChecksXChecks } from "../../dist/ext_checks.client";
+import { invokeOp, type OpError, type OpResult } from "@comtrya/sdk-core";
 
 interface HostContext {
   workspaceId?: string;
@@ -56,19 +55,34 @@ const props = defineProps<{
   workspaceId?: string;
   repositoryId?: string | null;
   repositoryPath?: string | null;
+  extensionSlot?: string | null;
 }>();
 
 const loadState = ref<"idle" | "loading" | "ready" | "empty" | "error">("idle");
 const loadError = ref<string | null>(null);
 const checks = ref<CheckRun[]>([]);
 const board = ref<CheckReadinessBoard | null>(null);
+const LOAD_TIMEOUT_MS = 6_000;
 
 const workspaceId = computed(() => props.workspaceId ?? props.host?.workspaceId ?? "");
 const repositoryId = computed(() => props.repositoryId ?? props.host?.repositoryId ?? "");
 const repositoryPath = computed(() => props.repositoryPath ?? props.host?.repositoryPath ?? "");
+const isSidebarSummary = computed(() => props.extensionSlot === "repository.sidebar");
 const repositoryUri = computed(() => {
   if (!workspaceId.value || !repositoryId.value) return "";
   return `comtrya://workspace/${workspaceId.value}/repository/${repositoryId.value}`;
+});
+const checksRouteHref = computed(() => {
+  const path = repositoryPath.value
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(encodeURIComponent)
+    .join("/");
+  const params = new URLSearchParams();
+  if (workspaceId.value) params.set("workspaceId", workspaceId.value);
+  if (repositoryId.value) params.set("repositoryId", repositoryId.value);
+  const query = params.toString();
+  return `/r/${path || "repository"}/checks${query ? `?${query}` : ""}`;
 });
 
 const sortedChecks = computed(() => sortChecksByUpdated(checks.value));
@@ -89,6 +103,7 @@ const queuedChecks = computed(
   () => summaryChecks.value.filter((check) => statusForCheck(check) === "queued").length,
 );
 const headlineState = computed(() => {
+  if (isSidebarSummary.value) return "Board";
   if (loadState.value === "loading") return "Loading";
   if (requiredFailures.value > 0) return `${requiredFailures.value} blocking`;
   if (runningChecks.value > 0) return `${runningChecks.value} running`;
@@ -97,6 +112,7 @@ const headlineState = computed(() => {
   return "No runs";
 });
 const headlineTone = computed<"ok" | "warn" | "err" | "info">(() => {
+  if (isSidebarSummary.value) return "info";
   if (loadState.value === "loading") return "info";
   if (requiredFailures.value > 0) return "err";
   if (runningChecks.value > 0 || queuedChecks.value > 0) return "warn";
@@ -111,16 +127,41 @@ const activeCommit = computed(() => {
 
 let loadRun = 0;
 
-function unwrapOp<T>(result: OpResult<unknown>, label: string): T {
-  if (result.ok) return result.value as T;
-  throw new Error(`${label}: ${result.error.message}`);
+class OpInvocationError extends Error {
+  constructor(
+    label: string,
+    readonly opError: OpError,
+  ) {
+    super(`${label}: ${opError.message}`);
+  }
 }
 
-async function loadChecks(): Promise<void> {
+function unwrapOp<T>(result: OpResult<unknown>, label: string): T {
+  if (result.ok) return result.value as T;
+  throw new OpInvocationError(label, result.error);
+}
+
+async function invokeChecksOp<T>(
+  opName: string,
+  input: unknown,
+  signal: AbortSignal,
+): Promise<T> {
+  return unwrapOp<T>(
+    await invokeOp("ext_checks", "checks", opName, input, { signal }),
+    opName,
+  );
+}
+
+async function loadChecks(attempt = 0): Promise<void> {
   const run = ++loadRun;
   checks.value = [];
   board.value = null;
   loadError.value = null;
+
+  if (isSidebarSummary.value) {
+    loadState.value = "idle";
+    return;
+  }
 
   if (!repositoryUri.value) {
     loadState.value = "empty";
@@ -128,12 +169,13 @@ async function loadChecks(): Promise<void> {
   }
 
   loadState.value = "loading";
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), LOAD_TIMEOUT_MS);
   try {
-    const listResult = await extChecksXChecks.listChecks({
+    const nextChecks = await invokeChecksOp<CheckRun[]>("list-checks", {
       repository: repositoryUri.value,
       limit: 256,
-    });
-    const nextChecks = unwrapOp<CheckRun[]>(listResult, "list checks");
+    }, controller.signal);
     const activeCommitOID = activeCommitFor(nextChecks);
     const boardInput =
       activeCommitOID ?
@@ -146,18 +188,36 @@ async function loadChecks(): Promise<void> {
           repository: repositoryUri.value,
           limit: 256,
         };
-    const boardResult = await extChecksXChecks.readinessBoard(boardInput);
+    const nextBoard = await invokeChecksOp<CheckReadinessBoard>(
+      "readiness-board",
+      boardInput,
+      controller.signal,
+    );
     if (run !== loadRun) return;
 
-    const nextBoard = unwrapOp<CheckReadinessBoard>(boardResult, "readiness board");
     checks.value = Array.isArray(nextChecks) ? nextChecks : [];
     board.value = normalizeBoard(nextBoard);
     loadState.value = checks.value.length > 0 ? "ready" : "empty";
   } catch (caught) {
     if (run !== loadRun) return;
+    if (attempt === 0 && isRetryableLoadError(caught)) {
+      void loadChecks(1);
+      return;
+    }
     loadState.value = "error";
     loadError.value = caught instanceof Error ? caught.message : String(caught);
+  } finally {
+    window.clearTimeout(timeout);
   }
+}
+
+function isRetryableLoadError(caught: unknown): boolean {
+  return caught instanceof OpInvocationError && caught.opError.code === "unavailable";
+}
+
+function openChecksBoard(event: MouseEvent): void {
+  event.preventDefault();
+  window.location.assign(checksRouteHref.value);
 }
 
 function normalizeBoard(value: CheckReadinessBoard): CheckReadinessBoard {
@@ -281,7 +341,7 @@ function checkKey(card: CheckReadinessCard): string {
 }
 
 watch(
-  () => [workspaceId.value, repositoryId.value] as const,
+  () => [workspaceId.value, repositoryId.value, isSidebarSummary.value] as const,
   () => void loadChecks(),
 );
 
@@ -304,6 +364,12 @@ onMounted(() => void loadChecks());
     <p v-if="loadState === 'error'" class="checks-message tone-err" role="alert">
       {{ loadError }}
     </p>
+    <div v-else-if="isSidebarSummary" class="checks-sidebar-summary">
+      <p>Open the board for required runs, merge blockers, and latest workflow state.</p>
+      <a class="checks-link" :href="checksRouteHref" @click="openChecksBoard">
+        Open checks board
+      </a>
+    </div>
     <p v-else-if="loadState === 'loading'" class="checks-message">
       Loading workflow runs...
     </p>
@@ -501,6 +567,39 @@ onMounted(() => void loadChecks());
   color: var(--fg-2);
   background: var(--surface);
   font-size: 13px;
+}
+
+.checks-sidebar-summary {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.checks-sidebar-summary p {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.checks-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--line-2);
+  border-radius: var(--r-sm);
+  padding: 0 10px;
+  color: var(--fg);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.checks-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .summary-grid {
