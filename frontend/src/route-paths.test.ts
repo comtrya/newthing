@@ -50,8 +50,10 @@ function buildRouter() {
     { name: "admin-storage", path: shellRoutePaths.adminStorage, component: Stub },
     { name: "project-home", path: shellRoutePaths.projectHome, component: Stub },
     { name: "repo-code", path: shellRoutePaths.repoCode, component: Stub },
+    { name: "repo-commits", path: shellRoutePaths.repoCommits, component: Stub },
     { name: "repo-pull-review", path: shellRoutePaths.repoPullReview, component: Stub },
     { name: "repo-issue-board", path: shellRoutePaths.repoIssueBoard, component: Stub },
+    { name: "repo-commit-detail", path: shellRoutePaths.repoCommitDetail, component: Stub },
     { name: "repo-pipelines", path: shellRoutePaths.repoPipelines, component: Stub },
     { name: "repo-releases", path: shellRoutePaths.repoReleases, component: Stub },
     { name: "repo-config", path: shellRoutePaths.repoConfig, component: Stub },
@@ -118,6 +120,19 @@ describe("shell route paths", () => {
     expect(r.name).toBe("repo-code");
     expect(r.params.groups).toEqual(["acme", "team"]);
     expect(r.params.repo).toBe("web");
+  });
+
+  test("repo commits list and detail preserve group/repo destructuring", () => {
+    const list = router.resolve("/r/acme/team/web/commits");
+    expect(list.name).toBe("repo-commits");
+    expect(list.params.groups).toEqual(["acme", "team"]);
+    expect(list.params.repo).toBe("web");
+
+    const detail = router.resolve("/r/acme/team/web/commits/abc1234");
+    expect(detail.name).toBe("repo-commit-detail");
+    expect(detail.params.groups).toEqual(["acme", "team"]);
+    expect(detail.params.repo).toBe("web");
+    expect(detail.params.oid).toBe("abc1234");
   });
 
   test("issue board wins over issues catch-all", () => {

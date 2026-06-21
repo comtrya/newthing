@@ -81,10 +81,7 @@ const repoPath = computed(() => repoSegments.value.join("/"));
 const repoHomePath = computed(() =>
   `/r/${repoSegments.value.map(encodeURIComponent).join("/")}`,
 );
-// `/commits` list view isn't registered yet — RepoHome surfaces the
-// commit strip. Back-link points there; if/when a dedicated Commits
-// route lands, switch this to `${repoHomePath}/commits`.
-const commitsPath = computed(() => repoHomePath.value);
+const commitsPath = computed(() => `${repoHomePath.value}/commits`);
 
 const files = computed<DiffFile[]>(() =>
   commit.value ? parseUnifiedDiff(commit.value.patch ?? "") : [],
@@ -157,7 +154,7 @@ const shortOid = computed(() => commit.value?.shortOid ?? props.oid.slice(0, 7))
 <template>
   <header class="repo-header repo-header-compact">
     <div class="repo-header-row">
-      <RouterLink :to="commitsPath" class="repo-header-back">← Repo</RouterLink>
+      <RouterLink :to="commitsPath" class="repo-header-back">← Commits</RouterLink>
       <span class="repo-header-path mono">{{ repoPath }}</span>
       <span class="spacer" />
       <code class="commit-detail-oid" :title="oid">{{ shortOid }}</code>

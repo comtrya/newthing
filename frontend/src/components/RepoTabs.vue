@@ -179,6 +179,10 @@ function isActive(tab: Tab): boolean {
   // every per-extension URL nests under the same base.
   if (tab.id === "overview") return route.path === repoHomePath.value;
   const prefix = `${repoHomePath.value}/${tab.id}`;
+  if (tab.id === "code") {
+    return route.path === prefix
+      || route.path.startsWith(`${repoHomePath.value}/commits`);
+  }
   // Config is a leaf; use exact match so we don't accidentally
   // collide with future `/config/<sub>` routes if they appear.
   if (tab.id === "config" || tab.id === "pipelines" || tab.id === "releases") {

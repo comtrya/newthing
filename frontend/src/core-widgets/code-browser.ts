@@ -216,7 +216,7 @@ function buildBrowserToolbar(
   const primary = document.createElement("div");
   primary.className = "repo-code-toolbar-primary";
   primary.append(
-    buildRefbar(repo.defaultBranch, repo.headOid),
+    buildRefbar(repo.defaultBranch, repo.headOid, repo.path),
     buildBreadcrumbs(repo.path, openFile?.path ?? currentPath, navigateToDirectory),
   );
 
@@ -225,28 +225,64 @@ function buildBrowserToolbar(
   meta.textContent = openFile
     ? `${openFile.kind ?? "file"} · ${humanSize(openFile.size)}`
     : directorySummary(repo.files, currentPath);
-  toolbar.append(primary, meta);
+
+  const secondary = document.createElement("div");
+  secondary.className = "repo-code-toolbar-secondary";
+  const history = buildHistoryLink(repo);
+  if (history) secondary.append(history);
+  secondary.append(meta);
+
+  toolbar.append(primary, secondary);
   return toolbar;
 }
 
-function buildRefbar(defaultBranch: string | null | undefined, headOid: string | null | undefined): HTMLElement {
+function buildRefbar(
+  defaultBranch: string | null | undefined,
+  headOid: string | null | undefined,
+  repoPath: string,
+): HTMLElement {
   const refbar = document.createElement("div");
   refbar.className = "repo-code-refbar";
   refbar.setAttribute("aria-label", "Current code reference");
   const branch = defaultBranch?.trim() || "main";
+  const commit = headOid?.trim() || "";
   refbar.append(
     refPill("branch", branch, "Default branch"),
-    refPill("commit", shortCommit(headOid), headOid || "No commit recorded"),
+    refPill(
+      "commit",
+      shortCommit(headOid),
+      headOid || "No commit recorded",
+      commit ? commitDetailHref(repoPath, commit) : null,
+    ),
   );
   return refbar;
 }
 
-function refPill(iconName: "branch" | "commit", text: string, title: string): HTMLElement {
-  const pill = document.createElement("span");
+function refPill(
+  iconName: "branch" | "commit",
+  text: string,
+  title: string,
+  href: string | null = null,
+): HTMLElement {
+  const pill = href ? document.createElement("a") : document.createElement("span");
   pill.className = `repo-code-ref-pill repo-code-ref-pill--${iconName}`;
   pill.title = title;
+  if (href) {
+    (pill as HTMLAnchorElement).href = href;
+    pill.dataset.smoke = `repo-code-${iconName}-link`;
+  }
   pill.append(icon(iconName), textNode(text));
   return pill;
+}
+
+function buildHistoryLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.commits?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-history-link";
+  link.dataset.smoke = "repo-code-history-link";
+  link.href = commitListHref(repo.path);
+  link.append(icon("commit"), textNode("History"));
+  return link;
 }
 
 function buildBreadcrumbs(
@@ -396,10 +432,10 @@ function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTML
 }
 
 function buildLatestCommit(repo: RepoCodePayload): HTMLElement {
-  const latest = document.createElement("span");
+  const commit = repo.commits?.[0] ?? null;
+  const latest = commit ? document.createElement("a") : document.createElement("span");
   latest.className = "repo-code-latest-commit";
 
-  const commit = repo.commits?.[0] ?? null;
   if (!commit) {
     const short = shortCommit(repo.headOid);
     latest.setAttribute("aria-label", `Latest commit ${short}`);
@@ -407,6 +443,9 @@ function buildLatestCommit(repo: RepoCodePayload): HTMLElement {
     return latest;
   }
 
+  latest.classList.add("repo-code-latest-commit-link");
+  latest.dataset.smoke = "repo-code-latest-commit-link";
+  (latest as HTMLAnchorElement).href = commitDetailHref(repo.path, commit.oid);
   const author = commit.author.trim() || "Unknown author";
   const subject = commit.subject.trim() || "No commit message";
   const time = commit.time.trim();
@@ -441,6 +480,18 @@ function commitLabel(headOid: string | null | undefined): HTMLElement {
 
 function shortCommit(headOid: string | null | undefined): string {
   return typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
+}
+
+function repoPathHref(repoPath: string): string {
+  return `/r/${repoPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+}
+
+function commitListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/commits`;
+}
+
+function commitDetailHref(repoPath: string, oid: string): string {
+  return `${commitListHref(repoPath)}/${encodeURIComponent(oid)}`;
 }
 
 function buildEntryRow(

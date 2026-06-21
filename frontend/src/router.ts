@@ -126,6 +126,15 @@ export const shellRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: shellRoutePaths.repoCommits,
+    name: "repo-commits",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "commits",
+    }),
+  },
+  {
     // Must appear BEFORE the catch-all repoPulls route so that
     // `/pulls/:id/review` is matched here instead of falling through
     // to the extension-owned `/pulls/...` proxy.

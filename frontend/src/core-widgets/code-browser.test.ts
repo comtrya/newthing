@@ -48,9 +48,18 @@ test("core code browser renders familiar branch and commit controls", async () =
     node.textContent?.trim(),
   );
   expect(refText).toEqual(["main", "1234567890ab"]);
+  expect(element.querySelector('[data-smoke="repo-code-commit-link"]')?.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/commits/1234567890abcdef1234567890abcdef12345678",
+  );
+  expect(element.querySelector('[data-smoke="repo-code-history-link"]')?.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/commits",
+  );
   expect(element.querySelectorAll(".repo-code-ref-pill svg")).toHaveLength(2);
   expect(element.querySelector(".repo-code-breadcrumb-current")?.textContent).toBe("dogfood");
   const latestCommit = element.querySelector(".repo-code-latest-commit")!;
+  expect(latestCommit.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/commits/1234567890abcdef1234567890abcdef12345678",
+  );
   expect(latestCommit.querySelector(".repo-code-latest-author")?.textContent).toBe("Ada");
   expect(latestCommit.querySelector(".repo-code-latest-subject")?.textContent).toBe("Add repository shell");
   expect(latestCommit.querySelector(".repo-code-commit-label")?.textContent).toBe("1234567");

@@ -40,6 +40,7 @@ const props = withDefaults(defineProps<{
   view?:
     | "overview"
     | "code"
+    | "commits"
     | "config"
     | "pipelines"
     | "releases"
@@ -235,7 +236,7 @@ const loadError = ref<string | null>(null);
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
 const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
-  if (props.view === "overview") return "overview";
+  if (props.view === "overview" || props.view === "commits") return "overview";
   if (props.view === "config") return "config";
   return "context";
 });
@@ -271,6 +272,7 @@ const repositoryUpdatedLabel = computed(() =>
 );
 const repoHomeHref = computed(() => `/r/${repoPath.value}`);
 const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
+const repoCommitsHref = computed(() => `/r/${repoPath.value}/commits`);
 
 /**
  * Clone command for the repository — absolute URL built from the
@@ -547,6 +549,9 @@ function commitCountLabel(count: number): string {
   return `${count} commit${count === 1 ? "" : "s"}`;
 }
 const commitsCountLabel = computed(() => commitCountLabel(commits.value.length));
+function commitHref(oid: string): string {
+  return `${repoCommitsHref.value}/${encodeURIComponent(oid)}`;
+}
 
 function nounCountLabel(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -1180,6 +1185,42 @@ function mergeRepositoryIdentity(
         :element-context="repoContext"
         smoke-prefix="repo-code"
       />
+    </section>
+
+    <section v-else-if="view === 'commits'" class="repo-commits-page" data-smoke="repo-commits-page">
+      <header class="repo-commits-page-head">
+        <div>
+          <h2>Commits</h2>
+          <p>{{ commitsCountLabel }} on {{ repositoryDefaultRef }}</p>
+        </div>
+        <RouterLink class="repo-commits-code-link" :to="repoCodeHref">
+          <Icon name="folder" />
+          <span>Code</span>
+        </RouterLink>
+      </header>
+
+      <p v-if="commits.length === 0" class="repo-commits-empty">
+        No commits recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-commits-list" aria-label="Repository commits">
+        <li v-for="commit in commits" :key="commit.oid" class="repo-commit-row">
+          <RouterLink class="repo-commit-main" :to="commitHref(commit.oid)">
+            <span class="repo-commit-subject">{{ commit.subject || "No commit message" }}</span>
+            <span class="repo-commit-meta">
+              <span>{{ commit.author || "Unknown author" }}</span>
+              <span v-if="commit.time">{{ commit.time }}</span>
+            </span>
+          </RouterLink>
+          <div class="repo-commit-refs">
+            <code class="repo-commit-oid" :title="commit.oid">{{ commit.shortOid || commit.oid.slice(0, 7) }}</code>
+            <code
+              v-if="commit.changeId"
+              class="repo-commit-change-id"
+              :title="`jj change-id ${commit.changeId}`"
+            >{{ commit.changeId.slice(0, 8) }}</code>
+          </div>
+        </li>
+      </ol>
     </section>
 
     <!-- /r/:path/{pipelines,releases} → shell-owned repo surfaces kept
