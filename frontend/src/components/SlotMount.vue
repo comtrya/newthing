@@ -13,10 +13,12 @@ const props = withDefaults(defineProps<{
   smokePrefix?: string;
   elementContext?: Record<string, unknown>;
   framed?: boolean;
+  hideEmpty?: boolean;
 }>(), {
   smokePrefix: "slot",
   elementContext: () => ({}),
   framed: true,
+  hideEmpty: false,
 });
 
 const contributions = ref<ResolvedWidget[]>([]);
@@ -87,6 +89,7 @@ function stableContextKey(context: Record<string, unknown>): string {
 
 <template>
   <section
+    v-show="!hideEmpty || contributions.length > 0"
     class="slot-frame"
     :class="{ 'slot-frame--bare': !framed }"
     :data-smoke="`${smokePrefix}-${name}`"

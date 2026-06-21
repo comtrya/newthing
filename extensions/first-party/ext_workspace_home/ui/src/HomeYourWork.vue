@@ -83,6 +83,20 @@ function issueId(item: WorkItem): string {
   return `#${item.number ?? item.id ?? "?"}`;
 }
 
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function stateLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return value
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
 interface AssigneeIssue {
   id?: string;
   number?: number;
@@ -127,8 +141,9 @@ async function refreshAssignedIssues(): Promise<void> {
 }
 
 function reviewCheckText(item: WorkItem): string {
-  if (item.checks?.passed == null) return "-";
-  return `${item.checks.passed}/${item.checks.total ?? item.checks.passed}`;
+  if (item.checks?.passed == null) return "No checks";
+  const total = item.checks.total ?? item.checks.passed;
+  return `${item.checks.passed}/${total} checks`;
 }
 
 function reviewCheckClass(item: WorkItem): string {
@@ -149,7 +164,7 @@ function repoLine(item: WorkItem): string {
       <div class="section-strap">
         <span class="id">00</span>
         <h2>Assigned issues</h2>
-        <span class="meta">{{ assignedIssues.length }} routed</span>
+        <span class="meta">{{ countLabel(assignedIssues.length, "assigned issue") }}</span>
       </div>
       <div
         v-for="item in assignedIssues"
@@ -160,13 +175,13 @@ function repoLine(item: WorkItem): string {
         <div>
           <div class="title">{{ item.title ?? "(untitled)" }}</div>
           <div class="sub">
-            <template v-if="item.author">→ {{ item.author }}</template>
+            <template v-if="item.author">Assigned to {{ item.author }}</template>
             <template v-if="item.repositoryPath">
-              <template v-if="item.author"> · </template>◇ {{ item.repositoryPath }}
+              <template v-if="item.author"> · </template>{{ item.repositoryPath }}
             </template>
           </div>
         </div>
-        <span class="check ok">{{ (item.state ?? '').toLowerCase() }}</span>
+        <span class="check ok">{{ stateLabel(item.state) }}</span>
         <span class="t"></span>
       </div>
     </section>
@@ -174,8 +189,8 @@ function repoLine(item: WorkItem): string {
     <section class="section">
       <div class="section-strap">
         <span class="id">01</span>
-        <h2>Review queue</h2>
-        <span class="meta">{{ reviewQueue.length }} pulls</span>
+        <h2>Pull requests awaiting review</h2>
+        <span class="meta">{{ countLabel(reviewQueue.length, "pull request") }}</span>
       </div>
       <div v-for="item in reviewQueue" :key="String(item.id ?? item.number)" class="row">
         <span class="idn">{{ issueId(item) }}</span>
@@ -193,8 +208,8 @@ function repoLine(item: WorkItem): string {
     <section class="section">
       <div class="section-strap">
         <span class="id">02</span>
-        <h2>Your pulls</h2>
-        <span class="meta">{{ authoredPulls.length }} authored</span>
+        <h2>Your pull requests</h2>
+        <span class="meta">{{ countLabel(authoredPulls.length, "authored pull request") }}</span>
       </div>
       <div v-for="item in authoredPulls" :key="String(item.id ?? item.number)" class="row">
         <span class="idn">{{ issueId(item) }}</span>
@@ -202,7 +217,7 @@ function repoLine(item: WorkItem): string {
           <div class="title">{{ item.title ?? "(untitled)" }}</div>
           <div class="sub">{{ repoLine(item) }} · {{ item.state?.toLowerCase() ?? "" }}</div>
         </div>
-        <span class="check ok">ready</span>
+        <span class="check ok">Ready</span>
         <span class="t">{{ item.updatedAt ?? item.time ?? "" }}</span>
       </div>
     </section>
@@ -210,8 +225,8 @@ function repoLine(item: WorkItem): string {
     <section class="section">
       <div class="section-strap">
         <span class="id">03</span>
-        <h2>Failing on your branches</h2>
-        <span class="meta">{{ failingChecks.length }} checks</span>
+        <h2>Failing checks</h2>
+        <span class="meta">{{ countLabel(failingChecks.length, "check") }}</span>
       </div>
       <div v-for="item in failingChecks" :key="String(item.id ?? item.name)" class="row">
         <span class="idn">!CK</span>
@@ -221,7 +236,7 @@ function repoLine(item: WorkItem): string {
             {{ repoLine(item) }}{{ item.branch ? ` · ${item.branch}` : "" }}
           </div>
         </div>
-        <span class="check err">failing</span>
+        <span class="check err">Failing</span>
         <span class="t">{{ item.updatedAt ?? item.time ?? "" }}</span>
       </div>
     </section>
@@ -248,8 +263,9 @@ function repoLine(item: WorkItem): string {
 
 .section-strap h2 {
   margin: 0;
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 14px;
+  font-weight: 600;
 }
 
 .id,
@@ -263,6 +279,14 @@ function repoLine(item: WorkItem): string {
   font-size: 12px;
 }
 
+.sub,
+.meta,
+.check,
+.t,
+.extension-placeholder {
+  font-family: var(--font-sans, system-ui);
+}
+
 .id,
 .idn,
 .sub,
@@ -272,7 +296,7 @@ function repoLine(item: WorkItem): string {
 }
 
 .title {
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-weight: 600;
 }
 

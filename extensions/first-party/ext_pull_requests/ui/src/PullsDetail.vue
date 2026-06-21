@@ -168,7 +168,7 @@ const canClose = computed(
   () => pull.value && pull.value.state !== "CLOSED" && pull.value.state !== "MERGED",
 );
 // Hardcoded default workspace matches the rest of ext_pull_requests
-// (PullsQueue, PullsOverview, PullsYourWork); swap to a real
+// (PullsQueue, PullsOverview); swap to a real
 // resolver when the multi-workspace surface lands.
 const renderedBody = computed(() =>
   pull.value?.bodyMarkdown

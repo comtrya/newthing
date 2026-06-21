@@ -3,12 +3,10 @@ import { bindPrCommands } from "./pr-commands";
 import PullsDetail from "./PullsDetail.vue";
 import PullsOverview from "./PullsOverview.vue";
 import PullsQueue from "./PullsQueue.vue";
-import PullsYourWork from "./PullsYourWork.vue";
 
 const EXTENSION_ID = "ext_pull_requests";
 const PULLS_QUEUE_TAG = "comtrya-pulls-queue";
 const PULLS_DETAIL_TAG = "comtrya-pulls-detail";
-const PULLS_YOUR_WORK_TAG = "comtrya-pulls-your-work";
 const PULLS_OVERVIEW_TAG = "comtrya-pulls-overview";
 
 interface ExtensionHost {
@@ -35,19 +33,11 @@ interface ExtensionDefinition {
 
 defineExtensionWidget({ tagName: PULLS_QUEUE_TAG, component: PullsQueue });
 defineExtensionWidget({ tagName: PULLS_DETAIL_TAG, component: PullsDetail });
-defineExtensionWidget({ tagName: PULLS_YOUR_WORK_TAG, component: PullsYourWork });
 defineExtensionWidget({ tagName: PULLS_OVERVIEW_TAG, component: PullsOverview });
 
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
   setup(host) {
-    host.registerWidget({
-      id: "pulls-your-work",
-      element: PULLS_YOUR_WORK_TAG,
-      defaultSlot: "home.your-work",
-      defaultPriority: 100,
-      requiredPermission: "pull-requests.read",
-    });
     host.registerWidget({
       id: "pulls-overview",
       element: PULLS_OVERVIEW_TAG,

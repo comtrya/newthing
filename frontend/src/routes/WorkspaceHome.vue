@@ -8,6 +8,7 @@ import {
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
+import SlotMount from "../components/SlotMount.vue";
 
 interface RepositorySummary {
   id: string;
@@ -127,6 +128,7 @@ const totalOpenIssuesFetched = ref(0);
 // once. The count is hydrated by a separate invokeOp after the main GraphQL
 // load, so the summary tile must show `—` (not a misleading 0) until then.
 const workspaceOpenIssuesLoaded = ref(false);
+const homeSlotContext = computed(() => ({ workspaceId: workspaceId.value }));
 
 async function refreshWorkspaceOpenIssues(): Promise<void> {
   const ws = workspaceId.value;
@@ -492,6 +494,14 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
 
     <section class="home-grid">
       <div class="home-spine" data-smoke="home-spine">
+        <SlotMount
+          name="home.your-work"
+          label="Your work"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
         <div
           v-if="uniqueActivityProjects.length > 0"
           class="activity-project-filter"
@@ -518,6 +528,14 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
       </div>
 
       <aside class="home-rail">
+        <SlotMount
+          name="home.repositories"
+          label="Repositories"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
         <section
           class="panel home-projects"
           data-smoke="home-projects"
@@ -592,6 +610,22 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
             Projects across repositories in this workspace
           </p>
         </section>
+        <SlotMount
+          name="home.activity"
+          label="Activity"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
+        <SlotMount
+          name="home.instance"
+          label="Instance"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
       </aside>
     </section>
   </div>

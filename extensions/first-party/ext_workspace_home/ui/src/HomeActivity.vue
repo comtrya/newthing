@@ -44,7 +44,7 @@ async function load(): Promise<void> {
     <div class="rail-strap">
       <span class="id">05</span>
       <h3>Activity</h3>
-      <span class="count">live</span>
+      <span class="count">Live</span>
     </div>
 
     <div v-for="event in events" :key="`${event.summary}-${event.time}`" class="ev">
@@ -73,8 +73,9 @@ async function load(): Promise<void> {
 
 .rail-strap h3 {
   margin: 0;
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 14px;
+  font-weight: 600;
 }
 
 .id,
@@ -86,6 +87,13 @@ async function load(): Promise<void> {
   font-size: 12px;
 }
 
+.count,
+.src,
+.t,
+.extension-placeholder {
+  font-family: var(--font-sans, system-ui);
+}
+
 .id,
 .count,
 .src,
@@ -95,7 +103,7 @@ async function load(): Promise<void> {
 
 .summary {
   min-width: 0;
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-weight: 600;
 }
 </style>
