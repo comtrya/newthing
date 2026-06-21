@@ -2,6 +2,10 @@ import type { OpResult } from "@comtrya/sdk-core";
 import { extSprintsXSprints } from "../../dist/ext_sprints.client";
 import type {
   Sprint,
+  SprintBoard,
+  SprintBoardColumn,
+  SprintBoardIssue,
+  SprintIssueState,
   SprintPlanningBoard,
   SprintPlanningColumn,
   SprintState,
@@ -39,6 +43,27 @@ interface WitSprintPlanningBoard {
   columns?: WitSprintPlanningColumn[] | null;
 }
 
+interface WitSprintBoardIssue {
+  issueRef?: string | null;
+  id?: string | null;
+  number?: number | null;
+  title?: string | null;
+  state?: string | null;
+}
+
+interface WitSprintBoardColumn {
+  key?: string | null;
+  label?: string | null;
+  count?: number | null;
+  issues?: WitSprintBoardIssue[] | null;
+}
+
+interface WitSprintBoard {
+  sprintRef?: string | null;
+  total?: number | null;
+  columns?: WitSprintBoardColumn[] | null;
+}
+
 function opValue<T>(result: OpResult<unknown>, label: string): T {
   if (result.ok) return result.value as T;
   throw new Error(`${label}: ${result.error.message}`);
@@ -47,9 +72,11 @@ function opValue<T>(result: OpResult<unknown>, label: string): T {
 function sprintState(value?: string | null): SprintState {
   switch ((value ?? "").toLowerCase()) {
     case "active":
+      return "active";
     case "completed":
+      return "completed";
     case "canceled":
-      return value;
+      return "canceled";
     default:
       return "planned";
   }
@@ -74,6 +101,12 @@ function workspaceUri(workspace: string): string {
   const value = workspace.trim();
   if (!value || value.startsWith("comtrya://workspace/")) return value;
   return `comtrya://workspace/${value}`;
+}
+
+function sprintUri(sprint: string): string {
+  const value = sprint.trim();
+  if (!value || value.startsWith("comtrya://sprint/")) return value;
+  return `comtrya://sprint/${value}`;
 }
 
 function normalizePlanningColumn(value: WitSprintPlanningColumn): SprintPlanningColumn {
@@ -101,6 +134,53 @@ function normalizePlanningBoard(value: WitSprintPlanningBoard): SprintPlanningBo
   };
 }
 
+function sprintIssueState(value?: string | null): SprintIssueState {
+  switch ((value ?? "").toLowerCase()) {
+    case "closed":
+      return "closed";
+    case "missing":
+      return "missing";
+    case "reopened":
+      return "reopened";
+    default:
+      return "open";
+  }
+}
+
+function normalizeSprintIssue(value: WitSprintBoardIssue): SprintBoardIssue {
+  return {
+    issueRef: value.issueRef ?? "",
+    id: value.id ?? null,
+    number: value.number ?? null,
+    title: value.title ?? value.issueRef ?? "Missing issue",
+    state: sprintIssueState(value.state),
+  };
+}
+
+function normalizeSprintBoardColumn(value: WitSprintBoardColumn): SprintBoardColumn {
+  const issues = value.issues ?? [];
+  return {
+    key: value.key ?? "",
+    label: value.label ?? value.key ?? "",
+    count: value.count ?? issues.length,
+    issues: issues.map(normalizeSprintIssue),
+  };
+}
+
+function normalizeSprintBoard(value: WitSprintBoard): SprintBoard {
+  const columns = value.columns ?? [];
+  return {
+    sprintRef: value.sprintRef ?? "",
+    total:
+      value.total ??
+      columns.reduce(
+        (sum, column) => sum + (column.count ?? column.issues?.length ?? 0),
+        0,
+      ),
+    columns: columns.map(normalizeSprintBoardColumn),
+  };
+}
+
 export async function listSprints(workspace: string): Promise<Sprint[]> {
   const result = await extSprintsXSprints.listSprints({
     workspace: workspaceUri(workspace),
@@ -115,4 +195,12 @@ export async function planningBoard(workspace: string): Promise<SprintPlanningBo
     limit: 1024,
   });
   return normalizePlanningBoard(opValue<WitSprintPlanningBoard>(result, "planningBoard"));
+}
+
+export async function boardForSprint(sprint: string): Promise<SprintBoard> {
+  const result = await extSprintsXSprints.boardForSprint({
+    ref: sprintUri(sprint),
+    limit: 1024,
+  });
+  return normalizeSprintBoard(opValue<WitSprintBoard>(result, "boardForSprint"));
 }

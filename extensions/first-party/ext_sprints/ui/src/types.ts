@@ -1,4 +1,5 @@
 export type SprintState = "planned" | "active" | "completed" | "canceled";
+export type SprintIssueState = "open" | "reopened" | "closed" | "missing";
 export type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
 export interface Sprint {
@@ -30,4 +31,25 @@ export interface SprintPlanningBoard {
   workspaceId?: string | null;
   total: number;
   columns: SprintPlanningColumn[];
+}
+
+export interface SprintBoardIssue {
+  issueRef: string;
+  id?: string | null;
+  number?: number | null;
+  title: string;
+  state: SprintIssueState;
+}
+
+export interface SprintBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  issues: SprintBoardIssue[];
+}
+
+export interface SprintBoard {
+  sprintRef: string;
+  total: number;
+  columns: SprintBoardColumn[];
 }
