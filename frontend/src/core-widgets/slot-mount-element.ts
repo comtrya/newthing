@@ -122,7 +122,9 @@ export function defineCoreSlotMountElement(): void {
           this.replaceChildren();
           return;
         }
-        this.replaceChildren(...contributions.map((entry) => this.buildContribution(entry)));
+        const nodes = contributions.map((entry) => this.buildContribution(entry));
+        this.replaceChildren(...nodes);
+        for (const node of nodes) this.applyContributionContext(node);
       }
 
       private buildFrame(contributions: ResolvedWidget[]): HTMLElement {
@@ -142,13 +144,17 @@ export function defineCoreSlotMountElement(): void {
         if (contributions.length === 0) {
           mount.append(buildPlaceholder("No extension claims this slot"));
         } else {
-          mount.append(...contributions.map((entry) => this.buildContribution(entry)));
+          const nodes = contributions.map((entry) => this.buildContribution(entry));
+          mount.append(...nodes);
+          for (const node of nodes) this.applyContributionContext(node);
         }
         frame.append(heading, mount);
         return frame;
       }
 
-      private buildContribution(entry: ResolvedWidget): HTMLElement {
+      private buildContribution(
+        entry: ResolvedWidget,
+      ): HTMLElement & Record<string, unknown> {
         const node = document.createElement(entry.element) as HTMLElement &
           Record<string, unknown>;
         node.addEventListener("comtrya-relationship-changed", (event) => {
@@ -161,6 +167,13 @@ export function defineCoreSlotMountElement(): void {
         });
         node.dataset.extensionId = entry.extensionId;
         node.dataset.extensionSlot = this.currentName;
+        this.applyContributionContext(node);
+        return node;
+      }
+
+      private applyContributionContext(
+        node: HTMLElement & Record<string, unknown>,
+      ): void {
         node.extensionSlot = this.currentName;
         for (const [key, value] of Object.entries(extensionElementContext())) {
           syncContextAttribute(node, key, value);
@@ -170,7 +183,6 @@ export function defineCoreSlotMountElement(): void {
           syncContextAttribute(node, key, value);
           node[key] = value;
         }
-        return node;
       }
     },
   );

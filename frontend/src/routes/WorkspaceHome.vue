@@ -536,6 +536,14 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           :framed="false"
           hide-empty
         />
+        <SlotMount
+          name="home.planning"
+          label="Planning"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
         <section
           class="panel home-projects"
           data-smoke="home-projects"

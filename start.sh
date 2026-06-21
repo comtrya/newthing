@@ -1324,6 +1324,7 @@ else
 fi
 
 for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints ext_docs; do
+  extension_token="$(printf '%s' "$extension_id" | od -An -tx1 | tr -d ' \n')"
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
@@ -1331,14 +1332,14 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprint
     -H "authorization: Bearer $ACCESS_TOKEN" \
     -H "content-type: application/json" \
     --data '{}' \
-    "$FRONTEND_URL/_extensions/session"
+    "$FRONTEND_URL/forge-ui/session"
   EXTENSION_SESSION="$(extract_json_string session "$TMP_DIR/${extension_id}-manifest-session.json")"
   if [[ -z "$EXTENSION_SESSION" ]]; then
     fail "extension ${extension_id} manifest session request did not return session"
   fi
 
   expect_status "extension ${extension_id} manifest through Vue shell" 200 "$TMP_DIR/${extension_id}-manifest.json" \
-    "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
+    "$FRONTEND_URL/forge-ui/${extension_token}/meta.json?session=$EXTENSION_SESSION"
   expect_contains "extension ${extension_id} manifest through Vue shell" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
   # Manifest is identity, not behavior. Slot bindings, routes, and resource
   # cards are runtime registrations through the SDK — they must not appear
@@ -1353,14 +1354,14 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprint
     -H "authorization: Bearer $ACCESS_TOKEN" \
     -H "content-type: application/json" \
     --data '{}' \
-    "$FRONTEND_URL/_extensions/session"
+    "$FRONTEND_URL/forge-ui/session"
   EXTENSION_ASSET_SESSION="$(extract_json_string session "$TMP_DIR/${extension_id}-asset-session.json")"
   if [[ -z "$EXTENSION_ASSET_SESSION" ]]; then
     fail "extension ${extension_id} asset session request did not return session"
   fi
 
   expect_status "extension ${extension_id} asset through Vue shell" 200 "$TMP_DIR/${extension_id}-asset.js" \
-    "$FRONTEND_URL/_extensions/${extension_id}/assets/index.js?session=$EXTENSION_ASSET_SESSION"
+    "$FRONTEND_URL/forge-ui/${extension_token}/files/index.js?session=$EXTENSION_ASSET_SESSION"
   expect_contains "extension ${extension_id} asset through Vue shell" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
 

@@ -23,7 +23,7 @@ feature behavior delivered by WASM extensions.
   SP6 lands. The `/api/ops` surface is interim; do not extend it beyond what
   current extensions need.
 - The frontend is a Vite/Vue shell that loads extension UI bundles from
-  `/_extensions/...`. The shell uses GraphQL for reads and RPC for writes;
+  `/forge-ui/...`. The shell uses GraphQL for reads and RPC for writes;
   extension UI bundles follow the same contract via the generated SDK.
 - The implementation favors deletion and current contracts over transition
   layers.

@@ -38,10 +38,10 @@ function refresh(): void {
 }
 
 onMounted(() => {
-  refresh();
   unsubscribe = subscribeWidgets((slot) => {
     if (slot === null || slot === props.name) refresh();
   });
+  refresh();
 });
 
 watch(() => props.name, refresh);
@@ -70,12 +70,14 @@ function renderSlot(): void {
     return;
   }
 
-  target.replaceChildren(
-    ...contributions.value.map((entry) => buildContributionElement(entry)),
-  );
+  const nodes = contributions.value.map((entry) => buildContributionElement(entry));
+  target.replaceChildren(...nodes);
+  for (const node of nodes) updateContributionElement(node);
 }
 
-function buildContributionElement(entry: ResolvedWidget): HTMLElement {
+function buildContributionElement(
+  entry: ResolvedWidget,
+): HTMLElement & Record<string, unknown> {
   const node = document.createElement(entry.element) as HTMLElement &
     Record<string, unknown>;
   node.dataset.extensionId = entry.extensionId;

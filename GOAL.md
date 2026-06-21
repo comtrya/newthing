@@ -25,7 +25,7 @@ Status: v3 cutover complete; read/write transport split is the north star
   graph after SP6 lands.
 - The Vue/Vite shell is the only frontend.
 - Extension UI bundles are generated from the `ui/` sources and served from
-  `/_extensions/...`.
+  `/forge-ui/...`.
 - `start.sh --reset --oneshot` is the end-to-end acceptance path.
 
 Do not restore removed transition routes, old GraphQL aliases, resolver stubs,

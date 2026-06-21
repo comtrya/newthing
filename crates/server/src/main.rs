@@ -54,6 +54,8 @@ mod generated_dispatch {
     include!(concat!(env!("OUT_DIR"), "/dispatch_table.rs"));
 }
 
+const UI_EXTENSION_BASE_PATH: &str = "/forge-ui";
+
 #[derive(Clone)]
 struct PureRustGitState {
     project_root: PathBuf,
@@ -500,14 +502,11 @@ fn router(state: AppState) -> Router {
         // is `not_found_or_unsupported`. Discovered while smoke-
         // testing the new Dockerfile (#12).
         .route(
-            "/_extensions/session",
+            "/forge-ui/session",
             post(extension_session).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
         )
-        .route(
-            "/_extensions/:extension/manifest.json",
-            get(extension_manifest),
-        )
-        .route("/_extensions/:extension/assets/*path", get(extension_asset))
+        .route("/forge-ui/:module/meta.json", get(extension_manifest))
+        .route("/forge-ui/:module/files/*path", get(extension_asset))
         // `/r/<repo>` is the single forge URL: the SPA browses it and git
         // clients clone/push it. The handler branches on git smart-HTTP
         // markers; non-git browse traffic is owned by the SPA edge and falls
@@ -535,7 +534,7 @@ fn router(state: AppState) -> Router {
 //     `if_not_present` so the per-asset CSP installed by
 //     `apply_extension_asset_headers` (which uses
 //     `frame-ancestors 'self'` so extension UIs can frame their own
-//     assets) wins on the `/_extensions/.../assets/*` route. Every
+//     assets) wins on the `/forge-ui/.../files/*` route. Every
 //     other route inherits the strict default.
 //   * `Strict-Transport-Security` is only applied when TLS terminates
 //     at the server (`tls_terminated == true`). Plain-HTTP development
@@ -4744,7 +4743,7 @@ async fn events_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 }
 
 async fn extension_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    issue_session_response(state, headers, "/_extensions/session")
+    issue_session_response(state, headers, "/forge-ui/session")
 }
 
 fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> Response {
@@ -6884,13 +6883,21 @@ async fn device_revoke_endpoint(
 
 async fn extension_manifest(
     State(state): State<AppState>,
-    AxumPath(extension): AxumPath<String>,
+    AxumPath(module): AxumPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let cors_route = format!("/_extensions/{extension}/manifest.json");
+    let cors_route = format!("{UI_EXTENSION_BASE_PATH}/{module}/meta.json");
     let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
+    };
+    let Some(extension) = extension_id_from_ui_module_token(&module) else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "extension manifest was not found",
+            cors,
+        );
     };
     match state.runtime.extension_manifest_body(&extension) {
         Ok(Some(body)) => text_response(StatusCode::OK, "application/json", body, cors),
@@ -6911,13 +6918,21 @@ async fn extension_manifest(
 
 async fn extension_asset(
     State(state): State<AppState>,
-    AxumPath((extension, asset_path)): AxumPath<(String, String)>,
+    AxumPath((module, asset_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let cors_route = format!("/_extensions/{extension}/assets/{asset_path}");
+    let cors_route = format!("{UI_EXTENSION_BASE_PATH}/{module}/files/{asset_path}");
     let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
+    };
+    let Some(extension) = extension_id_from_ui_module_token(&module) else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "extension asset was not found",
+            cors,
+        );
     };
     let asset = match state.runtime.extension_asset_body(&extension, &asset_path) {
         Ok(Some(asset)) => asset,
@@ -8939,7 +8954,10 @@ impl ExtensionRuntimeStore {
                     "status": record.status.clone(),
                     "component": record.component.clone(),
                     "outputType": record.output_type.clone(),
-                    "manifest": format!("/_extensions/{}/manifest.json", record.id),
+                    "manifest": format!(
+                        "{UI_EXTENSION_BASE_PATH}/{}/meta.json",
+                        ui_module_token(&record.id)
+                    ),
                 }),
                 &now,
             ))
@@ -9522,7 +9540,7 @@ fn validate_extension_manifest_pair(
             "{id} UI manifest extension name does not match backend manifest"
         ));
     }
-    let expected_prefix = format!("/_extensions/{id}/assets/");
+    let expected_prefix = format!("{UI_EXTENSION_BASE_PATH}/{}/files/", ui_module_token(id));
     let entry_rel = ui_manifest
         .assets
         .entry
@@ -9686,6 +9704,38 @@ fn asset_integrity(body: &[u8]) -> String {
     out
 }
 
+fn ui_module_token(id: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(id.len() * 2);
+    for byte in id.as_bytes() {
+        write!(&mut out, "{byte:02x}").expect("write hex token");
+    }
+    out
+}
+
+fn extension_id_from_ui_module_token(token: &str) -> Option<String> {
+    if token.is_empty() || token.len() & 1 == 1 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(token.len() / 2);
+    for pair in token.as_bytes().chunks_exact(2) {
+        let high = hex_value(pair[0])?;
+        let low = hex_value(pair[1])?;
+        bytes.push((high << 4) | low);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn asset_etag(body: &[u8]) -> String {
     format!("\"{}\"", asset_integrity(body))
 }
@@ -9737,8 +9787,12 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
     if m.id.is_empty() {
         return Err("manifest id must be non-empty".into());
     }
-    if !m.assets.entry.starts_with("/_extensions/") {
-        return Err("entry must be served from /_extensions/".into());
+    if !m
+        .assets
+        .entry
+        .starts_with(&format!("{UI_EXTENSION_BASE_PATH}/"))
+    {
+        return Err("entry must be served from /forge-ui/".into());
     }
     if !m.assets.entry_integrity.starts_with("sha256-") {
         return Err("entryIntegrity must be sha256-prefixed".into());
@@ -11596,7 +11650,7 @@ mod tests {
                 runtime,
                 git_state: PureRustGitState::test_default(),
             }),
-            AxumPath("ext_does_not_exist".to_string()),
+            AxumPath(ui_module_token("ext_does_not_exist")),
             origin_headers(),
         )
         .await;
@@ -11618,7 +11672,7 @@ mod tests {
                 runtime,
                 git_state: PureRustGitState::test_default(),
             }),
-            AxumPath(("ext_issues".to_string(), "index.js".to_string())),
+            AxumPath((ui_module_token("ext_issues"), "index.js".to_string())),
             HeaderMap::new(),
         )
         .await;
@@ -12949,7 +13003,10 @@ mod tests {
             serde_json::from_str::<Value>(&fs::read_to_string(&ui_manifest_path).unwrap()).unwrap();
         ui["id"] = json!("ext_local_wit");
         ui["extension"] = json!("local-wit");
-        ui["assets"]["entry"] = json!("/_extensions/ext_local_wit/assets/index.js");
+        ui["assets"]["entry"] = json!(format!(
+            "/forge-ui/{}/files/index.js",
+            ui_module_token("ext_local_wit")
+        ));
         fs::write(&ui_manifest_path, serde_json::to_vec_pretty(&ui).unwrap()).unwrap();
 
         let configs = vec![ExtensionInstallConfig {
@@ -13719,7 +13776,7 @@ mod tests {
             "version": "0.1.0",
             "publisher": "comtrya-dev",
             "assets": {
-                "entry": "/_extensions/ext_test/assets/index.js",
+                "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_test")),
                 "entryIntegrity": "sha256-abc",
                 "styles": []
             },
@@ -13738,7 +13795,7 @@ mod tests {
             "schemaVersion": "comtrya.ui-extension/v1",
             "id": "ext_sample",
             "extension": "sample",
-            "assets": { "entry": "/_extensions/ext_sample/assets/index.js", "entryIntegrity": "sha256-xyz", "styles": [] },
+            "assets": { "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_sample")), "entryIntegrity": "sha256-xyz", "styles": [] },
             "routes": [],
             "slots": [{ "slot": "repository.code", "element": "x-el", "requiredPermission": "code.read" }]
         });
@@ -13757,7 +13814,7 @@ mod tests {
         let v2 = serde_json::json!({
             "schemaVersion": "comtrya.ui-extension/v2",
             "id": "ext_test", "extension": "test", "version": "0.1.0", "publisher": "comtrya-dev",
-            "assets": { "entry": "/_extensions/ext_test/assets/index.js", "entryIntegrity": "sha256-abc", "styles": [] },
+            "assets": { "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_test")), "entryIntegrity": "sha256-abc", "styles": [] },
             "permissions": [],
             "contributes": { "slots": ["bogus"], "routes": false }
         });
@@ -15871,7 +15928,7 @@ mod tests {
         let addr = spawn_test_server(dev_runtime_no_extensions()).await;
         let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
         let response = reqwest::Client::new()
-            .post(format!("http://{addr}/_extensions/session"))
+            .post(format!("http://{addr}/forge-ui/session"))
             .header("content-type", "application/json")
             .body(oversized)
             .send()
@@ -16045,7 +16102,7 @@ mod tests {
 
     #[tokio::test]
     async fn extension_asset_csp_not_overridden_by_global_layer() {
-        // /_extensions/.../assets/* installs its own per-route CSP
+        // /forge-ui/.../files/* installs its own per-route CSP
         // (`frame-ancestors 'self'`) via `apply_extension_asset_headers`.
         // The global layer uses `if_not_present` so the asset CSP must
         // survive. Hitting a missing asset still goes through the
@@ -16053,7 +16110,8 @@ mod tests {
         let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
         let response = reqwest::Client::new()
             .get(format!(
-                "http://{addr}/_extensions/ext_issues/assets/index.js"
+                "http://{addr}/forge-ui/{}/files/index.js",
+                ui_module_token("ext_issues")
             ))
             .send()
             .await

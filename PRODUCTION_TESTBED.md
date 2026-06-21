@@ -84,9 +84,9 @@ storage paths are absolute.
 - `POST /events/session`
 - `GET /events`
 - `GET /graphql/stream`
-- `POST /_extensions/session`
-- `GET /_extensions/<id>/manifest.json`
-- `GET /_extensions/<id>/assets/<path>`
+- `POST /forge-ui/session`
+- `GET /forge-ui/<module-token>/meta.json`
+- `GET /forge-ui/<module-token>/files/<path>`
 - `/git/...` authentication and scope checks
 
 ## Current production-testbed boundary

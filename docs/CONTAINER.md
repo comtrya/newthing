@@ -58,7 +58,7 @@ recurring probe.
 The frontend image exposes port `8080` and serves `/healthz` as a light
 static readiness endpoint. The Kubernetes base deploys it as
 `comtrya-frontend`. Route API paths (`/graphql`, `/api`, `/auth`,
-`/_extensions`, `/git`, `/events`, `/healthz`, `/readyz`) to
+`/forge-ui`, `/git`, `/events`, `/healthz`, `/readyz`) to
 `comtrya-server`, and route SPA paths to `comtrya-frontend`.
 
 ## Environment

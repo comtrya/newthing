@@ -62,7 +62,7 @@ server: "Server / Host — crates/server (Rust)" {
     health: "/healthz · /readyz"
     auth: "Auth / session\n(OIDC, operator code)"
     graphql: "GraphQL\n/graphql"
-    assets: "Asset server\n/_extensions/<id>/assets/..."
+    assets: "Asset server\n/forge-ui/<module-token>/files/..."
     git_http: "Git Smart HTTP v2\n(comtrya-git-http)\nupload-pack only"
   }
 
@@ -168,7 +168,7 @@ server.edge.git_http -> web.shell.git_client: "pkt-line" {
   style.stroke-dash: 4
 }
 
-web.shell.sdk -> server.edge.assets: "GET /_extensions/<id>/assets/index.js" {
+web.shell.sdk -> server.edge.assets: "GET /forge-ui/<module-token>/files/index.js" {
   style.stroke: "#1E6FBA"
   style.stroke-width: 2
 }

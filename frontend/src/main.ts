@@ -32,16 +32,18 @@ const router = createShellRouter();
 registerNavigationCommands(router);
 bindGoChord(router);
 bindProjectCommands(router);
-void loadShellExtensions().then((failures) => {
+const app = createApp(App);
+app.use(router);
+app.mount("#app");
+void loadShellExtensions().then(reportExtensionLoadFailures);
+
+function reportExtensionLoadFailures(failures: Awaited<ReturnType<typeof loadShellExtensions>>): void {
   for (const failure of failures) {
     console.warn(
       `[shell-app] extension ${failure.extensionId} ${failure.stage} failed: ${failure.message}`,
     );
   }
-});
-const app = createApp(App);
-app.use(router);
-app.mount("#app");
+}
 
 function registerNavigationCommands(router: Router): void {
   registerCommand({

@@ -5,8 +5,8 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "assets": {
-    "entry": "/_extensions/ext_workspace_home/assets/index.js",
-    "entryIntegrity": "sha256-767b9221b0b56eab5336f7489b1297e93f93b71e18e8be419351ef173da3bbcf",
+    "entry": "/forge-ui/6578745f776f726b73706163655f686f6d65/files/index.js",
+    "entryIntegrity": "sha256-d32fe0d586b9a5cca913001186474f972039eda3ed4f885d27a95bc5b174594b",
     "styles": []
   },
   "permissions": [
