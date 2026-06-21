@@ -159,6 +159,31 @@ interface epics {
     columns: list<epic-project-column>,
   }
 
+  record label-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-label-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-label-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<epic-label-card>,
+  }
+
+  record epic-label-board {
+    workspace: uri,
+    // Number of epics considered. Individual labeled cards can appear in
+    // more than one column because an epic can carry multiple labels.
+    total: u32,
+    columns: list<epic-label-column>,
+  }
+
   record target-board-input {
     workspace: uri,
     %limit: u32,
@@ -202,6 +227,9 @@ interface epics {
   /// Familiar Project lanes for product planning surfaces. Unscoped
   /// epics stay visible instead of disappearing from Project views.
   project-board: func(input: project-board-input) -> result<epic-project-board, error>;
+  /// Familiar label lanes for planning surfaces. Unlabeled epics stay
+  /// explicit, and multi-label epics appear in every matching lane.
+  label-board: func(input: label-board-input) -> result<epic-label-board, error>;
   /// Familiar target-date lanes for release planning. Completed epics
   /// stay separate from overdue/upcoming work, and untargeted epics
   /// remain visible as planning debt.

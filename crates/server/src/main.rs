@@ -10302,6 +10302,15 @@ mod tests {
         assert_eq!(info.interface_name, "issues");
         assert_eq!(info.op_name, "workflow-board");
 
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("roadmap-board"),
+        )
+        .expect("epic roadmap board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "roadmap-board");
+
         let info =
             crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("owner-board"))
                 .expect("epic owner board route should resolve to DispatchInfo");
@@ -10317,6 +10326,13 @@ mod tests {
         assert_eq!(info.extension_id, "ext_epics");
         assert_eq!(info.interface_name, "epics");
         assert_eq!(info.op_name, "project-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("label-board"))
+                .expect("epic label board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "label-board");
 
         let info =
             crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("target-board"))

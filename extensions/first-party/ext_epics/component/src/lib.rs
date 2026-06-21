@@ -10,11 +10,12 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
-    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicOwnerBoard, EpicOwnerCard,
-    EpicOwnerColumn, EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn,
-    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, EpicTargetBoard,
-    EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest, OwnerBoardInput, ProjectBoardInput,
-    RoadmapBoardInput, TargetBoardInput, UpdateEpicInput,
+    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicLabelBoard,
+    EpicLabelCard, EpicLabelColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicProgress,
+    EpicProjectBoard, EpicProjectCard, EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard,
+    EpicRoadmapColumn, EpicState, EpicTargetBoard, EpicTargetCard, EpicTargetColumn,
+    Guest as EpicsGuest, LabelBoardInput, OwnerBoardInput, ProjectBoardInput, RoadmapBoardInput,
+    TargetBoardInput, UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -620,6 +621,71 @@ fn project_columns(cards: Vec<EpicProjectCard>) -> Vec<EpicProjectColumn> {
     columns
 }
 
+fn epic_label_key(label: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in label.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "label".to_string()
+    } else {
+        format!("label-{key}")
+    }
+}
+
+fn label_column(key: &str, label: &str, cards: Vec<EpicLabelCard>) -> EpicLabelColumn {
+    EpicLabelColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn label_columns(cards: Vec<EpicLabelCard>) -> Vec<EpicLabelColumn> {
+    let mut unlabeled = Vec::new();
+    let mut labeled: BTreeMap<String, (String, Vec<EpicLabelCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let labels: Vec<String> = card
+            .epic
+            .labels
+            .iter()
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .collect();
+        if labels.is_empty() {
+            unlabeled.push(card);
+            continue;
+        }
+        for label in labels {
+            let key = epic_label_key(&label);
+            let entry = labeled.entry(key).or_insert_with(|| (label, Vec::new()));
+            entry.1.push(EpicLabelCard {
+                epic: card.epic.clone(),
+                progress: card.progress.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![label_column("unlabeled", "Unlabeled", unlabeled)];
+    columns.extend(
+        labeled
+            .into_iter()
+            .map(|(key, (label, cards))| label_column(&key, &label, cards)),
+    );
+    columns
+}
+
 #[derive(Clone, Copy)]
 enum TargetLane {
     NoTarget,
@@ -1022,6 +1088,27 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn label_board(input: LabelBoardInput) -> Result<EpicLabelBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicLabelCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicLabelBoard {
+            workspace,
+            total,
+            columns: label_columns(cards),
+        })
+    }
+
     fn target_board(input: TargetBoardInput) -> Result<EpicTargetBoard, Error> {
         let (_, workspace) = workspace_uri(input.workspace.trim())?;
         let limit = input.limit.min(1024);
@@ -1120,6 +1207,15 @@ mod tests {
         let mut epic = epic(id, EpicState::Planned);
         epic.project_name = project_name.map(str::to_string);
         EpicProjectCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    fn label_card(id: &str, labels: &[&str]) -> EpicLabelCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        EpicLabelCard {
             epic,
             progress: progress(0),
         }
@@ -1225,6 +1321,45 @@ mod tests {
         );
         assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
         assert_eq!(columns[2].cards[0].epic.id, "product");
+    }
+
+    #[test]
+    fn label_columns_group_unlabeled_and_labeled_epics() {
+        let columns = label_columns(vec![
+            label_card("unlabeled", &[]),
+            label_card("planning", &["planning"]),
+            label_card("release", &["release"]),
+            label_card("multi", &["planning", "release"]),
+            label_card("blank", &[" "]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["unlabeled", "label-planning", "label-release"]);
+        assert_eq!(columns[0].count, 2);
+        assert_eq!(
+            columns[0]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["unlabeled", "blank"]
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["planning", "multi"]
+        );
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["release", "multi"]
+        );
     }
 
     #[test]
