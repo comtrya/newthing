@@ -13,3 +13,21 @@ export interface Sprint {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SprintPlanningCard {
+  sprint: Sprint;
+}
+
+export interface SprintPlanningColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards: SprintPlanningCard[];
+}
+
+export interface SprintPlanningBoard {
+  workspace: string;
+  workspaceId?: string | null;
+  total: number;
+  columns: SprintPlanningColumn[];
+}

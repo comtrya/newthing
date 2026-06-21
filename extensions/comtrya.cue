@@ -31,4 +31,9 @@ projects: extensions: {
 		defaultLabels: ["extensions"]
 		defaultStatus: "planned"
 	}
+
+	sprints: {
+		cadence:         "weekly"
+		defaultCapacity: 6
+	}
 }

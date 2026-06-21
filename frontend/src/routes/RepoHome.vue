@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<{
    * "config" surfaces the repo's evaluated `comtrya.cue` for read
    * inspection; "pipelines" / "releases" mount shell-owned repo
    * surfaces inside the persistent workbench;
-   * "pulls" / "issues" / "checks" / "epics" embed the
+   * "pulls" / "issues" / "checks" / "epics" / "docs" / "sprints" embed the
    * matching first-party extension's root route inside the
    * workbench so the repo header stays put across intra-repo
    * navigation. Each tab in RepoTabs maps to one of these values
@@ -46,7 +46,9 @@ const props = withDefaults(defineProps<{
     | "pulls"
     | "issues"
     | "checks"
-    | "epics";
+    | "epics"
+    | "docs"
+    | "sprints";
   /**
    * Sub-path captured after `/r/:groups+/:repo/<ext>/` on workbench
    * extension routes. Passed straight through to the embedded
@@ -1167,7 +1169,7 @@ function mergeRepositoryIdentity(
       <Releases :groups="groups" :repo="repo" />
     </section>
 
-    <!-- /r/:path/{pulls,issues,checks,epics} → workbench-style embed of the
+    <!-- /r/:path/{pulls,issues,checks,epics,docs,sprints} → workbench-style embed of the
          matching extension's root route. The repo path is authoritative:
          RepoHome passes the freshly loaded repo/workspace context into the
          extension element, while query params remain useful for filters and
@@ -1184,6 +1186,12 @@ function mergeRepositoryIdentity(
     </section>
     <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
       <ExtensionRoute prefix="epics" :rest="embeddedSubPath" :element-context="repoContext" />
+    </section>
+    <section v-else-if="view === 'docs'" class="repo-extension-embed" data-smoke="repo-docs">
+      <ExtensionRoute prefix="docs" :rest="embeddedSubPath" :element-context="repoContext" />
+    </section>
+    <section v-else-if="view === 'sprints'" class="repo-extension-embed" data-smoke="repo-sprints">
+      <ExtensionRoute prefix="sprints" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
   </template>
 </template>

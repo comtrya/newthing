@@ -1,33 +1,43 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { listSprints } from "./api";
 import type { LoadState, Sprint } from "./types";
 
 const props = withDefaults(defineProps<{
   workspace?: string;
+  workspaceId?: string;
 }>(), {
   workspace: "",
+  workspaceId: "",
 });
 
 const loadState = ref<LoadState>("idle");
 const sprints = ref<Sprint[]>([]);
 const error = ref<string | null>(null);
+const effectiveWorkspace = computed(() => props.workspaceId || props.workspace);
 
-onMounted(async () => {
-  if (!props.workspace) {
+onMounted(() => {
+  void load();
+});
+
+watch(effectiveWorkspace, () => void load());
+
+async function load(): Promise<void> {
+  if (!effectiveWorkspace.value) {
     loadState.value = "empty";
     return;
   }
   loadState.value = "loading";
+  error.value = null;
   try {
-    const result = await listSprints(props.workspace);
+    const result = await listSprints(effectiveWorkspace.value);
     sprints.value = result;
     loadState.value = result.length === 0 ? "empty" : "ready";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
     loadState.value = "error";
   }
-});
+}
 
 function formatDate(iso?: string | null): string {
   if (!iso) return "";

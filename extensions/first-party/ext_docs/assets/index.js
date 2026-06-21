@@ -4951,6 +4951,9 @@ var sl = {
 			defaultSlot: "repository.main",
 			defaultPriority: 80,
 			requiredPermission: "workspace.read"
+		}), e.registerRoute("/", {
+			element: ol,
+			requiredPermission: "workspace.read"
 		});
 	}
 };

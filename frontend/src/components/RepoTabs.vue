@@ -12,8 +12,8 @@ import type { IconKey } from "./icons";
  * Repo-scope navigation strip. Mounted on RepoHome below the
  * chip row + clone command. Surfaces the five sub-surfaces a
  * repo has — README (the current page), Code (the file browser
- * slot), Pull requests / Issues / Checks (links to
- * the workspace-wide queues filtered by `repositoryId`).
+ * slot), core delivery surfaces, and extension-owned product work
+ * surfaces filtered by `repository.extensions`.
  *
  * Editorial aesthetic per LOOP_TODO: bottom-border underline on
  * the active tab, no background pill, mono labels. The active
@@ -139,6 +139,17 @@ const tabs = computed<Tab[]>(() => {
   });
   if (extEnabled("epics")) {
     all.push({ id: "epics", label: "Epics", icon: "tag", to: repoExtPath("epics") });
+  }
+  if (extEnabled("docs")) {
+    all.push({ id: "docs", label: "Docs", icon: "file", to: repoExtPath("docs") });
+  }
+  if (extEnabled("sprints")) {
+    all.push({
+      id: "sprints",
+      label: "Sprints",
+      icon: "ds",
+      to: repoExtPath("sprints"),
+    });
   }
   if (extEnabled("checks")) {
     all.push({

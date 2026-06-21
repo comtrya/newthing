@@ -59,6 +59,8 @@ function buildRouter() {
     { name: "repo-issues", path: shellRoutePaths.repoIssues, component: Stub },
     { name: "repo-checks", path: shellRoutePaths.repoChecks, component: Stub },
     { name: "repo-epics", path: shellRoutePaths.repoEpics, component: Stub },
+    { name: "repo-docs", path: shellRoutePaths.repoDocs, component: Stub },
+    { name: "repo-sprints", path: shellRoutePaths.repoSprints, component: Stub },
     { name: "repo-home", path: shellRoutePaths.repoHome, component: Stub },
     { name: "extension-route", path: shellRoutePaths.extensionRoute, component: Stub },
   ];
@@ -141,6 +143,16 @@ describe("shell route paths", () => {
     const r = router.resolve("/r/acme/web/pulls/queue");
     expect(r.name).toBe("repo-pulls");
     expect(r.params.rest).toEqual(["queue"]);
+  });
+
+  test("docs and sprints repo routes embed extension sub-paths", () => {
+    const docs = router.resolve("/r/acme/web/docs/prds");
+    expect(docs.name).toBe("repo-docs");
+    expect(docs.params.rest).toEqual(["prds"]);
+
+    const sprints = router.resolve("/r/acme/web/sprints/current");
+    expect(sprints.name).toBe("repo-sprints");
+    expect(sprints.params.rest).toEqual(["current"]);
   });
 
   test("project home parses :project segment", () => {

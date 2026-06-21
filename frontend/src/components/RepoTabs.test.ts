@@ -61,6 +61,10 @@ function buildTabs(opts: {
     });
   all.push({ id: "pipelines", label: "Actions", icon: "bolt" });
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
+  if (extEnabled("docs")) all.push({ id: "docs", label: "Docs", icon: "file" });
+  if (extEnabled("sprints")) {
+    all.push({ id: "sprints", label: "Sprints", icon: "ds" });
+  }
   if (extEnabled("checks"))
     all.push({
       id: "checks",
@@ -126,17 +130,31 @@ describe("RepoTabs extension filtering", () => {
     expect(visibleIds([])).not.toContain("checks");
   });
 
+  test("shows Docs tab when 'ext_docs' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_docs"])).toContain("docs");
+    expect(visibleIds([])).not.toContain("docs");
+  });
+
+  test("shows Sprints tab when 'ext_sprints' is in enabledExtensions", () => {
+    expect(visibleIds(["ext_sprints"])).toContain("sprints");
+    expect(visibleIds([])).not.toContain("sprints");
+  });
+
   test("shows multiple extension tabs when all enabled", () => {
     const ids = visibleIds([
       "ext_issues",
       "ext_pull_requests",
       "ext_epics",
       "ext_checks",
+      "ext_docs",
+      "ext_sprints",
     ]);
     expect(ids).toContain("issues");
     expect(ids).toContain("pulls");
     expect(ids).toContain("epics");
     expect(ids).toContain("checks");
+    expect(ids).toContain("docs");
+    expect(ids).toContain("sprints");
   });
 
   test("preserves README-Code-...-Config ordering", () => {
@@ -145,6 +163,8 @@ describe("RepoTabs extension filtering", () => {
       "ext_issues",
       "ext_pull_requests",
       "ext_epics",
+      "ext_docs",
+      "ext_sprints",
     ]);
     expect(ids[0]).toBe("overview");
     expect(ids[1]).toBe("code");
@@ -156,15 +176,24 @@ describe("RepoTabs extension filtering", () => {
       "pulls",
       "pipelines",
       "epics",
+      "docs",
+      "sprints",
       "checks",
       "releases",
       "config",
     ]);
-    // Canonical extension order: issues, pulls, epics, checks
+    // Canonical extension order: issues, pulls, epics, docs, sprints, checks
     const extOrder = ids.filter((id) =>
-      ["issues", "pulls", "epics", "checks"].includes(id),
+      ["issues", "pulls", "epics", "docs", "sprints", "checks"].includes(id),
     );
-    expect(extOrder).toEqual(["issues", "pulls", "epics", "checks"]);
+    expect(extOrder).toEqual([
+      "issues",
+      "pulls",
+      "epics",
+      "docs",
+      "sprints",
+      "checks",
+    ]);
   });
 
   test("issues tab carries openIssues count", () => {
@@ -212,6 +241,8 @@ describe("RepoTabs extension filtering", () => {
     expect(ids).toContain("epics");
     expect(ids).not.toContain("pulls");
     expect(ids).not.toContain("checks");
+    expect(ids).not.toContain("docs");
+    expect(ids).not.toContain("sprints");
   });
 
   test("unknown extension IDs in opt-in set do not create tabs", () => {
@@ -227,6 +258,8 @@ describe("RepoTabs extension filtering", () => {
         "ext_issues",
         "ext_pull_requests",
         "ext_epics",
+        "ext_docs",
+        "ext_sprints",
         "ext_checks",
       ],
     });
@@ -239,6 +272,8 @@ describe("RepoTabs extension filtering", () => {
       pulls: "pr",
       pipelines: "bolt",
       epics: "tag",
+      docs: "file",
+      sprints: "ds",
       checks: "check",
       releases: "rocket",
       config: "settings",

@@ -368,6 +368,8 @@ describe("repository query modes", () => {
     expect(queryModeForView("pulls")).toBe("context");
     expect(queryModeForView("epics")).toBe("context");
     expect(queryModeForView("checks")).toBe("context");
+    expect(queryModeForView("docs")).toBe("context");
+    expect(queryModeForView("sprints")).toBe("context");
     expect(queryModeForView("code")).toBe("context");
   });
 

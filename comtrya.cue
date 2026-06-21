@@ -24,8 +24,9 @@ repository: schema.#Repository & {
 	// project epics and issue-to-epic relationships are available to
 	// every project in this repo. ext_docs is listed so project-owned
 	// ADRs, specs, PRDs, and BDD scenarios render through the repository
-	// docs surface instead of living as untyped files.
-	extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_docs"]
+	// docs surface instead of living as untyped files. ext_sprints turns
+	// sprint planning into a first-class repo workbench surface.
+	extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_docs", "ext_sprints"]
 
 	bookmarks: [
 		{
@@ -134,6 +135,11 @@ projects: backend: {
 		defaultLabels: ["backend"]
 		defaultStatus: "planned"
 		requiredFields: ["title"]
+	}
+
+	sprints: {
+		cadence:         "weekly"
+		defaultCapacity: 8
 	}
 
 	checks: {

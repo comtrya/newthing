@@ -225,6 +225,26 @@ export const shellRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: shellRoutePaths.repoDocs,
+    name: "repo-docs",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "docs",
+      embeddedSubPath: paramSegments(route.params.rest),
+    }),
+  },
+  {
+    path: shellRoutePaths.repoSprints,
+    name: "repo-sprints",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "sprints",
+      embeddedSubPath: paramSegments(route.params.rest),
+    }),
+  },
+  {
     path: shellRoutePaths.repoHome,
     name: "repo-home",
     component: RepoHome,

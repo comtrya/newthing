@@ -23,6 +23,8 @@ export const shellRoutePaths = {
   repoIssues: "/r/:groups*/:repo/issues/:rest(.*)*",
   repoChecks: "/r/:groups*/:repo/checks/:rest(.*)*",
   repoEpics: "/r/:groups*/:repo/epics/:rest(.*)*",
+  repoDocs: "/r/:groups*/:repo/docs/:rest(.*)*",
+  repoSprints: "/r/:groups*/:repo/sprints/:rest(.*)*",
   repoCommitDetail: "/r/:groups*/:repo/commits/:oid",
   repoPipelines: "/r/:groups*/:repo/pipelines",
   repoReleases: "/r/:groups*/:repo/releases",
