@@ -104,15 +104,15 @@ mod ext_pull_requests_bindings {
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, ListPullReviewsInput,
-    ListReviewRequestsInput, MergePullInput, PrState, PullMergeCheckSummary,
-    PullMergeReadinessBoard, PullMergeReadinessBoardInput, PullMergeReadinessCard,
-    PullMergeReadinessColumn, PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard,
-    PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
-    PullReviewDecisionBoard, PullReviewDecisionBoardInput, PullReviewDecisionCard,
-    PullReviewDecisionColumn, PullReviewRequest, PullReviewRequestBoard,
-    PullReviewRequestBoardInput, PullReviewRequestCard, PullReviewRequestColumn, PullReviewerQueue,
-    PullReviewerQueueCard, PullReviewerQueueColumn, PullReviewerQueueInput, RequestReviewInput,
-    SubmitReviewInput,
+    ListReviewRequestsInput, MergePullInput, PrState, PullAuthorBoard, PullAuthorBoardInput,
+    PullAuthorCard, PullAuthorColumn, PullMergeCheckSummary, PullMergeReadinessBoard,
+    PullMergeReadinessBoardInput, PullMergeReadinessCard, PullMergeReadinessColumn,
+    PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard, PullReviewBoardInput,
+    PullReviewCard, PullReviewColumn, PullReviewDecision, PullReviewDecisionBoard,
+    PullReviewDecisionBoardInput, PullReviewDecisionCard, PullReviewDecisionColumn,
+    PullReviewRequest, PullReviewRequestBoard, PullReviewRequestBoardInput, PullReviewRequestCard,
+    PullReviewRequestColumn, PullReviewerQueue, PullReviewerQueueCard, PullReviewerQueueColumn,
+    PullReviewerQueueInput, RequestReviewInput, SubmitReviewInput,
 };
 
 mod ext_checks_bindings {
@@ -420,6 +420,13 @@ struct ListReviewRequestsInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PullReviewBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullAuthorBoardInputJson {
     repository: String,
     limit: u32,
 }
@@ -2367,6 +2374,27 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_review_board_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "author-board" => {
+            let parsed: PullAuthorBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse author-board input: {e}"),
+                )
+            })?;
+            let wit_input = PullAuthorBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_author_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("author-board call: {e}"),
+                    )
+                })?;
+            pull_author_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         "merge-readiness-board" => {
             let parsed: PullMergeReadinessBoardInputJson =
                 serde_json::from_value(input).map_err(|e| {
@@ -3604,6 +3632,39 @@ fn pull_review_column_to_json(column: &PullReviewColumn) -> Value {
 }
 
 fn pull_review_card_to_json(card: &PullReviewCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_author_board_to_json(board: &PullAuthorBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_author_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_author_column_to_json(column: &PullAuthorColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "authorRef": column.author_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_author_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_author_card_to_json(card: &PullAuthorCard) -> Value {
     serde_json::json!({
         "pullRequest": pull_request_to_json(&card.pull_request),
         "terminal": card.terminal,

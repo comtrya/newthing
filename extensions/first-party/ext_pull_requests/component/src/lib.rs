@@ -12,7 +12,8 @@ use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest,
-    ListPullReviewsInput, ListReviewRequestsInput, MergePullInput, PrState, PullMergeCheckSummary,
+    ListPullReviewsInput, ListReviewRequestsInput, MergePullInput, PrState, PullAuthorBoard,
+    PullAuthorBoardInput, PullAuthorCard, PullAuthorColumn, PullMergeCheckSummary,
     PullMergeReadinessBoard, PullMergeReadinessBoardInput, PullMergeReadinessCard,
     PullMergeReadinessColumn, PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard,
     PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
@@ -430,6 +431,85 @@ fn review_columns(cards: Vec<PullReviewCard>) -> Vec<PullReviewColumn> {
         review_column("merged", "Merged", merged),
         review_column("closed", "Closed", closed),
     ]
+}
+
+fn author_column_label(author_ref: &str) -> String {
+    author_ref
+        .strip_prefix("comtrya://user/")
+        .or_else(|| author_ref.strip_prefix("comtrya://org/"))
+        .or_else(|| author_ref.strip_prefix("comtrya://team/"))
+        .unwrap_or(author_ref)
+        .to_string()
+}
+
+fn author_column_slug(author_ref: &str) -> String {
+    let mut slug = String::new();
+    let mut previous_dash = false;
+    for character in author_ref
+        .strip_prefix("comtrya://")
+        .unwrap_or(author_ref)
+        .chars()
+    {
+        if character.is_ascii_alphanumeric() {
+            slug.push(character.to_ascii_lowercase());
+            previous_dash = false;
+        } else if !slug.is_empty() && !previous_dash {
+            slug.push('-');
+            previous_dash = true;
+        }
+    }
+    if slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "unknown".to_string()
+    } else {
+        slug
+    }
+}
+
+fn author_column(
+    key: &str,
+    label: &str,
+    author_ref: Option<String>,
+    cards: Vec<PullAuthorCard>,
+) -> PullAuthorColumn {
+    PullAuthorColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        author_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn author_columns(cards: Vec<PullAuthorCard>) -> Vec<PullAuthorColumn> {
+    let mut by_author = BTreeMap::<String, Vec<PullAuthorCard>>::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match card.pull_request.state {
+            PrState::Merged => merged.push(card),
+            PrState::Closed => closed.push(card),
+            _ => by_author
+                .entry(card.pull_request.author_ref.clone())
+                .or_default()
+                .push(card),
+        }
+    }
+
+    let mut columns = by_author
+        .into_iter()
+        .map(|(author_ref, cards)| {
+            let key = format!("author-{}", author_column_slug(&author_ref));
+            let label = author_column_label(&author_ref);
+            author_column(&key, &label, Some(author_ref), cards)
+        })
+        .collect::<Vec<_>>();
+    columns.push(author_column("merged", "Merged", None, merged));
+    columns.push(author_column("closed", "Closed", None, closed));
+    columns
 }
 
 fn merge_readiness_flags(
@@ -1543,6 +1623,33 @@ impl PullsGuest for Component {
         })
     }
 
+    fn author_board(input: PullAuthorBoardInput) -> Result<PullAuthorBoard, Error> {
+        let limit = input.limit.min(1024) as usize;
+        let mut cards = Vec::new();
+        if limit > 0 {
+            scan_pull_requests(|stored| {
+                if repository_matches(&stored, &input.repository) {
+                    let pull_request = stored.to_wit();
+                    let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+                    cards.push(PullAuthorCard {
+                        pull_request,
+                        terminal,
+                    });
+                    if cards.len() >= limit {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })?;
+        }
+        let total = cards.len() as u32;
+        Ok(PullAuthorBoard {
+            repository: input.repository,
+            total,
+            columns: author_columns(cards),
+        })
+    }
+
     fn merge_readiness_board(
         input: PullMergeReadinessBoardInput,
     ) -> Result<PullMergeReadinessBoard, Error> {
@@ -1906,13 +2013,14 @@ bindings::export!(Component with_types_in bindings);
 #[cfg(test)]
 mod tests {
     use super::{
-        completed_review_for_request, merge_readiness_columns, merge_readiness_flags,
+        author_columns, completed_review_for_request, merge_readiness_columns,
+        merge_readiness_flags,
         review_columns, review_decision_columns, review_request_columns, reviewer_queue_columns,
         state_from_str, state_to_str, validate_review_body, validate_reviewer_ref,
         validate_state_transition, ActiveReviewStats, ErrorCode, PrState, PullMergeCheckSummary,
         PullMergeReadinessCard, PullMergeReviewSummary, PullRequest, PullReview, PullReviewCard,
-        PullReviewDecision, PullReviewDecisionCard, PullReviewRequestCard, PullReviewerQueueCard,
-        StoredPullReviewRequest,
+        PullAuthorCard, PullReviewDecision, PullReviewDecisionCard, PullReviewRequestCard,
+        PullReviewerQueueCard, StoredPullReviewRequest,
     };
 
     use std::collections::BTreeMap;
@@ -2002,6 +2110,63 @@ mod tests {
         assert!(columns[3].cards[0].terminal);
         assert_eq!(columns[4].cards[0].pull_request.id, "closed");
         assert!(columns[4].cards[0].terminal);
+    }
+
+    fn pull_authored_by(id: &str, state: PrState, author_ref: &str) -> PullRequest {
+        PullRequest {
+            author_ref: author_ref.to_string(),
+            ..pull_with_state(id, state)
+        }
+    }
+
+    #[test]
+    fn author_columns_group_active_prs_by_author_and_terminal_state() {
+        let columns = author_columns(vec![
+            PullAuthorCard {
+                pull_request: pull_authored_by("team-ready", PrState::Ready, "comtrya://team/platform"),
+                terminal: false,
+            },
+            PullAuthorCard {
+                pull_request: pull_authored_by("rawkode-draft", PrState::Draft, "comtrya://user/rawkode"),
+                terminal: false,
+            },
+            PullAuthorCard {
+                pull_request: pull_authored_by("rawkode-review", PrState::Review, "comtrya://user/rawkode"),
+                terminal: false,
+            },
+            PullAuthorCard {
+                pull_request: pull_authored_by("merged", PrState::Merged, "comtrya://user/rawkode"),
+                terminal: true,
+            },
+            PullAuthorCard {
+                pull_request: pull_authored_by("closed", PrState::Closed, "comtrya://team/platform"),
+                terminal: true,
+            },
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "author-team-platform",
+                "author-user-rawkode",
+                "merged",
+                "closed"
+            ]
+        );
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 5);
+        assert_eq!(columns[0].label, "platform");
+        assert_eq!(
+            columns[0].author_ref.as_deref(),
+            Some("comtrya://team/platform")
+        );
+        assert_eq!(columns[0].cards[0].pull_request.id, "team-ready");
+        assert_eq!(columns[1].label, "rawkode");
+        assert_eq!(columns[1].cards.len(), 2);
+        assert_eq!(columns[2].cards[0].pull_request.id, "merged");
+        assert!(columns[2].cards[0].terminal);
+        assert_eq!(columns[3].cards[0].pull_request.id, "closed");
+        assert!(columns[3].cards[0].terminal);
     }
 
     fn summary_for(pull_id: &str) -> PullMergeCheckSummary {
