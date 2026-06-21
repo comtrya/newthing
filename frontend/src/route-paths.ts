@@ -16,6 +16,7 @@ export const shellRoutePaths = {
   accountSshKeys: "/account/ssh-keys",
   repoHome: "/r/:groups*/:repo",
   repoCode: "/r/:groups*/:repo/code",
+  repoBranches: "/r/:groups*/:repo/branches",
   repoCommits: "/r/:groups*/:repo/commits",
   repoConfig: "/r/:groups*/:repo/config",
   repoPullReview: "/r/:groups*/:repo/pulls/:id/review",

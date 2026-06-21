@@ -126,6 +126,15 @@ export const shellRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: shellRoutePaths.repoBranches,
+    name: "repo-branches",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "branches",
+    }),
+  },
+  {
     path: shellRoutePaths.repoCommits,
     name: "repo-commits",
     component: RepoHome,

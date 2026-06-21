@@ -40,6 +40,7 @@ const props = withDefaults(defineProps<{
   view?:
     | "overview"
     | "code"
+    | "branches"
     | "commits"
     | "config"
     | "pipelines"
@@ -77,6 +78,14 @@ interface RepositoryBookmark {
   commit?: string | null;
 }
 
+interface RepositoryBranch {
+  name: string;
+  oid: string;
+  commit: string;
+  ahead: number;
+  behind: number;
+}
+
 interface RepositoryCommit {
   oid: string;
   shortOid: string;
@@ -111,6 +120,7 @@ interface RepositoryIdentity {
   extensions?: string[] | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
+  branches?: RepositoryBranch[] | null;
   commits?: RepositoryCommit[] | null;
   labels?: LabelCatalogEntry[] | null;
   labelCatalog?: Record<string, LabelCatalogEntry> | null;
@@ -191,6 +201,13 @@ const REPOSITORY_OVERVIEW_QUERY = `query ShellRepoOverview($segments: [String!]!
         resolved
         commit
       }
+      branches {
+        name
+        oid
+        commit
+        ahead
+        behind
+      }
       commits {
         oid
         shortOid
@@ -236,7 +253,7 @@ const loadError = ref<string | null>(null);
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
 const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
-  if (props.view === "overview" || props.view === "commits") return "overview";
+  if (props.view === "overview" || props.view === "branches" || props.view === "commits") return "overview";
   if (props.view === "config") return "config";
   return "context";
 });
@@ -272,6 +289,7 @@ const repositoryUpdatedLabel = computed(() =>
 );
 const repoHomeHref = computed(() => `/r/${repoPath.value}`);
 const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
+const repoBranchesHref = computed(() => `/r/${repoPath.value}/branches`);
 const repoCommitsHref = computed(() => `/r/${repoPath.value}/commits`);
 
 /**
@@ -533,6 +551,21 @@ const bookmarks = computed<RepositoryBookmark[]>(
   () => repository.value?.bookmarks ?? [],
 );
 
+const branches = computed<RepositoryBranch[]>(
+  () => repository.value?.branches ?? [],
+);
+const branchesCountLabel = computed(() => nounCountLabel(branches.value.length, "branch", "branches"));
+function isDefaultBranch(branch: RepositoryBranch): boolean {
+  return branch.name === repositoryDefaultRef.value;
+}
+function branchDistanceLabel(branch: RepositoryBranch): string {
+  if (isDefaultBranch(branch)) return "default branch";
+  const parts: string[] = [];
+  if (branch.ahead > 0) parts.push(`${branch.ahead} ahead`);
+  if (branch.behind > 0) parts.push(`${branch.behind} behind`);
+  return parts.length ? `${parts.join(" · ")} ${repositoryDefaultRef.value}` : `even with ${repositoryDefaultRef.value}`;
+}
+
 /**
  * Recent commits panel (iter 54). The kernel pre-computes `commits`
  * via `git_commits` — up to 8 latest entries on the default branch
@@ -784,6 +817,7 @@ function mergeRepositoryIdentity(
     ...next,
     blobs: preserveHeavy ? previous.blobs : next.blobs,
     bookmarks: preserveHeavy ? previous.bookmarks : next.bookmarks,
+    branches: preserveHeavy ? previous.branches : next.branches,
     commits: preserveHeavy ? previous.commits : next.commits,
     labels: mode === "context" ? previous.labels : next.labels,
     labelCatalog: next.labelCatalog ?? previous.labelCatalog,
@@ -1187,16 +1221,81 @@ function mergeRepositoryIdentity(
       />
     </section>
 
+    <section v-else-if="view === 'branches'" class="repo-branches-page" data-smoke="repo-branches-page">
+      <header class="repo-branches-page-head">
+        <div>
+          <h2>Branches</h2>
+          <p class="repo-branches-count" data-smoke="repo-branches-count">
+            {{ branchesCountLabel }} in {{ displayPath }}
+          </p>
+        </div>
+        <div class="repo-branches-page-actions">
+          <RouterLink class="repo-branches-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-branches-code-link" :to="repoCommitsHref">
+            <Icon name="commit" />
+            <span>Commits</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <p v-if="branches.length === 0" class="repo-branches-empty">
+        No branches recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-branches-list" aria-label="Repository branches">
+        <li
+          v-for="branch in branches"
+          :key="branch.name"
+          class="repo-branch-row"
+          :class="{ 'repo-branch-row--default': isDefaultBranch(branch) }"
+          data-smoke="repo-branch-row"
+        >
+          <div class="repo-branch-main">
+            <span class="repo-branch-name">
+              <Icon name="branch" />
+              <span>{{ branch.name }}</span>
+            </span>
+            <span class="repo-branch-distance">{{ branchDistanceLabel(branch) }}</span>
+          </div>
+          <div class="repo-branch-refs">
+            <span
+              v-if="isDefaultBranch(branch)"
+              class="repo-branch-default-chip"
+              data-smoke="repo-branch-default-chip"
+            >
+              default
+            </span>
+            <RouterLink
+              class="repo-branch-tip"
+              :to="commitHref(branch.oid)"
+              :title="branch.oid"
+              data-smoke="repo-branch-tip"
+            >
+              {{ branch.commit || branch.oid.slice(0, 12) }}
+            </RouterLink>
+          </div>
+        </li>
+      </ol>
+    </section>
+
     <section v-else-if="view === 'commits'" class="repo-commits-page" data-smoke="repo-commits-page">
       <header class="repo-commits-page-head">
         <div>
           <h2>Commits</h2>
           <p>{{ commitsCountLabel }} on {{ repositoryDefaultRef }}</p>
         </div>
-        <RouterLink class="repo-commits-code-link" :to="repoCodeHref">
-          <Icon name="folder" />
-          <span>Code</span>
-        </RouterLink>
+        <div class="repo-commits-page-actions">
+          <RouterLink class="repo-commits-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-commits-code-link" :to="repoBranchesHref">
+            <Icon name="branch" />
+            <span>Branches</span>
+          </RouterLink>
+        </div>
       </header>
 
       <p v-if="commits.length === 0" class="repo-commits-empty">

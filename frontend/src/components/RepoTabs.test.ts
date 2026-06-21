@@ -104,11 +104,16 @@ function isActive(opts: {
   routePath: string;
   repoHomePath: string;
 }): boolean {
+  const isRepoSubsurface = (slug: string): boolean => {
+    const path = `${opts.repoHomePath}/${slug}`;
+    return opts.routePath === path || opts.routePath.startsWith(`${path}/`);
+  };
   if (opts.tabId === "overview") return opts.routePath === opts.repoHomePath;
   const prefix = `${opts.repoHomePath}/${opts.tabId}`;
   if (opts.tabId === "code") {
     return opts.routePath === prefix
-      || opts.routePath.startsWith(`${opts.repoHomePath}/commits`);
+      || isRepoSubsurface("branches")
+      || isRepoSubsurface("commits");
   }
   if (opts.tabId === "config" || opts.tabId === "pipelines" || opts.tabId === "releases") {
     return opts.routePath === prefix;
@@ -358,12 +363,15 @@ describe("RepoTabs ARIA semantics", () => {
 });
 
 describe("RepoTabs active route matching", () => {
-  test("treats commit history as part of the Code surface", () => {
+  test("treats code-adjacent repository history as part of the Code surface", () => {
     const repoHomePath = "/r/comtrya/dogfood";
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/code`, repoHomePath })).toBe(true);
+    expect(isActive({ tabId: "code", routePath: `${repoHomePath}/branches`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/commits`, repoHomePath })).toBe(true);
     expect(isActive({ tabId: "code", routePath: `${repoHomePath}/commits/1234567`, repoHomePath })).toBe(true);
+    expect(isActive({ tabId: "overview", routePath: `${repoHomePath}/branches`, repoHomePath })).toBe(false);
     expect(isActive({ tabId: "overview", routePath: `${repoHomePath}/commits`, repoHomePath })).toBe(false);
+    expect(isActive({ tabId: "code", routePath: `${repoHomePath}/branches-old`, repoHomePath })).toBe(false);
   });
 });
 

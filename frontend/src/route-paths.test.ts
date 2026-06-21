@@ -50,6 +50,7 @@ function buildRouter() {
     { name: "admin-storage", path: shellRoutePaths.adminStorage, component: Stub },
     { name: "project-home", path: shellRoutePaths.projectHome, component: Stub },
     { name: "repo-code", path: shellRoutePaths.repoCode, component: Stub },
+    { name: "repo-branches", path: shellRoutePaths.repoBranches, component: Stub },
     { name: "repo-commits", path: shellRoutePaths.repoCommits, component: Stub },
     { name: "repo-pull-review", path: shellRoutePaths.repoPullReview, component: Stub },
     { name: "repo-issue-board", path: shellRoutePaths.repoIssueBoard, component: Stub },
@@ -118,6 +119,13 @@ describe("shell route paths", () => {
   test("repo code tab preserves group/repo destructuring", () => {
     const r = router.resolve("/r/acme/team/web/code");
     expect(r.name).toBe("repo-code");
+    expect(r.params.groups).toEqual(["acme", "team"]);
+    expect(r.params.repo).toBe("web");
+  });
+
+  test("repo branches list preserves group/repo destructuring", () => {
+    const r = router.resolve("/r/acme/team/web/branches");
+    expect(r.name).toBe("repo-branches");
     expect(r.params.groups).toEqual(["acme", "team"]);
     expect(r.params.repo).toBe("web");
   });

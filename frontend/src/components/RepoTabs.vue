@@ -181,7 +181,8 @@ function isActive(tab: Tab): boolean {
   const prefix = `${repoHomePath.value}/${tab.id}`;
   if (tab.id === "code") {
     return route.path === prefix
-      || route.path.startsWith(`${repoHomePath.value}/commits`);
+      || isRepoSubsurface("branches")
+      || isRepoSubsurface("commits");
   }
   // Config is a leaf; use exact match so we don't accidentally
   // collide with future `/config/<sub>` routes if they appear.
@@ -189,6 +190,11 @@ function isActive(tab: Tab): boolean {
     return route.path === prefix;
   }
   return route.path === prefix || route.path.startsWith(`${prefix}/`);
+}
+
+function isRepoSubsurface(slug: string): boolean {
+  const path = `${repoHomePath.value}/${slug}`;
+  return route.path === path || route.path.startsWith(`${path}/`);
 }
 </script>
 

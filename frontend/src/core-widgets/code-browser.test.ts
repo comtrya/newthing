@@ -15,6 +15,15 @@ test("core code browser renders familiar branch and commit controls", async () =
             path: "comtrya/dogfood",
             defaultBranch: "main",
             headOid: "1234567890abcdef1234567890abcdef12345678",
+            branches: [
+              {
+                name: "main",
+                oid: "1234567890abcdef1234567890abcdef12345678",
+                commit: "1234567890ab",
+                ahead: 0,
+                behind: 0,
+              },
+            ],
             commits: [
               {
                 oid: "1234567890abcdef1234567890abcdef12345678",
@@ -48,8 +57,14 @@ test("core code browser renders familiar branch and commit controls", async () =
     node.textContent?.trim(),
   );
   expect(refText).toEqual(["main", "1234567890ab"]);
+  expect(element.querySelector('[data-smoke="repo-code-branch-link"]')?.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/branches",
+  );
   expect(element.querySelector('[data-smoke="repo-code-commit-link"]')?.getAttribute("href")).toBe(
     "/r/comtrya/dogfood/commits/1234567890abcdef1234567890abcdef12345678",
+  );
+  expect(element.querySelector('[data-smoke="repo-code-branches-link"]')?.getAttribute("href")).toBe(
+    "/r/comtrya/dogfood/branches",
   );
   expect(element.querySelector('[data-smoke="repo-code-history-link"]')?.getAttribute("href")).toBe(
     "/r/comtrya/dogfood/commits",

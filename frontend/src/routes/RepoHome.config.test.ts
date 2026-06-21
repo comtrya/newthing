@@ -331,7 +331,7 @@ describe("extension refresh gates", () => {
 type RepositoryQueryMode = "context" | "overview" | "config";
 
 function queryModeForView(view: string): RepositoryQueryMode {
-  if (view === "overview") return "overview";
+  if (view === "overview" || view === "branches" || view === "commits") return "overview";
   if (view === "config") return "config";
   return "context";
 }
@@ -340,6 +340,7 @@ interface TestRepositoryIdentity {
   path: string;
   name: string;
   blobs?: Array<{ path: string }>;
+  branches?: Array<{ name: string }>;
   commits?: Array<{ oid: string }>;
   labels?: string[];
   comtryaConfig?: { projects?: Array<{ name: string }> } | null;
@@ -356,6 +357,7 @@ function mergeRepositoryIdentity(
     ...previous,
     ...next,
     blobs: preserveHeavy ? previous.blobs : next.blobs,
+    branches: preserveHeavy ? previous.branches : next.branches,
     commits: preserveHeavy ? previous.commits : next.commits,
     labels: mode === "context" ? previous.labels : next.labels,
     comtryaConfig: mode === "context" ? previous.comtryaConfig : next.comtryaConfig,
@@ -373,8 +375,10 @@ describe("repository query modes", () => {
     expect(queryModeForView("code")).toBe("context");
   });
 
-  test("overview and config request their heavier data explicitly", () => {
+  test("overview, branches, commits, and config request their heavier data explicitly", () => {
     expect(queryModeForView("overview")).toBe("overview");
+    expect(queryModeForView("branches")).toBe("overview");
+    expect(queryModeForView("commits")).toBe("overview");
     expect(queryModeForView("config")).toBe("config");
   });
 
@@ -383,6 +387,7 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
       commits: [{ oid: "abc" }],
       labels: ["kind::ux"],
       comtryaConfig: { projects: [{ name: "frontend" }] },
@@ -400,6 +405,7 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
       commits: [{ oid: "abc" }],
       comtryaConfig: { projects: [{ name: "frontend" }] },
     };
@@ -413,6 +419,7 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
       commits: [{ oid: "abc" }],
       labels: undefined,
       comtryaConfig: { projects: [{ name: "backend" }] },

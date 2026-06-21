@@ -15,8 +15,17 @@ interface RepoCodePayload {
   path: string;
   defaultBranch: string | null;
   headOid: string | null;
+  branches?: RepoCodeBranch[] | null;
   commits?: RepoCodeCommit[] | null;
   files: RepoFile[];
+}
+
+interface RepoCodeBranch {
+  name: string;
+  oid: string;
+  commit: string;
+  ahead: number;
+  behind: number;
 }
 
 interface RepoCodeCommit {
@@ -34,6 +43,7 @@ const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
       path
       defaultBranch
       headOid
+      branches { name oid commit ahead behind }
       commits { oid shortOid subject author time }
       files { path size kind preview }
     }
@@ -228,6 +238,8 @@ function buildBrowserToolbar(
 
   const secondary = document.createElement("div");
   secondary.className = "repo-code-toolbar-secondary";
+  const branches = buildBranchesLink(repo);
+  if (branches) secondary.append(branches);
   const history = buildHistoryLink(repo);
   if (history) secondary.append(history);
   secondary.append(meta);
@@ -247,7 +259,7 @@ function buildRefbar(
   const branch = defaultBranch?.trim() || "main";
   const commit = headOid?.trim() || "";
   refbar.append(
-    refPill("branch", branch, "Default branch"),
+    refPill("branch", branch, "Default branch", branchListHref(repoPath)),
     refPill(
       "commit",
       shortCommit(headOid),
@@ -273,6 +285,16 @@ function refPill(
   }
   pill.append(icon(iconName), textNode(text));
   return pill;
+}
+
+function buildBranchesLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.branches?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-branches-link";
+  link.dataset.smoke = "repo-code-branches-link";
+  link.href = branchListHref(repo.path);
+  link.append(icon("branch"), textNode("Branches"));
+  return link;
 }
 
 function buildHistoryLink(repo: RepoCodePayload): HTMLAnchorElement | null {
@@ -484,6 +506,10 @@ function shortCommit(headOid: string | null | undefined): string {
 
 function repoPathHref(repoPath: string): string {
   return `/r/${repoPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+}
+
+function branchListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/branches`;
 }
 
 function commitListHref(repoPath: string): string {
