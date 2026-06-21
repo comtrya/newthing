@@ -1,4 +1,5 @@
 import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import IssueBoard from "./IssueBoard.vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
 import IssueRelationships from "./IssueRelationships.vue";
@@ -17,6 +18,7 @@ import {
 
 const EXTENSION_ID = "ext_issues";
 const ISSUE_CARD_TAG = "comtrya-issue-card";
+const ISSUE_BOARD_TAG = "comtrya-issue-board";
 const ISSUES_LIST_TAG = "comtrya-issues-list";
 const ISSUES_REPO_LIST_TAG = "comtrya-issues-repo-list";
 const ISSUE_DETAIL_TAG = "comtrya-issue-detail";
@@ -68,6 +70,7 @@ defineExtensionWidget({
   component: IssueCard,
   propertyAliases: { ref: "resourceRef" },
 });
+defineExtensionWidget({ tagName: ISSUE_BOARD_TAG, component: IssueBoard });
 defineExtensionWidget({ tagName: ISSUES_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUES_REPO_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUE_DETAIL_TAG, component: IssueDetail });
@@ -106,6 +109,10 @@ const extension: ExtensionDefinition = {
     });
     host.registerRoute("/", {
       element: ISSUES_LIST_TAG,
+      requiredPermission: "issues.read",
+    });
+    host.registerRoute("/board", {
+      element: ISSUE_BOARD_TAG,
       requiredPermission: "issues.read",
     });
     host.registerRoute("/new", {

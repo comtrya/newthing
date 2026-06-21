@@ -9,7 +9,6 @@ import CommitDetail from "./routes/CommitDetail.vue";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
-import IssueTracker from "./routes/IssueTracker.vue";
 import NewRepository from "./routes/NewRepository.vue";
 import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
@@ -169,8 +168,12 @@ export const shellRoutes: RouteRecordRaw[] = [
     // `/issues/board` doesn't fall through to the extension proxy.
     path: shellRoutePaths.repoIssueBoard,
     name: "repo-issue-board",
-    component: IssueTracker,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "issues",
+      embeddedSubPath: ["board"],
+    }),
   },
   {
     // Must appear BEFORE any `repoCommits` catch-all that may follow

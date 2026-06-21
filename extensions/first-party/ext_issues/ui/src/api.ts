@@ -48,6 +48,62 @@ interface OpenIssueInput {
   assignees?: string[] | null;
 }
 
+export type IssueBoardId =
+  | "workflow"
+  | "priority"
+  | "project"
+  | "assignee"
+  | "label"
+  | "milestone"
+  | "author"
+  | "triage";
+
+interface WitIssueBoardCard {
+  issue: WitIssue;
+  priority?: string | null;
+  priorityLabel?: string | null;
+  milestone?: string | null;
+  milestoneLabel?: string | null;
+  workflow?: string | null;
+  workflowLabel?: string | null;
+}
+
+interface WitIssueBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards?: WitIssueBoardCard[] | null;
+}
+
+interface WitIssueBoard {
+  repository?: string | null;
+  total?: number | null;
+  columns?: WitIssueBoardColumn[] | null;
+}
+
+export interface IssueBoardCard {
+  issue: Issue;
+  priority?: string | null;
+  priorityLabel?: string | null;
+  milestone?: string | null;
+  milestoneLabel?: string | null;
+  workflow?: string | null;
+  workflowLabel?: string | null;
+}
+
+export interface IssueBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards: IssueBoardCard[];
+}
+
+export interface IssueBoard {
+  repository: string;
+  total: number;
+  columns: IssueBoardColumn[];
+}
+
 function opValue<T>(result: OpResult<unknown>, label: string): T {
   if (result.ok) return result.value as T;
   throw new Error(`${label}: ${result.error.message}`);
@@ -108,6 +164,27 @@ function normalizeIssue(value: WitIssue): Issue {
   };
 }
 
+function normalizeIssueBoard(value: WitIssueBoard): IssueBoard {
+  return {
+    repository: value.repository ?? "",
+    total: value.total ?? 0,
+    columns: (value.columns ?? []).map((column) => ({
+      key: column.key,
+      label: column.label,
+      count: column.count,
+      cards: (column.cards ?? []).map((card) => ({
+        issue: normalizeIssue(card.issue),
+        priority: card.priority ?? null,
+        priorityLabel: card.priorityLabel ?? null,
+        milestone: card.milestone ?? null,
+        milestoneLabel: card.milestoneLabel ?? null,
+        workflow: card.workflow ?? null,
+        workflowLabel: card.workflowLabel ?? null,
+      })),
+    })),
+  };
+}
+
 export async function listIssues(
   _client: ComtryaGraphQLClient,
   variables: {
@@ -123,6 +200,45 @@ export async function listIssues(
   const issues = opValue<WitIssue[]>(result, "listIssues").map(normalizeIssue);
   const state = variables.state ? issueState(variables.state) : null;
   return state ? issues.filter((issue) => issue.state === state) : issues;
+}
+
+export async function loadIssueBoard(
+  board: IssueBoardId,
+  variables: {
+    workspaceId: string;
+    repositoryId?: string | null;
+    limit?: number;
+  },
+): Promise<IssueBoard> {
+  const input = {
+    repository: repositoryUri(variables.workspaceId, variables.repositoryId),
+    limit: variables.limit ?? 128,
+  };
+  const result = await issueBoardOp(board)(input);
+  return normalizeIssueBoard(opValue<WitIssueBoard>(result, `${board}Board`));
+}
+
+function issueBoardOp(
+  board: IssueBoardId,
+): (input: unknown) => Promise<OpResult<unknown>> {
+  switch (board) {
+    case "workflow":
+      return extIssuesXIssues.workflowBoard;
+    case "priority":
+      return extIssuesXIssues.priorityBoard;
+    case "project":
+      return extIssuesXIssues.projectBoard;
+    case "assignee":
+      return extIssuesXIssues.assigneeBoard;
+    case "label":
+      return extIssuesXIssues.labelBoard;
+    case "milestone":
+      return extIssuesXIssues.milestoneBoard;
+    case "author":
+      return extIssuesXIssues.authorBoard;
+    case "triage":
+      return extIssuesXIssues.triageBoard;
+  }
 }
 
 export async function issueByRef(
