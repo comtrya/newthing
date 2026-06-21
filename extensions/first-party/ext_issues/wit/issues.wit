@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.11;
+package comtrya:ext-issues@0.1.12;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -182,6 +182,31 @@ interface issues {
     columns: list<issue-priority-column>,
   }
 
+  record issue-milestone-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-milestone-card {
+    issue: issue,
+    milestone: option<string>,
+    milestone-label: option<string>,
+  }
+
+  record issue-milestone-column {
+    key: string,
+    label: string,
+    milestone: option<string>,
+    count: u32,
+    cards: list<issue-milestone-card>,
+  }
+
+  record issue-milestone-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-milestone-column>,
+  }
+
   record open-issue-input {
     repository: uri,
     title: string,
@@ -261,6 +286,9 @@ interface issues {
   /// Familiar priority lanes derived from issue labels. Closed issues are
   /// terminal, while open issues use their highest priority label.
   priority-board: func(input: issue-priority-board-input) -> result<issue-priority-board, error>;
+  /// Familiar milestone/release lanes derived from issue labels. Closed issues
+  /// are terminal, while open issues use their first milestone or release label.
+  milestone-board: func(input: issue-milestone-board-input) -> result<issue-milestone-board, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
   by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
   by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;

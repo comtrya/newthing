@@ -2368,7 +2368,7 @@ json_assert "expected readiness board marks missing required checks as blocking"
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"first issue\",\"bodyMarkdown\":\"This issue tracks the first slice of work. Follow-up work is filed as #2.\\n\\nMore detail will be added as the design lands.\",\"projectName\":\"kernel\",\"labels\":[\"kind::ux\",\"priority::p0\",\"good-first-issue\"]}" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"first issue\",\"bodyMarkdown\":\"This issue tracks the first slice of work. Follow-up work is filed as #2.\\n\\nMore detail will be added as the design lands.\",\"projectName\":\"kernel\",\"labels\":[\"kind::ux\",\"priority::p0\",\"milestone::v1.0\",\"good-first-issue\"]}" \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
   'json.id.startsWith("iss_") && json.number === 1 && json.state === "open"'
@@ -2377,7 +2377,7 @@ ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.id')"
 expect_status "open-issue increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\"],\"assignees\":[\"comtrya://user/rawkode\"]}" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\",\"release::v2.0\"],\"assignees\":[\"comtrya://user/rawkode\"]}" \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
   'json.number === 2'
@@ -2466,6 +2466,14 @@ expect_status "priority-board groups issues by priority and terminal state" 200 
   "$FRONTEND_URL/api/ops/ext_issues/issues/priority-board"
 json_assert "priority board exposes priority unprioritized and closed lanes" "$TMP_DIR/iss-priority-board.json" \
   "json.total === 3 && json.columns.find((c) => c.key === \"p0\").cards.length === 0 && json.columns.find((c) => c.key === \"p1\").priority === \"p1\" && json.columns.find((c) => c.key === \"p1\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.priority === \"p1\" && card.priorityLabel === \"priority::p1\") && json.columns.find((c) => c.key === \"unprioritized\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.priority === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.priority === \"p0\")"
+
+expect_status "milestone-board groups issues by release and terminal state" 200 "$TMP_DIR/iss-milestone-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/milestone-board"
+json_assert "milestone board exposes scheduled unscheduled and closed lanes" "$TMP_DIR/iss-milestone-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"milestone-v2-0\").milestone === \"v2.0\" && json.columns.find((c) => c.key === \"milestone-v2-0\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.milestone === \"v2.0\" && card.milestoneLabel === \"release::v2.0\") && json.columns.find((c) => c.key === \"no-milestone\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.milestone === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.milestone === \"v1.0\" && card.milestoneLabel === \"milestone::v1.0\") && !json.columns.some((c) => c.key === \"milestone-v1-0\" && c.cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\"))"
 
 expect_status "reopen-issue returns to open" 200 "$TMP_DIR/iss-reopen.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \

@@ -68,7 +68,8 @@ use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueAssigneeBoard,
     IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
-    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssuePriorityBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueMilestoneBoard,
+    IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
     IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
     IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
@@ -259,6 +260,13 @@ struct IssueProjectBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssuePriorityBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueMilestoneBoardInputJson {
     repository: String,
     limit: u32,
 }
@@ -1026,6 +1034,28 @@ pub fn dispatch_ext_issues(
                     )
                 })?;
             issue_priority_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "milestone-board" => {
+            let parsed: IssueMilestoneBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse milestone-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueMilestoneBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_milestone_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("milestone-board call: {e}"),
+                    )
+                })?;
+            issue_milestone_board_to_json(&result.map_err(local_error_to_canonical)?)
         }
         "by-ref-issue" => {
             let ref_uri = string_payload(&input, "by-ref-issue")?;
@@ -3028,6 +3058,40 @@ fn issue_priority_card_to_json(card: &IssuePriorityCard) -> Value {
         "issue": issue_to_json(&card.issue),
         "priority": card.priority,
         "priorityLabel": card.priority_label,
+    })
+}
+
+fn issue_milestone_board_to_json(board: &IssueMilestoneBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_milestone_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_milestone_column_to_json(column: &IssueMilestoneColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "milestone": column.milestone,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_milestone_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_milestone_card_to_json(card: &IssueMilestoneCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+        "milestone": card.milestone,
+        "milestoneLabel": card.milestone_label,
     })
 }
 

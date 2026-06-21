@@ -23,7 +23,8 @@ use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
     AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
     IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueLabelBoard,
-    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssuePriorityBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueMilestoneBoard,
+    IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
     IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
     IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
     IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
@@ -1005,6 +1006,123 @@ fn priority_rank(key: &str) -> u8 {
     }
 }
 
+fn milestone_column(
+    key: &str,
+    label: &str,
+    milestone: Option<String>,
+    cards: Vec<IssueMilestoneCard>,
+) -> IssueMilestoneColumn {
+    IssueMilestoneColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        milestone,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn milestone_board_columns(issues: Vec<Issue>) -> Vec<IssueMilestoneColumn> {
+    let mut unscheduled = Vec::new();
+    let mut scheduled: BTreeMap<String, (String, Vec<IssueMilestoneCard>)> = BTreeMap::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let milestone = issue_milestone(&issue);
+        let card = IssueMilestoneCard {
+            issue,
+            milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+            milestone_label: milestone
+                .as_ref()
+                .map(|milestone| milestone.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        let Some(milestone) = milestone else {
+            unscheduled.push(card);
+            continue;
+        };
+        let key = issue_milestone_key(&milestone.value);
+        let entry = scheduled
+            .entry(key)
+            .or_insert_with(|| (milestone.value, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![milestone_column(
+        "no-milestone",
+        "No milestone",
+        None,
+        unscheduled,
+    )];
+    columns.extend(scheduled.into_iter().map(|(key, (milestone, cards))| {
+        milestone_column(&key, &milestone, Some(milestone.clone()), cards)
+    }));
+    columns.push(milestone_column("closed", "Closed", None, closed));
+    columns
+}
+
+struct IssueMilestone {
+    value: String,
+    source_label: String,
+}
+
+fn issue_milestone(issue: &Issue) -> Option<IssueMilestone> {
+    issue
+        .labels
+        .iter()
+        .find_map(|label| milestone_from_label(label))
+}
+
+fn milestone_from_label(label: &str) -> Option<IssueMilestone> {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["milestone", "release"] {
+        if !lower.starts_with(prefix) {
+            continue;
+        }
+        let raw_rest = &trimmed[prefix.len()..];
+        if !raw_rest
+            .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+        {
+            continue;
+        }
+        let value = raw_rest
+            .trim_start()
+            .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+            .trim();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(IssueMilestone {
+            value: value.to_string(),
+            source_label: trimmed.to_string(),
+        });
+    }
+    None
+}
+
+fn issue_milestone_key(milestone: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in milestone.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "milestone".to_string()
+    } else {
+        format!("milestone-{key}")
+    }
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -1318,6 +1436,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn milestone_board(input: IssueMilestoneBoardInput) -> Result<IssueMilestoneBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueMilestoneBoard {
+            repository: input.repository,
+            total,
+            columns: milestone_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1590,5 +1718,53 @@ mod tests {
         assert_eq!(columns[4].cards[0].priority, None);
         assert_eq!(columns[5].cards[0].issue.id, "closed");
         assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
+    }
+
+    #[test]
+    fn milestone_board_columns_group_active_work_by_release_label() {
+        let unscheduled = issue("unscheduled", IssueState::Open);
+        let mut v1 = issue("v1", IssueState::Open);
+        v1.labels = vec!["milestone::v1.0".to_string()];
+        let mut v2 = issue("v2", IssueState::Open);
+        v2.labels = vec!["kind::bug".to_string(), "release/v2 beta".to_string()];
+        let mut duplicate = issue("duplicate", IssueState::Open);
+        duplicate.labels = vec!["milestone::v2 beta".to_string(), "release/v3".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["milestone::v1.0".to_string()];
+
+        let columns = milestone_board_columns(vec![unscheduled, v1, v2, duplicate, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "no-milestone",
+                "milestone-v1-0",
+                "milestone-v2-beta",
+                "closed"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].issue.id, "unscheduled");
+        assert_eq!(columns[0].cards[0].milestone, None);
+        assert_eq!(columns[1].milestone.as_deref(), Some("v1.0"));
+        assert_eq!(columns[1].cards[0].issue.id, "v1");
+        assert_eq!(
+            columns[1].cards[0].milestone_label.as_deref(),
+            Some("milestone::v1.0")
+        );
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["v2", "duplicate"]
+        );
+        assert_eq!(
+            columns[2].cards[1].milestone_label.as_deref(),
+            Some("milestone::v2 beta")
+        );
+        assert_eq!(columns[3].cards[0].issue.id, "closed");
+        assert_eq!(columns[3].cards[0].milestone.as_deref(), Some("v1.0"));
     }
 }
