@@ -10257,6 +10257,15 @@ mod tests {
         assert_eq!(info.interface_name, "issues");
         assert_eq!(info.op_name, "milestone-board");
 
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("workflow-board"),
+        )
+        .expect("workflow board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "workflow-board");
+
         let info =
             crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("owner-board"))
                 .expect("epic owner board route should resolve to DispatchInfo");

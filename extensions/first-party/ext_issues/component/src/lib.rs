@@ -27,8 +27,9 @@ use bindings::exports::comtrya::ext_issues::issues::{
     IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
     IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
     IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
-    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
-    UpdateIssueInput,
+    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn,
+    IssueWorkflowBoard, IssueWorkflowBoardInput, IssueWorkflowCard, IssueWorkflowColumn,
+    OpenIssueInput, UpdateIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
@@ -1123,6 +1124,129 @@ fn issue_milestone_key(milestone: &str) -> String {
     }
 }
 
+fn workflow_column(
+    key: &str,
+    label: &str,
+    workflow: Option<&str>,
+    cards: Vec<IssueWorkflowCard>,
+) -> IssueWorkflowColumn {
+    IssueWorkflowColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        workflow: workflow.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn workflow_board_columns(issues: Vec<Issue>) -> Vec<IssueWorkflowColumn> {
+    let mut backlog = Vec::new();
+    let mut ready = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut review = Vec::new();
+    let mut untriaged = Vec::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let workflow = issue_workflow(&issue);
+        let card = IssueWorkflowCard {
+            issue,
+            workflow: workflow.as_ref().map(|workflow| workflow.key.to_string()),
+            workflow_label: workflow
+                .as_ref()
+                .map(|workflow| workflow.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        match workflow.map(|workflow| workflow.key) {
+            Some("backlog") => backlog.push(card),
+            Some("ready") => ready.push(card),
+            Some("in-progress") => in_progress.push(card),
+            Some("review") => review.push(card),
+            _ => untriaged.push(card),
+        }
+    }
+
+    vec![
+        workflow_column("backlog", "Backlog", Some("backlog"), backlog),
+        workflow_column("ready", "Ready", Some("ready"), ready),
+        workflow_column(
+            "in-progress",
+            "In progress",
+            Some("in-progress"),
+            in_progress,
+        ),
+        workflow_column("review", "Review", Some("review"), review),
+        workflow_column("untriaged", "Untriaged", None, untriaged),
+        workflow_column("closed", "Closed", None, closed),
+    ]
+}
+
+struct IssueWorkflow {
+    key: &'static str,
+    source_label: String,
+}
+
+fn issue_workflow(issue: &Issue) -> Option<IssueWorkflow> {
+    issue
+        .labels
+        .iter()
+        .find_map(|label| workflow_from_label(label))
+}
+
+fn workflow_from_label(label: &str) -> Option<IssueWorkflow> {
+    let normalized = normalize_workflow_label(label);
+    let key = match normalized.as_str() {
+        "backlog" | "todo" | "to-do" | "new" => "backlog",
+        "ready" | "ready-to-start" | "ready-for-dev" | "selected" | "up-next" => "ready",
+        "in-progress" | "inprogress" | "doing" | "wip" | "started" | "active" => "in-progress",
+        "review" | "reviewing" | "in-review" | "needs-review" | "ready-for-review" => "review",
+        _ => return None,
+    };
+    Some(IssueWorkflow {
+        key,
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_workflow_label(label: &str) -> String {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let value = ["status", "state", "stage", "workflow"]
+        .into_iter()
+        .find_map(|prefix| {
+            if !lower.starts_with(prefix) {
+                return None;
+            }
+            let raw_rest = &trimmed[prefix.len()..];
+            raw_rest
+                .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+                .then_some(raw_rest)
+        })
+        .unwrap_or(trimmed)
+        .trim_start()
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+        .trim();
+
+    let mut normalized = String::new();
+    let mut last_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            last_dash = false;
+        } else if !last_dash && !normalized.is_empty() {
+            normalized.push('-');
+            last_dash = true;
+        }
+    }
+    while normalized.ends_with('-') {
+        normalized.pop();
+    }
+    normalized
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -1446,6 +1570,16 @@ impl IssuesGuest for Component {
         })
     }
 
+    fn workflow_board(input: IssueWorkflowBoardInput) -> Result<IssueWorkflowBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueWorkflowBoard {
+            repository: input.repository,
+            total,
+            columns: workflow_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -1766,5 +1900,65 @@ mod tests {
         );
         assert_eq!(columns[3].cards[0].issue.id, "closed");
         assert_eq!(columns[3].cards[0].milestone.as_deref(), Some("v1.0"));
+    }
+
+    #[test]
+    fn workflow_board_columns_group_active_work_by_status_label() {
+        let mut backlog = issue("backlog", IssueState::Open);
+        backlog.labels = vec!["status::backlog".to_string()];
+        let mut ready = issue("ready", IssueState::Open);
+        ready.labels = vec!["Ready for dev".to_string()];
+        let mut active = issue("active", IssueState::Open);
+        active.labels = vec!["workflow/in-progress".to_string()];
+        let mut review = issue("review", IssueState::Open);
+        review.labels = vec!["stage:ready for review".to_string()];
+        let untriaged = issue("untriaged", IssueState::Open);
+        let mut first_wins = issue("first-wins", IssueState::Open);
+        first_wins.labels = vec!["status::ready".to_string(), "status::review".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["status::wip".to_string()];
+
+        let columns = workflow_board_columns(vec![
+            backlog, ready, active, review, untriaged, first_wins, closed,
+        ]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "backlog",
+                "ready",
+                "in-progress",
+                "review",
+                "untriaged",
+                "closed"
+            ]
+        );
+        assert_eq!(columns[0].workflow.as_deref(), Some("backlog"));
+        assert_eq!(columns[0].cards[0].workflow.as_deref(), Some("backlog"));
+        assert_eq!(
+            columns[0].cards[0].workflow_label.as_deref(),
+            Some("status::backlog")
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["ready", "first-wins"]
+        );
+        assert_eq!(
+            columns[1].cards[1].workflow_label.as_deref(),
+            Some("status::ready")
+        );
+        assert_eq!(columns[2].cards[0].issue.id, "active");
+        assert_eq!(columns[2].cards[0].workflow.as_deref(), Some("in-progress"));
+        assert_eq!(columns[3].cards[0].issue.id, "review");
+        assert_eq!(columns[3].cards[0].workflow.as_deref(), Some("review"));
+        assert_eq!(columns[4].cards[0].issue.id, "untriaged");
+        assert_eq!(columns[4].cards[0].workflow, None);
+        assert_eq!(columns[5].cards[0].issue.id, "closed");
+        assert_eq!(columns[5].cards[0].workflow.as_deref(), Some("in-progress"));
     }
 }

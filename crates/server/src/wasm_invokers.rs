@@ -72,8 +72,9 @@ use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
     IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
     IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
     IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
-    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn, OpenIssueInput,
-    UpdateIssueInput,
+    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn,
+    IssueWorkflowBoard, IssueWorkflowBoardInput, IssueWorkflowCard, IssueWorkflowColumn,
+    OpenIssueInput, UpdateIssueInput,
 };
 
 mod ext_epics_bindings {
@@ -267,6 +268,13 @@ struct IssuePriorityBoardInputJson {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssueMilestoneBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueWorkflowBoardInputJson {
     repository: String,
     limit: u32,
 }
@@ -1056,6 +1064,28 @@ pub fn dispatch_ext_issues(
                     )
                 })?;
             issue_milestone_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "workflow-board" => {
+            let parsed: IssueWorkflowBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse workflow-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueWorkflowBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_workflow_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("workflow-board call: {e}"),
+                    )
+                })?;
+            issue_workflow_board_to_json(&result.map_err(local_error_to_canonical)?)
         }
         "by-ref-issue" => {
             let ref_uri = string_payload(&input, "by-ref-issue")?;
@@ -3092,6 +3122,40 @@ fn issue_milestone_card_to_json(card: &IssueMilestoneCard) -> Value {
         "issue": issue_to_json(&card.issue),
         "milestone": card.milestone,
         "milestoneLabel": card.milestone_label,
+    })
+}
+
+fn issue_workflow_board_to_json(board: &IssueWorkflowBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_workflow_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_workflow_column_to_json(column: &IssueWorkflowColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "workflow": column.workflow,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_workflow_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_workflow_card_to_json(card: &IssueWorkflowCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+        "workflow": card.workflow,
+        "workflowLabel": card.workflow_label,
     })
 }
 
