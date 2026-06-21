@@ -8,6 +8,7 @@ import type { ComtryaGraphQLClient, LoadState, WorkItem } from "./types";
 const props = defineProps<{
   client?: ComtryaGraphQLClient;
   comtryaClient?: ComtryaGraphQLClient;
+  workspaceId?: string | null;
 }>();
 
 const loadState = ref<LoadState>("idle");
@@ -31,6 +32,9 @@ const assignedIssues = ref<WorkItem[]>([]);
 const issueUnsubscribers: Array<() => void> = [];
 
 const graphClient = computed(() => props.client ?? props.comtryaClient);
+const workspaceUri = computed(() =>
+  props.workspaceId ? `comtrya://workspace/${props.workspaceId}` : null,
+);
 
 onMounted(() => {
   void load();
@@ -56,6 +60,7 @@ onUnmounted(() => {
 });
 
 watch(graphClient, () => void load());
+watch(workspaceUri, () => void refreshAssignedIssues());
 
 async function load(): Promise<void> {
   if (!graphClient.value) {
@@ -111,11 +116,16 @@ function shortAssignee(ref: string): string {
 }
 
 async function refreshAssignedIssues(): Promise<void> {
+  const repository = workspaceUri.value;
+  if (!repository) {
+    assignedIssues.value = [];
+    return;
+  }
   const result = await invokeOp<AssigneeIssue[]>(
     "ext_issues",
     "issues",
     "list-issues",
-    { repository: WORKSPACE_URI, limit: 1024 },
+    { repository, limit: 1024 },
   );
   if (!result.ok || !Array.isArray(result.value)) {
     assignedIssues.value = [];

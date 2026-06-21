@@ -4711,26 +4711,27 @@ var hc = {
 	__name: "HomeYourWork",
 	props: {
 		client: { type: null },
-		comtryaClient: { type: null }
+		comtryaClient: { type: null },
+		workspaceId: { type: [String, null] }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = /* @__PURE__ */ z([]), o = /* @__PURE__ */ z([]), s = /* @__PURE__ */ z([]), c = [], l = da(() => t.client ?? t.comtryaClient);
+		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z(null), i = /* @__PURE__ */ z([]), a = /* @__PURE__ */ z([]), o = /* @__PURE__ */ z([]), s = /* @__PURE__ */ z([]), c = [], l = da(() => t.client ?? t.comtryaClient), u = da(() => t.workspaceId ? `comtrya://workspace/${t.workspaceId}` : null);
 		$n(() => {
-			u(), h();
+			d(), g();
 			for (let e of [
 				"dev.comtrya.issues.opened",
 				"dev.comtrya.issues.closed",
 				"dev.comtrya.issues.reopened"
 			]) c.push(yo({
 				type: e,
-				onEvent: () => void h(),
+				onEvent: () => void g(),
 				onError: () => {}
 			}));
 		}), rr(() => {
 			for (let e of c) e();
 			c.length = 0;
-		}), An(l, () => void u());
-		async function u() {
+		}), An(l, () => void d()), An(u, () => void g());
+		async function d() {
 			if (!l.value) {
 				n.value = "error", r.value = "Failed to load your work: no client";
 				return;
@@ -4743,28 +4744,33 @@ var hc = {
 				n.value = "error", r.value = `Failed to load your work: ${e instanceof Error ? e.message : String(e)}`;
 			}
 		}
-		function d(e) {
+		function f(e) {
 			return `#${e.number ?? e.id ?? "?"}`;
 		}
-		function f(e, t, n = `${t}s`) {
+		function p(e, t, n = `${t}s`) {
 			return `${e} ${e === 1 ? t : n}`;
 		}
-		function p(e) {
+		function m(e) {
 			return e ? e.toLowerCase().split("_").filter(Boolean).map((e) => `${e[0]?.toUpperCase() ?? ""}${e.slice(1)}`).join(" ") : "";
 		}
-		function m(e) {
+		function h(e) {
 			return e.replace(/^comtrya:\/\/[a-z]+\//, "");
 		}
-		async function h() {
-			let e = await go("ext_issues", "issues", "list-issues", {
-				repository: WORKSPACE_URI,
-				limit: 1024
-			});
-			if (!e.ok || !Array.isArray(e.value)) {
+		async function g() {
+			let e = u.value;
+			if (!e) {
 				s.value = [];
 				return;
 			}
-			s.value = e.value.filter((e) => {
+			let t = await go("ext_issues", "issues", "list-issues", {
+				repository: e,
+				limit: 1024
+			});
+			if (!t.ok || !Array.isArray(t.value)) {
+				s.value = [];
+				return;
+			}
+			s.value = t.value.filter((e) => {
 				let t = (e.state ?? "").toUpperCase(), n = t === "OPEN" || t === "REOPENED", r = Array.isArray(e.assignees) && e.assignees.length > 0;
 				return n && r;
 			}).slice(0, 8).map((e) => ({
@@ -4772,77 +4778,77 @@ var hc = {
 				number: e.number,
 				title: e.title ?? "(untitled)",
 				state: e.state,
-				author: (e.assignees ?? []).map(m).join(", ") || null,
+				author: (e.assignees ?? []).map(h).join(", ") || null,
 				repositoryPath: e.projectName ?? null
 			}));
 		}
-		function g(e) {
+		function _(e) {
 			if (e.checks?.passed == null) return "No checks";
 			let t = e.checks.total ?? e.checks.passed;
 			return `${e.checks.passed}/${t} checks`;
 		}
-		function _(e) {
+		function v(e) {
 			return e.checks?.passed === e.checks?.total ? "ok" : "warn";
 		}
-		function v(e) {
+		function y(e) {
 			return e.repositoryPath ?? e.repository ?? "";
 		}
 		return (e, t) => n.value === "error" ? (G(), K("article", Rc, k(r.value), 1)) : (G(), K("div", zc, [
 			s.value.length > 0 ? (G(), K("section", Bc, [q("div", Vc, [
 				t[0] ||= q("span", { class: "id" }, "00", -1),
 				t[1] ||= q("h2", null, "Assigned issues", -1),
-				q("span", Hc, k(f(s.value.length, "assigned issue")), 1)
+				q("span", Hc, k(p(s.value.length, "assigned issue")), 1)
 			]), (G(!0), K(U, null, lr(s.value, (e) => (G(), K("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				q("span", Uc, k(d(e)), 1),
+				q("span", Uc, k(f(e)), 1),
 				q("div", null, [q("div", Wc, k(e.title ?? "(untitled)"), 1), q("div", Gc, [e.author ? (G(), K(U, { key: 0 }, [Ri("Assigned to " + k(e.author), 1)], 64)) : zi("", !0), e.repositoryPath ? (G(), K(U, { key: 1 }, [e.author ? (G(), K(U, { key: 0 }, [Ri(" · ")], 64)) : zi("", !0), Ri(k(e.repositoryPath), 1)], 64)) : zi("", !0)])]),
-				q("span", Kc, k(p(e.state)), 1),
+				q("span", Kc, k(m(e.state)), 1),
 				t[2] ||= q("span", { class: "t" }, null, -1)
 			]))), 128))])) : zi("", !0),
 			q("section", qc, [q("div", Jc, [
 				t[3] ||= q("span", { class: "id" }, "01", -1),
 				t[4] ||= q("h2", null, "Pull requests awaiting review", -1),
-				q("span", Yc, k(f(i.value.length, "pull request")), 1)
+				q("span", Yc, k(p(i.value.length, "pull request")), 1)
 			]), (G(!0), K(U, null, lr(i.value, (e) => (G(), K("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				q("span", Xc, k(d(e)), 1),
-				q("div", null, [q("div", Zc, k(e.title ?? "(untitled)"), 1), q("div", Qc, k(e.author ? `@${e.author} · ` : "") + k(v(e)), 1)]),
-				q("span", { class: ge(["check", _(e)]) }, k(g(e)), 3),
+				q("span", Xc, k(f(e)), 1),
+				q("div", null, [q("div", Zc, k(e.title ?? "(untitled)"), 1), q("div", Qc, k(e.author ? `@${e.author} · ` : "") + k(y(e)), 1)]),
+				q("span", { class: ge(["check", v(e)]) }, k(_(e)), 3),
 				q("span", $c, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
 			q("section", el, [q("div", tl, [
 				t[5] ||= q("span", { class: "id" }, "02", -1),
 				t[6] ||= q("h2", null, "Your pull requests", -1),
-				q("span", nl, k(f(a.value.length, "authored pull request")), 1)
+				q("span", nl, k(p(a.value.length, "authored pull request")), 1)
 			]), (G(!0), K(U, null, lr(a.value, (e) => (G(), K("div", {
 				key: String(e.id ?? e.number),
 				class: "row"
 			}, [
-				q("span", rl, k(d(e)), 1),
-				q("div", null, [q("div", il, k(e.title ?? "(untitled)"), 1), q("div", al, k(v(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
+				q("span", rl, k(f(e)), 1),
+				q("div", null, [q("div", il, k(e.title ?? "(untitled)"), 1), q("div", al, k(y(e)) + " · " + k(e.state?.toLowerCase() ?? ""), 1)]),
 				t[7] ||= q("span", { class: "check ok" }, "Ready", -1),
 				q("span", ol, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))]),
 			q("section", sl, [q("div", cl, [
 				t[8] ||= q("span", { class: "id" }, "03", -1),
 				t[9] ||= q("h2", null, "Failing checks", -1),
-				q("span", ll, k(f(o.value.length, "check")), 1)
+				q("span", ll, k(p(o.value.length, "check")), 1)
 			]), (G(!0), K(U, null, lr(o.value, (e) => (G(), K("div", {
 				key: String(e.id ?? e.name),
 				class: "row"
 			}, [
 				t[10] ||= q("span", { class: "idn" }, "!CK", -1),
-				q("div", null, [q("div", ul, k(e.name ?? "(unnamed)"), 1), q("div", dl, k(v(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
+				q("div", null, [q("div", ul, k(e.name ?? "(unnamed)"), 1), q("div", dl, k(y(e)) + k(e.branch ? ` · ${e.branch}` : ""), 1)]),
 				t[11] ||= q("span", { class: "check err" }, "Failing", -1),
 				q("span", fl, k(e.updatedAt ?? e.time ?? ""), 1)
 			]))), 128))])
 		]));
 	}
-}), [["styles", [".section[data-v-e2e51c0c]{gap:8px;display:grid}.section+.section[data-v-e2e51c0c]{margin-top:16px}.section-strap[data-v-e2e51c0c],.row[data-v-e2e51c0c]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-e2e51c0c]{font-family:var(--font-sans,system-ui);margin:0;font-size:14px;font-weight:600}.id[data-v-e2e51c0c],.idn[data-v-e2e51c0c],.sub[data-v-e2e51c0c],.meta[data-v-e2e51c0c],.check[data-v-e2e51c0c],.t[data-v-e2e51c0c],.extension-placeholder[data-v-e2e51c0c]{font-family:var(--font-mono,monospace);font-size:12px}.sub[data-v-e2e51c0c],.meta[data-v-e2e51c0c],.check[data-v-e2e51c0c],.t[data-v-e2e51c0c],.extension-placeholder[data-v-e2e51c0c]{font-family:var(--font-sans,system-ui)}.id[data-v-e2e51c0c],.idn[data-v-e2e51c0c],.sub[data-v-e2e51c0c],.meta[data-v-e2e51c0c],.t[data-v-e2e51c0c]{color:var(--fg-3,#ffffff85)}.title[data-v-e2e51c0c]{font-family:var(--font-sans,system-ui);font-weight:600}.ok[data-v-e2e51c0c]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-e2e51c0c]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-e2e51c0c]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-e2e51c0c]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.err[data-v-e2e51c0c]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-e2e51c0c]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-e2e51c0c"]]), ml = "ext_workspace_home", hl = "comtrya-home-your-work", gl = "comtrya-home-repositories", _l = "comtrya-home-activity", vl = "comtrya-home-instance";
+}), [["styles", [".section[data-v-a1ab214f]{gap:8px;display:grid}.section+.section[data-v-a1ab214f]{margin-top:16px}.section-strap[data-v-a1ab214f],.row[data-v-a1ab214f]{grid-template-columns:auto 1fr auto auto;align-items:baseline;gap:10px;display:grid}.section-strap h2[data-v-a1ab214f]{font-family:var(--font-sans,system-ui);margin:0;font-size:14px;font-weight:600}.id[data-v-a1ab214f],.idn[data-v-a1ab214f],.sub[data-v-a1ab214f],.meta[data-v-a1ab214f],.check[data-v-a1ab214f],.t[data-v-a1ab214f],.extension-placeholder[data-v-a1ab214f]{font-family:var(--font-mono,monospace);font-size:12px}.sub[data-v-a1ab214f],.meta[data-v-a1ab214f],.check[data-v-a1ab214f],.t[data-v-a1ab214f],.extension-placeholder[data-v-a1ab214f]{font-family:var(--font-sans,system-ui)}.id[data-v-a1ab214f],.idn[data-v-a1ab214f],.sub[data-v-a1ab214f],.meta[data-v-a1ab214f],.t[data-v-a1ab214f]{color:var(--fg-3,#ffffff85)}.title[data-v-a1ab214f]{font-family:var(--font-sans,system-ui);font-weight:600}.ok[data-v-a1ab214f]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.ok[data-v-a1ab214f]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.warn[data-v-a1ab214f]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-a1ab214f]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.err[data-v-a1ab214f]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.err[data-v-a1ab214f]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-a1ab214f"]]), ml = "ext_workspace_home", hl = "comtrya-home-your-work", gl = "comtrya-home-repositories", _l = "comtrya-home-activity", vl = "comtrya-home-instance";
 ac({
 	tagName: hl,
 	component: pl
