@@ -3460,14 +3460,14 @@ AUTHOR_RAWKODE_PR_ID="$(json_value "$TMP_DIR/pr-author-rawkode.json" 'json.id')"
 expect_status "create-pull for platform author-board lane" 200 "$TMP_DIR/pr-author-platform.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"platform owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-platform\",\"baseRef\":\"main\",\"authorRef\":\"comtrya://team/platform\"}" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"platform owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-platform\",\"baseRef\":\"release/2026.06\",\"authorRef\":\"comtrya://team/platform\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
 AUTHOR_PLATFORM_PR_ID="$(json_value "$TMP_DIR/pr-author-platform.json" 'json.id')"
 
 expect_status "create-pull for closed author-board lane" 200 "$TMP_DIR/pr-author-closed.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"closed owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-closed\",\"baseRef\":\"main\",\"authorRef\":\"comtrya://user/archive\"}" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"closed owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-closed\",\"baseRef\":\"release/2026.06\",\"authorRef\":\"comtrya://user/archive\"}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
 AUTHOR_CLOSED_PR_ID="$(json_value "$TMP_DIR/pr-author-closed.json" 'json.id')"
 
@@ -3484,6 +3484,14 @@ expect_status "author-board groups active authors and terminal pull requests" 20
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/author-board"
 json_assert "author board has author lanes plus merged and closed terminal lanes" "$TMP_DIR/pr-author-board.json" \
   "json.total === 4 && json.columns.find((c) => c.key === \"author-team-platform\")?.authorRef === \"comtrya://team/platform\" && json.columns.find((c) => c.key === \"author-team-platform\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"author-user-rawkode\")?.authorRef === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"author-user-rawkode\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
+
+expect_status "base-branch-board groups active targets and terminal pull requests" 200 "$TMP_DIR/pr-base-branch-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/base-branch-board"
+json_assert "base branch board has main and release lanes plus terminal lanes" "$TMP_DIR/pr-base-branch-board.json" \
+  "json.total === 4 && json.columns.find((c) => c.key === \"base-main\")?.baseRef === \"main\" && json.columns.find((c) => c.key === \"base-main\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"base-release-2026-06\")?.baseRef === \"release/2026.06\" && json.columns.find((c) => c.key === \"base-release-2026-06\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
 
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="$SMOKE_SOURCE_URL"

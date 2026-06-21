@@ -13,7 +13,8 @@ use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, Guest as PullsGuest,
     ListPullReviewsInput, ListReviewRequestsInput, MergePullInput, PrState, PullAuthorBoard,
-    PullAuthorBoardInput, PullAuthorCard, PullAuthorColumn, PullMergeCheckSummary,
+    PullAuthorBoardInput, PullAuthorCard, PullAuthorColumn, PullBaseBranchBoard,
+    PullBaseBranchBoardInput, PullBaseBranchCard, PullBaseBranchColumn, PullMergeCheckSummary,
     PullMergeReadinessBoard, PullMergeReadinessBoardInput, PullMergeReadinessCard,
     PullMergeReadinessColumn, PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard,
     PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
@@ -442,14 +443,10 @@ fn author_column_label(author_ref: &str) -> String {
         .to_string()
 }
 
-fn author_column_slug(author_ref: &str) -> String {
+fn stable_column_slug(value: &str) -> String {
     let mut slug = String::new();
     let mut previous_dash = false;
-    for character in author_ref
-        .strip_prefix("comtrya://")
-        .unwrap_or(author_ref)
-        .chars()
-    {
+    for character in value.strip_prefix("comtrya://").unwrap_or(value).chars() {
         if character.is_ascii_alphanumeric() {
             slug.push(character.to_ascii_lowercase());
             previous_dash = false;
@@ -502,13 +499,56 @@ fn author_columns(cards: Vec<PullAuthorCard>) -> Vec<PullAuthorColumn> {
     let mut columns = by_author
         .into_iter()
         .map(|(author_ref, cards)| {
-            let key = format!("author-{}", author_column_slug(&author_ref));
+            let key = format!("author-{}", stable_column_slug(&author_ref));
             let label = author_column_label(&author_ref);
             author_column(&key, &label, Some(author_ref), cards)
         })
         .collect::<Vec<_>>();
     columns.push(author_column("merged", "Merged", None, merged));
     columns.push(author_column("closed", "Closed", None, closed));
+    columns
+}
+
+fn base_branch_column(
+    key: &str,
+    label: &str,
+    base_ref: Option<String>,
+    cards: Vec<PullBaseBranchCard>,
+) -> PullBaseBranchColumn {
+    PullBaseBranchColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        base_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn base_branch_columns(cards: Vec<PullBaseBranchCard>) -> Vec<PullBaseBranchColumn> {
+    let mut by_base_ref = BTreeMap::<String, Vec<PullBaseBranchCard>>::new();
+    let mut merged = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match card.pull_request.state {
+            PrState::Merged => merged.push(card),
+            PrState::Closed => closed.push(card),
+            _ => by_base_ref
+                .entry(card.pull_request.base_ref.clone())
+                .or_default()
+                .push(card),
+        }
+    }
+
+    let mut columns = by_base_ref
+        .into_iter()
+        .map(|(base_ref, cards)| {
+            let key = format!("base-{}", stable_column_slug(&base_ref));
+            base_branch_column(&key, &base_ref, Some(base_ref.clone()), cards)
+        })
+        .collect::<Vec<_>>();
+    columns.push(base_branch_column("merged", "Merged", None, merged));
+    columns.push(base_branch_column("closed", "Closed", None, closed));
     columns
 }
 
@@ -1650,6 +1690,35 @@ impl PullsGuest for Component {
         })
     }
 
+    fn base_branch_board(
+        input: PullBaseBranchBoardInput,
+    ) -> Result<PullBaseBranchBoard, Error> {
+        let limit = input.limit.min(1024) as usize;
+        let mut cards = Vec::new();
+        if limit > 0 {
+            scan_pull_requests(|stored| {
+                if repository_matches(&stored, &input.repository) {
+                    let pull_request = stored.to_wit();
+                    let terminal = matches!(pull_request.state, PrState::Merged | PrState::Closed);
+                    cards.push(PullBaseBranchCard {
+                        pull_request,
+                        terminal,
+                    });
+                    if cards.len() >= limit {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            })?;
+        }
+        let total = cards.len() as u32;
+        Ok(PullBaseBranchBoard {
+            repository: input.repository,
+            total,
+            columns: base_branch_columns(cards),
+        })
+    }
+
     fn merge_readiness_board(
         input: PullMergeReadinessBoardInput,
     ) -> Result<PullMergeReadinessBoard, Error> {
@@ -2013,14 +2082,14 @@ bindings::export!(Component with_types_in bindings);
 #[cfg(test)]
 mod tests {
     use super::{
-        author_columns, completed_review_for_request, merge_readiness_columns,
+        author_columns, base_branch_columns, completed_review_for_request, merge_readiness_columns,
         merge_readiness_flags,
         review_columns, review_decision_columns, review_request_columns, reviewer_queue_columns,
         state_from_str, state_to_str, validate_review_body, validate_reviewer_ref,
         validate_state_transition, ActiveReviewStats, ErrorCode, PrState, PullMergeCheckSummary,
         PullMergeReadinessCard, PullMergeReviewSummary, PullRequest, PullReview, PullReviewCard,
-        PullAuthorCard, PullReviewDecision, PullReviewDecisionCard, PullReviewRequestCard,
-        PullReviewerQueueCard, StoredPullReviewRequest,
+        PullAuthorCard, PullBaseBranchCard, PullReviewDecision, PullReviewDecisionCard,
+        PullReviewRequestCard, PullReviewerQueueCard, StoredPullReviewRequest,
     };
 
     use std::collections::BTreeMap;
@@ -2162,6 +2231,51 @@ mod tests {
         );
         assert_eq!(columns[0].cards[0].pull_request.id, "team-ready");
         assert_eq!(columns[1].label, "rawkode");
+        assert_eq!(columns[1].cards.len(), 2);
+        assert_eq!(columns[2].cards[0].pull_request.id, "merged");
+        assert!(columns[2].cards[0].terminal);
+        assert_eq!(columns[3].cards[0].pull_request.id, "closed");
+        assert!(columns[3].cards[0].terminal);
+    }
+
+    fn pull_targeting_base(id: &str, state: PrState, base_ref: &str) -> PullRequest {
+        PullRequest {
+            base_ref: base_ref.to_string(),
+            ..pull_with_state(id, state)
+        }
+    }
+
+    #[test]
+    fn base_branch_columns_group_active_prs_by_base_ref_and_terminal_state() {
+        let columns = base_branch_columns(vec![
+            PullBaseBranchCard {
+                pull_request: pull_targeting_base("main-ready", PrState::Ready, "main"),
+                terminal: false,
+            },
+            PullBaseBranchCard {
+                pull_request: pull_targeting_base("release-draft", PrState::Draft, "release/2026.06"),
+                terminal: false,
+            },
+            PullBaseBranchCard {
+                pull_request: pull_targeting_base("release-review", PrState::Review, "release/2026.06"),
+                terminal: false,
+            },
+            PullBaseBranchCard {
+                pull_request: pull_targeting_base("merged", PrState::Merged, "main"),
+                terminal: true,
+            },
+            PullBaseBranchCard {
+                pull_request: pull_targeting_base("closed", PrState::Closed, "release/2026.06"),
+                terminal: true,
+            },
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["base-main", "base-release-2026-06", "merged", "closed"]);
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 5);
+        assert_eq!(columns[0].base_ref.as_deref(), Some("main"));
+        assert_eq!(columns[0].cards[0].pull_request.id, "main-ready");
+        assert_eq!(columns[1].label, "release/2026.06");
         assert_eq!(columns[1].cards.len(), 2);
         assert_eq!(columns[2].cards[0].pull_request.id, "merged");
         assert!(columns[2].cards[0].terminal);

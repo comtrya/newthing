@@ -159,6 +159,30 @@ interface pulls {
     columns: list<pull-author-column>,
   }
 
+  record pull-base-branch-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-base-branch-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-base-branch-column {
+    key: string,
+    label: string,
+    base-ref: option<string>,
+    count: u32,
+    cards: list<pull-base-branch-card>,
+  }
+
+  record pull-base-branch-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-base-branch-column>,
+  }
+
   record pull-merge-check-summary {
     pull-id: id,
     required-missing: u32,
@@ -303,6 +327,7 @@ interface pulls {
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
   review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
   author-board: func(input: pull-author-board-input) -> result<pull-author-board, error>;
+  base-branch-board: func(input: pull-base-branch-board-input) -> result<pull-base-branch-board, error>;
   merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
   review-decision-board: func(input: pull-review-decision-board-input) -> result<pull-review-decision-board, error>;
   review-request-board: func(input: pull-review-request-board-input) -> result<pull-review-request-board, error>;

@@ -10382,6 +10382,15 @@ mod tests {
 
         let info = crate::generated_dispatch::dispatch_wit_route(
             "ext_pull_requests",
+            "pulls.base-branch-board",
+        )
+        .expect("pull base branch board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "base-branch-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
             "pulls.review-decision-board",
         )
         .expect("pull review decision board route should resolve to DispatchInfo");
