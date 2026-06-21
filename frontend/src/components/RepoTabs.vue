@@ -75,6 +75,8 @@ const repoPath = computed(() =>
 const repoHomePath = computed(() => `/r/${repoPath.value}`);
 const repoCodePath = computed(() => `${repoHomePath.value}/code`);
 const repoConfigPath = computed(() => `${repoHomePath.value}/config`);
+const repoActionsPath = computed(() => `${repoHomePath.value}/pipelines`);
+const repoReleasesPath = computed(() => `${repoHomePath.value}/releases`);
 
 /**
  * Build the per-repo workbench URL for an embedded extension. The
@@ -129,6 +131,12 @@ const tabs = computed<Tab[]>(() => {
       showZeroCount: true,
     });
   }
+  all.push({
+    id: "pipelines",
+    label: "Actions",
+    icon: "bolt",
+    to: repoActionsPath.value,
+  });
   if (extEnabled("epics")) {
     all.push({ id: "epics", label: "Epics", icon: "tag", to: repoExtPath("epics") });
   }
@@ -143,6 +151,12 @@ const tabs = computed<Tab[]>(() => {
       countTone: "alarm",
     });
   }
+  all.push({
+    id: "releases",
+    label: "Releases",
+    icon: "rocket",
+    to: repoReleasesPath.value,
+  });
   all.push({ id: "config", label: "Config", icon: "settings", to: repoConfigPath.value });
   return all;
 });
@@ -156,7 +170,9 @@ function isActive(tab: Tab): boolean {
   const prefix = `${repoHomePath.value}/${tab.id}`;
   // Config is a leaf; use exact match so we don't accidentally
   // collide with future `/config/<sub>` routes if they appear.
-  if (tab.id === "config") return route.path === prefix;
+  if (tab.id === "config" || tab.id === "pipelines" || tab.id === "releases") {
+    return route.path === prefix;
+  }
   return route.path === prefix || route.path.startsWith(`${prefix}/`);
 }
 </script>

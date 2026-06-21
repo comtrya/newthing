@@ -6,6 +6,8 @@ import RepoTabs from "../components/RepoTabs.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
+import Pipelines from "./Pipelines.vue";
+import Releases from "./Releases.vue";
 import Icon from "../components/Icon.vue";
 import {
   LabelPill,
@@ -26,7 +28,9 @@ const props = withDefaults(defineProps<{
    * "overview" (default) is the README-first home; "code" mounts the
    * `repository.main` slot (core's code browser + summary widgets);
    * "config" surfaces the repo's evaluated `comtrya.cue` for read
-   * inspection; "pulls" / "issues" / "checks" / "epics" embed the
+   * inspection; "pipelines" / "releases" mount shell-owned repo
+   * surfaces inside the persistent workbench;
+   * "pulls" / "issues" / "checks" / "epics" embed the
    * matching first-party extension's root route inside the
    * workbench so the repo header stays put across intra-repo
    * navigation. Each tab in RepoTabs maps to one of these values
@@ -37,6 +41,8 @@ const props = withDefaults(defineProps<{
     | "overview"
     | "code"
     | "config"
+    | "pipelines"
+    | "releases"
     | "pulls"
     | "issues"
     | "checks"
@@ -1150,6 +1156,15 @@ function mergeRepositoryIdentity(
         :element-context="repoContext"
         smoke-prefix="repo-code"
       />
+    </section>
+
+    <!-- /r/:path/{pipelines,releases} → shell-owned repo surfaces kept
+         inside the same persistent workbench header and tab strip. -->
+    <section v-else-if="view === 'pipelines'" class="repo-shell-surface" data-smoke="repo-pipelines">
+      <Pipelines :groups="groups" :repo="repo" />
+    </section>
+    <section v-else-if="view === 'releases'" class="repo-shell-surface" data-smoke="repo-releases">
+      <Releases :groups="groups" :repo="repo" />
     </section>
 
     <!-- /r/:path/{pulls,issues,checks,epics} → workbench-style embed of the

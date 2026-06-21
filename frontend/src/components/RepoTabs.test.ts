@@ -59,6 +59,7 @@ function buildTabs(opts: {
       countAriaLabel: `${openPulls} open pull requests`,
       showZeroCount: true,
     });
+  all.push({ id: "pipelines", label: "Actions", icon: "bolt" });
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
   if (extEnabled("checks"))
     all.push({
@@ -69,6 +70,7 @@ function buildTabs(opts: {
       countAriaLabel: `${failingChecks} failing checks`,
       countTone: "alarm",
     });
+  all.push({ id: "releases", label: "Releases", icon: "rocket" });
   all.push({ id: "config", label: "Config", icon: "settings" });
   return all;
 }
@@ -94,14 +96,14 @@ function repoExtPath(opts: {
 }
 
 describe("RepoTabs extension filtering", () => {
-  test("shows only README, Code, Config when no extensions enabled", () => {
+  test("shows core repo tabs when no extensions are enabled", () => {
     const ids = visibleIds([]);
-    expect(ids).toEqual(["overview", "code", "config"]);
+    expect(ids).toEqual(["overview", "code", "pipelines", "releases", "config"]);
   });
 
-  test("hides all extension tabs while enabledExtensions is null (loading)", () => {
+  test("hides only extension tabs while enabledExtensions is null (loading)", () => {
     const ids = visibleIds(null);
-    expect(ids).toEqual(["overview", "code", "config"]);
+    expect(ids).toEqual(["overview", "code", "pipelines", "releases", "config"]);
   });
 
   test("shows Issues tab when 'ext_issues' is in enabledExtensions", () => {
@@ -147,6 +149,17 @@ describe("RepoTabs extension filtering", () => {
     expect(ids[0]).toBe("overview");
     expect(ids[1]).toBe("code");
     expect(ids[ids.length - 1]).toBe("config");
+    expect(ids).toEqual([
+      "overview",
+      "code",
+      "issues",
+      "pulls",
+      "pipelines",
+      "epics",
+      "checks",
+      "releases",
+      "config",
+    ]);
     // Canonical extension order: issues, pulls, epics, checks
     const extOrder = ids.filter((id) =>
       ["issues", "pulls", "epics", "checks"].includes(id),
@@ -224,8 +237,10 @@ describe("RepoTabs extension filtering", () => {
       code: "folder",
       issues: "issue",
       pulls: "pr",
+      pipelines: "bolt",
       epics: "tag",
       checks: "check",
+      releases: "rocket",
       config: "settings",
     });
   });
@@ -246,7 +261,7 @@ describe("RepoTabs extension filtering", () => {
 
   test("short extension slugs are not feature enablement ids", () => {
     const ids = visibleIds(["issues", "pulls", "epics", "checks"]);
-    expect(ids).toEqual(["overview", "code", "config"]);
+    expect(ids).toEqual(["overview", "code", "pipelines", "releases", "config"]);
   });
 });
 

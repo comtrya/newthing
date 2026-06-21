@@ -160,14 +160,20 @@ export const shellRoutes: RouteRecordRaw[] = [
   {
     path: shellRoutePaths.repoPipelines,
     name: "repo-pipelines",
-    component: Pipelines,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "pipelines",
+    }),
   },
   {
     path: shellRoutePaths.repoReleases,
     name: "repo-releases",
-    component: Releases,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "releases",
+    }),
   },
   {
     path: shellRoutePaths.repoConfig,
