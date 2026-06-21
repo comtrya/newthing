@@ -146,7 +146,7 @@ const tabs = computed<Tab[]>(() => {
   if (extEnabled("sprints")) {
     all.push({
       id: "sprints",
-      label: "Sprints",
+      label: "Kanban",
       icon: "ds",
       to: repoExtPath("sprints"),
     });

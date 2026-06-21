@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { boardForSprint, planningBoard } from "./api";
+import { boardForSprint, kanbanProjectBoard, planningBoard } from "./api";
 import type {
+  KanbanCardState,
   LoadState,
+  ProjectKanbanBoard,
   Sprint,
   SprintBoard,
   SprintBoardColumn,
@@ -24,11 +26,14 @@ const props = defineProps<{
 
 const loadState = ref<LoadState>("idle");
 const issueLoadState = ref<LoadState>("idle");
+const kanbanLoadState = ref<LoadState>("idle");
 const board = ref<SprintPlanningBoard | null>(null);
 const sprintBoard = ref<SprintBoard | null>(null);
+const kanbanBoard = ref<ProjectKanbanBoard | null>(null);
 const selectedSprint = ref<Sprint | null>(null);
 const error = ref<string | null>(null);
 const issueError = ref<string | null>(null);
+const kanbanError = ref<string | null>(null);
 const effectiveWorkspace = computed(
   () =>
     props.workspaceId ??
@@ -53,13 +58,22 @@ const completedCount = computed(
 );
 const issueColumns = computed<SprintBoardColumn[]>(() => sprintBoard.value?.columns ?? []);
 const issueTotal = computed(() => sprintBoard.value?.total ?? 0);
+const kanbanSwimlanes = computed(() => kanbanBoard.value?.swimlanes ?? []);
+const kanbanTotal = computed(() => kanbanBoard.value?.total ?? 0);
 const openIssueCount = computed(() =>
   issueColumns.value
     .flatMap((column) => column.issues)
     .filter((issue) => issue.state === "open" || issue.state === "reopened").length,
 );
+const kanbanOpenCount = computed(() =>
+  kanbanSwimlanes.value
+    .flatMap((lane) => lane.columns)
+    .flatMap((column) => column.cards)
+    .filter((card) => card.state === "open" || card.state === "reopened").length,
+);
 const headline = computed(() => {
   if (loadState.value === "loading") return "Loading";
+  if (kanbanOpenCount.value > 0) return `${kanbanOpenCount.value} open cards`;
   if (activeCount.value > 0) return `${activeCount.value} active`;
   if (selectedSprint.value) return `Sprint #${selectedSprint.value.number}`;
   return "No sprints";
@@ -77,18 +91,22 @@ async function load(): Promise<void> {
   const run = ++loadRun;
   board.value = null;
   sprintBoard.value = null;
+  kanbanBoard.value = null;
   selectedSprint.value = null;
   error.value = null;
   issueError.value = null;
+  kanbanError.value = null;
 
   if (!effectiveWorkspace.value) {
     loadState.value = "empty";
     issueLoadState.value = "empty";
+    kanbanLoadState.value = "empty";
     return;
   }
 
   loadState.value = "loading";
   issueLoadState.value = "idle";
+  kanbanLoadState.value = "idle";
   try {
     const result = await planningBoard(effectiveWorkspace.value);
     if (run !== loadRun) return;
@@ -99,25 +117,53 @@ async function load(): Promise<void> {
 
     if (!selectedSprint.value) {
       issueLoadState.value = "empty";
+      kanbanLoadState.value = "empty";
       return;
     }
 
     issueLoadState.value = "loading";
+    kanbanLoadState.value = "idle";
     try {
       const issues = await boardForSprint(selectedSprint.value.id);
       if (run !== loadRun) return;
       sprintBoard.value = issues;
       issueLoadState.value = issues.total === 0 ? "empty" : "ready";
+
+      const issueRefs = Array.from(
+        new Set(
+          issues.columns
+            .flatMap((column) => column.issues.map((issue) => issue.issueRef))
+            .filter((ref): ref is string => ref.length > 0),
+        ),
+      );
+      if (issueRefs.length === 0) {
+        kanbanLoadState.value = "empty";
+        return;
+      }
+
+      kanbanLoadState.value = "loading";
+      try {
+        const nextKanban = await kanbanProjectBoard(effectiveWorkspace.value, issueRefs);
+        if (run !== loadRun) return;
+        kanbanBoard.value = nextKanban;
+        kanbanLoadState.value = nextKanban.total === 0 ? "empty" : "ready";
+      } catch (err) {
+        if (run !== loadRun) return;
+        kanbanError.value = err instanceof Error ? err.message : String(err);
+        kanbanLoadState.value = "error";
+      }
     } catch (err) {
       if (run !== loadRun) return;
       issueError.value = err instanceof Error ? err.message : String(err);
       issueLoadState.value = "error";
+      kanbanLoadState.value = "idle";
     }
   } catch (err) {
     if (run !== loadRun) return;
     error.value = err instanceof Error ? err.message : String(err);
     loadState.value = "error";
     issueLoadState.value = "idle";
+    kanbanLoadState.value = "idle";
   }
 }
 
@@ -136,11 +182,11 @@ function formatDate(value?: string | null): string {
   return value ? value.slice(0, 10) : "unscheduled";
 }
 
-function stateClass(state: SprintState | SprintIssueState): string {
+function stateClass(state: SprintState | SprintIssueState | KanbanCardState): string {
   return `state-${state}`;
 }
 
-function labelFor(value: SprintState | SprintIssueState): string {
+function labelFor(value: SprintState | SprintIssueState | KanbanCardState): string {
   return value.slice(0, 1).toUpperCase() + value.slice(1);
 }
 
@@ -153,8 +199,8 @@ function issueNumber(issue: { number?: number | null }): string {
   <section class="sprints-board extension-payload" data-smoke="sprints-board">
     <header class="sprints-board-head">
       <div>
-        <p class="sprints-kicker">planning</p>
-        <h3>Sprints</h3>
+        <p class="sprints-kicker">delivery board</p>
+        <h3>Kanban</h3>
       </div>
       <span class="sprints-total">{{ headline }}</span>
     </header>
@@ -184,6 +230,10 @@ function issueNumber(issue: { number?: number | null }): string {
         <div>
           <dt>Open issues</dt>
           <dd>{{ openIssueCount }}</dd>
+        </div>
+        <div>
+          <dt>Kanban cards</dt>
+          <dd>{{ kanbanTotal }}</dd>
         </div>
       </dl>
 
@@ -304,6 +354,79 @@ function issueNumber(issue: { number?: number | null }): string {
           </section>
         </div>
       </section>
+
+      <section v-if="selectedSprint" class="sprints-section" data-smoke="sprints-kanban-board">
+        <header class="sprints-section-head selected">
+          <div>
+            <p class="sprints-kicker">kanban</p>
+            <h4><span>#{{ selectedSprint.number }}</span> Project swimlanes</h4>
+          </div>
+          <span>{{ kanbanTotal }} cards</span>
+        </header>
+
+        <p
+          v-if="kanbanLoadState === 'idle' || kanbanLoadState === 'loading'"
+          class="sprints-status"
+        >
+          Loading Kanban...
+        </p>
+        <p v-else-if="kanbanLoadState === 'error'" class="sprints-status sprints-error" role="alert">
+          {{ kanbanError }}
+        </p>
+        <p v-else-if="kanbanLoadState === 'empty'" class="sprints-status">No Kanban cards.</p>
+
+        <div
+          v-else-if="kanbanBoard"
+          class="sprints-swimlanes"
+          aria-label="Selected sprint Kanban swimlanes"
+        >
+          <section
+            v-for="lane in kanbanSwimlanes"
+            :key="lane.key"
+            class="sprints-swimlane"
+            :data-swimlane="lane.key"
+          >
+            <header class="sprints-column-head">
+              <h5>{{ lane.label }}</h5>
+              <span>{{ lane.total }}</span>
+            </header>
+
+            <div class="sprints-kanban-columns">
+              <section
+                v-for="column in lane.columns"
+                :key="column.key"
+                class="sprints-kanban-column"
+                :data-column="column.key"
+              >
+                <header class="sprints-column-head issue">
+                  <h5>{{ column.label }}</h5>
+                  <span>{{ column.count }}</span>
+                </header>
+
+                <ol v-if="column.cards.length > 0" class="sprints-kanban-cards">
+                  <li
+                    v-for="card in column.cards"
+                    :key="card.issueRef"
+                    :class="['sprints-kanban-card', stateClass(card.state)]"
+                  >
+                    <header class="sprints-kanban-card-head">
+                      <span class="sprints-number">{{ issueNumber(card) }}</span>
+                      <strong>{{ card.title }}</strong>
+                    </header>
+                    <footer class="sprints-kanban-card-meta">
+                      <span>{{ labelFor(card.state) }}</span>
+                      <span v-if="card.projectName" class="sprints-project">{{ card.projectName }}</span>
+                      <code>{{ card.issueRef }}</code>
+                    </footer>
+                  </li>
+                </ol>
+
+                <p v-else class="sprints-empty-column">No {{ column.label.toLowerCase() }} cards.</p>
+              </section>
+            </div>
+          </section>
+        </div>
+      </section>
     </div>
   </section>
 </template>
@@ -320,7 +443,9 @@ function issueNumber(issue: { number?: number | null }): string {
 .sprints-column-head,
 .sprints-card-head,
 .sprints-issue-card-head,
-.sprints-issue-meta {
+.sprints-issue-meta,
+.sprints-kanban-card-head,
+.sprints-kanban-card-meta {
   display: flex;
   gap: 10px;
 }
@@ -341,8 +466,11 @@ function issueNumber(issue: { number?: number | null }): string {
 .sprints-section,
 .sprints-column,
 .sprints-issue-column,
+.sprints-swimlane,
+.sprints-kanban-column,
 .sprints-card,
-.sprints-issue-card {
+.sprints-issue-card,
+.sprints-kanban-card {
   display: grid;
 }
 
@@ -388,7 +516,8 @@ function issueNumber(issue: { number?: number | null }): string {
 .sprints-board h3,
 .sprints-section h4,
 .sprints-column h5,
-.sprints-issue-column h5 {
+.sprints-issue-column h5,
+.sprints-kanban-column h5 {
   margin: 0;
 }
 
@@ -408,7 +537,8 @@ function issueNumber(issue: { number?: number | null }): string {
 }
 
 .sprints-column h5,
-.sprints-issue-column h5 {
+.sprints-issue-column h5,
+.sprints-kanban-column h5 {
   font-size: 0.84rem;
 }
 
@@ -425,7 +555,7 @@ function issueNumber(issue: { number?: number | null }): string {
 
 .sprints-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(96px, 1fr));
+  grid-template-columns: repeat(6, minmax(96px, 1fr));
   gap: 8px;
   margin: 0;
 }
@@ -460,7 +590,8 @@ function issueNumber(issue: { number?: number | null }): string {
 }
 
 .sprints-columns,
-.sprints-issue-columns {
+.sprints-issue-columns,
+.sprints-swimlanes {
   display: grid;
   gap: 12px;
   padding: 12px;
@@ -476,7 +607,9 @@ function issueNumber(issue: { number?: number | null }): string {
 }
 
 .sprints-column,
-.sprints-issue-column {
+.sprints-issue-column,
+.sprints-swimlane,
+.sprints-kanban-column {
   min-width: 0;
   border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
   background: var(--bg, #0a0b0e);
@@ -505,8 +638,16 @@ function issueNumber(issue: { number?: number | null }): string {
   font-size: 0.72rem;
 }
 
+.sprints-kanban-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
 .sprints-cards,
-.sprints-issue-cards {
+.sprints-issue-cards,
+.sprints-kanban-cards {
   display: grid;
   gap: 8px;
   list-style: none;
@@ -515,7 +656,8 @@ function issueNumber(issue: { number?: number | null }): string {
 }
 
 .sprints-card,
-.sprints-issue-card {
+.sprints-issue-card,
+.sprints-kanban-card {
   gap: 8px;
   border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
   border-left: 3px solid var(--fg-4, rgba(255, 255, 255, 0.32));
@@ -527,29 +669,35 @@ function issueNumber(issue: { number?: number | null }): string {
 .sprints-card.state-active,
 .sprints-state.state-active,
 .sprints-issue-card.state-open,
-.sprints-issue-card.state-reopened {
+.sprints-issue-card.state-reopened,
+.sprints-kanban-card.state-open,
+.sprints-kanban-card.state-reopened {
   border-left-color: var(--accent-blue, #1d55a6);
 }
 
 .sprints-card.state-completed,
 .sprints-state.state-completed,
-.sprints-issue-card.state-closed {
+.sprints-issue-card.state-closed,
+.sprints-kanban-card.state-closed {
   border-left-color: var(--accent-good, #2f8f5b);
 }
 
 .sprints-card.state-canceled,
 .sprints-state.state-canceled,
-.sprints-issue-card.state-missing {
+.sprints-issue-card.state-missing,
+.sprints-kanban-card.state-missing {
   border-left-color: var(--accent-err, #c9341c);
 }
 
 .sprints-card-head,
-.sprints-issue-card-head {
+.sprints-issue-card-head,
+.sprints-kanban-card-head {
   align-items: baseline;
 }
 
 .sprints-card-head strong,
-.sprints-issue-card-head strong {
+.sprints-issue-card-head strong,
+.sprints-kanban-card-head strong {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 0.9rem;
@@ -597,7 +745,8 @@ function issueNumber(issue: { number?: number | null }): string {
   gap: 4px;
 }
 
-.sprints-issue-meta {
+.sprints-issue-meta,
+.sprints-kanban-card-meta {
   align-items: center;
   justify-content: space-between;
   min-width: 0;
@@ -605,10 +754,19 @@ function issueNumber(issue: { number?: number | null }): string {
   font-size: 0.7rem;
 }
 
-.sprints-issue-meta code {
+.sprints-issue-meta code,
+.sprints-kanban-card-meta code {
   min-width: 0;
   overflow: hidden;
   color: var(--fg-4, rgba(255, 255, 255, 0.34));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sprints-project {
+  min-width: 0;
+  color: var(--accent-blue, #1d55a6);
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -627,7 +785,8 @@ function issueNumber(issue: { number?: number | null }): string {
   }
 
   .sprints-columns,
-  .sprints-issue-columns {
+  .sprints-issue-columns,
+  .sprints-kanban-columns {
     grid-template-columns: repeat(2, minmax(180px, 1fr));
   }
 }
@@ -641,7 +800,8 @@ function issueNumber(issue: { number?: number | null }): string {
 
   .sprints-summary,
   .sprints-columns,
-  .sprints-issue-columns {
+  .sprints-issue-columns,
+  .sprints-kanban-columns {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -5,6 +5,12 @@ import type {
   SprintBoard,
   SprintBoardColumn,
   SprintBoardIssue,
+  KanbanBoard,
+  KanbanCard,
+  KanbanCardState,
+  KanbanColumn,
+  ProjectKanbanBoard,
+  ProjectKanbanSwimlane,
   SprintIssueState,
   SprintPlanningBoard,
   SprintPlanningColumn,
@@ -62,6 +68,42 @@ interface WitSprintBoard {
   sprintRef?: string | null;
   total?: number | null;
   columns?: WitSprintBoardColumn[] | null;
+}
+
+interface WitKanbanCard {
+  issueRef?: string | null;
+  id?: string | null;
+  number?: number | null;
+  title?: string | null;
+  state?: string | null;
+  projectName?: string | null;
+}
+
+interface WitKanbanColumn {
+  key?: string | null;
+  label?: string | null;
+  count?: number | null;
+  cards?: WitKanbanCard[] | null;
+}
+
+interface WitKanbanBoard {
+  workspace?: string | null;
+  total?: number | null;
+  columns?: WitKanbanColumn[] | null;
+}
+
+interface WitKanbanSwimlane {
+  key?: string | null;
+  label?: string | null;
+  projectName?: string | null;
+  total?: number | null;
+  columns?: WitKanbanColumn[] | null;
+}
+
+interface WitProjectKanbanBoard {
+  workspace?: string | null;
+  total?: number | null;
+  swimlanes?: WitKanbanSwimlane[] | null;
 }
 
 function opValue<T>(result: OpResult<unknown>, label: string): T {
@@ -181,6 +223,91 @@ function normalizeSprintBoard(value: WitSprintBoard): SprintBoard {
   };
 }
 
+function kanbanCardState(value?: string | null): KanbanCardState {
+  switch ((value ?? "").toLowerCase()) {
+    case "closed":
+      return "closed";
+    case "missing":
+      return "missing";
+    case "reopened":
+      return "reopened";
+    default:
+      return "open";
+  }
+}
+
+function normalizeKanbanCard(value: WitKanbanCard): KanbanCard {
+  return {
+    issueRef: value.issueRef ?? "",
+    id: value.id ?? null,
+    number: value.number ?? null,
+    title: value.title ?? value.issueRef ?? "Missing issue",
+    state: kanbanCardState(value.state),
+    projectName: value.projectName ?? null,
+  };
+}
+
+function normalizeKanbanColumn(value: WitKanbanColumn): KanbanColumn {
+  const cards = value.cards ?? [];
+  return {
+    key: value.key ?? "",
+    label: value.label ?? value.key ?? "",
+    count: value.count ?? cards.length,
+    cards: cards.map(normalizeKanbanCard),
+  };
+}
+
+function normalizeKanbanBoard(value: WitKanbanBoard): KanbanBoard {
+  const columns = value.columns ?? [];
+  return {
+    workspace: value.workspace ?? "",
+    total:
+      value.total ??
+      columns.reduce(
+        (sum, column) => sum + (column.count ?? column.cards?.length ?? 0),
+        0,
+      ),
+    columns: columns.map(normalizeKanbanColumn),
+  };
+}
+
+function normalizeProjectKanbanSwimlane(value: WitKanbanSwimlane): ProjectKanbanSwimlane {
+  const columns = value.columns ?? [];
+  return {
+    key: value.key ?? "",
+    label: value.label ?? value.key ?? "",
+    projectName: value.projectName ?? null,
+    total:
+      value.total ??
+      columns.reduce(
+        (sum, column) => sum + (column.count ?? column.cards?.length ?? 0),
+        0,
+      ),
+    columns: columns.map(normalizeKanbanColumn),
+  };
+}
+
+function normalizeProjectKanbanBoard(value: WitProjectKanbanBoard): ProjectKanbanBoard {
+  const swimlanes = value.swimlanes ?? [];
+  return {
+    workspace: value.workspace ?? "",
+    total:
+      value.total ??
+      swimlanes.reduce(
+        (sum, lane) =>
+          sum +
+          (lane.total ??
+            (lane.columns ?? []).reduce(
+              (columnSum, column) =>
+                columnSum + (column.count ?? column.cards?.length ?? 0),
+              0,
+            )),
+        0,
+      ),
+    swimlanes: swimlanes.map(normalizeProjectKanbanSwimlane),
+  };
+}
+
 export async function listSprints(workspace: string): Promise<Sprint[]> {
   const result = await extSprintsXSprints.listSprints({
     workspace: workspaceUri(workspace),
@@ -203,4 +330,30 @@ export async function boardForSprint(sprint: string): Promise<SprintBoard> {
     limit: 1024,
   });
   return normalizeSprintBoard(opValue<WitSprintBoard>(result, "boardForSprint"));
+}
+
+export async function kanbanForIssues(
+  workspace: string,
+  issueRefs: string[],
+): Promise<KanbanBoard> {
+  const result = await extSprintsXSprints.kanbanForIssues({
+    workspace: workspaceUri(workspace),
+    issueRefs,
+    limit: 1024,
+  });
+  return normalizeKanbanBoard(opValue<WitKanbanBoard>(result, "kanbanForIssues"));
+}
+
+export async function kanbanProjectBoard(
+  workspace: string,
+  issueRefs: string[],
+): Promise<ProjectKanbanBoard> {
+  const result = await extSprintsXSprints.kanbanProjectBoard({
+    workspace: workspaceUri(workspace),
+    issueRefs,
+    limit: 1024,
+  });
+  return normalizeProjectKanbanBoard(
+    opValue<WitProjectKanbanBoard>(result, "kanbanProjectBoard"),
+  );
 }

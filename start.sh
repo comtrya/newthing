@@ -638,6 +638,7 @@ const surfaces = [
   { name: "issues page", url: `${baseUrl}/x/issues/`, widget: "comtrya-issues-list" },
   { name: "pulls page", url: `${baseUrl}/x/pulls/`, widget: "comtrya-pulls-queue" },
   { name: "epics page", url: `${baseUrl}/x/epics/`, widget: "comtrya-epics-index" },
+  { name: "kanban page", url: `${baseUrl}/x/sprints/`, widget: "comtrya-sprints-board" },
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -773,7 +774,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics extension pages"
+  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics/kanban extension pages"
 }
 
 assert_issue_close_browser_smoke() {

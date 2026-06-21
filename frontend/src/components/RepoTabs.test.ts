@@ -63,7 +63,7 @@ function buildTabs(opts: {
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
   if (extEnabled("docs")) all.push({ id: "docs", label: "Docs", icon: "file" });
   if (extEnabled("sprints")) {
-    all.push({ id: "sprints", label: "Sprints", icon: "ds" });
+    all.push({ id: "sprints", label: "Kanban", icon: "ds" });
   }
   if (extEnabled("checks"))
     all.push({
@@ -135,7 +135,7 @@ describe("RepoTabs extension filtering", () => {
     expect(visibleIds([])).not.toContain("docs");
   });
 
-  test("shows Sprints tab when 'ext_sprints' is in enabledExtensions", () => {
+  test("shows Kanban tab when 'ext_sprints' is in enabledExtensions", () => {
     expect(visibleIds(["ext_sprints"])).toContain("sprints");
     expect(visibleIds([])).not.toContain("sprints");
   });
@@ -292,6 +292,13 @@ describe("RepoTabs extension filtering", () => {
     const pulls = tabs.find((tab) => tab.id === "pulls");
     expect(pulls?.label).toBe("Pull requests");
     expect(pulls?.id).toBe("pulls");
+  });
+
+  test("uses Kanban language without changing the sprints extension id", () => {
+    const tabs = buildTabs({ enabledExtensions: ["ext_sprints"] });
+    const sprints = tabs.find((tab) => tab.id === "sprints");
+    expect(sprints?.label).toBe("Kanban");
+    expect(sprints?.id).toBe("sprints");
   });
 
   test("short extension slugs are not feature enablement ids", () => {
