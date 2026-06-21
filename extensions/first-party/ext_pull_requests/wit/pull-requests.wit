@@ -126,7 +126,16 @@ interface pulls {
   record pull-merge-readiness-board-input {
     repository: uri,
     check-summaries: list<pull-merge-check-summary>,
+    required-approvals: u32,
     %limit: u32,
+  }
+
+  record pull-merge-review-summary {
+    required-approvals: u32,
+    approval-count: u32,
+    change-request-count: u32,
+    comment-count: u32,
+    latest-review: option<pull-review>,
   }
 
   record pull-merge-readiness-card {
@@ -134,7 +143,12 @@ interface pulls {
     terminal: bool,
     blocked: bool,
     waiting: bool,
+    check-blocked: bool,
+    check-waiting: bool,
+    review-blocked: bool,
+    review-waiting: bool,
     check-summary: option<pull-merge-check-summary>,
+    review-summary: pull-merge-review-summary,
   }
 
   record pull-merge-readiness-column {

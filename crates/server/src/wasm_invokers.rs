@@ -102,10 +102,10 @@ use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
     ChangeStatePullInput, ClosePullInput, CreatePullInput, ListPullReviewsInput, MergePullInput,
     PrState, PullMergeCheckSummary, PullMergeReadinessBoard, PullMergeReadinessBoardInput,
-    PullMergeReadinessCard, PullMergeReadinessColumn, PullRequest, PullReview, PullReviewBoard,
-    PullReviewBoardInput, PullReviewCard, PullReviewColumn, PullReviewDecision,
-    PullReviewDecisionBoard, PullReviewDecisionBoardInput, PullReviewDecisionCard,
-    PullReviewDecisionColumn, SubmitReviewInput,
+    PullMergeReadinessCard, PullMergeReadinessColumn, PullMergeReviewSummary, PullRequest,
+    PullReview, PullReviewBoard, PullReviewBoardInput, PullReviewCard, PullReviewColumn,
+    PullReviewDecision, PullReviewDecisionBoard, PullReviewDecisionBoardInput,
+    PullReviewDecisionCard, PullReviewDecisionColumn, SubmitReviewInput,
 };
 
 mod ext_checks_bindings {
@@ -397,6 +397,7 @@ struct PullMergeReadinessBoardInputJson {
     repository: String,
     #[serde(default)]
     check_summaries: Vec<PullMergeCheckSummaryJson>,
+    required_approvals: u32,
     limit: u32,
 }
 
@@ -2176,6 +2177,7 @@ pub fn dispatch_ext_pull_requests(
                         total: summary.total,
                     })
                     .collect(),
+                required_approvals: parsed.required_approvals,
                 limit: parsed.limit,
             };
             let result = pulls
@@ -3292,10 +3294,28 @@ fn pull_merge_readiness_card_to_json(card: &PullMergeReadinessCard) -> Value {
         "terminal": card.terminal,
         "blocked": card.blocked,
         "waiting": card.waiting,
+        "checkBlocked": card.check_blocked,
+        "checkWaiting": card.check_waiting,
+        "reviewBlocked": card.review_blocked,
+        "reviewWaiting": card.review_waiting,
         "checkSummary": card
             .check_summary
             .as_ref()
             .map(pull_merge_check_summary_to_json),
+        "reviewSummary": pull_merge_review_summary_to_json(&card.review_summary),
+    })
+}
+
+fn pull_merge_review_summary_to_json(summary: &PullMergeReviewSummary) -> Value {
+    serde_json::json!({
+        "requiredApprovals": summary.required_approvals,
+        "approvalCount": summary.approval_count,
+        "changeRequestCount": summary.change_request_count,
+        "commentCount": summary.comment_count,
+        "latestReview": summary
+            .latest_review
+            .as_ref()
+            .map(pull_review_to_json),
     })
 }
 
