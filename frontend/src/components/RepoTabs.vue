@@ -141,7 +141,7 @@ const tabs = computed<Tab[]>(() => {
     all.push({ id: "epics", label: "Epics", icon: "tag", to: repoExtPath("epics") });
   }
   if (extEnabled("docs")) {
-    all.push({ id: "docs", label: "Docs", icon: "file", to: repoExtPath("docs") });
+    all.push({ id: "docs", label: "Specs", icon: "file", to: repoExtPath("docs") });
   }
   if (extEnabled("sprints")) {
     all.push({

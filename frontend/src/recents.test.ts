@@ -17,7 +17,7 @@ describe("recent route helpers", () => {
   });
 
   test("labels repo work surfaces with product language", () => {
-    expect(labelForRoute("/r/comtrya/dogfood/docs")).toBe("comtrya/dogfood/Docs");
+    expect(labelForRoute("/r/comtrya/dogfood/docs")).toBe("comtrya/dogfood/Specs");
     expect(labelForRoute("/r/comtrya/dogfood/docs/scenarios")).toBe(
       "comtrya/dogfood/BDD Scenarios",
     );
@@ -61,7 +61,7 @@ describe("recent route helpers", () => {
     expect(
       normalizeRecentEntry({
         path: "/r/comtrya/dogfood/docs/scenarios",
-        label: "comtrya/dogfood/Docs",
+        label: "comtrya/dogfood/docs",
         timestamp: 2,
       }),
     ).toEqual({

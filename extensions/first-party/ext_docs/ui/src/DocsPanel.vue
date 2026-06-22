@@ -217,8 +217,8 @@ const docsRouteHref = computed(() => {
 const overviewHeadline = computed(() => {
   if (loadState.value === "loading") return "Loading";
   if (loadState.value === "error" || config.value?.error) return "Unavailable";
-  if (totalDocs.value === 0) return "No docs";
-  return `${totalDocs.value} docs`;
+  if (totalDocs.value === 0) return "No specs";
+  return `${totalDocs.value} specs`;
 });
 
 function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
@@ -703,7 +703,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
       <header class="docs-overview-head">
         <div>
           <p class="docs-overview-eyebrow">{{ repositoryPath || "Repository" }}</p>
-          <h2>Specs &amp; Docs</h2>
+          <h2>Specs &amp; PRDs</h2>
         </div>
         <span class="docs-overview-pill">{{ overviewHeadline }}</span>
       </header>
@@ -721,9 +721,9 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
         <p class="docs-overview-copy">
           Product intent, PRDs, and BDD scenarios live with the repository.
         </p>
-        <dl class="docs-overview-stats" aria-label="Docs summary">
+        <dl class="docs-overview-stats" aria-label="Specs summary">
           <div>
-            <dt>Docs</dt>
+            <dt>Specs</dt>
             <dd>{{ totalDocs }}</dd>
           </div>
           <div>
@@ -742,7 +742,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
           </li>
         </ul>
         <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
-          Open docs workbench
+          Open specs workbench
         </a>
       </template>
       <template v-else>
@@ -750,7 +750,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
           No specs, PRDs, or BDD scenarios declared for this repository.
         </p>
         <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
-          Open docs workbench
+          Open specs workbench
         </a>
       </template>
     </article>
@@ -758,19 +758,19 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
     <template v-else>
     <header class="docs-head">
       <div class="title-block">
-        <h2>Docs</h2>
+        <h2>Specs</h2>
         <span class="muted">
-          <template v-if="loadState === 'loading'">reading repo CUE config…</template>
+          <template v-if="loadState === 'loading'">reading repo specs catalog…</template>
           <template v-else-if="loadState === 'error'">unavailable</template>
           <template v-else-if="totalDocs === 0">
-            No MDX docs declared. Add a
+            No specs, PRDs, or BDD scenarios declared. Add a
             <code>docs</code> block to a Project in
             <code>package comtrya</code> to surface them here.
           </template>
           <template v-else>
-            {{ totalDocs }} doc<template v-if="totalDocs !== 1">s</template>
+            {{ totalDocs }} spec<template v-if="totalDocs !== 1">s</template>
             across {{ projects.length }} project<template v-if="projects.length !== 1">s</template>
-            · shape from <code>ext_docs</code>'s registered CUE schema
+            · typed by <code>ext_docs</code>'s registered CUE schema
           </template>
         </span>
       </div>
@@ -786,12 +786,12 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
     >
       <header class="docs-workbench-head">
         <div class="docs-workbench-title">
-          <h3>Docs workbench</h3>
+          <h3>Specs workbench</h3>
           <span class="muted">
-            {{ activeBoard?.totalDocs ?? totalDocs }} doc<template v-if="(activeBoard?.totalDocs ?? totalDocs) !== 1">s</template>
+            {{ activeBoard?.totalDocs ?? totalDocs }} spec<template v-if="(activeBoard?.totalDocs ?? totalDocs) !== 1">s</template>
           </span>
         </div>
-        <nav class="docs-board-tabs" aria-label="Docs workbench views">
+        <nav class="docs-board-tabs" aria-label="Specs workbench views">
           <a
             v-for="tab in boardTabs"
             :key="tab.id"
@@ -807,7 +807,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
       </header>
 
       <p v-if="boardState === 'loading'" class="muted docs-board-status">
-        Loading docs board…
+        Loading specs board…
       </p>
       <p
         v-else-if="boardState === 'error'"
@@ -849,7 +849,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
               </dl>
             </li>
           </ol>
-          <p v-else class="muted docs-board-empty">No docs</p>
+          <p v-else class="muted docs-board-empty">No specs</p>
         </section>
       </div>
     </section>

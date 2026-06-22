@@ -41,7 +41,7 @@ const staticGroups: ShortcutGroup[] = [
       { keys: ["g", "p"], description: "Pull requests" },
       { keys: ["g", "a"], description: "Actions" },
       { keys: ["g", "e"], description: "Epics" },
-      { keys: ["g", "d"], description: "Specs / Docs" },
+      { keys: ["g", "d"], description: "Specs / PRDs" },
       { keys: ["g", "s"], description: "Kanban" },
       { keys: ["g", "k"], description: "Checks" },
       { keys: ["g", "r"], description: "Releases" },

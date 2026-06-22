@@ -4921,7 +4921,7 @@ var qc = {
 	class: "docs-overview-message"
 }, el = {
 	class: "docs-overview-stats",
-	"aria-label": "Docs summary"
+	"aria-label": "Specs summary"
 }, tl = {
 	class: "docs-overview-types",
 	"aria-label": "Doc types"
@@ -4939,7 +4939,7 @@ var qc = {
 	"data-smoke": "docs-workbench"
 }, ul = { class: "docs-workbench-head" }, dl = { class: "docs-workbench-title" }, fl = { class: "muted" }, pl = {
 	class: "docs-board-tabs",
-	"aria-label": "Docs workbench views"
+	"aria-label": "Specs workbench views"
 }, ml = [
 	"href",
 	"aria-current",
@@ -5025,7 +5025,7 @@ var qc = {
 			t.workspaceId && n.set("workspaceId", t.workspaceId), t.repositoryId && n.set("repositoryId", t.repositoryId);
 			let r = n.toString();
 			return `/r/${e || "repository"}/docs${r ? `?${r}` : ""}`;
-		}), x = fa(() => n.value === "loading" ? "Loading" : n.value === "error" || i.value?.error ? "Unavailable" : l.value === 0 ? "No docs" : `${l.value} docs`);
+		}), x = fa(() => n.value === "loading" ? "Loading" : n.value === "error" || i.value?.error ? "Unavailable" : l.value === 0 ? "No specs" : `${l.value} specs`);
 		function S() {
 			return {
 				type: null,
@@ -5325,10 +5325,10 @@ var qc = {
 		return (t, a) => (U(), W("section", {
 			class: ge(["docs-panel", { "docs-panel--summary": s.value }]),
 			"data-smoke": "docs-panel"
-		}, [s.value ? (U(), W("article", qc, [G("header", Jc, [G("div", null, [G("p", Yc, A(e.repositoryPath || "Repository"), 1), a[0] ||= G("h2", null, "Specs & Docs", -1)]), G("span", Xc, A(x.value), 1)]), n.value === "error" ? (U(), W("p", Zc, A(r.value), 1)) : i.value?.error ? (U(), W("p", Qc, A(i.value.error), 1)) : n.value === "loading" ? (U(), W("p", $c, " Reading the repo docs catalog... ")) : l.value > 0 ? (U(), W(V, { key: 3 }, [
+		}, [s.value ? (U(), W("article", qc, [G("header", Jc, [G("div", null, [G("p", Yc, A(e.repositoryPath || "Repository"), 1), a[0] ||= G("h2", null, "Specs & PRDs", -1)]), G("span", Xc, A(x.value), 1)]), n.value === "error" ? (U(), W("p", Zc, A(r.value), 1)) : i.value?.error ? (U(), W("p", Qc, A(i.value.error), 1)) : n.value === "loading" ? (U(), W("p", $c, " Reading the repo docs catalog... ")) : l.value > 0 ? (U(), W(V, { key: 3 }, [
 			a[4] ||= G("p", { class: "docs-overview-copy" }, " Product intent, PRDs, and BDD scenarios live with the repository. ", -1),
 			G("dl", el, [
-				G("div", null, [a[1] ||= G("dt", null, "Docs", -1), G("dd", null, A(l.value), 1)]),
+				G("div", null, [a[1] ||= G("dt", null, "Specs", -1), G("dd", null, A(l.value), 1)]),
 				G("div", null, [a[2] ||= G("dt", null, "Types", -1), G("dd", null, A(v.value.length), 1)]),
 				G("div", null, [a[3] ||= G("dt", null, "Projects", -1), G("dd", null, A(c.value.length), 1)])
 			]),
@@ -5337,35 +5337,35 @@ var qc = {
 				class: "docs-overview-link",
 				href: b.value,
 				onClick: ne
-			}, " Open docs workbench ", 8, nl)
+			}, " Open specs workbench ", 8, nl)
 		], 64)) : (U(), W(V, { key: 4 }, [a[5] ||= G("p", { class: "docs-overview-message" }, " No specs, PRDs, or BDD scenarios declared for this repository. ", -1), G("a", {
 			class: "docs-overview-link",
 			href: b.value,
 			onClick: ne
-		}, " Open docs workbench ", 8, rl)], 64))])) : (U(), W(V, { key: 1 }, [
-			G("header", il, [G("div", al, [a[14] ||= G("h2", null, "Docs", -1), G("span", ol, [n.value === "loading" ? (U(), W(V, { key: 0 }, [K("reading repo CUE config…")], 64)) : n.value === "error" ? (U(), W(V, { key: 1 }, [K("unavailable")], 64)) : l.value === 0 ? (U(), W(V, { key: 2 }, [
-				a[6] ||= K(" No MDX docs declared. Add a ", -1),
+		}, " Open specs workbench ", 8, rl)], 64))])) : (U(), W(V, { key: 1 }, [
+			G("header", il, [G("div", al, [a[14] ||= G("h2", null, "Specs", -1), G("span", ol, [n.value === "loading" ? (U(), W(V, { key: 0 }, [K("reading repo specs catalog…")], 64)) : n.value === "error" ? (U(), W(V, { key: 1 }, [K("unavailable")], 64)) : l.value === 0 ? (U(), W(V, { key: 2 }, [
+				a[6] ||= K(" No specs, PRDs, or BDD scenarios declared. Add a ", -1),
 				a[7] ||= G("code", null, "docs", -1),
 				a[8] ||= K(" block to a Project in ", -1),
 				a[9] ||= G("code", null, "package comtrya", -1),
 				a[10] ||= K(" to surface them here. ", -1)
 			], 64)) : (U(), W(V, { key: 3 }, [
-				K(A(l.value) + " doc", 1),
+				K(A(l.value) + " spec", 1),
 				l.value === 1 ? q("", !0) : (U(), W(V, { key: 0 }, [K("s")], 64)),
 				K(" across " + A(c.value.length) + " project", 1),
 				c.value.length === 1 ? q("", !0) : (U(), W(V, { key: 1 }, [K("s")], 64)),
-				a[11] ||= K(" · shape from ", -1),
+				a[11] ||= K(" · typed by ", -1),
 				a[12] ||= G("code", null, "ext_docs", -1),
 				a[13] ||= K("'s registered CUE schema ", -1)
 			], 64))])])]),
 			n.value === "error" ? (U(), W("p", sl, A(r.value), 1)) : i.value?.error ? (U(), W("p", cl, A(i.value.error), 1)) : q("", !0),
-			n.value === "ready" && l.value > 0 ? (U(), W("section", ll, [G("header", ul, [G("div", dl, [a[15] ||= G("h3", null, "Docs workbench", -1), G("span", fl, [K(A(_.value?.totalDocs ?? l.value) + " doc", 1), (_.value?.totalDocs ?? l.value) === 1 ? q("", !0) : (U(), W(V, { key: 0 }, [K("s")], 64))])]), G("nav", pl, [(U(!0), W(V, null, fr(qt(g), (e) => (U(), W("a", {
+			n.value === "ready" && l.value > 0 ? (U(), W("section", ll, [G("header", ul, [G("div", dl, [a[15] ||= G("h3", null, "Specs workbench", -1), G("span", fl, [K(A(_.value?.totalDocs ?? l.value) + " spec", 1), (_.value?.totalDocs ?? l.value) === 1 ? q("", !0) : (U(), W(V, { key: 0 }, [K("s")], 64))])]), G("nav", pl, [(U(!0), W(V, null, fr(qt(g), (e) => (U(), W("a", {
 				key: e.id,
 				href: D(e.id),
 				class: ge(["docs-board-tab", { active: m.value === e.id }]),
 				"aria-current": m.value === e.id ? "page" : void 0,
 				onClick: (t) => oe(e.id, t)
-			}, [G("span", null, A(e.label), 1), G("strong", null, A(be(e.id)), 1)], 10, ml))), 128))])]), f.value === "loading" ? (U(), W("p", hl, " Loading docs board… ")) : f.value === "error" ? (U(), W("p", gl, A(p.value), 1)) : _.value ? (U(), W("div", {
+			}, [G("span", null, A(e.label), 1), G("strong", null, A(be(e.id)), 1)], 10, ml))), 128))])]), f.value === "loading" ? (U(), W("p", hl, " Loading specs board… ")) : f.value === "error" ? (U(), W("p", gl, A(p.value), 1)) : _.value ? (U(), W("div", {
 				key: 2,
 				class: "docs-board",
 				"data-board": m.value
@@ -5379,7 +5379,7 @@ var qc = {
 				G("header", bl, [G("span", xl, A(xe(e)), 1), G("strong", null, A(e.title || e.path), 1)]),
 				e.path ? (U(), W("code", Sl, A(e.path), 1)) : q("", !0),
 				Se(e).length > 0 ? (U(), W("dl", Cl, [(U(!0), W(V, null, fr(Se(e), (t) => (U(), W(V, { key: `${e.path}-${t.label}` }, [G("dt", null, A(t.label), 1), G("dd", null, A(t.value), 1)], 64))), 128))])) : q("", !0)
-			]))), 128))])) : (U(), W("p", wl, "No docs"))]))), 128))], 8, _l)) : q("", !0)])) : q("", !0),
+			]))), 128))])) : (U(), W("p", wl, "No specs"))]))), 128))], 8, _l)) : q("", !0)])) : q("", !0),
 			(U(!0), W(V, null, fr(c.value, (t) => Dn((U(), W("article", {
 				key: t.name,
 				class: "docs-project"

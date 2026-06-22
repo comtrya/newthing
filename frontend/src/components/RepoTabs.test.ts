@@ -61,7 +61,7 @@ function buildTabs(opts: {
     });
   all.push({ id: "pipelines", label: "Actions", icon: "bolt" });
   if (extEnabled("epics")) all.push({ id: "epics", label: "Epics", icon: "tag" });
-  if (extEnabled("docs")) all.push({ id: "docs", label: "Docs", icon: "file" });
+  if (extEnabled("docs")) all.push({ id: "docs", label: "Specs", icon: "file" });
   if (extEnabled("sprints")) {
     all.push({ id: "sprints", label: "Kanban", icon: "ds" });
   }
@@ -153,7 +153,7 @@ describe("RepoTabs extension filtering", () => {
     expect(visibleIds([])).not.toContain("checks");
   });
 
-  test("shows Docs tab when 'ext_docs' is in enabledExtensions", () => {
+  test("shows Specs tab when 'ext_docs' is in enabledExtensions", () => {
     expect(visibleIds(["ext_docs"])).toContain("docs");
     expect(visibleIds([])).not.toContain("docs");
   });
@@ -322,6 +322,13 @@ describe("RepoTabs extension filtering", () => {
     const sprints = tabs.find((tab) => tab.id === "sprints");
     expect(sprints?.label).toBe("Kanban");
     expect(sprints?.id).toBe("sprints");
+  });
+
+  test("uses Specs language without changing the docs extension id", () => {
+    const tabs = buildTabs({ enabledExtensions: ["ext_docs"] });
+    const docs = tabs.find((tab) => tab.id === "docs");
+    expect(docs?.label).toBe("Specs");
+    expect(docs?.id).toBe("docs");
   });
 
   test("short extension slugs are not feature enablement ids", () => {

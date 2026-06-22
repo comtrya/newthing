@@ -42,7 +42,7 @@ const REPO_SURFACE_LABELS: Record<string, string> = {
   issues: "Issues",
   checks: "Checks",
   epics: "Epics",
-  docs: "Docs",
+  docs: "Specs",
   sprints: "Kanban",
   pipelines: "Actions",
   releases: "Releases",
@@ -197,7 +197,7 @@ export function labelForRoute(path: string): string {
   const repoDocsMatch = path.match(/^\/r\/(.+?)\/docs(?:\/([^?#]*))?(?:[?#].*)?$/);
   if (repoDocsMatch) {
     const repo = repoDocsMatch[1] ?? "";
-    return repo + "/" + docsBoardLabel(repoDocsMatch[2], "Docs");
+    return repo + "/" + docsBoardLabel(repoDocsMatch[2], "Specs");
   }
 
   const repoTabMatch = path.match(
