@@ -5,6 +5,7 @@ import {
   classifyPrincipal as principalLabel,
   extensionHref,
   LabelPill,
+  parseQueryFilters,
   useShortcuts,
   type LabelCatalog,
 } from "@comtrya/sdk-vue";
@@ -14,6 +15,10 @@ import {
   type IssueBoardCard,
   type IssueBoardId,
 } from "./api";
+import {
+  filterIssueBoard,
+  hasIssueBoardFilterQuery,
+} from "./issue-board-filter";
 import { issueRouteContext } from "./route-context";
 import {
   defaultWorkspaceId,
@@ -45,10 +50,25 @@ const boardTabs: Array<{ id: IssueBoardId; label: string; hint: string }> = [
   { id: "triage", label: "Triage", hint: "state queue" },
 ];
 
+const ISSUE_BOARD_FILTER_KEYS = [
+  "assignee",
+  "author",
+  "is",
+  "issue",
+  "label",
+  "milestone",
+  "priority",
+  "project",
+  "state",
+  "status",
+  "workflow",
+] as const;
+
 const loadState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const error = ref<string | null>(null);
 const activeBoardId = ref<IssueBoardId>("workflow");
 const boards = ref<Record<IssueBoardId, IssueBoard | null>>(emptyBoards());
+const boardSearch = ref("");
 const focusedIssueId = ref<string | null>(null);
 const locationSearch = ref(typeof window === "undefined" ? "" : window.location.search);
 
@@ -64,7 +84,26 @@ const routeContext = computed(() =>
   ),
 );
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
+const boardQuery = computed(() => parseQueryFilters(boardSearch.value, ISSUE_BOARD_FILTER_KEYS));
+const hasBoardFilter = computed(() => hasIssueBoardFilterQuery(boardQuery.value));
+const visibleBoard = computed<IssueBoard | null>(() => {
+  const board = activeBoard.value;
+  if (!board) return null;
+  return hasBoardFilter.value ? filterIssueBoard(board, boardQuery.value) : board;
+});
 const totalIssues = computed(() => activeBoard.value?.total ?? 0);
+const visibleIssues = computed(() => visibleBoard.value?.total ?? 0);
+const issueCountLabel = computed(() =>
+  hasBoardFilter.value
+    ? `${visibleIssues.value} of ${totalIssues.value}`
+    : String(totalIssues.value),
+);
+const issueCountIsPlural = computed(() =>
+  (hasBoardFilter.value ? totalIssues.value : visibleIssues.value) !== 1,
+);
+const boardFilterSummary = computed(() =>
+  hasBoardFilter.value ? `${visibleIssues.value}/${totalIssues.value} issues` : "",
+);
 const newIssueHref = computed(() => {
   const base = extensionHref(EXT_ISSUES_ROUTE_PREFIX, "/new", {
     repositorySegments: routeContext.value.repositorySegments,
@@ -81,7 +120,7 @@ const issueCardHref = (issue: IssueBoardCard["issue"]): string =>
   });
 const orderedIssueIds = computed(() => {
   const ids: string[] = [];
-  for (const column of activeBoard.value?.columns ?? []) {
+  for (const column of visibleBoard.value?.columns ?? []) {
     for (const card of column.cards) {
       if (!ids.includes(card.issue.id)) ids.push(card.issue.id);
     }
@@ -90,12 +129,13 @@ const orderedIssueIds = computed(() => {
 });
 
 onMounted(() => {
-  window.addEventListener("popstate", onPopState);
+  syncRouteStateFromLocation();
+  window.addEventListener("popstate", syncRouteStateFromLocation);
   void loadBoards();
 });
 
 onUnmounted(() => {
-  window.removeEventListener("popstate", onPopState);
+  window.removeEventListener("popstate", syncRouteStateFromLocation);
 });
 
 watch(
@@ -111,6 +151,14 @@ watch(
 
 watch(activeBoardId, () => {
   focusedIssueId.value = orderedIssueIds.value[0] ?? null;
+});
+
+watch(boardSearch, () => writeUrlSearch());
+
+watch(visibleBoard, () => {
+  if (!focusedIssueId.value || !orderedIssueIds.value.includes(focusedIssueId.value)) {
+    focusedIssueId.value = orderedIssueIds.value[0] ?? null;
+  }
 });
 
 useShortcuts({
@@ -157,7 +205,7 @@ useShortcuts({
 const focusedCard = computed(() => {
   const id = focusedIssueId.value;
   if (!id) return null;
-  for (const column of activeBoard.value?.columns ?? []) {
+  for (const column of visibleBoard.value?.columns ?? []) {
     const card = column.cards.find((entry) => entry.issue.id === id);
     if (card) return card;
   }
@@ -177,8 +225,9 @@ function emptyBoards(): Record<IssueBoardId, IssueBoard | null> {
   };
 }
 
-function onPopState(): void {
+function syncRouteStateFromLocation(): void {
   locationSearch.value = window.location.search;
+  readUrlSearch();
 }
 
 async function loadBoards(): Promise<void> {
@@ -237,6 +286,31 @@ function setActiveBoard(id: IssueBoardId): void {
   activeBoardId.value = id;
 }
 
+function clearBoardSearch(): void {
+  boardSearch.value = "";
+}
+
+function onBoardSearchEscape(): void {
+  if (boardSearch.value) clearBoardSearch();
+}
+
+function readUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  boardSearch.value = new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function writeUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const trimmed = boardSearch.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}`;
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (target !== current) window.history.replaceState(window.history.state, "", target);
+}
+
 function moveBoard(delta: number): void {
   const index = boardTabs.findIndex((tab) => tab.id === activeBoardId.value);
   const next = Math.max(0, Math.min(boardTabs.length - 1, index + delta));
@@ -286,7 +360,7 @@ function relativeTime(value: string | null | undefined): string {
           <template v-if="loadState === 'loading'">loading issue board...</template>
           <template v-else-if="loadState === 'error'">board unavailable</template>
           <template v-else>
-            {{ totalIssues }} issue<template v-if="totalIssues !== 1">s</template>
+            {{ issueCountLabel }} issue<template v-if="issueCountIsPlural">s</template>
             on {{ boardTabs.find((tab) => tab.id === activeBoardId)?.label.toLowerCase() }}
           </template>
         </span>
@@ -309,6 +383,36 @@ function relativeTime(value: string | null | undefined): string {
       </button>
     </nav>
 
+    <div class="issue-board-toolbar">
+      <label class="issue-board-search">
+        <input
+          v-model="boardSearch"
+          data-issues-board-search
+          type="search"
+          placeholder="Filter issues: is:open project:kernel kind::bug"
+          autocomplete="off"
+          aria-label="Filter issues board"
+          @keydown.esc="onBoardSearchEscape"
+        />
+      </label>
+      <button
+        v-if="boardSearch"
+        type="button"
+        class="issue-board-clear"
+        aria-label="Clear issues board filter"
+        @click="clearBoardSearch"
+      >
+        Clear
+      </button>
+      <span
+        v-if="hasBoardFilter"
+        class="issue-board-filter-summary"
+        data-smoke="issues-board-filter-summary"
+      >
+        {{ boardFilterSummary }}
+      </span>
+    </div>
+
     <p v-if="loadState === 'loading'" class="issue-board-status">
       Loading board...
     </p>
@@ -318,14 +422,20 @@ function relativeTime(value: string | null | undefined): string {
     <p v-else-if="activeBoard && activeBoard.columns.length === 0" class="issue-board-status">
       No board columns yet.
     </p>
+    <p
+      v-else-if="hasBoardFilter && visibleBoard && visibleBoard.total === 0"
+      class="issue-board-status"
+    >
+      No issues match the current board filter.
+    </p>
 
     <div
-      v-else-if="activeBoard"
+      v-else-if="visibleBoard"
       class="issue-board-columns"
       :data-board="activeBoardId"
     >
       <section
-        v-for="column in activeBoard.columns"
+        v-for="column in visibleBoard.columns"
         :key="column.key"
         class="issue-board-column"
       >
@@ -339,6 +449,7 @@ function relativeTime(value: string | null | undefined): string {
             v-for="card in column.cards"
             :key="`${column.key}-${card.issue.id}`"
             :class="['issue-board-card', { focused: focusedIssueId === card.issue.id }]"
+            :aria-label="`Issue #${card.issue.number}: ${card.issue.title}`"
             @mouseenter="focusedIssueId = card.issue.id"
           >
             <a class="issue-board-card-link" :href="issueCardHref(card.issue)">
@@ -475,6 +586,64 @@ function relativeTime(value: string | null | undefined): string {
   gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
+}
+
+.issue-board-toolbar {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: var(--r-sm, 6px);
+  padding: 10px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.issue-board-search {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.issue-board-search input {
+  width: 100%;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.issue-board-search input:focus {
+  border-color: var(--accent, #3b82f6);
+  outline: 2px solid color-mix(in srgb, var(--accent, #3b82f6) 30%, transparent);
+  outline-offset: 1px;
+}
+
+.issue-board-clear {
+  border: 0.5px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: var(--r-sm, 6px);
+  background: var(--surface-2, rgba(255,255,255,0.045));
+  color: var(--fg, rgba(255,255,255,0.94));
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.issue-board-clear:hover {
+  border-color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.issue-board-filter-summary {
+  min-width: 0;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .issue-board-tab {
@@ -698,6 +867,17 @@ function relativeTime(value: string | null | undefined): string {
 
   .issue-board-columns {
     grid-auto-columns: minmax(240px, 88vw);
+  }
+
+  .issue-board-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .issue-board-search,
+  .issue-board-clear {
+    flex: 0 1 auto;
+    width: 100%;
   }
 }
 </style>
