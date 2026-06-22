@@ -58,6 +58,33 @@ const WORKSPACE_SURFACE_LABELS: Record<string, string> = {
   sprints: "Kanban",
 };
 
+const DOCS_BOARD_LABELS: Record<string, string> = {
+  "bdd": "BDD Scenarios",
+  "bdd-scenarios": "BDD Scenarios",
+  decision: "Review",
+  decisions: "Review",
+  handoff: "Handoff",
+  implementation: "Implementation",
+  owner: "Owners",
+  owners: "Owners",
+  prd: "PRDs",
+  prds: "PRDs",
+  project: "Projects",
+  projects: "Projects",
+  readiness: "Readiness",
+  review: "Review",
+  scenario: "BDD Scenarios",
+  scenarios: "BDD Scenarios",
+  spec: "Specs",
+  specs: "Specs",
+  status: "Status",
+  tag: "Tags",
+  tags: "Tags",
+  traceability: "Traceability",
+  type: "Specs",
+  types: "Specs",
+};
+
 export interface RecentEntry {
   /** Route path (without origin). Used as both key and href. */
   path: string;
@@ -156,10 +183,21 @@ export function labelForRoute(path: string): string {
   const epicMatch = path.match(/^\/x\/epics\/(?:[^/]+\/)?(epc_[^/?#]+)/);
   if (epicMatch) return "epic " + (epicMatch[1] ?? "").slice(4, 11);
 
+  const workspaceDocsMatch = path.match(/^\/x\/docs(?:\/([^?#]*))?(?:[?#].*)?$/);
+  if (workspaceDocsMatch) {
+    return docsBoardLabel(workspaceDocsMatch[1], "Specs");
+  }
+
   const workspaceSurfaceMatch = path.match(/^\/x\/([^/?#]+)(?:\/|$)/);
   const workspaceSurface = workspaceSurfaceMatch?.[1] ?? "";
   if (WORKSPACE_SURFACE_LABELS[workspaceSurface]) {
     return WORKSPACE_SURFACE_LABELS[workspaceSurface];
+  }
+
+  const repoDocsMatch = path.match(/^\/r\/(.+?)\/docs(?:\/([^?#]*))?(?:[?#].*)?$/);
+  if (repoDocsMatch) {
+    const repo = repoDocsMatch[1] ?? "";
+    return repo + "/" + docsBoardLabel(repoDocsMatch[2], "Docs");
   }
 
   const repoTabMatch = path.match(
@@ -177,4 +215,13 @@ export function labelForRoute(path: string): string {
   if (repoMatch) return repoMatch[1] ?? path;
 
   return path.replace(/^\//, "");
+}
+
+function docsBoardLabel(routeSubPath: string | undefined, rootLabel: string): string {
+  const segment = (routeSubPath ?? "")
+    .split("/")
+    .filter(Boolean)[0]
+    ?.toLowerCase() ?? "";
+  if (!segment) return rootLabel;
+  return DOCS_BOARD_LABELS[segment] ?? rootLabel;
 }

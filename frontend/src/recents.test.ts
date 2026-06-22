@@ -18,6 +18,15 @@ describe("recent route helpers", () => {
 
   test("labels repo work surfaces with product language", () => {
     expect(labelForRoute("/r/comtrya/dogfood/docs")).toBe("comtrya/dogfood/Docs");
+    expect(labelForRoute("/r/comtrya/dogfood/docs/scenarios")).toBe(
+      "comtrya/dogfood/BDD Scenarios",
+    );
+    expect(labelForRoute("/r/comtrya/dogfood/docs/readiness")).toBe(
+      "comtrya/dogfood/Readiness",
+    );
+    expect(labelForRoute("/r/comtrya/dogfood/docs/traceability")).toBe(
+      "comtrya/dogfood/Traceability",
+    );
     expect(labelForRoute("/r/comtrya/dogfood/sprints")).toBe("comtrya/dogfood/Kanban");
     expect(labelForRoute("/r/comtrya/dogfood/pipelines")).toBe("comtrya/dogfood/Actions");
     expect(labelForRoute("/r/comtrya/dogfood/releases")).toBe("comtrya/dogfood/Releases");
@@ -27,7 +36,11 @@ describe("recent route helpers", () => {
   });
 
   test("labels workspace extension surfaces without raw x-prefixes", () => {
-    expect(labelForRoute("/x/docs/scenarios")).toBe("Specs");
+    expect(labelForRoute("/x/docs/")).toBe("Specs");
+    expect(labelForRoute("/x/docs/prds")).toBe("PRDs");
+    expect(labelForRoute("/x/docs/scenarios")).toBe("BDD Scenarios");
+    expect(labelForRoute("/x/docs/bdd")).toBe("BDD Scenarios");
+    expect(labelForRoute("/x/docs/readiness")).toBe("Readiness");
     expect(labelForRoute("/x/sprints/")).toBe("Kanban");
     expect(labelForRoute("/x/epics/board")).toBe("Epics");
   });
@@ -43,6 +56,18 @@ describe("recent route helpers", () => {
       path: "/r/comtrya/dogfood/sprints",
       label: "comtrya/dogfood/Kanban",
       timestamp: 1,
+    });
+
+    expect(
+      normalizeRecentEntry({
+        path: "/r/comtrya/dogfood/docs/scenarios",
+        label: "comtrya/dogfood/Docs",
+        timestamp: 2,
+      }),
+    ).toEqual({
+      path: "/r/comtrya/dogfood/docs/scenarios",
+      label: "comtrya/dogfood/BDD Scenarios",
+      timestamp: 2,
     });
   });
 
