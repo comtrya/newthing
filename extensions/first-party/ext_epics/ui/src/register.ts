@@ -143,9 +143,14 @@ function defineEpicNewElement(): void {
     EPIC_NEW_TAG,
     class extends HTMLElement {
       routeParams?: ExtensionRouteParams;
+      workspaceId?: string;
+      repositorySegments?: string[];
 
       connectedCallback(): void {
-        const ctx = newEpicRouteContext(this.routeParams);
+        const ctx = newEpicRouteContext(this.routeParams, {
+          workspaceId: this.workspaceId,
+          repositorySegments: this.repositorySegments,
+        });
         this.replaceChildren(epicNewForm(ctx));
       }
     },
@@ -154,16 +159,25 @@ function defineEpicNewElement(): void {
 
 interface NewEpicContext {
   workspaceId: string;
+  repositorySegments?: string[];
   projectName: string | null;
 }
 
-function newEpicRouteContext(routeParams?: ExtensionRouteParams): NewEpicContext {
+function newEpicRouteContext(
+  routeParams?: ExtensionRouteParams,
+  input: { workspaceId?: string | null; repositorySegments?: string[] } = {},
+): NewEpicContext {
   const params = new URLSearchParams(window.location.search);
+  const repositorySegments = input.repositorySegments
+    ?.map((segment) => segment.trim())
+    .filter(Boolean);
   return {
     workspaceId:
+      input.workspaceId ??
       params.get("workspaceId") ??
       routeParams?.params?.workspaceId ??
       defaultWorkspaceId(),
+    repositorySegments: repositorySegments?.length ? repositorySegments : undefined,
     projectName:
       params.get("projectName") ??
       routeParams?.params?.projectName ??
@@ -202,14 +216,28 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
   placeholderOption.value = "";
   placeholderOption.textContent = "— no project —";
   projectSelect.append(placeholderOption);
-  void fetchComtryaProjects().then((projects) => {
+  void fetchComtryaProjects(context.repositorySegments).then((projects) => {
+    let hasContextProject = false;
     for (const project of projects) {
       if (!project.name) continue;
       const option = document.createElement("option");
       option.value = project.name;
       option.textContent = project.name;
-      if (project.name === context.projectName) option.selected = true;
+      if (project.name === context.projectName) {
+        option.selected = true;
+        hasContextProject = true;
+      }
       projectSelect.append(option);
+    }
+    if (context.projectName) {
+      if (!hasContextProject) {
+        const option = document.createElement("option");
+        option.value = context.projectName;
+        option.textContent = context.projectName;
+        option.selected = true;
+        projectSelect.append(option);
+      }
+      projectSelect.value = context.projectName;
     }
   });
   projectSelect.addEventListener("change", () => {
@@ -237,7 +265,7 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
     errorBox.hidden = true;
     void createEpic(undefined, {
       workspaceId: context.workspaceId,
-      projectName: projectSelect.value || null,
+      projectName: projectSelect.value || context.projectName || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
     })

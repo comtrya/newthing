@@ -20,6 +20,7 @@ import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
 import Icon from "../components/Icon.vue";
 import { setActiveLabelCatalog } from "../extension-runtime";
+import { projectNewWorkHref, projectWorkHref } from "../route-paths";
 
 interface ComtryaRef {
   /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
@@ -364,8 +365,8 @@ watch(
  * Build queue-filter URLs scoped to this Project. Each card on
  * the summary strip becomes a hyperlink to the corresponding
  * filtered queue, using the URL filter shape that iter 46
- * (IssuesList) and iter 57 (EpicsList) shipped. Centralised here
- * so the template stays declarative.
+ * (IssuesList) and iter 57 (EpicsList) shipped. Repository routes
+ * stay inside the workbench; workspace routes keep using `/x/...`.
  */
 const projectQueueHrefs = computed(() => {
   const name = project.value?.name;
@@ -380,20 +381,44 @@ const projectQueueHrefs = computed(() => {
       newEpic: "#",
     };
   }
-  const encoded = encodeURIComponent(name);
+  const scoped = {
+    repoSegments: repoSegments.value,
+    workspaceId: workspaceId.value,
+    repositoryId: repository.value?.id ?? null,
+  };
   return {
     // IssuesList chip default is OPEN, so this lands on the
     // "open + this-project" slice with no state= param.
-    issuesOpen: `/x/issues/?project=${encoded}`,
-    issuesClosed: `/x/issues/?project=${encoded}&state=CLOSED`,
-    epicsInProgress: `/x/epics/?project=${encoded}&state=IN_PROGRESS`,
-    epicsPlanned: `/x/epics/?project=${encoded}&state=PLANNED`,
-    epicsDone: `/x/epics/?project=${encoded}&state=DONE`,
+    issuesOpen: projectWorkHref({ surface: "issues", projectName: name, ...scoped }),
+    issuesClosed: projectWorkHref({
+      surface: "issues",
+      projectName: name,
+      state: "CLOSED",
+      ...scoped,
+    }),
+    epicsInProgress: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "IN_PROGRESS",
+      ...scoped,
+    }),
+    epicsPlanned: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "PLANNED",
+      ...scoped,
+    }),
+    epicsDone: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "DONE",
+      ...scoped,
+    }),
     // New-issue / new-epic routes already accept `projectName`
     // in the URL (see ext_issues/register.ts + ext_epics/
     // register.ts). The form pre-fills CUE policy from this.
-    newIssue: `/x/issues/new?projectName=${encoded}`,
-    newEpic: `/x/epics/new?projectName=${encoded}`,
+    newIssue: projectNewWorkHref({ surface: "issues", projectName: name, ...scoped }),
+    newEpic: projectNewWorkHref({ surface: "epics", projectName: name, ...scoped }),
   };
 });
 </script>

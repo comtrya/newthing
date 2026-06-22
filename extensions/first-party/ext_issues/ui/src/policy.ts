@@ -47,6 +47,7 @@ interface IssuesPolicyConfig {
 }
 
 export type SegmentsSource = "location" | "referrer";
+export type RepositorySegmentsSource = SegmentsSource | string[];
 
 export function repositorySegmentsFromLocation(
   source: SegmentsSource = "location",
@@ -82,10 +83,12 @@ function pathFromReferrer(): string {
  */
 export async function resolveIssuesPolicy(
   projectName: string,
-  source: SegmentsSource = "location",
+  source: RepositorySegmentsSource = "location",
 ): Promise<IssuesPolicy> {
   try {
-    const segments = repositorySegmentsFromLocation(source);
+    const segments = Array.isArray(source)
+      ? source.map((segment) => segment.trim()).filter(Boolean)
+      : repositorySegmentsFromLocation(source);
     if (segments.length === 0) return EMPTY_POLICY;
     const data = await getGraphQLClient().query<IssuesPolicyConfig>(
       `query Q($segments: [String!]!) {

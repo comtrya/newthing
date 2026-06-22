@@ -24,6 +24,7 @@ const props = withDefaults(defineProps<{
   comtryaClient?: ComtryaGraphQLClient;
   epics?: Epic[] | null;
   workspaceId?: string;
+  repositorySegments?: string[];
   state?: string | null;
   title?: string;
   showNewLink?: boolean;
@@ -341,7 +342,7 @@ const availableProjects = ref<ComtryaProject[]>([]);
 
 onMounted(async () => {
   try {
-    availableProjects.value = await fetchComtryaProjects();
+    availableProjects.value = await fetchComtryaProjects(props.repositorySegments);
   } catch {
     availableProjects.value = [];
   }

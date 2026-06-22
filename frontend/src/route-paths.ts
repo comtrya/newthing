@@ -71,3 +71,28 @@ export function projectWorkHref({
     : `/x/${surface}/`;
   return `${repoPath}?${params.toString()}`;
 }
+
+export interface ProjectNewWorkHrefOptions {
+  surface: "issues" | "epics";
+  projectName: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+}
+
+export function projectNewWorkHref({
+  surface,
+  projectName,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+}: ProjectNewWorkHrefOptions): string {
+  const params = new URLSearchParams({ projectName });
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const repoPath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}/new`
+    : `/x/${surface}/new`;
+  return `${repoPath}?${params.toString()}`;
+}

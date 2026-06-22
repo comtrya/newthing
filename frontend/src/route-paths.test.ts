@@ -25,7 +25,12 @@ import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
 
-import { projectHref, projectWorkHref, shellRoutePaths } from "./route-paths";
+import {
+  projectHref,
+  projectNewWorkHref,
+  projectWorkHref,
+  shellRoutePaths,
+} from "./route-paths";
 
 const Stub = defineComponent({ render: () => null });
 
@@ -264,5 +269,38 @@ describe("shell route paths", () => {
     expect(r.name).toBe("repo-issues");
     expect(r.params.groups).toEqual(["comtrya"]);
     expect(r.params.repo).toBe("dogfood");
+  });
+
+  test("projectNewWorkHref keeps workspace creation routes on extensions", () => {
+    expect(projectNewWorkHref({
+      surface: "issues",
+      projectName: "frontend",
+      workspaceId: "ws_123",
+    })).toBe("/x/issues/new?projectName=frontend&workspaceId=ws_123");
+
+    expect(projectNewWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      workspaceId: "ws_123",
+    })).toBe("/x/epics/new?projectName=launch+q4&workspaceId=ws_123");
+  });
+
+  test("projectNewWorkHref scopes repository creation routes to the workbench", () => {
+    const href = projectNewWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      repoSegments: ["comtrya", "dog food"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dog%20food/epics/new?projectName=launch+q4&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-epics");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dog food");
+    expect(r.params.rest).toEqual(["new"]);
   });
 });

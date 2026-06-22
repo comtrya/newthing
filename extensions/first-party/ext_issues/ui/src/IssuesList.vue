@@ -35,6 +35,7 @@ const props = withDefaults(defineProps<{
   issues?: Issue[] | null;
   workspaceId?: string;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   routeParams?: ExtensionRouteParams;
   state?: string | null;
   title?: string;
@@ -165,7 +166,7 @@ const availableProjects = ref<ComtryaProject[]>([]);
 
 onMounted(async () => {
   try {
-    availableProjects.value = await fetchComtryaProjects();
+    availableProjects.value = await fetchComtryaProjects(props.repositorySegments);
   } catch {
     availableProjects.value = [];
   }
@@ -240,6 +241,7 @@ const routeContext = computed(() =>
     {
       workspaceId: props.workspaceId,
       repositoryId: props.repositoryId,
+      repositorySegments: props.repositorySegments,
       routeParams: props.routeParams,
       projectName: props.projectName,
       state: props.state,

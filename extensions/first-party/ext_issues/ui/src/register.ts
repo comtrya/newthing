@@ -138,6 +138,7 @@ function defineIssueNewElement(): void {
     routeParams?: ExtensionRouteParams;
     workspaceId?: string;
     repositoryId?: string | null;
+    repositorySegments?: string[];
 
     connectedCallback(): void {
       this.replaceChildren(
@@ -145,6 +146,7 @@ function defineIssueNewElement(): void {
           routeParams: this.routeParams,
           workspaceId: this.workspaceId,
           repositoryId: this.repositoryId,
+          repositorySegments: this.repositorySegments,
         })),
       );
     }
@@ -156,6 +158,7 @@ function defineIssueNewElement(): void {
 function issueNewForm(context: {
   workspaceId: string;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   projectName?: string | null;
 }): HTMLElement {
   ensureIssueNewStyles();
@@ -253,7 +256,10 @@ function issueNewForm(context: {
       return;
     }
     overline.textContent = `${projectName} · issue`;
-    void resolveIssuesPolicy(projectName, "referrer").then((policy) => {
+    void resolveIssuesPolicy(
+      projectName,
+      context.repositorySegments ?? "referrer",
+    ).then((policy) => {
       // Refresh defaultLabels — replace any prior auto-fill with
       // the new project's, preserving user-typed entries.
       const existing = parseLabels(labelsInput.value);
@@ -300,16 +306,30 @@ function issueNewForm(context: {
   // Hydrate the picker from the repo's CUE projects. Failure paths
   // (no repo segments, network) leave the placeholder option only,
   // so the form still works as a "no project" submission.
-  void fetchComtryaProjects().then((projects) => {
+  void fetchComtryaProjects(context.repositorySegments).then((projects) => {
+    let hasContextProject = false;
     for (const project of projects) {
       if (!project.name) continue;
       const option = document.createElement("option");
       option.value = project.name;
       option.textContent = project.name;
-      if (project.name === context.projectName) option.selected = true;
+      if (project.name === context.projectName) {
+        option.selected = true;
+        hasContextProject = true;
+      }
       projectSelect.append(option);
     }
-    if (context.projectName) applyPolicy(context.projectName);
+    if (context.projectName) {
+      if (!hasContextProject) {
+        const option = document.createElement("option");
+        option.value = context.projectName;
+        option.textContent = context.projectName;
+        option.selected = true;
+        projectSelect.append(option);
+      }
+      projectSelect.value = context.projectName;
+      applyPolicy(context.projectName);
+    }
   });
 
   projectSelect.addEventListener("change", () => {
@@ -345,7 +365,7 @@ function issueNewForm(context: {
     void openIssue({
       workspaceId: context.workspaceId,
       repositoryId: context.repositoryId,
-      projectName: projectSelect.value || null,
+      projectName: projectSelect.value || context.projectName || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
       labels: parseLabels(labelsInput.value),
