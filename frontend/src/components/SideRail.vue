@@ -2,96 +2,29 @@
 import { computed } from "vue";
 import { useRoute } from "vue-router";
 import Icon from "./Icon.vue";
-import type { IconKey } from "./icons";
-
-interface RailItem {
-  id: string;
-  to: string;
-  icon: IconKey;
-  label: string;
-  matches: (path: string) => boolean;
-}
-
-const items: RailItem[] = [
-  {
-    id: "home",
-    to: "/",
-    icon: "spark",
-    label: "Home",
-    matches: (p) => p === "/",
-  },
-  {
-    id: "repos",
-    to: "/repos",
-    icon: "folder",
-    label: "Repositories",
-    matches: (p) => p.startsWith("/repos") || p.startsWith("/r/") || p === "/new",
-  },
-  {
-    id: "inbox",
-    to: "/inbox",
-    icon: "inbox",
-    label: "Inbox",
-    matches: (p) => p.startsWith("/inbox"),
-  },
-  {
-    id: "pipelines",
-    to: "/pipelines",
-    icon: "bolt",
-    label: "Actions",
-    matches: (p) => p.startsWith("/pipelines"),
-  },
-  {
-    id: "releases",
-    to: "/releases",
-    icon: "tag",
-    label: "Releases",
-    matches: (p) => p.startsWith("/releases"),
-  },
-];
-
-const footerItems: RailItem[] = [
-  {
-    id: "admin",
-    to: "/admin",
-    icon: "lock",
-    label: "Site admin",
-    matches: (p) => p.startsWith("/admin"),
-  },
-  {
-    id: "account",
-    to: "/account/git-tokens",
-    icon: "user",
-    label: "Account",
-    matches: (p) => p.startsWith("/account"),
-  },
-  {
-    id: "settings",
-    to: "/settings",
-    icon: "settings",
-    label: "Settings",
-    matches: (p) => p.startsWith("/settings") || p.startsWith("/instance") || p.startsWith("/health"),
-  },
-];
+import {
+  activeRailIdForPath,
+  footerRailItems,
+  primaryRailItems,
+} from "./side-rail";
 
 const route = useRoute();
-const activeId = computed(() => {
-  const all = [...items, ...footerItems];
-  return all.find((i) => i.matches(route.path))?.id ?? "home";
-});
+const activeId = computed(() => activeRailIdForPath(route.path));
 </script>
 
 <template>
   <aside class="side-rail hairline-r" aria-label="Primary navigation">
     <RouterLink
-      v-for="item in items"
+      v-for="item in primaryRailItems"
       :key="item.id"
       :to="item.to"
       :title="item.label"
+      :aria-label="item.label"
+      :aria-current="activeId === item.id ? 'page' : undefined"
       class="rail-item"
       :class="{ 'is-active': activeId === item.id }"
     >
-      <Icon :name="item.icon" />
+      <Icon :name="item.icon" aria-hidden="true" />
       <span
         v-if="activeId === item.id"
         class="rail-active-indicator"
@@ -100,14 +33,16 @@ const activeId = computed(() => {
     </RouterLink>
     <span class="rail-spacer" />
     <RouterLink
-      v-for="item in footerItems"
+      v-for="item in footerRailItems"
       :key="item.id"
       :to="item.to"
       :title="item.label"
+      :aria-label="item.label"
+      :aria-current="activeId === item.id ? 'page' : undefined"
       class="rail-item"
       :class="{ 'is-active': activeId === item.id }"
     >
-      <Icon :name="item.icon" />
+      <Icon :name="item.icon" aria-hidden="true" />
       <span
         v-if="activeId === item.id"
         class="rail-active-indicator"
