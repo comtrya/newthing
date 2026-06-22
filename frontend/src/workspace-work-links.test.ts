@@ -28,6 +28,21 @@ describe("workspaceWorkLinks", () => {
     ]);
   });
 
+  test("scopes work links to the active repository", () => {
+    expect(
+      workspaceWorkLinks("ws_123", "/r/comtrya/dogfood/issues", {
+        repoSegments: ["comtrya", "dog food"],
+        repositoryId: "repo_456",
+      }).map((link) => link.href),
+    ).toEqual([
+      "/r/comtrya/dog%20food/issues?workspaceId=ws_123&repositoryId=repo_456",
+      "/r/comtrya/dog%20food/pulls?workspaceId=ws_123&repositoryId=repo_456",
+      "/r/comtrya/dog%20food/epics/board?workspaceId=ws_123&repositoryId=repo_456",
+      "/r/comtrya/dog%20food/sprints?workspaceId=ws_123&repositoryId=repo_456",
+      "/r/comtrya/dog%20food/docs?workspaceId=ws_123&repositoryId=repo_456",
+    ]);
+  });
+
   test("marks extension and repo workbench surfaces active", () => {
     expect(activeIds("/x/epics/board")).toEqual(["epics"]);
     expect(activeIds("/r/comtrya/dogfood/sprints")).toEqual(["kanban"]);

@@ -1,5 +1,4 @@
-import { buildExtensionUrl } from "@comtrya/sdk-core";
-import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, extensionHref, fetchComtryaProjects } from "@comtrya/sdk-vue";
 import { createEpic, listEpics } from "./api";
 import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
@@ -271,7 +270,9 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
     })
       .then((created) => {
         window.location.assign(
-          buildExtensionUrl(EPICS_ROUTE_PREFIX, `/${created.workspaceId}/${created.id}`),
+          extensionHref(EPICS_ROUTE_PREFIX, `/${created.workspaceId}/${created.id}`, {
+            repositorySegments: context.repositorySegments,
+          }),
         );
       })
       .catch((error: unknown) => {

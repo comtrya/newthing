@@ -5,30 +5,55 @@ export interface WorkspaceWorkLink {
   active: boolean;
 }
 
+export interface WorkspaceWorkLinkScope {
+  repoSegments?: readonly string[] | null;
+  repositoryId?: string | null;
+}
+
 const WORK_LINKS = [
-  { id: "issues", label: "Issues", path: "/x/issues/" },
-  { id: "pulls", label: "Pull requests", path: "/x/pulls/" },
-  { id: "epics", label: "Epics", path: "/x/epics/board" },
-  { id: "kanban", label: "Kanban", path: "/x/sprints/" },
-  { id: "specs", label: "Specs", path: "/x/docs/" },
+  { id: "issues", label: "Issues", workspacePath: "/x/issues/", repoPath: "issues" },
+  { id: "pulls", label: "Pull requests", workspacePath: "/x/pulls/", repoPath: "pulls" },
+  { id: "epics", label: "Epics", workspacePath: "/x/epics/board", repoPath: "epics/board" },
+  { id: "kanban", label: "Kanban", workspacePath: "/x/sprints/", repoPath: "sprints" },
+  { id: "specs", label: "Specs", workspacePath: "/x/docs/", repoPath: "docs" },
 ] as const;
 
 export function workspaceWorkLinks(
   workspaceId: string | null | undefined,
   currentPath: string,
+  scope: WorkspaceWorkLinkScope = {},
 ): WorkspaceWorkLink[] {
   return WORK_LINKS.map((link) => ({
     id: link.id,
     label: link.label,
-    href: scopedHref(link.path, workspaceId),
+    href: scopedHref(link, workspaceId, scope),
     active: workLinkActive(link.id, currentPath),
   }));
 }
 
-function scopedHref(path: string, workspaceId: string | null | undefined): string {
-  if (!workspaceId) return path;
-  const params = new URLSearchParams({ workspaceId });
-  return `${path}?${params.toString()}`;
+function scopedHref(
+  link: (typeof WORK_LINKS)[number],
+  workspaceId: string | null | undefined,
+  scope: WorkspaceWorkLinkScope,
+): string {
+  const repoSegments = normalizedRepoSegments(scope.repoSegments);
+  const path = repoSegments
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${link.repoPath}`
+    : link.workspacePath;
+  const params = new URLSearchParams();
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repoSegments && scope.repositoryId) params.set("repositoryId", scope.repositoryId);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+function normalizedRepoSegments(
+  segments: readonly string[] | null | undefined,
+): string[] | null {
+  const clean = segments
+    ?.map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+  return clean && clean.length > 0 ? clean : null;
 }
 
 function workLinkActive(id: string, currentPath: string): boolean {

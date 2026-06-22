@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { extensionHref } from "@comtrya/sdk-vue";
 import { epicByRef, epicProgress } from "./api";
 import {
-  epicHref,
+  EXT_EPICS_ROUTE_PREFIX,
   stateTone,
   type ComtryaGraphQLClient,
   type Epic,
@@ -16,6 +17,7 @@ const props = defineProps<{
   epic?: Epic | null;
   ref?: string;
   resourceRef?: string;
+  repositorySegments?: string[];
   /**
    * Optional owner URN currently driving a list-level filter.
    * When set + matches this card's owner, the chip renders in
@@ -47,6 +49,13 @@ const resolvedRef = computed(() => props.resourceRef ?? props.ref ?? "");
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 const epic = computed(() => props.epic ?? loadedEpic.value);
 const tone = computed(() => stateTone(epic.value?.state));
+const epicLinkHref = computed(() =>
+  epic.value
+    ? extensionHref(EXT_EPICS_ROUTE_PREFIX, `/${epic.value.workspaceId}/${epic.value.id}`, {
+      repositorySegments: props.repositorySegments,
+    })
+    : "#",
+);
 const totalIssues = computed(
   () => (progress.value?.issuesOpen ?? 0) + (progress.value?.issuesClosed ?? 0),
 );
@@ -139,7 +148,7 @@ function ownerLabel(ownerRef: string | null | undefined): {
       >
         <div class="epic-card-title">
           <span class="epic-pill" :class="tone.className">{{ tone.label }}</span>
-          <a class="epic-title-link" :href="epicHref(epic)">{{ epic.title }}</a>
+          <a class="epic-title-link" :href="epicLinkHref">{{ epic.title }}</a>
           <button
             v-if="epic.ownerRef"
             type="button"

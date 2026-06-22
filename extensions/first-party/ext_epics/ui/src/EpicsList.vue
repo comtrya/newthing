@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
+  extensionHref,
   fetchComtryaProjects,
   parseQueryFilters,
   syncProjectFilterParam,
@@ -12,8 +13,8 @@ import EpicCard from "./EpicCard.vue";
 import {
   epicBoardHref as buildEpicBoardHref,
   defaultWorkspaceId,
+  EXT_EPICS_ROUTE_PREFIX,
   epicRef,
-  newEpicHref as buildNewEpicHref,
   type ComtryaGraphQLClient,
   type Epic,
   type EpicState,
@@ -25,6 +26,7 @@ const props = withDefaults(defineProps<{
   comtryaClient?: ComtryaGraphQLClient;
   epics?: Epic[] | null;
   workspaceId?: string;
+  repositoryId?: string | null;
   repositorySegments?: string[];
   state?: string | null;
   title?: string;
@@ -33,6 +35,7 @@ const props = withDefaults(defineProps<{
   projectName?: string;
 }>(), {
   workspaceId: defaultWorkspaceId(),
+  repositoryId: null,
   state: null,
   title: "Epics",
   showNewLink: true,
@@ -252,10 +255,12 @@ const counts = computed(() => {
 
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 const newEpicHref = computed(() => {
-  const base = buildNewEpicHref(props.workspaceId);
-  return props.projectName
-    ? `${base}&projectName=${encodeURIComponent(props.projectName)}`
-    : base;
+  const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/new", {
+    repositorySegments: props.repositorySegments,
+  });
+  const params = scopedRouteParams();
+  if (props.projectName) params.set("projectName", props.projectName);
+  return `${base}?${params.toString()}`;
 });
 const boardHref = computed(() => {
   if (typeof window === "undefined") return buildEpicBoardHref(props.workspaceId);
@@ -263,8 +268,17 @@ const boardHref = computed(() => {
   if (path.endsWith("/epics")) {
     return `${path}/board${window.location.search}`;
   }
-  return buildEpicBoardHref(props.workspaceId);
+  const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/board", {
+    repositorySegments: props.repositorySegments,
+  });
+  return `${base}?${scopedRouteParams().toString()}`;
 });
+
+function scopedRouteParams(): URLSearchParams {
+  const params = new URLSearchParams({ workspaceId: props.workspaceId });
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  return params;
+}
 
 /**
  * Linear-shape inline quick-add — mirror of IssuesList iter 17.
@@ -724,6 +738,7 @@ async function loadEpics(): Promise<void> {
           :epic="epic"
           :resource-ref="epicRef(epic)"
           :client="graphClient"
+          :repository-segments="repositorySegments"
           :active-owner="ownerFilter"
           :active-project="projectFilter"
           @owner-click="toggleOwnerFilter"

@@ -1,4 +1,4 @@
-import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, extensionHref, fetchComtryaProjects } from "@comtrya/sdk-vue";
 import IssueBoard from "./IssueBoard.vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
@@ -10,7 +10,7 @@ import { resolveIssuesPolicy } from "./policy";
 import { issueRouteContext } from "./route-context";
 import {
   defaultWorkspaceId,
-  issueHref,
+  EXT_ISSUES_ROUTE_PREFIX,
   issueRef,
   type ComtryaGraphQLClient,
   type ExtensionRouteParams,
@@ -372,7 +372,11 @@ function issueNewForm(context: {
       closeOnMerge: resolvedCloseOnMerge,
     })
       .then((created) => {
-        window.location.assign(issueHref(created));
+        window.location.assign(
+          extensionHref(EXT_ISSUES_ROUTE_PREFIX, `/${created.workspaceId}/${created.number}`, {
+            repositorySegments: context.repositorySegments,
+          }),
+        );
       })
       .catch((error: unknown) => {
         errorBox.textContent = error instanceof Error ? error.message : String(error);

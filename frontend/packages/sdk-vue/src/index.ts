@@ -224,6 +224,9 @@ export {
 } from "./project-query";
 export type { ProjectFilterParamInput } from "./project-query";
 
+export { extensionHref } from "./extension-hrefs";
+export type { ExtensionHrefOptions } from "./extension-hrefs";
+
 export { classifyPrincipal, principalLabel } from "./classify-principal";
 export type {
   PrincipalClassification,

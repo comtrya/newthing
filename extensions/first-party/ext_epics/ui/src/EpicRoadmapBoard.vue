@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import {
   bodyExcerpt,
   classifyPrincipal as principalLabel,
+  extensionHref,
   LabelPill,
   useShortcuts,
   type LabelCatalog,
@@ -15,18 +16,20 @@ import {
 } from "./api";
 import {
   defaultWorkspaceId,
-  epicHref,
-  newEpicHref as buildNewEpicHref,
+  EXT_EPICS_ROUTE_PREFIX,
   stateTone,
   type ExtensionRouteParams,
 } from "./types";
 
 const props = withDefaults(defineProps<{
   workspaceId?: string;
+  repositoryId?: string | null;
+  repositorySegments?: string[];
   routeParams?: ExtensionRouteParams;
   labelCatalog?: LabelCatalog | null;
 }>(), {
   workspaceId: defaultWorkspaceId(),
+  repositoryId: null,
   labelCatalog: null,
 });
 
@@ -53,7 +56,18 @@ const workspaceId = computed(() =>
 );
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
 const totalEpics = computed(() => activeBoard.value?.total ?? 0);
-const newEpicHref = computed(() => buildNewEpicHref(workspaceId.value));
+const newEpicHref = computed(() => {
+  const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/new", {
+    repositorySegments: props.repositorySegments,
+  });
+  const params = new URLSearchParams({ workspaceId: workspaceId.value });
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  return `${base}?${params.toString()}`;
+});
+const epicCardHref = (epic: EpicBoardCard["epic"]): string =>
+  extensionHref(EXT_EPICS_ROUTE_PREFIX, `/${epic.workspaceId}/${epic.id}`, {
+    repositorySegments: props.repositorySegments,
+  });
 const orderedEpicIds = computed(() => {
   const ids: string[] = [];
   for (const column of activeBoard.value?.columns ?? []) {
@@ -120,7 +134,7 @@ useShortcuts({
     const epic = focusedCard.value?.epic;
     if (!epic) return;
     event.preventDefault();
-    window.location.href = epicHref(epic);
+    window.location.href = epicCardHref(epic);
   },
 });
 
@@ -304,7 +318,7 @@ function relativeTime(value: string | null | undefined): string {
             :class="['epics-roadmap-card', { focused: focusedEpicId === card.epic.id }]"
             @mouseenter="focusedEpicId = card.epic.id"
           >
-            <a class="epics-roadmap-card-link" :href="epicHref(card.epic)">
+            <a class="epics-roadmap-card-link" :href="epicCardHref(card.epic)">
               <header class="epics-roadmap-card-head">
                 <span class="epic-number">
                   #{{ card.epic.number ?? card.epic.id.slice(-4) }}

@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   bodyExcerpt,
   classifyPrincipal as principalLabel,
+  extensionHref,
   LabelPill,
   useShortcuts,
   type LabelCatalog,
@@ -16,8 +17,7 @@ import {
 import { issueRouteContext } from "./route-context";
 import {
   defaultWorkspaceId,
-  issueHref,
-  newIssueHref as newIssueHrefBuilder,
+  EXT_ISSUES_ROUTE_PREFIX,
   stateTone,
   type ExtensionRouteParams,
 } from "./types";
@@ -25,6 +25,7 @@ import {
 const props = withDefaults(defineProps<{
   workspaceId?: string;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   routeParams?: ExtensionRouteParams;
   labelCatalog?: LabelCatalog | null;
 }>(), {
@@ -56,6 +57,7 @@ const routeContext = computed(() =>
     {
       workspaceId: props.workspaceId,
       repositoryId: props.repositoryId,
+      repositorySegments: props.repositorySegments,
       routeParams: props.routeParams,
     },
     locationSearch.value,
@@ -64,12 +66,19 @@ const routeContext = computed(() =>
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
 const totalIssues = computed(() => activeBoard.value?.total ?? 0);
 const newIssueHref = computed(() => {
+  const base = extensionHref(EXT_ISSUES_ROUTE_PREFIX, "/new", {
+    repositorySegments: routeContext.value.repositorySegments,
+  });
   const params = new URLSearchParams({ workspaceId: routeContext.value.workspaceId });
   if (routeContext.value.repositoryId) {
     params.set("repositoryId", routeContext.value.repositoryId);
   }
-  return `${newIssueHrefBuilder()}?${params.toString()}`;
+  return `${base}?${params.toString()}`;
 });
+const issueCardHref = (issue: IssueBoardCard["issue"]): string =>
+  extensionHref(EXT_ISSUES_ROUTE_PREFIX, `/${issue.workspaceId}/${issue.number}`, {
+    repositorySegments: routeContext.value.repositorySegments,
+  });
 const orderedIssueIds = computed(() => {
   const ids: string[] = [];
   for (const column of activeBoard.value?.columns ?? []) {
@@ -141,7 +150,7 @@ useShortcuts({
     const issue = focusedCard.value?.issue;
     if (!issue) return;
     event.preventDefault();
-    window.location.href = issueHref(issue);
+    window.location.href = issueCardHref(issue);
   },
 });
 
@@ -332,7 +341,7 @@ function relativeTime(value: string | null | undefined): string {
             :class="['issue-board-card', { focused: focusedIssueId === card.issue.id }]"
             @mouseenter="focusedIssueId = card.issue.id"
           >
-            <a class="issue-board-card-link" :href="issueHref(card.issue)">
+            <a class="issue-board-card-link" :href="issueCardHref(card.issue)">
               <header class="issue-board-card-head">
                 <span class="issue-number">#{{ card.issue.number }}</span>
                 <span :class="['issue-state', stateTone(card.issue.state).className]">

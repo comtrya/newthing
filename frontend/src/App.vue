@@ -136,10 +136,6 @@ const sortedRepositories = computed(() =>
     a.path.localeCompare(b.path),
   ),
 );
-const workspaceWorkItems = computed(() =>
-  workspaceWorkLinks(workspace.value.id, route.path),
-);
-
 /**
  * Currently-viewed repo path, computed from the route params so we
  * highlight the matching entry in the sidebar list. Falls back to
@@ -149,6 +145,24 @@ const activeRepoPath = computed<string | null>(() => {
   const segments = repoSegmentsFromRouteParams(route.params);
   return segments.length > 0 ? segments.join("/") : null;
 });
+const activeRepository = computed<ShellRepositorySummary | null>(() => {
+  const path = activeRepoPath.value;
+  if (!path) return null;
+  return workspace.value.repositories.find((repo) => repo.path === path) ?? null;
+});
+const activeRepoSegments = computed<string[] | null>(() => {
+  const path = activeRepoPath.value;
+  return path ? path.split("/").filter((segment) => segment.length > 0) : null;
+});
+const workspaceWorkItems = computed(() =>
+  workspaceWorkLinks(workspace.value.id, route.path, {
+    repoSegments: activeRepoSegments.value,
+    repositoryId: activeRepository.value?.id ?? null,
+  }),
+);
+const mobileWorkHref = computed(
+  () => workspaceWorkItems.value.find((item) => item.id === "issues")?.href ?? "/x/issues/",
+);
 
 const shortcutsVisible = ref(false);
 
@@ -476,7 +490,7 @@ async function loadAuthProviders(): Promise<void> {
       </main>
     </div>
     <CommandPalette />
-    <MobileTabBar />
+    <MobileTabBar :work-href="mobileWorkHref" />
     <ShortcutsOverlay
       v-if="shortcutsVisible"
       :cmd-label="cmdLabel"

@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   classifyPrincipal as authorLabel,
+  extensionHref,
   fetchComtryaProjects,
   LabelPill,
   parseQueryFilters,
@@ -19,8 +20,7 @@ import {
 import { resolveIssuesPolicy, type IssuesPolicy } from "./policy";
 import {
   defaultWorkspaceId,
-  issueHref,
-  newIssueHref as newIssueHrefBuilder,
+  EXT_ISSUES_ROUTE_PREFIX,
   stateTone,
   type ComtryaGraphQLClient,
   type ExtensionRouteParams,
@@ -255,12 +255,18 @@ const effectiveRepositoryId = computed(() => routeContext.value.repositoryId ?? 
 const effectiveProjectName = computed(() => routeContext.value.projectName ?? null);
 const effectiveRouteState = computed(() => routeContext.value.state ?? null);
 const newIssueHref = computed(() => {
-  const base = newIssueHrefBuilder();
+  const base = extensionHref(EXT_ISSUES_ROUTE_PREFIX, "/new", {
+    repositorySegments: routeContext.value.repositorySegments,
+  });
   const params = new URLSearchParams({ workspaceId: effectiveWorkspaceId.value });
   if (effectiveRepositoryId.value) params.set("repositoryId", effectiveRepositoryId.value);
   if (effectiveProjectName.value) params.set("projectName", effectiveProjectName.value);
   return `${base}?${params.toString()}`;
 });
+const issueListHref = (issue: Issue): string =>
+  extensionHref(EXT_ISSUES_ROUTE_PREFIX, `/${issue.workspaceId}/${issue.number}`, {
+    repositorySegments: routeContext.value.repositorySegments,
+  });
 
 const matchesFilter = (issue: Issue, f: Filter): boolean => {
   if (f === "ALL") return true;
@@ -616,7 +622,7 @@ useShortcuts({
     const issue = filtered.value[focused.value];
     if (!issue) return;
     event.preventDefault();
-    window.location.href = issueHref(issue);
+    window.location.href = issueListHref(issue);
   },
   " ": (event) => {
     const issue = filtered.value[focused.value];
@@ -940,7 +946,7 @@ async function submitQuickAdd(): Promise<void> {
         :aria-selected="index === focused"
         @mouseenter="focused = index"
       >
-        <a :href="issueHref(issue)" class="issues-row-link">
+        <a :href="issueListHref(issue)" class="issues-row-link">
           <span class="issues-row-number">#{{ issue.number }}</span>
           <span class="issues-row-body">
             <span class="issues-row-title">{{ issue.title }}</span>
