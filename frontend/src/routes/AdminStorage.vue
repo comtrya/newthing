@@ -15,10 +15,10 @@ const directoryRows = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "data dir", value: data.storage.dataDir },
-    { label: "metadata", value: data.storage.metadata },
-    { label: "repositories", value: data.storage.repositories.root },
-    { label: "extension storage", value: data.storage.extensionStorage },
+    { label: "Data directory", value: data.storage.dataDir },
+    { label: "Metadata", value: data.storage.metadata },
+    { label: "Repositories", value: data.storage.repositories.root },
+    { label: "Extension storage", value: data.storage.extensionStorage },
   ];
 });
 
@@ -26,13 +26,40 @@ const logRows = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "events", value: data.storage.events },
-    { label: "audit", value: data.storage.audit },
+    { label: "Events log", value: data.storage.events },
+    { label: "Audit log", value: data.storage.audit },
   ];
 });
 
 function statusTone(path: TelemetryPath): "ok" | "err" {
   return path.exists ? "ok" : "err";
+}
+
+function statusLabel(path: TelemetryPath): string {
+  return path.exists ? "Present" : "Missing";
+}
+
+const backendKindLabels: Record<string, string> = {
+  "cloudflare-artifacts": "Cloudflare artifacts",
+  local: "Local",
+  s3: "S3",
+};
+
+function backendNameLabel(name: string): string {
+  return titleCaseWords(name);
+}
+
+function backendKindLabel(kind: string): string {
+  return backendKindLabels[kind] ?? titleCaseWords(kind);
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[-_]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 </script>
 
@@ -42,14 +69,14 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Storage telemetry</div>
-          <h1 class="serif">Runtime storage paths</h1>
+          <div class="eyebrow" style="margin-bottom: 6px">Storage</div>
+          <h1>Runtime storage paths</h1>
           <div class="subline">
             <template v-if="telemetry">
               Live filesystem counts from the configured data directory.
             </template>
-            <template v-else-if="loading">Loading storage telemetry...</template>
-            <template v-else>Storage telemetry unavailable</template>
+            <template v-else-if="loading">Loading storage details...</template>
+            <template v-else>Storage details unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -60,22 +87,22 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>Storage details could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
         <div class="summary-grid">
           <div class="glass summary-card">
-            <div class="eyebrow">repositories</div>
-            <div class="mono summary-value">{{ telemetry.storage.repositories.count }}</div>
+            <div class="eyebrow">Repositories</div>
+            <div class="summary-value">{{ telemetry.storage.repositories.count }}</div>
             <div class="summary-detail">
               {{ telemetry.storage.repositories.root.files ?? 0 }} files ·
               {{ formatBytes(telemetry.storage.repositories.root.bytes) }}
             </div>
           </div>
           <div class="glass summary-card">
-            <div class="eyebrow">extension storage</div>
-            <div class="mono summary-value">
+            <div class="eyebrow">Extension storage</div>
+            <div class="summary-value">
               {{ formatBytes(telemetry.storage.extensionStorage.bytes) }}
             </div>
             <div class="summary-detail">
@@ -83,8 +110,8 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
             </div>
           </div>
           <div class="glass summary-card">
-            <div class="eyebrow">metadata</div>
-            <div class="mono summary-value">{{ formatBytes(telemetry.storage.metadata.bytes) }}</div>
+            <div class="eyebrow">Metadata</div>
+            <div class="summary-value">{{ formatBytes(telemetry.storage.metadata.bytes) }}</div>
             <div class="summary-detail">{{ telemetry.storage.metadata.files ?? 0 }} files</div>
           </div>
         </div>
@@ -97,9 +124,9 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
           <div class="path-grid">
             <div v-for="row in directoryRows" :key="row.label" class="path-card">
               <div class="path-card-head">
-                <span class="mono">{{ row.label }}</span>
-                <Chip :tone="statusTone(row.value)" mono>
-                  {{ row.value.exists ? "present" : "missing" }}
+                <span>{{ row.label }}</span>
+                <Chip :tone="statusTone(row.value)">
+                  {{ statusLabel(row.value) }}
                 </Chip>
               </div>
               <div class="path mono">{{ row.value.path }}</div>
@@ -128,8 +155,8 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
                 <span class="backend-icon"><Icon name="ds" /></span>
                 <div class="backend-main">
                   <div class="backend-title">
-                    <span class="mono">{{ backend.name }}</span>
-                    <Chip mono>{{ backend.kind }}</Chip>
+                    <span :title="backend.name">{{ backendNameLabel(backend.name) }}</span>
+                    <Chip :title="backend.kind">{{ backendKindLabel(backend.kind) }}</Chip>
                   </div>
                   <div class="backend-detail mono">
                     {{ backend.configuredPath || telemetry.storage.repositories.root.path }}
@@ -151,10 +178,10 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
                   <Icon :name="row.value.exists ? 'check' : 'x'" />
                 </span>
                 <div class="log-main">
-                  <div class="mono log-title">{{ row.label }}</div>
+                  <div class="log-title">{{ row.label }}</div>
                   <div class="mono log-path">{{ row.value.path }}</div>
                 </div>
-                <div class="mono log-size">{{ formatBytes(row.value.bytes) }}</div>
+                <div class="log-size">{{ formatBytes(row.value.bytes) }}</div>
               </div>
             </div>
           </div>
@@ -180,10 +207,19 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -211,7 +247,9 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
   padding: 16px;
 }
 .summary-value {
+  font-family: var(--font-sans);
   font-size: 26px;
+  font-weight: 600;
   color: var(--fg);
   margin-top: 8px;
 }
@@ -254,7 +292,13 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
   gap: 8px;
   justify-content: space-between;
   font-size: 12px;
+  font-weight: 600;
   color: var(--fg);
+}
+.path-card-head :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .path {
   margin-top: 8px;
@@ -311,6 +355,12 @@ function statusTone(path: TelemetryPath): "ok" | "err" {
   align-items: center;
   color: var(--fg);
   font-size: 12px;
+  font-weight: 600;
+}
+.backend-title :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .backend-detail,
 .log-path {

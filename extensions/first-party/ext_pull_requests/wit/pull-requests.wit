@@ -56,11 +56,307 @@ interface pulls {
     closed-by-ref: option<uri>,
   }
 
+  record change-state-pull-input {
+    %id: id,
+    state: pr-state,
+  }
+
+  variant pull-review-decision {
+    comment,
+    approve,
+    request-changes,
+  }
+
+  record submit-review-input {
+    pull-id: id,
+    decision: pull-review-decision,
+    body-markdown: string,
+    reviewer-ref: option<uri>,
+  }
+
+  record list-pull-reviews-input {
+    pull-id: id,
+    %limit: u32,
+  }
+
+  record pull-review {
+    %id: id,
+    pull-id: id,
+    pull-request-ref: uri,
+    repository: uri,
+    reviewer-ref: uri,
+    decision: pull-review-decision,
+    body-markdown: string,
+    created-at: iso-timestamp,
+  }
+
+  record request-review-input {
+    pull-id: id,
+    reviewer-ref: uri,
+    requested-by-ref: option<uri>,
+  }
+
+  record list-review-requests-input {
+    pull-id: id,
+    %limit: u32,
+  }
+
+  record pull-review-request {
+    %id: id,
+    pull-id: id,
+    pull-request-ref: uri,
+    repository: uri,
+    reviewer-ref: uri,
+    requested-by-ref: uri,
+    requested-at: iso-timestamp,
+    completed-review: option<pull-review>,
+  }
+
+  record pull-review-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-review-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-card>,
+  }
+
+  record pull-review-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-column>,
+  }
+
+  record pull-author-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-author-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-author-column {
+    key: string,
+    label: string,
+    author-ref: option<uri>,
+    count: u32,
+    cards: list<pull-author-card>,
+  }
+
+  record pull-author-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-author-column>,
+  }
+
+  record pull-base-branch-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-base-branch-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-base-branch-column {
+    key: string,
+    label: string,
+    base-ref: option<string>,
+    count: u32,
+    cards: list<pull-base-branch-card>,
+  }
+
+  record pull-base-branch-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-base-branch-column>,
+  }
+
+  record pull-head-branch-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-head-branch-card {
+    pull-request: pull-request,
+    terminal: bool,
+  }
+
+  record pull-head-branch-column {
+    key: string,
+    label: string,
+    head-ref: option<string>,
+    count: u32,
+    cards: list<pull-head-branch-card>,
+  }
+
+  record pull-head-branch-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-head-branch-column>,
+  }
+
+  record pull-merge-check-summary {
+    pull-id: id,
+    required-missing: u32,
+    required-failing: u32,
+    pending: u32,
+    optional-failing: u32,
+    passing: u32,
+    total: u32,
+  }
+
+  record pull-merge-readiness-board-input {
+    repository: uri,
+    check-summaries: list<pull-merge-check-summary>,
+    required-approvals: u32,
+    %limit: u32,
+  }
+
+  record pull-merge-review-summary {
+    required-approvals: u32,
+    approval-count: u32,
+    change-request-count: u32,
+    comment-count: u32,
+    latest-review: option<pull-review>,
+  }
+
+  record pull-merge-readiness-card {
+    pull-request: pull-request,
+    terminal: bool,
+    blocked: bool,
+    waiting: bool,
+    check-blocked: bool,
+    check-waiting: bool,
+    review-blocked: bool,
+    review-waiting: bool,
+    check-summary: option<pull-merge-check-summary>,
+    review-summary: pull-merge-review-summary,
+  }
+
+  record pull-merge-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-merge-readiness-card>,
+  }
+
+  record pull-merge-readiness-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-merge-readiness-column>,
+  }
+
+  record pull-review-decision-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-decision-card {
+    pull-request: pull-request,
+    latest-review: option<pull-review>,
+    approval-count: u32,
+    change-request-count: u32,
+    comment-count: u32,
+    terminal: bool,
+  }
+
+  record pull-review-decision-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-decision-card>,
+  }
+
+  record pull-review-decision-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-decision-column>,
+  }
+
+  record pull-review-request-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record pull-review-request-card {
+    pull-request: pull-request,
+    requested-reviewer-refs: list<uri>,
+    completed-reviewer-refs: list<uri>,
+    missing-reviewer-refs: list<uri>,
+    latest-review: option<pull-review>,
+    terminal: bool,
+  }
+
+  record pull-review-request-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-review-request-card>,
+  }
+
+  record pull-review-request-board {
+    repository: uri,
+    total: u32,
+    columns: list<pull-review-request-column>,
+  }
+
+  record pull-reviewer-queue-input {
+    repository: uri,
+    reviewer-ref: option<uri>,
+    %limit: u32,
+  }
+
+  record pull-reviewer-queue-card {
+    pull-request: pull-request,
+    review-request: pull-review-request,
+    latest-review: option<pull-review>,
+    terminal: bool,
+  }
+
+  record pull-reviewer-queue-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<pull-reviewer-queue-card>,
+  }
+
+  record pull-reviewer-queue {
+    repository: uri,
+    reviewer-ref: uri,
+    total: u32,
+    columns: list<pull-reviewer-queue-column>,
+  }
+
   create-pull: func(input: create-pull-input) -> result<pull-request, error>;
   merge-pull: func(input: merge-pull-input) -> result<pull-request, error>;
   close-pull: func(input: close-pull-input) -> result<pull-request, error>;
+  change-state-pull: func(input: change-state-pull-input) -> result<pull-request, error>;
+  submit-review: func(input: submit-review-input) -> result<pull-review, error>;
+  list-pull-reviews: func(input: list-pull-reviews-input) -> result<list<pull-review>, error>;
+  request-review: func(input: request-review-input) -> result<pull-review-request, error>;
+  list-review-requests: func(input: list-review-requests-input) -> result<list<pull-review-request>, error>;
   get-pull: func(%id: id) -> result<option<pull-request>, error>;
   list-pulls: func(repository: uri, %limit: u32) -> result<list<pull-request>, error>;
+  review-board: func(input: pull-review-board-input) -> result<pull-review-board, error>;
+  author-board: func(input: pull-author-board-input) -> result<pull-author-board, error>;
+  base-branch-board: func(input: pull-base-branch-board-input) -> result<pull-base-branch-board, error>;
+  head-branch-board: func(input: pull-head-branch-board-input) -> result<pull-head-branch-board, error>;
+  merge-readiness-board: func(input: pull-merge-readiness-board-input) -> result<pull-merge-readiness-board, error>;
+  review-decision-board: func(input: pull-review-decision-board-input) -> result<pull-review-decision-board, error>;
+  review-request-board: func(input: pull-review-request-board-input) -> result<pull-review-request-board, error>;
+  reviewer-queue: func(input: pull-reviewer-queue-input) -> result<pull-reviewer-queue, error>;
 }
 
 world ext-pull-requests {

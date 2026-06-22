@@ -6,19 +6,497 @@
 // `package comtrya` configuration and exposes the result on
 // `repository.comtryaConfig`; ext_docs's UI reads it.
 //
-// No backend ops are needed in 0.1.0 — the data path is kernel-owned
-// (CUE evaluation + repo file tree). `ping` exists only because the
-// kernel requires every first-party extension to ship a real WASM
-// component with at least one exported interface op.
+// The kernel owns CUE evaluation and repo file enumeration. ext_docs owns
+// document semantics such as front-matter extraction so ADRs, specs, PRDs,
+// scenarios, and future user-defined types use one parser.
 
 package comtrya:ext-docs@0.1.0;
 
 interface docs {
   use comtrya:platform/types@0.1.0.{error};
 
-  /// Liveness ping. 0.2.0 will add typed ops for front-matter
-  /// extraction once we move parsing off the UI.
+  record summarize-doc-input {
+    path: string,
+    preview: string,
+  }
+
+  record doc-type-input {
+    project-name: string,
+    type-name: string,
+    label: string,
+    description: option<string>,
+    slug: string,
+    files: list<summarize-doc-input>,
+  }
+
+  record doc-catalog-input {
+    types: list<doc-type-input>,
+  }
+
+  record doc-property {
+    key: string,
+    value: string,
+  }
+
+  record doc-summary {
+    path: string,
+    title: string,
+    property-count: u32,
+    properties: list<doc-property>,
+    body-excerpt: string,
+    has-front-matter: bool,
+  }
+
+  record doc-type-summary {
+    project-name: string,
+    type-name: string,
+    label: string,
+    description: option<string>,
+    slug: string,
+    doc-count: u32,
+    docs: list<doc-summary>,
+  }
+
+  record doc-catalog {
+    total-docs: u32,
+    types: list<doc-type-summary>,
+  }
+
+  record doc-type-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    slug: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+    tags: list<string>,
+  }
+
+  record doc-type-column {
+    key: string,
+    label: string,
+    type-name: string,
+    count: u32,
+    docs: list<doc-type-card>,
+  }
+
+  record doc-type-board {
+    total-docs: u32,
+    columns: list<doc-type-column>,
+  }
+
+  record doc-status-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+  }
+
+  record doc-status-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-status-card>,
+  }
+
+  record doc-status-board {
+    total-docs: u32,
+    columns: list<doc-status-column>,
+  }
+
+  record doc-owner-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+  }
+
+  record doc-owner-column {
+    key: string,
+    label: string,
+    owner: option<string>,
+    count: u32,
+    docs: list<doc-owner-card>,
+  }
+
+  record doc-owner-board {
+    total-docs: u32,
+    columns: list<doc-owner-column>,
+  }
+
+  record doc-tag-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    tags: list<string>,
+  }
+
+  record doc-tag-column {
+    key: string,
+    label: string,
+    tag: option<string>,
+    count: u32,
+    docs: list<doc-tag-card>,
+  }
+
+  record doc-tag-board {
+    total-docs: u32,
+    columns: list<doc-tag-column>,
+  }
+
+  record doc-project-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    owner: option<string>,
+    tags: list<string>,
+  }
+
+  record doc-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    docs: list<doc-project-card>,
+  }
+
+  record doc-project-board {
+    total-docs: u32,
+    columns: list<doc-project-column>,
+  }
+
+  record bdd-step {
+    keyword: string,
+    text: string,
+  }
+
+  record bdd-scenario {
+    kind: string,
+    title: string,
+    step-count: u32,
+    steps: list<bdd-step>,
+  }
+
+  record bdd-summary {
+    path: string,
+    title: string,
+    feature: option<string>,
+    scenario-count: u32,
+    step-count: u32,
+    scenarios: list<bdd-scenario>,
+  }
+
+  record doc-scenario-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    feature: option<string>,
+    scenario-count: u32,
+    step-count: u32,
+    scenarios-without-steps: u32,
+  }
+
+  record doc-scenario-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-scenario-card>,
+  }
+
+  record doc-scenario-board {
+    total-docs: u32,
+    columns: list<doc-scenario-column>,
+  }
+
+  record doc-checklist-item {
+    text: string,
+    checked: bool,
+  }
+
+  record doc-checklist-section {
+    heading: string,
+    item-count: u32,
+    checked-count: u32,
+    items: list<doc-checklist-item>,
+  }
+
+  record doc-checklist-summary {
+    path: string,
+    title: string,
+    total-items: u32,
+    checked-items: u32,
+    sections: list<doc-checklist-section>,
+  }
+
+  record doc-reference {
+    kind: string,
+    target: string,
+    label: option<string>,
+    line: u32,
+  }
+
+  record doc-reference-summary {
+    path: string,
+    title: string,
+    reference-count: u32,
+    references: list<doc-reference>,
+  }
+
+  record doc-traceability-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    reference-count: u32,
+    implementation-reference-count: u32,
+    doc-reference-count: u32,
+    other-reference-count: u32,
+    references: list<doc-reference>,
+  }
+
+  record doc-traceability-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-traceability-card>,
+  }
+
+  record doc-traceability-board {
+    total-docs: u32,
+    columns: list<doc-traceability-column>,
+  }
+
+  record doc-outline-heading {
+    level: u32,
+    title: string,
+    slug: string,
+    line: u32,
+  }
+
+  record doc-outline-summary {
+    path: string,
+    title: string,
+    heading-count: u32,
+    headings: list<doc-outline-heading>,
+  }
+
+  record doc-decision-item {
+    kind: string,
+    text: string,
+    line: u32,
+  }
+
+  record doc-decision-summary {
+    path: string,
+    title: string,
+    decision-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+    items: list<doc-decision-item>,
+  }
+
+  record doc-decision-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    decision-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-decision-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-decision-card>,
+  }
+
+  record doc-decision-board {
+    total-docs: u32,
+    columns: list<doc-decision-column>,
+  }
+
+  record doc-readiness-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    reference-count: u32,
+  }
+
+  record doc-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-readiness-card>,
+  }
+
+  record doc-readiness-board {
+    total-docs: u32,
+    columns: list<doc-readiness-column>,
+  }
+
+  record doc-handoff-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    implementation-reference-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-handoff-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-handoff-card>,
+  }
+
+  record doc-handoff-board {
+    total-docs: u32,
+    columns: list<doc-handoff-column>,
+  }
+
+  record doc-implementation-card {
+    project-name: string,
+    type-name: string,
+    type-label: string,
+    path: string,
+    title: string,
+    status: string,
+    checklist-total: u32,
+    checklist-checked: u32,
+    scenario-count: u32,
+    reference-count: u32,
+    implementation-reference-count: u32,
+    doc-reference-count: u32,
+    open-question-count: u32,
+    risk-count: u32,
+  }
+
+  record doc-implementation-column {
+    key: string,
+    label: string,
+    count: u32,
+    docs: list<doc-implementation-card>,
+  }
+
+  record doc-implementation-board {
+    total-docs: u32,
+    columns: list<doc-implementation-column>,
+  }
+
+  /// Liveness ping.
   ping: func() -> result<string, error>;
+
+  /// Parse one Markdown/MDX preview into the normalized summary shape
+  /// consumed by docs surfaces.
+  summarize-doc: func(input: summarize-doc-input) -> result<doc-summary, error>;
+
+  /// Build a normalized catalog for already-enumerated project doc types.
+  /// The kernel or UI supplies the project/type/file enumeration; ext_docs
+  /// owns parsing and summary semantics for every file in the catalog.
+  summarize-catalog: func(input: doc-catalog-input) -> result<doc-catalog, error>;
+
+  /// Group already-enumerated project docs by declared doc type so PRDs,
+  /// specs, BDD scenarios, ADRs, and user-defined types are visible even
+  /// when a configured type has no files yet.
+  type-board: func(input: doc-catalog-input) -> result<doc-type-board, error>;
+
+  /// Group already-enumerated project docs into familiar product-status lanes.
+  /// Status comes from front matter; missing or unknown statuses are surfaced
+  /// explicitly so project docs do not look healthier than they are.
+  status-board: func(input: doc-catalog-input) -> result<doc-status-board, error>;
+
+  /// Group project docs by front-matter owner so specs, PRDs, and BDD scenarios
+  /// can be reviewed by responsibility instead of only by type or lifecycle.
+  owner-board: func(input: doc-catalog-input) -> result<doc-owner-board, error>;
+
+  /// Group project docs by front-matter tags so specs, PRDs, and BDD scenarios
+  /// can be browsed by product area without shell-side taxonomy parsing.
+  tag-board: func(input: doc-catalog-input) -> result<doc-tag-board, error>;
+
+  /// Group project docs by their owning project, with an explicit Unscoped lane
+  /// for docs that are intentionally repo-level rather than project-specific.
+  project-board: func(input: doc-catalog-input) -> result<doc-project-board, error>;
+
+  /// Extract the BDD shape from a Markdown/MDX document so scenario docs can be
+  /// indexed beside PRDs and specs without the shell parsing Gherkin itself.
+  summarize-scenarios: func(input: summarize-doc-input) -> result<bdd-summary, error>;
+
+  /// Group BDD scenario docs by missing feature/scenario/step coverage so
+  /// behavior specs can be reviewed like a first-class work queue.
+  scenario-board: func(input: doc-catalog-input) -> result<doc-scenario-board, error>;
+
+  /// Extract Markdown task-list sections from PRDs and specs so acceptance
+  /// criteria and rollout readiness can be surfaced by extension UIs.
+  summarize-checklists: func(input: summarize-doc-input) -> result<doc-checklist-summary, error>;
+
+  /// Extract forge-local references from product docs so PRDs, specs, BDD
+  /// scenarios, issues, epics, and pull requests can be traced together.
+  summarize-references: func(input: summarize-doc-input) -> result<doc-reference-summary, error>;
+
+  /// Group product docs by implementation and document traceability so
+  /// unlinked PRDs/specs/scenarios are visible before work drifts away.
+  traceability-board: func(input: doc-catalog-input) -> result<doc-traceability-board, error>;
+
+  /// Extract a Markdown/MDX heading outline so docs surfaces can render
+  /// familiar in-page navigation without shell-side Markdown parsing.
+  summarize-outline: func(input: summarize-doc-input) -> result<doc-outline-summary, error>;
+
+  /// Extract decisions, open questions, and risks from PRDs/specs so product
+  /// docs can expose review state without shell-side Markdown parsing.
+  summarize-decisions: func(input: summarize-doc-input) -> result<doc-decision-summary, error>;
+
+  /// Group product docs by decision-review state so PRDs/specs with open
+  /// questions or risks are visible before they drift away from implementation.
+  decision-board: func(input: doc-catalog-input) -> result<doc-decision-board, error>;
+
+  /// Group product docs by readiness signals from acceptance criteria,
+  /// BDD scenarios, and forge-local traceability links.
+  readiness-board: func(input: doc-catalog-input) -> result<doc-readiness-board, error>;
+
+  /// Group product docs by implementation handoff state so specs, PRDs, and
+  /// BDD scenarios can move from product review into linked forge work.
+  handoff-board: func(input: doc-catalog-input) -> result<doc-handoff-board, error>;
+
+  /// Group product docs by implementation delivery state so specs, PRDs, and
+  /// BDD scenarios expose acceptance coverage, review blockers, linked forge
+  /// work, and implemented requirements in one familiar queue.
+  implementation-board: func(input: doc-catalog-input) -> result<doc-implementation-board, error>;
 }
 
 world ext-docs {

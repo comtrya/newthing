@@ -24,6 +24,7 @@ interface WitEpic {
   id: string;
   workspace?: string | null;
   workspaceId?: string | null;
+  number?: number | null;
   title: string;
   bodyMarkdown?: string | null;
   state?: string | null;
@@ -33,6 +34,73 @@ interface WitEpic {
   createdAt?: string | null;
   closedAt?: string | null;
   projectName?: string | null;
+}
+
+export type EpicBoardId =
+  | "roadmap"
+  | "project"
+  | "owner"
+  | "priority"
+  | "milestone"
+  | "label"
+  | "target";
+
+interface WitEpicBoardCard {
+  epic: WitEpic;
+  progress?: EpicProgress | null;
+  ownerRef?: string | null;
+  projectName?: string | null;
+  priority?: string | null;
+  priorityLabel?: string | null;
+  milestone?: string | null;
+  milestoneLabel?: string | null;
+}
+
+interface WitEpicBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  cards?: WitEpicBoardCard[] | null;
+  ownerRef?: string | null;
+  projectName?: string | null;
+  priority?: string | null;
+  milestone?: string | null;
+}
+
+interface WitEpicBoard {
+  workspace?: string | null;
+  total?: number | null;
+  today?: string | null;
+  columns?: WitEpicBoardColumn[] | null;
+}
+
+export interface EpicBoardCard {
+  epic: Epic;
+  progress: EpicProgress | null;
+  ownerRef?: string | null;
+  projectName?: string | null;
+  priority?: string | null;
+  priorityLabel?: string | null;
+  milestone?: string | null;
+  milestoneLabel?: string | null;
+}
+
+export interface EpicBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  ownerRef?: string | null;
+  projectName?: string | null;
+  priority?: string | null;
+  milestone?: string | null;
+  cards: EpicBoardCard[];
+}
+
+export interface EpicBoard {
+  workspace: string;
+  total: number;
+  today: string | null;
+  columns: EpicBoardColumn[];
 }
 
 function opValue<T>(result: OpResult<unknown>, label: string): T {
@@ -63,6 +131,7 @@ function normalizeEpic(value: WitEpic): Epic {
       value.workspaceId ??
       value.workspace?.replace(/^comtrya:\/\/workspace\//, "") ??
       "",
+    number: value.number ?? null,
     title: value.title,
     bodyMarkdown: value.bodyMarkdown ?? "",
     state: epicState(value.state),
@@ -72,6 +141,33 @@ function normalizeEpic(value: WitEpic): Epic {
     createdAt: value.createdAt ?? null,
     closedAt: value.closedAt ?? null,
     projectName: value.projectName ?? null,
+  };
+}
+
+function normalizeEpicBoard(value: WitEpicBoard): EpicBoard {
+  return {
+    workspace: value.workspace ?? "",
+    total: value.total ?? 0,
+    today: value.today ?? null,
+    columns: (value.columns ?? []).map((column) => ({
+      key: column.key,
+      label: column.label,
+      count: column.count,
+      ownerRef: column.ownerRef ?? null,
+      projectName: column.projectName ?? null,
+      priority: column.priority ?? null,
+      milestone: column.milestone ?? null,
+      cards: (column.cards ?? []).map((card) => ({
+        epic: normalizeEpic(card.epic),
+        progress: card.progress ?? null,
+        ownerRef: card.ownerRef ?? null,
+        projectName: card.projectName ?? null,
+        priority: card.priority ?? null,
+        priorityLabel: card.priorityLabel ?? null,
+        milestone: card.milestone ?? null,
+        milestoneLabel: card.milestoneLabel ?? null,
+      })),
+    })),
   };
 }
 
@@ -95,6 +191,39 @@ export async function listEpics(
   const epics = opValue<WitEpic[]>(result, "listEpics").map(normalizeEpic);
   const state = variables.state ? epicState(variables.state) : null;
   return state ? epics.filter((epic) => epic.state === state) : epics;
+}
+
+export async function loadEpicBoard(
+  board: EpicBoardId,
+  variables: { workspaceId: string; limit?: number },
+): Promise<EpicBoard> {
+  const input = {
+    workspace: workspaceUri(variables.workspaceId),
+    limit: variables.limit ?? 128,
+  };
+  const result = await epicBoardOp(board)(input);
+  return normalizeEpicBoard(opValue<WitEpicBoard>(result, `${board}Board`));
+}
+
+function epicBoardOp(
+  board: EpicBoardId,
+): (input: unknown) => Promise<OpResult<unknown>> {
+  switch (board) {
+    case "roadmap":
+      return extEpicsXEpics.roadmapBoard;
+    case "project":
+      return extEpicsXEpics.projectBoard;
+    case "owner":
+      return extEpicsXEpics.ownerBoard;
+    case "priority":
+      return extEpicsXEpics.priorityBoard;
+    case "milestone":
+      return extEpicsXEpics.milestoneBoard;
+    case "label":
+      return extEpicsXEpics.labelBoard;
+    case "target":
+      return extEpicsXEpics.targetBoard;
+  }
 }
 
 export async function epicProgress(

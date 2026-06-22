@@ -16,7 +16,7 @@ Comtrya product.
   previews, and diffs derived from Git.
 - Real: Git clone/fetch works through the Vue origin using a scoped Comtrya
   credential.
-- Real: extension UI manifests and assets are served from `/_extensions/...`.
+- Real: extension UI manifests and assets are served from `/forge-ui/...`.
 - Real: the Vue shell discovers installed extensions, validates UI manifests,
   imports versioned entry assets, and mounts slot/route contributions.
 - Real: first-party backend extensions are Rust `cargo-component` crates that

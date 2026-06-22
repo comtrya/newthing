@@ -3,6 +3,7 @@ import { defaultWorkspaceId, type ExtensionRouteParams } from "./types";
 export interface IssueRouteContextInput {
   workspaceId?: string | null;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   projectName?: string | null;
   state?: string | null;
   routeParams?: ExtensionRouteParams;
@@ -11,6 +12,7 @@ export interface IssueRouteContextInput {
 export interface IssueRouteContext {
   workspaceId: string;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   projectName?: string | null;
   state?: string | null;
 }
@@ -31,7 +33,7 @@ export function issueRouteContext(
   const routeProjectName = present(input.routeParams?.params?.projectName);
   const queryProjectName = present(params.get("projectName"));
 
-  return {
+  const context: IssueRouteContext = {
     workspaceId: explicitRepositoryId
       ? inputWorkspaceId ?? routeWorkspaceId ?? queryWorkspaceId ?? defaultWorkspaceId()
       : queryWorkspaceId ?? inputWorkspaceId ?? routeWorkspaceId ?? defaultWorkspaceId(),
@@ -39,6 +41,9 @@ export function issueRouteContext(
     projectName: inputProjectName ?? routeProjectName ?? queryProjectName ?? null,
     state: present(params.get("state")) ?? present(input.state) ?? null,
   };
+  const segments = normalizedSegments(input.repositorySegments);
+  if (segments) context.repositorySegments = segments;
+  return context;
 }
 
 function currentSearch(): string {
@@ -49,4 +54,9 @@ function present(value: string | null | undefined): string | undefined {
   if (value === null || value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function normalizedSegments(value: string[] | undefined): string[] | undefined {
+  const segments = value?.map((segment) => segment.trim()).filter(Boolean) ?? [];
+  return segments.length > 0 ? segments : undefined;
 }

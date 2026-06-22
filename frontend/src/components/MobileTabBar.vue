@@ -12,13 +12,23 @@ interface TabItem {
   matches: (path: string) => boolean;
 }
 
-const tabs: TabItem[] = [
+const props = withDefaults(defineProps<{ workHref?: string }>(), {
+  workHref: "/x/issues/",
+});
+
+const route = useRoute();
+const tabs = computed<TabItem[]>(() => [
   {
     id: "home",
     to: "/",
     icon: "spark",
     label: "Home",
-    matches: (p) => p === "/" || p.startsWith("/r/"),
+    matches: (p) =>
+      p === "/" ||
+      (p.startsWith("/r/") &&
+        !isWorkPath(p) &&
+        !isActionsPath(p) &&
+        !isReleasesPath(p)),
   },
   {
     id: "inbox",
@@ -31,15 +41,22 @@ const tabs: TabItem[] = [
     id: "pipelines",
     to: "/pipelines",
     icon: "bolt",
-    label: "CI",
-    matches: (p) => p.startsWith("/pipelines"),
+    label: "Actions",
+    matches: isActionsPath,
+  },
+  {
+    id: "work",
+    to: props.workHref,
+    icon: "issue",
+    label: "Work",
+    matches: isWorkPath,
   },
   {
     id: "releases",
     to: "/releases",
     icon: "tag",
     label: "Releases",
-    matches: (p) => p.startsWith("/releases"),
+    matches: isReleasesPath,
   },
   {
     id: "admin",
@@ -48,13 +65,24 @@ const tabs: TabItem[] = [
     label: "Admin",
     matches: (p) => p.startsWith("/admin"),
   },
-];
-
-const route = useRoute();
+]);
 const activeId = computed(() => {
-  const match = tabs.find((t) => t.matches(route.path));
+  const match = tabs.value.find((t) => t.matches(route.path));
   return match?.id ?? "home";
 });
+
+function isWorkPath(path: string): boolean {
+  return /^\/x\/(issues|pulls|epics|sprints|docs)(\/|$)/.test(path) ||
+    /^\/r\/.+\/(issues|pulls|epics|sprints|docs)(\/|$)/.test(path);
+}
+
+function isActionsPath(path: string): boolean {
+  return path.startsWith("/pipelines") || /^\/r\/.+\/pipelines(\/|$)/.test(path);
+}
+
+function isReleasesPath(path: string): boolean {
+  return path.startsWith("/releases") || /^\/r\/.+\/releases(\/|$)/.test(path);
+}
 </script>
 
 <template>

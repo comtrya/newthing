@@ -1,10 +1,10 @@
 // ext_epics — per-extension WIT.
 //
 // Epics are work-tracking aggregates that contain issues. The epic state
-// machine is OPEN → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
+// machine is PLANNED → IN-PROGRESS → AT-RISK → DONE / CANCELED, with
 // transitions modelled explicitly in the `epic-state` variant.
 
-package comtrya:ext-epics@0.1.5;
+package comtrya:ext-epics@0.1.8;
 
 interface epics {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -88,6 +88,178 @@ interface epics {
     percent-complete: u64,
   }
 
+  record roadmap-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-roadmap-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-roadmap-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<epic-roadmap-card>,
+  }
+
+  record epic-roadmap-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-roadmap-column>,
+  }
+
+  record owner-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-owner-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-owner-column {
+    key: string,
+    label: string,
+    owner-ref: option<uri>,
+    count: u32,
+    cards: list<epic-owner-card>,
+  }
+
+  record epic-owner-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-owner-column>,
+  }
+
+  record project-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-project-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    cards: list<epic-project-card>,
+  }
+
+  record epic-project-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-project-column>,
+  }
+
+  record label-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-label-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-label-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<epic-label-card>,
+  }
+
+  record epic-label-board {
+    workspace: uri,
+    // Number of epics considered. Individual labeled cards can appear in
+    // more than one column because an epic can carry multiple labels.
+    total: u32,
+    columns: list<epic-label-column>,
+  }
+
+  record priority-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-priority-card {
+    epic: epic,
+    progress: epic-progress,
+    priority: option<string>,
+    priority-label: option<string>,
+  }
+
+  record epic-priority-column {
+    key: string,
+    label: string,
+    priority: option<string>,
+    count: u32,
+    cards: list<epic-priority-card>,
+  }
+
+  record epic-priority-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-priority-column>,
+  }
+
+  record milestone-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-milestone-card {
+    epic: epic,
+    progress: epic-progress,
+    milestone: option<string>,
+    milestone-label: option<string>,
+  }
+
+  record epic-milestone-column {
+    key: string,
+    label: string,
+    milestone: option<string>,
+    count: u32,
+    cards: list<epic-milestone-card>,
+  }
+
+  record epic-milestone-board {
+    workspace: uri,
+    total: u32,
+    columns: list<epic-milestone-column>,
+  }
+
+  record target-board-input {
+    workspace: uri,
+    %limit: u32,
+  }
+
+  record epic-target-card {
+    epic: epic,
+    progress: epic-progress,
+  }
+
+  record epic-target-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<epic-target-card>,
+  }
+
+  record epic-target-board {
+    workspace: uri,
+    today: string,
+    total: u32,
+    columns: list<epic-target-column>,
+  }
+
   create-epic: func(input: create-epic-input) -> result<epic, error>;
   change-state-epic: func(input: change-state-epic-input) -> result<epic, error>;
   assign-project: func(input: assign-project-input) -> result<epic, error>;
@@ -97,6 +269,31 @@ interface epics {
   by-ref-epic: func(ref: uri) -> result<option<epic>, error>;
   by-refs-epic: func(refs: list<uri>) -> result<list<option<epic>>, error>;
   progress-epic: func(ref: uri) -> result<epic-progress, error>;
+  /// Familiar roadmap lanes for planning surfaces. Each card carries the
+  /// epic plus the same aggregate progress exposed by `progress-epic`, so
+  /// UIs do not need an N+1 fan-out to render a roadmap board.
+  roadmap-board: func(input: roadmap-board-input) -> result<epic-roadmap-board, error>;
+  /// Familiar ownership lanes for planning surfaces. Unowned epics are
+  /// explicit, while owned epics are grouped by their typed owner ref.
+  owner-board: func(input: owner-board-input) -> result<epic-owner-board, error>;
+  /// Familiar Project lanes for product planning surfaces. Unscoped
+  /// epics stay visible instead of disappearing from Project views.
+  project-board: func(input: project-board-input) -> result<epic-project-board, error>;
+  /// Familiar label lanes for planning surfaces. Unlabeled epics stay
+  /// explicit, and multi-label epics appear in every matching lane.
+  label-board: func(input: label-board-input) -> result<epic-label-board, error>;
+  /// Familiar priority lanes for product planning. Active epics are
+  /// grouped from priority labels such as `priority::p1`, while done
+  /// and canceled epics stay in a terminal completed lane.
+  priority-board: func(input: priority-board-input) -> result<epic-priority-board, error>;
+  /// Familiar milestone/release lanes for roadmap planning. Active epics
+  /// are grouped from labels such as `milestone::Q4` or `release/Q4`,
+  /// while done and canceled epics stay in a terminal completed lane.
+  milestone-board: func(input: milestone-board-input) -> result<epic-milestone-board, error>;
+  /// Familiar target-date lanes for release planning. Completed epics
+  /// stay separate from overdue/upcoming work, and untargeted epics
+  /// remain visible as planning debt.
+  target-board: func(input: target-board-input) -> result<epic-target-board, error>;
   /// Issues that are members of this epic. Capped server-side at
   /// `min(limit, 1024)`; silently truncated beyond that. Per the
   /// per-extension list-op convention (see `docs/wit-platform-design.md`).

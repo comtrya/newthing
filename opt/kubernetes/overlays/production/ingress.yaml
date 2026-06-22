@@ -40,7 +40,7 @@ spec:
                 name: comtrya-server
                 port:
                   number: 80
-          - path: /_extensions
+          - path: /forge-ui
             pathType: Prefix
             backend:
               service:

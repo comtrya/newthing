@@ -73,8 +73,10 @@ The frontend lives under `frontend/` and is a Vite Vue SPA.
 
 The shell owns navigation, route handling, auth/session exchange, GraphQL
 transport, extension UI loading, core widgets, and shared layout. Extension UI
-bundles are browser ESM assets served from `/_extensions/<id>/assets/...` and
-loaded through the SDK registry.
+bundles are browser ESM assets served from
+`/forge-ui/<module-token>/files/...` and loaded through the SDK registry.
+The module token is the hex-encoded extension ID used only for public asset
+URLs.
 
 Route ownership:
 

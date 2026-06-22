@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  getGraphQLClient,
   invokeOp,
   openPalette,
   setActiveWorkspaceId,
-  subscribeLiveEvents,
 } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
@@ -19,8 +19,12 @@ import {
   recordRouteVisit,
 } from "./recents";
 import { fetchOidcProviders, type OidcProvider } from "./auth";
-
-const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
+import {
+  repoBaseFromRouteParams,
+  repoSegmentsFromRouteParams,
+  rebaseExtensionHrefToRepo,
+} from "./repo-workbench-routes";
+import { workspaceWorkLinks } from "./workspace-work-links";
 
 interface ShellRepositorySummary {
   id: string;
@@ -30,32 +34,25 @@ interface ShellRepositorySummary {
   openPullRequests: number | null;
 }
 
+interface ShellSummaryPayload {
+  viewer?: {
+    authenticated?: boolean;
+  };
+  workspace?: {
+    id?: string;
+    name?: string;
+    repositories?: ShellRepositorySummary[];
+  };
+}
+
 const workspace = ref<{
+  id: string | null;
   name: string;
   repositories: ShellRepositorySummary[];
 }>({
+  id: null,
   name: "Workspace",
   repositories: [],
-});
-
-/**
- * Live-event subscription state. The topbar only surfaces it when
- * the stream is in trouble — "connecting" briefly on first load,
- * "error" when the SSE source disconnects. Healthy "live" / "idle"
- * is the default and shows nothing (no chrome the user has to
- * decode just to know things are fine).
- */
-const liveState = ref<"connecting" | "live" | "idle" | "error">("connecting");
-let unsubscribeLiveEvents: (() => void) | undefined;
-const degradedLiveState = computed<"connecting" | "error" | null>(() => {
-  if (liveState.value === "connecting") return "connecting";
-  if (liveState.value === "error") return "error";
-  return null;
-});
-const liveStateTitle = computed(() => {
-  if (liveState.value === "error") return "Live event stream disconnected.";
-  if (liveState.value === "connecting") return "Connecting to the live event stream…";
-  return "Live event stream is connected.";
 });
 
 const isMac =
@@ -76,35 +73,13 @@ router.afterEach((to) => {
 });
 
 /**
- * Extension prefixes that have a corresponding `/r/:path/<prefix>`
- * workbench view. Used by the link rewriter below to decide which
- * `/x/<prefix>/<sub>` deep links to rebase back into the repo
- * workbench instead of letting them escape.
- */
-const WORKBENCH_EXTENSION_PREFIXES = new Set([
-  "issues",
-  "pulls",
-  "checks",
-  "epics",
-]);
-
-/**
  * Compute the `/r/<groups>/<repo>` base when the active route is a
  * per-repo workbench view. Used by the link rewriter to rebase
  * extension deep-links into the workbench. Returns null on
  * non-repo routes.
  */
 const workbenchRepoBase = computed<string | null>(() => {
-  const groupsParam = route.params.groups;
-  const repoParam = route.params.repo;
-  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
-  const groups = Array.isArray(groupsParam)
-    ? groupsParam.map(String)
-    : typeof groupsParam === "string" && groupsParam.length > 0
-      ? [groupsParam]
-      : [];
-  if (groups.length === 0) return null;
-  return `/r/${groups.map(encodeURIComponent).join("/")}/${encodeURIComponent(repoParam)}`;
+  return repoBaseFromRouteParams(route.params);
 });
 
 /**
@@ -130,24 +105,11 @@ function onPageClick(event: MouseEvent): void {
   const repoBase = workbenchRepoBase.value;
   if (!repoBase) return;
 
-  const url = new URL(href, window.location.origin);
-  const segments = url.pathname.split("/").filter(Boolean);
-  const prefix = segments[1];
-  if (segments[0] !== "x" || !prefix) return;
-  if (!WORKBENCH_EXTENSION_PREFIXES.has(prefix)) return;
+  const rebased = rebaseExtensionHrefToRepo(href, repoBase, window.location.origin);
+  if (!rebased) return;
 
-  const rest = segments.slice(2);
-  const pathParts = [repoBase, prefix, ...rest].join("/").replace(/\/\/+/g, "/");
   event.preventDefault();
-  void router.push({ path: pathParts, query: queryFromSearch(url.search), hash: url.hash });
-}
-
-function queryFromSearch(search: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!search) return out;
-  const params = new URLSearchParams(search);
-  for (const [key, value] of params.entries()) out[key] = value;
-  return out;
+  void router.push({ path: rebased.path, query: rebased.query, hash: rebased.hash });
 }
 
 /**
@@ -163,51 +125,39 @@ const sortedRepositories = computed(() =>
     a.path.localeCompare(b.path),
   ),
 );
-
 /**
  * Currently-viewed repo path, computed from the route params so we
  * highlight the matching entry in the sidebar list. Falls back to
  * null on non-repo routes.
  */
 const activeRepoPath = computed<string | null>(() => {
-  const groupsParam = route.params.groups;
-  const repoParam = route.params.repo;
-  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
-  const groups = Array.isArray(groupsParam)
-    ? groupsParam.map(String)
-    : typeof groupsParam === "string" && groupsParam.length > 0
-      ? [groupsParam]
-      : [];
-  if (groups.length === 0) return null;
-  return `${groups.join("/")}/${repoParam}`;
+  const segments = repoSegmentsFromRouteParams(route.params);
+  return segments.length > 0 ? segments.join("/") : null;
 });
+const activeRepository = computed<ShellRepositorySummary | null>(() => {
+  const path = activeRepoPath.value;
+  if (!path) return null;
+  return workspace.value.repositories.find((repo) => repo.path === path) ?? null;
+});
+const activeRepoSegments = computed<string[] | null>(() => {
+  const path = activeRepoPath.value;
+  return path ? path.split("/").filter((segment) => segment.length > 0) : null;
+});
+const workspaceWorkItems = computed(() =>
+  workspaceWorkLinks(workspace.value.id, route.path, {
+    repoSegments: activeRepoSegments.value,
+    repositoryId: activeRepository.value?.id ?? null,
+  }),
+);
+const mobileWorkHref = computed(
+  () => workspaceWorkItems.value.find((item) => item.id === "issues")?.href ?? "/x/issues/",
+);
 
 const shortcutsVisible = ref(false);
 
 onMounted(() => {
   void loadAuthProviders();
   void loadShellSummary();
-  const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
-  if (!token) {
-    liveState.value = "idle";
-  } else {
-    unsubscribeLiveEvents = subscribeLiveEvents({
-      token,
-      onEvent: () => {
-        liveState.value = "live";
-      },
-      onError: () => {
-        liveState.value = "error";
-      },
-    });
-    window.setTimeout(() => {
-      if (liveState.value === "connecting") liveState.value = "idle";
-    }, 1500);
-  }
-});
-
-onUnmounted(() => {
-  unsubscribeLiveEvents?.();
 });
 
 useShortcuts({
@@ -224,34 +174,18 @@ useShortcuts({
 
 async function loadShellSummary(): Promise<void> {
   try {
-    const response = await fetch("/graphql", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query:
-          "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
-      }),
-    });
-    const envelope = (await response.json()) as {
-      data?: {
-        viewer?: {
-          authenticated?: boolean;
-        };
-        workspace?: {
-          id?: string;
-          name?: string;
-          repositories?: ShellRepositorySummary[];
-        };
-      };
-    };
-    viewerAuthenticated.value = envelope.data?.viewer?.authenticated === true;
+    const envelope = await getGraphQLClient().query<ShellSummaryPayload>(
+      "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
+    );
+    const authenticated = envelope.viewer?.authenticated === true;
+    viewerAuthenticated.value = authenticated;
     workspace.value = {
       ...workspace.value,
-      name: envelope.data?.workspace?.name ?? workspace.value.name,
-      repositories: envelope.data?.workspace?.repositories ?? [],
+      id: envelope.workspace?.id ?? workspace.value.id,
+      name: envelope.workspace?.name ?? workspace.value.name,
+      repositories: envelope.workspace?.repositories ?? [],
     };
-    const workspaceId = envelope.data?.workspace?.id;
+    const workspaceId = envelope.workspace?.id;
     if (workspaceId) {
       // Publish to the SDK store BEFORE the failing-checks fan-out so
       // composables that subscribe (`useWorkspaceContext`, the
@@ -328,22 +262,17 @@ async function loadAuthProviders(): Promise<void> {
 </script>
 
 <template>
-  <div class="shell shell-app">
+  <div class="shell shell-app" @click.capture="onPageClick">
     <header class="topbar" role="banner">
       <RouterLink to="/" class="brand" aria-label="Home">
         <div class="mark">C</div>
         <span class="word">Comtrya</span>
       </RouterLink>
       <button class="cmdk" type="button" @click="openPalette">
-        <span class="cmdk-text">repo, issue, pull, epic, command…</span>
+        <span class="cmdk-text">Search or jump to...</span>
         <kbd>{{ cmdLabel }} K</kbd>
       </button>
       <div class="topbar-actions">
-        <span
-          v-if="degradedLiveState"
-          :class="['chip', degradedLiveState === 'error' ? 'err' : '']"
-          :title="liveStateTitle"
-        >{{ degradedLiveState }}</span>
         <span
           v-if="viewerAuthenticated"
           class="chip ok"
@@ -399,13 +328,33 @@ async function loadAuthProviders(): Promise<void> {
             to="/pipelines"
             class="sb-link"
             :class="{ 'sb-link-active': route.path.startsWith('/pipelines') }"
-          >Pipelines</RouterLink>
+          >Actions</RouterLink>
           <RouterLink
             to="/releases"
             class="sb-link"
             :class="{ 'sb-link-active': route.path.startsWith('/releases') }"
           >Releases</RouterLink>
         </nav>
+
+        <section
+          class="sb-section sb-work"
+          aria-label="Work"
+          data-smoke="sidebar-work"
+        >
+          <header class="sb-section-head">
+            <span class="sb-overline">Work</span>
+          </header>
+          <nav class="sb-work-list">
+            <RouterLink
+              v-for="item in workspaceWorkItems"
+              :key="item.id"
+              :to="item.href"
+              class="sb-link sb-work-link"
+              :class="{ 'sb-link-active': item.active }"
+              :data-smoke="`sidebar-work-${item.id}`"
+            >{{ item.label }}</RouterLink>
+          </nav>
+        </section>
 
         <section
           v-if="recents.length > 0"
@@ -430,6 +379,7 @@ async function loadAuthProviders(): Promise<void> {
               :key="entry.path"
               :to="entry.path"
               class="sb-recent"
+              data-smoke="recent-visit"
               :title="entry.path"
             >{{ entry.label }}</RouterLink>
           </nav>
@@ -474,19 +424,19 @@ async function loadAuthProviders(): Promise<void> {
         </section>
 
         <nav class="sb-nav-footer" aria-label="Admin">
-          <RouterLink to="/admin" class="sb-faint">Forge admin</RouterLink>
+          <RouterLink to="/admin" class="sb-faint">Site admin</RouterLink>
           <RouterLink to="/instance" class="sb-faint">Instance</RouterLink>
           <RouterLink to="/health" class="sb-faint">Health</RouterLink>
           <RouterLink to="/settings" class="sb-faint">Settings</RouterLink>
         </nav>
       </aside>
 
-      <main class="page" @click="onPageClick">
+      <main class="page">
         <RouterView />
       </main>
     </div>
     <CommandPalette />
-    <MobileTabBar />
+    <MobileTabBar :work-href="mobileWorkHref" />
     <ShortcutsOverlay
       v-if="shortcutsVisible"
       :cmd-label="cmdLabel"

@@ -22,20 +22,78 @@ const healthyServices = computed(
 const readinessChecks = computed(() =>
   Object.entries(telemetry.value?.readiness.checks ?? {}).map(([name, ok]) => ({
     name,
+    label: readinessCheckLabel(name),
     ok,
+    status: ok ? "Passing" : "Failing",
   })),
 );
+
+const serviceRows = computed(() =>
+  (telemetry.value?.services ?? []).map((service) => ({
+    ...service,
+    label: serviceLabel(service.name),
+    statusLabel: serviceStatusLabel(service.status),
+  })),
+);
+
+const serviceLabels: Record<string, string> = {
+  "event-stream": "Event stream",
+  "extension-runtime": "Extension runtime",
+  "git-http": "Git smart HTTP",
+  graphql: "GraphQL",
+  persistence: "Persistence",
+  server: "Server",
+};
+
+const readinessLabels: Record<string, string> = {
+  auditLogWritable: "Audit log",
+  configValid: "Configuration",
+  dataDirWritable: "Data directory",
+  eventLogWritable: "Event log",
+  extensionStorageDocuments: "Extension storage documents",
+  extensionStorageSchema: "Extension storage schema",
+  operatorCodeConfigured: "Operator code",
+  productionTlsTerminated: "TLS termination",
+  repositoryRoot: "Repository root",
+};
+
+function serviceLabel(name: string): string {
+  return serviceLabels[name] ?? titleCaseWords(name);
+}
+
+function serviceStatusLabel(status: string): string {
+  if (status === "ok") return "Operational";
+  if (status === "error") return "Failed";
+  return titleCaseWords(status);
+}
+
+function readinessCheckLabel(name: string): string {
+  return readinessLabels[name] ?? titleCaseWords(name.replace(/([a-z0-9])([A-Z])/g, "$1 $2"));
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
 
 const overviewStats = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "repositories", value: String(data.storage.repositories.count) },
-    { label: "extensions", value: String(data.extensions.length) },
-    { label: "sessions", value: String(data.access.activeSessions) },
-    { label: "event log", value: formatBytes(data.storage.events.bytes) },
+    { label: "Repositories", value: String(data.storage.repositories.count) },
+    { label: "Extensions", value: String(data.extensions.length) },
+    { label: "Sessions", value: String(data.access.activeSessions) },
+    { label: "Event log", value: formatBytes(data.storage.events.bytes) },
   ];
 });
+
+function readinessStatusLabel(ready: boolean): string {
+  return ready ? "Ready" : "Degraded";
+}
 
 function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   if (service.status === "ok") return "ok";
@@ -51,16 +109,16 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
       <div class="page-header">
         <div>
           <div class="eyebrow" style="margin-bottom: 6px">
-            {{ telemetry?.instance.publicURL || "local instance" }}
+            {{ telemetry?.instance.publicURL || "Local instance" }}
           </div>
-          <h1 class="serif">Instance overview</h1>
+          <h1>Instance overview</h1>
           <div class="subline">
             <template v-if="telemetry">
-              {{ telemetry.instance.name }} · {{ telemetry.instance.mode }} ·
+              {{ telemetry.instance.name }} · {{ titleCaseWords(telemetry.instance.mode) }} ·
               <span class="mono">{{ telemetry.instance.version }}</span>
             </template>
-            <template v-else-if="loading">Loading admin telemetry...</template>
-            <template v-else>Admin telemetry unavailable</template>
+            <template v-else-if="loading">Loading instance status...</template>
+            <template v-else>Instance status unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -71,7 +129,7 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>The instance status could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
@@ -85,15 +143,15 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
             </div>
             <div class="chips">
               <Chip :tone="telemetry.readiness.ready ? 'ok' : 'warn'" dot>
-                {{ telemetry.readiness.ready ? "ready" : "degraded" }}
+                {{ readinessStatusLabel(telemetry.readiness.ready) }}
               </Chip>
-              <Chip mono>{{ formatDuration(telemetry.instance.uptimeSeconds) }} uptime</Chip>
+              <Chip>{{ formatDuration(telemetry.instance.uptimeSeconds) }} uptime</Chip>
             </div>
           </div>
 
           <div v-for="stat in overviewStats" :key="stat.label" class="stat-card">
             <div class="eyebrow">{{ stat.label }}</div>
-            <div class="mono stat-value">{{ stat.value }}</div>
+            <div class="stat-value">{{ stat.value }}</div>
           </div>
         </div>
 
@@ -105,16 +163,16 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
                 {{ healthyServices }} / {{ telemetry.services.length }} healthy
               </div>
             </div>
-            <div class="rows">
-              <div v-for="service in telemetry.services" :key="service.name" class="row">
+            <div class="rows services">
+              <div v-for="service in serviceRows" :key="service.name" class="row">
                 <span class="row-icon" :class="service.status === 'ok' ? 'ok' : 'warn'">
                   <Icon :name="service.status === 'ok' ? 'check' : 'clock'" />
                 </span>
                 <div class="row-main">
-                  <div class="row-title mono">{{ service.name }}</div>
+                  <div class="row-title">{{ service.label }}</div>
                   <div class="row-detail">{{ service.detail }}</div>
                 </div>
-                <Chip :tone="serviceTone(service)" mono>{{ service.status }}</Chip>
+                <Chip :tone="serviceTone(service)">{{ service.statusLabel }}</Chip>
               </div>
             </div>
           </div>
@@ -130,10 +188,10 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
                   <Icon :name="check.ok ? 'check' : 'x'" />
                 </span>
                 <div class="row-main">
-                  <div class="row-title mono">{{ check.name }}</div>
+                  <div class="row-title">{{ check.label }}</div>
                 </div>
-                <Chip :tone="check.ok ? 'ok' : 'err'" mono>
-                  {{ check.ok ? "pass" : "fail" }}
+                <Chip :tone="check.ok ? 'ok' : 'err'">
+                  {{ check.status }}
                 </Chip>
               </div>
             </div>
@@ -207,10 +265,19 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -251,6 +318,11 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   margin-top: 10px;
   flex-wrap: wrap;
 }
+.chips :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+}
 .stat-card {
   min-width: 0;
 }
@@ -258,6 +330,8 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
   font-size: 24px;
   margin-top: 8px;
   color: var(--fg);
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .grid {
   display: grid;
@@ -291,6 +365,12 @@ function serviceTone(service: AdminTelemetryService): "ok" | "warn" | "err" {
 .rows.compact {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.rows.services :deep(.chip),
+.rows.compact :deep(.chip) {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
 }
 .row {
   display: flex;

@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
+import {
+  getGraphQLClient,
+  getSessionToken,
+  subscribeLiveEvents,
+} from "@comtrya/sdk-core";
 import {
   classifyPrincipal,
-  fetchComtryaProjects,
+  listWorkspaceRepositoryIssues,
+  openIssueCountsByRepository,
   useProjectCounts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
 import ActivityStream from "../components/ActivityStream.vue";
+import SlotMount from "../components/SlotMount.vue";
 
 interface RepositorySummary {
   id: string;
@@ -20,6 +26,9 @@ interface RepositorySummary {
   visibility?: string | null;
   vcs?: string | null;
   updated?: string | null;
+  comtryaConfig?: {
+    projects?: unknown[];
+  } | null;
 }
 
 interface WorkspaceHomePayload {
@@ -48,7 +57,7 @@ const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
     name
     repositories {
       id name path groups description openPullRequests
-      defaultBranch visibility vcs updated
+      defaultBranch visibility vcs updated comtryaConfig
     }
   }
   extensionInstallations { id routePrefix }
@@ -64,90 +73,93 @@ const workspace = computed(() => payload.value?.workspace ?? {
 const repositories = computed(() => workspace.value.repositories);
 const extensionCount = computed(() => payload.value?.extensionInstallations?.length ?? 0);
 const extensionRuntime = computed(
-  () => payload.value?.instance?.capabilities?.extensionRuntime ? "enabled" : "disabled",
+  () => payload.value?.instance?.capabilities?.extensionRuntime ? "Enabled" : "Disabled",
 );
 
 /**
  * Workspace-wide aggregates surfaced on the summary strip. Both
  * tally counts already loaded per-repo: pull-request counts come
  * from the workspace GraphQL projection (`openPullRequests`),
- * issue counts from the per-repo `list-issues` op pass that the
- * sidebar uses too. The Inbox is the authoritative open-work
+ * issue counts from a repository fan-out of `list-issues`. The
+ * Inbox is the authoritative open-work
  * surface; these tiles link there so they read as actionable
  * jump-offs, not vanity numbers.
  */
-const totalOpenIssues = computed(() => totalOpenIssuesFetched.value);
+const totalOpenIssues = computed(() =>
+  Object.values(openIssuesByRepoId.value).reduce(
+    (sum, count) => sum + (count ?? 0),
+    0,
+  ),
+);
 const totalOpenPulls = computed(() =>
   repositories.value.reduce((sum, r) => sum + (r.openPullRequests ?? 0), 0),
 );
 /**
- * Per-repo open-issue counts. Hydrated in parallel via
- * `invokeOp("ext_issues", "issues", "list-issues")` filtered to the
- * repo URI, counted client-side for OPEN + REOPENED. Live-synced
- * via the same SSE topics App.vue + RepoHome listen to, so opening
- * an issue from another tab updates the row's chip without reload.
+ * Per-repo open-issue counts. Hydrated via a repository fan-out of
+ * `issues.list-issues`, counted client-side for OPEN + REOPENED, and
+ * live-synced from one filtered SSE stream. Repos without the Issues
+ * extension contribute 0 instead of blocking the workspace summary.
  */
 const openIssuesByRepoId = ref<Record<string, number>>({});
 const issueUnsubscribers: Array<() => void> = [];
+let issueStreamStarting = false;
+const ISSUE_COUNT_EVENT_TYPES = new Set([
+  "dev.comtrya.issues.opened",
+  "dev.comtrya.issues.closed",
+  "dev.comtrya.issues.reopened",
+]);
 const workspaceId = computed(() => payload.value?.workspace?.id ?? null);
 
-function repoUri(workspaceUlid: string, repositoryUlid: string): string {
-  return `comtrya://workspace/${workspaceUlid}/repository/${repositoryUlid}`;
-}
-
-async function refreshOpenIssueCount(repoId: string, ws: string): Promise<void> {
-  const result = await invokeOp<Array<{ state?: string }>>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: repoUri(ws, repoId), limit: 1024 },
-  );
-  if (!result.ok || !Array.isArray(result.value)) return;
-  const count = result.value.filter((issue) => {
-    const s = (issue.state ?? "").toUpperCase();
-    return s === "OPEN" || s === "REOPENED";
-  }).length;
-  openIssuesByRepoId.value = { ...openIssuesByRepoId.value, [repoId]: count };
-}
-
-/**
- * Workspace-wide open-issue count. Per-repo `list-issues` calls
- * miss issues that were opened against the bare workspace URI
- * (workspace-scoped issues — what start.sh's smoke seeds), so the
- * summary tile fans out one extra `list-issues` against the
- * workspace URN itself and uses that as the authoritative total.
- * Re-fired on the same SSE topics the per-repo counts watch.
- */
-const totalOpenIssuesFetched = ref(0);
-// Tracks whether the workspace-wide open-issue fetch has resolved at least
-// once. The count is hydrated by a separate invokeOp after the main GraphQL
-// load, so the summary tile must show `—` (not a misleading 0) until then.
 const workspaceOpenIssuesLoaded = ref(false);
-
-async function refreshWorkspaceOpenIssues(): Promise<void> {
-  const ws = workspaceId.value;
-  if (!ws) return;
-  const result = await invokeOp<Array<{ state?: string }>>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: `comtrya://workspace/${ws}`, limit: 1024 },
-  );
-  if (!result.ok || !Array.isArray(result.value)) return;
-  totalOpenIssuesFetched.value = result.value.filter((issue) => {
-    const s = (issue.state ?? "").toUpperCase();
-    return s === "OPEN" || s === "REOPENED";
-  }).length;
-  workspaceOpenIssuesLoaded.value = true;
-}
+const homeSlotContext = computed(() => ({ workspaceId: workspaceId.value }));
 
 async function refreshAllOpenIssues(): Promise<void> {
   const ws = workspaceId.value;
-  if (!ws) return;
-  await Promise.all([
-    refreshWorkspaceOpenIssues(),
-    ...repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
-  ]);
+  if (!ws) {
+    openIssuesByRepoId.value = {};
+    workspaceOpenIssuesLoaded.value = true;
+    return;
+  }
+  try {
+    const issues = await listWorkspaceRepositoryIssues(ws, repositories.value, {
+      limitPerRepository: 4096,
+    });
+    openIssuesByRepoId.value = openIssueCountsByRepository(
+      repositories.value,
+      issues,
+    );
+  } catch {
+    openIssuesByRepoId.value = openIssueCountsByRepository(
+      repositories.value,
+      [],
+    );
+  } finally {
+    workspaceOpenIssuesLoaded.value = true;
+  }
+}
+
+async function startIssueCountStream(): Promise<void> {
+  if (issueUnsubscribers.length > 0 || issueStreamStarting) return;
+  issueStreamStarting = true;
+  let token: string | undefined;
+  try {
+    token = await getSessionToken();
+  } catch {
+    token = undefined;
+  } finally {
+    issueStreamStarting = false;
+  }
+  issueUnsubscribers.push(
+    subscribeLiveEvents({
+      token,
+      onEvent: (event) => {
+        if (ISSUE_COUNT_EVENT_TYPES.has(event.eventType)) {
+          void refreshAllOpenIssues();
+        }
+      },
+      onError: () => {},
+    }),
+  );
 }
 
 /**
@@ -157,11 +169,10 @@ async function refreshAllOpenIssues(): Promise<void> {
  * project from the workspace home without having to first know
  * which repo it lives in.
  *
- * Resolved lazily after repos load. Uses the iter 63 sdk-vue
- * helper for the actual fetch (one query per repo; the kernel's
- * `workspace.repositories[] { comtryaConfig }` listing doesn't
- * evaluate CUE per repo today). Failures per-repo are silent so
- * one bad repo doesn't break the panel.
+ * Resolved from the same workspace GraphQL payload that renders the
+ * repository list. The kernel evaluates per-repo CUE while building
+ * workspace.repositories, so the Projects rail no longer waits on a
+ * second per-repo query fan-out before showing useful work.
  */
 interface ProjectRow {
   /** Repo path (`comtrya/dogfood`) — disambiguates same-named projects. */
@@ -171,41 +182,36 @@ interface ProjectRow {
   project: ComtryaProject;
 }
 
-const projectRows = ref<ProjectRow[]>([]);
-const projectsLoadState = ref<"idle" | "loading" | "ready">("idle");
+function isComtryaProject(value: unknown): value is ComtryaProject {
+  return value !== null && typeof value === "object";
+}
 
-async function refreshAllProjects(): Promise<void> {
-  if (repositories.value.length === 0) {
-    projectRows.value = [];
-    projectsLoadState.value = "ready";
-    return;
-  }
-  projectsLoadState.value = "loading";
-  const fetched = await Promise.all(
-    repositories.value.map(async (repo) => {
-      const segments = (repo.path ?? "")
-        .split("/")
-        .filter(Boolean)
-        .map(decodeURIComponent);
-      const projects = segments.length > 0
-        ? await fetchComtryaProjects(segments)
-        : [];
-      return projects.map((project): ProjectRow => ({
-        repoPath: repo.path,
-        segments,
-        project,
-      }));
-    }),
-  );
-  const rows = fetched.flat().filter((row) => Boolean(row.project.name));
+function projectRowsForRepository(repo: RepositorySummary): ProjectRow[] {
+  const segments = (repo.path ?? "")
+    .split("/")
+    .filter(Boolean)
+    .map(decodeURIComponent);
+  if (segments.length === 0) return [];
+  const projects = repo.comtryaConfig?.projects ?? [];
+  return projects
+    .filter(isComtryaProject)
+    .filter((project) => Boolean(project.name))
+    .map((project): ProjectRow => ({
+      repoPath: repo.path,
+      segments,
+      project,
+    }));
+}
+
+const projectRows = computed<ProjectRow[]>(() => {
+  const rows = repositories.value.flatMap((repo) => projectRowsForRepository(repo));
   rows.sort((a, b) => {
     const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
     if (byProject !== 0) return byProject;
     return a.repoPath.localeCompare(b.repoPath);
   });
-  projectRows.value = rows;
-  projectsLoadState.value = "ready";
-}
+  return rows;
+});
 
 function projectHomeHref(row: ProjectRow): string {
   const repoPath = row.segments.map(encodeURIComponent).join("/");
@@ -220,11 +226,10 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
 
 /**
  * Per-Project work counts — open / closed issues + epic state
- * tally bucketed by `projectName`. Workspace-wide single fetch
- * per resource so a workspace with N repos × M projects costs
- * exactly two ops calls, not N × M. Renders count chips on each
- * panel row; each chip links to the corresponding filtered queue
- * (iter 60 URL recipe).
+ * tally bucketed by `projectName`. Workspace-wide aggregation costs
+ * one repository issue fan-out plus one epic op, not N × M project
+ * fetches. Renders count chips on each panel row; each chip links
+ * to the corresponding filtered queue (iter 60 URL recipe).
  *
  * Live-synced via SSE on `dev.comtrya.issues.{opened,closed,
  * reopened}` and `dev.comtrya.epic.{created,state-changed}` so
@@ -234,11 +239,10 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
 // iter 76 — routed through the canonical
 // `@comtrya/sdk-vue::useProjectCounts` composable so this surface
 // and `ProjectsPanel` (iter 75) share one fetch + SSE subscriber
-// implementation. The composable runs two workspace-wide ops on
-// mount and re-fires on the seven topics that mutate
-// project-tagged work; the watch below remains for resilience
-// against the kernel re-emitting workspace id after initial
-// mount.
+// implementation. The composable fans issue reads out by repo,
+// fetches workspace epics, and re-fires on the seven topics that
+// mutate project-tagged work; the watch below remains for resilience
+// against the kernel re-emitting workspace id after initial mount.
 const { countsFor, refresh: refreshProjectCounts } = useProjectCounts();
 
 /**
@@ -283,23 +287,7 @@ let loadController: AbortController | undefined;
 
 onMounted(() => {
   void loadWorkspaceHome();
-  // The per-repo open-issue counts are independent of the
-  // workspace-wide per-project counts; iter 76 leaves only this
-  // subscription here. The `useProjectCounts` composable owns
-  // the seven topics that mutate project-tagged work.
-  for (const type of [
-    "dev.comtrya.issues.opened",
-    "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened",
-  ]) {
-    issueUnsubscribers.push(
-      subscribeLiveEvents({
-        type,
-        onEvent: () => void refreshAllOpenIssues(),
-        onError: () => {},
-      }),
-    );
-  }
+  void startIssueCountStream();
 });
 onUnmounted(() => {
   loadController?.abort();
@@ -309,11 +297,6 @@ onUnmounted(() => {
 
 // Hydrate per-repo issue counts once the workspace summary resolves.
 watch([workspaceId, repositories], () => void refreshAllOpenIssues());
-
-// Hydrate the workspace-wide CUE Projects list at the same time -
-// triggered on repos changing (mount or live insert from
-// imported-repository events).
-watch(repositories, () => void refreshAllProjects(), { immediate: true });
 
 // Per-project work counts depend on the workspace id being
 // available; refresh once that and the repo set resolve, then
@@ -327,8 +310,11 @@ async function loadWorkspaceHome(): Promise<void> {
   loadState.value = "loading";
   loadError.value = null;
   try {
+    workspaceOpenIssuesLoaded.value = false;
     payload.value = await fetchWorkspaceHome(controller.signal);
     loadState.value = "ready";
+    void refreshAllOpenIssues();
+    void refreshProjectCounts();
   } catch (error) {
     if (controller.signal.aborted) return;
     payload.value = null;
@@ -338,24 +324,15 @@ async function loadWorkspaceHome(): Promise<void> {
 }
 
 async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePayload> {
-  const response = await fetch("/graphql", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: WORKSPACE_HOME_QUERY }),
-    signal,
-  });
-  const envelope = (await response.json()) as {
-    data?: WorkspaceHomePayload;
-    errors?: Array<{ message?: string }>;
-  };
-  if (!response.ok || envelope.errors?.length) {
-    throw new Error(envelope.errors?.[0]?.message ?? response.statusText);
-  }
-  if (!envelope.data?.workspace) {
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  const data = await getGraphQLClient().query<WorkspaceHomePayload>(
+    WORKSPACE_HOME_QUERY,
+  );
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  if (!data.workspace) {
     throw new Error("workspace home response did not include workspace data");
   }
-  return envelope.data;
+  return data;
 }
 
 </script>
@@ -377,7 +354,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           <strong>{{ loadState === 'loading' || !workspaceOpenIssuesLoaded ? '—' : totalOpenIssues }}</strong>
         </RouterLink>
         <RouterLink to="/inbox" class="summary-tile-link" :title="`${totalOpenPulls} open pull requests — see the Inbox`">
-          <span>Open pulls</span>
+          <span>Open pull requests</span>
           <strong>{{ loadState === 'loading' ? '—' : totalOpenPulls }}</strong>
         </RouterLink>
         <div>
@@ -385,7 +362,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
           <strong>{{ loadState === 'loading' ? '—' : extensionCount }}</strong>
         </div>
         <div>
-          <span>Runtime</span>
+          <span>Extension runtime</span>
           <strong>{{ loadState === 'loading' ? '—' : extensionRuntime }}</strong>
         </div>
       </div>
@@ -395,6 +372,14 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
 
     <section class="home-grid">
       <div class="home-spine" data-smoke="home-spine">
+        <SlotMount
+          name="home.your-work"
+          label="Your work"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
         <div
           v-if="uniqueActivityProjects.length > 0"
           class="activity-project-filter"
@@ -421,28 +406,46 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
       </div>
 
       <aside class="home-rail">
+        <SlotMount
+          name="home.repositories"
+          label="Repositories"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
+        <SlotMount
+          name="home.planning"
+          label="Planning"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
         <section
-          v-if="projectRows.length > 0 || projectsLoadState === 'loading'"
           class="panel home-projects"
           data-smoke="home-projects"
         >
           <header class="panel-heading">
             <h2>Projects</h2>
             <span class="meta" aria-hidden="true">
-              {{ projectRows.length }} declared
+              {{ projectRows.length }} project<template v-if="projectRows.length !== 1">s</template>
             </span>
           </header>
-          <p v-if="projectsLoadState === 'loading'" class="home-empty">
-            Resolving CUE projects…
+          <p v-if="loadState === 'loading'" class="home-empty">
+            Loading projects…
           </p>
-          <ul v-else class="home-projects-list" aria-label="CUE projects across the workspace">
+          <p v-else-if="projectRows.length === 0" class="home-empty">
+            No projects found.
+          </p>
+          <ul v-else class="home-projects-list" aria-label="Projects across the workspace">
             <li
               v-for="row in projectRows"
               :key="`${row.repoPath}::${row.project.name}`"
               class="home-project-row"
             >
               <RouterLink :to="projectHomeHref(row)" class="home-project-link">
-                <span class="home-project-glyph" aria-hidden="true">◇</span>
+                <span class="home-project-glyph">Project</span>
                 <span class="home-project-name">{{ row.project.name }}</span>
                 <span class="home-project-repo">{{ row.repoPath }}</span>
               </RouterLink>
@@ -454,7 +457,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`Open issues in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).openIssues }}</span>
-                  <span class="count-label">open</span>
+                  <span class="count-label">open issues</span>
                 </RouterLink>
                 <RouterLink
                   :to="projectFilterHref('epics', row.project.name ?? '', 'IN_PROGRESS')"
@@ -463,7 +466,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`In-progress epics in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).epicsInProgress }}</span>
-                  <span class="count-label">epics</span>
+                  <span class="count-label">in-progress epics</span>
                 </RouterLink>
                 <RouterLink
                   :to="projectFilterHref('issues', row.project.name ?? '', 'CLOSED')"
@@ -472,7 +475,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
                   :title="`Closed issues in ${row.project.name}`"
                 >
                   <span class="count-num">{{ countsFor(row.project.name).closedIssues }}</span>
-                  <span class="count-label">closed</span>
+                  <span class="count-label">closed issues</span>
                 </RouterLink>
               </div>
               <ul v-if="projectOwnerRefs(row.project).length > 0" class="home-project-owners">
@@ -490,9 +493,25 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
             </li>
           </ul>
           <p class="home-projects-source">
-            From <code>package comtrya</code> across every repo in this workspace
+            Projects across repositories in this workspace
           </p>
         </section>
+        <SlotMount
+          name="home.activity"
+          label="Activity"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
+        <SlotMount
+          name="home.instance"
+          label="Instance"
+          smoke-prefix="home-slot"
+          :element-context="homeSlotContext"
+          :framed="false"
+          hide-empty
+        />
       </aside>
     </section>
   </div>

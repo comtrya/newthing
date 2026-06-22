@@ -1,9 +1,9 @@
-import { buildExtensionUrl } from "@comtrya/sdk-core";
-import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, extensionHref, fetchComtryaProjects } from "@comtrya/sdk-vue";
 import { createEpic, listEpics } from "./api";
 import { bindEpicCommands } from "./epic-commands";
 import EpicCard from "./EpicCard.vue";
 import EpicDetail from "./EpicDetail.vue";
+import EpicRoadmapBoard from "./EpicRoadmapBoard.vue";
 import EpicsList from "./EpicsList.vue";
 import IssueEpicLinker from "./IssueEpicLinker.vue";
 import {
@@ -19,6 +19,7 @@ const EXTENSION_ID = "ext_epics";
 const EPIC_CARD_TAG = "comtrya-epic-card";
 const EPICS_BOARD_TAG = "comtrya-epics-board";
 const EPICS_INDEX_TAG = "comtrya-epics-index";
+const EPICS_ROADMAP_TAG = "comtrya-epics-roadmap";
 const EPIC_DETAIL_TAG = "comtrya-epic-detail";
 const ISSUE_EPIC_LINKER_TAG = "comtrya-issue-epic-linker";
 const EPIC_NEW_TAG = "comtrya-epic-new";
@@ -69,6 +70,7 @@ defineExtensionWidget({
 });
 defineExtensionWidget({ tagName: EPICS_BOARD_TAG, component: EpicsList });
 defineExtensionWidget({ tagName: EPICS_INDEX_TAG, component: EpicsList });
+defineExtensionWidget({ tagName: EPICS_ROADMAP_TAG, component: EpicRoadmapBoard });
 defineExtensionWidget({ tagName: EPIC_DETAIL_TAG, component: EpicDetail });
 defineExtensionWidget({ tagName: ISSUE_EPIC_LINKER_TAG, component: IssueEpicLinker });
 defineEpicNewElement();
@@ -113,6 +115,10 @@ const extension: ExtensionDefinition = {
       element: EPICS_INDEX_TAG,
       requiredPermission: "epics.read",
     });
+    host.registerRoute("/board", {
+      element: EPICS_ROADMAP_TAG,
+      requiredPermission: "epics.read",
+    });
     host.registerRoute("/new", {
       element: EPIC_NEW_TAG,
       requiredPermission: "epics.write",
@@ -136,9 +142,14 @@ function defineEpicNewElement(): void {
     EPIC_NEW_TAG,
     class extends HTMLElement {
       routeParams?: ExtensionRouteParams;
+      workspaceId?: string;
+      repositorySegments?: string[];
 
       connectedCallback(): void {
-        const ctx = newEpicRouteContext(this.routeParams);
+        const ctx = newEpicRouteContext(this.routeParams, {
+          workspaceId: this.workspaceId,
+          repositorySegments: this.repositorySegments,
+        });
         this.replaceChildren(epicNewForm(ctx));
       }
     },
@@ -147,16 +158,25 @@ function defineEpicNewElement(): void {
 
 interface NewEpicContext {
   workspaceId: string;
+  repositorySegments?: string[];
   projectName: string | null;
 }
 
-function newEpicRouteContext(routeParams?: ExtensionRouteParams): NewEpicContext {
+function newEpicRouteContext(
+  routeParams?: ExtensionRouteParams,
+  input: { workspaceId?: string | null; repositorySegments?: string[] } = {},
+): NewEpicContext {
   const params = new URLSearchParams(window.location.search);
+  const repositorySegments = input.repositorySegments
+    ?.map((segment) => segment.trim())
+    .filter(Boolean);
   return {
     workspaceId:
+      input.workspaceId ??
       params.get("workspaceId") ??
       routeParams?.params?.workspaceId ??
       defaultWorkspaceId(),
+    repositorySegments: repositorySegments?.length ? repositorySegments : undefined,
     projectName:
       params.get("projectName") ??
       routeParams?.params?.projectName ??
@@ -195,14 +215,28 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
   placeholderOption.value = "";
   placeholderOption.textContent = "— no project —";
   projectSelect.append(placeholderOption);
-  void fetchComtryaProjects().then((projects) => {
+  void fetchComtryaProjects(context.repositorySegments).then((projects) => {
+    let hasContextProject = false;
     for (const project of projects) {
       if (!project.name) continue;
       const option = document.createElement("option");
       option.value = project.name;
       option.textContent = project.name;
-      if (project.name === context.projectName) option.selected = true;
+      if (project.name === context.projectName) {
+        option.selected = true;
+        hasContextProject = true;
+      }
       projectSelect.append(option);
+    }
+    if (context.projectName) {
+      if (!hasContextProject) {
+        const option = document.createElement("option");
+        option.value = context.projectName;
+        option.textContent = context.projectName;
+        option.selected = true;
+        projectSelect.append(option);
+      }
+      projectSelect.value = context.projectName;
     }
   });
   projectSelect.addEventListener("change", () => {
@@ -230,13 +264,15 @@ function epicNewForm(context: NewEpicContext): HTMLElement {
     errorBox.hidden = true;
     void createEpic(undefined, {
       workspaceId: context.workspaceId,
-      projectName: projectSelect.value || null,
+      projectName: projectSelect.value || context.projectName || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
     })
       .then((created) => {
         window.location.assign(
-          buildExtensionUrl(EPICS_ROUTE_PREFIX, `/${created.workspaceId}/${created.id}`),
+          extensionHref(EPICS_ROUTE_PREFIX, `/${created.workspaceId}/${created.id}`, {
+            repositorySegments: context.repositorySegments,
+          }),
         );
       })
       .catch((error: unknown) => {

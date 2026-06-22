@@ -17,9 +17,26 @@
  * the `docs` field vanish from `comtryaConfig`.
  */
 
-import { computed, onMounted, ref, watch } from "vue";
-import { getGraphQLClient } from "@comtrya/sdk-core";
-import { bodyExcerpt, renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { getGraphQLClient, type OpResult } from "@comtrya/sdk-core";
+import {
+  bodyExcerpt,
+  parseQueryFilters,
+  renderMarkdown,
+  useShortcuts,
+} from "@comtrya/sdk-vue";
+import { extDocsXDocs } from "../../dist/ext_docs.client";
+import {
+  docFileMatches,
+  filterDocBoard,
+  hasDocsFilterQuery,
+} from "./docs-board-filter";
+import {
+  DOCS_BOARD_TABS,
+  docsBoardFromRouteSubPath,
+  docsBoardHref,
+  type DocsBoardId,
+} from "./docs-workbench-route";
 
 interface DocProperty {
   // intentionally any — typed by the per-type `properties` CUE block
@@ -64,17 +81,91 @@ interface RepositoryPayload {
   };
 }
 
+interface SummarizeDocInput {
+  path: string;
+  preview: string;
+}
+
+interface DocCatalogTypeInput {
+  projectName: string;
+  typeName: string;
+  label: string;
+  description: string | null;
+  slug: string;
+  files: SummarizeDocInput[];
+}
+
+interface DocCatalogInput {
+  types: DocCatalogTypeInput[];
+}
+
+interface DocBoardCard {
+  projectName?: string;
+  typeName?: string;
+  typeLabel?: string;
+  path?: string;
+  title?: string;
+  status?: string | null;
+  owner?: string | null;
+  tags?: string[];
+  feature?: string | null;
+  scenarioCount?: number;
+  stepCount?: number;
+  scenariosWithoutSteps?: number;
+  checklistTotal?: number;
+  checklistChecked?: number;
+  referenceCount?: number;
+  implementationReferenceCount?: number;
+  docReferenceCount?: number;
+  otherReferenceCount?: number;
+  decisionCount?: number;
+  openQuestionCount?: number;
+  riskCount?: number;
+}
+
+interface DocBoardColumn {
+  key: string;
+  label: string;
+  count: number;
+  docs: DocBoardCard[];
+}
+
+interface DocBoard {
+  totalDocs: number;
+  columns: DocBoardColumn[];
+}
+
+interface ExtensionRouteParams {
+  scope?: string;
+  routePrefix?: string;
+  subPath?: string;
+  params?: Record<string, string | undefined>;
+}
+
 const props = defineProps<{
   workspaceId?: string;
   repositoryId?: string | null;
   repositoryPath?: string | null;
   repositorySegments?: string[];
+  extensionSlot?: string | null;
   /**
    * When set (typically on a project home page), DocsPanel renders only
    * the named Project's doc types instead of every Project in the repo.
    */
   projectName?: string;
+  routeParams?: ExtensionRouteParams;
 }>();
+
+const DOC_FILTER_KEYS = [
+  "feature",
+  "is",
+  "owner",
+  "path",
+  "project",
+  "status",
+  "tag",
+  "type",
+] as const;
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const error = ref<string | null>(null);
@@ -84,6 +175,7 @@ const blobs = ref<RepositoryBlob[]>([]);
 const allProjects = computed<ComtryaProject[]>(
   () => config.value?.projects ?? [],
 );
+const isOverviewSummary = computed(() => props.extensionSlot === "repository.main");
 
 const projects = computed<ComtryaProject[]>(() => {
   if (!props.projectName) return allProjects.value;
@@ -102,6 +194,110 @@ const totalDocs = computed(() => {
 
 const expandedDocPath = ref<string | null>(null);
 const focusedDocPath = ref<string | null>(null);
+const boardState = ref<"idle" | "loading" | "ready" | "error">("idle");
+const boardError = ref<string | null>(null);
+const activeBoardId = ref<DocsBoardId>("type");
+const docSearch = ref("");
+const boards = ref<Record<DocsBoardId, DocBoard | null>>(emptyBoards());
+const boardTabs = DOCS_BOARD_TABS;
+const activeBoard = computed(() => boards.value[activeBoardId.value]);
+const docQuery = computed(() => parseQueryFilters(docSearch.value, DOC_FILTER_KEYS));
+const hasDocFilter = computed(() => hasDocsFilterQuery(docQuery.value));
+const visibleActiveBoard = computed<DocBoard | null>(() => {
+  const board = activeBoard.value;
+  if (!board) return null;
+  return hasDocFilter.value ? filterDocBoard(board, docQuery.value) : board;
+});
+const visibleBoardTotal = computed(() => visibleActiveBoard.value?.totalDocs ?? 0);
+const activeBoardTotal = computed(() => activeBoard.value?.totalDocs ?? totalDocs.value);
+const docTypeSummaries = computed(() => {
+  const byKey = new Map<string, { key: string; label: string; count: number }>();
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      const key = entry.key;
+      const current = byKey.get(key) ?? {
+        key,
+        label: entry.type.label || key,
+        count: 0,
+      };
+      current.count += filesForType(project, entry.type).length;
+      byKey.set(key, current);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => {
+    const byCount = b.count - a.count;
+    if (byCount !== 0) return byCount;
+    return a.label.localeCompare(b.label);
+  });
+});
+const visibleDocTypeSummaries = computed(() =>
+  docTypeSummaries.value.filter((entry) => entry.count > 0).slice(0, 4),
+);
+const docsRouteHref = computed(() => {
+  const path = (props.repositoryPath ?? "")
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map(encodeURIComponent)
+    .join("/");
+  const params = new URLSearchParams();
+  if (props.workspaceId) params.set("workspaceId", props.workspaceId);
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  const query = params.toString();
+  return `/r/${path || "repository"}/docs${query ? `?${query}` : ""}`;
+});
+const overviewHeadline = computed(() => {
+  if (loadState.value === "loading") return "Loading";
+  if (loadState.value === "error" || config.value?.error) return "Unavailable";
+  if (totalDocs.value === 0) return "No specs";
+  return `${totalDocs.value} specs`;
+});
+const visibleProjects = computed(() =>
+  projects.value.filter((project) => visibleDocTypesFor(project).length > 0),
+);
+const visibleCatalogTotal = computed(() => {
+  let total = 0;
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      total += visibleFilesForType(project, entry.key, entry.type).length;
+    }
+  }
+  return total;
+});
+const docsWorkbenchCountLabel = computed(() =>
+  hasDocFilter.value
+    ? `${visibleBoardTotal.value} of ${activeBoardTotal.value}`
+    : String(activeBoardTotal.value),
+);
+const docsWorkbenchCountIsPlural = computed(() =>
+  (hasDocFilter.value ? visibleBoardTotal.value : activeBoardTotal.value) !== 1,
+);
+const docsFilterSummary = computed(() =>
+  hasDocFilter.value
+    ? `${visibleCatalogTotal.value}/${totalDocs.value} specs | ${visibleProjects.value.length}/${projects.value.length} projects`
+    : "",
+);
+
+function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
+  return {
+    type: null,
+    project: null,
+    owner: null,
+    tag: null,
+    status: null,
+    scenario: null,
+    readiness: null,
+    decision: null,
+    handoff: null,
+    traceability: null,
+    implementation: null,
+  };
+}
+
+function resetBoards(): void {
+  boards.value = emptyBoards();
+  boardState.value = "idle";
+  boardError.value = null;
+}
 
 function isExpanded(path: string): boolean {
   return expandedDocPath.value === path;
@@ -116,12 +312,17 @@ function focusDoc(path: string): void {
   focusedDocPath.value = path;
 }
 
+function openDocsWorkbench(event: MouseEvent): void {
+  event.preventDefault();
+  window.location.assign(docsRouteHref.value);
+}
+
 /** Flat list of every visible doc path in render order — for j/k nav. */
 const orderedDocPaths = computed<string[]>(() => {
   const out: string[] = [];
-  for (const project of projects.value) {
-    for (const entry of docTypesFor(project)) {
-      for (const doc of filesForType(project, entry.type)) {
+  for (const project of visibleProjects.value) {
+    for (const entry of visibleDocTypesFor(project)) {
+      for (const doc of visibleFilesForType(project, entry.key, entry.type)) {
         out.push(doc.path);
       }
     }
@@ -180,13 +381,99 @@ useShortcuts({
 });
 
 onMounted(() => {
+  syncRouteStateFromLocation();
+  window.addEventListener("popstate", syncRouteStateFromLocation);
   void load();
 });
-watch(() => props.repositoryPath, () => void load());
+onUnmounted(() => {
+  window.removeEventListener("popstate", syncRouteStateFromLocation);
+});
+watch(
+  [() => props.repositoryPath, () => props.projectName, () => props.extensionSlot],
+  () => void load(),
+);
+watch(
+  () => props.routeParams?.subPath,
+  () => syncBoardFromRoute(),
+);
+watch(docSearch, () => writeUrlSearch());
+
+function syncBoardFromRoute(): void {
+  activeBoardId.value = docsBoardFromRouteSubPath(props.routeParams?.subPath);
+}
+
+function syncRouteStateFromLocation(): void {
+  activeBoardId.value = docsBoardFromRouteSubPath(currentDocsSubPath());
+  readUrlSearch();
+}
+
+function currentDocsSubPath(): string {
+  if (typeof window === "undefined") return props.routeParams?.subPath ?? "/";
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  if (segments[0] === "x" && segments[1] === "docs") {
+    return routeSubPathFromSegments(segments.slice(2));
+  }
+  const docsIndex = segments.lastIndexOf("docs");
+  if (docsIndex >= 0) {
+    return routeSubPathFromSegments(segments.slice(docsIndex + 1));
+  }
+  return props.routeParams?.subPath ?? "/";
+}
+
+function boardHref(boardId: DocsBoardId): string {
+  if (typeof window === "undefined") return "#";
+  return docsBoardHref({
+    boardId,
+    pathname: window.location.pathname,
+    routeSubPath: currentDocsSubPath(),
+    search: window.location.search,
+  });
+}
+
+function selectBoard(boardId: DocsBoardId, event: MouseEvent): void {
+  event.preventDefault();
+  activeBoardId.value = boardId;
+  if (typeof window === "undefined") return;
+  const href = boardHref(boardId);
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (href !== current) {
+    window.history.pushState({}, "", href);
+  }
+}
+
+function clearDocSearch(): void {
+  docSearch.value = "";
+}
+
+function onDocSearchEscape(): void {
+  if (docSearch.value) clearDocSearch();
+}
+
+function readUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  docSearch.value = new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function writeUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const trimmed = docSearch.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}`;
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (target !== current) window.history.replaceState(window.history.state, "", target);
+}
+
+function routeSubPathFromSegments(segments: string[]): string {
+  return segments.length > 0 ? `/${segments.join("/")}` : "/";
+}
 
 async function load(): Promise<void> {
   loadState.value = "loading";
   error.value = null;
+  resetBoards();
   try {
     const segments = props.repositorySegments ?? [];
     if (segments.length === 0) {
@@ -205,9 +492,17 @@ async function load(): Promise<void> {
     config.value = resolved?.comtryaConfig ?? null;
     blobs.value = resolved?.blobs ?? [];
     loadState.value = "ready";
+    if (isOverviewSummary.value) {
+      boards.value = emptyBoards();
+      boardState.value = "ready";
+      boardError.value = null;
+    } else {
+      void loadDocBoards();
+    }
   } catch (caught) {
     loadState.value = "error";
     error.value = caught instanceof Error ? caught.message : String(caught);
+    resetBoards();
   }
 }
 
@@ -230,6 +525,7 @@ interface DocFile {
   title: string;
   frontMatter: DocProperty;
   body: string;
+  preview: string;
 }
 
 function parseFrontMatter(raw: string | undefined | null): { props: DocProperty; body: string } {
@@ -288,6 +584,7 @@ function filesForType(project: ComtryaProject, type: DocType): DocFile[] {
         title,
         frontMatter: props,
         body,
+        preview: blob.preview ?? "",
       };
     })
     .sort((a, b) => a.fileName.localeCompare(b.fileName));
@@ -298,6 +595,24 @@ function docTypesFor(project: ComtryaProject): Array<{ key: string; type: DocTyp
   return Object.entries(project.docs)
     .map(([key, type]) => ({ key, type }))
     .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function visibleDocTypesFor(project: ComtryaProject): Array<{ key: string; type: DocType }> {
+  return docTypesFor(project).filter(
+    (entry) => visibleFilesForType(project, entry.key, entry.type).length > 0,
+  );
+}
+
+function visibleFilesForType(
+  project: ComtryaProject,
+  typeName: string,
+  type: DocType,
+): DocFile[] {
+  const files = filesForType(project, type);
+  if (!hasDocFilter.value) return files;
+  return files.filter((doc) =>
+    docFileMatches(project, typeName, type, doc, docQuery.value),
+  );
 }
 
 function propertyEntries(type: DocType): Array<{ name: string; spec: unknown }> {
@@ -325,25 +640,238 @@ function describeFrontMatterValue(value: unknown): string {
   }
   return String(value);
 }
+
+function docCatalogInput(): DocCatalogInput {
+  const types: DocCatalogTypeInput[] = [];
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      types.push({
+        projectName: project.name ?? "(unnamed project)",
+        typeName: entry.key,
+        label: entry.type.label || entry.key,
+        description: entry.type.description ?? null,
+        slug: entry.type.slug ?? "",
+        files: filesForType(project, entry.type).map((doc) => ({
+          path: doc.path,
+          preview: doc.preview,
+        })),
+      });
+    }
+  }
+  return { types };
+}
+
+function opValue<T>(result: OpResult<unknown>, label: string): T {
+  if (result.ok) return result.value as T;
+  throw new Error(`${label}: ${result.error.message}`);
+}
+
+async function loadDocBoards(): Promise<void> {
+  const input = docCatalogInput();
+  if (!input.types.some((type) => type.files.length > 0)) {
+    boards.value = emptyBoards();
+    boardState.value = "ready";
+    boardError.value = null;
+    return;
+  }
+
+  boardState.value = "loading";
+  boardError.value = null;
+  try {
+    const [
+      type,
+      project,
+      owner,
+      tag,
+      status,
+      scenario,
+      readiness,
+      decision,
+      handoff,
+      traceability,
+      implementation,
+    ] = await Promise.all([
+      extDocsXDocs.typeBoard(input),
+      extDocsXDocs.projectBoard(input),
+      extDocsXDocs.ownerBoard(input),
+      extDocsXDocs.tagBoard(input),
+      extDocsXDocs.statusBoard(input),
+      extDocsXDocs.scenarioBoard(input),
+      extDocsXDocs.readinessBoard(input),
+      extDocsXDocs.decisionBoard(input),
+      extDocsXDocs.handoffBoard(input),
+      extDocsXDocs.traceabilityBoard(input),
+      extDocsXDocs.implementationBoard(input),
+    ]);
+    boards.value = {
+      type: opValue<DocBoard>(type, "type board"),
+      project: opValue<DocBoard>(project, "project board"),
+      owner: opValue<DocBoard>(owner, "owner board"),
+      tag: opValue<DocBoard>(tag, "tag board"),
+      status: opValue<DocBoard>(status, "status board"),
+      scenario: opValue<DocBoard>(scenario, "scenario board"),
+      readiness: opValue<DocBoard>(readiness, "readiness board"),
+      decision: opValue<DocBoard>(decision, "review board"),
+      handoff: opValue<DocBoard>(handoff, "handoff board"),
+      traceability: opValue<DocBoard>(traceability, "traceability board"),
+      implementation: opValue<DocBoard>(implementation, "implementation board"),
+    };
+    boardState.value = "ready";
+  } catch (caught) {
+    boards.value = emptyBoards();
+    boardState.value = "error";
+    boardError.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+function boardTabTotal(id: DocsBoardId): number {
+  return boards.value[id]?.totalDocs ?? 0;
+}
+
+function cardTypeLabel(card: DocBoardCard): string {
+  return card.typeLabel || card.typeName || "doc";
+}
+
+function metricRows(card: DocBoardCard): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = [];
+  if (card.status) rows.push({ label: "status", value: card.status });
+  if (card.projectName) rows.push({ label: "project", value: card.projectName });
+  if (card.owner) rows.push({ label: "owner", value: card.owner });
+  if (card.feature) rows.push({ label: "feature", value: card.feature });
+  if (Array.isArray(card.tags) && card.tags.length > 0) {
+    rows.push({ label: "tags", value: card.tags.join(", ") });
+  }
+  if (typeof card.scenarioCount === "number") {
+    rows.push({ label: "scenarios", value: String(card.scenarioCount) });
+  }
+  if (typeof card.stepCount === "number") {
+    rows.push({ label: "steps", value: String(card.stepCount) });
+  }
+  if (
+    typeof card.scenariosWithoutSteps === "number" &&
+    card.scenariosWithoutSteps > 0
+  ) {
+    rows.push({
+      label: "empty",
+      value: String(card.scenariosWithoutSteps),
+    });
+  }
+  if (typeof card.checklistTotal === "number") {
+    rows.push({
+      label: "checklist",
+      value: `${card.checklistChecked ?? 0}/${card.checklistTotal}`,
+    });
+  }
+  if (typeof card.referenceCount === "number") {
+    rows.push({ label: "refs", value: String(card.referenceCount) });
+  }
+  if (typeof card.implementationReferenceCount === "number") {
+    rows.push({
+      label: "impl refs",
+      value: String(card.implementationReferenceCount),
+    });
+  }
+  if (typeof card.docReferenceCount === "number") {
+    rows.push({ label: "doc refs", value: String(card.docReferenceCount) });
+  }
+  if (typeof card.otherReferenceCount === "number" && card.otherReferenceCount > 0) {
+    rows.push({ label: "other refs", value: String(card.otherReferenceCount) });
+  }
+  if (typeof card.decisionCount === "number") {
+    rows.push({ label: "decisions", value: String(card.decisionCount) });
+  }
+  if (typeof card.openQuestionCount === "number") {
+    rows.push({ label: "questions", value: String(card.openQuestionCount) });
+  }
+  if (typeof card.riskCount === "number") {
+    rows.push({ label: "risks", value: String(card.riskCount) });
+  }
+  return rows;
+}
 </script>
 
 <template>
-  <section class="docs-panel" data-smoke="docs-panel">
+  <section
+    class="docs-panel"
+    :class="{ 'docs-panel--summary': isOverviewSummary }"
+    data-smoke="docs-panel"
+  >
+    <article
+      v-if="isOverviewSummary"
+      class="docs-overview-card"
+      data-smoke="docs-overview-card"
+    >
+      <header class="docs-overview-head">
+        <div>
+          <p class="docs-overview-eyebrow">{{ repositoryPath || "Repository" }}</p>
+          <h2>Specs &amp; PRDs</h2>
+        </div>
+        <span class="docs-overview-pill">{{ overviewHeadline }}</span>
+      </header>
+
+      <p v-if="loadState === 'error'" class="docs-overview-message error" role="alert">
+        {{ error }}
+      </p>
+      <p v-else-if="config?.error" class="docs-overview-message error" role="alert">
+        {{ config.error }}
+      </p>
+      <p v-else-if="loadState === 'loading'" class="docs-overview-message">
+        Reading the repo docs catalog...
+      </p>
+      <template v-else-if="totalDocs > 0">
+        <p class="docs-overview-copy">
+          Product intent, PRDs, and BDD scenarios live with the repository.
+        </p>
+        <dl class="docs-overview-stats" aria-label="Specs summary">
+          <div>
+            <dt>Specs</dt>
+            <dd>{{ totalDocs }}</dd>
+          </div>
+          <div>
+            <dt>Types</dt>
+            <dd>{{ docTypeSummaries.length }}</dd>
+          </div>
+          <div>
+            <dt>Projects</dt>
+            <dd>{{ projects.length }}</dd>
+          </div>
+        </dl>
+        <ul class="docs-overview-types" aria-label="Doc types">
+          <li v-for="entry in visibleDocTypeSummaries" :key="entry.key">
+            <span>{{ entry.label }}</span>
+            <strong>{{ entry.count }}</strong>
+          </li>
+        </ul>
+        <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
+          Open specs workbench
+        </a>
+      </template>
+      <template v-else>
+        <p class="docs-overview-message">
+          No specs, PRDs, or BDD scenarios declared for this repository.
+        </p>
+        <a class="docs-overview-link" :href="docsRouteHref" @click="openDocsWorkbench">
+          Open specs workbench
+        </a>
+      </template>
+    </article>
+
+    <template v-else>
     <header class="docs-head">
       <div class="title-block">
-        <h2>Docs</h2>
+        <h2>Specs</h2>
         <span class="muted">
-          <template v-if="loadState === 'loading'">reading repo CUE config…</template>
+          <template v-if="loadState === 'loading'">reading repo specs catalog…</template>
           <template v-else-if="loadState === 'error'">unavailable</template>
           <template v-else-if="totalDocs === 0">
-            No MDX docs declared. Add a
+            No specs, PRDs, or BDD scenarios declared. Add a
             <code>docs</code> block to a Project in
             <code>package comtrya</code> to surface them here.
           </template>
           <template v-else>
-            {{ totalDocs }} doc<template v-if="totalDocs !== 1">s</template>
+            {{ totalDocs }} spec<template v-if="totalDocs !== 1">s</template>
             across {{ projects.length }} project<template v-if="projects.length !== 1">s</template>
-            · shape from <code>ext_docs</code>'s registered CUE schema
+            · typed by <code>ext_docs</code>'s registered CUE schema
           </template>
         </span>
       </div>
@@ -352,9 +880,127 @@ function describeFrontMatterValue(value: unknown): string {
     <p v-if="loadState === 'error'" class="muted error" role="alert">{{ error }}</p>
     <p v-else-if="config?.error" class="muted error" role="alert">{{ config.error }}</p>
 
+    <section
+      v-if="loadState === 'ready' && totalDocs > 0"
+      class="docs-workbench"
+      data-smoke="docs-workbench"
+    >
+      <header class="docs-workbench-head">
+        <div class="docs-workbench-title">
+          <h3>Specs workbench</h3>
+          <span class="muted">
+            {{ docsWorkbenchCountLabel }} spec<template v-if="docsWorkbenchCountIsPlural">s</template>
+          </span>
+        </div>
+        <nav class="docs-board-tabs" aria-label="Specs workbench views">
+          <a
+            v-for="tab in boardTabs"
+            :key="tab.id"
+            :href="boardHref(tab.id)"
+            :class="['docs-board-tab', { active: activeBoardId === tab.id }]"
+            :aria-current="activeBoardId === tab.id ? 'page' : undefined"
+            @click="selectBoard(tab.id, $event)"
+          >
+            <span>{{ tab.label }}</span>
+            <strong>{{ boardTabTotal(tab.id) }}</strong>
+          </a>
+        </nav>
+      </header>
+
+      <div class="docs-workbench-toolbar">
+        <label class="docs-search">
+          <input
+            data-docs-workbench-search
+            v-model="docSearch"
+            type="search"
+            placeholder="Filter specs: type:prd owner:platform bdd"
+            autocomplete="off"
+            aria-label="Filter specs workbench"
+            @keydown.esc="onDocSearchEscape"
+          />
+        </label>
+        <button
+          v-if="docSearch"
+          type="button"
+          class="docs-clear"
+          aria-label="Clear specs filter"
+          @click="clearDocSearch"
+        >
+          Clear
+        </button>
+        <span
+          v-if="hasDocFilter"
+          class="docs-filter-summary"
+          data-smoke="docs-filter-summary"
+        >
+          {{ docsFilterSummary }}
+        </span>
+      </div>
+
+      <p v-if="boardState === 'loading'" class="muted docs-board-status">
+        Loading specs board…
+      </p>
+      <p
+        v-else-if="boardState === 'error'"
+        class="muted error docs-board-status"
+        role="alert"
+      >
+        {{ boardError }}
+      </p>
+      <p
+        v-else-if="hasDocFilter && visibleActiveBoard && visibleActiveBoard.totalDocs === 0"
+        class="muted docs-board-status"
+      >
+        No specs match the current filter.
+      </p>
+      <div
+        v-else-if="visibleActiveBoard"
+        class="docs-board"
+        :data-board="activeBoardId"
+      >
+        <section
+          v-for="column in visibleActiveBoard.columns"
+          :key="column.key"
+          class="docs-board-column"
+        >
+          <header class="docs-board-column-head">
+            <h4>{{ column.label }}</h4>
+            <span>{{ column.count }}</span>
+          </header>
+          <ol v-if="column.docs.length > 0" class="docs-board-cards">
+            <li
+              v-for="doc in column.docs"
+              :key="doc.path"
+              class="docs-board-card"
+              :aria-label="`${cardTypeLabel(doc)}: ${doc.title || doc.path}`"
+            >
+              <header class="docs-board-card-head">
+                <span class="docs-board-type">{{ cardTypeLabel(doc) }}</span>
+                <strong>{{ doc.title || doc.path }}</strong>
+              </header>
+              <code v-if="doc.path" class="docs-board-path">{{ doc.path }}</code>
+              <dl v-if="metricRows(doc).length > 0" class="docs-board-metrics">
+                <template v-for="row in metricRows(doc)" :key="`${doc.path}-${row.label}`">
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.value }}</dd>
+                </template>
+              </dl>
+            </li>
+          </ol>
+          <p v-else class="muted docs-board-empty">No specs</p>
+        </section>
+      </div>
+    </section>
+
+    <p
+      v-if="loadState === 'ready' && totalDocs > 0 && hasDocFilter && visibleCatalogTotal === 0"
+      class="muted docs-board-status"
+    >
+      No repo specs, PRDs, or BDD scenarios match the current filter.
+    </p>
+
     <article
-      v-for="project in projects"
-      v-show="docTypesFor(project).length > 0"
+      v-for="project in visibleProjects"
       :key="project.name"
       class="docs-project"
     >
@@ -364,7 +1010,7 @@ function describeFrontMatterValue(value: unknown): string {
       </header>
 
       <section
-        v-for="entry in docTypesFor(project)"
+        v-for="entry in visibleDocTypesFor(project)"
         :key="entry.key"
         class="docs-type"
       >
@@ -373,7 +1019,8 @@ function describeFrontMatterValue(value: unknown): string {
           <span class="docs-type-label">{{ entry.type.label || entry.key }}</span>
           <code class="docs-type-scope">{{ scopeFor(project, entry.type) || "&lt;project root&gt;" }}/</code>
           <span class="muted docs-type-count">
-            {{ filesForType(project, entry.type).length }} file<template v-if="filesForType(project, entry.type).length !== 1">s</template>
+            {{ visibleFilesForType(project, entry.key, entry.type).length }}
+            file<template v-if="visibleFilesForType(project, entry.key, entry.type).length !== 1">s</template>
           </span>
         </header>
 
@@ -390,14 +1037,18 @@ function describeFrontMatterValue(value: unknown): string {
           <dd class="implicit">MDX body (implicit)</dd>
         </dl>
 
-        <ol v-if="filesForType(project, entry.type).length > 0" class="docs-files">
+        <ol
+          v-if="visibleFilesForType(project, entry.key, entry.type).length > 0"
+          class="docs-files"
+        >
           <li
-            v-for="doc in filesForType(project, entry.type)"
+            v-for="doc in visibleFilesForType(project, entry.key, entry.type)"
             :key="doc.path"
             :class="[
               'docs-file',
               { focused: focusedDocPath === doc.path, expanded: isExpanded(doc.path) },
             ]"
+            :aria-label="`${entry.type.label || entry.key}: ${doc.title}`"
             tabindex="0"
             @click="toggleDoc(doc.path)"
             @focus="focusDoc(doc.path)"
@@ -430,6 +1081,7 @@ function describeFrontMatterValue(value: unknown): string {
         </p>
       </section>
     </article>
+    </template>
   </section>
 </template>
 
@@ -438,6 +1090,171 @@ function describeFrontMatterValue(value: unknown): string {
   display: grid;
   gap: 14px;
   font-family: var(--font-sans, system-ui);
+  min-width: 0;
+}
+
+.docs-panel--summary {
+  gap: 0;
+}
+
+.docs-overview-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-overview-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.docs-overview-head h2 {
+  margin: 0;
+  font-family: var(--font-sans, system-ui);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.docs-overview-eyebrow {
+  margin: 0 0 4px;
+  overflow: hidden;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-sans, system-ui);
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-overview-pill {
+  flex: 0 0 auto;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 8px;
+  color: var(--accent, #3b82f6);
+  background: var(--accent-soft, rgba(59,130,246,0.14));
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.docs-overview-copy,
+.docs-overview-message {
+  margin: 0;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.docs-overview-message {
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 10px 12px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-message.error {
+  color: var(--err, #f87171);
+  border-color: var(--err-soft, rgba(248,113,113,0.2));
+  background: var(--err-soft, rgba(248,113,113,0.12));
+}
+
+.docs-overview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.docs-overview-stats > div {
+  min-width: 0;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 9px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-stats dt {
+  overflow-wrap: anywhere;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.docs-overview-stats dd {
+  margin: 6px 0 0;
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.docs-overview-types {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.docs-overview-types li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  padding: 8px 9px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-overview-types span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docs-overview-types strong {
+  color: var(--fg, rgba(255,255,255,0.94));
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.docs-overview-link {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0.5px solid var(--line-2, rgba(255,255,255,0.12));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 10px;
+  color: var(--fg, rgba(255,255,255,0.94));
+  background: var(--surface, rgba(255,255,255,0.03));
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.docs-overview-link:hover {
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
 }
 
 .docs-panel .docs-head {
@@ -478,6 +1295,251 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .muted.error {
   color: var(--accent-err, #c9341c);
+}
+
+.docs-panel .docs-workbench {
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-workbench-head {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+}
+
+.docs-panel .docs-workbench-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.docs-panel .docs-workbench-title h3 {
+  margin: 0;
+  font-family: var(--font-serif, system-ui);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.docs-panel .docs-board-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.docs-panel .docs-board-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  max-width: 100%;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: 6px;
+  background: var(--bg, #0a0b0e);
+  color: var(--fg-2, rgba(255,255,255,0.74));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.docs-panel .docs-board-tab:hover,
+.docs-panel .docs-board-tab.active {
+  border-color: var(--fg-3, rgba(255,255,255,0.52));
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-panel .docs-board-tab.active {
+  background: var(--bg-2, #0e1014);
+}
+
+.docs-panel .docs-board-tab strong {
+  min-width: 16px;
+  border-radius: 6px;
+  padding: 3px 5px;
+  background: var(--surface-2, rgba(255,255,255,0.06));
+  color: var(--fg, rgba(255,255,255,0.94));
+  text-align: center;
+  font-weight: 700;
+}
+
+.docs-panel .docs-workbench-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-search {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.docs-panel .docs-search input {
+  width: 100%;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.docs-panel .docs-search input:focus {
+  border-color: var(--accent-blue, #1d55a6);
+  outline: 2px solid color-mix(in srgb, var(--accent-blue, #1d55a6) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.docs-panel .docs-clear {
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg, rgba(255,255,255,0.94));
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.docs-panel .docs-clear:hover {
+  border-color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-filter-summary {
+  min-width: 0;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.docs-panel .docs-board-status {
+  margin: 0;
+  padding: 12px;
+}
+
+.docs-panel .docs-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  align-items: start;
+}
+
+.docs-panel .docs-board-column {
+  min-width: 0;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg, #0a0b0e);
+}
+
+.docs-panel .docs-board-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--bg-2, #0e1014);
+}
+
+.docs-panel .docs-board-column-head h4 {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--fg, rgba(255,255,255,0.94));
+}
+
+.docs-panel .docs-board-column-head span {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-board-cards {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.docs-panel .docs-board-card {
+  min-width: 0;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-board-card-head {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.docs-panel .docs-board-card-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-serif, system-ui);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.docs-panel .docs-board-type {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--accent-blue, #1d55a6);
+}
+
+.docs-panel .docs-board-path {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.3;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-board-metrics {
+  display: grid;
+  grid-template-columns: minmax(64px, max-content) 1fr;
+  gap: 2px 8px;
+  margin: 8px 0 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.docs-panel .docs-board-metrics dt {
+  color: var(--fg-4, rgba(255,255,255,0.34));
+}
+
+.docs-panel .docs-board-metrics dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--fg-2, rgba(255,255,255,0.74));
+}
+
+.docs-panel .docs-board-empty {
+  margin: 0;
+  padding: 8px 10px 10px;
 }
 
 .docs-panel .docs-project {
@@ -734,5 +1796,26 @@ function describeFrontMatterValue(value: unknown): string {
 
 .docs-panel .no-files {
   margin: 0;
+}
+
+@media (max-width: 760px) {
+  .docs-panel .docs-workbench-head {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-panel .docs-board-tabs {
+    justify-content: flex-start;
+  }
+
+  .docs-panel .docs-workbench-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .docs-panel .docs-search,
+  .docs-panel .docs-clear {
+    flex: 0 1 auto;
+    width: 100%;
+  }
 }
 </style>

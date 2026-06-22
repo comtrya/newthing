@@ -66,8 +66,16 @@ mod ext_issues_bindings {
 
 use ext_issues_bindings::ExtIssues;
 use ext_issues_bindings::exports::comtrya::ext_issues::issues::{
-    AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
+    AssignProjectInput as IssuesAssignProjectInput, CloseIssueInput, Issue, IssueAssigneeBoard,
+    IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueAuthorBoard,
+    IssueAuthorBoardInput, IssueAuthorCard, IssueAuthorColumn, IssueLabelBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueMilestoneBoard,
+    IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
+    IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
+    IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
+    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn,
+    IssueWorkflowBoard, IssueWorkflowBoardInput, IssueWorkflowCard, IssueWorkflowColumn,
+    OpenIssueInput, UpdateIssueInput,
 };
 
 mod ext_epics_bindings {
@@ -80,7 +88,14 @@ mod ext_epics_bindings {
 use ext_epics_bindings::ExtEpics;
 use ext_epics_bindings::exports::comtrya::ext_epics::epics::{
     AssignProjectInput as EpicsAssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic,
-    EpicProgress, EpicState, UpdateEpicInput,
+    EpicLabelBoard, EpicLabelCard, EpicLabelColumn, EpicMilestoneBoard, EpicMilestoneCard,
+    EpicMilestoneColumn, EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicPriorityBoard,
+    EpicPriorityCard, EpicPriorityColumn, EpicProgress, EpicProjectBoard, EpicProjectCard,
+    EpicProjectColumn, EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState,
+    EpicTargetBoard, EpicTargetCard, EpicTargetColumn, LabelBoardInput as EpicsLabelBoardInput,
+    MilestoneBoardInput as EpicsMilestoneBoardInput, OwnerBoardInput,
+    PriorityBoardInput as EpicsPriorityBoardInput, ProjectBoardInput as EpicsProjectBoardInput,
+    RoadmapBoardInput, TargetBoardInput, UpdateEpicInput,
 };
 
 mod ext_pull_requests_bindings {
@@ -92,7 +107,18 @@ mod ext_pull_requests_bindings {
 
 use ext_pull_requests_bindings::ExtPullRequests;
 use ext_pull_requests_bindings::exports::comtrya::ext_pull_requests::pulls::{
-    ClosePullInput, CreatePullInput, MergePullInput, PrState, PullRequest,
+    ChangeStatePullInput, ClosePullInput, CreatePullInput, ListPullReviewsInput,
+    ListReviewRequestsInput, MergePullInput, PrState, PullAuthorBoard, PullAuthorBoardInput,
+    PullAuthorCard, PullAuthorColumn, PullBaseBranchBoard, PullBaseBranchBoardInput,
+    PullBaseBranchCard, PullBaseBranchColumn, PullHeadBranchBoard, PullHeadBranchBoardInput,
+    PullHeadBranchCard, PullHeadBranchColumn, PullMergeCheckSummary, PullMergeReadinessBoard,
+    PullMergeReadinessBoardInput, PullMergeReadinessCard, PullMergeReadinessColumn,
+    PullMergeReviewSummary, PullRequest, PullReview, PullReviewBoard, PullReviewBoardInput,
+    PullReviewCard, PullReviewColumn, PullReviewDecision, PullReviewDecisionBoard,
+    PullReviewDecisionBoardInput, PullReviewDecisionCard, PullReviewDecisionColumn,
+    PullReviewRequest, PullReviewRequestBoard, PullReviewRequestBoardInput, PullReviewRequestCard,
+    PullReviewRequestColumn, PullReviewerQueue, PullReviewerQueueCard, PullReviewerQueueColumn,
+    PullReviewerQueueInput, RequestReviewInput, SubmitReviewInput,
 };
 
 mod ext_checks_bindings {
@@ -104,7 +130,10 @@ mod ext_checks_bindings {
 
 use ext_checks_bindings::ExtChecks;
 use ext_checks_bindings::exports::comtrya::ext_checks::checks::{
-    CheckRun, CheckState, RecordCheckInput,
+    CheckReadinessBoard, CheckReadinessBoardInput, CheckReadinessCard, CheckReadinessColumn,
+    CheckRun, CheckState, ExpectedCheck, ExpectedCheckReadinessBoard,
+    ExpectedCheckReadinessBoardInput, ExpectedCheckReadinessCard, ExpectedCheckReadinessColumn,
+    RecordCheckInput,
 };
 
 mod ext_workspace_home_bindings {
@@ -124,6 +153,19 @@ mod ext_docs_bindings {
 }
 
 use ext_docs_bindings::ExtDocs;
+use ext_docs_bindings::exports::comtrya::ext_docs::docs::{
+    BddScenario, BddStep, BddSummary, DocCatalog, DocCatalogInput as DocsDocCatalogInput,
+    DocChecklistItem, DocChecklistSection, DocChecklistSummary, DocDecisionBoard, DocDecisionCard,
+    DocDecisionColumn, DocDecisionItem, DocDecisionSummary, DocHandoffBoard, DocHandoffCard,
+    DocHandoffColumn, DocImplementationBoard, DocImplementationCard, DocImplementationColumn,
+    DocOutlineHeading, DocOutlineSummary, DocOwnerBoard, DocOwnerCard, DocOwnerColumn,
+    DocProjectBoard, DocProjectCard, DocProjectColumn, DocProperty, DocReadinessBoard,
+    DocReadinessCard, DocReadinessColumn, DocReference, DocReferenceSummary, DocScenarioBoard,
+    DocScenarioCard, DocScenarioColumn, DocStatusBoard, DocStatusCard, DocStatusColumn, DocSummary,
+    DocTagBoard, DocTagCard, DocTagColumn, DocTraceabilityBoard, DocTraceabilityCard,
+    DocTraceabilityColumn, DocTypeBoard, DocTypeCard, DocTypeColumn,
+    DocTypeInput as DocsDocTypeInput, DocTypeSummary, SummarizeDocInput as DocsSummarizeDocInput,
+};
 
 mod ext_sprints_bindings {
     wasmtime::component::bindgen!({
@@ -135,7 +177,10 @@ mod ext_sprints_bindings {
 use ext_sprints_bindings::ExtSprints;
 use ext_sprints_bindings::exports::comtrya::ext_sprints::sprints::{
     AssignIssueInput as SprintsAssignIssueInput, ChangeStateInput as SprintsChangeStateInput,
-    CreateSprintInput, ListSprintsInput, MembersInput, Sprint, SprintState,
+    CreateSprintInput, KanbanBoard, KanbanCard, KanbanCardState, KanbanColumn, KanbanInput,
+    KanbanSwimlane, ListSprintsInput, MembersInput, ProjectKanbanBoard, Sprint, SprintBoard,
+    SprintBoardColumn, SprintBoardIssue, SprintBoardIssueState, SprintPlanningBoard,
+    SprintPlanningCard, SprintPlanningColumn, SprintState,
 };
 
 #[derive(serde::Deserialize)]
@@ -192,6 +237,62 @@ struct UpdateIssueInputJson {
     labels: Option<Vec<String>>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueTriageBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueLabelBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueAssigneeBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueAuthorBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueProjectBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssuePriorityBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueMilestoneBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IssueWorkflowBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
 /// Input for `update-epic`. Same optional-field semantics as `UpdateIssueInputJson`.
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,6 +309,55 @@ struct UpdateEpicInputJson {
     /// `null` or absent → keep existing labels; `[]` → clear labels.
     #[serde(default)]
     labels: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RoadmapBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OwnerBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicProjectBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicLabelBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicPriorityBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EpicMilestoneBoardInputJson {
+    workspace: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TargetBoardInputJson {
+    workspace: String,
+    limit: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -265,6 +415,116 @@ struct ClosePullInputJson {
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ChangeStatePullInputJson {
+    id: String,
+    state: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitReviewInputJson {
+    pull_id: String,
+    decision: String,
+    body_markdown: String,
+    reviewer_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListPullReviewsInputJson {
+    pull_id: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RequestReviewInputJson {
+    pull_id: String,
+    reviewer_ref: String,
+    requested_by_ref: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ListReviewRequestsInputJson {
+    pull_id: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullAuthorBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullBaseBranchBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullHeadBranchBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullMergeCheckSummaryJson {
+    pull_id: String,
+    required_missing: u32,
+    required_failing: u32,
+    pending: u32,
+    optional_failing: u32,
+    passing: u32,
+    total: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullMergeReadinessBoardInputJson {
+    repository: String,
+    #[serde(default)]
+    check_summaries: Vec<PullMergeCheckSummaryJson>,
+    required_approvals: u32,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewDecisionBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewRequestBoardInputJson {
+    repository: String,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullReviewerQueueInputJson {
+    repository: String,
+    reviewer_ref: Option<String>,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RecordCheckInputJson {
     repository: String,
     #[serde(rename = "commitOID")]
@@ -273,6 +533,33 @@ struct RecordCheckInputJson {
     state: String,
     conclusion: Option<String>,
     required: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CheckReadinessBoardInputJson {
+    repository: String,
+    #[serde(default, rename = "commitOID")]
+    commit_oid: Option<String>,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpectedCheckJson {
+    name: String,
+    required: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExpectedCheckReadinessBoardInputJson {
+    repository: String,
+    #[serde(rename = "commitOID")]
+    commit_oid: String,
+    #[serde(default)]
+    expected: Vec<ExpectedCheckJson>,
+    limit: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -315,6 +602,42 @@ struct MembersInputJson {
     #[serde(rename = "ref")]
     ref_: String,
     limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KanbanInputJson {
+    workspace: String,
+    #[serde(default)]
+    issue_refs: Vec<String>,
+    limit: u32,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SummarizeDocInputJson {
+    path: String,
+    preview: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocTypeInputJson {
+    project_name: String,
+    type_name: String,
+    label: String,
+    #[serde(default)]
+    description: Option<String>,
+    slug: String,
+    #[serde(default)]
+    files: Vec<SummarizeDocInputJson>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DocCatalogInputJson {
+    #[serde(default)]
+    types: Vec<DocTypeInputJson>,
 }
 
 pub fn reactor_subscriptions_for_extension(
@@ -667,6 +990,179 @@ pub fn dispatch_ext_issues(
                     .map(issue_to_json)
                     .collect(),
             )
+        }
+        "triage-board" => {
+            let parsed: IssueTriageBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse triage-board input: {e}"),
+                )
+            })?;
+            let wit_input = IssueTriageBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_triage_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("triage-board call: {e}"),
+                    )
+                })?;
+            issue_triage_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "label-board" => {
+            let parsed: IssueLabelBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse label-board input: {e}"),
+                )
+            })?;
+            let wit_input = IssueLabelBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_label_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("label-board call: {e}"),
+                    )
+                })?;
+            issue_label_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "assignee-board" => {
+            let parsed: IssueAssigneeBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse assignee-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueAssigneeBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_assignee_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("assignee-board call: {e}"),
+                    )
+                })?;
+            issue_assignee_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "author-board" => {
+            let parsed: IssueAuthorBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse author-board input: {e}"),
+                )
+            })?;
+            let wit_input = IssueAuthorBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_author_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("author-board call: {e}"),
+                    )
+                })?;
+            issue_author_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: IssueProjectBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse project-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueProjectBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            issue_project_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "priority-board" => {
+            let parsed: IssuePriorityBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse priority-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssuePriorityBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_priority_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("priority-board call: {e}"),
+                    )
+                })?;
+            issue_priority_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "milestone-board" => {
+            let parsed: IssueMilestoneBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse milestone-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueMilestoneBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_milestone_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("milestone-board call: {e}"),
+                    )
+                })?;
+            issue_milestone_board_to_json(&result.map_err(local_error_to_canonical)?)
+        }
+        "workflow-board" => {
+            let parsed: IssueWorkflowBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse workflow-board input: {e}"),
+                    )
+                })?;
+            let wit_input = IssueWorkflowBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = issues
+                .call_workflow_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("workflow-board call: {e}"),
+                    )
+                })?;
+            issue_workflow_board_to_json(&result.map_err(local_error_to_canonical)?)
         }
         "by-ref-issue" => {
             let ref_uri = string_payload(&input, "by-ref-issue")?;
@@ -1024,6 +1520,155 @@ pub fn dispatch_ext_epics(
                 })?;
             epic_progress_to_json(&result.map_err(epic_error_to_canonical)?)
         }
+        "roadmap-board" => {
+            let parsed: RoadmapBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse roadmap-board input: {e}"),
+                )
+            })?;
+            let wit_input = RoadmapBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_roadmap_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("roadmap-board call: {e}"),
+                    )
+                })?;
+            epic_roadmap_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "owner-board" => {
+            let parsed: OwnerBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse owner-board input: {e}"),
+                )
+            })?;
+            let wit_input = OwnerBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_owner_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("owner-board call: {e}"),
+                    )
+                })?;
+            epic_owner_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: EpicProjectBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse project-board input: {e}"),
+                )
+            })?;
+            let wit_input = EpicsProjectBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            epic_project_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "label-board" => {
+            let parsed: EpicLabelBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse label-board input: {e}"),
+                )
+            })?;
+            let wit_input = EpicsLabelBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_label_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("label-board call: {e}"),
+                    )
+                })?;
+            epic_label_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "priority-board" => {
+            let parsed: EpicPriorityBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse priority-board input: {e}"),
+                    )
+                })?;
+            let wit_input = EpicsPriorityBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_priority_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("priority-board call: {e}"),
+                    )
+                })?;
+            epic_priority_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "milestone-board" => {
+            let parsed: EpicMilestoneBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse milestone-board input: {e}"),
+                    )
+                })?;
+            let wit_input = EpicsMilestoneBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_milestone_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("milestone-board call: {e}"),
+                    )
+                })?;
+            epic_milestone_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
+        "target-board" => {
+            let parsed: TargetBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse target-board input: {e}"),
+                )
+            })?;
+            let wit_input = TargetBoardInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = epics
+                .call_target_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("target-board call: {e}"),
+                    )
+                })?;
+            epic_target_board_to_json(&result.map_err(epic_error_to_canonical)?)
+        }
         "issues-in-epic" => {
             let ref_uri = string_field(&input, "ref", "issues-in-epic")?;
             let limit = u32_field(&input, "limit", "issues-in-epic")?;
@@ -1309,6 +1954,92 @@ pub fn dispatch_ext_sprints(
                     .collect(),
             )
         }
+        "board-for-sprint" => {
+            let parsed: MembersInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse board-for-sprint input: {e}"),
+                )
+            })?;
+            let wit_input = MembersInput {
+                ref_: parsed.ref_,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_board_for_sprint(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("board-for-sprint call: {e}"),
+                    )
+                })?;
+            sprint_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
+        "planning-board" => {
+            let parsed: ListSprintsInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse planning-board input: {e}"),
+                )
+            })?;
+            let wit_input = ListSprintsInput {
+                workspace: parsed.workspace,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_planning_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("planning-board call: {e}"),
+                    )
+                })?;
+            sprint_planning_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
+        "kanban-for-issues" => {
+            let parsed: KanbanInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse kanban-for-issues input: {e}"),
+                )
+            })?;
+            let wit_input = KanbanInput {
+                workspace: parsed.workspace,
+                issue_refs: parsed.issue_refs,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_kanban_for_issues(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("kanban-for-issues call: {e}"),
+                    )
+                })?;
+            kanban_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
+        "kanban-project-board" => {
+            let parsed: KanbanInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse kanban-project-board input: {e}"),
+                )
+            })?;
+            let wit_input = KanbanInput {
+                workspace: parsed.workspace,
+                issue_refs: parsed.issue_refs,
+                limit: parsed.limit,
+            };
+            let result = sprints
+                .call_kanban_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("kanban-project-board call: {e}"),
+                    )
+                })?;
+            kanban_project_board_to_json(&result.map_err(sprints_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -1493,6 +2224,220 @@ pub fn dispatch_ext_pull_requests(
                 })?;
             pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
         }
+        "change-state-pull" => {
+            let parsed: ChangeStatePullInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse change-state-pull input: {e}"),
+                )
+            })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before mutating.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("change-state-pull repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = ChangeStatePullInput {
+                id: parsed.id,
+                state: pull_state_from_json(&parsed.state)?,
+            };
+            let result = pulls
+                .call_change_state_pull(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("change-state-pull call: {e}"),
+                    )
+                })?;
+            pull_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "submit-review" => {
+            let parsed: SubmitReviewInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse submit-review input: {e}"),
+                )
+            })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before writing a review.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("submit-review repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = SubmitReviewInput {
+                pull_id: parsed.pull_id,
+                decision: pull_review_decision_from_json(&parsed.decision)?,
+                body_markdown: parsed.body_markdown,
+                reviewer_ref: parsed.reviewer_ref,
+            };
+            let result = pulls
+                .call_submit_review(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("submit-review call: {e}"),
+                    )
+                })?;
+            pull_review_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "list-pull-reviews" => {
+            let parsed: ListPullReviewsInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse list-pull-reviews input: {e}"),
+                )
+            })?;
+            // Read keyed by pull id: load to learn the repository, then gate.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-pull-reviews repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = ListPullReviewsInput {
+                pull_id: parsed.pull_id,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_list_pull_reviews(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-pull-reviews call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(pulls_error_to_canonical)?
+                    .iter()
+                    .map(pull_review_to_json)
+                    .collect(),
+            )
+        }
+        "request-review" => {
+            let parsed: RequestReviewInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse request-review input: {e}"),
+                )
+            })?;
+            // Mutation keyed by pull id: load to learn the repository,
+            // then gate before writing a review request.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("request-review repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = RequestReviewInput {
+                pull_id: parsed.pull_id,
+                reviewer_ref: parsed.reviewer_ref,
+                requested_by_ref: parsed.requested_by_ref,
+            };
+            let result = pulls
+                .call_request_review(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("request-review call: {e}"),
+                    )
+                })?;
+            pull_review_request_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "list-review-requests" => {
+            let parsed: ListReviewRequestsInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse list-review-requests input: {e}"),
+                    )
+                })?;
+            // Read keyed by pull id: load to learn the repository, then gate.
+            let existing = pulls
+                .call_get_pull(&mut wasm_store, &parsed.pull_id)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-review-requests repo lookup: {e}"),
+                    )
+                })?
+                .map_err(pulls_error_to_canonical)?;
+            if let Some(existing) = existing.as_ref() {
+                ensure_repo_enabled(
+                    registry,
+                    &gate_store,
+                    &existing.repository,
+                    "ext_pull_requests",
+                )?;
+            }
+            let wit_input = ListReviewRequestsInput {
+                pull_id: parsed.pull_id,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_list_review_requests(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("list-review-requests call: {e}"),
+                    )
+                })?;
+            Value::Array(
+                result
+                    .map_err(pulls_error_to_canonical)?
+                    .iter()
+                    .map(pull_review_request_to_json)
+                    .collect(),
+            )
+        }
         "get-pull" => {
             let id = string_payload(&input, "get-pull")?;
             let result = pulls.call_get_pull(&mut wasm_store, &id).map_err(|e| {
@@ -1542,6 +2487,195 @@ pub fn dispatch_ext_pull_requests(
                     .collect(),
             )
         }
+        "review-board" => {
+            let parsed: PullReviewBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse review-board input: {e}"),
+                )
+            })?;
+            let wit_input = PullReviewBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_review_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("review-board call: {e}"),
+                    )
+                })?;
+            pull_review_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "author-board" => {
+            let parsed: PullAuthorBoardInputJson = serde_json::from_value(input).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse author-board input: {e}"),
+                )
+            })?;
+            let wit_input = PullAuthorBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_author_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("author-board call: {e}"),
+                    )
+                })?;
+            pull_author_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "base-branch-board" => {
+            let parsed: PullBaseBranchBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse base-branch-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullBaseBranchBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_base_branch_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("base-branch-board call: {e}"),
+                    )
+                })?;
+            pull_base_branch_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "head-branch-board" => {
+            let parsed: PullHeadBranchBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse head-branch-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullHeadBranchBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_head_branch_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("head-branch-board call: {e}"),
+                    )
+                })?;
+            pull_head_branch_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "merge-readiness-board" => {
+            let parsed: PullMergeReadinessBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse merge-readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullMergeReadinessBoardInput {
+                repository: parsed.repository,
+                check_summaries: parsed
+                    .check_summaries
+                    .into_iter()
+                    .map(|summary| PullMergeCheckSummary {
+                        pull_id: summary.pull_id,
+                        required_missing: summary.required_missing,
+                        required_failing: summary.required_failing,
+                        pending: summary.pending,
+                        optional_failing: summary.optional_failing,
+                        passing: summary.passing,
+                        total: summary.total,
+                    })
+                    .collect(),
+                required_approvals: parsed.required_approvals,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_merge_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("merge-readiness-board call: {e}"),
+                    )
+                })?;
+            pull_merge_readiness_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "review-decision-board" => {
+            let parsed: PullReviewDecisionBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse review-decision-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullReviewDecisionBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_review_decision_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("review-decision-board call: {e}"),
+                    )
+                })?;
+            pull_review_decision_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "review-request-board" => {
+            let parsed: PullReviewRequestBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse review-request-board input: {e}"),
+                    )
+                })?;
+            let wit_input = PullReviewRequestBoardInput {
+                repository: parsed.repository,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_review_request_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("review-request-board call: {e}"),
+                    )
+                })?;
+            pull_review_request_board_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
+        "reviewer-queue" => {
+            let parsed: PullReviewerQueueInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse reviewer-queue input: {e}"),
+                    )
+                })?;
+            let wit_input = PullReviewerQueueInput {
+                repository: parsed.repository,
+                reviewer_ref: parsed.reviewer_ref,
+                limit: parsed.limit,
+            };
+            let result = pulls
+                .call_reviewer_queue(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("reviewer-queue call: {e}"),
+                    )
+                })?;
+            pull_reviewer_queue_to_json(&result.map_err(pulls_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -1576,9 +2710,8 @@ pub fn dispatch_ext_checks(
         ));
     }
     let input = parse_payload(payload)?;
-    // Repository-scoped opt-in gate. Both ext_checks ops carry the target
-    // repo inline (record-check, list-checks); the typed route table gates
-    // them here before the component runs.
+    // Repository-scoped opt-in gate. ext_checks ops carry the target repo
+    // inline; the typed route table gates them here before the component runs.
     let gate_store = store.clone();
     gate_route_pre_invoke(
         registry,
@@ -1672,6 +2805,60 @@ pub fn dispatch_ext_checks(
                     .map(check_run_to_json)
                     .collect(),
             )
+        }
+        "readiness-board" => {
+            let parsed: CheckReadinessBoardInputJson =
+                serde_json::from_value(input).map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = CheckReadinessBoardInput {
+                repository: parsed.repository,
+                commit_oid: parsed.commit_oid,
+                limit: parsed.limit,
+            };
+            let result = checks
+                .call_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("readiness-board call: {e}"),
+                    )
+                })?;
+            check_readiness_board_to_json(&result.map_err(checks_error_to_canonical)?)
+        }
+        "expected-readiness-board" => {
+            let parsed: ExpectedCheckReadinessBoardInputJson = serde_json::from_value(input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::BadInput,
+                        format!("parse expected-readiness-board input: {e}"),
+                    )
+                })?;
+            let wit_input = ExpectedCheckReadinessBoardInput {
+                repository: parsed.repository,
+                commit_oid: parsed.commit_oid,
+                expected: parsed
+                    .expected
+                    .into_iter()
+                    .map(|expected| ExpectedCheck {
+                        name: expected.name,
+                        required: expected.required,
+                    })
+                    .collect(),
+                limit: parsed.limit,
+            };
+            let result = checks
+                .call_expected_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("expected-readiness-board call: {e}"),
+                    )
+                })?;
+            expected_check_readiness_board_to_json(&result.map_err(checks_error_to_canonical)?)
         }
         other => {
             return Err(wit_error(
@@ -1951,6 +3138,266 @@ fn issue_to_json(issue: &Issue) -> Value {
     })
 }
 
+fn issue_triage_board_to_json(board: &IssueTriageBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_triage_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_triage_column_to_json(column: &IssueTriageColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_triage_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_triage_card_to_json(card: &IssueTriageCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_label_board_to_json(board: &IssueLabelBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_label_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_label_column_to_json(column: &IssueLabelColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_label_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_label_card_to_json(card: &IssueLabelCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_assignee_board_to_json(board: &IssueAssigneeBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_assignee_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_assignee_column_to_json(column: &IssueAssigneeColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "assignee": column.assignee,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_assignee_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_assignee_card_to_json(card: &IssueAssigneeCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_author_board_to_json(board: &IssueAuthorBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_author_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_author_column_to_json(column: &IssueAuthorColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "authorRef": column.author_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_author_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_author_card_to_json(card: &IssueAuthorCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_project_board_to_json(board: &IssueProjectBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_project_column_to_json(column: &IssueProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_project_card_to_json(card: &IssueProjectCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+    })
+}
+
+fn issue_priority_board_to_json(board: &IssuePriorityBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_priority_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_priority_column_to_json(column: &IssuePriorityColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "priority": column.priority,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_priority_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_priority_card_to_json(card: &IssuePriorityCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+        "priority": card.priority,
+        "priorityLabel": card.priority_label,
+    })
+}
+
+fn issue_milestone_board_to_json(board: &IssueMilestoneBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_milestone_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_milestone_column_to_json(column: &IssueMilestoneColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "milestone": column.milestone,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_milestone_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_milestone_card_to_json(card: &IssueMilestoneCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+        "milestone": card.milestone,
+        "milestoneLabel": card.milestone_label,
+    })
+}
+
+fn issue_workflow_board_to_json(board: &IssueWorkflowBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(issue_workflow_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_workflow_column_to_json(column: &IssueWorkflowColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "workflow": column.workflow,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(issue_workflow_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn issue_workflow_card_to_json(card: &IssueWorkflowCard) -> Value {
+    serde_json::json!({
+        "issue": issue_to_json(&card.issue),
+        "workflow": card.workflow,
+        "workflowLabel": card.workflow_label,
+    })
+}
+
 fn issue_state_to_str(state: IssueState) -> &'static str {
     match state {
         IssueState::Open => "open",
@@ -1985,6 +3432,246 @@ fn epic_progress_to_json(progress: &EpicProgress) -> Value {
         "childEpicsOpen": progress.child_epics_open,
         "childEpicsClosed": progress.child_epics_closed,
         "percentComplete": progress.percent_complete,
+    })
+}
+
+fn epic_roadmap_board_to_json(board: &EpicRoadmapBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_roadmap_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_roadmap_column_to_json(column: &EpicRoadmapColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_roadmap_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_roadmap_card_to_json(card: &EpicRoadmapCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_owner_board_to_json(board: &EpicOwnerBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_owner_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_owner_column_to_json(column: &EpicOwnerColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "ownerRef": column.owner_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_owner_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_owner_card_to_json(card: &EpicOwnerCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_project_board_to_json(board: &EpicProjectBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_project_column_to_json(column: &EpicProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_project_card_to_json(card: &EpicProjectCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_label_board_to_json(board: &EpicLabelBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_label_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_label_column_to_json(column: &EpicLabelColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_label_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_label_card_to_json(card: &EpicLabelCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+    })
+}
+
+fn epic_priority_board_to_json(board: &EpicPriorityBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_priority_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_priority_column_to_json(column: &EpicPriorityColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "priority": column.priority,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_priority_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_priority_card_to_json(card: &EpicPriorityCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+        "priority": card.priority,
+        "priorityLabel": card.priority_label,
+    })
+}
+
+fn epic_milestone_board_to_json(board: &EpicMilestoneBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_milestone_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_milestone_column_to_json(column: &EpicMilestoneColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "milestone": column.milestone,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_milestone_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_milestone_card_to_json(card: &EpicMilestoneCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
+        "milestone": card.milestone,
+        "milestoneLabel": card.milestone_label,
+    })
+}
+
+fn epic_target_board_to_json(board: &EpicTargetBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "today": board.today,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(epic_target_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_target_column_to_json(column: &EpicTargetColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(epic_target_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn epic_target_card_to_json(card: &EpicTargetCard) -> Value {
+    serde_json::json!({
+        "epic": epic_to_json(&card.epic),
+        "progress": epic_progress_to_json(&card.progress),
     })
 }
 
@@ -2026,6 +3713,155 @@ fn sprint_to_json(sprint: &Sprint) -> Value {
         "createdAt": sprint.created_at,
         "updatedAt": sprint.updated_at,
     })
+}
+
+fn sprint_board_to_json(board: &SprintBoard) -> Value {
+    serde_json::json!({
+        "sprintRef": board.sprint_ref,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(sprint_board_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_board_column_to_json(column: &SprintBoardColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "issues": column
+            .issues
+            .iter()
+            .map(sprint_board_issue_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_board_issue_to_json(issue: &SprintBoardIssue) -> Value {
+    serde_json::json!({
+        "issueRef": issue.issue_ref,
+        "id": issue.id,
+        "number": issue.number,
+        "title": issue.title,
+        "state": sprint_board_issue_state_to_json(issue.state),
+    })
+}
+
+fn sprint_board_issue_state_to_json(state: SprintBoardIssueState) -> &'static str {
+    match state {
+        SprintBoardIssueState::Open => "open",
+        SprintBoardIssueState::Reopened => "reopened",
+        SprintBoardIssueState::Closed => "closed",
+        SprintBoardIssueState::Missing => "missing",
+    }
+}
+
+fn sprint_planning_board_to_json(board: &SprintPlanningBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(sprint_planning_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_planning_column_to_json(column: &SprintPlanningColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(sprint_planning_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn sprint_planning_card_to_json(card: &SprintPlanningCard) -> Value {
+    serde_json::json!({
+        "sprint": sprint_to_json(&card.sprint),
+    })
+}
+
+fn kanban_board_to_json(board: &KanbanBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(kanban_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_project_board_to_json(board: &ProjectKanbanBoard) -> Value {
+    serde_json::json!({
+        "workspace": board.workspace,
+        "workspaceId": workspace_id_from_uri(&board.workspace),
+        "total": board.total,
+        "swimlanes": board
+            .swimlanes
+            .iter()
+            .map(kanban_swimlane_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_swimlane_to_json(swimlane: &KanbanSwimlane) -> Value {
+    serde_json::json!({
+        "key": swimlane.key,
+        "label": swimlane.label,
+        "projectName": swimlane.project_name,
+        "total": swimlane.total,
+        "columns": swimlane
+            .columns
+            .iter()
+            .map(kanban_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_column_to_json(column: &KanbanColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(kanban_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn kanban_card_to_json(card: &KanbanCard) -> Value {
+    serde_json::json!({
+        "issueRef": card.issue_ref,
+        "id": card.id,
+        "number": card.number,
+        "title": card.title,
+        "state": kanban_card_state_to_json(card.state),
+        "projectName": card.project_name,
+    })
+}
+
+fn kanban_card_state_to_json(state: KanbanCardState) -> &'static str {
+    match state {
+        KanbanCardState::Open => "open",
+        KanbanCardState::Reopened => "reopened",
+        KanbanCardState::Closed => "closed",
+        KanbanCardState::Missing => "missing",
+    }
 }
 
 fn sprint_state_to_graphql(state: SprintState) -> &'static str {
@@ -2085,6 +3921,338 @@ fn pull_request_to_json(pull: &PullRequest) -> Value {
     })
 }
 
+fn pull_review_board_to_json(board: &PullReviewBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_review_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_column_to_json(column: &PullReviewColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_review_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_card_to_json(card: &PullReviewCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_author_board_to_json(board: &PullAuthorBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_author_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_author_column_to_json(column: &PullAuthorColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "authorRef": column.author_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_author_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_author_card_to_json(card: &PullAuthorCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_base_branch_board_to_json(board: &PullBaseBranchBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_base_branch_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_base_branch_column_to_json(column: &PullBaseBranchColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "baseRef": column.base_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_base_branch_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_base_branch_card_to_json(card: &PullBaseBranchCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_head_branch_board_to_json(board: &PullHeadBranchBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_head_branch_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_head_branch_column_to_json(column: &PullHeadBranchColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "headRef": column.head_ref,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_head_branch_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_head_branch_card_to_json(card: &PullHeadBranchCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_review_to_json(review: &PullReview) -> Value {
+    serde_json::json!({
+        "id": review.id,
+        "pullId": review.pull_id,
+        "pullRequestRef": review.pull_request_ref,
+        "repository": review.repository,
+        "reviewerRef": review.reviewer_ref,
+        "decision": pull_review_decision_to_graphql(review.decision),
+        "bodyMarkdown": review.body_markdown,
+        "createdAt": review.created_at,
+    })
+}
+
+fn pull_review_request_to_json(request: &PullReviewRequest) -> Value {
+    serde_json::json!({
+        "id": request.id,
+        "pullId": request.pull_id,
+        "pullRequestRef": request.pull_request_ref,
+        "repository": request.repository,
+        "reviewerRef": request.reviewer_ref,
+        "requestedByRef": request.requested_by_ref,
+        "requestedAt": request.requested_at,
+        "completedReview": request.completed_review.as_ref().map(pull_review_to_json),
+    })
+}
+
+fn pull_merge_readiness_board_to_json(board: &PullMergeReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_merge_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_merge_readiness_column_to_json(column: &PullMergeReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_merge_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_merge_readiness_card_to_json(card: &PullMergeReadinessCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "terminal": card.terminal,
+        "blocked": card.blocked,
+        "waiting": card.waiting,
+        "checkBlocked": card.check_blocked,
+        "checkWaiting": card.check_waiting,
+        "reviewBlocked": card.review_blocked,
+        "reviewWaiting": card.review_waiting,
+        "checkSummary": card
+            .check_summary
+            .as_ref()
+            .map(pull_merge_check_summary_to_json),
+        "reviewSummary": pull_merge_review_summary_to_json(&card.review_summary),
+    })
+}
+
+fn pull_merge_review_summary_to_json(summary: &PullMergeReviewSummary) -> Value {
+    serde_json::json!({
+        "requiredApprovals": summary.required_approvals,
+        "approvalCount": summary.approval_count,
+        "changeRequestCount": summary.change_request_count,
+        "commentCount": summary.comment_count,
+        "latestReview": summary
+            .latest_review
+            .as_ref()
+            .map(pull_review_to_json),
+    })
+}
+
+fn pull_merge_check_summary_to_json(summary: &PullMergeCheckSummary) -> Value {
+    serde_json::json!({
+        "pullId": summary.pull_id,
+        "requiredMissing": summary.required_missing,
+        "requiredFailing": summary.required_failing,
+        "pending": summary.pending,
+        "optionalFailing": summary.optional_failing,
+        "passing": summary.passing,
+        "total": summary.total,
+    })
+}
+
+fn pull_review_decision_board_to_json(board: &PullReviewDecisionBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_review_decision_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_decision_column_to_json(column: &PullReviewDecisionColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_review_decision_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_decision_card_to_json(card: &PullReviewDecisionCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
+        "approvalCount": card.approval_count,
+        "changeRequestCount": card.change_request_count,
+        "commentCount": card.comment_count,
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_review_request_board_to_json(board: &PullReviewRequestBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(pull_review_request_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_request_column_to_json(column: &PullReviewRequestColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_review_request_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_review_request_card_to_json(card: &PullReviewRequestCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "requestedReviewerRefs": card.requested_reviewer_refs,
+        "completedReviewerRefs": card.completed_reviewer_refs,
+        "missingReviewerRefs": card.missing_reviewer_refs,
+        "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
+        "terminal": card.terminal,
+    })
+}
+
+fn pull_reviewer_queue_to_json(queue: &PullReviewerQueue) -> Value {
+    serde_json::json!({
+        "repository": queue.repository,
+        "reviewerRef": queue.reviewer_ref,
+        "total": queue.total,
+        "columns": queue
+            .columns
+            .iter()
+            .map(pull_reviewer_queue_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_reviewer_queue_column_to_json(column: &PullReviewerQueueColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(pull_reviewer_queue_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn pull_reviewer_queue_card_to_json(card: &PullReviewerQueueCard) -> Value {
+    serde_json::json!({
+        "pullRequest": pull_request_to_json(&card.pull_request),
+        "reviewRequest": pull_review_request_to_json(&card.review_request),
+        "latestReview": card.latest_review.as_ref().map(pull_review_to_json),
+        "terminal": card.terminal,
+    })
+}
+
 fn pull_state_to_graphql(state: PrState) -> &'static str {
     match state {
         PrState::Draft => "DRAFT",
@@ -2092,6 +4260,40 @@ fn pull_state_to_graphql(state: PrState) -> &'static str {
         PrState::Review => "REVIEW",
         PrState::Merged => "MERGED",
         PrState::Closed => "CLOSED",
+    }
+}
+
+fn pull_review_decision_to_graphql(decision: PullReviewDecision) -> &'static str {
+    match decision {
+        PullReviewDecision::Comment => "COMMENT",
+        PullReviewDecision::Approve => "APPROVE",
+        PullReviewDecision::RequestChanges => "REQUEST_CHANGES",
+    }
+}
+
+fn pull_review_decision_from_json(decision: &str) -> Result<PullReviewDecision, wit_types::Error> {
+    match decision {
+        "COMMENT" => Ok(PullReviewDecision::Comment),
+        "APPROVE" => Ok(PullReviewDecision::Approve),
+        "REQUEST_CHANGES" => Ok(PullReviewDecision::RequestChanges),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown pull review decision '{other}'"),
+        )),
+    }
+}
+
+fn pull_state_from_json(state: &str) -> Result<PrState, wit_types::Error> {
+    match state {
+        "DRAFT" => Ok(PrState::Draft),
+        "READY" => Ok(PrState::Ready),
+        "REVIEW" => Ok(PrState::Review),
+        "MERGED" => Ok(PrState::Merged),
+        "CLOSED" => Ok(PrState::Closed),
+        other => Err(wit_error(
+            wit_types::ErrorCode::BadInput,
+            format!("unknown pull request state '{other}'"),
+        )),
     }
 }
 
@@ -2125,6 +4327,75 @@ fn check_run_to_json(check: &CheckRun) -> Value {
         "required": check.required,
         "createdAt": check.created_at,
         "updatedAt": check.updated_at,
+    })
+}
+
+fn check_readiness_board_to_json(board: &CheckReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "commitOID": board.commit_oid,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(check_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn check_readiness_column_to_json(column: &CheckReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(check_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn check_readiness_card_to_json(card: &CheckReadinessCard) -> Value {
+    serde_json::json!({
+        "check": check_run_to_json(&card.check),
+        "blocking": card.blocking,
+    })
+}
+
+fn expected_check_readiness_board_to_json(board: &ExpectedCheckReadinessBoard) -> Value {
+    serde_json::json!({
+        "repository": board.repository,
+        "commitOID": board.commit_oid,
+        "total": board.total,
+        "columns": board
+            .columns
+            .iter()
+            .map(expected_check_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_check_readiness_column_to_json(column: &ExpectedCheckReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "cards": column
+            .cards
+            .iter()
+            .map(expected_check_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_check_readiness_card_to_json(card: &ExpectedCheckReadinessCard) -> Value {
+    serde_json::json!({
+        "name": card.name,
+        "required": card.required,
+        "check": card.check.as_ref().map(check_run_to_json),
+        "blocking": card.blocking,
+        "missing": card.missing,
     })
 }
 
@@ -2304,6 +4575,646 @@ fn workspace_home_error_to_canonical(
     }
 }
 
+fn doc_summary_to_json(summary: &DocSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "propertyCount": summary.property_count,
+        "properties": summary
+            .properties
+            .iter()
+            .map(doc_property_to_json)
+            .collect::<Vec<_>>(),
+        "bodyExcerpt": summary.body_excerpt,
+        "hasFrontMatter": summary.has_front_matter,
+    })
+}
+
+fn doc_catalog_input_to_wit(input: DocCatalogInputJson) -> DocsDocCatalogInput {
+    DocsDocCatalogInput {
+        types: input
+            .types
+            .into_iter()
+            .map(|doc_type| DocsDocTypeInput {
+                project_name: doc_type.project_name,
+                type_name: doc_type.type_name,
+                label: doc_type.label,
+                description: doc_type.description,
+                slug: doc_type.slug,
+                files: doc_type
+                    .files
+                    .into_iter()
+                    .map(|file| DocsSummarizeDocInput {
+                        path: file.path,
+                        preview: file.preview,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn doc_catalog_to_json(catalog: &DocCatalog) -> Value {
+    serde_json::json!({
+        "totalDocs": catalog.total_docs,
+        "types": catalog
+            .types
+            .iter()
+            .map(doc_type_summary_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_summary_to_json(summary: &DocTypeSummary) -> Value {
+    serde_json::json!({
+        "projectName": summary.project_name,
+        "typeName": summary.type_name,
+        "label": summary.label,
+        "description": summary.description,
+        "slug": summary.slug,
+        "docCount": summary.doc_count,
+        "docs": summary
+            .docs
+            .iter()
+            .map(doc_summary_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_board_to_json(board: &DocTypeBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_type_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_column_to_json(column: &DocTypeColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "typeName": column.type_name,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_type_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_type_card_to_json(card: &DocTypeCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "slug": card.slug,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+        "tags": card.tags,
+    })
+}
+
+fn doc_status_board_to_json(board: &DocStatusBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_status_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_status_column_to_json(column: &DocStatusColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_status_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_status_card_to_json(card: &DocStatusCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+    })
+}
+
+fn doc_owner_board_to_json(board: &DocOwnerBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_owner_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_owner_column_to_json(column: &DocOwnerColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "owner": column.owner,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_owner_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_owner_card_to_json(card: &DocOwnerCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+    })
+}
+
+fn doc_tag_board_to_json(board: &DocTagBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_tag_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_tag_column_to_json(column: &DocTagColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "tag": column.tag,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_tag_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_tag_card_to_json(card: &DocTagCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "tags": card.tags,
+    })
+}
+
+fn doc_project_board_to_json(board: &DocProjectBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_project_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_project_column_to_json(column: &DocProjectColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "projectName": column.project_name,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_project_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_project_card_to_json(card: &DocProjectCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "owner": card.owner,
+        "tags": card.tags,
+    })
+}
+
+fn bdd_summary_to_json(summary: &BddSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "feature": summary.feature,
+        "scenarioCount": summary.scenario_count,
+        "stepCount": summary.step_count,
+        "scenarios": summary
+            .scenarios
+            .iter()
+            .map(bdd_scenario_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn bdd_scenario_to_json(scenario: &BddScenario) -> Value {
+    serde_json::json!({
+        "kind": scenario.kind,
+        "title": scenario.title,
+        "stepCount": scenario.step_count,
+        "steps": scenario
+            .steps
+            .iter()
+            .map(bdd_step_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn bdd_step_to_json(step: &BddStep) -> Value {
+    serde_json::json!({
+        "keyword": step.keyword,
+        "text": step.text,
+    })
+}
+
+fn doc_scenario_board_to_json(board: &DocScenarioBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_scenario_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_scenario_column_to_json(column: &DocScenarioColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_scenario_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_scenario_card_to_json(card: &DocScenarioCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "feature": card.feature,
+        "scenarioCount": card.scenario_count,
+        "stepCount": card.step_count,
+        "scenariosWithoutSteps": card.scenarios_without_steps,
+    })
+}
+
+fn doc_checklist_summary_to_json(summary: &DocChecklistSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "totalItems": summary.total_items,
+        "checkedItems": summary.checked_items,
+        "sections": summary
+            .sections
+            .iter()
+            .map(doc_checklist_section_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_checklist_section_to_json(section: &DocChecklistSection) -> Value {
+    serde_json::json!({
+        "heading": section.heading,
+        "itemCount": section.item_count,
+        "checkedCount": section.checked_count,
+        "items": section
+            .items
+            .iter()
+            .map(doc_checklist_item_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_checklist_item_to_json(item: &DocChecklistItem) -> Value {
+    serde_json::json!({
+        "text": item.text,
+        "checked": item.checked,
+    })
+}
+
+fn doc_reference_summary_to_json(summary: &DocReferenceSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "referenceCount": summary.reference_count,
+        "references": summary
+            .references
+            .iter()
+            .map(doc_reference_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_reference_to_json(reference: &DocReference) -> Value {
+    serde_json::json!({
+        "kind": reference.kind,
+        "target": reference.target,
+        "label": reference.label,
+        "line": reference.line,
+    })
+}
+
+fn doc_traceability_board_to_json(board: &DocTraceabilityBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_traceability_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_traceability_column_to_json(column: &DocTraceabilityColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_traceability_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_traceability_card_to_json(card: &DocTraceabilityCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "referenceCount": card.reference_count,
+        "implementationReferenceCount": card.implementation_reference_count,
+        "docReferenceCount": card.doc_reference_count,
+        "otherReferenceCount": card.other_reference_count,
+        "references": card
+            .references
+            .iter()
+            .map(doc_reference_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_outline_summary_to_json(summary: &DocOutlineSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "headingCount": summary.heading_count,
+        "headings": summary
+            .headings
+            .iter()
+            .map(doc_outline_heading_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_outline_heading_to_json(heading: &DocOutlineHeading) -> Value {
+    serde_json::json!({
+        "level": heading.level,
+        "title": heading.title,
+        "slug": heading.slug,
+        "line": heading.line,
+    })
+}
+
+fn doc_decision_summary_to_json(summary: &DocDecisionSummary) -> Value {
+    serde_json::json!({
+        "path": summary.path,
+        "title": summary.title,
+        "decisionCount": summary.decision_count,
+        "openQuestionCount": summary.open_question_count,
+        "riskCount": summary.risk_count,
+        "items": summary
+            .items
+            .iter()
+            .map(doc_decision_item_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_item_to_json(item: &DocDecisionItem) -> Value {
+    serde_json::json!({
+        "kind": item.kind,
+        "text": item.text,
+        "line": item.line,
+    })
+}
+
+fn doc_decision_board_to_json(board: &DocDecisionBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_decision_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_column_to_json(column: &DocDecisionColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_decision_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_decision_card_to_json(card: &DocDecisionCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "decisionCount": card.decision_count,
+        "openQuestionCount": card.open_question_count,
+        "riskCount": card.risk_count,
+    })
+}
+
+fn doc_readiness_board_to_json(board: &DocReadinessBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_readiness_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_readiness_column_to_json(column: &DocReadinessColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_readiness_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_readiness_card_to_json(card: &DocReadinessCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "checklistTotal": card.checklist_total,
+        "checklistChecked": card.checklist_checked,
+        "scenarioCount": card.scenario_count,
+        "referenceCount": card.reference_count,
+    })
+}
+
+fn doc_handoff_board_to_json(board: &DocHandoffBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_handoff_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_handoff_column_to_json(column: &DocHandoffColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_handoff_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_handoff_card_to_json(card: &DocHandoffCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "checklistTotal": card.checklist_total,
+        "checklistChecked": card.checklist_checked,
+        "scenarioCount": card.scenario_count,
+        "implementationReferenceCount": card.implementation_reference_count,
+        "openQuestionCount": card.open_question_count,
+        "riskCount": card.risk_count,
+    })
+}
+
+fn doc_implementation_board_to_json(board: &DocImplementationBoard) -> Value {
+    serde_json::json!({
+        "totalDocs": board.total_docs,
+        "columns": board
+            .columns
+            .iter()
+            .map(doc_implementation_column_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_implementation_column_to_json(column: &DocImplementationColumn) -> Value {
+    serde_json::json!({
+        "key": column.key,
+        "label": column.label,
+        "count": column.count,
+        "docs": column
+            .docs
+            .iter()
+            .map(doc_implementation_card_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn doc_implementation_card_to_json(card: &DocImplementationCard) -> Value {
+    serde_json::json!({
+        "projectName": card.project_name,
+        "typeName": card.type_name,
+        "typeLabel": card.type_label,
+        "path": card.path,
+        "title": card.title,
+        "status": card.status,
+        "checklistTotal": card.checklist_total,
+        "checklistChecked": card.checklist_checked,
+        "scenarioCount": card.scenario_count,
+        "referenceCount": card.reference_count,
+        "implementationReferenceCount": card.implementation_reference_count,
+        "docReferenceCount": card.doc_reference_count,
+        "openQuestionCount": card.open_question_count,
+        "riskCount": card.risk_count,
+    })
+}
+
+fn doc_property_to_json(property: &DocProperty) -> Value {
+    serde_json::json!({
+        "key": property.key,
+        "value": property.value,
+    })
+}
+
 fn docs_error_to_canonical(
     e: ext_docs_bindings::comtrya::platform::types::Error,
 ) -> wit_types::Error {
@@ -2329,7 +5240,7 @@ pub fn dispatch_ext_docs(
     store: Arc<crate::ExtensionRuntimeStore>,
     current_principal: &str,
     info: &crate::generated_dispatch::DispatchInfo,
-    _payload: &[u8],
+    payload: &[u8],
     depth: u32,
     reactor_depth: u32,
 ) -> Result<Vec<u8>, wit_types::Error> {
@@ -2381,6 +5292,348 @@ pub fn dispatch_ext_docs(
             })?;
             Value::String(result.map_err(docs_error_to_canonical)?)
         }
+        "summarize-doc" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-doc input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_doc(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-doc call: {e}"),
+                    )
+                })?;
+            doc_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-catalog" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-catalog input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_summarize_catalog(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-catalog call: {e}"),
+                    )
+                })?;
+            doc_catalog_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "type-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse type-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_type_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("type-board call: {e}"),
+                    )
+                })?;
+            doc_type_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "status-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse status-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_status_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("status-board call: {e}"),
+                    )
+                })?;
+            doc_status_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "owner-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse owner-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_owner_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("owner-board call: {e}"),
+                    )
+                })?;
+            doc_owner_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "tag-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse tag-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_tag_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("tag-board call: {e}"),
+                    )
+                })?;
+            doc_tag_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "project-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse project-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_project_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("project-board call: {e}"),
+                    )
+                })?;
+            doc_project_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-scenarios" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-scenarios input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_scenarios(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-scenarios call: {e}"),
+                    )
+                })?;
+            bdd_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "scenario-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse scenario-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_scenario_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("scenario-board call: {e}"),
+                    )
+                })?;
+            doc_scenario_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-checklists" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-checklists input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_checklists(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-checklists call: {e}"),
+                    )
+                })?;
+            doc_checklist_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-references" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-references input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_references(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-references call: {e}"),
+                    )
+                })?;
+            doc_reference_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "traceability-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse traceability-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_traceability_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("traceability-board call: {e}"),
+                    )
+                })?;
+            doc_traceability_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-outline" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-outline input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_outline(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-outline call: {e}"),
+                    )
+                })?;
+            doc_outline_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "summarize-decisions" => {
+            let parsed: SummarizeDocInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse summarize-decisions input: {e}"),
+                )
+            })?;
+            let wit_input = DocsSummarizeDocInput {
+                path: parsed.path,
+                preview: parsed.preview,
+            };
+            let result = docs
+                .call_summarize_decisions(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("summarize-decisions call: {e}"),
+                    )
+                })?;
+            doc_decision_summary_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "decision-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse decision-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_decision_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("decision-board call: {e}"),
+                    )
+                })?;
+            doc_decision_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "readiness-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse readiness-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_readiness_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("readiness-board call: {e}"),
+                    )
+                })?;
+            doc_readiness_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "handoff-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse handoff-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_handoff_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("handoff-board call: {e}"),
+                    )
+                })?;
+            doc_handoff_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
+        "implementation-board" => {
+            let parsed: DocCatalogInputJson = serde_json::from_slice(payload).map_err(|e| {
+                wit_error(
+                    wit_types::ErrorCode::BadInput,
+                    format!("parse implementation-board input: {e}"),
+                )
+            })?;
+            let wit_input = doc_catalog_input_to_wit(parsed);
+            let result = docs
+                .call_implementation_board(&mut wasm_store, &wit_input)
+                .map_err(|e| {
+                    wit_error(
+                        wit_types::ErrorCode::Internal,
+                        format!("implementation-board call: {e}"),
+                    )
+                })?;
+            doc_implementation_board_to_json(&result.map_err(docs_error_to_canonical)?)
+        }
         other => {
             return Err(wit_error(
                 wit_types::ErrorCode::NotFound,
@@ -2424,5 +5677,19 @@ mod tests {
         assert_eq!(pull_state_to_graphql(PrState::Ready), "READY");
         assert_eq!(pull_state_to_graphql(PrState::Merged), "MERGED");
         assert_eq!(pull_state_to_graphql(PrState::Closed), "CLOSED");
+    }
+
+    #[test]
+    fn pr_state_from_json_accepts_review_wire_case() {
+        assert!(matches!(
+            pull_state_from_json("REVIEW").expect("review state"),
+            PrState::Review
+        ));
+    }
+
+    #[test]
+    fn pr_state_from_json_rejects_unknown_wire_case() {
+        let error = pull_state_from_json("CHANGES_REQUESTED").expect_err("unknown state");
+        assert!(matches!(error.code, wit_types::ErrorCode::BadInput));
     }
 }

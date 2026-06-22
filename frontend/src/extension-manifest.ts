@@ -18,8 +18,8 @@ export function parseManifest(input: unknown): UiManifestV2 {
   if (typeof m.id !== "string" || m.id.length === 0) {
     throw new Error("manifest must include a non-empty string id");
   }
-  if (!m.assets?.entry?.startsWith("/_extensions/")) {
-    throw new Error("entry must be served by the Rust asset API at /_extensions/");
+  if (!m.assets?.entry?.startsWith("/ui-ext/")) {
+    throw new Error("entry must be served by the Rust asset API at /ui-ext/");
   }
   if (!m.assets.entryIntegrity?.startsWith("sha256-")) {
     throw new Error("entryIntegrity must be a sha256-prefixed value");

@@ -15,7 +15,30 @@ interface RepoCodePayload {
   path: string;
   defaultBranch: string | null;
   headOid: string | null;
+  branches?: RepoCodeBranch[] | null;
+  tags?: RepoCodeTag[] | null;
+  commits?: RepoCodeCommit[] | null;
   files: RepoFile[];
+}
+
+interface RepoCodeBranch {
+  name: string;
+  oid: string;
+  commit: string;
+  ahead: number;
+  behind: number;
+}
+
+interface RepoCodeTag {
+  name: string;
+}
+
+interface RepoCodeCommit {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  time: string;
 }
 
 const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
@@ -25,6 +48,9 @@ const REPO_CODE_QUERY = `query ShellRepoCode($segments: [String!]!) {
       path
       defaultBranch
       headOid
+      branches { name oid commit ahead behind }
+      tags { name }
+      commits { oid shortOid subject author time }
       files { path size kind preview }
     }
   }
@@ -38,8 +64,21 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   repositoryGroups?: string[] | string;
   repositoryName?: string;
   repositoryPath?: string;
+  private activeFilterInput: HTMLInputElement | null = null;
+  private readonly handleDocumentKeydown = (event: KeyboardEvent): void => {
+    if (event.defaultPrevented || event.key !== "/") return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isEditableTarget(event.target)) return;
+    const filter = this.activeFilterInput;
+    if (!filter || !this.contains(filter) || filter.disabled) return;
+    event.preventDefault();
+    filter.focus();
+    filter.select();
+  };
 
   async connectedCallback(): Promise<void> {
+    document.removeEventListener("keydown", this.handleDocumentKeydown);
+    document.addEventListener("keydown", this.handleDocumentKeydown);
     this.dataset.smoke = "repo-code-section";
     const root = document.createElement("div");
     root.className = "extension-payload";
@@ -55,7 +94,7 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       return;
     }
 
-    renderHeader(root, segments.join("/"), null, null);
+    renderHeader(root, segments.join("/"));
     renderMessage(root, "Loading files...", "muted", { append: true });
 
     try {
@@ -71,6 +110,11 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
     } catch (error) {
       renderMessage(root, `code: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
+  }
+
+  disconnectedCallback(): void {
+    document.removeEventListener("keydown", this.handleDocumentKeydown);
+    this.activeFilterInput = null;
   }
 
   private segments(): string[] {
@@ -89,10 +133,12 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   private renderBrowser(root: HTMLElement, repo: RepoCodePayload): void {
     let currentPath = "";
     let openFilePath: string | null = null;
+    let filterText = "";
 
     const navigateToDirectory = (path: string): void => {
       currentPath = normalizePath(path);
       openFilePath = null;
+      filterText = "";
       render();
     };
     const openFile = (file: RepoFile): void => {
@@ -102,9 +148,10 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
     };
     const render = (): void => {
       root.replaceChildren();
-      renderHeader(root, repo.path, repo.defaultBranch, repo.headOid);
+      renderHeader(root, repo.path);
 
       if (!repo.files.length) {
+        this.activeFilterInput = null;
         renderMessage(
           root,
           "This repository has no commits yet. Push to it or import content to see files here.",
@@ -118,12 +165,24 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
       const browser = document.createElement("section");
       browser.dataset.smoke = "repo-code-browser";
       browser.className = "repo-code-browser";
-      browser.append(
-        buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory),
-        openFileEntry
-          ? buildFileView(openFileEntry, () => navigateToDirectory(parentPath(openFileEntry.path)))
-          : buildDirectoryView(repo.files, currentPath, navigateToDirectory, openFile),
-      );
+      let body: HTMLElement;
+      if (openFileEntry) {
+        this.activeFilterInput = null;
+        body = buildFileView(openFileEntry);
+      } else {
+        body = buildDirectoryView(
+          repo,
+          currentPath,
+          filterText,
+          (value) => {
+            filterText = value;
+          },
+          navigateToDirectory,
+          openFile,
+        );
+        this.activeFilterInput = body.querySelector(".repo-code-file-filter");
+      }
+      browser.append(buildBrowserToolbar(repo, currentPath, openFileEntry, navigateToDirectory), body);
       root.append(browser);
     };
 
@@ -131,21 +190,19 @@ class ComtryaCoreCodeBrowser extends HTMLElement {
   }
 }
 
-function renderHeader(
-  root: HTMLElement,
-  repoPath: string,
-  defaultBranch: string | null | undefined,
-  headOid: string | null | undefined,
-): void {
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select";
+}
+
+function renderHeader(root: HTMLElement, repoPath: string): void {
   const header = document.createElement("header");
   header.className = "repo-code-header";
   const title = document.createElement("h2");
   title.textContent = `Code · ${repoPath}`;
-  const meta = document.createElement("div");
-  const branch = defaultBranch ?? "main";
-  const shortHead = typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "-";
-  meta.textContent = `${branch} · ${shortHead}`;
-  header.append(title, meta);
+  header.append(title);
   root.append(header);
 }
 
@@ -171,15 +228,101 @@ function buildBrowserToolbar(
 ): HTMLElement {
   const toolbar = document.createElement("div");
   toolbar.className = "repo-code-toolbar";
-  toolbar.append(buildBreadcrumbs(repo.path, openFile?.path ?? currentPath, navigateToDirectory));
+
+  const primary = document.createElement("div");
+  primary.className = "repo-code-toolbar-primary";
+  primary.append(
+    buildRefbar(repo.defaultBranch, repo.headOid, repo.path),
+    buildBreadcrumbs(repo.path, openFile?.path ?? currentPath, navigateToDirectory),
+  );
 
   const meta = document.createElement("span");
   meta.className = "repo-code-toolbar-meta";
   meta.textContent = openFile
     ? `${openFile.kind ?? "file"} · ${humanSize(openFile.size)}`
     : directorySummary(repo.files, currentPath);
-  toolbar.append(meta);
+
+  const secondary = document.createElement("div");
+  secondary.className = "repo-code-toolbar-secondary";
+  const branches = buildBranchesLink(repo);
+  if (branches) secondary.append(branches);
+  const tags = buildTagsLink(repo);
+  if (tags) secondary.append(tags);
+  const history = buildHistoryLink(repo);
+  if (history) secondary.append(history);
+  secondary.append(meta);
+
+  toolbar.append(primary, secondary);
   return toolbar;
+}
+
+function buildRefbar(
+  defaultBranch: string | null | undefined,
+  headOid: string | null | undefined,
+  repoPath: string,
+): HTMLElement {
+  const refbar = document.createElement("div");
+  refbar.className = "repo-code-refbar";
+  refbar.setAttribute("aria-label", "Current code reference");
+  const branch = defaultBranch?.trim() || "main";
+  const commit = headOid?.trim() || "";
+  refbar.append(
+    refPill("branch", branch, "Default branch", branchListHref(repoPath)),
+    refPill(
+      "commit",
+      shortCommit(headOid),
+      headOid || "No commit recorded",
+      commit ? commitDetailHref(repoPath, commit) : null,
+    ),
+  );
+  return refbar;
+}
+
+function refPill(
+  iconName: "branch" | "commit",
+  text: string,
+  title: string,
+  href: string | null = null,
+): HTMLElement {
+  const pill = href ? document.createElement("a") : document.createElement("span");
+  pill.className = `repo-code-ref-pill repo-code-ref-pill--${iconName}`;
+  pill.title = title;
+  if (href) {
+    (pill as HTMLAnchorElement).href = href;
+    pill.dataset.smoke = `repo-code-${iconName}-link`;
+  }
+  pill.append(icon(iconName), textNode(text));
+  return pill;
+}
+
+function buildBranchesLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.branches?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-branches-link";
+  link.dataset.smoke = "repo-code-branches-link";
+  link.href = branchListHref(repo.path);
+  link.append(icon("branch"), textNode("Branches"));
+  return link;
+}
+
+function buildTagsLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.tags?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-tags-link";
+  link.dataset.smoke = "repo-code-tags-link";
+  link.href = tagListHref(repo.path);
+  link.append(icon("tag"), textNode("Tags"));
+  return link;
+}
+
+function buildHistoryLink(repo: RepoCodePayload): HTMLAnchorElement | null {
+  if (!repo.commits?.length) return null;
+  const link = document.createElement("a");
+  link.className = "repo-code-history-link";
+  link.dataset.smoke = "repo-code-history-link";
+  link.href = commitListHref(repo.path);
+  link.append(icon("commit"), textNode("History"));
+  return link;
 }
 
 function buildBreadcrumbs(
@@ -236,8 +379,10 @@ function buildBreadcrumbSeparator(): HTMLElement {
 }
 
 function buildDirectoryView(
-  files: RepoFile[],
+  repo: RepoCodePayload,
   currentPath: string,
+  filterText: string,
+  setFilterText: (value: string) => void,
   navigateToDirectory: (path: string) => void,
   openFile: (file: RepoFile) => void,
 ): HTMLElement {
@@ -246,49 +391,155 @@ function buildDirectoryView(
   panel.className = "repo-code-directory";
   panel.setAttribute("aria-label", currentPath ? `Files in ${currentPath}` : "Repository files");
 
-  const header = document.createElement("div");
-  header.className = "repo-code-directory-header";
-  header.append(columnLabel("Name"), columnLabel("Type"), columnLabel("Size"));
-
+  const controls = buildDirectoryControls(filterText);
   const rows = document.createElement("ul");
   rows.className = "repo-code-rows";
 
-  if (currentPath) {
-    rows.append(buildParentRow(currentPath, navigateToDirectory));
-  }
+  const entries = entriesForPath(repo.files, currentPath);
+  const renderRows = (query: string): void => {
+    rows.replaceChildren();
 
-  const entries = entriesForPath(files, currentPath);
-  if (entries.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "repo-code-empty-row";
-    empty.textContent = "No files in this directory.";
-    rows.append(empty);
-  } else {
-    for (const entry of entries) {
+    const filteredEntries = filterEntries(entries, query);
+    if (filteredEntries.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "repo-code-empty-row";
+      empty.textContent = query.trim()
+        ? `No files or folders match "${query.trim()}".`
+        : "No files in this directory.";
+      rows.append(empty);
+      return;
+    }
+
+    for (const entry of filteredEntries) {
       rows.append(buildEntryRow(entry, navigateToDirectory, openFile));
     }
-  }
+  };
 
-  panel.append(header, rows);
+  const filter = controls.querySelector<HTMLInputElement>(".repo-code-file-filter");
+  filter?.addEventListener("input", () => {
+    const value = filter.value;
+    setFilterText(value);
+    renderRows(value);
+  });
+  renderRows(filterText);
+
+  panel.append(buildDirectorySummary(repo, currentPath), controls, rows);
   return panel;
 }
 
-function columnLabel(text: string): HTMLElement {
-  const label = document.createElement("span");
-  label.textContent = text;
+function buildDirectoryControls(filterText: string): HTMLElement {
+  const controls = document.createElement("div");
+  controls.className = "repo-code-directory-controls";
+  const label = document.createElement("label");
+  label.className = "repo-code-filter-control";
+  label.append(icon("file"));
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "repo-code-file-filter";
+  input.dataset.smoke = "repo-code-file-filter";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.setAttribute("aria-label", "Find file or folder");
+  input.placeholder = "Find file or folder";
+  input.value = filterText;
+  label.append(input);
+  controls.append(label);
+  return controls;
+}
+
+function filterEntries(entries: BrowserEntry[], query: string): BrowserEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((entry) =>
+    entry.name.toLowerCase().includes(needle)
+    || entry.path.toLowerCase().includes(needle),
+  );
+}
+
+function buildDirectorySummary(repo: RepoCodePayload, currentPath: string): HTMLElement {
+  const summary = document.createElement("div");
+  summary.className = "repo-code-directory-summary";
+  const treeSummary = directorySummary(repo.files, currentPath);
+  const latest = buildLatestCommit(repo);
+  summary.setAttribute("aria-label", `${latest.getAttribute("aria-label")}; ${treeSummary}`);
+
+  const tree = document.createElement("span");
+  tree.className = "repo-code-directory-counts";
+  tree.textContent = treeSummary;
+
+  summary.append(latest, tree);
+  return summary;
+}
+
+function buildLatestCommit(repo: RepoCodePayload): HTMLElement {
+  const commit = repo.commits?.[0] ?? null;
+  const latest = commit ? document.createElement("a") : document.createElement("span");
+  latest.className = "repo-code-latest-commit";
+
+  if (!commit) {
+    const short = shortCommit(repo.headOid);
+    latest.setAttribute("aria-label", `Latest commit ${short}`);
+    latest.append(icon("commit"), textNode("Latest commit "), commitLabel(repo.headOid));
+    return latest;
+  }
+
+  latest.classList.add("repo-code-latest-commit-link");
+  latest.dataset.smoke = "repo-code-latest-commit-link";
+  (latest as HTMLAnchorElement).href = commitDetailHref(repo.path, commit.oid);
+  const author = commit.author.trim() || "Unknown author";
+  const subject = commit.subject.trim() || "No commit message";
+  const time = commit.time.trim();
+  const short = commit.shortOid.trim() || shortCommit(commit.oid);
+  latest.setAttribute(
+    "aria-label",
+    `Latest commit ${subject} by ${author} (${short})${time ? ` ${time}` : ""}`,
+  );
+  latest.append(
+    icon("commit"),
+    commitText("repo-code-latest-author", author),
+    commitText("repo-code-latest-subject", subject),
+    commitLabel(short),
+  );
+  if (time) latest.append(commitText("repo-code-latest-time", time));
+  return latest;
+}
+
+function commitText(className: string, text: string): HTMLElement {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
+}
+
+function commitLabel(headOid: string | null | undefined): HTMLElement {
+  const label = document.createElement("code");
+  label.className = "repo-code-commit-label";
+  label.textContent = shortCommit(headOid);
   return label;
 }
 
-function buildParentRow(currentPath: string, navigateToDirectory: (path: string) => void): HTMLElement {
-  const item = document.createElement("li");
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "repo-code-row repo-code-row--parent";
-  button.setAttribute("aria-label", "Back to parent directory");
-  button.addEventListener("click", () => navigateToDirectory(parentPath(currentPath)));
-  button.append(rowName("folder", ".."), rowMeta("parent directory"), rowMeta(""));
-  item.append(button);
-  return item;
+function shortCommit(headOid: string | null | undefined): string {
+  return typeof headOid === "string" && headOid.length > 0 ? headOid.slice(0, 12) : "no commits";
+}
+
+function repoPathHref(repoPath: string): string {
+  return `/r/${repoPath.split("/").filter(Boolean).map(encodeURIComponent).join("/")}`;
+}
+
+function branchListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/branches`;
+}
+
+function tagListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/tags`;
+}
+
+function commitListHref(repoPath: string): string {
+  return `${repoPathHref(repoPath)}/commits`;
+}
+
+function commitDetailHref(repoPath: string, oid: string): string {
+  return `${commitListHref(repoPath)}/${encodeURIComponent(oid)}`;
 }
 
 function buildEntryRow(
@@ -331,27 +582,22 @@ function rowMeta(text: string): HTMLElement {
   return meta;
 }
 
-function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement {
+function buildFileView(file: RepoFile): HTMLElement {
   const article = document.createElement("article");
   article.dataset.smoke = "repo-code-file-view";
   article.className = "repo-code-file";
-
-  const actions = document.createElement("div");
-  actions.className = "repo-code-file-actions";
-  const back = document.createElement("button");
-  back.type = "button";
-  back.className = "repo-code-back";
-  back.append(icon("chev"), textNode("Back to directory"));
-  back.addEventListener("click", backToDirectory);
-  actions.append(back);
 
   const header = document.createElement("div");
   header.className = "repo-code-file-header";
   const title = document.createElement("h3");
   title.append(icon("file"), textNode(file.path));
   const meta = document.createElement("span");
+  meta.className = "repo-code-file-meta";
   meta.textContent = `${file.kind ?? "file"} · ${humanSize(file.size)}`;
-  header.append(title, meta);
+  const headerActions = document.createElement("div");
+  headerActions.className = "repo-code-file-header-actions";
+  headerActions.append(meta, copyFilePathButton(file.path));
+  header.append(title, headerActions);
 
   const body = document.createElement("div");
   body.className = "repo-code-file-body";
@@ -367,8 +613,56 @@ function buildFileView(file: RepoFile, backToDirectory: () => void): HTMLElement
     body.append(note);
   }
 
-  article.append(actions, header, body);
+  article.append(header, body);
   return article;
+}
+
+function copyFilePathButton(path: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "repo-code-copy-path";
+  button.title = "Copy file path";
+  button.setAttribute("aria-label", `Copy file path ${path}`);
+  button.setAttribute("aria-pressed", "false");
+
+  const render = (copied: boolean): void => {
+    button.setAttribute("aria-pressed", String(copied));
+    button.title = copied ? "Copied file path" : "Copy file path";
+    button.replaceChildren(icon("copy"), textNode(copied ? "Copied" : "Copy path"));
+  };
+  render(false);
+
+  button.addEventListener("click", async () => {
+    try {
+      await writeClipboardText(path);
+      render(true);
+      window.setTimeout(() => render(false), 1600);
+    } catch {
+      button.title = "Copy unavailable";
+    }
+  });
+
+  return button;
+}
+
+async function writeClipboardText(text: string): Promise<void> {
+  const clipboard = globalThis.navigator?.clipboard;
+  if (clipboard?.writeText) {
+    await clipboard.writeText(text);
+    return;
+  }
+
+  const target = document.createElement("textarea");
+  target.value = text;
+  target.readOnly = true;
+  target.style.position = "fixed";
+  target.style.inset = "0";
+  target.style.opacity = "0";
+  document.body.append(target);
+  target.select();
+  const copied = document.execCommand?.("copy") ?? false;
+  target.remove();
+  if (!copied) throw new Error("copy command rejected");
 }
 
 async function renderHighlightedPreview(file: RepoFile, body: HTMLElement): Promise<void> {
@@ -405,7 +699,7 @@ function renderPlainPreview(file: RepoFile, body: HTMLElement): void {
   body.append(wrap);
 }
 
-function icon(name: "chev" | "file" | "folder"): HTMLElement {
+function icon(name: "branch" | "commit" | "copy" | "file" | "folder" | "tag"): HTMLElement {
   const span = document.createElement("span");
   span.className = `repo-code-icon repo-code-icon--${name}`;
   span.innerHTML = Ic[name];

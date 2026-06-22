@@ -15,10 +15,16 @@
 
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
-import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
+import {
+  LabelPill,
+  listWorkspaceRepositoryIssues,
+  type LabelCatalog,
+} from "@comtrya/sdk-vue";
 import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
+import Icon from "../components/Icon.vue";
 import { setActiveLabelCatalog } from "../extension-runtime";
+import { projectNewWorkHref, projectPlanningHref, projectWorkHref } from "../route-paths";
 
 interface ComtryaRef {
   /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
@@ -96,6 +102,28 @@ const project = computed<ComtryaProject | null>(
 );
 const projectExists = computed(() => project.value !== null);
 
+function normalizedProjectRoot(root: string | null | undefined): string {
+  return root?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function projectRootLabel(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "Repository root";
+}
+
+function projectRootTitle(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "<repo root>";
+}
+
+function ownerKindLabel(kind: string | null | undefined): string {
+  if (!kind?.trim()) return "Owner";
+  return kind
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 onMounted(() => void load());
 watch(() => [repoSegments.value, props.project], () => void load());
 
@@ -132,6 +160,7 @@ interface IssueLite {
   title?: string;
   state?: string;
   projectName?: string | null;
+  repository?: string;
   labels?: string[];
   updatedAt?: string | null;
 }
@@ -169,15 +198,23 @@ const summary = ref<{
   inProgressEpics: [],
 });
 
-/** Scalar (on/off, single value) policy chips rendered as plain key·value. */
-const policyChips = computed<Array<{ key: string; value: string; tone: "info" | "warn" }>>(() => {
-  const out: Array<{ key: string; value: string; tone: "info" | "warn" }> = [];
+interface PolicyChip {
+  id: string;
+  label: string;
+  value: string;
+  tone: "info" | "warn";
+}
+
+/** Scalar (on/off, single value) policy chips rendered as plain label·value. */
+const policyChips = computed<PolicyChip[]>(() => {
+  const out: PolicyChip[] = [];
   if (!project.value) return out;
   const issuesPolicy = project.value.issues as Record<string, unknown> | undefined;
   if (issuesPolicy && typeof issuesPolicy === "object") {
     if (typeof issuesPolicy.closeOnMerge === "boolean") {
       out.push({
-        key: "closeOnMerge",
+        id: "closeOnMerge",
+        label: "Close on merge",
         value: issuesPolicy.closeOnMerge ? "on" : "off",
         tone: issuesPolicy.closeOnMerge ? "info" : "warn",
       });
@@ -187,14 +224,16 @@ const policyChips = computed<Array<{ key: string; value: string; tone: "info" | 
   if (pullsPolicy && typeof pullsPolicy === "object") {
     if (typeof pullsPolicy.autoMerge === "boolean") {
       out.push({
-        key: "autoMerge",
+        id: "autoMerge",
+        label: "Auto-merge",
         value: pullsPolicy.autoMerge ? "on" : "off",
         tone: pullsPolicy.autoMerge ? "info" : "warn",
       });
     }
     if (Array.isArray(pullsPolicy.requiredChecks) && pullsPolicy.requiredChecks.length > 0) {
       out.push({
-        key: "requiredChecks",
+        id: "requiredChecks",
+        label: "Required checks",
         value: (pullsPolicy.requiredChecks as string[]).join(", "),
         tone: "info",
       });
@@ -239,25 +278,23 @@ async function loadSummary(): Promise<void> {
   if (!project.value) return;
   const proj = project.value.name;
   if (!proj) return;
+  const repoId = repository.value?.id;
+  if (!repoId) return;
   // Sourced from the shell-wide store published by
   // `App.vue::loadShellSummary`; the local `workspaceId` ref filled
   // by `load()` is a per-repo signal, not always populated by the
   // time `loadSummary` fires (`immediate: true` watch).
   const id = await whenWorkspaceReady();
   const workspaceUri = `comtrya://workspace/${id}`;
-  // Issues
-  const issuesRes = await invokeOp<IssueLite[]>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: workspaceUri, limit: 1024 },
-  );
-  const epicsRes = await invokeOp<EpicLite[]>(
-    "ext_epics",
-    "epics",
-    "list-epics",
-    { workspace: workspaceUri, limit: 1024 },
-  );
+  const [issueRows, epicsRes] = await Promise.all([
+    listWorkspaceRepositoryIssues<IssueLite>(id, [{ id: repoId }]),
+    invokeOp<EpicLite[]>(
+      "ext_epics",
+      "epics",
+      "list-epics",
+      { workspace: workspaceUri, limit: 1024 },
+    ),
+  ]);
   let issuesOpen = 0;
   let issuesClosed = 0;
   let epicsPlanned = 0;
@@ -265,15 +302,13 @@ async function loadSummary(): Promise<void> {
   let epicsDone = 0;
   const openIssues: IssueLite[] = [];
   const inProgressEpics: EpicLite[] = [];
-  if (issuesRes.ok) {
-    for (const issue of issuesRes.value as IssueLite[]) {
-      if (issue.projectName !== proj) continue;
-      if (issue.state === "closed") {
-        issuesClosed += 1;
-      } else {
-        issuesOpen += 1;
-        openIssues.push(issue);
-      }
+  for (const issue of issueRows) {
+    if (issue.projectName !== proj) continue;
+    if ((issue.state ?? "").toUpperCase() === "CLOSED") {
+      issuesClosed += 1;
+    } else {
+      issuesOpen += 1;
+      openIssues.push(issue);
     }
   }
   if (epicsRes.ok) {
@@ -331,8 +366,8 @@ watch(
  * Build queue-filter URLs scoped to this Project. Each card on
  * the summary strip becomes a hyperlink to the corresponding
  * filtered queue, using the URL filter shape that iter 46
- * (IssuesList) and iter 57 (EpicsList) shipped. Centralised here
- * so the template stays declarative.
+ * (IssuesList) and iter 57 (EpicsList) shipped. Repository routes
+ * stay inside the workbench; workspace routes keep using `/x/...`.
  */
 const projectQueueHrefs = computed(() => {
   const name = project.value?.name;
@@ -343,33 +378,76 @@ const projectQueueHrefs = computed(() => {
       epicsInProgress: "#",
       epicsPlanned: "#",
       epicsDone: "#",
+      kanban: "#",
+      docs: "#",
+      prds: "#",
+      scenarios: "#",
       newIssue: "#",
       newEpic: "#",
     };
   }
-  const encoded = encodeURIComponent(name);
+  const scoped = {
+    repoSegments: repoSegments.value,
+    workspaceId: workspaceId.value,
+    repositoryId: repository.value?.id ?? null,
+  };
   return {
     // IssuesList chip default is OPEN, so this lands on the
     // "open + this-project" slice with no state= param.
-    issuesOpen: `/x/issues/?project=${encoded}`,
-    issuesClosed: `/x/issues/?project=${encoded}&state=CLOSED`,
-    epicsInProgress: `/x/epics/?project=${encoded}&state=IN_PROGRESS`,
-    epicsPlanned: `/x/epics/?project=${encoded}&state=PLANNED`,
-    epicsDone: `/x/epics/?project=${encoded}&state=DONE`,
+    issuesOpen: projectWorkHref({ surface: "issues", projectName: name, ...scoped }),
+    issuesClosed: projectWorkHref({
+      surface: "issues",
+      projectName: name,
+      state: "CLOSED",
+      ...scoped,
+    }),
+    epicsInProgress: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "IN_PROGRESS",
+      ...scoped,
+    }),
+    epicsPlanned: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "PLANNED",
+      ...scoped,
+    }),
+    epicsDone: projectWorkHref({
+      surface: "epics",
+      projectName: name,
+      state: "DONE",
+      ...scoped,
+    }),
+    kanban: projectPlanningHref({ surface: "sprints", projectName: name, ...scoped }),
+    docs: projectPlanningHref({ surface: "docs", projectName: name, ...scoped }),
+    prds: projectPlanningHref({
+      surface: "docs",
+      projectName: name,
+      board: "prds",
+      ...scoped,
+    }),
+    scenarios: projectPlanningHref({
+      surface: "docs",
+      projectName: name,
+      board: "scenarios",
+      ...scoped,
+    }),
     // New-issue / new-epic routes already accept `projectName`
     // in the URL (see ext_issues/register.ts + ext_epics/
     // register.ts). The form pre-fills CUE policy from this.
-    newIssue: `/x/issues/new?projectName=${encoded}`,
-    newEpic: `/x/epics/new?projectName=${encoded}`,
+    newIssue: projectNewWorkHref({ surface: "issues", projectName: name, ...scoped }),
+    newEpic: projectNewWorkHref({ surface: "epics", projectName: name, ...scoped }),
   };
 });
 </script>
 
 <template>
   <header class="project-header" data-smoke="project-home">
-    <p class="overline">
+    <p class="project-breadcrumb" aria-label="Repository project breadcrumb">
       <RouterLink :to="`/r/${repoPath}`">{{ repoPath }}</RouterLink>
-      · project
+      <span class="project-breadcrumb-separator" aria-hidden="true">/</span>
+      <span>Projects</span>
     </p>
     <h1>{{ props.project }}</h1>
 
@@ -387,14 +465,14 @@ const projectQueueHrefs = computed(() => {
         :aria-selected="p.name === props.project"
         role="tab"
       >
-        <span class="tab-glyph">◇</span>{{ p.name }}
+        {{ p.name }}
       </RouterLink>
     </nav>
 
     <div v-if="project" class="project-chip-row" aria-label="Project at a glance">
-      <span class="project-chip">
-        <strong>{{ project.root || "." }}/</strong>
-        <span>root</span>
+      <span class="project-chip" :title="projectRootTitle(project.root)">
+        <strong>{{ projectRootLabel(project.root) }}</strong>
+        <span>Root directory</span>
       </span>
       <span
         v-for="label in (project.labels ?? [])"
@@ -402,7 +480,7 @@ const projectQueueHrefs = computed(() => {
         class="project-chip tone-label"
       >
         <strong>{{ label }}</strong>
-        <span>label</span>
+        <span>Label</span>
       </span>
       <span
         v-for="owner in (project.owners ?? [])"
@@ -411,7 +489,7 @@ const projectQueueHrefs = computed(() => {
         :title="owner.ref"
       >
         <strong>{{ owner.slug }}</strong>
-        <span>{{ owner.kind ?? 'owner' }}</span>
+        <span>{{ ownerKindLabel(owner.kind) }}</span>
       </span>
     </div>
   </header>
@@ -443,7 +521,7 @@ const projectQueueHrefs = computed(() => {
       </RouterLink>
       <RouterLink :to="projectQueueHrefs.issuesClosed" class="stat" :title="`Closed issues in ${project?.name}`">
         <span class="stat-num muted">{{ summary.loaded ? summary.issuesClosed : '—' }}</span>
-        <span class="stat-label">closed</span>
+        <span class="stat-label">closed issue<template v-if="summary.issuesClosed !== 1">s</template></span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
       <RouterLink
@@ -452,7 +530,7 @@ const projectQueueHrefs = computed(() => {
         :title="`In-progress epics in ${project?.name}`"
       >
         <span class="stat-num" :data-zero="summary.loaded && summary.epicsInProgress === 0">{{ summary.loaded ? summary.epicsInProgress : '—' }}</span>
-        <span class="stat-label">epic<template v-if="summary.epicsInProgress !== 1">s</template> in progress</span>
+        <span class="stat-label">in-progress epic<template v-if="summary.epicsInProgress !== 1">s</template></span>
       </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.epicsPlanned"
@@ -460,7 +538,7 @@ const projectQueueHrefs = computed(() => {
         :title="`Planned epics in ${project?.name}`"
       >
         <span class="stat-num muted">{{ summary.loaded ? summary.epicsPlanned : '—' }}</span>
-        <span class="stat-label">planned</span>
+        <span class="stat-label">planned epic<template v-if="summary.epicsPlanned !== 1">s</template></span>
       </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.epicsDone"
@@ -468,26 +546,56 @@ const projectQueueHrefs = computed(() => {
         :title="`Done epics in ${project?.name}`"
       >
         <span class="stat-num muted">{{ summary.loaded ? summary.epicsDone : '—' }}</span>
-        <span class="stat-label">done</span>
+        <span class="stat-label">done epic<template v-if="summary.epicsDone !== 1">s</template></span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
-      <div class="stat stat-static">
+      <RouterLink :to="projectQueueHrefs.docs" class="stat" :title="`Open project docs for ${project?.name}`">
         <span class="stat-num">{{ summary.loaded ? docsByType.length : '—' }}</span>
-        <span class="stat-label">doc type<template v-if="docsByType.length !== 1">s</template></span>
-      </div>
+        <span class="stat-label">documentation type<template v-if="docsByType.length !== 1">s</template></span>
+      </RouterLink>
     </section>
 
     <section class="project-quick-actions" data-smoke="project-quick-actions" aria-label="Quick actions">
       <RouterLink
+        :to="projectQueueHrefs.kanban"
+        class="quick-action quick-action-secondary"
+        :title="`Open Kanban scoped to ${project?.name}`"
+      >
+        <Icon name="ds" aria-hidden="true" />
+        <span>Kanban</span>
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.prds"
+        class="quick-action quick-action-secondary"
+        :title="`Open specs and PRDs scoped to ${project?.name}`"
+      >
+        <Icon name="file" aria-hidden="true" />
+        <span>Specs / PRDs</span>
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.scenarios"
+        class="quick-action quick-action-secondary"
+        :title="`Open BDD scenarios scoped to ${project?.name}`"
+      >
+        <Icon name="msg" aria-hidden="true" />
+        <span>BDD scenarios</span>
+      </RouterLink>
+      <RouterLink
         :to="projectQueueHrefs.newIssue"
-        class="quick-action"
+        class="quick-action quick-action-primary"
         :title="`Open a new issue scoped to ${project?.name}`"
-      >+ new issue</RouterLink>
+      >
+        <Icon name="issue" aria-hidden="true" />
+        <span>New issue</span>
+      </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.newEpic"
-        class="quick-action"
+        class="quick-action quick-action-secondary"
         :title="`Open a new epic scoped to ${project?.name}`"
-      >+ new epic</RouterLink>
+      >
+        <Icon name="tag" aria-hidden="true" />
+        <span>New epic</span>
+      </RouterLink>
     </section>
 
     <section
@@ -495,20 +603,20 @@ const projectQueueHrefs = computed(() => {
       class="project-policy"
       data-smoke="project-policy"
     >
-      <span class="policy-prefix">policy</span>
+      <span class="policy-prefix">Policy</span>
       <span
         v-for="chip in policyChips"
-        :key="chip.key"
+        :key="chip.id"
         :class="['policy-chip', `tone-${chip.tone}`]"
         :title="`From package comtrya · ${project?.declaredAt || 'repo root'}/comtrya.cue`"
       >
-        <span class="policy-key">{{ chip.key }}</span>
+        <span class="policy-key">{{ chip.label }}</span>
         <span class="policy-sep">·</span>
         <span class="policy-value">{{ chip.value }}</span>
       </span>
       <template v-if="defaultLabelPills.length > 0">
         <span class="policy-chip tone-info policy-chip-labels">
-          <span class="policy-key">defaultLabels</span>
+          <span class="policy-key">Default labels</span>
           <span class="policy-sep">·</span>
           <LabelPill
             v-for="label in defaultLabelPills"
@@ -558,7 +666,7 @@ const projectQueueHrefs = computed(() => {
       >
         <header>
           <h3>In-progress epics</h3>
-          <RouterLink :to="projectQueueHrefs.epicsInProgress" class="see-all">see all ›</RouterLink>
+          <RouterLink :to="projectQueueHrefs.epicsInProgress" class="see-all">View all</RouterLink>
         </header>
         <ul>
           <li v-for="epic in summary.inProgressEpics" :key="epic.id">
@@ -587,79 +695,80 @@ const projectQueueHrefs = computed(() => {
 <style scoped>
 .project-header {
   display: grid;
-  gap: 10px;
-  border-bottom: 0.5px solid var(--line);
-  padding-bottom: 18px;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 16px;
 }
 
-.project-header .overline {
+.project-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 20px;
+}
+
+.project-breadcrumb a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.project-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.project-breadcrumb-separator {
   color: var(--fg-3);
 }
 
-.project-header .overline a {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px solid currentColor;
-}
-
 .project-header h1 {
-  font-family: var(--font-serif);
-  font-size: 56px;
-  font-weight: 400;
-  font-style: italic;
-  line-height: 0.95;
-  letter-spacing: 0;
   margin: 0;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 32px;
 }
 
 .project-switcher {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 0;
   margin-top: 4px;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+  padding-bottom: 0;
 }
 
 .project-tab {
   display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 0.5px solid var(--line);
-  border-radius: var(--r-xs);
-  background: var(--bg);
+  align-items: center;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
   color: var(--fg-2);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
   text-decoration: none;
   cursor: pointer;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .project-tab:hover {
-  background: var(--bg-2);
   color: var(--fg);
 }
 
 .project-tab.active {
-  background: var(--fg);
-  color: var(--bg);
-  border-color: var(--fg);
-}
-
-.project-tab.active .tab-glyph {
-  color: inherit;
-}
-
-.tab-glyph {
-  color: var(--fg-3);
-  font-size: 10px;
+  color: var(--fg);
+  border-bottom-color: var(--ok);
 }
 
 .project-chip-row {
@@ -671,20 +780,20 @@ const projectQueueHrefs = computed(() => {
 
 .project-chip {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   padding: 4px 10px;
   border: 0.5px solid var(--line-2);
   border-radius: var(--r-xs);
   background: var(--surface);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: 0;
 }
 
 .project-chip strong {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-weight: 600;
   font-size: 13px;
   color: var(--fg);
@@ -693,7 +802,7 @@ const projectQueueHrefs = computed(() => {
 
 .project-chip span {
   color: var(--fg-3);
-  text-transform: lowercase;
+  text-transform: none;
 }
 
 .project-chip.tone-label strong {
@@ -727,18 +836,12 @@ const projectQueueHrefs = computed(() => {
   transition: border-color 80ms ease;
 }
 
-/* Hover affordance on navigable stats. The doc-count stat is
- * static (no filter URL yet); `.stat-static` opts it out. */
 a.stat:hover {
   border-bottom-color: var(--fg);
 }
 
 a.stat:hover .stat-label {
   color: var(--fg);
-}
-
-.stat-static {
-  cursor: default;
 }
 
 .stat-num {
@@ -757,10 +860,11 @@ a.stat:hover .stat-label {
 }
 
 .stat-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--fg-3);
 }
 
@@ -784,19 +888,39 @@ a.stat:hover .stat-label {
 .quick-action {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border: 0.5px solid var(--line-2);
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-2);
   border-radius: var(--r-xs);
   background: var(--surface);
   color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  letter-spacing: 0;
   text-decoration: none;
-  transition: background 80ms ease, color 80ms ease;
+  transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
 }
 
-.quick-action:hover {
+.quick-action :deep(.icon) {
+  width: 14px;
+  height: 14px;
+}
+
+.quick-action-primary {
+  background: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 80%, black);
+  color: #07130c;
+}
+
+.quick-action-primary:hover {
+  background: color-mix(in srgb, var(--ok) 88%, white);
+  border-color: color-mix(in srgb, var(--ok) 72%, black);
+}
+
+.quick-action-secondary:hover {
   background: var(--surface-2);
   border-color: var(--fg-3);
 }
@@ -810,11 +934,10 @@ a.stat:hover .stat-label {
 }
 
 .policy-prefix {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--fg-3);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-2);
   padding-right: 4px;
 }
 
@@ -903,7 +1026,8 @@ a.stat:hover .stat-label {
 
 .project-work-panel .see-all {
   color: var(--fg-3);
-  font-size: 10px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .project-work-panel .see-all:hover {

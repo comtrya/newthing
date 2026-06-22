@@ -60,6 +60,51 @@ describe("session bootstrap", () => {
     expect(calls).toBe(1);
   });
 
+  test("reuses a token shared through the browser global state", async () => {
+    const shared = globalThis as typeof globalThis & {
+      __comtryaSessionState?: {
+        current?: { token: string; expiresAtMs: number };
+      };
+    };
+    shared.__comtryaSessionState = {
+      current: {
+        token: "tok_shell",
+        expiresAtMs: Date.now() + 60_000,
+      },
+    };
+    let fetched = false;
+    const fetchImpl = (async () => {
+      fetched = true;
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const token = await getSessionToken({ operatorCode: "op", fetchImpl });
+
+    expect(token).toBe("tok_shell");
+    expect(fetched).toBe(false);
+  });
+
+  test("uses an operator-code shared through the browser global state", async () => {
+    const shared = globalThis as typeof globalThis & {
+      __comtryaOperatorCode?: string;
+    };
+    shared.__comtryaOperatorCode = "op-from-shell";
+    let subjectToken = "";
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body ?? "{}"));
+      subjectToken = body.subjectToken;
+      return new Response(
+        JSON.stringify({ accessToken: "tok_global_op", expiresIn: 1800 }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const token = await getSessionToken({ fetchImpl });
+
+    expect(token).toBe("tok_global_op");
+    expect(subjectToken).toBe("op-from-shell");
+  });
+
   test("dedupes concurrent bootstraps into one request", async () => {
     let calls = 0;
     const fetchImpl = (async () => {

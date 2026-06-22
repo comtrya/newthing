@@ -21,12 +21,21 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_issues::issues::{
-    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueState,
-    IssueStateCounts, OpenIssueInput, UpdateIssueInput,
+    AssignProjectInput, CloseIssueInput, Guest as IssuesGuest, Issue, IssueAssigneeBoard,
+    IssueAssigneeBoardInput, IssueAssigneeCard, IssueAssigneeColumn, IssueAuthorBoard,
+    IssueAuthorBoardInput, IssueAuthorCard, IssueAuthorColumn, IssueLabelBoard,
+    IssueLabelBoardInput, IssueLabelCard, IssueLabelColumn, IssueMilestoneBoard,
+    IssueMilestoneBoardInput, IssueMilestoneCard, IssueMilestoneColumn, IssuePriorityBoard,
+    IssuePriorityBoardInput, IssuePriorityCard, IssuePriorityColumn, IssueProjectBoard,
+    IssueProjectBoardInput, IssueProjectCard, IssueProjectColumn, IssueState, IssueStateCounts,
+    IssueTriageBoard, IssueTriageBoardInput, IssueTriageCard, IssueTriageColumn,
+    IssueWorkflowBoard, IssueWorkflowBoardInput, IssueWorkflowCard, IssueWorkflowColumn,
+    OpenIssueInput, UpdateIssueInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const COLLECTION: &str = "issues";
 const MAX_TITLE_LEN: usize = 512;
@@ -638,6 +647,682 @@ fn state_counts_for_refs(refs: &[String]) -> Result<IssueStateCounts, Error> {
     Ok(IssueStateCounts { open, closed })
 }
 
+#[derive(Clone, Copy)]
+enum TriageLane {
+    NeedsOwner,
+    Assigned,
+    ManualClose,
+    Closed,
+}
+
+fn triage_lane(issue: &Issue) -> TriageLane {
+    match issue.state {
+        IssueState::Closed => TriageLane::Closed,
+        _ if issue.close_on_merge == Some(false) => TriageLane::ManualClose,
+        _ if issue.assignees.is_empty() => TriageLane::NeedsOwner,
+        _ => TriageLane::Assigned,
+    }
+}
+
+fn triage_column(key: &str, label: &str, cards: Vec<IssueTriageCard>) -> IssueTriageColumn {
+    IssueTriageColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn triage_columns(cards: Vec<IssueTriageCard>) -> Vec<IssueTriageColumn> {
+    let mut needs_owner = Vec::new();
+    let mut assigned = Vec::new();
+    let mut manual_close = Vec::new();
+    let mut closed = Vec::new();
+
+    for card in cards {
+        match triage_lane(&card.issue) {
+            TriageLane::NeedsOwner => needs_owner.push(card),
+            TriageLane::Assigned => assigned.push(card),
+            TriageLane::ManualClose => manual_close.push(card),
+            TriageLane::Closed => closed.push(card),
+        }
+    }
+
+    vec![
+        triage_column("needs-owner", "Needs owner", needs_owner),
+        triage_column("assigned", "Assigned", assigned),
+        triage_column("manual-close", "Manual close", manual_close),
+        triage_column("closed", "Closed", closed),
+    ]
+}
+
+fn issue_label_key(label: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in label.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "label".to_string()
+    } else {
+        format!("label-{key}")
+    }
+}
+
+fn label_column(key: &str, label: &str, cards: Vec<IssueLabelCard>) -> IssueLabelColumn {
+    IssueLabelColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn label_board_columns(issues: Vec<Issue>) -> Vec<IssueLabelColumn> {
+    let mut unlabeled = Vec::new();
+    let mut labeled: BTreeMap<String, (String, Vec<IssueLabelCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let labels: Vec<String> = issue
+            .labels
+            .iter()
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .collect();
+        if labels.is_empty() {
+            unlabeled.push(IssueLabelCard { issue });
+            continue;
+        }
+        for label in labels {
+            let key = issue_label_key(&label);
+            let entry = labeled.entry(key).or_insert_with(|| (label, Vec::new()));
+            entry.1.push(IssueLabelCard {
+                issue: issue.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![label_column("unlabeled", "Unlabeled", unlabeled)];
+    columns.extend(
+        labeled
+            .into_iter()
+            .map(|(key, (label, cards))| label_column(&key, &label, cards)),
+    );
+    columns
+}
+
+fn issue_assignee_key(assignee: &str) -> String {
+    let raw = assignee
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(assignee);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "assignee".to_string()
+    } else {
+        format!("assignee-{key}")
+    }
+}
+
+fn assignee_column(
+    key: &str,
+    label: &str,
+    assignee: Option<String>,
+    cards: Vec<IssueAssigneeCard>,
+) -> IssueAssigneeColumn {
+    IssueAssigneeColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        assignee,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn assignee_board_columns(issues: Vec<Issue>) -> Vec<IssueAssigneeColumn> {
+    let mut unassigned = Vec::new();
+    let mut assigned: BTreeMap<String, (String, Vec<IssueAssigneeCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let assignees: Vec<String> = issue
+            .assignees
+            .iter()
+            .map(|assignee| assignee.trim())
+            .filter(|assignee| !assignee.is_empty())
+            .map(str::to_string)
+            .collect();
+        if assignees.is_empty() {
+            unassigned.push(IssueAssigneeCard { issue });
+            continue;
+        }
+        for assignee in assignees {
+            let key = issue_assignee_key(&assignee);
+            let entry = assigned
+                .entry(key)
+                .or_insert_with(|| (assignee, Vec::new()));
+            entry.1.push(IssueAssigneeCard {
+                issue: issue.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![assignee_column(
+        "unassigned",
+        "Unassigned",
+        None,
+        unassigned,
+    )];
+    columns.extend(assigned.into_iter().map(|(key, (assignee, cards))| {
+        assignee_column(&key, &assignee, Some(assignee.clone()), cards)
+    }));
+    columns
+}
+
+fn issue_author_key(author_ref: &str) -> String {
+    let raw = author_ref
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(author_ref);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "author".to_string()
+    } else {
+        format!("author-{key}")
+    }
+}
+
+fn issue_author_label(author_ref: &str) -> String {
+    author_ref
+        .strip_prefix("comtrya://user/")
+        .or_else(|| author_ref.strip_prefix("comtrya://team/"))
+        .or_else(|| author_ref.strip_prefix("comtrya://org/"))
+        .unwrap_or(author_ref)
+        .to_string()
+}
+
+fn author_column(
+    key: &str,
+    label: &str,
+    author_ref: Option<String>,
+    cards: Vec<IssueAuthorCard>,
+) -> IssueAuthorColumn {
+    IssueAuthorColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        author_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn author_board_columns(issues: Vec<Issue>) -> Vec<IssueAuthorColumn> {
+    let mut by_author = BTreeMap::<String, Vec<IssueAuthorCard>>::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        if matches!(issue.state, IssueState::Closed) {
+            closed.push(IssueAuthorCard { issue });
+            continue;
+        }
+        by_author
+            .entry(issue.author_ref.clone())
+            .or_default()
+            .push(IssueAuthorCard { issue });
+    }
+
+    let mut columns = by_author
+        .into_iter()
+        .map(|(author_ref, cards)| {
+            let key = issue_author_key(&author_ref);
+            let label = issue_author_label(&author_ref);
+            author_column(&key, &label, Some(author_ref), cards)
+        })
+        .collect::<Vec<_>>();
+    columns.push(author_column("closed", "Closed", None, closed));
+    columns
+}
+
+fn issue_project_key(project_name: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in project_name.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        format!("project-{key}")
+    }
+}
+
+fn project_column(
+    key: &str,
+    label: &str,
+    project_name: Option<String>,
+    cards: Vec<IssueProjectCard>,
+) -> IssueProjectColumn {
+    IssueProjectColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        project_name,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn project_board_columns(issues: Vec<Issue>) -> Vec<IssueProjectColumn> {
+    let mut unscoped = Vec::new();
+    let mut scoped: BTreeMap<String, (String, Vec<IssueProjectCard>)> = BTreeMap::new();
+
+    for issue in issues {
+        let project_name = issue
+            .project_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|project_name| !project_name.is_empty())
+            .map(str::to_string);
+        let Some(project_name) = project_name else {
+            unscoped.push(IssueProjectCard { issue });
+            continue;
+        };
+        let key = issue_project_key(&project_name);
+        let entry = scoped
+            .entry(key)
+            .or_insert_with(|| (project_name, Vec::new()));
+        entry.1.push(IssueProjectCard { issue });
+    }
+
+    let mut columns = vec![project_column("unscoped", "Unscoped", None, unscoped)];
+    columns.extend(scoped.into_iter().map(|(key, (project_name, cards))| {
+        project_column(&key, &project_name, Some(project_name.clone()), cards)
+    }));
+    columns
+}
+
+fn priority_column(
+    key: &str,
+    label: &str,
+    priority: Option<&str>,
+    cards: Vec<IssuePriorityCard>,
+) -> IssuePriorityColumn {
+    IssuePriorityColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        priority: priority.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn priority_board_columns(issues: Vec<Issue>) -> Vec<IssuePriorityColumn> {
+    let mut p0 = Vec::new();
+    let mut p1 = Vec::new();
+    let mut p2 = Vec::new();
+    let mut p3 = Vec::new();
+    let mut unprioritized = Vec::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let priority = issue_priority(&issue);
+        let card = IssuePriorityCard {
+            issue,
+            priority: priority.as_ref().map(|priority| priority.key.to_string()),
+            priority_label: priority
+                .as_ref()
+                .map(|priority| priority.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        match priority.map(|priority| priority.key) {
+            Some("p0") => p0.push(card),
+            Some("p1") => p1.push(card),
+            Some("p2") => p2.push(card),
+            Some("p3") => p3.push(card),
+            _ => unprioritized.push(card),
+        }
+    }
+
+    vec![
+        priority_column("p0", "P0 critical", Some("p0"), p0),
+        priority_column("p1", "P1 high", Some("p1"), p1),
+        priority_column("p2", "P2 medium", Some("p2"), p2),
+        priority_column("p3", "P3 low", Some("p3"), p3),
+        priority_column("unprioritized", "No priority", None, unprioritized),
+        priority_column("closed", "Closed", None, closed),
+    ]
+}
+
+struct IssuePriority {
+    key: &'static str,
+    rank: u8,
+    source_label: String,
+}
+
+fn issue_priority(issue: &Issue) -> Option<IssuePriority> {
+    issue
+        .labels
+        .iter()
+        .filter_map(|label| priority_from_label(label))
+        .min_by_key(|priority| priority.rank)
+}
+
+fn priority_from_label(label: &str) -> Option<IssuePriority> {
+    let normalized = normalize_priority_label(label);
+    let key = match normalized.as_str() {
+        "p0" | "0" | "critical" | "urgent" | "blocker" => "p0",
+        "p1" | "1" | "high" => "p1",
+        "p2" | "2" | "medium" | "normal" => "p2",
+        "p3" | "3" | "low" | "minor" => "p3",
+        _ => return None,
+    };
+    Some(IssuePriority {
+        key,
+        rank: priority_rank(key),
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_priority_label(label: &str) -> String {
+    let trimmed = label.trim().to_ascii_lowercase();
+    let value = ["priority", "prio"]
+        .into_iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(trimmed.as_str())
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'));
+    value
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string()
+}
+
+fn priority_rank(key: &str) -> u8 {
+    match key {
+        "p0" => 0,
+        "p1" => 1,
+        "p2" => 2,
+        "p3" => 3,
+        _ => u8::MAX,
+    }
+}
+
+fn milestone_column(
+    key: &str,
+    label: &str,
+    milestone: Option<String>,
+    cards: Vec<IssueMilestoneCard>,
+) -> IssueMilestoneColumn {
+    IssueMilestoneColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        milestone,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn milestone_board_columns(issues: Vec<Issue>) -> Vec<IssueMilestoneColumn> {
+    let mut unscheduled = Vec::new();
+    let mut scheduled: BTreeMap<String, (String, Vec<IssueMilestoneCard>)> = BTreeMap::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let milestone = issue_milestone(&issue);
+        let card = IssueMilestoneCard {
+            issue,
+            milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+            milestone_label: milestone
+                .as_ref()
+                .map(|milestone| milestone.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        let Some(milestone) = milestone else {
+            unscheduled.push(card);
+            continue;
+        };
+        let key = issue_milestone_key(&milestone.value);
+        let entry = scheduled
+            .entry(key)
+            .or_insert_with(|| (milestone.value, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![milestone_column(
+        "no-milestone",
+        "No milestone",
+        None,
+        unscheduled,
+    )];
+    columns.extend(scheduled.into_iter().map(|(key, (milestone, cards))| {
+        milestone_column(&key, &milestone, Some(milestone.clone()), cards)
+    }));
+    columns.push(milestone_column("closed", "Closed", None, closed));
+    columns
+}
+
+struct IssueMilestone {
+    value: String,
+    source_label: String,
+}
+
+fn issue_milestone(issue: &Issue) -> Option<IssueMilestone> {
+    issue
+        .labels
+        .iter()
+        .find_map(|label| milestone_from_label(label))
+}
+
+fn milestone_from_label(label: &str) -> Option<IssueMilestone> {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["milestone", "release"] {
+        if !lower.starts_with(prefix) {
+            continue;
+        }
+        let raw_rest = &trimmed[prefix.len()..];
+        if !raw_rest
+            .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+        {
+            continue;
+        }
+        let value = raw_rest
+            .trim_start()
+            .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+            .trim();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(IssueMilestone {
+            value: value.to_string(),
+            source_label: trimmed.to_string(),
+        });
+    }
+    None
+}
+
+fn issue_milestone_key(milestone: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in milestone.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "milestone".to_string()
+    } else {
+        format!("milestone-{key}")
+    }
+}
+
+fn workflow_column(
+    key: &str,
+    label: &str,
+    workflow: Option<&str>,
+    cards: Vec<IssueWorkflowCard>,
+) -> IssueWorkflowColumn {
+    IssueWorkflowColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        workflow: workflow.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn workflow_board_columns(issues: Vec<Issue>) -> Vec<IssueWorkflowColumn> {
+    let mut backlog = Vec::new();
+    let mut ready = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut review = Vec::new();
+    let mut untriaged = Vec::new();
+    let mut closed = Vec::new();
+
+    for issue in issues {
+        let workflow = issue_workflow(&issue);
+        let card = IssueWorkflowCard {
+            issue,
+            workflow: workflow.as_ref().map(|workflow| workflow.key.to_string()),
+            workflow_label: workflow
+                .as_ref()
+                .map(|workflow| workflow.source_label.clone()),
+        };
+        if matches!(card.issue.state, IssueState::Closed) {
+            closed.push(card);
+            continue;
+        }
+        match workflow.map(|workflow| workflow.key) {
+            Some("backlog") => backlog.push(card),
+            Some("ready") => ready.push(card),
+            Some("in-progress") => in_progress.push(card),
+            Some("review") => review.push(card),
+            _ => untriaged.push(card),
+        }
+    }
+
+    vec![
+        workflow_column("backlog", "Backlog", Some("backlog"), backlog),
+        workflow_column("ready", "Ready", Some("ready"), ready),
+        workflow_column(
+            "in-progress",
+            "In progress",
+            Some("in-progress"),
+            in_progress,
+        ),
+        workflow_column("review", "Review", Some("review"), review),
+        workflow_column("untriaged", "Untriaged", None, untriaged),
+        workflow_column("closed", "Closed", None, closed),
+    ]
+}
+
+struct IssueWorkflow {
+    key: &'static str,
+    source_label: String,
+}
+
+fn issue_workflow(issue: &Issue) -> Option<IssueWorkflow> {
+    issue
+        .labels
+        .iter()
+        .find_map(|label| workflow_from_label(label))
+}
+
+fn workflow_from_label(label: &str) -> Option<IssueWorkflow> {
+    let normalized = normalize_workflow_label(label);
+    let key = match normalized.as_str() {
+        "backlog" | "todo" | "to-do" | "new" => "backlog",
+        "ready" | "ready-to-start" | "ready-for-dev" | "selected" | "up-next" => "ready",
+        "in-progress" | "inprogress" | "doing" | "wip" | "started" | "active" => "in-progress",
+        "review" | "reviewing" | "in-review" | "needs-review" | "ready-for-review" => "review",
+        _ => return None,
+    };
+    Some(IssueWorkflow {
+        key,
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_workflow_label(label: &str) -> String {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let value = ["status", "state", "stage", "workflow"]
+        .into_iter()
+        .find_map(|prefix| {
+            if !lower.starts_with(prefix) {
+                return None;
+            }
+            let raw_rest = &trimmed[prefix.len()..];
+            raw_rest
+                .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+                .then_some(raw_rest)
+        })
+        .unwrap_or(trimmed)
+        .trim_start()
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+        .trim();
+
+    let mut normalized = String::new();
+    let mut last_dash = false;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch);
+            last_dash = false;
+        } else if !last_dash && !normalized.is_empty() {
+            normalized.push('-');
+            last_dash = true;
+        }
+    }
+    while normalized.ends_with('-') {
+        normalized.pop();
+    }
+    normalized
+}
+
 fn emit(event_type: &str, payload: &impl Serialize, source_uri: &str) -> Result<(), Error> {
     let bytes = serde_json::to_vec(payload)
         .map_err(|e| err(ErrorCode::Internal, format!("serialise event payload: {e}")))?;
@@ -897,6 +1582,90 @@ impl IssuesGuest for Component {
             .collect())
     }
 
+    fn triage_board(input: IssueTriageBoardInput) -> Result<IssueTriageBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let mut cards = Vec::with_capacity(issues.len());
+        for issue in issues {
+            cards.push(IssueTriageCard { issue });
+        }
+        let total = cards.len() as u32;
+        Ok(IssueTriageBoard {
+            repository: input.repository,
+            total,
+            columns: triage_columns(cards),
+        })
+    }
+
+    fn label_board(input: IssueLabelBoardInput) -> Result<IssueLabelBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueLabelBoard {
+            repository: input.repository,
+            total,
+            columns: label_board_columns(issues),
+        })
+    }
+
+    fn assignee_board(input: IssueAssigneeBoardInput) -> Result<IssueAssigneeBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueAssigneeBoard {
+            repository: input.repository,
+            total,
+            columns: assignee_board_columns(issues),
+        })
+    }
+
+    fn author_board(input: IssueAuthorBoardInput) -> Result<IssueAuthorBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueAuthorBoard {
+            repository: input.repository,
+            total,
+            columns: author_board_columns(issues),
+        })
+    }
+
+    fn project_board(input: IssueProjectBoardInput) -> Result<IssueProjectBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueProjectBoard {
+            repository: input.repository,
+            total,
+            columns: project_board_columns(issues),
+        })
+    }
+
+    fn priority_board(input: IssuePriorityBoardInput) -> Result<IssuePriorityBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssuePriorityBoard {
+            repository: input.repository,
+            total,
+            columns: priority_board_columns(issues),
+        })
+    }
+
+    fn milestone_board(input: IssueMilestoneBoardInput) -> Result<IssueMilestoneBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueMilestoneBoard {
+            repository: input.repository,
+            total,
+            columns: milestone_board_columns(issues),
+        })
+    }
+
+    fn workflow_board(input: IssueWorkflowBoardInput) -> Result<IssueWorkflowBoard, Error> {
+        let issues = Self::list_issues(input.repository.clone(), input.limit)?;
+        let total = issues.len() as u32;
+        Ok(IssueWorkflowBoard {
+            repository: input.repository,
+            total,
+            columns: workflow_board_columns(issues),
+        })
+    }
+
     fn by_ref_issue(ref_: String) -> Result<Option<Issue>, Error> {
         Ok(read_by_ref(&ref_)?.map(|issue| issue.to_wit()))
     }
@@ -977,3 +1746,346 @@ impl ReactorGuest for Component {
 }
 
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn issue(id: &str, state: IssueState) -> Issue {
+        Issue {
+            id: id.to_string(),
+            repository: "comtrya://workspace/ws_test/repository/repo_test".to_string(),
+            title: id.to_string(),
+            body_markdown: String::new(),
+            state,
+            number: 1,
+            author_ref: "comtrya://user/rawkode".to_string(),
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+            closed_at: None,
+            closed_by_ref: None,
+            state_reason: None,
+            project_name: None,
+            labels: Vec::new(),
+            close_on_merge: None,
+            assignees: Vec::new(),
+        }
+    }
+
+    fn card(issue: Issue) -> IssueTriageCard {
+        IssueTriageCard { issue }
+    }
+
+    #[test]
+    fn triage_columns_group_by_owner_policy_and_terminal_state() {
+        let mut assigned = issue("assigned", IssueState::Open);
+        assigned.assignees = vec!["comtrya://user/rawkode".to_string()];
+        let mut manual = issue("manual", IssueState::Open);
+        manual.close_on_merge = Some(false);
+        manual.assignees = vec!["comtrya://user/rawkode".to_string()];
+
+        let columns = triage_columns(vec![
+            card(issue("needs-owner", IssueState::Open)),
+            card(assigned),
+            card(manual),
+            card(issue("closed", IssueState::Closed)),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["needs-owner", "assigned", "manual-close", "closed"]);
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 4);
+        assert_eq!(columns[0].cards[0].issue.id, "needs-owner");
+        assert_eq!(columns[1].cards[0].issue.id, "assigned");
+        assert_eq!(columns[2].cards[0].issue.id, "manual");
+        assert_eq!(columns[3].cards[0].issue.id, "closed");
+    }
+
+    #[test]
+    fn label_board_columns_group_unlabeled_and_labeled_work() {
+        let unlabeled = issue("unlabeled", IssueState::Open);
+        let mut bug = issue("bug", IssueState::Open);
+        bug.labels = vec!["kind::bug".to_string(), "priority::p1".to_string()];
+        let mut ux = issue("ux", IssueState::Open);
+        ux.labels = vec!["kind::ux".to_string()];
+
+        let columns = label_board_columns(vec![unlabeled, bug, ux]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "unlabeled",
+                "label-kind-bug",
+                "label-kind-ux",
+                "label-priority-p1"
+            ]
+        );
+        assert_eq!(columns[0].count, 1);
+        assert_eq!(columns[0].cards[0].issue.id, "unlabeled");
+        assert_eq!(columns[1].cards[0].issue.id, "bug");
+        assert_eq!(columns[2].cards[0].issue.id, "ux");
+        assert_eq!(columns[3].cards[0].issue.id, "bug");
+    }
+
+    #[test]
+    fn assignee_board_columns_group_unassigned_and_multi_assigned_work() {
+        let unassigned = issue("unassigned", IssueState::Open);
+        let mut rawkode = issue("rawkode", IssueState::Open);
+        rawkode.assignees = vec!["comtrya://user/rawkode".to_string()];
+        let mut paired = issue("paired", IssueState::Open);
+        paired.assignees = vec![
+            "comtrya://team/platform-maintainers".to_string(),
+            "comtrya://user/rawkode".to_string(),
+        ];
+
+        let columns = assignee_board_columns(vec![unassigned, rawkode, paired]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "unassigned",
+                "assignee-team-platform-maintainers",
+                "assignee-user-rawkode",
+            ]
+        );
+        assert_eq!(columns[0].assignee, None);
+        assert_eq!(columns[0].cards[0].issue.id, "unassigned");
+        assert_eq!(
+            columns[1].assignee.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[1].cards[0].issue.id, "paired");
+        assert_eq!(columns[2].count, 2);
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "paired"]
+        );
+    }
+
+    #[test]
+    fn author_board_columns_group_active_authors_and_closed_issues() {
+        let mut rawkode = issue("rawkode", IssueState::Open);
+        rawkode.author_ref = "comtrya://user/rawkode".to_string();
+        let mut platform = issue("platform", IssueState::Reopened);
+        platform.author_ref = "comtrya://team/platform-maintainers".to_string();
+        let mut rawkode_followup = issue("rawkode-followup", IssueState::Open);
+        rawkode_followup.author_ref = "comtrya://user/rawkode".to_string();
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.author_ref = "comtrya://team/platform-maintainers".to_string();
+
+        let columns = author_board_columns(vec![rawkode, platform, rawkode_followup, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "author-team-platform-maintainers",
+                "author-user-rawkode",
+                "closed",
+            ]
+        );
+        assert_eq!(
+            columns[0].author_ref.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[0].label, "platform-maintainers");
+        assert_eq!(columns[0].cards[0].issue.id, "platform");
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "rawkode-followup"]
+        );
+        assert_eq!(columns[2].author_ref, None);
+        assert_eq!(columns[2].cards[0].issue.id, "closed");
+    }
+
+    #[test]
+    fn project_board_columns_group_unscoped_and_project_work() {
+        let unscoped = issue("unscoped", IssueState::Open);
+        let mut kernel = issue("kernel", IssueState::Open);
+        kernel.project_name = Some("kernel".to_string());
+        let mut product = issue("product", IssueState::Open);
+        product.project_name = Some("Product Design".to_string());
+        let mut another_kernel = issue("another-kernel", IssueState::Open);
+        another_kernel.project_name = Some("kernel".to_string());
+
+        let columns = project_board_columns(vec![unscoped, kernel, product, another_kernel]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            ["unscoped", "project-kernel", "project-product-design"]
+        );
+        assert_eq!(columns[0].project_name, None);
+        assert_eq!(columns[0].cards[0].issue.id, "unscoped");
+        assert_eq!(columns[1].project_name.as_deref(), Some("kernel"));
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(columns[1].cards[0].issue.id, "kernel");
+        assert_eq!(columns[1].cards[1].issue.id, "another-kernel");
+        assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
+        assert_eq!(columns[2].cards[0].issue.id, "product");
+    }
+
+    #[test]
+    fn priority_board_columns_group_active_work_by_highest_priority_label() {
+        let unprioritized = issue("unprioritized", IssueState::Open);
+        let mut p0 = issue("p0", IssueState::Open);
+        p0.labels = vec!["priority::p0".to_string()];
+        let mut p1 = issue("p1", IssueState::Open);
+        p1.labels = vec!["kind::bug".to_string(), "high".to_string()];
+        let mut p2 = issue("p2", IssueState::Open);
+        p2.labels = vec!["priority:medium".to_string()];
+        let mut p3 = issue("p3", IssueState::Open);
+        p3.labels = vec!["prio/low".to_string()];
+        let mut highest = issue("highest", IssueState::Open);
+        highest.labels = vec!["priority::p3".to_string(), "priority::p1".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["priority::p0".to_string()];
+
+        let columns = priority_board_columns(vec![unprioritized, p0, p1, p2, p3, highest, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(keys, ["p0", "p1", "p2", "p3", "unprioritized", "closed"]);
+        assert_eq!(columns[0].cards[0].issue.id, "p0");
+        assert_eq!(columns[0].cards[0].priority.as_deref(), Some("p0"));
+        assert_eq!(
+            columns[0].cards[0].priority_label.as_deref(),
+            Some("priority::p0")
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["p1", "highest"]
+        );
+        assert_eq!(
+            columns[1].cards[1].priority_label.as_deref(),
+            Some("priority::p1")
+        );
+        assert_eq!(columns[2].cards[0].issue.id, "p2");
+        assert_eq!(columns[3].cards[0].issue.id, "p3");
+        assert_eq!(columns[4].cards[0].issue.id, "unprioritized");
+        assert_eq!(columns[4].cards[0].priority, None);
+        assert_eq!(columns[5].cards[0].issue.id, "closed");
+        assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
+    }
+
+    #[test]
+    fn milestone_board_columns_group_active_work_by_release_label() {
+        let unscheduled = issue("unscheduled", IssueState::Open);
+        let mut v1 = issue("v1", IssueState::Open);
+        v1.labels = vec!["milestone::v1.0".to_string()];
+        let mut v2 = issue("v2", IssueState::Open);
+        v2.labels = vec!["kind::bug".to_string(), "release/v2 beta".to_string()];
+        let mut duplicate = issue("duplicate", IssueState::Open);
+        duplicate.labels = vec!["milestone::v2 beta".to_string(), "release/v3".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["milestone::v1.0".to_string()];
+
+        let columns = milestone_board_columns(vec![unscheduled, v1, v2, duplicate, closed]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "no-milestone",
+                "milestone-v1-0",
+                "milestone-v2-beta",
+                "closed"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].issue.id, "unscheduled");
+        assert_eq!(columns[0].cards[0].milestone, None);
+        assert_eq!(columns[1].milestone.as_deref(), Some("v1.0"));
+        assert_eq!(columns[1].cards[0].issue.id, "v1");
+        assert_eq!(
+            columns[1].cards[0].milestone_label.as_deref(),
+            Some("milestone::v1.0")
+        );
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["v2", "duplicate"]
+        );
+        assert_eq!(
+            columns[2].cards[1].milestone_label.as_deref(),
+            Some("milestone::v2 beta")
+        );
+        assert_eq!(columns[3].cards[0].issue.id, "closed");
+        assert_eq!(columns[3].cards[0].milestone.as_deref(), Some("v1.0"));
+    }
+
+    #[test]
+    fn workflow_board_columns_group_active_work_by_status_label() {
+        let mut backlog = issue("backlog", IssueState::Open);
+        backlog.labels = vec!["status::backlog".to_string()];
+        let mut ready = issue("ready", IssueState::Open);
+        ready.labels = vec!["Ready for dev".to_string()];
+        let mut active = issue("active", IssueState::Open);
+        active.labels = vec!["workflow/in-progress".to_string()];
+        let mut review = issue("review", IssueState::Open);
+        review.labels = vec!["stage:ready for review".to_string()];
+        let untriaged = issue("untriaged", IssueState::Open);
+        let mut first_wins = issue("first-wins", IssueState::Open);
+        first_wins.labels = vec!["status::ready".to_string(), "status::review".to_string()];
+        let mut closed = issue("closed", IssueState::Closed);
+        closed.labels = vec!["status::wip".to_string()];
+
+        let columns = workflow_board_columns(vec![
+            backlog, ready, active, review, untriaged, first_wins, closed,
+        ]);
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+
+        assert_eq!(
+            keys,
+            [
+                "backlog",
+                "ready",
+                "in-progress",
+                "review",
+                "untriaged",
+                "closed"
+            ]
+        );
+        assert_eq!(columns[0].workflow.as_deref(), Some("backlog"));
+        assert_eq!(columns[0].cards[0].workflow.as_deref(), Some("backlog"));
+        assert_eq!(
+            columns[0].cards[0].workflow_label.as_deref(),
+            Some("status::backlog")
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.issue.id.as_str())
+                .collect::<Vec<_>>(),
+            ["ready", "first-wins"]
+        );
+        assert_eq!(
+            columns[1].cards[1].workflow_label.as_deref(),
+            Some("status::ready")
+        );
+        assert_eq!(columns[2].cards[0].issue.id, "active");
+        assert_eq!(columns[2].cards[0].workflow.as_deref(), Some("in-progress"));
+        assert_eq!(columns[3].cards[0].issue.id, "review");
+        assert_eq!(columns[3].cards[0].workflow.as_deref(), Some("review"));
+        assert_eq!(columns[4].cards[0].issue.id, "untriaged");
+        assert_eq!(columns[4].cards[0].workflow, None);
+        assert_eq!(columns[5].cards[0].issue.id, "closed");
+        assert_eq!(columns[5].cards[0].workflow.as_deref(), Some("in-progress"));
+    }
+}

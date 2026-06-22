@@ -12,6 +12,13 @@ interface ExtensionHost {
     defaultPriority?: number;
     requiredPermission: string;
   }): unknown;
+  registerRoute(
+    path: string,
+    contribution: {
+      element: string;
+      requiredPermission: string;
+    },
+  ): unknown;
 }
 
 interface ExtensionDefinition {
@@ -29,6 +36,14 @@ const extension: ExtensionDefinition = {
       element: DOCS_PANEL_TAG,
       defaultSlot: "repository.main",
       defaultPriority: 80,
+      requiredPermission: "workspace.read",
+    });
+    host.registerRoute("/", {
+      element: DOCS_PANEL_TAG,
+      requiredPermission: "workspace.read",
+    });
+    host.registerRoute("/:board", {
+      element: DOCS_PANEL_TAG,
       requiredPermission: "workspace.read",
     });
   },

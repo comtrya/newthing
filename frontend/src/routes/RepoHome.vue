@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
+import RepoWorkContextBar from "../components/RepoWorkContextBar.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
+import Pipelines from "./Pipelines.vue";
+import Releases from "./Releases.vue";
+import Icon from "../components/Icon.vue";
 import {
   LabelPill,
   renderMarkdown,
@@ -25,7 +30,9 @@ const props = withDefaults(defineProps<{
    * "overview" (default) is the README-first home; "code" mounts the
    * `repository.main` slot (core's code browser + summary widgets);
    * "config" surfaces the repo's evaluated `comtrya.cue` for read
-   * inspection; "pulls" / "issues" / "checks" / "epics" embed the
+   * inspection; "pipelines" / "releases" mount shell-owned repo
+   * surfaces inside the persistent workbench;
+   * "pulls" / "issues" / "checks" / "epics" / "docs" / "sprints" embed the
    * matching first-party extension's root route inside the
    * workbench so the repo header stays put across intra-repo
    * navigation. Each tab in RepoTabs maps to one of these values
@@ -35,11 +42,18 @@ const props = withDefaults(defineProps<{
   view?:
     | "overview"
     | "code"
+    | "branches"
+    | "tags"
+    | "commits"
     | "config"
+    | "pipelines"
+    | "releases"
     | "pulls"
     | "issues"
     | "checks"
-    | "epics";
+    | "epics"
+    | "docs"
+    | "sprints";
   /**
    * Sub-path captured after `/r/:groups+/:repo/<ext>/` on workbench
    * extension routes. Passed straight through to the embedded
@@ -65,6 +79,24 @@ interface RepositoryBookmark {
   description?: string | null;
   resolved?: boolean | null;
   commit?: string | null;
+}
+
+interface RepositoryBranch {
+  name: string;
+  oid: string;
+  commit: string;
+  ahead: number;
+  behind: number;
+}
+
+interface RepositoryTag {
+  name: string;
+  kind: string;
+  oid: string;
+  target: string;
+  targetShort: string;
+  time?: string | null;
+  subject?: string | null;
 }
 
 interface RepositoryCommit {
@@ -101,6 +133,8 @@ interface RepositoryIdentity {
   extensions?: string[] | null;
   blobs?: RepositoryBlob[] | null;
   bookmarks?: RepositoryBookmark[] | null;
+  branches?: RepositoryBranch[] | null;
+  tags?: RepositoryTag[] | null;
   commits?: RepositoryCommit[] | null;
   labels?: LabelCatalogEntry[] | null;
   labelCatalog?: Record<string, LabelCatalogEntry> | null;
@@ -181,6 +215,22 @@ const REPOSITORY_OVERVIEW_QUERY = `query ShellRepoOverview($segments: [String!]!
         resolved
         commit
       }
+      branches {
+        name
+        oid
+        commit
+        ahead
+        behind
+      }
+      tags {
+        name
+        kind
+        oid
+        target
+        targetShort
+        time
+        subject
+      }
       commits {
         oid
         shortOid
@@ -223,15 +273,61 @@ const repository = ref<RepositoryIdentity | null>(null);
 const workspaceId = ref<string | null>(null);
 const loadState = ref<"loading" | "ready" | "missing" | "error">("loading");
 const loadError = ref<string | null>(null);
+const route = useRoute();
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
+const activeProjectName = computed(() =>
+  queryValue(route.query.project) || queryValue(route.query.projectName),
+);
+const activeDocsBoard = computed(() =>
+  props.view === "docs" ? props.embeddedSubPath[0] ?? "" : "",
+);
 const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
-  if (props.view === "overview") return "overview";
+  if (props.view === "overview" || props.view === "branches" || props.view === "tags" || props.view === "commits") return "overview";
   if (props.view === "config") return "config";
   return "context";
 });
-const repositoryId = computed(() => repository.value?.id ?? repoPath.value);
+const repositoryId = computed(() => repository.value?.id ?? null);
 const displayPath = computed(() => repository.value?.path ?? repoPath.value);
+const repositoryGroups = computed(() =>
+  repository.value?.groups?.length ? repository.value.groups : props.groups,
+);
+const repositoryOwnerPath = computed(() => repositoryGroups.value.join("/"));
+const repositoryName = computed(() => repository.value?.name ?? props.repo);
+const repositoryVisibility = computed(() =>
+  (repository.value?.visibility ?? "PRIVATE").toLowerCase(),
+);
+const repositoryVisibilityLabel = computed(() =>
+  repositoryVisibility.value === "public" ? "Public" : "Private",
+);
+const repositoryVcs = computed(() => (repository.value?.vcs ?? "git").toLowerCase());
+function repositoryVcsDisplayLabel(vcs: string): string {
+  if (vcs === "git") return "Git";
+  if (vcs === "jj") return "Jujutsu";
+  return vcs;
+}
+
+function queryValue(value: unknown): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+const repositoryVcsLabel = computed(() => repositoryVcsDisplayLabel(repositoryVcs.value));
+const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "main");
+const repositoryRefLabel = computed(() =>
+  repositoryVcs.value === "jj" ? "bookmark" : "branch",
+);
+const repositoryAboutRefLabel = computed(() =>
+  repositoryRefLabel.value === "bookmark" ? "Bookmark" : "Branch",
+);
+const repositoryUpdatedLabel = computed(() =>
+  relativeUpdated(repository.value?.updated ?? null) ?? "unknown",
+);
+const repoHomeHref = computed(() => `/r/${repoPath.value}`);
+const repoCodeHref = computed(() => `/r/${repoPath.value}/code`);
+const repoBranchesHref = computed(() => `/r/${repoPath.value}/branches`);
+const repoTagsHref = computed(() => `/r/${repoPath.value}/tags`);
+const repoCommitsHref = computed(() => `/r/${repoPath.value}/commits`);
 
 /**
  * Clone command for the repository — absolute URL built from the
@@ -254,14 +350,21 @@ const cloneCommand = computed(() =>
 );
 const cloneCommandTitle = computed(() =>
   repository.value?.vcs === "jj"
-    ? "Clones into a jj-on-git colocated repository (vcs declared as jj in this repo's comtrya.cue)."
-    : "Clones the repository over git Smart HTTP.",
+    ? "Use this URL with jj git clone."
+    : "Use this URL with git clone.",
 );
 const cloneCopied = ref(false);
+const cloneCopyUnavailable = ref(false);
+const cloneCopyStatus = computed(() => {
+  if (cloneCopied.value) return "Clone command copied";
+  if (cloneCopyUnavailable.value) return "Copy unavailable";
+  return "Copy clone command";
+});
 let cloneCopyTimer: number | undefined;
 
 async function copyClone(): Promise<void> {
   if (!cloneCommand.value) return;
+  cloneCopyUnavailable.value = false;
   try {
     await navigator.clipboard.writeText(cloneCommand.value);
     cloneCopied.value = true;
@@ -270,8 +373,11 @@ async function copyClone(): Promise<void> {
       cloneCopied.value = false;
     }, 1400);
   } catch {
-    // Clipboard API can fail in non-secure contexts; the chip stays
-    // selectable so the user can still copy manually.
+    cloneCopyUnavailable.value = true;
+    if (cloneCopyTimer !== undefined) window.clearTimeout(cloneCopyTimer);
+    cloneCopyTimer = window.setTimeout(() => {
+      cloneCopyUnavailable.value = false;
+    }, 1400);
   }
 }
 
@@ -401,31 +507,25 @@ function relativeUpdated(value: string | null | undefined): string | null {
 
 const repoChips = computed<Chip[]>(() => {
   const chips: Chip[] = [];
-  const branch = repository.value?.defaultBranch ?? "main";
-  const vcs = (repository.value?.vcs ?? "git").toLowerCase();
+  const branch = repositoryDefaultRef.value;
+  const vcs = repositoryVcs.value;
   // In jj the default ref is a "bookmark", not a branch. The chip
   // label flips to match the repo's declared vcs so the
   // terminology stays honest. The wire (`defaultBranch`) keeps
   // its name on the CUE side and on the GraphQL projection;
   // only the user-facing label adapts.
-  const refLabel = vcs === "jj" ? "bookmark" : "branch";
+  const refLabel = repositoryRefLabel.value;
   chips.push({
     label: refLabel,
     value: branch,
     tone: "ink",
     title: `default ${refLabel} · ${branch}`,
   });
-  const visibility = (repository.value?.visibility ?? "PRIVATE").toLowerCase();
   chips.push({
-    label: "visibility",
-    value: visibility,
-    tone: visibility === "public" ? "good" : "muted",
-  });
-  chips.push({
-    label: "vcs",
-    value: vcs,
+    label: "version control",
+    value: repositoryVcsLabel.value,
     tone: vcs === "jj" ? "ink" : "muted",
-    title: `version control · ${vcs}`,
+    title: `version control · ${repositoryVcsLabel.value}`,
   });
   const repoBase = `/r/${repoPath.value}`;
   if (failingChecks.value > 0) {
@@ -439,7 +539,7 @@ const repoChips = computed<Chip[]>(() => {
   }
   const prs = repository.value?.openPullRequests ?? 0;
   chips.push({
-    label: prs === 1 ? "open PR" : "open PRs",
+    label: prs === 1 ? "open pull request" : "open pull requests",
     value: String(prs),
     tone: prs > 0 ? "ink" : "muted",
     to: `${repoBase}/pulls`,
@@ -488,6 +588,29 @@ const bookmarks = computed<RepositoryBookmark[]>(
   () => repository.value?.bookmarks ?? [],
 );
 
+const branches = computed<RepositoryBranch[]>(
+  () => repository.value?.branches ?? [],
+);
+const branchesCountLabel = computed(() => nounCountLabel(branches.value.length, "branch", "branches"));
+function isDefaultBranch(branch: RepositoryBranch): boolean {
+  return branch.name === repositoryDefaultRef.value;
+}
+function branchDistanceLabel(branch: RepositoryBranch): string {
+  if (isDefaultBranch(branch)) return "default branch";
+  const parts: string[] = [];
+  if (branch.ahead > 0) parts.push(`${branch.ahead} ahead`);
+  if (branch.behind > 0) parts.push(`${branch.behind} behind`);
+  return parts.length ? `${parts.join(" · ")} ${repositoryDefaultRef.value}` : `even with ${repositoryDefaultRef.value}`;
+}
+
+const tags = computed<RepositoryTag[]>(
+  () => repository.value?.tags ?? [],
+);
+const tagsCountLabel = computed(() => nounCountLabel(tags.value.length, "tag"));
+function tagKindLabel(tag: RepositoryTag): string {
+  return tag.kind === "tag" ? "annotated tag" : "lightweight tag";
+}
+
 /**
  * Recent commits panel (iter 54). The kernel pre-computes `commits`
  * via `git_commits` — up to 8 latest entries on the default branch
@@ -500,6 +623,17 @@ const bookmarks = computed<RepositoryBookmark[]>(
 const commits = computed<RepositoryCommit[]>(
   () => repository.value?.commits ?? [],
 );
+function commitCountLabel(count: number): string {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+const commitsCountLabel = computed(() => commitCountLabel(commits.value.length));
+function commitHref(oid: string): string {
+  return `${repoCommitsHref.value}/${encodeURIComponent(oid)}`;
+}
+
+function nounCountLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 
 /**
  * Vcs-aware copy for the bookmarks panel.
@@ -524,6 +658,14 @@ const bookmarksHint = computed(() =>
     ? "jj-native; movable tips that travel with the work"
     : "Refs the comtrya.cue config calls out for the team",
 );
+function bookmarkCountLabel(count: number, vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj"
+    ? nounCountLabel(count, "bookmark")
+    : nounCountLabel(count, "ref");
+}
+const bookmarksCountLabel = computed(() =>
+  bookmarkCountLabel(bookmarks.value.length, repository.value?.vcs),
+);
 
 const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
   () => repository.value?.labelCatalog ?? {},
@@ -532,6 +674,7 @@ const labelCatalog = computed<Record<string, LabelCatalogEntry>>(
 const labelEntries = computed<string[]>(
   () => Object.keys(labelCatalog.value),
 );
+const labelsCountLabel = computed(() => nounCountLabel(labelEntries.value.length, "label"));
 
 const comtryaConfig = computed<ComtryaConfig | null>(
   () => repository.value?.comtryaConfig ?? null,
@@ -610,10 +753,24 @@ const readmeTruncated = computed(() => {
   const size = typeof blob.size === "number" ? blob.size : preview.length;
   return size > preview.length;
 });
+const readmeSizeLabel = computed(() => formatReadmeSize(readmeBlob.value?.size ?? null));
+
+function formatReadmeSize(size: number | null | undefined): string | null {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unit]}`;
+}
 
 const repoContext = computed<Record<string, unknown>>(() => ({
   workspaceId: workspaceId.value ?? undefined,
-  repositoryId: repositoryId.value,
+  repositoryId: repositoryId.value ?? undefined,
   repositoryGroups: repository.value?.groups ?? props.groups,
   repositoryName: repository.value?.name ?? props.repo,
   repositoryPath: repository.value?.path ?? repoPath.value,
@@ -705,6 +862,8 @@ function mergeRepositoryIdentity(
     ...next,
     blobs: preserveHeavy ? previous.blobs : next.blobs,
     bookmarks: preserveHeavy ? previous.bookmarks : next.bookmarks,
+    branches: preserveHeavy ? previous.branches : next.branches,
+    tags: preserveHeavy ? previous.tags : next.tags,
     commits: preserveHeavy ? previous.commits : next.commits,
     labels: mode === "context" ? previous.labels : next.labels,
     labelCatalog: next.labelCatalog ?? previous.labelCatalog,
@@ -715,11 +874,55 @@ function mergeRepositoryIdentity(
 
 <template>
   <header class="repo-header" data-smoke="repo-dashboard">
-    <p class="overline">Repository</p>
-    <h1>{{ displayPath }}</h1>
-    <p v-if="repository?.description" class="repo-description">
-      {{ repository.description }}
-    </p>
+    <div class="repo-header-top">
+      <div class="repo-title-block">
+        <div class="repo-title-row">
+          <h1 class="repo-title" :title="displayPath">
+            <span class="repo-title-icon" aria-hidden="true">
+              <Icon name="folder" />
+            </span>
+            <RouterLink
+              class="repo-title-path"
+              :to="repoHomeHref"
+              :aria-label="`Repository home: ${displayPath}`"
+            >
+              <span v-if="repositoryOwnerPath" class="repo-owner-path">
+                {{ repositoryOwnerPath }}
+              </span>
+              <span v-if="repositoryOwnerPath" class="repo-path-separator">/</span>
+              <strong class="repo-name">{{ repositoryName }}</strong>
+            </RouterLink>
+          </h1>
+          <span
+            class="repo-visibility"
+            :class="`tone-${repositoryVisibility === 'public' ? 'public' : 'private'}`"
+          >
+            {{ repositoryVisibilityLabel }}
+          </span>
+        </div>
+        <p v-if="repository?.description" class="repo-description">
+          {{ repository.description }}
+        </p>
+      </div>
+      <div
+        v-if="cloneCommand"
+        class="repo-clone"
+        data-smoke="repo-clone"
+      >
+        <code class="repo-clone-cmd" :title="cloneCommandTitle" @click="copyClone">{{ cloneCommand }}</code>
+        <button
+          type="button"
+          class="repo-clone-copy"
+          :aria-pressed="cloneCopied"
+          :aria-label="cloneCopyStatus"
+          :title="cloneCopyStatus"
+          @click="copyClone"
+        >
+          <Icon :name="cloneCopied ? 'check' : 'copy'" />
+          <span>{{ cloneCopied ? "Copied" : "Code" }}</span>
+        </button>
+      </div>
+    </div>
     <div class="repo-chip-row" aria-label="Repository at a glance">
       <template v-for="chip in repoChips" :key="chip.label">
         <RouterLink
@@ -740,22 +943,6 @@ function mergeRepositoryIdentity(
           <span>{{ chip.label }}</span>
         </span>
       </template>
-    </div>
-    <div
-      v-if="cloneCommand"
-      class="repo-clone"
-      data-smoke="repo-clone"
-    >
-      <code class="repo-clone-cmd" :title="cloneCommandTitle" @click="copyClone">{{ cloneCommand }}</code>
-      <button
-        type="button"
-        class="repo-clone-copy"
-        :aria-pressed="cloneCopied"
-        :title="cloneCopied ? 'Copied' : 'Copy clone command'"
-        @click="copyClone"
-      >
-        {{ cloneCopied ? "copied" : "copy" }}
-      </button>
     </div>
     <RepoTabs
       :segments="repoSegments"
@@ -778,7 +965,7 @@ function mergeRepositoryIdentity(
     <!-- /r/:path → README home. Per the v3 layout direction, the home
          is the README, not a vertical pile of every extension. Extensions
          each own their own per-repo route — Code at /r/:path/code,
-         Issues / Pulls / Checks via RepoTabs. Projects (a kernel concept)
+         Issues / Pull requests / Checks via RepoTabs. Projects (a kernel concept)
          and Bookmarks (CUE-declared refs) live in a compact right rail
          alongside the README. -->
     <div v-if="view === 'overview'" class="repo-overview">
@@ -790,9 +977,15 @@ function mergeRepositoryIdentity(
           aria-label="README"
         >
           <header class="repo-readme-head">
-            <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
-            <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
-              preview
+            <span class="repo-readme-title">
+              <Icon name="file" />
+              <span class="repo-readme-path">{{ readmeBlob?.path }}</span>
+            </span>
+            <span class="repo-readme-meta">
+              <span v-if="readmeSizeLabel" class="repo-readme-size">{{ readmeSizeLabel }}</span>
+              <span v-if="readmeTruncated" class="repo-readme-truncated" title="Preview truncated by the kernel">
+                preview
+              </span>
             </span>
           </header>
           <article ref="readmeBody" class="repo-readme-body prose" v-html="renderedReadme" />
@@ -800,10 +993,85 @@ function mergeRepositoryIdentity(
         <section v-else class="repo-readme repo-readme-empty">
           <p>No README at the repo root. Add one to introduce this repository.</p>
         </section>
+
+        <SlotMount
+          v-if="repositoryId"
+          name="repository.main"
+          label="Repository work"
+          :element-context="repoContext"
+          :enabled-extensions="enabledExtensions"
+          smoke-prefix="repo-slot"
+          :framed="false"
+          hide-empty
+        />
       </main>
 
       <aside class="repo-overview-rail">
-        <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
+        <section
+          class="repo-about"
+          data-smoke="repo-about"
+          aria-label="About repository"
+        >
+          <header class="repo-about-head">
+            <h2>About</h2>
+            <RouterLink class="repo-about-code-link" :to="repoCodeHref">
+              <Icon name="file" />
+              <span>View code</span>
+            </RouterLink>
+          </header>
+          <p class="repo-about-description">
+            {{ repository?.description || "No description provided." }}
+          </p>
+          <dl class="repo-about-list">
+            <div>
+              <dt>
+                <Icon name="branch" />
+                <span>{{ repositoryAboutRefLabel }}</span>
+              </dt>
+              <dd>{{ repositoryDefaultRef }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon name="terminal" />
+                <span>Version control</span>
+              </dt>
+              <dd>{{ repositoryVcsLabel }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon v-if="repositoryVisibility === 'public'" name="globe" />
+                <Icon v-else name="lock" />
+                <span>Visibility</span>
+              </dt>
+              <dd>{{ repositoryVisibilityLabel }}</dd>
+            </div>
+            <div>
+              <dt>
+                <Icon name="clock" />
+                <span>Updated</span>
+              </dt>
+              <dd>{{ repositoryUpdatedLabel }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <ProjectsPanel
+          :repository-path="displayPath"
+          :segments="repoSegments"
+          :workspace-id="workspaceId"
+          :repository-id="repositoryId"
+        />
+
+        <SlotMount
+          v-if="repositoryId"
+          name="repository.sidebar"
+          label="Repository side work"
+          :element-context="repoContext"
+          :enabled-extensions="enabledExtensions"
+          smoke-prefix="repo-slot"
+          :framed="false"
+          hide-empty
+        />
 
         <section
           v-if="bookmarks.length > 0"
@@ -813,7 +1081,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-bookmarks-head">
             <h2>{{ bookmarksLabel }}</h2>
-            <span class="repo-bookmarks-count">{{ bookmarks.length }} declared</span>
+            <span class="repo-bookmarks-count">{{ bookmarksCountLabel }}</span>
           </header>
           <p class="repo-bookmarks-hint">{{ bookmarksHint }}</p>
           <ul class="repo-bookmarks-list">
@@ -851,7 +1119,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-commits-head">
             <h2>Recent commits</h2>
-            <span class="repo-commits-count">{{ commits.length }}</span>
+            <span class="repo-commits-count">{{ commitsCountLabel }}</span>
           </header>
           <ul class="repo-commits-list">
             <li v-for="commit in commits" :key="commit.oid" class="repo-commit">
@@ -878,7 +1146,7 @@ function mergeRepositoryIdentity(
         >
           <header class="repo-labels-head">
             <h2>Labels</h2>
-            <span>{{ labelEntries.length }} declared</span>
+            <span>{{ labelsCountLabel }}</span>
           </header>
           <ul class="repo-labels-list">
             <li v-for="name in labelEntries" :key="name">
@@ -1004,7 +1272,182 @@ function mergeRepositoryIdentity(
       />
     </section>
 
-    <!-- /r/:path/{pulls,issues,checks,epics} → workbench-style embed of the
+    <section v-else-if="view === 'branches'" class="repo-branches-page" data-smoke="repo-branches-page">
+      <header class="repo-branches-page-head">
+        <div>
+          <h2>Branches</h2>
+          <p class="repo-branches-count" data-smoke="repo-branches-count">
+            {{ branchesCountLabel }} in {{ displayPath }}
+          </p>
+        </div>
+        <div class="repo-branches-page-actions">
+          <RouterLink class="repo-branches-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-branches-code-link" :to="repoCommitsHref">
+            <Icon name="commit" />
+            <span>Commits</span>
+          </RouterLink>
+          <RouterLink class="repo-branches-code-link" :to="repoTagsHref">
+            <Icon name="tag" />
+            <span>Tags</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <p v-if="branches.length === 0" class="repo-branches-empty">
+        No branches recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-branches-list" aria-label="Repository branches">
+        <li
+          v-for="branch in branches"
+          :key="branch.name"
+          class="repo-branch-row"
+          :class="{ 'repo-branch-row--default': isDefaultBranch(branch) }"
+          data-smoke="repo-branch-row"
+        >
+          <div class="repo-branch-main">
+            <span class="repo-branch-name">
+              <Icon name="branch" />
+              <span>{{ branch.name }}</span>
+            </span>
+            <span class="repo-branch-distance">{{ branchDistanceLabel(branch) }}</span>
+          </div>
+          <div class="repo-branch-refs">
+            <span
+              v-if="isDefaultBranch(branch)"
+              class="repo-branch-default-chip"
+              data-smoke="repo-branch-default-chip"
+            >
+              default
+            </span>
+            <RouterLink
+              class="repo-branch-tip"
+              :to="commitHref(branch.oid)"
+              :title="branch.oid"
+              data-smoke="repo-branch-tip"
+            >
+              {{ branch.commit || branch.oid.slice(0, 12) }}
+            </RouterLink>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section v-else-if="view === 'tags'" class="repo-tags-page" data-smoke="repo-tags-page">
+      <header class="repo-tags-page-head">
+        <div>
+          <h2>Tags</h2>
+          <p class="repo-tags-count" data-smoke="repo-tags-count">
+            {{ tagsCountLabel }} in {{ displayPath }}
+          </p>
+        </div>
+        <div class="repo-tags-page-actions">
+          <RouterLink class="repo-tags-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-tags-code-link" :to="repoBranchesHref">
+            <Icon name="branch" />
+            <span>Branches</span>
+          </RouterLink>
+          <RouterLink class="repo-tags-code-link" :to="repoCommitsHref">
+            <Icon name="commit" />
+            <span>Commits</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <p v-if="tags.length === 0" class="repo-tags-empty">
+        No tags recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-tags-list" aria-label="Repository tags">
+        <li
+          v-for="tag in tags"
+          :key="tag.name"
+          class="repo-tag-row"
+          data-smoke="repo-tag-row"
+        >
+          <div class="repo-tag-main">
+            <span class="repo-tag-name">
+              <Icon name="tag" />
+              <span>{{ tag.name }}</span>
+            </span>
+            <span class="repo-tag-meta">
+              <span>{{ tagKindLabel(tag) }}</span>
+              <span v-if="tag.time">{{ tag.time }}</span>
+              <span v-if="tag.subject">{{ tag.subject }}</span>
+            </span>
+          </div>
+          <RouterLink
+            class="repo-tag-target"
+            :to="commitHref(tag.target)"
+            :title="tag.target"
+            data-smoke="repo-tag-target"
+          >
+            {{ tag.targetShort || tag.target.slice(0, 12) }}
+          </RouterLink>
+        </li>
+      </ol>
+    </section>
+
+    <section v-else-if="view === 'commits'" class="repo-commits-page" data-smoke="repo-commits-page">
+      <header class="repo-commits-page-head">
+        <div>
+          <h2>Commits</h2>
+          <p>{{ commitsCountLabel }} on {{ repositoryDefaultRef }}</p>
+        </div>
+        <div class="repo-commits-page-actions">
+          <RouterLink class="repo-commits-code-link" :to="repoCodeHref">
+            <Icon name="folder" />
+            <span>Code</span>
+          </RouterLink>
+          <RouterLink class="repo-commits-code-link" :to="repoBranchesHref">
+            <Icon name="branch" />
+            <span>Branches</span>
+          </RouterLink>
+          <RouterLink class="repo-commits-code-link" :to="repoTagsHref">
+            <Icon name="tag" />
+            <span>Tags</span>
+          </RouterLink>
+        </div>
+      </header>
+
+      <p v-if="commits.length === 0" class="repo-commits-empty">
+        No commits recorded for this repository yet.
+      </p>
+      <ol v-else class="repo-commits-list" aria-label="Repository commits">
+        <li v-for="commit in commits" :key="commit.oid" class="repo-commit-row">
+          <RouterLink class="repo-commit-main" :to="commitHref(commit.oid)">
+            <span class="repo-commit-subject">{{ commit.subject || "No commit message" }}</span>
+            <span class="repo-commit-meta">
+              <span>{{ commit.author || "Unknown author" }}</span>
+              <span v-if="commit.time">{{ commit.time }}</span>
+            </span>
+          </RouterLink>
+          <div class="repo-commit-refs">
+            <code class="repo-commit-oid" :title="commit.oid">{{ commit.shortOid || commit.oid.slice(0, 7) }}</code>
+            <code
+              v-if="commit.changeId"
+              class="repo-commit-change-id"
+              :title="`jj change-id ${commit.changeId}`"
+            >{{ commit.changeId.slice(0, 8) }}</code>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <!-- /r/:path/{pipelines,releases} → shell-owned repo surfaces kept
+         inside the same persistent workbench header and tab strip. -->
+    <section v-else-if="view === 'pipelines'" class="repo-shell-surface" data-smoke="repo-pipelines">
+      <Pipelines :groups="groups" :repo="repo" />
+    </section>
+    <section v-else-if="view === 'releases'" class="repo-shell-surface" data-smoke="repo-releases">
+      <Releases :groups="groups" :repo="repo" />
+    </section>
+
+    <!-- /r/:path/{pulls,issues,checks,epics,docs,sprints} → workbench-style embed of the
          matching extension's root route. The repo path is authoritative:
          RepoHome passes the freshly loaded repo/workspace context into the
          extension element, while query params remain useful for filters and
@@ -1014,13 +1457,52 @@ function mergeRepositoryIdentity(
       <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="issues"
+      />
       <ExtensionRoute prefix="issues" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
       <ExtensionRoute prefix="checks" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="epics"
+      />
       <ExtensionRoute prefix="epics" :rest="embeddedSubPath" :element-context="repoContext" />
+    </section>
+    <section v-else-if="view === 'docs'" class="repo-extension-embed" data-smoke="repo-docs">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="docs"
+        :active-board="activeDocsBoard"
+      />
+      <ExtensionRoute prefix="docs" :rest="embeddedSubPath" :element-context="repoContext" />
+    </section>
+    <section v-else-if="view === 'sprints'" class="repo-extension-embed" data-smoke="repo-sprints">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="sprints"
+      />
+      <ExtensionRoute prefix="sprints" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
   </template>
 </template>

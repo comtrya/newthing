@@ -97,4 +97,23 @@ describe("issueRouteContext", () => {
       state: null,
     });
   });
+
+  test("host repository segments are preserved for embedded repo routes", () => {
+    expect(
+      issueRouteContext(
+        {
+          workspaceId: "ws_host",
+          repositoryId: "repo_host",
+          repositorySegments: [" comtrya ", "dogfood", ""],
+        },
+        "?repositoryId=repo_query",
+      ),
+    ).toEqual({
+      workspaceId: "ws_host",
+      repositoryId: "repo_host",
+      repositorySegments: ["comtrya", "dogfood"],
+      projectName: null,
+      state: null,
+    });
+  });
 });

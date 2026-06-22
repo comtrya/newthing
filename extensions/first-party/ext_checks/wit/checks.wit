@@ -34,8 +34,69 @@ interface checks {
     required: bool,
   }
 
+  record check-readiness-board-input {
+    repository: uri,
+    commit-oid: option<string>,
+    %limit: u32,
+  }
+
+  record check-readiness-card {
+    check: check-run,
+    blocking: bool,
+  }
+
+  record check-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<check-readiness-card>,
+  }
+
+  record check-readiness-board {
+    repository: uri,
+    commit-oid: option<string>,
+    total: u32,
+    columns: list<check-readiness-column>,
+  }
+
+  record expected-check {
+    name: string,
+    required: bool,
+  }
+
+  record expected-check-readiness-card {
+    name: string,
+    required: bool,
+    check: option<check-run>,
+    blocking: bool,
+    missing: bool,
+  }
+
+  record expected-check-readiness-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<expected-check-readiness-card>,
+  }
+
+  record expected-check-readiness-board-input {
+    repository: uri,
+    commit-oid: string,
+    expected: list<expected-check>,
+    %limit: u32,
+  }
+
+  record expected-check-readiness-board {
+    repository: uri,
+    commit-oid: string,
+    total: u32,
+    columns: list<expected-check-readiness-column>,
+  }
+
   record-check: func(input: record-check-input) -> result<check-run, error>;
   list-checks: func(repository: uri, %limit: u32) -> result<list<check-run>, error>;
+  readiness-board: func(input: check-readiness-board-input) -> result<check-readiness-board, error>;
+  expected-readiness-board: func(input: expected-check-readiness-board-input) -> result<expected-check-readiness-board, error>;
 }
 
 world ext-checks {

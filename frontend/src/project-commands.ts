@@ -24,6 +24,7 @@ import type { Router } from "vue-router";
 import { registerCommand } from "@comtrya/sdk-core";
 import { fetchComtryaProjects } from "@comtrya/sdk-vue";
 import { projectHref } from "./route-paths";
+import { repoSegmentsFromRouteParams } from "./repo-workbench-routes";
 
 export function bindProjectCommands(router: Router): void {
   let activeUnregisters: Array<() => void> = [];
@@ -36,7 +37,7 @@ export function bindProjectCommands(router: Router): void {
   };
 
   router.afterEach(async (to) => {
-    const segments = repoSegmentsFromRoute(to.path);
+    const segments = repoSegmentsFromRouteParams(to.params);
     const repoKey = segments.length > 0 ? segments.join("/") : null;
 
     if (repoKey === lastRepoKey) return;
@@ -116,12 +117,4 @@ export function bindProjectCommands(router: Router): void {
       console.warn("[project-commands] failed to load CUE projects:", caught);
     }
   });
-}
-
-function repoSegmentsFromRoute(path: string): string[] {
-  if (!path.startsWith("/r/")) return [];
-  const rest = path.slice("/r/".length);
-  const projectIdx = rest.indexOf("/p/");
-  const repoPath = projectIdx >= 0 ? rest.slice(0, projectIdx) : rest;
-  return repoPath.split("/").filter(Boolean).map(decodeURIComponent);
 }

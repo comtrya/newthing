@@ -44,10 +44,21 @@ function checkOk(repo: RepositoryItem): boolean {
   return Boolean(repo.checkSummary && repo.checkSummary.passed === repo.checkSummary.total);
 }
 
+function countLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function pullRequestText(repo: RepositoryItem): string {
+  return countLabel(repo.openPullRequests ?? 0, "pull request");
+}
+
 function checkText(repo: RepositoryItem): string {
-  if (!repo.checkSummary) return "-";
-  if (checkOk(repo)) return `${repo.checkSummary.total ?? 0} ok`;
-  return `${repo.checkSummary.passed ?? 0}/${repo.checkSummary.total ?? 0}`;
+  if (!repo.checkSummary) return "No checks";
+  const passed = repo.checkSummary.passed ?? 0;
+  const total = repo.checkSummary.total ?? passed;
+  if (total === 0) return "No checks";
+  if (checkOk(repo)) return `${countLabel(total, "check")} passing`;
+  return `${passed} of ${countLabel(total, "check")} passing`;
 }
 </script>
 
@@ -59,7 +70,7 @@ function checkText(repo: RepositoryItem): string {
     <div class="rail-strap">
       <span class="id">04</span>
       <h3>Repositories</h3>
-      <span class="count">{{ repositories.length }} total</span>
+      <span class="count">{{ countLabel(repositories.length, "repository", "repositories") }}</span>
     </div>
 
     <div v-for="repo in repositories" :key="repo.id" class="repo">
@@ -68,7 +79,7 @@ function checkText(repo: RepositoryItem): string {
         <span class="leaf">{{ repo.name ?? "(unnamed)" }}</span>
       </span>
       <span class="stats">
-        <span>{{ repo.openPullRequests ?? 0 }} pr</span>
+        <span>{{ pullRequestText(repo) }}</span>
         <span :class="checkOk(repo) ? 'ok' : 'warn'">{{ checkText(repo) }}</span>
         <span>{{ repo.lastCommitAt ?? "" }}</span>
       </span>
@@ -92,8 +103,9 @@ function checkText(repo: RepositoryItem): string {
 
 .rail-strap h3 {
   margin: 0;
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-size: 14px;
+  font-weight: 600;
 }
 
 .id,
@@ -105,6 +117,13 @@ function checkText(repo: RepositoryItem): string {
   font-size: 12px;
 }
 
+.count,
+.stats,
+.prefix,
+.extension-placeholder {
+  font-family: var(--font-sans, system-ui);
+}
+
 .id,
 .count,
 .stats,
@@ -114,7 +133,7 @@ function checkText(repo: RepositoryItem): string {
 
 .name {
   min-width: 0;
-  font-family: var(--font-serif, system-ui);
+  font-family: var(--font-sans, system-ui);
   font-weight: 600;
 }
 

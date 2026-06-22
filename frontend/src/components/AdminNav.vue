@@ -85,7 +85,7 @@ const navStyle = computed(
 
 <template>
   <div class="hairline-r admin-nav" :style="navStyle">
-    <div class="eyebrow" style="padding: 0 8px 10px">Forge admin</div>
+    <div class="eyebrow" style="padding: 0 8px 10px">Site admin</div>
     <template v-for="item in items" :key="item.id">
       <RouterLink
         v-if="item.to && item.id !== props.active"

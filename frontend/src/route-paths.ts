@@ -16,6 +16,9 @@ export const shellRoutePaths = {
   accountSshKeys: "/account/ssh-keys",
   repoHome: "/r/:groups*/:repo",
   repoCode: "/r/:groups*/:repo/code",
+  repoBranches: "/r/:groups*/:repo/branches",
+  repoTags: "/r/:groups*/:repo/tags",
+  repoCommits: "/r/:groups*/:repo/commits",
   repoConfig: "/r/:groups*/:repo/config",
   repoPullReview: "/r/:groups*/:repo/pulls/:id/review",
   repoPulls: "/r/:groups*/:repo/pulls/:rest(.*)*",
@@ -23,6 +26,8 @@ export const shellRoutePaths = {
   repoIssues: "/r/:groups*/:repo/issues/:rest(.*)*",
   repoChecks: "/r/:groups*/:repo/checks/:rest(.*)*",
   repoEpics: "/r/:groups*/:repo/epics/:rest(.*)*",
+  repoDocs: "/r/:groups*/:repo/docs/:rest(.*)*",
+  repoSprints: "/r/:groups*/:repo/sprints/:rest(.*)*",
   repoCommitDetail: "/r/:groups*/:repo/commits/:oid",
   repoPipelines: "/r/:groups*/:repo/pipelines",
   repoReleases: "/r/:groups*/:repo/releases",
@@ -37,4 +42,87 @@ export function projectHref(
 ): string {
   const repoPath = segments.map(encodeURIComponent).join("/");
   return `/r/${repoPath}/p/${encodeURIComponent(projectName)}`;
+}
+
+export interface ProjectWorkHrefOptions {
+  surface: "issues" | "epics";
+  projectName: string;
+  state?: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+}
+
+export function projectWorkHref({
+  surface,
+  projectName,
+  state,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+}: ProjectWorkHrefOptions): string {
+  const params = new URLSearchParams({ project: projectName });
+  if (state) params.set("state", state);
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const repoPath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}`
+    : `/x/${surface}/`;
+  return `${repoPath}?${params.toString()}`;
+}
+
+export interface ProjectNewWorkHrefOptions {
+  surface: "issues" | "epics";
+  projectName: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+}
+
+export function projectNewWorkHref({
+  surface,
+  projectName,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+}: ProjectNewWorkHrefOptions): string {
+  const params = new URLSearchParams({ projectName });
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const repoPath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}/new`
+    : `/x/${surface}/new`;
+  return `${repoPath}?${params.toString()}`;
+}
+
+export interface ProjectPlanningHrefOptions {
+  surface: "docs" | "sprints";
+  projectName: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+  board?: string;
+}
+
+export function projectPlanningHref({
+  surface,
+  projectName,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+  board,
+}: ProjectPlanningHrefOptions): string {
+  const params = new URLSearchParams({ project: projectName });
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const cleanBoard = board?.trim().replace(/^\/+|\/+$/g, "");
+  const suffix = cleanBoard ? `/${cleanBoard.split("/").map(encodeURIComponent).join("/")}` : "";
+  const basePath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}`
+    : `/x/${surface}`;
+  const path = suffix ? `${basePath}${suffix}` : `${basePath}/`;
+  return `${path}?${params.toString()}`;
 }

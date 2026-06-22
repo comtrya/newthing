@@ -9,7 +9,6 @@ import CommitDetail from "./routes/CommitDetail.vue";
 import ExtensionRoute from "./routes/ExtensionRoute.vue";
 import Inbox from "./routes/Inbox.vue";
 import InstanceHealth from "./routes/InstanceHealth.vue";
-import IssueTracker from "./routes/IssueTracker.vue";
 import NewRepository from "./routes/NewRepository.vue";
 import Pipelines from "./routes/Pipelines.vue";
 import ProjectHome from "./routes/ProjectHome.vue";
@@ -126,6 +125,33 @@ export const shellRoutes: RouteRecordRaw[] = [
     }),
   },
   {
+    path: shellRoutePaths.repoBranches,
+    name: "repo-branches",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "branches",
+    }),
+  },
+  {
+    path: shellRoutePaths.repoTags,
+    name: "repo-tags",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "tags",
+    }),
+  },
+  {
+    path: shellRoutePaths.repoCommits,
+    name: "repo-commits",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "commits",
+    }),
+  },
+  {
     // Must appear BEFORE the catch-all repoPulls route so that
     // `/pulls/:id/review` is matched here instead of falling through
     // to the extension-owned `/pulls/...` proxy.
@@ -142,8 +168,12 @@ export const shellRoutes: RouteRecordRaw[] = [
     // `/issues/board` doesn't fall through to the extension proxy.
     path: shellRoutePaths.repoIssueBoard,
     name: "repo-issue-board",
-    component: IssueTracker,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "issues",
+      embeddedSubPath: ["board"],
+    }),
   },
   {
     // Must appear BEFORE any `repoCommits` catch-all that may follow
@@ -160,14 +190,20 @@ export const shellRoutes: RouteRecordRaw[] = [
   {
     path: shellRoutePaths.repoPipelines,
     name: "repo-pipelines",
-    component: Pipelines,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "pipelines",
+    }),
   },
   {
     path: shellRoutePaths.repoReleases,
     name: "repo-releases",
-    component: Releases,
-    props: repoRouteProps,
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "releases",
+    }),
   },
   {
     path: shellRoutePaths.repoConfig,
@@ -215,6 +251,26 @@ export const shellRoutes: RouteRecordRaw[] = [
     props: (route: RouteLocationNormalizedLoaded) => ({
       ...repoRouteProps(route),
       view: "epics",
+      embeddedSubPath: paramSegments(route.params.rest),
+    }),
+  },
+  {
+    path: shellRoutePaths.repoDocs,
+    name: "repo-docs",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "docs",
+      embeddedSubPath: paramSegments(route.params.rest),
+    }),
+  },
+  {
+    path: shellRoutePaths.repoSprints,
+    name: "repo-sprints",
+    component: RepoHome,
+    props: (route: RouteLocationNormalizedLoaded) => ({
+      ...repoRouteProps(route),
+      view: "sprints",
       embeddedSubPath: paramSegments(route.params.rest),
     }),
   },

@@ -135,12 +135,20 @@ function formatUnix(ts: number | null | undefined): string {
   }
 }
 
-function tokenStatus(token: GitPersonalAccessToken): { label: string; tone: "ok" | "warn" | "err" } {
-  if (token.revokedAt) return { label: "revoked", tone: "err" };
+function formatLastUsed(ts: number | null | undefined): string {
+  return ts ? formatUnix(ts) : "Never used";
+}
+
+function tokenStatus(token: GitPersonalAccessToken): {
+  label: string;
+  state: "active" | "revoked" | "expired";
+  tone: "ok" | "warn" | "err";
+} {
+  if (token.revokedAt) return { label: "Revoked", state: "revoked", tone: "err" };
   if (token.expiresAt && token.expiresAt < Math.floor(Date.now() / 1000)) {
-    return { label: "expired", tone: "err" };
+    return { label: "Expired", state: "expired", tone: "err" };
   }
-  return { label: "active", tone: "ok" };
+  return { label: "Active", state: "active", tone: "ok" };
 }
 
 onMounted(() => {
@@ -156,8 +164,8 @@ onMounted(() => {
           <div class="eyebrow" style="margin-bottom: 6px">Account</div>
           <h1 class="serif">Credentials</h1>
           <div class="subline">
-            Manage your personal access tokens for HTTP git operations and SSH keys for
-            git over SSH.
+            Manage your personal access tokens for HTTP Git operations and SSH keys for
+            Git over SSH.
           </div>
         </div>
         <div class="spacer" />
@@ -175,7 +183,9 @@ onMounted(() => {
 
       <div v-if="justMinted" class="glass just-minted">
         <div class="section-hd">
-          <div class="section-hd-title">New token: {{ justMinted.record.name }}</div>
+          <div class="section-hd-title">
+            New personal access token: {{ justMinted.record.name }}
+          </div>
           <div class="section-hd-sub">
             Copy this now. The plaintext will not be shown again.
           </div>
@@ -190,15 +200,15 @@ onMounted(() => {
         <pre class="mono token-blob">{{ justMinted.token }}</pre>
         <div class="kv-list">
           <div>
-            <span>scopes</span>
+            <span>Scopes</span>
             <strong class="mono">{{ justMinted.record.scopes.join(", ") }}</strong>
           </div>
           <div>
-            <span>expires</span>
+            <span>Expires</span>
             <strong class="mono">{{ formatUnix(justMinted.record.expiresAt) }}</strong>
           </div>
           <div>
-            <span>prefix</span>
+            <span>Prefix</span>
             <strong class="mono">{{ justMinted.record.tokenPrefix }}</strong>
           </div>
         </div>
@@ -206,15 +216,15 @@ onMounted(() => {
 
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
-          <div class="section-hd-title">Mint a new token</div>
+          <div class="section-hd-title">Generate new personal access token</div>
           <div class="section-hd-sub">
-            Token name is shown only to you; pick something that identifies the
+            Note is shown only to you; pick something that identifies the
             machine or CI runner using it.
           </div>
         </div>
         <form class="form-panel" @submit.prevent="submit">
           <label>
-            <span>Name</span>
+            <span>Note</span>
             <input
               v-model="formName"
               type="text"
@@ -248,14 +258,16 @@ onMounted(() => {
           </label>
           <div v-if="formError" class="error-inline">{{ formError }}</div>
           <button class="btn primary" type="submit" :disabled="!canSubmit">
-            <Icon name="plus" /><span>{{ submitting ? "Minting..." : "Mint token" }}</span>
+            <Icon name="plus" /><span>{{ submitting ? "Generating..." : "Generate token" }}</span>
           </button>
         </form>
       </div>
 
       <div v-if="revokePrompt" class="glass revoke-confirm" data-smoke="revoke-confirm">
         <div class="section-hd">
-          <div class="section-hd-title">Revoke "{{ revokePrompt.name }}"?</div>
+          <div class="section-hd-title">
+            Revoke personal access token "{{ revokePrompt.name }}"?
+          </div>
           <div class="section-hd-sub">
             The token will stop working immediately for every git operation.
           </div>
@@ -270,25 +282,25 @@ onMounted(() => {
             @click="confirmRevoke"
             data-smoke="revoke-confirm-yes"
           >
-            <Icon name="x" /><span>{{ revokeBusy ? "Revoking…" : "Yes, revoke" }}</span>
+            <Icon name="x" /><span>{{ revokeBusy ? "Revoking…" : "Revoke token" }}</span>
           </button>
         </div>
       </div>
 
       <div class="glass">
         <div class="section-hd">
-          <div class="section-hd-title">Existing tokens</div>
+          <div class="section-hd-title">Personal access tokens</div>
           <div class="section-hd-sub">
             <template v-if="tokens.length">
-              {{ tokens.length }} token{{ tokens.length === 1 ? "" : "s" }}
+              {{ tokens.length }} personal access token{{ tokens.length === 1 ? "" : "s" }}
             </template>
             <template v-else-if="loading">Loading…</template>
-            <template v-else>No tokens yet.</template>
+            <template v-else>You have not generated any personal access tokens yet.</template>
           </div>
         </div>
         <div v-if="tokens.length" class="token-table">
           <div class="token-row token-row-hd">
-            <span>Name</span>
+            <span>Note</span>
             <span>Scopes</span>
             <span>Status</span>
             <span>Expires</span>
@@ -300,7 +312,7 @@ onMounted(() => {
             v-for="token in tokens"
             :key="token.id"
             class="token-row"
-            :data-status="tokenStatus(token).label"
+            :data-status="tokenStatus(token).state"
           >
             <div>
               <div class="token-name">{{ token.name }}</div>
@@ -316,7 +328,7 @@ onMounted(() => {
             </div>
             <div><Chip :tone="tokenStatus(token).tone">{{ tokenStatus(token).label }}</Chip></div>
             <div class="mono">{{ formatUnix(token.expiresAt) }}</div>
-            <div class="mono">{{ formatUnix(token.lastUsedAt) }}</div>
+            <div class="mono">{{ formatLastUsed(token.lastUsedAt) }}</div>
             <div class="mono">{{ formatUnix(token.createdAt) }}</div>
             <div>
               <button

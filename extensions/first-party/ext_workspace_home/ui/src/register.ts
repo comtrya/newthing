@@ -1,12 +1,14 @@
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
 import HomeActivity from "./HomeActivity.vue";
 import HomeInstance from "./HomeInstance.vue";
+import HomePlanning from "./HomePlanning.vue";
 import HomeRepositories from "./HomeRepositories.vue";
 import HomeYourWork from "./HomeYourWork.vue";
 
 const EXTENSION_ID = "ext_workspace_home";
 const YOUR_WORK_TAG = "comtrya-home-your-work";
 const REPOSITORIES_TAG = "comtrya-home-repositories";
+const PLANNING_TAG = "comtrya-home-planning";
 const ACTIVITY_TAG = "comtrya-home-activity";
 const INSTANCE_TAG = "comtrya-home-instance";
 
@@ -27,6 +29,7 @@ interface ExtensionDefinition {
 
 defineExtensionWidget({ tagName: YOUR_WORK_TAG, component: HomeYourWork });
 defineExtensionWidget({ tagName: REPOSITORIES_TAG, component: HomeRepositories });
+defineExtensionWidget({ tagName: PLANNING_TAG, component: HomePlanning });
 defineExtensionWidget({ tagName: ACTIVITY_TAG, component: HomeActivity });
 defineExtensionWidget({ tagName: INSTANCE_TAG, component: HomeInstance });
 
@@ -44,6 +47,13 @@ const extension: ExtensionDefinition = {
       id: "home-repositories",
       element: REPOSITORIES_TAG,
       defaultSlot: "home.repositories",
+      defaultPriority: 1000,
+      requiredPermission: "workspace.read",
+    });
+    host.registerWidget({
+      id: "home-planning",
+      element: PLANNING_TAG,
+      defaultSlot: "home.planning",
       defaultPriority: 1000,
       requiredPermission: "workspace.read",
     });

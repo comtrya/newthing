@@ -148,8 +148,10 @@ The UI surface is a browser ESM bundle built from `ui/` into
 Vue for first-party UI.
 
 The shell loads installed extension UI manifests through
-`/_extensions/<id>/manifest.json`, verifies asset integrity, imports
+`/ui-ext/<module-token>/meta.json`, verifies asset integrity, imports
 `assets/index.js`, and calls the bundle's default `setup(host)` function.
+The module token is the hex-encoded extension ID used only for public asset
+URLs.
 
 The backend component and browser bundle are intentionally separate. Backend
 behavior runs in Wasmtime on the server; DOM rendering runs in the browser.

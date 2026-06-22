@@ -25,6 +25,7 @@ const SHELL_EXTENSION_BOOT_QUERY = `{
   instance { capabilities { extensionRuntime } }
   extensionInstallations {
     id
+    manifest
     routePrefix
     relationshipTypes {
       id
@@ -41,6 +42,7 @@ const SHELL_EXTENSION_BOOT_QUERY = `{
 
 export interface InstalledExtension {
   id: string;
+  manifest: string;
   routePrefix: string | null;
   relationshipTypes?: InstalledRelationshipType[];
 }
@@ -74,6 +76,13 @@ interface ExtensionDefinition {
   id: string;
   setup(host: ExtensionHost): void | Promise<void>;
 }
+
+const BOOT_TIMEOUT_MS = 5_000;
+const BOOT_RETRY_DELAY_MS = 250;
+const BOOT_ATTEMPTS = 2;
+const MANIFEST_TIMEOUT_MS = 15_000;
+const MANIFEST_RETRY_DELAY_MS = 500;
+const MANIFEST_ATTEMPTS = 2;
 
 interface ExtensionHost {
   readonly client: ShellGraphQLClient;
@@ -111,31 +120,58 @@ export async function loadShellExtensions(): Promise<ExtensionLoadFailure[]> {
   configureGraphQLClient();
   const client = createShellGraphQLClient();
   const failures: ExtensionLoadFailure[] = [];
-  let boot: ShellExtensionBoot;
-  try {
-    boot = await client.query<ShellExtensionBoot>(SHELL_EXTENSION_BOOT_QUERY);
-  } catch (caught) {
-    return [{
-      extensionId: "shell",
-      stage: "boot",
-      message: describe(caught),
-    }];
-  }
+  const boot = await loadShellExtensionBoot(client);
+  if (!boot.ok) return [boot.failure];
+  const bootPayload = boot.value;
 
   const runtimeContext: ExtensionRuntimeContext = {
     client,
     viewer: {
-      authenticated: boot.viewer?.authenticated ?? false,
-      permissions: boot.viewer?.permissions ?? [],
+      authenticated: bootPayload.viewer?.authenticated ?? false,
+      permissions: bootPayload.viewer?.permissions ?? [],
     },
-    capabilities: boot.instance?.capabilities ?? {},
+    capabilities: bootPayload.instance?.capabilities ?? {},
   };
   setExtensionRuntimeContext(runtimeContext);
 
-  for (const extension of boot.extensionInstallations ?? []) {
-    await loadOneExtension(extension, runtimeContext, failures);
-  }
+  await Promise.all(
+    (bootPayload.extensionInstallations ?? []).map((extension) =>
+      loadOneExtension(extension, runtimeContext, failures)
+    ),
+  );
   return failures;
+}
+
+async function loadShellExtensionBoot(
+  client: ShellGraphQLClient,
+): Promise<
+  { ok: true; value: ShellExtensionBoot } | { ok: false; failure: ExtensionLoadFailure }
+> {
+  let lastFailure: ExtensionLoadFailure = {
+    extensionId: "shell",
+    stage: "boot",
+    message: "extension boot did not run",
+  };
+  for (let attempt = 1; attempt <= BOOT_ATTEMPTS; attempt += 1) {
+    try {
+      const value = await withTimeout(
+        client.query<ShellExtensionBoot>(SHELL_EXTENSION_BOOT_QUERY),
+        BOOT_TIMEOUT_MS,
+        "extension boot query timed out",
+      );
+      return { ok: true, value };
+    } catch (caught) {
+      lastFailure = {
+        extensionId: "shell",
+        stage: "boot",
+        message: describe(caught),
+      };
+      if (attempt < BOOT_ATTEMPTS) {
+        await delay(BOOT_RETRY_DELAY_MS);
+      }
+    }
+  }
+  return { ok: false, failure: lastFailure };
 }
 
 function createShellGraphQLClient(): ShellGraphQLClient {
@@ -153,10 +189,7 @@ async function loadOneExtension(
 ): Promise<void> {
   let manifest: UiManifestV2;
   try {
-    const response = await fetch(`/_extensions/${extension.id}/manifest.json`, {
-      cache: "no-store",
-      credentials: "include",
-    });
+    const response = await fetchManifest(extension);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     manifest = parseManifest(await response.json());
   } catch (caught) {
@@ -196,10 +229,39 @@ async function loadOneExtension(
   }
 }
 
+async function fetchManifest(extension: InstalledExtension): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MANIFEST_ATTEMPTS; attempt += 1) {
+    try {
+      return await withTimeout(
+        fetch(manifestUrlFor(extension), {
+          cache: "no-store",
+          credentials: "include",
+        }),
+        MANIFEST_TIMEOUT_MS,
+        "extension manifest request timed out",
+      );
+    } catch (caught) {
+      lastError = caught;
+      if (attempt < MANIFEST_ATTEMPTS) {
+        await delay(MANIFEST_RETRY_DELAY_MS);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function extensionEntryUrl(manifest: UiManifestV2): string {
   const url = new URL(manifest.assets.entry, window.location.origin);
   url.searchParams.set("integrity", manifest.assets.entryIntegrity);
   return `${url.pathname}${url.search}`;
+}
+
+function manifestUrlFor(extension: InstalledExtension): string {
+  if (!extension.manifest.startsWith("/ui-ext/")) {
+    throw new Error(`extension ${extension.id} manifest must be served from /ui-ext/`);
+  }
+  return extension.manifest;
 }
 
 function createHost(
@@ -291,3 +353,26 @@ function assertPermission(manifest: UiManifestV2, permission: string): void {
 function describe(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught);
 }
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
+
+export const _extensionLoaderTest = {
+  manifestUrlFor,
+  withTimeout,
+};

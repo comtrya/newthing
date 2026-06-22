@@ -5,8 +5,8 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "assets": {
-    "entry": "/_extensions/ext_epics/assets/index.js",
-    "entryIntegrity": "sha256-ac5845143d90c7a3be20b4c3bd2560ba3873d179795306d87e7a24169c090977",
+    "entry": "/ui-ext/6578745f6570696373/files/index.js",
+    "entryIntegrity": "sha256-a231f473b05a4e500973ac1151720339913a0eb0290d2cc7824ca6e9d11dd22a",
     "styles": []
   },
   "permissions": [

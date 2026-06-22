@@ -54,6 +54,8 @@ mod generated_dispatch {
     include!(concat!(env!("OUT_DIR"), "/dispatch_table.rs"));
 }
 
+const UI_EXTENSION_BASE_PATH: &str = "/ui-ext";
+
 #[derive(Clone)]
 struct PureRustGitState {
     project_root: PathBuf,
@@ -500,14 +502,11 @@ fn router(state: AppState) -> Router {
         // is `not_found_or_unsupported`. Discovered while smoke-
         // testing the new Dockerfile (#12).
         .route(
-            "/_extensions/session",
+            "/ui-ext/session",
             post(extension_session).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
         )
-        .route(
-            "/_extensions/:extension/manifest.json",
-            get(extension_manifest),
-        )
-        .route("/_extensions/:extension/assets/*path", get(extension_asset))
+        .route("/ui-ext/:module/meta.json", get(extension_manifest))
+        .route("/ui-ext/:module/files/*path", get(extension_asset))
         // `/r/<repo>` is the single forge URL: the SPA browses it and git
         // clients clone/push it. The handler branches on git smart-HTTP
         // markers; non-git browse traffic is owned by the SPA edge and falls
@@ -535,7 +534,7 @@ fn router(state: AppState) -> Router {
 //     `if_not_present` so the per-asset CSP installed by
 //     `apply_extension_asset_headers` (which uses
 //     `frame-ancestors 'self'` so extension UIs can frame their own
-//     assets) wins on the `/_extensions/.../assets/*` route. Every
+//     assets) wins on the `/ui-ext/.../files/*` route. Every
 //     other route inherits the strict default.
 //   * `Strict-Transport-Security` is only applied when TLS terminates
 //     at the server (`tls_terminated == true`). Plain-HTTP development
@@ -4305,6 +4304,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         })
         .unwrap_or_default();
     let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
+    let include_comtrya_config = query_requests_field(query_str, "comtryaConfig");
     let mut repository_by_path =
         resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
@@ -4342,7 +4342,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             if query_requests_field(query_str, "bookmarks") {
                 annotate_bookmarks_with_resolution(repo_obj, &git_dir);
             }
-            if query_requests_field(query_str, "comtryaConfig") {
+            if include_comtrya_config {
                 repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
             }
 
@@ -4400,6 +4400,9 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                             &schemas_for_overlay,
                         );
                         apply_repository_cue_overrides(obj, &comtrya_config);
+                        if include_comtrya_config {
+                            obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
+                        }
                         annotate_bookmarks_with_resolution(obj, &git_dir);
                     }
                 }
@@ -4744,7 +4747,7 @@ async fn events_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 }
 
 async fn extension_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    issue_session_response(state, headers, "/_extensions/session")
+    issue_session_response(state, headers, "/ui-ext/session")
 }
 
 fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> Response {
@@ -6884,13 +6887,21 @@ async fn device_revoke_endpoint(
 
 async fn extension_manifest(
     State(state): State<AppState>,
-    AxumPath(extension): AxumPath<String>,
+    AxumPath(module): AxumPath<String>,
     headers: HeaderMap,
 ) -> Response {
-    let cors_route = format!("/_extensions/{extension}/manifest.json");
+    let cors_route = format!("{UI_EXTENSION_BASE_PATH}/{module}/meta.json");
     let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
+    };
+    let Some(extension) = extension_id_from_ui_module_token(&module) else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "extension manifest was not found",
+            cors,
+        );
     };
     match state.runtime.extension_manifest_body(&extension) {
         Ok(Some(body)) => text_response(StatusCode::OK, "application/json", body, cors),
@@ -6911,13 +6922,21 @@ async fn extension_manifest(
 
 async fn extension_asset(
     State(state): State<AppState>,
-    AxumPath((extension, asset_path)): AxumPath<(String, String)>,
+    AxumPath((module, asset_path)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let cors_route = format!("/_extensions/{extension}/assets/{asset_path}");
+    let cors_route = format!("{UI_EXTENSION_BASE_PATH}/{module}/files/{asset_path}");
     let cors = match state.runtime.check_boundary(&headers, &cors_route) {
         Ok(cors) => cors,
         Err(response) => return *response,
+    };
+    let Some(extension) = extension_id_from_ui_module_token(&module) else {
+        return error_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::NotFound.as_str(),
+            "extension asset was not found",
+            cors,
+        );
     };
     let asset = match state.runtime.extension_asset_body(&extension, &asset_path) {
         Ok(Some(asset)) => asset,
@@ -7947,6 +7966,43 @@ fn git_branches(git_dir: &Path) -> Result<Vec<Value>, String> {
         .collect())
 }
 
+fn git_tags(git_dir: &Path) -> Result<Vec<Value>, String> {
+    let output = git_text(
+        git_dir,
+        &[
+            "for-each-ref",
+            "--sort=-creatordate",
+            "--format=%(refname:short)%00%(objecttype)%00%(objectname)%00%(*objectname)%00%(creatordate:relative)%00%(subject)",
+            "refs/tags",
+        ],
+    )?;
+    Ok(output
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split('\0');
+            let name = parts.next()?;
+            let kind = parts.next().unwrap_or("commit");
+            let oid = parts.next().unwrap_or("");
+            if name.is_empty() || oid.is_empty() {
+                return None;
+            }
+            let peeled = parts.next().unwrap_or("");
+            let target = if peeled.is_empty() { oid } else { peeled };
+            let time = parts.next().unwrap_or("");
+            let subject = parts.next().unwrap_or("");
+            Some(json!({
+                "name": name,
+                "kind": kind,
+                "oid": oid,
+                "target": target,
+                "targetShort": target.chars().take(12).collect::<String>(),
+                "time": time,
+                "subject": subject,
+            }))
+        })
+        .collect())
+}
+
 fn branch_distance(git_dir: &Path, branch: &str) -> Result<(u32, u32), String> {
     if branch == "main" {
         return Ok((0, 0));
@@ -8103,6 +8159,7 @@ fn repo_git_data_for_query(git_dir: &Path, query: &str) -> Value {
     let wants_head_oid = query_requests_field(query, "headOid");
     let wants_refs = query_requests_field(query, "refs");
     let wants_branches = query_requests_field(query, "branches");
+    let wants_tags = query_requests_field(query, "tags");
     let wants_commits = query_requests_field(query, "commits");
     let wants_tree_entries = query_requests_field(query, "treeEntries");
     let wants_files = query_requests_field(query, "files");
@@ -8133,6 +8190,12 @@ fn repo_git_data_for_query(git_dir: &Path, query: &str) -> Value {
         object.insert(
             "branches".to_string(),
             json!(git_branches(git_dir).unwrap_or_default()),
+        );
+    }
+    if wants_tags {
+        object.insert(
+            "tags".to_string(),
+            json!(git_tags(git_dir).unwrap_or_default()),
         );
     }
     if wants_commits {
@@ -8895,7 +8958,10 @@ impl ExtensionRuntimeStore {
                     "status": record.status.clone(),
                     "component": record.component.clone(),
                     "outputType": record.output_type.clone(),
-                    "manifest": format!("/_extensions/{}/manifest.json", record.id),
+                    "manifest": format!(
+                        "{UI_EXTENSION_BASE_PATH}/{}/meta.json",
+                        ui_module_token(&record.id)
+                    ),
                 }),
                 &now,
             ))
@@ -9478,7 +9544,7 @@ fn validate_extension_manifest_pair(
             "{id} UI manifest extension name does not match backend manifest"
         ));
     }
-    let expected_prefix = format!("/_extensions/{id}/assets/");
+    let expected_prefix = format!("{UI_EXTENSION_BASE_PATH}/{}/files/", ui_module_token(id));
     let entry_rel = ui_manifest
         .assets
         .entry
@@ -9642,6 +9708,38 @@ fn asset_integrity(body: &[u8]) -> String {
     out
 }
 
+fn ui_module_token(id: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut out = String::with_capacity(id.len() * 2);
+    for byte in id.as_bytes() {
+        write!(&mut out, "{byte:02x}").expect("write hex token");
+    }
+    out
+}
+
+fn extension_id_from_ui_module_token(token: &str) -> Option<String> {
+    if token.is_empty() || token.len() & 1 == 1 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(token.len() / 2);
+    for pair in token.as_bytes().chunks_exact(2) {
+        let high = hex_value(pair[0])?;
+        let low = hex_value(pair[1])?;
+        bytes.push((high << 4) | low);
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn asset_etag(body: &[u8]) -> String {
     format!("\"{}\"", asset_integrity(body))
 }
@@ -9693,8 +9791,12 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
     if m.id.is_empty() {
         return Err("manifest id must be non-empty".into());
     }
-    if !m.assets.entry.starts_with("/_extensions/") {
-        return Err("entry must be served from /_extensions/".into());
+    if !m
+        .assets
+        .entry
+        .starts_with(&format!("{UI_EXTENSION_BASE_PATH}/"))
+    {
+        return Err("entry must be served from /ui-ext/".into());
     }
     if !m.assets.entry_integrity.starts_with("sha256-") {
         return Err("entryIntegrity must be sha256-prefixed".into());
@@ -10154,6 +10256,22 @@ mod tests {
         format!("issues.{op}")
     }
 
+    fn epic_route(op: &str) -> String {
+        format!("epics.{op}")
+    }
+
+    fn docs_route(op: &str) -> String {
+        format!("docs.{op}")
+    }
+
+    fn sprints_route(op: &str) -> String {
+        format!("sprints.{op}")
+    }
+
+    fn checks_route(op: &str) -> String {
+        format!("checks.{op}")
+    }
+
     #[test]
     fn repository_browser_previews_wit_files() {
         assert!(is_text_preview_path(
@@ -10213,6 +10331,271 @@ mod tests {
         assert_eq!(info.extension_id, "ext_issues");
         assert_eq!(info.interface_name, "issues");
         assert_eq!(info.op_name, "close-issue");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("triage-board"),
+        )
+        .expect("triage board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "triage-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("label-board"),
+        )
+        .expect("label board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "label-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("assignee-board"),
+        )
+        .expect("assignee board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "assignee-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("author-board"),
+        )
+        .expect("author board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "author-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("project-board"),
+        )
+        .expect("project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "project-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("priority-board"),
+        )
+        .expect("priority board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "priority-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("milestone-board"),
+        )
+        .expect("milestone board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "milestone-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_issues",
+            &issue_route("workflow-board"),
+        )
+        .expect("workflow board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_issues");
+        assert_eq!(info.interface_name, "issues");
+        assert_eq!(info.op_name, "workflow-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("roadmap-board"),
+        )
+        .expect("epic roadmap board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "roadmap-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("owner-board"))
+                .expect("epic owner board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "owner-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("project-board"),
+        )
+        .expect("epic project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "project-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("label-board"))
+                .expect("epic label board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "label-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("priority-board"),
+        )
+        .expect("epic priority board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "priority-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_epics",
+            &epic_route("milestone-board"),
+        )
+        .expect("epic milestone board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "milestone-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_epics", &epic_route("target-board"))
+                .expect("epic target board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_epics");
+        assert_eq!(info.interface_name, "epics");
+        assert_eq!(info.op_name, "target-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("tag-board"))
+                .expect("docs tag board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "tag-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("type-board"))
+                .expect("docs type board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "type-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("project-board"))
+                .expect("docs project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "project-board");
+
+        let info =
+            crate::generated_dispatch::dispatch_wit_route("ext_docs", &docs_route("handoff-board"))
+                .expect("docs handoff board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "handoff-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_docs",
+            &docs_route("implementation-board"),
+        )
+        .expect("docs implementation board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_docs");
+        assert_eq!(info.interface_name, "docs");
+        assert_eq!(info.op_name, "implementation-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_sprints",
+            &sprints_route("kanban-project-board"),
+        )
+        .expect("sprint kanban project board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_sprints");
+        assert_eq!(info.interface_name, "sprints");
+        assert_eq!(info.op_name, "kanban-project-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_sprints",
+            &sprints_route("planning-board"),
+        )
+        .expect("sprint planning board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_sprints");
+        assert_eq!(info.interface_name, "sprints");
+        assert_eq!(info.op_name, "planning-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_checks",
+            &checks_route("readiness-board"),
+        )
+        .expect("checks readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_checks");
+        assert_eq!(info.interface_name, "checks");
+        assert_eq!(info.op_name, "readiness-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_checks",
+            &checks_route("expected-readiness-board"),
+        )
+        .expect("expected checks readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_checks");
+        assert_eq!(info.interface_name, "checks");
+        assert_eq!(info.op_name, "expected-readiness-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.merge-readiness-board",
+        )
+        .expect("pull merge readiness board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "merge-readiness-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.author-board",
+        )
+        .expect("pull author board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "author-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.base-branch-board",
+        )
+        .expect("pull base branch board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "base-branch-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.head-branch-board",
+        )
+        .expect("pull head branch board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "head-branch-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.review-decision-board",
+        )
+        .expect("pull review decision board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "review-decision-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.review-request-board",
+        )
+        .expect("pull review request board route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "review-request-board");
+
+        let info = crate::generated_dispatch::dispatch_wit_route(
+            "ext_pull_requests",
+            "pulls.reviewer-queue",
+        )
+        .expect("pull reviewer queue route should resolve to DispatchInfo");
+        assert_eq!(info.extension_id, "ext_pull_requests");
+        assert_eq!(info.interface_name, "pulls");
+        assert_eq!(info.op_name, "reviewer-queue");
     }
 
     #[test]
@@ -10318,6 +10701,18 @@ mod tests {
                 "initial runtime repository",
             ]),
             "git commit",
+        )
+        .unwrap();
+        run_command(
+            Command::new("git").arg("-C").arg(&repo).args([
+                "-c",
+                "tag.gpgSign=false",
+                "-c",
+                "tag.forceSignAnnotated=false",
+                "tag",
+                "v0.1.0",
+            ]),
+            "git tag",
         )
         .unwrap();
 
@@ -10715,7 +11110,7 @@ mod tests {
 
         let data = repo_git_data_for_query(
             &git_dir,
-            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch headOid refs { name target } branches { name } commits { oid } treeEntries { path } files { path } blobs { path } } } }",
+            "query($segments:[String!]!){ workspace { repositoryByPath(segments:$segments) { defaultBranch headOid refs { name target } branches { name } tags { name target targetShort kind } commits { oid } treeEntries { path } files { path } blobs { path } } } }",
         );
 
         assert_eq!(repository["path"], "comtrya/comtrya");
@@ -10731,6 +11126,12 @@ mod tests {
                 .iter()
                 .any(|branch| branch["name"] == "main")
         );
+        assert!(data["tags"].as_array().unwrap().iter().any(|tag| {
+            tag["name"] == "v0.1.0"
+                && tag["target"] == data["headOid"]
+                && tag["targetShort"] == &data["headOid"].as_str().unwrap()[..12]
+                && tag["kind"] == "commit"
+        }));
         assert!(!data["commits"].as_array().unwrap().is_empty());
         assert!(
             data["treeEntries"]
@@ -10773,6 +11174,7 @@ mod tests {
                 .any(|file| file["path"] == "README.md")
         );
         assert!(files.get("commits").is_none());
+        assert!(files.get("tags").is_none());
         assert!(files.get("blobs").is_none());
     }
 
@@ -11252,7 +11654,7 @@ mod tests {
                 runtime,
                 git_state: PureRustGitState::test_default(),
             }),
-            AxumPath("ext_does_not_exist".to_string()),
+            AxumPath(ui_module_token("ext_does_not_exist")),
             origin_headers(),
         )
         .await;
@@ -11274,7 +11676,7 @@ mod tests {
                 runtime,
                 git_state: PureRustGitState::test_default(),
             }),
-            AxumPath(("ext_issues".to_string(), "index.js".to_string())),
+            AxumPath((ui_module_token("ext_issues"), "index.js".to_string())),
             HeaderMap::new(),
         )
         .await;
@@ -12605,7 +13007,10 @@ mod tests {
             serde_json::from_str::<Value>(&fs::read_to_string(&ui_manifest_path).unwrap()).unwrap();
         ui["id"] = json!("ext_local_wit");
         ui["extension"] = json!("local-wit");
-        ui["assets"]["entry"] = json!("/_extensions/ext_local_wit/assets/index.js");
+        ui["assets"]["entry"] = json!(format!(
+            "/ui-ext/{}/files/index.js",
+            ui_module_token("ext_local_wit")
+        ));
         fs::write(&ui_manifest_path, serde_json::to_vec_pretty(&ui).unwrap()).unwrap();
 
         let configs = vec![ExtensionInstallConfig {
@@ -13375,7 +13780,7 @@ mod tests {
             "version": "0.1.0",
             "publisher": "comtrya-dev",
             "assets": {
-                "entry": "/_extensions/ext_test/assets/index.js",
+                "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_test")),
                 "entryIntegrity": "sha256-abc",
                 "styles": []
             },
@@ -13394,7 +13799,7 @@ mod tests {
             "schemaVersion": "comtrya.ui-extension/v1",
             "id": "ext_sample",
             "extension": "sample",
-            "assets": { "entry": "/_extensions/ext_sample/assets/index.js", "entryIntegrity": "sha256-xyz", "styles": [] },
+            "assets": { "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_sample")), "entryIntegrity": "sha256-xyz", "styles": [] },
             "routes": [],
             "slots": [{ "slot": "repository.code", "element": "x-el", "requiredPermission": "code.read" }]
         });
@@ -13413,7 +13818,7 @@ mod tests {
         let v2 = serde_json::json!({
             "schemaVersion": "comtrya.ui-extension/v2",
             "id": "ext_test", "extension": "test", "version": "0.1.0", "publisher": "comtrya-dev",
-            "assets": { "entry": "/_extensions/ext_test/assets/index.js", "entryIntegrity": "sha256-abc", "styles": [] },
+            "assets": { "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_test")), "entryIntegrity": "sha256-abc", "styles": [] },
             "permissions": [],
             "contributes": { "slots": ["bogus"], "routes": false }
         });
@@ -14799,7 +15204,7 @@ mod tests {
                 git_state: PureRustGitState::test_default(),
             }),
             headers,
-            json!({"query": "{ workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } } }"}).to_string(),
+            json!({"query": "{ workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt comtryaConfig } } }"}).to_string(),
         )
         .await;
 
@@ -14840,6 +15245,17 @@ mod tests {
             assert!(
                 repo.get("lastCommitAt").is_some(),
                 "lastCommitAt must be present"
+            );
+            let projects = repo
+                .get("comtryaConfig")
+                .and_then(|config| config.get("projects"))
+                .and_then(Value::as_array)
+                .expect("comtryaConfig.projects must be an array");
+            assert!(
+                projects
+                    .iter()
+                    .any(|project| project.get("name") == Some(&json!("kernel"))),
+                "repository summary must include evaluated CUE projects"
             );
         }
     }
@@ -15527,7 +15943,7 @@ mod tests {
         let addr = spawn_test_server(dev_runtime_no_extensions()).await;
         let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
         let response = reqwest::Client::new()
-            .post(format!("http://{addr}/_extensions/session"))
+            .post(format!("http://{addr}/ui-ext/session"))
             .header("content-type", "application/json")
             .body(oversized)
             .send()
@@ -15701,7 +16117,7 @@ mod tests {
 
     #[tokio::test]
     async fn extension_asset_csp_not_overridden_by_global_layer() {
-        // /_extensions/.../assets/* installs its own per-route CSP
+        // /ui-ext/.../files/* installs its own per-route CSP
         // (`frame-ancestors 'self'`) via `apply_extension_asset_headers`.
         // The global layer uses `if_not_present` so the asset CSP must
         // survive. Hitting a missing asset still goes through the
@@ -15709,7 +16125,8 @@ mod tests {
         let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
         let response = reqwest::Client::new()
             .get(format!(
-                "http://{addr}/_extensions/ext_issues/assets/index.js"
+                "http://{addr}/ui-ext/{}/files/index.js",
+                ui_module_token("ext_issues")
             ))
             .send()
             .await

@@ -10,12 +10,19 @@ use bindings::comtrya::platform::storage;
 use bindings::comtrya::platform::time;
 use bindings::comtrya::platform::types::{Error, ErrorCode, Event};
 use bindings::exports::comtrya::ext_epics::epics::{
-    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicProgress, EpicState,
-    Guest as EpicsGuest, UpdateEpicInput,
+    AssignProjectInput, ChangeStateEpicInput, CreateEpicInput, Epic, EpicLabelBoard,
+    EpicLabelCard, EpicLabelColumn, EpicMilestoneBoard, EpicMilestoneCard, EpicMilestoneColumn,
+    EpicOwnerBoard, EpicOwnerCard, EpicOwnerColumn, EpicPriorityBoard, EpicPriorityCard,
+    EpicPriorityColumn, EpicProgress, EpicProjectBoard, EpicProjectCard, EpicProjectColumn,
+    EpicRoadmapBoard, EpicRoadmapCard, EpicRoadmapColumn, EpicState, EpicTargetBoard,
+    EpicTargetCard, EpicTargetColumn, Guest as EpicsGuest, LabelBoardInput, MilestoneBoardInput,
+    OwnerBoardInput, PriorityBoardInput, ProjectBoardInput, RoadmapBoardInput, TargetBoardInput,
+    UpdateEpicInput,
 };
 use bindings::exports::comtrya::platform::reactor::{Guest as ReactorGuest, Reaction};
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 const COLLECTION: &str = "epics";
 const COUNTER_COLLECTION: &str = "ext_epics_meta";
@@ -149,8 +156,9 @@ fn next_epic_number(workspace_id: &str) -> Result<u32, Error> {
                 }
                 let assigned = counter.next;
                 counter.next = counter.next.saturating_add(1);
-                let bytes = serde_json::to_vec(&counter)
-                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                let bytes = serde_json::to_vec(&counter).map_err(|e| {
+                    err(ErrorCode::Internal, format!("serialise epic counter: {e}"))
+                })?;
                 match storage::update_commit(
                     COUNTER_COLLECTION,
                     &counter.storage_id,
@@ -173,8 +181,9 @@ fn next_epic_number(workspace_id: &str) -> Result<u32, Error> {
                     storage_id: storage_id.clone(),
                     next: 2,
                 };
-                let bytes = serde_json::to_vec(&counter)
-                    .map_err(|e| err(ErrorCode::Internal, format!("serialise epic counter: {e}")))?;
+                let bytes = serde_json::to_vec(&counter).map_err(|e| {
+                    err(ErrorCode::Internal, format!("serialise epic counter: {e}"))
+                })?;
                 match storage::create(
                     COUNTER_COLLECTION,
                     &storage_id,
@@ -221,6 +230,23 @@ fn state_from_str(state: &str) -> EpicState {
         "CANCELED" => EpicState::Canceled,
         _ => EpicState::Planned,
     }
+}
+
+fn can_transition_epic_state(current: &str, next: &str) -> bool {
+    if current == next {
+        return true;
+    }
+    matches!(
+        (current, next),
+        ("PLANNED", "IN_PROGRESS")
+            | ("PLANNED", "CANCELED")
+            | ("IN_PROGRESS", "AT_RISK")
+            | ("IN_PROGRESS", "DONE")
+            | ("IN_PROGRESS", "CANCELED")
+            | ("AT_RISK", "IN_PROGRESS")
+            | ("AT_RISK", "DONE")
+            | ("AT_RISK", "CANCELED")
+    )
 }
 
 fn workspace_id(workspace: &str) -> Option<String> {
@@ -411,6 +437,547 @@ fn epic_uri(id: &str) -> String {
     format!("comtrya://epic/{id}")
 }
 
+#[derive(Clone, Copy)]
+enum RoadmapLane {
+    Planned,
+    InProgress,
+    AtRisk,
+    Done,
+    Canceled,
+}
+
+fn roadmap_lane(state: EpicState) -> RoadmapLane {
+    match state {
+        EpicState::Planned => RoadmapLane::Planned,
+        EpicState::InProgress => RoadmapLane::InProgress,
+        EpicState::AtRisk => RoadmapLane::AtRisk,
+        EpicState::Done => RoadmapLane::Done,
+        EpicState::Canceled => RoadmapLane::Canceled,
+    }
+}
+
+fn roadmap_column(key: &str, label: &str, cards: Vec<EpicRoadmapCard>) -> EpicRoadmapColumn {
+    EpicRoadmapColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn roadmap_columns(cards: Vec<EpicRoadmapCard>) -> Vec<EpicRoadmapColumn> {
+    let mut planned = Vec::new();
+    let mut in_progress = Vec::new();
+    let mut at_risk = Vec::new();
+    let mut done = Vec::new();
+    let mut canceled = Vec::new();
+
+    for card in cards {
+        match roadmap_lane(card.epic.state) {
+            RoadmapLane::Planned => planned.push(card),
+            RoadmapLane::InProgress => in_progress.push(card),
+            RoadmapLane::AtRisk => at_risk.push(card),
+            RoadmapLane::Done => done.push(card),
+            RoadmapLane::Canceled => canceled.push(card),
+        }
+    }
+
+    vec![
+        roadmap_column("planned", "Planned", planned),
+        roadmap_column("in-progress", "In progress", in_progress),
+        roadmap_column("at-risk", "At risk", at_risk),
+        roadmap_column("done", "Done", done),
+        roadmap_column("canceled", "Canceled", canceled),
+    ]
+}
+
+fn epic_owner_key(owner_ref: &str) -> String {
+    let raw = owner_ref
+        .trim()
+        .strip_prefix("comtrya://")
+        .unwrap_or(owner_ref);
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in raw.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "owner".to_string()
+    } else {
+        format!("owner-{key}")
+    }
+}
+
+fn owner_column(
+    key: &str,
+    label: &str,
+    owner_ref: Option<String>,
+    cards: Vec<EpicOwnerCard>,
+) -> EpicOwnerColumn {
+    EpicOwnerColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        owner_ref,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn owner_columns(cards: Vec<EpicOwnerCard>) -> Vec<EpicOwnerColumn> {
+    let mut unowned = Vec::new();
+    let mut owned: BTreeMap<String, (String, Vec<EpicOwnerCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let owner_ref = card
+            .epic
+            .owner_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|owner_ref| !owner_ref.is_empty())
+            .map(str::to_string);
+        let Some(owner_ref) = owner_ref else {
+            unowned.push(card);
+            continue;
+        };
+        let key = epic_owner_key(&owner_ref);
+        let entry = owned.entry(key).or_insert_with(|| (owner_ref, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![owner_column("unowned", "Unowned", None, unowned)];
+    columns.extend(owned.into_iter().map(|(key, (owner_ref, cards))| {
+        owner_column(&key, &owner_ref, Some(owner_ref.clone()), cards)
+    }));
+    columns
+}
+
+fn epic_project_key(project_name: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in project_name.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "project".to_string()
+    } else {
+        format!("project-{key}")
+    }
+}
+
+fn project_column(
+    key: &str,
+    label: &str,
+    project_name: Option<String>,
+    cards: Vec<EpicProjectCard>,
+) -> EpicProjectColumn {
+    EpicProjectColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        project_name,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn project_columns(cards: Vec<EpicProjectCard>) -> Vec<EpicProjectColumn> {
+    let mut unscoped = Vec::new();
+    let mut scoped: BTreeMap<String, (String, Vec<EpicProjectCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let project_name = card
+            .epic
+            .project_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|project_name| !project_name.is_empty())
+            .map(str::to_string);
+        let Some(project_name) = project_name else {
+            unscoped.push(card);
+            continue;
+        };
+        let key = epic_project_key(&project_name);
+        let entry = scoped
+            .entry(key)
+            .or_insert_with(|| (project_name, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![project_column("unscoped", "Unscoped", None, unscoped)];
+    columns.extend(scoped.into_iter().map(|(key, (project_name, cards))| {
+        project_column(&key, &project_name, Some(project_name.clone()), cards)
+    }));
+    columns
+}
+
+fn epic_label_key(label: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in label.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "label".to_string()
+    } else {
+        format!("label-{key}")
+    }
+}
+
+fn label_column(key: &str, label: &str, cards: Vec<EpicLabelCard>) -> EpicLabelColumn {
+    EpicLabelColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn label_columns(cards: Vec<EpicLabelCard>) -> Vec<EpicLabelColumn> {
+    let mut unlabeled = Vec::new();
+    let mut labeled: BTreeMap<String, (String, Vec<EpicLabelCard>)> = BTreeMap::new();
+
+    for card in cards {
+        let labels: Vec<String> = card
+            .epic
+            .labels
+            .iter()
+            .map(|label| label.trim())
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .collect();
+        if labels.is_empty() {
+            unlabeled.push(card);
+            continue;
+        }
+        for label in labels {
+            let key = epic_label_key(&label);
+            let entry = labeled.entry(key).or_insert_with(|| (label, Vec::new()));
+            entry.1.push(EpicLabelCard {
+                epic: card.epic.clone(),
+                progress: card.progress.clone(),
+            });
+        }
+    }
+
+    let mut columns = vec![label_column("unlabeled", "Unlabeled", unlabeled)];
+    columns.extend(
+        labeled
+            .into_iter()
+            .map(|(key, (label, cards))| label_column(&key, &label, cards)),
+    );
+    columns
+}
+
+fn priority_column(
+    key: &str,
+    label: &str,
+    priority: Option<&str>,
+    cards: Vec<EpicPriorityCard>,
+) -> EpicPriorityColumn {
+    EpicPriorityColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        priority: priority.map(str::to_string),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn priority_columns(cards: Vec<EpicPriorityCard>) -> Vec<EpicPriorityColumn> {
+    let mut p0 = Vec::new();
+    let mut p1 = Vec::new();
+    let mut p2 = Vec::new();
+    let mut p3 = Vec::new();
+    let mut unprioritized = Vec::new();
+    let mut completed = Vec::new();
+
+    for card in cards {
+        if matches!(card.epic.state, EpicState::Done | EpicState::Canceled) {
+            completed.push(card);
+            continue;
+        }
+        match card.priority.as_deref() {
+            Some("p0") => p0.push(card),
+            Some("p1") => p1.push(card),
+            Some("p2") => p2.push(card),
+            Some("p3") => p3.push(card),
+            _ => unprioritized.push(card),
+        }
+    }
+
+    vec![
+        priority_column("p0", "P0 critical", Some("p0"), p0),
+        priority_column("p1", "P1 high", Some("p1"), p1),
+        priority_column("p2", "P2 medium", Some("p2"), p2),
+        priority_column("p3", "P3 low", Some("p3"), p3),
+        priority_column("unprioritized", "No priority", None, unprioritized),
+        priority_column("completed", "Completed", None, completed),
+    ]
+}
+
+struct EpicPriority {
+    key: &'static str,
+    rank: u8,
+    source_label: String,
+}
+
+fn epic_priority(epic: &Epic) -> Option<EpicPriority> {
+    epic.labels
+        .iter()
+        .filter_map(|label| priority_from_label(label))
+        .min_by_key(|priority| priority.rank)
+}
+
+fn priority_from_label(label: &str) -> Option<EpicPriority> {
+    let normalized = normalize_priority_label(label);
+    let key = match normalized.as_str() {
+        "p0" | "0" | "critical" | "urgent" | "blocker" => "p0",
+        "p1" | "1" | "high" => "p1",
+        "p2" | "2" | "medium" | "normal" => "p2",
+        "p3" | "3" | "low" | "minor" => "p3",
+        _ => return None,
+    };
+    Some(EpicPriority {
+        key,
+        rank: priority_rank(key),
+        source_label: label.trim().to_string(),
+    })
+}
+
+fn normalize_priority_label(label: &str) -> String {
+    let trimmed = label.trim().to_ascii_lowercase();
+    let value = ["priority", "prio"]
+        .into_iter()
+        .find_map(|prefix| trimmed.strip_prefix(prefix))
+        .unwrap_or(trimmed.as_str())
+        .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'));
+    value
+        .trim_matches(|ch: char| !ch.is_ascii_alphanumeric())
+        .to_string()
+}
+
+fn priority_rank(key: &str) -> u8 {
+    match key {
+        "p0" => 0,
+        "p1" => 1,
+        "p2" => 2,
+        "p3" => 3,
+        _ => u8::MAX,
+    }
+}
+
+fn milestone_column(
+    key: &str,
+    label: &str,
+    milestone: Option<String>,
+    cards: Vec<EpicMilestoneCard>,
+) -> EpicMilestoneColumn {
+    EpicMilestoneColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        milestone,
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn milestone_columns(cards: Vec<EpicMilestoneCard>) -> Vec<EpicMilestoneColumn> {
+    let mut unscheduled = Vec::new();
+    let mut scheduled: BTreeMap<String, (String, Vec<EpicMilestoneCard>)> = BTreeMap::new();
+    let mut completed = Vec::new();
+
+    for card in cards {
+        if matches!(card.epic.state, EpicState::Done | EpicState::Canceled) {
+            completed.push(card);
+            continue;
+        }
+        let Some(milestone) = card.milestone.clone() else {
+            unscheduled.push(card);
+            continue;
+        };
+        let key = epic_milestone_key(&milestone);
+        let entry = scheduled
+            .entry(key)
+            .or_insert_with(|| (milestone, Vec::new()));
+        entry.1.push(card);
+    }
+
+    let mut columns = vec![milestone_column(
+        "no-milestone",
+        "No milestone",
+        None,
+        unscheduled,
+    )];
+    columns.extend(scheduled.into_iter().map(|(key, (milestone, cards))| {
+        milestone_column(&key, &milestone, Some(milestone.clone()), cards)
+    }));
+    columns.push(milestone_column(
+        "completed",
+        "Completed",
+        None,
+        completed,
+    ));
+    columns
+}
+
+struct EpicMilestone {
+    value: String,
+    source_label: String,
+}
+
+fn epic_milestone(epic: &Epic) -> Option<EpicMilestone> {
+    epic.labels
+        .iter()
+        .find_map(|label| milestone_from_label(label))
+}
+
+fn milestone_from_label(label: &str) -> Option<EpicMilestone> {
+    let trimmed = label.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    for prefix in ["milestone", "release"] {
+        if !lower.starts_with(prefix) {
+            continue;
+        }
+        let raw_rest = &trimmed[prefix.len()..];
+        if !raw_rest
+            .starts_with(|ch: char| ch.is_ascii_whitespace() || matches!(ch, ':' | '/' | '-'))
+        {
+            continue;
+        }
+        let value = raw_rest
+            .trim_start()
+            .trim_start_matches(|ch| matches!(ch, ':' | '/' | '-'))
+            .trim();
+        if value.is_empty() {
+            return None;
+        }
+        return Some(EpicMilestone {
+            value: value.to_string(),
+            source_label: trimmed.to_string(),
+        });
+    }
+    None
+}
+
+fn epic_milestone_key(milestone: &str) -> String {
+    let mut key = String::new();
+    let mut last_dash = false;
+    for byte in milestone.trim().bytes() {
+        if byte.is_ascii_alphanumeric() {
+            key.push(byte.to_ascii_lowercase() as char);
+            last_dash = false;
+        } else if !last_dash {
+            key.push('-');
+            last_dash = true;
+        }
+    }
+    let key = key.trim_matches('-');
+    if key.is_empty() {
+        "milestone".to_string()
+    } else {
+        format!("milestone-{key}")
+    }
+}
+
+#[derive(Clone, Copy)]
+enum TargetLane {
+    NoTarget,
+    Overdue,
+    DueToday,
+    Upcoming,
+    Completed,
+    InvalidTarget,
+}
+
+fn iso_date_prefix(value: &str) -> Option<&str> {
+    let date = value.trim().get(..10)?;
+    let bytes = date.as_bytes();
+    let valid = bytes.len() == 10
+        && bytes[0..4].iter().all(u8::is_ascii_digit)
+        && bytes[4] == b'-'
+        && bytes[5..7].iter().all(u8::is_ascii_digit)
+        && bytes[7] == b'-'
+        && bytes[8..10].iter().all(u8::is_ascii_digit);
+    valid.then_some(date)
+}
+
+fn target_lane(epic: &Epic, today: &str) -> TargetLane {
+    if matches!(epic.state, EpicState::Done | EpicState::Canceled) {
+        return TargetLane::Completed;
+    }
+    let Some(target_date) = epic.target_date.as_deref() else {
+        return TargetLane::NoTarget;
+    };
+    let Some(target_date) = iso_date_prefix(target_date) else {
+        return TargetLane::InvalidTarget;
+    };
+    if target_date < today {
+        TargetLane::Overdue
+    } else if target_date == today {
+        TargetLane::DueToday
+    } else {
+        TargetLane::Upcoming
+    }
+}
+
+fn target_column(key: &str, label: &str, cards: Vec<EpicTargetCard>) -> EpicTargetColumn {
+    EpicTargetColumn {
+        key: key.to_string(),
+        label: label.to_string(),
+        count: cards.len() as u32,
+        cards,
+    }
+}
+
+fn target_columns(cards: Vec<EpicTargetCard>, today: &str) -> Vec<EpicTargetColumn> {
+    let mut no_target = Vec::new();
+    let mut overdue = Vec::new();
+    let mut due_today = Vec::new();
+    let mut upcoming = Vec::new();
+    let mut completed = Vec::new();
+    let mut invalid_target = Vec::new();
+
+    for card in cards {
+        match target_lane(&card.epic, today) {
+            TargetLane::NoTarget => no_target.push(card),
+            TargetLane::Overdue => overdue.push(card),
+            TargetLane::DueToday => due_today.push(card),
+            TargetLane::Upcoming => upcoming.push(card),
+            TargetLane::Completed => completed.push(card),
+            TargetLane::InvalidTarget => invalid_target.push(card),
+        }
+    }
+
+    vec![
+        target_column("no-target", "No target", no_target),
+        target_column("overdue", "Overdue", overdue),
+        target_column("due-today", "Due today", due_today),
+        target_column("upcoming", "Upcoming", upcoming),
+        target_column("completed", "Completed", completed),
+        target_column("invalid-target", "Invalid target", invalid_target),
+    ]
+}
+
 impl EpicsGuest for Component {
     fn create_epic(input: CreateEpicInput) -> Result<Epic, Error> {
         let (workspace_id, workspace) = workspace_uri(input.workspace.trim())?;
@@ -476,11 +1043,21 @@ impl EpicsGuest for Component {
     fn change_state_epic(input: ChangeStateEpicInput) -> Result<Epic, Error> {
         let snap = storage::update_begin(COLLECTION, &input.id)?;
         let mut stored = decode(&input.id, &snap.data)?;
-        let now = time::now_iso();
+        let current = stored.state.clone();
         let state = state_to_str(input.state).to_string();
+        if current == state {
+            return Ok(stored.to_wit());
+        }
+        if !can_transition_epic_state(&current, &state) {
+            return Err(err(
+                ErrorCode::BadInput,
+                format!("invalid epic state transition: {current} -> {state}"),
+            ));
+        }
+        let now = time::now_iso();
         stored.state = state.clone();
         stored.updated_at = now.clone();
-        stored.closed_at = if matches!(input.state, EpicState::Done | EpicState::Canceled) {
+        stored.closed_at = if matches!(state.as_str(), "DONE" | "CANCELED") {
             Some(now)
         } else {
             None
@@ -604,6 +1181,9 @@ impl EpicsGuest for Component {
         let workspace_id = workspace_id(&workspace)
             .ok_or_else(|| err(ErrorCode::BadInput, "epics.list requires a workspace"))?;
         let limit = limit.min(1024) as usize;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
         let mut out = Vec::new();
         scan_epics(|stored| {
             if stored.workspace_id == workspace_id {
@@ -658,6 +1238,173 @@ impl EpicsGuest for Component {
         })
     }
 
+    fn roadmap_board(input: RoadmapBoardInput) -> Result<EpicRoadmapBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicRoadmapCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicRoadmapBoard {
+            workspace,
+            total,
+            columns: roadmap_columns(cards),
+        })
+    }
+
+    fn owner_board(input: OwnerBoardInput) -> Result<EpicOwnerBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicOwnerCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicOwnerBoard {
+            workspace,
+            total,
+            columns: owner_columns(cards),
+        })
+    }
+
+    fn project_board(input: ProjectBoardInput) -> Result<EpicProjectBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicProjectCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicProjectBoard {
+            workspace,
+            total,
+            columns: project_columns(cards),
+        })
+    }
+
+    fn label_board(input: LabelBoardInput) -> Result<EpicLabelBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicLabelCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicLabelBoard {
+            workspace,
+            total,
+            columns: label_columns(cards),
+        })
+    }
+
+    fn priority_board(input: PriorityBoardInput) -> Result<EpicPriorityBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            let priority = epic_priority(&epic);
+            cards.push(EpicPriorityCard {
+                epic,
+                progress,
+                priority: priority.as_ref().map(|priority| priority.key.to_string()),
+                priority_label: priority
+                    .as_ref()
+                    .map(|priority| priority.source_label.clone()),
+            });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicPriorityBoard {
+            workspace,
+            total,
+            columns: priority_columns(cards),
+        })
+    }
+
+    fn milestone_board(input: MilestoneBoardInput) -> Result<EpicMilestoneBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            let milestone = epic_milestone(&epic);
+            cards.push(EpicMilestoneCard {
+                epic,
+                progress,
+                milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+                milestone_label: milestone
+                    .as_ref()
+                    .map(|milestone| milestone.source_label.clone()),
+            });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicMilestoneBoard {
+            workspace,
+            total,
+            columns: milestone_columns(cards),
+        })
+    }
+
+    fn target_board(input: TargetBoardInput) -> Result<EpicTargetBoard, Error> {
+        let (_, workspace) = workspace_uri(input.workspace.trim())?;
+        let limit = input.limit.min(1024);
+        let epics = if limit == 0 {
+            Vec::new()
+        } else {
+            Self::list_epics(workspace.clone(), limit)?
+        };
+        let today = iso_date_prefix(&time::now_iso())
+            .unwrap_or("0000-00-00")
+            .to_string();
+        let mut cards = Vec::with_capacity(epics.len());
+        for epic in epics {
+            let progress = Self::progress_epic(epic_uri(&epic.id))?;
+            cards.push(EpicTargetCard { epic, progress });
+        }
+        let total = cards.len() as u32;
+        Ok(EpicTargetBoard {
+            workspace,
+            today: today.clone(),
+            total,
+            columns: target_columns(cards, &today),
+        })
+    }
+
     fn issues_in_epic(ref_: String, limit: u32) -> Result<Vec<String>, Error> {
         member_uris(&ref_, "issue", limit)
     }
@@ -678,3 +1425,355 @@ impl ReactorGuest for Component {
 }
 
 bindings::export!(Component with_types_in bindings);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn epic(id: &str, state: EpicState) -> Epic {
+        Epic {
+            id: id.to_string(),
+            workspace: "comtrya://workspace/ws_test".to_string(),
+            title: id.to_string(),
+            body_markdown: String::new(),
+            state,
+            number: 1,
+            target_date: None,
+            owner_ref: None,
+            labels: Vec::new(),
+            created_at: "2026-06-20T00:00:00Z".to_string(),
+            updated_at: "2026-06-20T00:00:00Z".to_string(),
+            closed_at: None,
+            project_name: None,
+        }
+    }
+
+    fn progress(percent_complete: u64) -> EpicProgress {
+        EpicProgress {
+            issues_open: 0,
+            issues_closed: 0,
+            child_epics_open: 0,
+            child_epics_closed: 0,
+            percent_complete,
+        }
+    }
+
+    fn card(id: &str, state: EpicState, percent_complete: u64) -> EpicRoadmapCard {
+        EpicRoadmapCard {
+            epic: epic(id, state),
+            progress: progress(percent_complete),
+        }
+    }
+
+    fn owner_card(id: &str, owner_ref: Option<&str>) -> EpicOwnerCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.owner_ref = owner_ref.map(str::to_string);
+        EpicOwnerCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    fn project_card(id: &str, project_name: Option<&str>) -> EpicProjectCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.project_name = project_name.map(str::to_string);
+        EpicProjectCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    fn label_card(id: &str, labels: &[&str]) -> EpicLabelCard {
+        let mut epic = epic(id, EpicState::Planned);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        EpicLabelCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    fn priority_card(id: &str, state: EpicState, labels: &[&str]) -> EpicPriorityCard {
+        let mut epic = epic(id, state);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        let priority = epic_priority(&epic);
+        EpicPriorityCard {
+            epic,
+            progress: progress(0),
+            priority: priority.as_ref().map(|priority| priority.key.to_string()),
+            priority_label: priority
+                .as_ref()
+                .map(|priority| priority.source_label.clone()),
+        }
+    }
+
+    fn milestone_card(id: &str, state: EpicState, labels: &[&str]) -> EpicMilestoneCard {
+        let mut epic = epic(id, state);
+        epic.labels = labels.iter().map(|label| label.to_string()).collect();
+        let milestone = epic_milestone(&epic);
+        EpicMilestoneCard {
+            epic,
+            progress: progress(0),
+            milestone: milestone.as_ref().map(|milestone| milestone.value.clone()),
+            milestone_label: milestone
+                .as_ref()
+                .map(|milestone| milestone.source_label.clone()),
+        }
+    }
+
+    fn target_card(id: &str, state: EpicState, target_date: Option<&str>) -> EpicTargetCard {
+        let mut epic = epic(id, state);
+        epic.target_date = target_date.map(str::to_string);
+        EpicTargetCard {
+            epic,
+            progress: progress(0),
+        }
+    }
+
+    #[test]
+    fn roadmap_columns_group_cards_by_epic_state() {
+        let columns = roadmap_columns(vec![
+            card("planned", EpicState::Planned, 0),
+            card("risk", EpicState::AtRisk, 25),
+            card("doing", EpicState::InProgress, 50),
+            card("done", EpicState::Done, 100),
+            card("canceled", EpicState::Canceled, 0),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["planned", "in-progress", "at-risk", "done", "canceled"]
+        );
+        assert_eq!(columns.iter().map(|column| column.count).sum::<u32>(), 5);
+        assert_eq!(columns[0].cards[0].epic.id, "planned");
+        assert_eq!(columns[1].cards[0].progress.percent_complete, 50);
+        assert_eq!(columns[2].cards[0].epic.id, "risk");
+        assert_eq!(columns[3].cards[0].epic.id, "done");
+        assert_eq!(columns[4].cards[0].epic.id, "canceled");
+    }
+
+    #[test]
+    fn owner_columns_group_unowned_and_owned_epics() {
+        let columns = owner_columns(vec![
+            owner_card("unowned", None),
+            owner_card("rawkode", Some("comtrya://user/rawkode")),
+            owner_card("team", Some("comtrya://team/platform-maintainers")),
+            owner_card("rawkode-two", Some("comtrya://user/rawkode")),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "unowned",
+                "owner-team-platform-maintainers",
+                "owner-user-rawkode"
+            ]
+        );
+        assert_eq!(columns[0].owner_ref, None);
+        assert_eq!(columns[0].cards[0].epic.id, "unowned");
+        assert_eq!(
+            columns[1].owner_ref.as_deref(),
+            Some("comtrya://team/platform-maintainers")
+        );
+        assert_eq!(columns[1].cards[0].epic.id, "team");
+        assert_eq!(
+            columns[2].owner_ref.as_deref(),
+            Some("comtrya://user/rawkode")
+        );
+        assert_eq!(columns[2].count, 2);
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["rawkode", "rawkode-two"]
+        );
+    }
+
+    #[test]
+    fn project_columns_group_unscoped_and_project_epics() {
+        let columns = project_columns(vec![
+            project_card("unscoped", None),
+            project_card("kernel", Some("kernel")),
+            project_card("product", Some("Product Design")),
+            project_card("kernel-two", Some("kernel")),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["unscoped", "project-kernel", "project-product-design"]
+        );
+        assert_eq!(columns[0].project_name, None);
+        assert_eq!(columns[0].cards[0].epic.id, "unscoped");
+        assert_eq!(columns[1].project_name.as_deref(), Some("kernel"));
+        assert_eq!(columns[1].count, 2);
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["kernel", "kernel-two"]
+        );
+        assert_eq!(columns[2].project_name.as_deref(), Some("Product Design"));
+        assert_eq!(columns[2].cards[0].epic.id, "product");
+    }
+
+    #[test]
+    fn label_columns_group_unlabeled_and_labeled_epics() {
+        let columns = label_columns(vec![
+            label_card("unlabeled", &[]),
+            label_card("planning", &["planning"]),
+            label_card("release", &["release"]),
+            label_card("multi", &["planning", "release"]),
+            label_card("blank", &[" "]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(keys, ["unlabeled", "label-planning", "label-release"]);
+        assert_eq!(columns[0].count, 2);
+        assert_eq!(
+            columns[0]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["unlabeled", "blank"]
+        );
+        assert_eq!(
+            columns[1]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["planning", "multi"]
+        );
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["release", "multi"]
+        );
+    }
+
+    #[test]
+    fn priority_columns_group_active_epics_by_highest_priority() {
+        let columns = priority_columns(vec![
+            priority_card("blocker", EpicState::AtRisk, &["priority::p1", "urgent"]),
+            priority_card("high", EpicState::InProgress, &["prio/high"]),
+            priority_card("medium", EpicState::Planned, &["P2"]),
+            priority_card("low", EpicState::Planned, &["minor"]),
+            priority_card("none", EpicState::Planned, &["planning"]),
+            priority_card("done", EpicState::Done, &["priority::p0"]),
+            priority_card("canceled", EpicState::Canceled, &[]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["p0", "p1", "p2", "p3", "unprioritized", "completed"]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "blocker");
+        assert_eq!(columns[0].cards[0].priority.as_deref(), Some("p0"));
+        assert_eq!(
+            columns[0].cards[0].priority_label.as_deref(),
+            Some("urgent")
+        );
+        assert_eq!(columns[1].cards[0].epic.id, "high");
+        assert_eq!(columns[2].cards[0].epic.id, "medium");
+        assert_eq!(columns[3].cards[0].epic.id, "low");
+        assert_eq!(columns[4].cards[0].epic.id, "none");
+        assert_eq!(
+            columns[5]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["done", "canceled"]
+        );
+        assert_eq!(columns[5].cards[0].priority.as_deref(), Some("p0"));
+    }
+
+    #[test]
+    fn milestone_columns_group_active_epics_by_release_label() {
+        let columns = milestone_columns(vec![
+            milestone_card("unscheduled", EpicState::Planned, &["planning"]),
+            milestone_card("q4", EpicState::InProgress, &["milestone::Q4"]),
+            milestone_card("launch", EpicState::AtRisk, &["release/Launch GA"]),
+            milestone_card("q4-two", EpicState::Planned, &["milestone-Q4"]),
+            milestone_card("done", EpicState::Done, &["milestone::Q4"]),
+            milestone_card("canceled", EpicState::Canceled, &[]),
+        ]);
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "no-milestone",
+                "milestone-launch-ga",
+                "milestone-q4",
+                "completed"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "unscheduled");
+        assert_eq!(columns[1].milestone.as_deref(), Some("Launch GA"));
+        assert_eq!(columns[1].cards[0].milestone_label.as_deref(), Some("release/Launch GA"));
+        assert_eq!(columns[2].milestone.as_deref(), Some("Q4"));
+        assert_eq!(
+            columns[2]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["q4", "q4-two"]
+        );
+        assert_eq!(
+            columns[3]
+                .cards
+                .iter()
+                .map(|card| card.epic.id.as_str())
+                .collect::<Vec<_>>(),
+            ["done", "canceled"]
+        );
+        assert_eq!(columns[3].cards[0].milestone.as_deref(), Some("Q4"));
+    }
+
+    #[test]
+    fn target_columns_group_epics_by_target_health() {
+        let columns = target_columns(
+            vec![
+                target_card("untargeted", EpicState::Planned, None),
+                target_card("late", EpicState::InProgress, Some("2026-06-19")),
+                target_card("today", EpicState::AtRisk, Some("2026-06-20")),
+                target_card("next", EpicState::Planned, Some("2026-06-21")),
+                target_card("done", EpicState::Done, Some("2026-06-01")),
+                target_card("bad", EpicState::Planned, Some("soon")),
+            ],
+            "2026-06-20",
+        );
+
+        let keys: Vec<_> = columns.iter().map(|column| column.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            [
+                "no-target",
+                "overdue",
+                "due-today",
+                "upcoming",
+                "completed",
+                "invalid-target"
+            ]
+        );
+        assert_eq!(columns[0].cards[0].epic.id, "untargeted");
+        assert_eq!(columns[1].cards[0].epic.id, "late");
+        assert_eq!(columns[2].cards[0].epic.id, "today");
+        assert_eq!(columns[3].cards[0].epic.id, "next");
+        assert_eq!(columns[4].cards[0].epic.id, "done");
+        assert_eq!(columns[5].cards[0].epic.id, "bad");
+    }
+}

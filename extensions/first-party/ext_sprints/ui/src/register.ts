@@ -1,7 +1,9 @@
 import { defineExtensionWidget } from "@comtrya/sdk-vue";
+import SprintsBoard from "./SprintsBoard.vue";
 import SprintsList from "./SprintsList.vue";
 
 const EXTENSION_ID = "ext_sprints";
+const SPRINTS_BOARD_TAG = "comtrya-sprints-board";
 const SPRINTS_LIST_TAG = "comtrya-sprints-list";
 
 interface ExtensionHost {
@@ -27,6 +29,7 @@ interface ExtensionDefinition {
 }
 
 defineExtensionWidget({ tagName: SPRINTS_LIST_TAG, component: SprintsList });
+defineExtensionWidget({ tagName: SPRINTS_BOARD_TAG, component: SprintsBoard });
 
 const extension: ExtensionDefinition = {
   id: EXTENSION_ID,
@@ -39,7 +42,7 @@ const extension: ExtensionDefinition = {
       requiredPermission: "sprints.read",
     });
     host.registerRoute("/", {
-      element: SPRINTS_LIST_TAG,
+      element: SPRINTS_BOARD_TAG,
       requiredPermission: "sprints.read",
     });
   },

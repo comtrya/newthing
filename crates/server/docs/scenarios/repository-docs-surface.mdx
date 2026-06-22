@@ -1,0 +1,22 @@
+---
+title: Repository docs are discoverable from project context
+feature: repository-docs
+owner: platform-maintainers
+status: active
+tags: [docs, projects, bdd]
+---
+
+## Scenario
+
+Given the Comtrya repository has opted into `ext_docs`
+And the backend project declares ADR, spec, PRD, and scenario document types
+When a developer opens the repository docs surface
+Then the docs panel groups documents by backend project and declared type
+And each file shows its front matter, path, and rendered MDX body
+And the developer can expand a document without leaving the forge shell.
+
+## Notes
+
+This scenario is intentionally stored as MDX today. The shape is simple enough
+for humans to review, and it gives the extension a concrete BDD-style artifact
+to render before we invest in a stricter Gherkin parser or test generator.

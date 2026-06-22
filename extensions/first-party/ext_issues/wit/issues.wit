@@ -5,7 +5,7 @@
 // The kernel codegen reads this file at install time and produces the
 // GraphQL dispatch table + a typed TS client.
 
-package comtrya:ext-issues@0.1.8;
+package comtrya:ext-issues@0.1.13;
 
 interface issues {
   use comtrya:platform/types@0.1.0.{id, uri, iso-timestamp, error};
@@ -61,6 +61,198 @@ interface issues {
   record issue-state-counts {
     open: u64,
     closed: u64,
+  }
+
+  record issue-triage-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-triage-card {
+    issue: issue,
+  }
+
+  record issue-triage-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<issue-triage-card>,
+  }
+
+  record issue-triage-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-triage-column>,
+  }
+
+  record issue-label-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-label-card {
+    issue: issue,
+  }
+
+  record issue-label-column {
+    key: string,
+    label: string,
+    count: u32,
+    cards: list<issue-label-card>,
+  }
+
+  record issue-label-board {
+    repository: uri,
+    // Number of issues considered. Individual labeled cards can appear in
+    // more than one column because an issue can carry multiple labels.
+    total: u32,
+    columns: list<issue-label-column>,
+  }
+
+  record issue-assignee-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-assignee-card {
+    issue: issue,
+  }
+
+  record issue-assignee-column {
+    key: string,
+    label: string,
+    assignee: option<uri>,
+    count: u32,
+    cards: list<issue-assignee-card>,
+  }
+
+  record issue-assignee-board {
+    repository: uri,
+    // Number of issues considered. Individual assigned cards can appear in
+    // more than one column because an issue can have multiple assignees.
+    total: u32,
+    columns: list<issue-assignee-column>,
+  }
+
+  record issue-author-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-author-card {
+    issue: issue,
+  }
+
+  record issue-author-column {
+    key: string,
+    label: string,
+    author-ref: option<uri>,
+    count: u32,
+    cards: list<issue-author-card>,
+  }
+
+  record issue-author-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-author-column>,
+  }
+
+  record issue-project-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-project-card {
+    issue: issue,
+  }
+
+  record issue-project-column {
+    key: string,
+    label: string,
+    project-name: option<string>,
+    count: u32,
+    cards: list<issue-project-card>,
+  }
+
+  record issue-project-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-project-column>,
+  }
+
+  record issue-priority-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-priority-card {
+    issue: issue,
+    priority: option<string>,
+    priority-label: option<string>,
+  }
+
+  record issue-priority-column {
+    key: string,
+    label: string,
+    priority: option<string>,
+    count: u32,
+    cards: list<issue-priority-card>,
+  }
+
+  record issue-priority-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-priority-column>,
+  }
+
+  record issue-milestone-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-milestone-card {
+    issue: issue,
+    milestone: option<string>,
+    milestone-label: option<string>,
+  }
+
+  record issue-milestone-column {
+    key: string,
+    label: string,
+    milestone: option<string>,
+    count: u32,
+    cards: list<issue-milestone-card>,
+  }
+
+  record issue-milestone-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-milestone-column>,
+  }
+
+  record issue-workflow-board-input {
+    repository: uri,
+    %limit: u32,
+  }
+
+  record issue-workflow-card {
+    issue: issue,
+    workflow: option<string>,
+    workflow-label: option<string>,
+  }
+
+  record issue-workflow-column {
+    key: string,
+    label: string,
+    workflow: option<string>,
+    count: u32,
+    cards: list<issue-workflow-card>,
+  }
+
+  record issue-workflow-board {
+    repository: uri,
+    total: u32,
+    columns: list<issue-workflow-column>,
   }
 
   record open-issue-input {
@@ -126,6 +318,32 @@ interface issues {
   update-issue: func(input: update-issue-input) -> result<issue, error>;
   get-issue: func(%id: id) -> result<option<issue>, error>;
   list-issues: func(repository: uri, %limit: u32) -> result<list<issue>, error>;
+  /// Familiar issue triage lanes for work queues. Closed issues are terminal;
+  /// open issues that opt out of auto-close are separated from ordinary
+  /// owner assignment lanes so maintainers can find manual follow-up work.
+  triage-board: func(input: issue-triage-board-input) -> result<issue-triage-board, error>;
+  /// Familiar issue taxonomy lanes. Unlabeled work is explicit, while labeled
+  /// work appears once per label so maintainers can scan cross-cutting slices.
+  label-board: func(input: issue-label-board-input) -> result<issue-label-board, error>;
+  /// Familiar ownership lanes. Unassigned work is explicit, while assigned
+  /// work appears once per assignee so owners can scan their active slice.
+  assignee-board: func(input: issue-assignee-board-input) -> result<issue-assignee-board, error>;
+  /// Familiar authored-by lanes. Closed issues are terminal, while active
+  /// issues are grouped by their creator so contributors can scan their work.
+  author-board: func(input: issue-author-board-input) -> result<issue-author-board, error>;
+  /// Familiar product/project lanes. Unscoped work is explicit, while scoped
+  /// issues are grouped by their stamped project name.
+  project-board: func(input: issue-project-board-input) -> result<issue-project-board, error>;
+  /// Familiar priority lanes derived from issue labels. Closed issues are
+  /// terminal, while open issues use their highest priority label.
+  priority-board: func(input: issue-priority-board-input) -> result<issue-priority-board, error>;
+  /// Familiar milestone/release lanes derived from issue labels. Closed issues
+  /// are terminal, while open issues use their first milestone or release label.
+  milestone-board: func(input: issue-milestone-board-input) -> result<issue-milestone-board, error>;
+  /// Familiar Kanban workflow lanes derived from issue labels. Closed issues
+  /// are terminal, while open issues use status/stage/workflow labels when
+  /// present and otherwise land in Untriaged.
+  workflow-board: func(input: issue-workflow-board-input) -> result<issue-workflow-board, error>;
   by-ref-issue: func(%ref: uri) -> result<option<issue>, error>;
   by-refs-issue: func(refs: list<uri>) -> result<list<option<issue>>, error>;
   by-number-issue: func(workspace-id: id, number: u64) -> result<option<issue>, error>;

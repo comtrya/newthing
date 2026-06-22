@@ -13,9 +13,13 @@
 
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { getGraphQLClient, subscribeLiveEvents, type LiveEvent } from "@comtrya/sdk-core";
-
-const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
+import {
+  getGraphQLClient,
+  getSessionToken,
+  subscribeLiveEvents,
+  type LiveEvent,
+} from "@comtrya/sdk-core";
+import { activityEmptyStateCopy } from "../activity-empty-state";
 
 /**
  * Optional Project scope. When set, the stream renders only events
@@ -51,8 +55,24 @@ const events = ref<ActivityItem[]>([]);
 const status = ref<"connecting" | "live" | "idle" | "error">("connecting");
 const error = ref<string | null>(null);
 const focusedIndex = ref(0);
+const hasLiveSession = ref(false);
+
+const statusLabel = computed(() => {
+  switch (status.value) {
+    case "connecting":
+      return "Connecting";
+    case "live":
+      return "Live";
+    case "error":
+      return "Error";
+    case "idle":
+    default:
+      return "Idle";
+  }
+});
 
 let unsubscribe: (() => void) | undefined;
+let liveStreamStarting = false;
 let highlightTimers: number[] = [];
 
 // Pre-format all filtered items once so the template doesn't call
@@ -60,6 +80,16 @@ let highlightTimers: number[] = [];
 // iconLabel, verb, subject). Closes #113.
 const formattedFiltered = computed(() =>
   filtered.value.map((item) => ({ item, fmt: formatItem(item) }))
+);
+
+const emptyState = computed(() =>
+  filtered.value.length === 0
+    ? activityEmptyStateCopy({
+        status: status.value,
+        error: error.value,
+        hasSession: hasLiveSession.value,
+      })
+    : null,
 );
 
 const filtered = computed(() => {
@@ -88,25 +118,6 @@ const filtered = computed(() => {
 
 onMounted(() => {
   void bootstrap();
-  const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
-  if (!token) {
-    status.value = "idle";
-    return;
-  }
-  unsubscribe = subscribeLiveEvents({
-    token,
-    onEvent: (event) => {
-      status.value = "live";
-      ingest(toActivityItem(event, true));
-    },
-    onError: () => {
-      status.value = "error";
-      error.value = "Live stream disconnected.";
-    },
-  });
-  window.setTimeout(() => {
-    if (status.value === "connecting") status.value = "idle";
-  }, 1500);
 });
 
 onUnmounted(() => {
@@ -118,8 +129,11 @@ onUnmounted(() => {
 async function bootstrap(): Promise<void> {
   try {
     const data = await getGraphQLClient().query<{
+      viewer?: { authenticated?: boolean };
       workspace?: { events?: unknown[] };
-    }>("{ workspace { events } }");
+    }>("{ viewer { authenticated } workspace { events } }");
+    const authenticated = data.viewer?.authenticated === true;
+    hasLiveSession.value = hasLiveSession.value || authenticated;
     const initial = (data.workspace?.events ?? [])
       .map((raw) => {
         const live = normalizeBootstrapEvent(raw);
@@ -129,9 +143,47 @@ async function bootstrap(): Promise<void> {
     if (initial.length > 0) {
       events.value = sortAndDedupe([...initial, ...events.value]);
     }
+    if (authenticated) {
+      void startLiveStream();
+    } else {
+      status.value = "idle";
+    }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
+    if (status.value === "connecting") {
+      status.value = "idle";
+    }
   }
+}
+
+async function startLiveStream(): Promise<void> {
+  if (unsubscribe || liveStreamStarting) return;
+  liveStreamStarting = true;
+  let token: string | undefined;
+  try {
+    token = await getSessionToken();
+  } catch {
+    token = undefined;
+  } finally {
+    liveStreamStarting = false;
+  }
+  hasLiveSession.value = true;
+  status.value = "connecting";
+  unsubscribe = subscribeLiveEvents({
+    token,
+    onOpen: () => {
+      status.value = "live";
+      error.value = null;
+    },
+    onEvent: (event) => {
+      status.value = "live";
+      ingest(toActivityItem(event, true));
+    },
+    onError: () => {
+      status.value = "error";
+      error.value = "Live stream disconnected.";
+    },
+  });
 }
 
 function ingest(item: ActivityItem): void {
@@ -362,21 +414,18 @@ function relativeTime(ms: number): string {
         <h2>Today</h2>
         <span :class="['stream-status', `stream-status-${status}`]">
           <span class="dot" />
-          {{ status }}
+          {{ statusLabel }}
         </span>
       </div>
       <span class="count">{{ filtered.length }} event{{ filtered.length === 1 ? "" : "s" }}</span>
     </header>
 
-    <p v-if="error && filtered.length === 0" class="muted error">{{ error }}</p>
-    <p v-else-if="status === 'connecting' && filtered.length === 0" class="muted">
-      Connecting to the live stream…
-    </p>
-    <p v-else-if="status === 'idle' && filtered.length === 0" class="muted">
-      Sign in to see live activity. Past events will populate once recorded.
-    </p>
-    <p v-else-if="filtered.length === 0" class="muted">
-      No activity yet. Open an issue or push a branch to see it appear here.
+    <p
+      v-if="emptyState"
+      class="muted"
+      :class="{ error: emptyState.kind === 'error' }"
+    >
+      {{ emptyState.message }}
     </p>
 
     <ol v-else class="stream-list">
@@ -444,11 +493,12 @@ function relativeTime(ms: number): string {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .stream-status .dot {
@@ -478,14 +528,16 @@ function relativeTime(ms: number): string {
 }
 
 .activity-stream .count {
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
 }
 
 .muted {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
+  font-weight: 500;
   color: var(--fg-3);
 }
 

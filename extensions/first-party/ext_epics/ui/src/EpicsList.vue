@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
+  extensionHref,
   fetchComtryaProjects,
   parseQueryFilters,
+  syncProjectFilterParam,
   useShortcuts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
 import { assignEpicProject, createEpic, listEpics } from "./api";
 import EpicCard from "./EpicCard.vue";
 import {
+  epicBoardHref as buildEpicBoardHref,
   defaultWorkspaceId,
+  EXT_EPICS_ROUTE_PREFIX,
   epicRef,
-  newEpicHref as buildNewEpicHref,
   type ComtryaGraphQLClient,
   type Epic,
   type EpicState,
@@ -23,6 +26,8 @@ const props = withDefaults(defineProps<{
   comtryaClient?: ComtryaGraphQLClient;
   epics?: Epic[] | null;
   workspaceId?: string;
+  repositoryId?: string | null;
+  repositorySegments?: string[];
   state?: string | null;
   title?: string;
   showNewLink?: boolean;
@@ -30,6 +35,7 @@ const props = withDefaults(defineProps<{
   projectName?: string;
 }>(), {
   workspaceId: defaultWorkspaceId(),
+  repositoryId: null,
   state: null,
   title: "Epics",
   showNewLink: true,
@@ -249,11 +255,30 @@ const counts = computed(() => {
 
 const graphClient = computed(() => props.client ?? props.comtryaClient);
 const newEpicHref = computed(() => {
-  const base = buildNewEpicHref(props.workspaceId);
-  return props.projectName
-    ? `${base}&projectName=${encodeURIComponent(props.projectName)}`
-    : base;
+  const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/new", {
+    repositorySegments: props.repositorySegments,
+  });
+  const params = scopedRouteParams();
+  if (props.projectName) params.set("projectName", props.projectName);
+  return `${base}?${params.toString()}`;
 });
+const boardHref = computed(() => {
+  if (typeof window === "undefined") return buildEpicBoardHref(props.workspaceId);
+  const path = window.location.pathname.replace(/\/$/, "");
+  if (path.endsWith("/epics")) {
+    return `${path}/board${window.location.search}`;
+  }
+  const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/board", {
+    repositorySegments: props.repositorySegments,
+  });
+  return `${base}?${scopedRouteParams().toString()}`;
+});
+
+function scopedRouteParams(): URLSearchParams {
+  const params = new URLSearchParams({ workspaceId: props.workspaceId });
+  if (props.repositoryId) params.set("repositoryId", props.repositoryId);
+  return params;
+}
 
 /**
  * Linear-shape inline quick-add — mirror of IssuesList iter 17.
@@ -332,7 +357,7 @@ const availableProjects = ref<ComtryaProject[]>([]);
 
 onMounted(async () => {
   try {
-    availableProjects.value = await fetchComtryaProjects();
+    availableProjects.value = await fetchComtryaProjects(props.repositorySegments);
   } catch {
     availableProjects.value = [];
   }
@@ -452,13 +477,17 @@ function readUrlState(): void {
 
 function writeUrlState(): void {
   if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
+  const currentSearch = window.location.search;
+  const params = new URLSearchParams(currentSearch);
   if (filter.value === "ALL") params.delete("state");
   else params.set("state", filter.value);
   if (ownerFilter.value) params.set("owner", ownerFilter.value);
   else params.delete("owner");
-  if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
-  else params.delete("project");
+  syncProjectFilterParam(params, {
+    projectFilter: projectFilter.value,
+    scopedProjectName: props.projectName,
+    currentSearch,
+  });
   const trimmedQ = search.value.trim();
   if (trimmedQ) params.set("q", trimmedQ);
   else params.delete("q");
@@ -534,7 +563,10 @@ async function loadEpics(): Promise<void> {
   <section class="epics-list" :data-state="loadState" data-smoke="epics-list">
     <header class="epics-list-header">
       <h3>{{ title }}</h3>
-      <a v-if="showNewLink" :href="newEpicHref">+ new</a>
+      <div class="epics-list-actions">
+        <a :href="boardHref">board</a>
+        <a v-if="showNewLink" :href="newEpicHref">+ new</a>
+      </div>
     </header>
 
     <div
@@ -706,6 +738,7 @@ async function loadEpics(): Promise<void> {
           :epic="epic"
           :resource-ref="epicRef(epic)"
           :client="graphClient"
+          :repository-segments="repositorySegments"
           :active-owner="ownerFilter"
           :active-project="projectFilter"
           @owner-click="toggleOwnerFilter"
@@ -723,13 +756,18 @@ async function loadEpics(): Promise<void> {
 .epics-list {
   display: grid;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .epics-list-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .epics-list-header h3 {
@@ -742,6 +780,18 @@ async function loadEpics(): Promise<void> {
 .epic-line {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
+}
+
+.epics-list-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.epic-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .epics-list-header a {
@@ -974,7 +1024,10 @@ async function loadEpics(): Promise<void> {
 .epics-quick-add {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 10px 6px 6px;
   border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   background: var(--bg, #0a0b0e);
@@ -1003,7 +1056,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add input {
-  flex: 1;
+  flex: 1 1 180px;
   min-width: 0;
   border: 0;
   background: transparent;
@@ -1020,6 +1073,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add .quick-add-status {
+  flex: 0 1 auto;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--fg-3, rgba(255,255,255,0.52));
@@ -1028,6 +1082,9 @@ async function loadEpics(): Promise<void> {
 .epics-quick-add .quick-add-chip {
   display: inline-flex;
   align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   letter-spacing: 0.02em;
@@ -1041,10 +1098,12 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add .quick-add-hint {
+  flex: 1 1 180px;
+  min-width: 0;
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   color: var(--fg-4, rgba(255,255,255,0.34));
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .epics-quick-add .quick-add-hint kbd {

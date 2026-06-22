@@ -5,8 +5,8 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "assets": {
-    "entry": "/_extensions/ext_pull_requests/assets/index.js",
-    "entryIntegrity": "sha256-f1682b73883cad5dcc5e4902061e68437e67eb0acd419f8b5c486c50462dce01",
+    "entry": "/ui-ext/6578745f70756c6c5f7265717565737473/files/index.js",
+    "entryIntegrity": "sha256-6cf2823de11b378c7686ca7605a53829910a4501e80a06a07e9a69ac621d9045",
     "styles": []
   },
   "permissions": [

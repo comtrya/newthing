@@ -67,6 +67,195 @@ describe("formatConfigValue", () => {
 });
 
 // ---------------------------------------------------------------------------
+// README header metadata — mirrors RepoHome.vue's size label helper
+// ---------------------------------------------------------------------------
+
+function formatReadmeSize(size: number | null | undefined): string | null {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return null;
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const precision = value >= 10 || unit === 0 ? 0 : 1;
+  return `${value.toFixed(precision)} ${units[unit]}`;
+}
+
+describe("README header metadata", () => {
+  test("omits unknown or invalid sizes", () => {
+    expect(formatReadmeSize(null)).toBeNull();
+    expect(formatReadmeSize(undefined)).toBeNull();
+    expect(formatReadmeSize(Number.NaN)).toBeNull();
+    expect(formatReadmeSize(-1)).toBeNull();
+  });
+
+  test("formats byte, KB, and MB labels for the README file header", () => {
+    expect(formatReadmeSize(12)).toBe("12 B");
+    expect(formatReadmeSize(1536)).toBe("1.5 KB");
+    expect(formatReadmeSize(12 * 1024)).toBe("12 KB");
+    expect(formatReadmeSize(2 * 1024 * 1024)).toBe("2.0 MB");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repository chip copy — mirrors RepoHome.vue's repoChips labels
+// ---------------------------------------------------------------------------
+
+function openPullRequestChipLabel(count: number): string {
+  return count === 1 ? "open pull request" : "open pull requests";
+}
+
+function vcsChipLabel(): string {
+  return "version control";
+}
+
+describe("repository chip copy", () => {
+  test("uses full pull request language instead of PR abbreviation", () => {
+    expect(openPullRequestChipLabel(0)).toBe("open pull requests");
+    expect(openPullRequestChipLabel(1)).toBe("open pull request");
+    expect(openPullRequestChipLabel(2)).toBe("open pull requests");
+  });
+
+  test("uses full version control language instead of VCS abbreviation", () => {
+    expect(vcsChipLabel()).toBe("version control");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Clone action copy — mirrors RepoHome.vue's green Code button label
+// ---------------------------------------------------------------------------
+
+function cloneActionLabel(copied: boolean): string {
+  return copied ? "Copied" : "Code";
+}
+
+function cloneCopyStatus(copied: boolean, unavailable: boolean): string {
+  if (copied) return "Clone command copied";
+  if (unavailable) return "Copy unavailable";
+  return "Copy clone command";
+}
+
+function cloneCommandTitle(vcs: string | null | undefined): string {
+  return vcs === "jj" ? "Use this URL with jj git clone." : "Use this URL with git clone.";
+}
+
+describe("clone action copy", () => {
+  test("uses familiar Code language before switching to Copied feedback", () => {
+    expect(cloneActionLabel(false)).toBe("Code");
+    expect(cloneActionLabel(true)).toBe("Copied");
+  });
+
+  test("exposes copy, copied, and unavailable states to assistive tech", () => {
+    expect(cloneCopyStatus(false, false)).toBe("Copy clone command");
+    expect(cloneCopyStatus(true, false)).toBe("Clone command copied");
+    expect(cloneCopyStatus(false, true)).toBe("Copy unavailable");
+  });
+
+  test("uses clone-command language instead of transport internals", () => {
+    expect(cloneCommandTitle("git")).toBe("Use this URL with git clone.");
+    expect(cloneCommandTitle("jj")).toBe("Use this URL with jj git clone.");
+    expect(cloneCommandTitle(undefined)).toBe("Use this URL with git clone.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repository visibility copy — mirrors RepoHome.vue's badge label
+// ---------------------------------------------------------------------------
+
+function repositoryVisibilityLabel(visibility: string | null | undefined): string {
+  return (visibility ?? "PRIVATE").toLowerCase() === "public" ? "Public" : "Private";
+}
+
+describe("repository visibility copy", () => {
+  test("uses one GitHub-like title-case label for header and About metadata", () => {
+    expect(repositoryVisibilityLabel("PUBLIC")).toBe("Public");
+    expect(repositoryVisibilityLabel("public")).toBe("Public");
+    expect(repositoryVisibilityLabel("PRIVATE")).toBe("Private");
+    expect(repositoryVisibilityLabel(undefined)).toBe("Private");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Repository About metadata labels — mirrors RepoHome.vue's sidebar copy
+// ---------------------------------------------------------------------------
+
+function repositoryAboutRefLabel(vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj" ? "Bookmark" : "Branch";
+}
+
+function repositoryAboutMetadataLabels(vcs: string | null | undefined): string[] {
+  return [repositoryAboutRefLabel(vcs), "Version control", "Visibility", "Updated"];
+}
+
+function repositoryVcsDisplayLabel(vcs: string | null | undefined): string {
+  const normalized = (vcs ?? "git").toLowerCase();
+  if (normalized === "git") return "Git";
+  if (normalized === "jj") return "Jujutsu";
+  return normalized;
+}
+
+describe("repository About metadata labels", () => {
+  test("uses familiar UI labels instead of lower-case schema keys", () => {
+    expect(repositoryAboutMetadataLabels("git")).toEqual([
+      "Branch",
+      "Version control",
+      "Visibility",
+      "Updated",
+    ]);
+  });
+
+  test("keeps jj terminology by showing Bookmark as the ref label", () => {
+    expect(repositoryAboutMetadataLabels("jj")[0]).toBe("Bookmark");
+  });
+
+  test("formats raw VCS values as familiar product labels", () => {
+    expect(repositoryVcsDisplayLabel("git")).toBe("Git");
+    expect(repositoryVcsDisplayLabel("GIT")).toBe("Git");
+    expect(repositoryVcsDisplayLabel("jj")).toBe("Jujutsu");
+    expect(repositoryVcsDisplayLabel(undefined)).toBe("Git");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recent commits count copy — mirrors RepoHome.vue's rail count label
+// ---------------------------------------------------------------------------
+
+function commitCountLabel(count: number): string {
+  return `${count} commit${count === 1 ? "" : "s"}`;
+}
+
+function nounCountLabel(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function bookmarkCountLabel(count: number, vcs: string | null | undefined): string {
+  return (vcs ?? "git").toLowerCase() === "jj"
+    ? nounCountLabel(count, "bookmark")
+    : nounCountLabel(count, "ref");
+}
+
+describe("Recent commits count copy", () => {
+  test("uses an explicit noun instead of a bare number", () => {
+    expect(commitCountLabel(0)).toBe("0 commits");
+    expect(commitCountLabel(1)).toBe("1 commit");
+    expect(commitCountLabel(2)).toBe("2 commits");
+  });
+});
+
+describe("repository rail count copy", () => {
+  test("uses repository nouns instead of config provenance", () => {
+    expect(bookmarkCountLabel(1, "git")).toBe("1 ref");
+    expect(bookmarkCountLabel(2, "git")).toBe("2 refs");
+    expect(bookmarkCountLabel(1, "jj")).toBe("1 bookmark");
+    expect(bookmarkCountLabel(2, "jj")).toBe("2 bookmarks");
+    expect(nounCountLabel(1, "label")).toBe("1 label");
+    expect(nounCountLabel(4, "label")).toBe("4 labels");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // enabledExtensions logic — mirrors RepoHome.vue's computed
 // ---------------------------------------------------------------------------
 
@@ -142,7 +331,7 @@ describe("extension refresh gates", () => {
 type RepositoryQueryMode = "context" | "overview" | "config";
 
 function queryModeForView(view: string): RepositoryQueryMode {
-  if (view === "overview") return "overview";
+  if (view === "overview" || view === "branches" || view === "tags" || view === "commits") return "overview";
   if (view === "config") return "config";
   return "context";
 }
@@ -151,6 +340,8 @@ interface TestRepositoryIdentity {
   path: string;
   name: string;
   blobs?: Array<{ path: string }>;
+  branches?: Array<{ name: string }>;
+  tags?: Array<{ name: string }>;
   commits?: Array<{ oid: string }>;
   labels?: string[];
   comtryaConfig?: { projects?: Array<{ name: string }> } | null;
@@ -167,6 +358,8 @@ function mergeRepositoryIdentity(
     ...previous,
     ...next,
     blobs: preserveHeavy ? previous.blobs : next.blobs,
+    branches: preserveHeavy ? previous.branches : next.branches,
+    tags: preserveHeavy ? previous.tags : next.tags,
     commits: preserveHeavy ? previous.commits : next.commits,
     labels: mode === "context" ? previous.labels : next.labels,
     comtryaConfig: mode === "context" ? previous.comtryaConfig : next.comtryaConfig,
@@ -179,11 +372,16 @@ describe("repository query modes", () => {
     expect(queryModeForView("pulls")).toBe("context");
     expect(queryModeForView("epics")).toBe("context");
     expect(queryModeForView("checks")).toBe("context");
+    expect(queryModeForView("docs")).toBe("context");
+    expect(queryModeForView("sprints")).toBe("context");
     expect(queryModeForView("code")).toBe("context");
   });
 
-  test("overview and config request their heavier data explicitly", () => {
+  test("overview, branches, tags, commits, and config request their heavier data explicitly", () => {
     expect(queryModeForView("overview")).toBe("overview");
+    expect(queryModeForView("branches")).toBe("overview");
+    expect(queryModeForView("tags")).toBe("overview");
+    expect(queryModeForView("commits")).toBe("overview");
     expect(queryModeForView("config")).toBe("config");
   });
 
@@ -192,6 +390,8 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
+      tags: [{ name: "v0.1.0" }],
       commits: [{ oid: "abc" }],
       labels: ["kind::ux"],
       comtryaConfig: { projects: [{ name: "frontend" }] },
@@ -209,6 +409,8 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
+      tags: [{ name: "v0.1.0" }],
       commits: [{ oid: "abc" }],
       comtryaConfig: { projects: [{ name: "frontend" }] },
     };
@@ -222,6 +424,8 @@ describe("repository query modes", () => {
       path: "comtrya/dogfood",
       name: "dogfood",
       blobs: [{ path: "README.md" }],
+      branches: [{ name: "main" }],
+      tags: [{ name: "v0.1.0" }],
       commits: [{ oid: "abc" }],
       labels: undefined,
       comtryaConfig: { projects: [{ name: "backend" }] },

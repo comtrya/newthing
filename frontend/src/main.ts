@@ -10,11 +10,13 @@ import {
 } from "@comtrya/sdk-core";
 import "./styles.css";
 import App from "./App.vue";
+import { CORE_NAVIGATION_COMMANDS } from "./core-navigation";
 import { defineCoreCommentThread } from "./core-widgets/comment-thread";
 import { defineCoreSlotMountElement } from "./core-widgets/slot-mount-element";
 import { loadShellExtensions } from "./extension-loader";
 import { installIssueRefHover } from "./issue-ref-hover";
 import { bindProjectCommands } from "./project-commands";
+import { repoBaseFromRouteParams } from "./repo-workbench-routes";
 import { registerRepositoryShellSlots } from "./repository-slots";
 import { createShellRouter } from "./router";
 import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
@@ -32,104 +34,32 @@ const router = createShellRouter();
 registerNavigationCommands(router);
 bindGoChord(router);
 bindProjectCommands(router);
-void loadShellExtensions().then((failures) => {
+const app = createApp(App);
+app.use(router);
+app.mount("#app");
+void loadShellExtensions().then(reportExtensionLoadFailures);
+
+function reportExtensionLoadFailures(failures: Awaited<ReturnType<typeof loadShellExtensions>>): void {
   for (const failure of failures) {
     console.warn(
       `[shell-app] extension ${failure.extensionId} ${failure.stage} failed: ${failure.message}`,
     );
   }
-});
-const app = createApp(App);
-app.use(router);
-app.mount("#app");
+}
 
 function registerNavigationCommands(router: Router): void {
-  registerCommand({
-    id: "core.workspace-home",
-    title: "Go to workspace home",
-    category: "Navigation",
-    shortcut: "g h",
-    extensionId: "core",
-    run: () => {
-      void router.push("/");
-    },
-  });
-  registerCommand({
-    id: "core.inbox",
-    title: "Open Inbox",
-    category: "Navigation",
-    shortcut: "g b",
-    extensionId: "core",
-    run: () => {
-      void router.push("/inbox");
-    },
-  });
-  registerCommand({
-    id: "core.issues",
-    title: "Open workspace issues queue",
-    category: "Navigation",
-    shortcut: "g i",
-    extensionId: "core",
-    run: () => {
-      void router.push("/x/issues/");
-    },
-  });
-  registerCommand({
-    id: "core.pulls",
-    title: "Open workspace pull-request queue",
-    category: "Navigation",
-    shortcut: "g p",
-    extensionId: "core",
-    run: () => {
-      void router.push("/x/pulls/");
-    },
-  });
-  registerCommand({
-    id: "core.new-repository",
-    title: "Create a new repository",
-    category: "Navigation",
-    shortcut: "g n",
-    extensionId: "core",
-    run: () => {
-      void router.push("/new");
-    },
-  });
-  registerCommand({
-    id: "core.new-issue",
-    title: "+ New issue",
-    category: "Create",
-    extensionId: "core",
-    run: () => {
-      void router.push("/x/issues/new");
-    },
-  });
-  registerCommand({
-    id: "core.new-epic",
-    title: "+ New epic",
-    category: "Create",
-    extensionId: "core",
-    run: () => {
-      void router.push("/x/epics/new");
-    },
-  });
-  registerCommand({
-    id: "core.instance-health",
-    title: "Open instance health",
-    category: "Navigation",
-    extensionId: "core",
-    run: () => {
-      void router.push("/instance");
-    },
-  });
-  registerCommand({
-    id: "core.settings",
-    title: "Open settings",
-    category: "Navigation",
-    extensionId: "core",
-    run: () => {
-      void router.push("/settings");
-    },
-  });
+  for (const command of CORE_NAVIGATION_COMMANDS) {
+    registerCommand({
+      id: command.id,
+      title: command.title,
+      category: command.category,
+      shortcut: command.shortcut,
+      extensionId: "core",
+      run: () => {
+        void router.push(command.path);
+      },
+    });
+  }
 }
 
 /**
@@ -196,9 +126,7 @@ function bindGoChord(router: Router): void {
    * the owning repo for `g i`/`g p` etc.
    */
   const repoBase = (): string | null => {
-    const path = router.currentRoute.value.path;
-    const match = /^(\/r\/[^/]+(?:\/[^/]+)+?)(\/(?:code|config|pulls|issues|checks|epics|p)(?:\/.*)?)?$/.exec(path);
-    return match?.[1] ?? null;
+    return repoBaseFromRouteParams(router.currentRoute.value.params);
   };
   const go = (path: string) => skipIfInInput(() => void router.push(path));
   /**
@@ -276,11 +204,15 @@ function bindGoChord(router: Router): void {
     "g b": go("/inbox"),
     "g n": go("/new"),
     "g o": scoped("", null),
+    "g a": scoped("/pipelines", "/pipelines"),
     "g c": scoped("/code", null),
     "g i": scoped("/issues", "/x/issues/"),
     "g p": scoped("/pulls", "/x/pulls/"),
-    "g e": scoped("/epics", null),
+    "g e": scoped("/epics", "/x/epics/board"),
+    "g d": scoped("/docs", "/x/docs/"),
+    "g s": scoped("/sprints", "/x/sprints/"),
     "g k": scoped("/checks", null),
+    "g r": scoped("/releases", "/releases"),
     "g f": scoped("/config", null),
     "c": createOnSurface,
   });

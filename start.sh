@@ -61,7 +61,13 @@ reset_generated_path() {
 
 create_smoke_source_repo() {
   local repo_dir="$1"
-  mkdir -p "$repo_dir/cue.mod" "$repo_dir/docs/rfcs" "$repo_dir/crates/server" "$repo_dir/frontend/src"
+  mkdir -p \
+    "$repo_dir/cue.mod" \
+    "$repo_dir/docs/prds" \
+    "$repo_dir/docs/rfcs" \
+    "$repo_dir/docs/scenarios" \
+    "$repo_dir/crates/server" \
+    "$repo_dir/frontend/src"
   git -C "$repo_dir" init --initial-branch=main >/dev/null 2>&1 \
     || git -C "$repo_dir" init >/dev/null 2>&1
   git -C "$repo_dir" config user.name "Comtrya Smoke"
@@ -91,15 +97,100 @@ package comtrya
 // Per-repo extension opt-in (#137 / Phase 2). Repository-scoped extension
 // features (issues, pulls, checks) and the issue→epic part-of participation
 // gate are off unless the repo opts in via `repository.extensions`. The smoke
-// exercises all four, so it enables them here. Authored without the published
-// schema import because the imported smoke repo doesn't vendor that CUE module;
-// the kernel reads `repository.extensions` as a plain array.
-repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_sprints"]
+// exercises the product workbench extensions, so it enables them here. Authored
+// without the published schema import because the imported smoke repo doesn't
+// vendor that CUE module; the kernel reads `repository.extensions` as a plain
+// array and enriches `projects.*.docs` from ext_docs' registered schema.
+repository: extensions: ["ext_issues", "ext_pull_requests", "ext_checks", "ext_epics", "ext_sprints", "ext_docs"]
 
 projects: kernel: {
 	root: "."
 	labels: ["runtime"]
+	docs: {
+		prd: {
+			slug: "docs/prds"
+			label: "PRDs"
+			description: "Product requirements that explain why a repository change exists."
+			properties: {
+				title: string
+				owner: string
+				status: string
+				audience: string
+				tags: [...string]
+			}
+		}
+		scenario: {
+			slug: "docs/scenarios"
+			label: "BDD Scenarios"
+			description: "Behavior scenarios that describe user-visible forge workflows."
+			properties: {
+				title: string
+				feature: string
+				owner: string
+				status: string
+				tags: [...string]
+			}
+		}
+	}
 }
+EOF
+  cat >"$repo_dir/docs/prds/repository-workbench.mdx" <<'EOF'
+---
+title: Repository Workbench
+owner: platform-maintainers
+status: active
+audience: maintainers
+tags: [forge, docs, workbench]
+---
+
+The repository workbench should make product intent visible beside code,
+issues, epics, sprints, pull requests, and checks.
+
+## Acceptance Criteria
+
+- [x] Repository overview links to product docs.
+- [x] PRDs and BDD scenarios are grouped by lifecycle state.
+- [ ] Implementation links are traced back to issues, epics, and pull requests.
+
+## Decisions
+
+- Keep docs repo-resident and extension-owned.
+- Use the same per-repo workbench shell as issues, epics, checks, and sprints.
+
+## Questions
+
+Question: Should doc review requests become first-class inbox items?
+
+## Risks
+
+Risk: Product intent can drift if implementation links are not visible.
+
+Delivered by comtrya://issue/42 and comtrya://doc/scenario/repository-workbench.
+EOF
+  cat >"$repo_dir/docs/scenarios/repository-workbench.mdx" <<'EOF'
+---
+title: Repository docs are discoverable
+feature: repository-docs
+owner: platform-maintainers
+status: active
+tags: [forge, docs, bdd]
+---
+
+Feature: Repository docs workbench
+
+  Background:
+    Given the repository has opted into ext_docs
+
+  Scenario: Open product docs from the repository
+    Given a maintainer is viewing the repository overview
+    When they open the docs workbench
+    Then they see PRDs and BDD scenarios beside code and delivery work
+
+  Scenario: Review implementation readiness
+    Given a PRD has acceptance criteria
+    And a BDD scenario links to the behavior
+    When the maintainer opens the readiness board
+    Then the doc is grouped by handoff state
 EOF
   cat >"$repo_dir/docs/rfcs/0001-runtime-smoke.md" <<'EOF'
 ---
@@ -547,6 +638,7 @@ const surfaces = [
   { name: "issues page", url: `${baseUrl}/x/issues/`, widget: "comtrya-issues-list" },
   { name: "pulls page", url: `${baseUrl}/x/pulls/`, widget: "comtrya-pulls-queue" },
   { name: "epics page", url: `${baseUrl}/x/epics/`, widget: "comtrya-epics-index" },
+  { name: "kanban page", url: `${baseUrl}/x/sprints/`, widget: "comtrya-sprints-board" },
 ];
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -682,7 +774,7 @@ try {
   kill "$browser_pid" >/dev/null 2>&1 || true
   wait "$browser_pid" >/dev/null 2>&1 || true
 
-  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics extension pages"
+  log "ok - browser rendered core code browser (repository.code) + issues/pulls/epics/kanban extension pages"
 }
 
 assert_issue_close_browser_smoke() {
@@ -1231,7 +1323,8 @@ else
   log "skipping expired session smoke because session ttl is ${SESSION_TTL_SECONDS}s"
 fi
 
-for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints; do
+for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprints ext_docs; do
+  extension_token="$(printf '%s' "$extension_id" | od -An -tx1 | tr -d ' \n')"
   expect_status "extension ${extension_id} manifest session" 200 "$TMP_DIR/${extension_id}-manifest-session.json" \
     -X POST \
     -H "origin: $FRONTEND_URL" \
@@ -1239,14 +1332,14 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprint
     -H "authorization: Bearer $ACCESS_TOKEN" \
     -H "content-type: application/json" \
     --data '{}' \
-    "$FRONTEND_URL/_extensions/session"
+    "$FRONTEND_URL/ui-ext/session"
   EXTENSION_SESSION="$(extract_json_string session "$TMP_DIR/${extension_id}-manifest-session.json")"
   if [[ -z "$EXTENSION_SESSION" ]]; then
     fail "extension ${extension_id} manifest session request did not return session"
   fi
 
   expect_status "extension ${extension_id} manifest through Vue shell" 200 "$TMP_DIR/${extension_id}-manifest.json" \
-    "$FRONTEND_URL/_extensions/${extension_id}/manifest.json?session=$EXTENSION_SESSION"
+    "$FRONTEND_URL/ui-ext/${extension_token}/meta.json?session=$EXTENSION_SESSION"
   expect_contains "extension ${extension_id} manifest through Vue shell" "$TMP_DIR/${extension_id}-manifest.json" '"schemaVersion": "comtrya.ui-extension/v2"'
   # Manifest is identity, not behavior. Slot bindings, routes, and resource
   # cards are runtime registrations through the SDK — they must not appear
@@ -1261,16 +1354,936 @@ for extension_id in ext_pull_requests ext_checks ext_issues ext_epics ext_sprint
     -H "authorization: Bearer $ACCESS_TOKEN" \
     -H "content-type: application/json" \
     --data '{}' \
-    "$FRONTEND_URL/_extensions/session"
+    "$FRONTEND_URL/ui-ext/session"
   EXTENSION_ASSET_SESSION="$(extract_json_string session "$TMP_DIR/${extension_id}-asset-session.json")"
   if [[ -z "$EXTENSION_ASSET_SESSION" ]]; then
     fail "extension ${extension_id} asset session request did not return session"
   fi
 
   expect_status "extension ${extension_id} asset through Vue shell" 200 "$TMP_DIR/${extension_id}-asset.js" \
-    "$FRONTEND_URL/_extensions/${extension_id}/assets/index.js?session=$EXTENSION_ASSET_SESSION"
+    "$FRONTEND_URL/ui-ext/${extension_token}/files/index.js?session=$EXTENSION_ASSET_SESSION"
   expect_contains "extension ${extension_id} asset through Vue shell" "$TMP_DIR/${extension_id}-asset.js" 'customElements.define'
 done
+
+DOC_SUMMARY_PAYLOAD="$TMP_DIR/docs-summary-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/specs/extension-runtime.mdx",
+    preview:
+      "---\n" +
+      "title: Extension runtime\n" +
+      "owner: platform-maintainers\n" +
+      "status: shipping\n" +
+      "---\n\n" +
+      "First-party extensions are Component Model WASM components loaded by Wasmtime.",
+  }),
+);
+' "$DOC_SUMMARY_PAYLOAD"
+expect_status "ext_docs summarize-doc parses front matter" 200 "$TMP_DIR/docs-summary.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SUMMARY_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-doc"
+json_assert "ext_docs summarize-doc returns normalized summary" "$TMP_DIR/docs-summary.json" \
+  'json.path === "crates/server/docs/specs/extension-runtime.mdx" && json.title === "Extension runtime" && json.propertyCount === 3 && json.hasFrontMatter === true && json.bodyExcerpt.includes("First-party extensions are Component Model WASM") && json.properties.length === 3 && json.properties.some((property) => property.key === "title" && property.value === "Extension runtime") && json.properties.some((property) => property.key === "owner" && property.value === "platform-maintainers") && json.properties.some((property) => property.key === "status" && property.value === "shipping")'
+
+DOC_CATALOG_PAYLOAD="$TMP_DIR/docs-catalog-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        description: "Product requirements for backend-owned forge capabilities.",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "audience: maintainers\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside the implementation.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        description: "Behavior scenarios that describe user-visible forge workflows.",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "feature: repository-docs\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "tags: [docs, projects, bdd]\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_CATALOG_PAYLOAD"
+expect_status "ext_docs summarize-catalog groups declared doc types" 200 "$TMP_DIR/docs-catalog.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CATALOG_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-catalog"
+json_assert "ext_docs summarize-catalog returns project doc catalog" "$TMP_DIR/docs-catalog.json" \
+  'json.totalDocs === 2 && json.types.length === 2 && json.types[0].projectName === "backend" && json.types[0].typeName === "prd" && json.types[0].label === "Backend PRDs" && json.types[0].docCount === 1 && json.types[0].docs[0].title === "Repository Docs Surface" && json.types[0].docs[0].properties.some((property) => property.key === "audience" && property.value === "maintainers") && json.types[1].typeName === "scenario" && json.types[1].docs[0].properties.some((property) => property.key === "feature" && property.value === "repository-docs") && json.types[1].docs[0].properties.some((property) => property.key === "tags" && property.value === "[docs, projects, bdd]")'
+
+expect_status "ext_docs type-board groups docs by declared type" 200 "$TMP_DIR/docs-type-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CATALOG_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/type-board"
+json_assert "ext_docs type-board returns PRD and BDD lanes" "$TMP_DIR/docs-type-board.json" \
+  'json.totalDocs === 2 && json.columns.find((column) => column.key === "type-prd")?.typeName === "prd" && json.columns.find((column) => column.key === "type-prd")?.count === 1 && json.columns.find((column) => column.key === "type-prd")?.docs?.[0]?.slug === "server/docs/prds" && json.columns.find((column) => column.key === "type-prd")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "type-scenario")?.label === "BDD Scenarios" && json.columns.find((column) => column.key === "type-scenario")?.docs?.[0]?.tags?.includes("bdd")'
+
+expect_status "ext_docs tag-board groups docs by front matter tags" 200 "$TMP_DIR/docs-tag-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CATALOG_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/tag-board"
+json_assert "ext_docs tag-board returns untagged and topic lanes" "$TMP_DIR/docs-tag-board.json" \
+  'json.totalDocs === 2 && json.columns.find((column) => column.key === "untagged")?.count === 1 && json.columns.find((column) => column.key === "untagged")?.docs?.[0]?.typeName === "prd" && json.columns.find((column) => column.key === "tag-bdd")?.docs?.[0]?.tags?.includes("bdd") && json.columns.find((column) => column.key === "tag-docs")?.count === 1 && json.columns.find((column) => column.key === "tag-projects")?.docs?.[0]?.title === "Repository docs are discoverable from project context"'
+
+DOC_PROJECT_BOARD_PAYLOAD="$TMP_DIR/docs-project-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "tags: docs, product\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside implementation.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+        ],
+      },
+      {
+        projectName: "",
+        typeName: "prd",
+        label: "Repo PRDs",
+        slug: "docs/prds",
+        files: [
+          {
+            path: "docs/prds/repo-level-governance.mdx",
+            preview:
+              "---\n" +
+              "title: Repo-level Governance\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "Some planning docs are intentionally repo-level.",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_PROJECT_BOARD_PAYLOAD"
+expect_status "ext_docs project-board groups docs by project" 200 "$TMP_DIR/docs-project-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_PROJECT_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/project-board"
+json_assert "ext_docs project-board returns unscoped and project lanes" "$TMP_DIR/docs-project-board.json" \
+  'json.totalDocs === 3 && json.columns.find((column) => column.key === "unscoped")?.projectName === null && json.columns.find((column) => column.key === "unscoped")?.count === 1 && json.columns.find((column) => column.key === "unscoped")?.docs?.[0]?.title === "Repo-level Governance" && json.columns.find((column) => column.key === "project-backend")?.projectName === "backend" && json.columns.find((column) => column.key === "project-backend")?.count === 2 && json.columns.find((column) => column.key === "project-backend")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "project-backend")?.docs?.[0]?.tags?.includes("product") && json.columns.find((column) => column.key === "project-backend")?.docs?.[1]?.typeName === "scenario"'
+
+DOC_STATUS_PAYLOAD="$TMP_DIR/docs-status-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "owner: platform-maintainers\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Developers expect a forge to keep product intent beside the implementation.",
+          },
+          {
+            path: "crates/server/docs/prds/next-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Next Docs Surface\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "The next docs surface should make planning visible.",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: shipped\n" +
+              "---\n\n" +
+              "Given the Comtrya repository has opted into ext_docs",
+          },
+          {
+            path: "crates/server/docs/scenarios/missing-status.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Status Scenario\n" +
+              "---\n\n" +
+              "Given a scenario has not declared its lifecycle state",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_STATUS_PAYLOAD"
+expect_status "ext_docs status-board groups docs into product lanes" 200 "$TMP_DIR/docs-status-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_STATUS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/status-board"
+json_assert "ext_docs status-board returns draft active done and missing lanes" "$TMP_DIR/docs-status-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "draft")?.count === 1 && json.columns.find((column) => column.key === "draft")?.docs?.[0]?.title === "Next Docs Surface" && json.columns.find((column) => column.key === "active")?.count === 1 && json.columns.find((column) => column.key === "active")?.docs?.[0]?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "done")?.count === 1 && json.columns.find((column) => column.key === "missing")?.count === 1 && json.columns.find((column) => column.key === "missing")?.docs?.[0]?.status === ""'
+
+expect_status "ext_docs owner-board groups docs by front matter owner" 200 "$TMP_DIR/docs-owner-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_STATUS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/owner-board"
+json_assert "ext_docs owner-board returns owner and unowned lanes" "$TMP_DIR/docs-owner-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "unowned")?.count === 3 && json.columns.find((column) => column.key === "unowned")?.owner === null && json.columns.find((column) => column.key === "owner-platform-maintainers")?.count === 1 && json.columns.find((column) => column.key === "owner-platform-maintainers")?.owner === "platform-maintainers" && json.columns.find((column) => column.key === "owner-platform-maintainers")?.docs?.[0]?.status === "active"'
+
+DOC_SCENARIOS_PAYLOAD="$TMP_DIR/docs-scenarios-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository docs are discoverable from project context\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "```gherkin\n" +
+      "Feature: Repository docs\n\n" +
+      "Background:\n" +
+      "  Given the Comtrya repository has opted into ext_docs\n\n" +
+      "Scenario: Open project docs\n" +
+      "  Given a maintainer opens a repository\n" +
+      "  When they view project docs\n" +
+      "  Then they see specs, PRDs, and BDD scenarios\n\n" +
+      "Scenario Outline: Filter docs by status\n" +
+      "  Given docs have <status>\n" +
+      "  When the catalog is summarized\n" +
+      "  Then the status lane is <lane>\n" +
+      "```\n",
+  }),
+);
+' "$DOC_SCENARIOS_PAYLOAD"
+expect_status "ext_docs summarize-scenarios extracts BDD structure" 200 "$TMP_DIR/docs-scenarios.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SCENARIOS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-scenarios"
+json_assert "ext_docs summarize-scenarios returns feature scenarios and steps" "$TMP_DIR/docs-scenarios.json" \
+  'json.path === "crates/server/docs/scenarios/repository-docs-surface.mdx" && json.title === "Repository docs are discoverable from project context" && json.feature === "Repository docs" && json.scenarioCount === 3 && json.stepCount === 7 && json.scenarios[0].kind === "background" && json.scenarios[0].stepCount === 1 && json.scenarios[1].kind === "scenario" && json.scenarios[1].title === "Open project docs" && json.scenarios[1].steps.some((step) => step.keyword === "Then" && step.text.includes("specs, PRDs, and BDD scenarios")) && json.scenarios[2].kind === "scenario-outline"'
+
+DOC_SCENARIO_BOARD_PAYLOAD="$TMP_DIR/docs-scenario-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/missing-feature.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Feature\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Scenario: Missing feature\n" +
+              "  Given a scenario exists without a feature\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/missing-scenarios.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Scenarios\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/needs-steps.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Steps\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "```\n",
+          },
+          {
+            path: "crates/server/docs/scenarios/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready Scenario\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "```gherkin\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see PRDs and BDD scenarios\n" +
+              "```\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_SCENARIO_BOARD_PAYLOAD"
+expect_status "ext_docs scenario-board groups BDD coverage" 200 "$TMP_DIR/docs-scenario-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_SCENARIO_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/scenario-board"
+json_assert "ext_docs scenario-board returns missing feature scenarios steps and ready lanes" "$TMP_DIR/docs-scenario-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "missing-feature")?.docs?.[0]?.feature === null && json.columns.find((column) => column.key === "missing-feature")?.docs?.[0]?.scenarioCount === 1 && json.columns.find((column) => column.key === "missing-scenarios")?.docs?.[0]?.scenarioCount === 0 && json.columns.find((column) => column.key === "needs-steps")?.docs?.[0]?.scenariosWithoutSteps === 1 && json.columns.find((column) => column.key === "ready")?.docs?.[0]?.stepCount === 3'
+
+DOC_CHECKLISTS_PAYLOAD="$TMP_DIR/docs-checklists-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Acceptance Criteria\n\n" +
+      "- [x] Project docs render beside implementation\n" +
+      "- [ ] Scenario docs can be summarized without shell-specific parsing\n\n" +
+      "```md\n" +
+      "- [ ] ignored example item\n" +
+      "```\n\n" +
+      "## Rollout\n\n" +
+      "1. [ ] Seed demo docs for specs and PRDs\n" +
+      "+ [X] Gate docs operations in smoke\n",
+  }),
+);
+' "$DOC_CHECKLISTS_PAYLOAD"
+expect_status "ext_docs summarize-checklists extracts acceptance criteria" 200 "$TMP_DIR/docs-checklists.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_CHECKLISTS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-checklists"
+json_assert "ext_docs summarize-checklists returns checklist sections" "$TMP_DIR/docs-checklists.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.totalItems === 4 && json.checkedItems === 2 && json.sections.length === 2 && json.sections[0].heading === "Acceptance Criteria" && json.sections[0].itemCount === 2 && json.sections[0].checkedCount === 1 && json.sections[0].items.some((item) => item.checked === false && item.text.includes("Scenario docs can be summarized")) && json.sections[1].heading === "Rollout" && json.sections[1].checkedCount === 1'
+
+DOC_REFERENCES_PAYLOAD="$TMP_DIR/docs-references-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "## Traceability\n\n" +
+      "This PRD tracks [repository docs epic](comtrya://epic/epc_01KVJZ0TRACE) and #42.\n" +
+      "BDD scenarios link to comtrya://doc/scenario/repository-docs-surface.\n" +
+      "Implementation ships through comtrya://pull-request/pr_01KVJZ0TRACE.\n" +
+      "[External reference](https://example.com/spec) is ignored.\n\n" +
+      "```md\n" +
+      "comtrya://issue/ignored\n" +
+      "#999\n" +
+      "```\n",
+  }),
+);
+' "$DOC_REFERENCES_PAYLOAD"
+expect_status "ext_docs summarize-references extracts forge traceability links" 200 "$TMP_DIR/docs-references.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_REFERENCES_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-references"
+json_assert "ext_docs summarize-references returns internal references only" "$TMP_DIR/docs-references.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.referenceCount === 4 && json.references.some((reference) => reference.kind === "epic" && reference.target === "comtrya://epic/epc_01KVJZ0TRACE" && reference.label === "repository docs epic") && json.references.some((reference) => reference.kind === "issue-number" && reference.target === "#42") && json.references.some((reference) => reference.kind === "doc" && reference.target === "comtrya://doc/scenario/repository-docs-surface") && json.references.some((reference) => reference.kind === "pull-request" && reference.target === "comtrya://pull-request/pr_01KVJZ0TRACE") && json.references.every((reference) => reference.line > 0)'
+
+DOC_TRACEABILITY_PAYLOAD="$TMP_DIR/docs-traceability-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/unlinked.mdx",
+            preview:
+              "---\n" +
+              "title: Unlinked PRD\n" +
+              "status: draft\n" +
+              "---\n\n" +
+              "Intent without implementation links.\n",
+          },
+          {
+            path: "crates/server/docs/prds/implementation-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Implementation Linked PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Tracks comtrya://epic/epc_01KVJZ0TRACE, #42, and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+          {
+            path: "crates/server/docs/prds/doc-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Doc Linked PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "Scenario coverage lives at comtrya://doc/scenario/repository-docs-surface.\n",
+          },
+          {
+            path: "crates/server/docs/prds/other-linked.mdx",
+            preview:
+              "---\n" +
+              "title: Other Linked PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Release note lives at comtrya://release/rel_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_TRACEABILITY_PAYLOAD"
+expect_status "ext_docs traceability-board groups docs by forge links" 200 "$TMP_DIR/docs-traceability.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_TRACEABILITY_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/traceability-board"
+json_assert "ext_docs traceability-board returns unlinked implementation doc and other lanes" "$TMP_DIR/docs-traceability.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "unlinked")?.docs?.[0]?.referenceCount === 0 && json.columns.find((column) => column.key === "implementation-linked")?.docs?.[0]?.implementationReferenceCount === 3 && json.columns.find((column) => column.key === "implementation-linked")?.docs?.[0]?.references?.some((reference) => reference.kind === "pull-request") && json.columns.find((column) => column.key === "doc-linked")?.docs?.[0]?.docReferenceCount === 1 && json.columns.find((column) => column.key === "other-linked")?.docs?.[0]?.otherReferenceCount === 1'
+
+DOC_OUTLINE_PAYLOAD="$TMP_DIR/docs-outline-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Acceptance Criteria\n\n" +
+      "```md\n" +
+      "## Ignored Example\n" +
+      "```\n\n" +
+      "### Rollout\n\n" +
+      "## Acceptance Criteria\n",
+  }),
+);
+' "$DOC_OUTLINE_PAYLOAD"
+expect_status "ext_docs summarize-outline extracts doc navigation headings" 200 "$TMP_DIR/docs-outline.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_OUTLINE_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-outline"
+json_assert "ext_docs summarize-outline returns heading levels and slugs" "$TMP_DIR/docs-outline.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.headingCount === 4 && json.headings[0].level === 1 && json.headings[0].slug === "repository-docs-surface" && json.headings[0].line === 2 && json.headings[1].level === 2 && json.headings[1].slug === "acceptance-criteria" && json.headings[2].level === 3 && json.headings[2].slug === "rollout" && json.headings[3].slug === "acceptance-criteria-2" && json.headings.every((heading) => heading.title !== "Ignored Example")'
+
+DOC_DECISIONS_PAYLOAD="$TMP_DIR/docs-decisions-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    path: "crates/server/docs/prds/repository-docs-surface.mdx",
+    preview:
+      "---\n" +
+      "title: Repository Docs Surface\n" +
+      "status: active\n" +
+      "---\n\n" +
+      "# Repository Docs Surface\n\n" +
+      "## Decisions\n\n" +
+      "- Use ext_docs for product-doc semantics.\n" +
+      "- Decision: Keep shell queries generic.\n\n" +
+      "## Open Questions\n\n" +
+      "- [ ] Should PRDs expose owner filters?\n" +
+      "Question: Which doc types should render first?\n\n" +
+      "## Risks\n\n" +
+      "- Risk: Stale docs may look authoritative.\n\n" +
+      "```md\n" +
+      "- Risk: ignored fenced example\n" +
+      "Decision: ignored fenced decision\n" +
+      "```\n",
+  }),
+);
+' "$DOC_DECISIONS_PAYLOAD"
+expect_status "ext_docs summarize-decisions extracts product review state" 200 "$TMP_DIR/docs-decisions.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_DECISIONS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/summarize-decisions"
+json_assert "ext_docs summarize-decisions returns decisions questions and risks" "$TMP_DIR/docs-decisions.json" \
+  'json.path === "crates/server/docs/prds/repository-docs-surface.mdx" && json.title === "Repository Docs Surface" && json.decisionCount === 2 && json.openQuestionCount === 2 && json.riskCount === 1 && json.items.length === 5 && json.items[0].kind === "decision" && json.items[0].text === "Use ext_docs for product-doc semantics." && json.items[1].text === "Keep shell queries generic." && json.items[2].kind === "open-question" && json.items[2].text === "Should PRDs expose owner filters?" && json.items[3].text === "Which doc types should render first?" && json.items[4].kind === "risk" && json.items.every((item) => item.line > 0 && !item.text.includes("ignored fenced"))'
+
+DOC_DECISION_BOARD_PAYLOAD="$TMP_DIR/docs-decision-board-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/open-question.mdx",
+            preview:
+              "---\n" +
+              "title: Open Question PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Open Questions\n\n" +
+              "- [ ] Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/risky.mdx",
+            preview:
+              "---\n" +
+              "title: Risky PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Risks\n\n" +
+              "- Risk: Stale docs may look authoritative.\n",
+          },
+          {
+            path: "crates/server/docs/prds/decided.mdx",
+            preview:
+              "---\n" +
+              "title: Decided PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Decisions\n\n" +
+              "- Use ext_docs for product-doc semantics.\n",
+          },
+          {
+            path: "crates/server/docs/prds/missing-review-state.mdx",
+            preview:
+              "---\n" +
+              "title: Missing Review State PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without decision review state.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_DECISION_BOARD_PAYLOAD"
+expect_status "ext_docs decision-board groups docs by review state" 200 "$TMP_DIR/docs-decision-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_DECISION_BOARD_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/decision-board"
+json_assert "ext_docs decision-board returns open questions risks decided and missing lanes" "$TMP_DIR/docs-decision-board.json" \
+  'json.totalDocs === 4 && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.title === "Open Question PRD" && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "open-questions")?.docs?.[0]?.typeLabel === "Backend PRDs" && json.columns.find((column) => column.key === "risks")?.docs?.[0]?.riskCount === 1 && json.columns.find((column) => column.key === "decided")?.docs?.[0]?.decisionCount === 1 && json.columns.find((column) => column.key === "decided")?.docs?.[0]?.status === "accepted" && json.columns.find((column) => column.key === "missing-review-state")?.docs?.[0]?.title === "Missing Review State PRD"'
+
+DOC_READINESS_PAYLOAD="$TMP_DIR/docs-readiness-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/repository-docs-outline.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Outline\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without acceptance criteria.",
+          },
+          {
+            path: "crates/server/docs/prds/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository Docs Surface\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Project docs render beside implementation\n" +
+              "- [ ] Scenario docs can be summarized without shell-specific parsing\n\n" +
+              "## Traceability\n\n" +
+              "Tracks comtrya://epic/epc_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+      {
+        projectName: "backend",
+        typeName: "scenario",
+        label: "BDD Scenarios",
+        slug: "server/docs/scenarios",
+        files: [
+          {
+            path: "crates/server/docs/scenarios/repository-docs-surface.mdx",
+            preview:
+              "---\n" +
+              "title: Repository docs are discoverable from project context\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see specs, PRDs, and BDD scenarios\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_READINESS_PAYLOAD"
+expect_status "ext_docs readiness-board groups docs by criteria and scenarios" 200 "$TMP_DIR/docs-readiness.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_READINESS_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/readiness-board"
+json_assert "ext_docs readiness-board returns product readiness lanes" "$TMP_DIR/docs-readiness.json" \
+  'json.totalDocs === 3 && json.columns.find((column) => column.key === "needs-criteria")?.count === 1 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Repository Docs Outline" && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistTotal === 2 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "in-progress")?.docs?.[0]?.referenceCount === 1 && json.columns.find((column) => column.key === "ready")?.docs?.[0]?.scenarioCount === 1'
+
+DOC_HANDOFF_PAYLOAD="$TMP_DIR/docs-handoff-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/needs-criteria.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Criteria PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without accepted criteria or scenarios.\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-scenarios.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Scenarios PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Project docs render beside implementation\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-review.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Review PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n\n" +
+              "## Open Questions\n\n" +
+              "Question: Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/in-implementation.mdx",
+            preview:
+              "---\n" +
+              "title: In Implementation PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_HANDOFF_PAYLOAD"
+expect_status "ext_docs handoff-board groups docs by implementation handoff state" 200 "$TMP_DIR/docs-handoff.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_HANDOFF_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/handoff-board"
+json_assert "ext_docs handoff-board returns product handoff lanes" "$TMP_DIR/docs-handoff.json" \
+  'json.totalDocs === 5 && json.columns.find((column) => column.key === "needs-criteria")?.docs?.[0]?.title === "Needs Criteria PRD" && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "needs-scenarios")?.docs?.[0]?.scenarioCount === 0 && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.implementationReferenceCount === 0 && json.columns.find((column) => column.key === "ready-for-implementation")?.docs?.[0]?.scenarioCount === 1 && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.implementationReferenceCount === 2'
+
+DOC_IMPLEMENTATION_PAYLOAD="$TMP_DIR/docs-implementation-payload.json"
+"$BUN" --eval '
+const fs = require("fs");
+const [out] = process.argv.slice(1);
+fs.writeFileSync(
+  out,
+  JSON.stringify({
+    types: [
+      {
+        projectName: "backend",
+        typeName: "prd",
+        label: "Backend PRDs",
+        slug: "server/docs/prds",
+        files: [
+          {
+            path: "crates/server/docs/prds/needs-acceptance.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Acceptance PRD\n" +
+              "status: planned\n" +
+              "---\n\n" +
+              "Intent without accepted criteria or scenarios.\n",
+          },
+          {
+            path: "crates/server/docs/prds/needs-review.mdx",
+            preview:
+              "---\n" +
+              "title: Needs Review PRD\n" +
+              "status: review\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n\n" +
+              "## Open Questions\n\n" +
+              "Question: Should PRDs expose owner filters?\n",
+          },
+          {
+            path: "crates/server/docs/prds/done-unlinked.mdx",
+            preview:
+              "---\n" +
+              "title: Done Unlinked PRD\n" +
+              "status: shipped\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/ready.mdx",
+            preview:
+              "---\n" +
+              "title: Ready PRD\n" +
+              "status: accepted\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see implementation-ready context\n",
+          },
+          {
+            path: "crates/server/docs/prds/in-implementation.mdx",
+            preview:
+              "---\n" +
+              "title: In Implementation PRD\n" +
+              "status: active\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Tracks #42 and comtrya://pull-request/pr_01KVJZ0TRACE.\n",
+          },
+          {
+            path: "crates/server/docs/prds/implemented.mdx",
+            preview:
+              "---\n" +
+              "title: Implemented PRD\n" +
+              "status: done\n" +
+              "---\n\n" +
+              "## Acceptance Criteria\n\n" +
+              "- [x] Product intent is clear\n\n" +
+              "Feature: Repository docs\n\n" +
+              "Scenario: Open project docs\n" +
+              "  Given a maintainer opens a repository\n" +
+              "  When they view project docs\n" +
+              "  Then they see linked implementation work\n\n" +
+              "## Traceability\n\n" +
+              "Delivered by comtrya://issue/42 and comtrya://doc/scenario/repository-docs-surface.\n",
+          },
+        ],
+      },
+    ],
+  }),
+);
+' "$DOC_IMPLEMENTATION_PAYLOAD"
+expect_status "ext_docs implementation-board groups docs by delivery state" 200 "$TMP_DIR/docs-implementation.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data-binary "@$DOC_IMPLEMENTATION_PAYLOAD" \
+  "$FRONTEND_URL/api/ops/ext_docs/docs/implementation-board"
+json_assert "ext_docs implementation-board returns delivery lanes" "$TMP_DIR/docs-implementation.json" \
+  'json.totalDocs === 6 && json.columns.find((column) => column.key === "needs-acceptance")?.docs?.[0]?.title === "Needs Acceptance PRD" && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.openQuestionCount === 1 && json.columns.find((column) => column.key === "needs-product-review")?.docs?.[0]?.checklistChecked === 1 && json.columns.find((column) => column.key === "needs-implementation-link")?.docs?.[0]?.title === "Done Unlinked PRD" && json.columns.find((column) => column.key === "ready-to-build")?.docs?.[0]?.status === "accepted" && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.implementationReferenceCount === 2 && json.columns.find((column) => column.key === "in-implementation")?.docs?.[0]?.referenceCount === 2 && json.columns.find((column) => column.key === "implemented")?.docs?.[0]?.implementationReferenceCount === 1 && json.columns.find((column) => column.key === "implemented")?.docs?.[0]?.docReferenceCount === 1'
 
 if [[ "$ONESHOT" == "1" || "$BROWSER_SMOKE" == "1" ]]; then
   assert_extension_browser_surfaces_render \
@@ -1530,10 +2543,51 @@ json_assert "comments.delete returns true" "$TMP_DIR/cmt-delete.json" \
 # not resolve a repo. Issue numbering stays per-workspace (by-number-issue keys
 # on workspaceId), so this does not perturb the number assertions below.
 ISSUE_REPOSITORY_URI="$REPO_RESOURCE"
+
+expect_status "record required failing check for readiness board" 200 "$TMP_DIR/check-required-failure.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"cargo test\",\"state\":\"FAILURE\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record optional failing check for readiness board" 200 "$TMP_DIR/check-optional-failure.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"docs link check\",\"state\":\"FAILURE\",\"required\":false}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record running check for readiness board" 200 "$TMP_DIR/check-running.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"deploy preview\",\"state\":\"RUNNING\",\"required\":false}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record passing check for readiness board" 200 "$TMP_DIR/check-passing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"name\":\"cargo fmt\",\"state\":\"SUCCESS\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "record off-commit check for readiness board filter" 200 "$TMP_DIR/check-other-commit.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"deadbeef\",\"name\":\"old cargo test\",\"state\":\"FAILURE\",\"required\":true}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/record-check"
+expect_status "readiness-board groups checks by merge relevance" 200 "$TMP_DIR/check-readiness-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/readiness-board"
+json_assert "readiness board exposes required optional progress and passing lanes" "$TMP_DIR/check-readiness-board.json" \
+  "json.repository === \"$ISSUE_REPOSITORY_URI\" && json.commitOID === \"abc123\" && json.total === 4 && json.columns.length === 4 && json.columns.find((c) => c.key === \"required-action\").cards.some((card) => card.blocking === true && card.check.name === \"cargo test\") && json.columns.find((c) => c.key === \"optional-failures\").cards.some((card) => card.blocking === false && card.check.name === \"docs link check\") && json.columns.find((c) => c.key === \"in-progress\").cards.some((card) => card.check.name === \"deploy preview\") && json.columns.find((c) => c.key === \"passing\").cards.some((card) => card.check.name === \"cargo fmt\") && !json.columns.flatMap((c) => c.cards).some((card) => card.check.commitOID === \"deadbeef\")"
+expect_status "expected-readiness-board surfaces missing required checks" 200 "$TMP_DIR/check-expected-readiness-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"commitOID\":\"abc123\",\"limit\":1024,\"expected\":[{\"name\":\"cargo test\",\"required\":true},{\"name\":\"security audit\",\"required\":true},{\"name\":\"docs link check\",\"required\":false},{\"name\":\"deploy preview\",\"required\":false},{\"name\":\"cargo fmt\",\"required\":true}]}" \
+  "$FRONTEND_URL/api/ops/ext_checks/checks/expected-readiness-board"
+json_assert "expected readiness board marks missing required checks as blocking" "$TMP_DIR/check-expected-readiness-board.json" \
+  "json.repository === \"$ISSUE_REPOSITORY_URI\" && json.commitOID === \"abc123\" && json.total === 5 && json.columns.length === 5 && json.columns.find((c) => c.key === \"required-action\").cards.some((card) => card.name === \"cargo test\" && card.blocking === true && card.missing === false && card.check?.name === \"cargo test\") && json.columns.find((c) => c.key === \"missing\").cards.some((card) => card.name === \"security audit\" && card.required === true && card.blocking === true && card.missing === true && card.check === null) && json.columns.find((c) => c.key === \"optional-failures\").cards.some((card) => card.name === \"docs link check\" && card.blocking === false) && json.columns.find((c) => c.key === \"in-progress\").cards.some((card) => card.name === \"deploy preview\" && card.blocking === false) && json.columns.find((c) => c.key === \"passing\").cards.some((card) => card.name === \"cargo fmt\" && card.check?.state === \"SUCCESS\")"
+
 expect_status "open-issue with workspace + title" 200 "$TMP_DIR/iss-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"first issue\",\"bodyMarkdown\":\"This issue tracks the first slice of work. Follow-up work is filed as #2.\\n\\nMore detail will be added as the design lands.\",\"projectName\":\"kernel\",\"labels\":[\"kind::ux\",\"priority::p0\",\"good-first-issue\"]}" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"first issue\",\"bodyMarkdown\":\"This issue tracks the first slice of work. Follow-up work is filed as #2.\\n\\nMore detail will be added as the design lands.\",\"projectName\":\"kernel\",\"labels\":[\"kind::ux\",\"priority::p0\",\"milestone::v1.0\",\"status::ready\",\"good-first-issue\"]}" \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "issue created with iss_ id and number 1" "$TMP_DIR/iss-create.json" \
   'json.id.startsWith("iss_") && json.number === 1 && json.state === "open"'
@@ -1542,10 +2596,11 @@ ISSUE_ONE_ID="$(json_value "$TMP_DIR/iss-create.json" 'json.id')"
 expect_status "open-issue increments number per workspace" 200 "$TMP_DIR/iss-create-2.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\"]}" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"second issue\",\"bodyMarkdown\":\"\",\"projectName\":\"kernel\",\"labels\":[\"kind::bug\",\"priority::p1\",\"release::v2.0\",\"workflow/in-progress\"],\"assignees\":[\"comtrya://user/rawkode\"]}" \
   "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
 json_assert "second issue is number 2" "$TMP_DIR/iss-create-2.json" \
   'json.number === 2'
+ISSUE_TWO_ID="$(json_value "$TMP_DIR/iss-create-2.json" 'json.id')"
 
 expect_status "open-issue rejects empty title" 400 "$TMP_DIR/iss-bad.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1562,6 +2617,47 @@ expect_status "list-issues returns the issues, newest first" 200 "$TMP_DIR/iss-l
   "$FRONTEND_URL/api/ops/ext_issues/issues/list-issues"
 json_assert "list returns 2 open issues, latest number first" "$TMP_DIR/iss-list.json" \
   'json.length === 2 && json[0].number === 2 && json[1].number === 1 && json.every((i) => i.state === "open")'
+
+expect_status "triage-board groups unassigned and assigned issue lanes" 200 "$TMP_DIR/iss-triage.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/triage-board"
+json_assert "triage board has needs-owner and assigned cards" "$TMP_DIR/iss-triage.json" \
+  "json.total === 2 && json.columns.length === 4 && json.columns.find((c) => c.key === \"needs-owner\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"assigned\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.issue.assignees.includes(\"comtrya://user/rawkode\"))"
+
+expect_status "open-issue for label-board smoke" 200 "$TMP_DIR/iss-label-create.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"title\":\"unlabeled follow-up\",\"bodyMarkdown\":\"Visible in the label board's Unlabeled lane.\"}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/open-issue"
+json_assert "label-board smoke issue opened without labels" "$TMP_DIR/iss-label-create.json" \
+  'json.state === "open" && Array.isArray(json.labels) && json.labels.length === 0'
+ISSUE_UNLABELED_ID="$(json_value "$TMP_DIR/iss-label-create.json" 'json.id')"
+
+expect_status "label-board groups issues by labels and unlabeled lane" 200 "$TMP_DIR/iss-label-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/label-board"
+json_assert "label board exposes unlabeled and label lanes" "$TMP_DIR/iss-label-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unlabeled\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"label-kind-ux\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"label-kind-bug\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\") && json.columns.find((c) => c.key === \"label-priority-p0\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\")"
+
+expect_status "assignee-board groups issues by owner and unassigned lane" 200 "$TMP_DIR/iss-assignee-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/assignee-board"
+json_assert "assignee board exposes unassigned and rawkode lanes" "$TMP_DIR/iss-assignee-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"unassigned\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"assignee-user-rawkode\").assignee === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"assignee-user-rawkode\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\")"
+
+expect_status "project-board groups issues by project and unscoped lane" 200 "$TMP_DIR/iss-project-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/project-board"
+json_assert "project board exposes unscoped and kernel lanes" "$TMP_DIR/iss-project-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"unscoped\").projectName === null && json.columns.find((c) => c.key === \"unscoped\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && json.columns.find((c) => c.key === \"project-kernel\").projectName === \"kernel\" && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\") && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\")"
 
 expect_status "by-number-issue resolves" 200 "$TMP_DIR/iss-by-num.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1581,6 +2677,38 @@ json_assert "issue is now closed with reason completed and closedAt set" "$TMP_D
 write_issue_closed_wasm_event "$ISSUE_ONE_ID" "$TMP_DIR/iss-close-event.json"
 json_assert "close issue emitted ext_issues WASM event" "$TMP_DIR/iss-close-event.json" \
   'json.data.emitterExtension === "ext_issues" && json.data.eventType === "dev.comtrya.issues.closed" && json.decodedPayload.id === json.data.sourceUri.split("/").pop()'
+
+expect_status "author-board groups active authors and closed issues" 200 "$TMP_DIR/iss-author-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/author-board"
+json_assert "author board exposes current author and closed lanes" "$TMP_DIR/iss-author-board.json" \
+  "json.total === 3 && json.columns.some((c) => c.authorRef && c.cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\") && c.cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\") && c.cards.every((card) => card.issue.state !== \"closed\" && card.issue.authorRef === c.authorRef)) && json.columns.find((c) => c.key === \"closed\")?.authorRef === null && json.columns.find((c) => c.key === \"closed\")?.cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.issue.state === \"closed\")"
+
+expect_status "priority-board groups issues by priority and terminal state" 200 "$TMP_DIR/iss-priority-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/priority-board"
+json_assert "priority board exposes priority unprioritized and closed lanes" "$TMP_DIR/iss-priority-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"p0\").cards.length === 0 && json.columns.find((c) => c.key === \"p1\").priority === \"p1\" && json.columns.find((c) => c.key === \"p1\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.priority === \"p1\" && card.priorityLabel === \"priority::p1\") && json.columns.find((c) => c.key === \"unprioritized\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.priority === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.priority === \"p0\")"
+
+expect_status "milestone-board groups issues by release and terminal state" 200 "$TMP_DIR/iss-milestone-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/milestone-board"
+json_assert "milestone board exposes scheduled unscheduled and closed lanes" "$TMP_DIR/iss-milestone-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"milestone-v2-0\").milestone === \"v2.0\" && json.columns.find((c) => c.key === \"milestone-v2-0\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.milestone === \"v2.0\" && card.milestoneLabel === \"release::v2.0\") && json.columns.find((c) => c.key === \"no-milestone\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.milestone === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.milestone === \"v1.0\" && card.milestoneLabel === \"milestone::v1.0\") && !json.columns.some((c) => c.key === \"milestone-v1-0\" && c.cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\"))"
+
+expect_status "workflow-board groups issues by familiar Kanban labels" 200 "$TMP_DIR/iss-workflow-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$ISSUE_REPOSITORY_URI\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_issues/issues/workflow-board"
+json_assert "workflow board exposes active terminal and untriaged lanes" "$TMP_DIR/iss-workflow-board.json" \
+  "json.total === 3 && json.columns.find((c) => c.key === \"in-progress\").workflow === \"in-progress\" && json.columns.find((c) => c.key === \"in-progress\").cards.some((card) => card.issue.id === \"$ISSUE_TWO_ID\" && card.workflow === \"in-progress\" && card.workflowLabel === \"workflow/in-progress\") && json.columns.find((c) => c.key === \"untriaged\").cards.some((card) => card.issue.id === \"$ISSUE_UNLABELED_ID\" && card.workflow === null) && json.columns.find((c) => c.key === \"closed\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\" && card.workflow === \"ready\" && card.workflowLabel === \"status::ready\") && !json.columns.find((c) => c.key === \"ready\").cards.some((card) => card.issue.id === \"$ISSUE_ONE_ID\")"
 
 expect_status "reopen-issue returns to open" 200 "$TMP_DIR/iss-reopen.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1686,7 +2814,7 @@ json_assert "outgoing part-of points at the epic URI" "$TMP_DIR/iss-rel.json" \
 expect_status "create-epic" 200 "$TMP_DIR/epc-create.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"Q4 platform launch\",\"bodyMarkdown\":\"big stuff\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[],\"parentEpicRef\":null}" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"Q4 platform launch\",\"bodyMarkdown\":\"big stuff\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[\"planning\",\"priority::p1\",\"milestone::Q4\"],\"parentEpicRef\":null}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "epic created with epc_ id, state=PLANNED" "$TMP_DIR/epc-create.json" \
   'json.id.startsWith("epc_") && json.state === "PLANNED"'
@@ -1698,7 +2826,7 @@ EPIC_ROOT_REF="comtrya://epic/$EPIC_ROOT_ID"
 expect_status "create-epic with parentEpicRef writes part-of" 200 "$TMP_DIR/epc-child.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
-  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":null,\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\"}" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"title\":\"child epic\",\"bodyMarkdown\":\"\",\"ownerRef\":\"comtrya://user/rawkode\",\"targetDate\":null,\"labels\":[],\"parentEpicRef\":\"$EPIC_ROOT_REF\",\"projectName\":\"kernel\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/create-epic"
 json_assert "child epic has sequential number 2" "$TMP_DIR/epc-child.json" \
   'typeof json.number === "number" && json.number === 2'
@@ -1755,13 +2883,45 @@ expect_status "progress-epic aggregates across issues and child epics" 200 "$TMP
 json_assert "progress is 1 open issue + 1 closed issue + 1 open child epic = 33%" "$TMP_DIR/epc-progress.json" \
   'json.issuesOpen === 1 && json.issuesClosed === 1 && json.childEpicsOpen === 1 && json.childEpicsClosed === 0 && json.percentComplete === 33'
 
-expect_status "change-state-epic to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
+expect_status "change-state-epic rejects PLANNED to DONE" 400 "$TMP_DIR/epc-invalid-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "invalid epic transition rejected as bad-input" "$TMP_DIR/epc-invalid-transition.json" \
+  'json.code === "bad-input" && /PLANNED -> DONE/.test(json.message)'
+
+expect_status "change-state-epic PLANNED to IN_PROGRESS" 200 "$TMP_DIR/epc-state-in-progress.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"IN_PROGRESS\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "child epic state is IN_PROGRESS" "$TMP_DIR/epc-state-in-progress.json" \
+  'json.state === "IN_PROGRESS" && (json.closedAt === null || json.closedAt === undefined)'
+
+expect_status "change-state-epic IN_PROGRESS to AT_RISK" 200 "$TMP_DIR/epc-state-at-risk.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"AT_RISK\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "child epic state is AT_RISK" "$TMP_DIR/epc-state-at-risk.json" \
+  'json.state === "AT_RISK" && (json.closedAt === null || json.closedAt === undefined)'
+
+expect_status "change-state-epic AT_RISK to DONE sets closedAt" 200 "$TMP_DIR/epc-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
   --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"DONE\"}" \
   "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
 json_assert "child epic state is DONE" "$TMP_DIR/epc-state.json" \
   'json.state === "DONE"'
+
+expect_status "change-state-epic rejects DONE to IN_PROGRESS" 400 "$TMP_DIR/epc-terminal-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$EPIC_CHILD_ID\",\"state\":\"IN_PROGRESS\"}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/change-state-epic"
+json_assert "terminal epic transition rejected as bad-input" "$TMP_DIR/epc-terminal-transition.json" \
+  'json.code === "bad-input" && /DONE -> IN_PROGRESS/.test(json.message)'
 
 expect_status "list-epics returns both epics for the workspace" 200 "$TMP_DIR/epc-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1770,6 +2930,62 @@ expect_status "list-epics returns both epics for the workspace" 200 "$TMP_DIR/ep
   "$FRONTEND_URL/api/ops/ext_epics/epics/list-epics"
 json_assert "list has 2 epics" "$TMP_DIR/epc-list.json" \
   'json.length === 2'
+
+expect_status "roadmap-board groups epics by lifecycle state with progress" 200 "$TMP_DIR/epc-roadmap.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/roadmap-board"
+json_assert "roadmap has planned root and done child lanes with progress" "$TMP_DIR/epc-roadmap.json" \
+  "json.total === 2 && json.columns.length === 5 && json.columns.find((c) => c.key === \"planned\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"done\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
+expect_status "owner-board groups epics by owner and unowned lane" 200 "$TMP_DIR/epc-owner-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/owner-board"
+json_assert "owner board exposes unowned and rawkode lanes with progress" "$TMP_DIR/epc-owner-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"unowned\").ownerRef === null && json.columns.find((c) => c.key === \"unowned\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"owner-user-rawkode\").ownerRef === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"owner-user-rawkode\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
+expect_status "epic project-board groups epics by project and unscoped lane" 200 "$TMP_DIR/epc-project-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/project-board"
+json_assert "epic project board exposes unscoped and kernel lanes with progress" "$TMP_DIR/epc-project-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"unscoped\").projectName === null && json.columns.find((c) => c.key === \"unscoped\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"project-kernel\").projectName === \"kernel\" && json.columns.find((c) => c.key === \"project-kernel\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
+
+expect_status "epic label-board groups epics by label and unlabeled lane" 200 "$TMP_DIR/epc-label-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/label-board"
+json_assert "epic label board exposes planning and unlabeled lanes with progress" "$TMP_DIR/epc-label-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"unlabeled\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\" && typeof card.progress.percentComplete === \"number\") && json.columns.find((c) => c.key === \"label-planning\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67)"
+
+expect_status "epic priority-board groups epics by priority and terminal state" 200 "$TMP_DIR/epc-priority-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/priority-board"
+json_assert "epic priority board exposes P1 and completed lanes with progress" "$TMP_DIR/epc-priority-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"p0\").cards.length === 0 && json.columns.find((c) => c.key === \"p1\").priority === \"p1\" && json.columns.find((c) => c.key === \"p1\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.priority === \"p1\" && card.priorityLabel === \"priority::p1\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"completed\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\" && card.priority === null)"
+
+expect_status "epic milestone-board groups epics by milestone and terminal state" 200 "$TMP_DIR/epc-milestone-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/milestone-board"
+json_assert "epic milestone board exposes Q4 and completed lanes with progress" "$TMP_DIR/epc-milestone-board.json" \
+  "json.total === 2 && json.columns.find((c) => c.key === \"no-milestone\").cards.length === 0 && json.columns.find((c) => c.key === \"milestone-q4\").milestone === \"Q4\" && json.columns.find((c) => c.key === \"milestone-q4\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.milestone === \"Q4\" && card.milestoneLabel === \"milestone::Q4\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"completed\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\" && card.milestone === null)"
+
+expect_status "target-board groups epics by target date health" 200 "$TMP_DIR/epc-target-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_epics/epics/target-board"
+json_assert "target board exposes no-target and completed lanes with progress" "$TMP_DIR/epc-target-board.json" \
+  "json.total === 2 && /^\\d{4}-\\d{2}-\\d{2}$/.test(json.today) && json.columns.length === 6 && json.columns.find((c) => c.key === \"no-target\").cards.some((card) => card.epic.id === \"$EPIC_ROOT_ID\" && card.progress.percentComplete === 67) && json.columns.find((c) => c.key === \"completed\").cards.some((card) => card.epic.id === \"$EPIC_CHILD_ID\")"
 
 expect_status "change-state-epic rejects unknown state" 400 "$TMP_DIR/epc-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1814,6 +3030,14 @@ json_assert "sprint created with spr_ id and number 1" "$TMP_DIR/spr-create.json
 SPRINT_ID="$(json_value "$TMP_DIR/spr-create.json" 'json.id')"
 SPRINT_REF="comtrya://sprint/$SPRINT_ID"
 
+expect_status "change-state-sprint rejects PLANNED to COMPLETED" 400 "$TMP_DIR/spr-invalid-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"COMPLETED\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "invalid sprint transition rejected as bad-input" "$TMP_DIR/spr-invalid-transition.json" \
+  'json.code === "bad-input"'
+
 expect_status "change-state-sprint to ACTIVE" 200 "$TMP_DIR/spr-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1830,6 +3054,14 @@ expect_status "assign-issue to sprint" 200 "$TMP_DIR/spr-assign.json" \
 json_assert "assign-issue returns true" "$TMP_DIR/spr-assign.json" \
   'json === true'
 
+expect_status "assign-issue rejects missing sprint" 404 "$TMP_DIR/spr-assign-missing.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"sprintRef\":\"comtrya://sprint/spr_missing\",\"issueRef\":\"comtrya://issue/$ISSUE_ONE_ID\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/assign-issue"
+json_assert "missing sprint assignment is not-found" "$TMP_DIR/spr-assign-missing.json" \
+  'json.code === "not-found"'
+
 expect_status "issues-in-sprint returns the assigned issue" 200 "$TMP_DIR/spr-issues.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1838,6 +3070,30 @@ expect_status "issues-in-sprint returns the assigned issue" 200 "$TMP_DIR/spr-is
 json_assert "issues-in-sprint has the issue URN" "$TMP_DIR/spr-issues.json" \
   "json.length === 1 && json[0] === \"comtrya://issue/$ISSUE_ONE_ID\""
 
+expect_status "board-for-sprint groups the assigned issue" 200 "$TMP_DIR/spr-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"ref\":\"$SPRINT_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/board-for-sprint"
+json_assert "sprint board has one open card and empty done column" "$TMP_DIR/spr-board.json" \
+  "json.sprintRef === \"$SPRINT_REF\" && json.total === 1 && json.columns.find((column) => column.key === \"open\")?.count === 1 && json.columns.find((column) => column.key === \"open\")?.issues?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"closed\")?.count === 0"
+
+expect_status "kanban-for-issues groups workspace issue refs" 200 "$TMP_DIR/spr-kanban.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"issueRefs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/iss_00000000000000000000000000\"],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/kanban-for-issues"
+json_assert "kanban board has todo and missing cards" "$TMP_DIR/spr-kanban.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 2 && json.columns.find((column) => column.key === \"todo\")?.count === 1 && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.id === \"$ISSUE_ONE_ID\" && json.columns.find((column) => column.key === \"todo\")?.cards?.[0]?.projectName === \"kernel\" && json.columns.find((column) => column.key === \"done\")?.count === 0 && json.columns.find((column) => column.key === \"missing\")?.count === 1 && json.columns.find((column) => column.key === \"missing\")?.cards?.[0]?.projectName === null"
+
+expect_status "kanban-project-board groups issue refs by project swimlane" 200 "$TMP_DIR/spr-kanban-project.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"issueRefs\":[\"comtrya://issue/$ISSUE_ONE_ID\",\"comtrya://issue/$ISSUE_TWO_ID\",\"comtrya://issue/$ISSUE_UNLABELED_ID\",\"comtrya://issue/$ISSUE_B_ID\",\"comtrya://issue/iss_00000000000000000000000000\"],\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/kanban-project-board"
+json_assert "kanban project board exposes unscoped and kernel swimlanes" "$TMP_DIR/spr-kanban-project.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 5 && json.swimlanes[0]?.key === \"unscoped\" && json.swimlanes[0]?.projectName === null && json.swimlanes[0]?.total === 3 && json.swimlanes[0]?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_UNLABELED_ID\") && json.swimlanes[0]?.columns.find((column) => column.key === \"done\")?.cards?.some((card) => card.id === \"$ISSUE_B_ID\") && json.swimlanes[0]?.columns.find((column) => column.key === \"missing\")?.count === 1 && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.projectName === \"kernel\" && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.total === 2 && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_ONE_ID\" && card.projectName === \"kernel\") && json.swimlanes.find((lane) => lane.key === \"project-kernel\")?.columns.find((column) => column.key === \"todo\")?.cards?.some((card) => card.id === \"$ISSUE_TWO_ID\" && card.projectName === \"kernel\")"
+
 expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -1845,6 +3101,30 @@ expect_status "list-sprints returns the sprint" 200 "$TMP_DIR/spr-list.json" \
   "$FRONTEND_URL/api/ops/ext_sprints/sprints/list-sprints"
 json_assert "list-sprints has 1 sprint" "$TMP_DIR/spr-list.json" \
   'json.length === 1'
+
+expect_status "planning-board groups sprints by lifecycle" 200 "$TMP_DIR/spr-planning-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"workspace\":\"$WORKSPACE_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/planning-board"
+json_assert "planning board exposes active sprint lane" "$TMP_DIR/spr-planning-board.json" \
+  "json.workspace === \"$WORKSPACE_REF\" && json.total === 1 && json.columns.length === 4 && json.columns.find((column) => column.key === \"planned\")?.count === 0 && json.columns.find((column) => column.key === \"active\")?.count === 1 && json.columns.find((column) => column.key === \"active\")?.cards?.[0]?.sprint?.id === \"$SPRINT_ID\" && json.columns.find((column) => column.key === \"completed\")?.count === 0 && json.columns.find((column) => column.key === \"canceled\")?.count === 0"
+
+expect_status "change-state-sprint ACTIVE to COMPLETED" 200 "$TMP_DIR/spr-completed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"COMPLETED\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "sprint state is COMPLETED" "$TMP_DIR/spr-completed.json" \
+  'json.state === "COMPLETED"'
+
+expect_status "change-state-sprint rejects COMPLETED to ACTIVE" 400 "$TMP_DIR/spr-terminal-transition.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$SPRINT_ID\",\"state\":\"ACTIVE\"}" \
+  "$FRONTEND_URL/api/ops/ext_sprints/sprints/change-state-sprint"
+json_assert "terminal sprint transition rejected as bad-input" "$TMP_DIR/spr-terminal-transition.json" \
+  'json.code === "bad-input"'
 
 expect_status "change-state-sprint rejects unknown state" 400 "$TMP_DIR/spr-bad-state.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1970,6 +3250,245 @@ json_assert "pr created with pul_ id and DRAFT state" "$TMP_DIR/rx-pr.json" \
 REACTOR_PR_ID="$(json_value "$TMP_DIR/rx-pr.json" 'json.id')"
 REACTOR_PR_REF="comtrya://pull-request/$REACTOR_PR_ID"
 REACTOR_ISSUE_REF="comtrya://issue/$REACTOR_ISSUE_ID"
+REACTOR_REVIEWER_REF="comtrya://user/reviewer"
+
+expect_status "review-board groups draft pull requests" 200 "$TMP_DIR/rx-pr-review-board-draft.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the draft PR card" "$TMP_DIR/rx-pr-review-board-draft.json" \
+  "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"draft\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "change-state-pull transitions draft PR to READY" 200 "$TMP_DIR/rx-pr-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"READY\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is READY after change-state-pull" "$TMP_DIR/rx-pr-ready.json" \
+  'json.state === "READY"'
+
+expect_status "review-board moves ready pull requests into ready lane" 200 "$TMP_DIR/rx-pr-review-board-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the ready PR card" "$TMP_DIR/rx-pr-review-board-ready.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"ready\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "merge-readiness-board blocks PRs with missing required checks" 200 "$TMP_DIR/rx-pr-merge-readiness-blocked.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":1,\"requiredFailing\":0,\"pending\":0,\"optionalFailing\":0,\"passing\":1,\"total\":2}],\"requiredApprovals\":0,\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the blocked PR card" "$TMP_DIR/rx-pr-merge-readiness-blocked.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"blocked-checks\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === true && card.checkBlocked === true && card.reviewBlocked === false && card.checkSummary.requiredMissing === 1 && card.reviewSummary.requiredApprovals === 0)"
+
+expect_status "change-state-pull transitions READY PR to REVIEW" 200 "$TMP_DIR/rx-pr-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"REVIEW\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is REVIEW after change-state-pull" "$TMP_DIR/rx-pr-review.json" \
+  'json.state === "REVIEW"'
+
+expect_status "review-board moves review pull requests into review lane" 200 "$TMP_DIR/rx-pr-review-board-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the in-review PR card" "$TMP_DIR/rx-pr-review-board-review.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "review-decision-board starts reviewed PRs in awaiting lane" 200 "$TMP_DIR/rx-pr-review-decision-awaiting.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the awaiting-review PR card" "$TMP_DIR/rx-pr-review-decision-awaiting.json" \
+  "json.total === 1 && json.columns.length === 6 && json.columns.find((c) => c.key === \"awaiting-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.latestReview === null && card.terminal === false)"
+
+expect_status "request-review records requested reviewer" 200 "$TMP_DIR/rx-pr-review-request.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"requestedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/request-review"
+json_assert "request-review returns a pending review request" "$TMP_DIR/rx-pr-review-request.json" \
+  "json.id.startsWith(\"prq_\") && json.pullId === \"$REACTOR_PR_ID\" && json.reviewerRef === \"$REACTOR_REVIEWER_REF\" && json.completedReview === null"
+
+expect_status "list-review-requests returns requested reviewer" 200 "$TMP_DIR/rx-pr-review-requests-pending.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-review-requests"
+json_assert "list-review-requests starts pending" "$TMP_DIR/rx-pr-review-requests-pending.json" \
+  "json.length === 1 && json[0].reviewerRef === \"$REACTOR_REVIEWER_REF\" && json[0].completedReview === null"
+
+expect_status "review-request-board shows requested reviewer needs review" 200 "$TMP_DIR/rx-pr-review-request-board-needs.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the missing requested reviewer" "$TMP_DIR/rx-pr-review-request-board-needs.json" \
+  "json.total === 1 && json.columns.length === 5 && json.columns.find((c) => c.key === \"needs-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.requestedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.completedReviewerRefs.length === 0)"
+
+expect_status "reviewer-queue shows requested review for reviewer" 200 "$TMP_DIR/rx-pr-reviewer-queue-needs.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the pending request" "$TMP_DIR/rx-pr-reviewer-queue-needs.json" \
+  "json.reviewerRef === \"$REACTOR_REVIEWER_REF\" && json.total === 1 && json.columns.length === 4 && json.columns.find((c) => c.key === \"needs-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.reviewRequest.completedReview === null && card.terminal === false)"
+
+expect_status "submit-review records a review comment" 200 "$TMP_DIR/rx-pr-review-comment.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"COMMENT\",\"bodyMarkdown\":\"left implementation notes\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review comment returns a pull review" "$TMP_DIR/rx-pr-review-comment.json" \
+  "json.id.startsWith(\"prr_\") && json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"COMMENT\" && json.bodyMarkdown === \"left implementation notes\""
+
+expect_status "list-review-requests attaches completed review" 200 "$TMP_DIR/rx-pr-review-requests-completed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-review-requests"
+json_assert "list-review-requests marks reviewer complete" "$TMP_DIR/rx-pr-review-requests-completed.json" \
+  "json.length === 1 && json[0].reviewerRef === \"$REACTOR_REVIEWER_REF\" && json[0].completedReview.decision === \"COMMENT\""
+
+expect_status "review-request-board moves completed review requests" 200 "$TMP_DIR/rx-pr-review-request-board-reviewed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the completed reviewer" "$TMP_DIR/rx-pr-review-request-board-reviewed.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"reviewed\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.missingReviewerRefs.length === 0 && card.latestReview.decision === \"COMMENT\")"
+
+expect_status "reviewer-queue moves completed review request" 200 "$TMP_DIR/rx-pr-reviewer-queue-reviewed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the completed request" "$TMP_DIR/rx-pr-reviewer-queue-reviewed.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"reviewed\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.reviewRequest.completedReview.decision === \"COMMENT\" && card.latestReview.decision === \"COMMENT\")"
+
+expect_status "review-decision-board moves commented PRs into comments lane" 200 "$TMP_DIR/rx-pr-review-decision-commented.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the commented PR card" "$TMP_DIR/rx-pr-review-decision-commented.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"commented\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.commentCount === 1 && card.latestReview.decision === \"COMMENT\")"
+
+expect_status "submit-review records an approval" 200 "$TMP_DIR/rx-pr-review-approve.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review approval returns an approval decision" "$TMP_DIR/rx-pr-review-approve.json" \
+  "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"APPROVE\""
+
+expect_status "review-decision-board moves approved PRs into approved lane" 200 "$TMP_DIR/rx-pr-review-decision-approved.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the approved PR card" "$TMP_DIR/rx-pr-review-decision-approved.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"approved\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.approvalCount === 1 && card.commentCount === 1 && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "submit-review records requested changes" 200 "$TMP_DIR/rx-pr-review-request-changes.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"REQUEST_CHANGES\",\"bodyMarkdown\":\"needs a contract test\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review request changes returns a change request" "$TMP_DIR/rx-pr-review-request-changes.json" \
+  "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"REQUEST_CHANGES\" && json.bodyMarkdown === \"needs a contract test\""
+
+expect_status "list-pull-reviews returns review decisions" 200 "$TMP_DIR/rx-pr-review-list.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/list-pull-reviews"
+json_assert "list-pull-reviews returns all recorded reviews" "$TMP_DIR/rx-pr-review-list.json" \
+  'json.length === 3 && json.map((review) => review.decision).includes("COMMENT") && json.map((review) => review.decision).includes("APPROVE") && json.map((review) => review.decision).includes("REQUEST_CHANGES")'
+
+expect_status "review-decision-board moves change-requested PRs into changes lane" 200 "$TMP_DIR/rx-pr-review-decision-changes.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the changes-requested PR card" "$TMP_DIR/rx-pr-review-decision-changes.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"changes-requested\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.changeRequestCount === 1 && card.approvalCount === 1 && card.commentCount === 1 && card.latestReview.decision === \"REQUEST_CHANGES\")"
+
+expect_status "merge-readiness-board blocks requested changes" 200 "$TMP_DIR/rx-pr-merge-readiness-review-blocked.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":0,\"requiredFailing\":0,\"pending\":0,\"optionalFailing\":0,\"passing\":2,\"total\":2}],\"requiredApprovals\":1,\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the review-blocked PR card" "$TMP_DIR/rx-pr-merge-readiness-review-blocked.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"blocked-review\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === true && card.reviewBlocked === true && card.checkBlocked === false && card.reviewSummary.requiredApprovals === 1 && card.reviewSummary.approvalCount === 0 && card.reviewSummary.changeRequestCount === 1 && card.reviewSummary.latestReview.decision === \"REQUEST_CHANGES\")"
+
+expect_status "submit-review records a final approval after requested changes" 200 "$TMP_DIR/rx-pr-review-final-approve.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"changes addressed\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+json_assert "submit-review final approval returns approval" "$TMP_DIR/rx-pr-review-final-approve.json" \
+  "json.pullId === \"$REACTOR_PR_ID\" && json.decision === \"APPROVE\" && json.bodyMarkdown === \"changes addressed\""
+
+expect_status "review-decision-board moves re-approved PRs into approved lane" 200 "$TMP_DIR/rx-pr-review-decision-reapproved.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the re-approved PR card" "$TMP_DIR/rx-pr-review-decision-reapproved.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"approved\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.approvalCount === 2 && card.changeRequestCount === 1 && card.commentCount === 1 && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "merge-readiness-board waits for pending checks" 200 "$TMP_DIR/rx-pr-merge-readiness-waiting.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":0,\"requiredFailing\":0,\"pending\":1,\"optionalFailing\":0,\"passing\":1,\"total\":2}],\"requiredApprovals\":1,\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the waiting PR card" "$TMP_DIR/rx-pr-merge-readiness-waiting.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"waiting-checks\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === false && card.waiting === true && card.checkWaiting === true && card.reviewWaiting === false && card.checkSummary.pending === 1 && card.reviewSummary.approvalCount === 1)"
+
+expect_status "change-state-pull transitions REVIEW PR back to DRAFT" 200 "$TMP_DIR/rx-pr-back-to-draft.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"DRAFT\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is DRAFT after change-state-pull" "$TMP_DIR/rx-pr-back-to-draft.json" \
+  'json.state === "DRAFT"'
+
+expect_status "review-board moves returned draft pull requests into draft lane" 200 "$TMP_DIR/rx-pr-review-board-draft-return.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the returned draft PR card" "$TMP_DIR/rx-pr-review-board-draft-return.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"draft\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === false)"
+
+expect_status "change-state-pull transitions DRAFT PR directly to REVIEW" 200 "$TMP_DIR/rx-pr-draft-to-review.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"REVIEW\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
+json_assert "pr is REVIEW after direct change-state-pull" "$TMP_DIR/rx-pr-draft-to-review.json" \
+  'json.state === "REVIEW"'
+
+expect_status "merge-readiness-board marks passing reviewed PRs ready" 200 "$TMP_DIR/rx-pr-merge-readiness-ready.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[{\"pullId\":\"$REACTOR_PR_ID\",\"requiredMissing\":0,\"requiredFailing\":0,\"pending\":0,\"optionalFailing\":1,\"passing\":2,\"total\":3}],\"requiredApprovals\":1,\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the ready PR card" "$TMP_DIR/rx-pr-merge-readiness-ready.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"ready\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.blocked === false && card.waiting === false && card.reviewBlocked === false && card.reviewWaiting === false && card.checkSummary.optionalFailing === 1 && card.reviewSummary.approvalCount === 1)"
+
+expect_status "change-state-pull rejects terminal merge state" 400 "$TMP_DIR/rx-pr-change-state-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$REACTOR_PR_ID\",\"state\":\"MERGED\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/change-state-pull"
 
 expect_status "relations.create closes (extension-minted verb)" 200 "$TMP_DIR/rx-rel.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
@@ -1987,6 +3506,58 @@ expect_status "merge-pull transitions to MERGED" 200 "$TMP_DIR/rx-merge.json" \
 json_assert "pr is MERGED with mergedAt timestamp" "$TMP_DIR/rx-merge.json" \
   'json.state === "MERGED" && typeof json.mergedAt === "string"'
 
+expect_status "review-board moves merged pull requests into terminal lane" 200 "$TMP_DIR/rx-pr-review-board-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-board"
+json_assert "review board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-board-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true)"
+
+expect_status "merge-readiness-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-merge-readiness-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"checkSummaries\":[],\"requiredApprovals\":1,\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/merge-readiness-board"
+json_assert "merge readiness board has the merged terminal PR card" "$TMP_DIR/rx-pr-merge-readiness-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.blocked === false && card.waiting === false && card.reviewSummary.latestReview.decision === \"APPROVE\")"
+
+expect_status "review-decision-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-review-decision-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-decision-board"
+json_assert "review decision board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-decision-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "review-request-board keeps merged pull requests terminal" 200 "$TMP_DIR/rx-pr-review-request-board-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/review-request-board"
+json_assert "review request board has the merged terminal PR card" "$TMP_DIR/rx-pr-review-request-board-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.completedReviewerRefs.includes(\"$REACTOR_REVIEWER_REF\") && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "reviewer-queue keeps merged requests terminal" 200 "$TMP_DIR/rx-pr-reviewer-queue-merged.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/reviewer-queue"
+json_assert "reviewer queue has the merged terminal card" "$TMP_DIR/rx-pr-reviewer-queue-merged.json" \
+  "json.total === 1 && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true && card.reviewRequest.completedReview.decision === \"APPROVE\" && card.latestReview.decision === \"APPROVE\")"
+
+expect_status "submit-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"decision\":\"APPROVE\",\"bodyMarkdown\":\"\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/submit-review"
+
+expect_status "request-review rejects merged PR" 409 "$TMP_DIR/rx-pr-review-request-terminal.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"pullId\":\"$REACTOR_PR_ID\",\"reviewerRef\":\"$REACTOR_REVIEWER_REF\",\"requestedByRef\":null}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/request-review"
+
 expect_status "by-ref-issue shows the issue auto-closed by the reactor" 200 "$TMP_DIR/rx-issue-after.json" \
   -H "authorization: Bearer $ACCESS_TOKEN" \
   -H "content-type: application/json" \
@@ -2003,6 +3574,57 @@ expect_status "close-pull rejects merged PR" 409 "$TMP_DIR/rx-close-merged.json"
   -H "content-type: application/json" \
   --data "{\"id\":\"$REACTOR_PR_ID\",\"closedByRef\":null}" \
   "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/close-pull"
+
+expect_status "create-pull for rawkode author-board lane" 200 "$TMP_DIR/pr-author-rawkode.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"rawkode owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-rawkode\",\"baseRef\":\"main\",\"authorRef\":\"comtrya://user/rawkode\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
+AUTHOR_RAWKODE_PR_ID="$(json_value "$TMP_DIR/pr-author-rawkode.json" 'json.id')"
+
+expect_status "create-pull for platform author-board lane" 200 "$TMP_DIR/pr-author-platform.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"platform owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-platform\",\"baseRef\":\"release/2026.06\",\"authorRef\":\"comtrya://team/platform\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
+AUTHOR_PLATFORM_PR_ID="$(json_value "$TMP_DIR/pr-author-platform.json" 'json.id')"
+
+expect_status "create-pull for closed author-board lane" 200 "$TMP_DIR/pr-author-closed.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"title\":\"closed owned PR\",\"bodyMarkdown\":\"\",\"headRef\":\"feature/author-closed\",\"baseRef\":\"release/2026.06\",\"authorRef\":\"comtrya://user/archive\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/create-pull"
+AUTHOR_CLOSED_PR_ID="$(json_value "$TMP_DIR/pr-author-closed.json" 'json.id')"
+
+expect_status "close-pull moves authored PR into closed lane" 200 "$TMP_DIR/pr-author-closed-state.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"id\":\"$AUTHOR_CLOSED_PR_ID\",\"closedByRef\":\"comtrya://user/rawkode\"}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/close-pull"
+
+expect_status "author-board groups active authors and terminal pull requests" 200 "$TMP_DIR/pr-author-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/author-board"
+json_assert "author board has author lanes plus merged and closed terminal lanes" "$TMP_DIR/pr-author-board.json" \
+  "json.total === 4 && json.columns.find((c) => c.key === \"author-team-platform\")?.authorRef === \"comtrya://team/platform\" && json.columns.find((c) => c.key === \"author-team-platform\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"author-user-rawkode\")?.authorRef === \"comtrya://user/rawkode\" && json.columns.find((c) => c.key === \"author-user-rawkode\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
+
+expect_status "base-branch-board groups active targets and terminal pull requests" 200 "$TMP_DIR/pr-base-branch-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/base-branch-board"
+json_assert "base branch board has main and release lanes plus terminal lanes" "$TMP_DIR/pr-base-branch-board.json" \
+  "json.total === 4 && json.columns.find((c) => c.key === \"base-main\")?.baseRef === \"main\" && json.columns.find((c) => c.key === \"base-main\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"base-release-2026-06\")?.baseRef === \"release/2026.06\" && json.columns.find((c) => c.key === \"base-release-2026-06\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
+
+expect_status "head-branch-board groups active sources and terminal pull requests" 200 "$TMP_DIR/pr-head-branch-board.json" \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  --data "{\"repository\":\"$REPO_RESOURCE\",\"limit\":1024}" \
+  "$FRONTEND_URL/api/ops/ext_pull_requests/pulls/head-branch-board"
+json_assert "head branch board has feature lanes plus terminal lanes" "$TMP_DIR/pr-head-branch-board.json" \
+  "json.total === 4 && json.columns.find((c) => c.key === \"head-feature-author-rawkode\")?.headRef === \"feature/author-rawkode\" && json.columns.find((c) => c.key === \"head-feature-author-rawkode\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_RAWKODE_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"head-feature-author-platform\")?.headRef === \"feature/author-platform\" && json.columns.find((c) => c.key === \"head-feature-author-platform\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_PLATFORM_PR_ID\" && card.terminal === false) && json.columns.find((c) => c.key === \"merged\")?.cards?.some((card) => card.pullRequest.id === \"$REACTOR_PR_ID\" && card.terminal === true) && json.columns.find((c) => c.key === \"closed\")?.cards?.some((card) => card.pullRequest.id === \"$AUTHOR_CLOSED_PR_ID\" && card.terminal === true)"
 
 IMPORT_REPO_PATH="imported/comtrya-mirror"
 IMPORT_SOURCE_URL="$SMOKE_SOURCE_URL"

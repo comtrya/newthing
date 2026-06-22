@@ -1,4 +1,5 @@
-import { defineExtensionWidget, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import { defineExtensionWidget, extensionHref, fetchComtryaProjects } from "@comtrya/sdk-vue";
+import IssueBoard from "./IssueBoard.vue";
 import IssueCard from "./IssueCard.vue";
 import IssueDetail from "./IssueDetail.vue";
 import IssueRelationships from "./IssueRelationships.vue";
@@ -9,7 +10,7 @@ import { resolveIssuesPolicy } from "./policy";
 import { issueRouteContext } from "./route-context";
 import {
   defaultWorkspaceId,
-  issueHref,
+  EXT_ISSUES_ROUTE_PREFIX,
   issueRef,
   type ComtryaGraphQLClient,
   type ExtensionRouteParams,
@@ -17,6 +18,7 @@ import {
 
 const EXTENSION_ID = "ext_issues";
 const ISSUE_CARD_TAG = "comtrya-issue-card";
+const ISSUE_BOARD_TAG = "comtrya-issue-board";
 const ISSUES_LIST_TAG = "comtrya-issues-list";
 const ISSUES_REPO_LIST_TAG = "comtrya-issues-repo-list";
 const ISSUE_DETAIL_TAG = "comtrya-issue-detail";
@@ -68,6 +70,7 @@ defineExtensionWidget({
   component: IssueCard,
   propertyAliases: { ref: "resourceRef" },
 });
+defineExtensionWidget({ tagName: ISSUE_BOARD_TAG, component: IssueBoard });
 defineExtensionWidget({ tagName: ISSUES_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUES_REPO_LIST_TAG, component: IssuesList });
 defineExtensionWidget({ tagName: ISSUE_DETAIL_TAG, component: IssueDetail });
@@ -108,6 +111,10 @@ const extension: ExtensionDefinition = {
       element: ISSUES_LIST_TAG,
       requiredPermission: "issues.read",
     });
+    host.registerRoute("/board", {
+      element: ISSUE_BOARD_TAG,
+      requiredPermission: "issues.read",
+    });
     host.registerRoute("/new", {
       element: ISSUE_NEW_TAG,
       requiredPermission: "issues.write",
@@ -131,6 +138,7 @@ function defineIssueNewElement(): void {
     routeParams?: ExtensionRouteParams;
     workspaceId?: string;
     repositoryId?: string | null;
+    repositorySegments?: string[];
 
     connectedCallback(): void {
       this.replaceChildren(
@@ -138,6 +146,7 @@ function defineIssueNewElement(): void {
           routeParams: this.routeParams,
           workspaceId: this.workspaceId,
           repositoryId: this.repositoryId,
+          repositorySegments: this.repositorySegments,
         })),
       );
     }
@@ -149,6 +158,7 @@ function defineIssueNewElement(): void {
 function issueNewForm(context: {
   workspaceId: string;
   repositoryId?: string | null;
+  repositorySegments?: string[];
   projectName?: string | null;
 }): HTMLElement {
   ensureIssueNewStyles();
@@ -246,7 +256,10 @@ function issueNewForm(context: {
       return;
     }
     overline.textContent = `${projectName} · issue`;
-    void resolveIssuesPolicy(projectName, "referrer").then((policy) => {
+    void resolveIssuesPolicy(
+      projectName,
+      context.repositorySegments ?? "referrer",
+    ).then((policy) => {
       // Refresh defaultLabels — replace any prior auto-fill with
       // the new project's, preserving user-typed entries.
       const existing = parseLabels(labelsInput.value);
@@ -293,16 +306,30 @@ function issueNewForm(context: {
   // Hydrate the picker from the repo's CUE projects. Failure paths
   // (no repo segments, network) leave the placeholder option only,
   // so the form still works as a "no project" submission.
-  void fetchComtryaProjects().then((projects) => {
+  void fetchComtryaProjects(context.repositorySegments).then((projects) => {
+    let hasContextProject = false;
     for (const project of projects) {
       if (!project.name) continue;
       const option = document.createElement("option");
       option.value = project.name;
       option.textContent = project.name;
-      if (project.name === context.projectName) option.selected = true;
+      if (project.name === context.projectName) {
+        option.selected = true;
+        hasContextProject = true;
+      }
       projectSelect.append(option);
     }
-    if (context.projectName) applyPolicy(context.projectName);
+    if (context.projectName) {
+      if (!hasContextProject) {
+        const option = document.createElement("option");
+        option.value = context.projectName;
+        option.textContent = context.projectName;
+        option.selected = true;
+        projectSelect.append(option);
+      }
+      projectSelect.value = context.projectName;
+      applyPolicy(context.projectName);
+    }
   });
 
   projectSelect.addEventListener("change", () => {
@@ -338,14 +365,18 @@ function issueNewForm(context: {
     void openIssue({
       workspaceId: context.workspaceId,
       repositoryId: context.repositoryId,
-      projectName: projectSelect.value || null,
+      projectName: projectSelect.value || context.projectName || null,
       title: titleInput.value.trim(),
       bodyMarkdown: bodyInput.value,
       labels: parseLabels(labelsInput.value),
       closeOnMerge: resolvedCloseOnMerge,
     })
       .then((created) => {
-        window.location.assign(issueHref(created));
+        window.location.assign(
+          extensionHref(EXT_ISSUES_ROUTE_PREFIX, `/${created.workspaceId}/${created.number}`, {
+            repositorySegments: context.repositorySegments,
+          }),
+        );
       })
       .catch((error: unknown) => {
         errorBox.textContent = error instanceof Error ? error.message : String(error);

@@ -6,6 +6,7 @@ const fromHere = (path: string): string => fileURLToPath(new URL(path, import.me
 
 export default defineConfig({
   root: fromHere("."),
+  envPrefix: ["VITE_", "PUBLIC_"],
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },

@@ -122,6 +122,10 @@ function formatUnix(ts: number | null | undefined): string {
   }
 }
 
+function formatLastUsed(ts: number | null | undefined): string {
+  return ts ? formatUnix(ts) : "Never used";
+}
+
 onMounted(() => {
   void refresh();
 });
@@ -135,8 +139,8 @@ onMounted(() => {
           <div class="eyebrow" style="margin-bottom: 6px">Account</div>
           <h1 class="serif">Credentials</h1>
           <div class="subline">
-            Manage your personal access tokens for HTTP git operations and SSH keys for
-            git over SSH.
+            Manage your personal access tokens for HTTP Git operations and SSH keys for
+            Git over SSH.
           </div>
         </div>
         <div class="spacer" />
@@ -154,30 +158,33 @@ onMounted(() => {
 
       <div v-if="removePrompt" class="glass revoke-confirm">
         <div class="section-hd">
-          <div class="section-hd-title">Remove "{{ removePrompt.name }}"?</div>
-          <div class="section-hd-sub">{{ removePrompt.fingerprint }}</div>
+          <div class="section-hd-title">Delete SSH key "{{ removePrompt.name }}"?</div>
+          <div class="section-hd-sub">
+            Fingerprint {{ removePrompt.fingerprint }}. This key will no longer be able to
+            authenticate Git over SSH.
+          </div>
           <div class="spacer" />
           <button class="btn" type="button" :disabled="removeBusy" @click="cancelRemove">
             <span>Cancel</span>
           </button>
           <button class="btn danger" type="button" :disabled="removeBusy" @click="confirmRemove" data-smoke="remove-confirm-yes">
-            <Icon name="x" /><span>{{ removeBusy ? "Removing…" : "Yes, remove" }}</span>
+            <Icon name="x" /><span>{{ removeBusy ? "Deleting…" : "Delete SSH key" }}</span>
           </button>
         </div>
       </div>
 
       <div class="glass" style="margin-bottom: 16px">
         <div class="section-hd">
-          <div class="section-hd-title">Add a new key</div>
-          <div class="section-hd-sub">Paste your <code>~/.ssh/id_ed25519.pub</code> or <code>~/.ssh/id_rsa.pub</code></div>
+          <div class="section-hd-title">Add new SSH key</div>
+          <div class="section-hd-sub">Paste a public key in OpenSSH format.</div>
         </div>
         <form class="form-panel" @submit.prevent="submit">
           <label>
-            <span>Name</span>
+            <span>Title</span>
             <input v-model="formName" type="text" maxlength="80" placeholder="e.g. laptop-2026" required />
           </label>
           <label>
-            <span>Public key</span>
+            <span>Key</span>
             <textarea
               v-model="formKey"
               rows="3"
@@ -188,23 +195,23 @@ onMounted(() => {
           </label>
           <div v-if="formError" class="error-inline">{{ formError }}</div>
           <button class="btn primary" type="submit" :disabled="submitting || !formName.trim() || !formKey.trim()">
-            <Icon name="plus" /><span>{{ submitting ? "Adding…" : "Add key" }}</span>
+            <Icon name="plus" /><span>{{ submitting ? "Adding…" : "Add SSH key" }}</span>
           </button>
         </form>
       </div>
 
       <div class="glass">
         <div class="section-hd">
-          <div class="section-hd-title">Existing keys</div>
+          <div class="section-hd-title">SSH keys</div>
           <div class="section-hd-sub">
-            <template v-if="keys.length">{{ keys.length }} key{{ keys.length === 1 ? "" : "s" }}</template>
+            <template v-if="keys.length">{{ keys.length }} SSH key{{ keys.length === 1 ? "" : "s" }}</template>
             <template v-else-if="loading">Loading…</template>
-            <template v-else>No keys yet.</template>
+            <template v-else>There are no SSH keys associated with your account.</template>
           </div>
         </div>
         <div v-if="keys.length" class="key-table">
           <div class="key-row key-row-hd">
-            <span>Name</span>
+            <span>Title</span>
             <span>Type</span>
             <span>Fingerprint</span>
             <span>Added</span>
@@ -216,10 +223,10 @@ onMounted(() => {
             <div><Chip mono tone="info">{{ key.keyType }}</Chip></div>
             <div class="mono fingerprint">{{ key.fingerprint }}</div>
             <div class="mono">{{ formatUnix(key.createdAt) }}</div>
-            <div class="mono">{{ formatUnix(key.lastUsedAt) }}</div>
+            <div class="mono">{{ formatLastUsed(key.lastUsedAt) }}</div>
             <div>
               <button class="btn danger" type="button" @click="askRemove(key)">
-                <Icon name="x" /><span>Remove</span>
+                <Icon name="x" /><span>Delete</span>
               </button>
             </div>
           </div>

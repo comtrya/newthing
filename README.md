@@ -56,7 +56,9 @@ Rust `cargo-component` crates and ship real artifacts at
 
 The Vue shell owns navigation, auth/session exchange, GraphQL transport, and UI
 extension loading. Browser extension bundles are served from
-`/_extensions/<id>/assets/...` and registered through the Comtrya SDK.
+`/forge-ui/<module-token>/files/...` and registered through the Comtrya SDK.
+The module token is the hex-encoded extension ID used only for public asset
+URLs.
 
 Git clone/fetch uses the pure-Rust Smart HTTP path. Git receive-pack/push and
 full OIDC browser callback validation are intentionally unsupported in the

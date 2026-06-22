@@ -3,6 +3,8 @@ export const REPOSITORY_EXTENSION_IDS = {
   pulls: "ext_pull_requests",
   epics: "ext_epics",
   checks: "ext_checks",
+  docs: "ext_docs",
+  sprints: "ext_sprints",
 } as const;
 
 export type RepositoryExtensionSlug = keyof typeof REPOSITORY_EXTENSION_IDS;

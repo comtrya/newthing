@@ -13,7 +13,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
 import { useProjectCounts } from "@comtrya/sdk-vue";
-import { projectHref } from "../route-paths";
+import { projectHref, projectWorkHref } from "../route-paths";
 
 /**
  * Typed reference emitted by the kernel's `#ComtryaRef` family.
@@ -66,6 +66,8 @@ interface RepositoryPayload {
 const props = defineProps<{
   repositoryPath?: string;
   segments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
 }>();
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
@@ -75,6 +77,57 @@ const loadError = ref<string | null>(null);
 
 const projects = computed<ComtryaProject[]>(() => config.value?.projects ?? []);
 const instanceCount = computed(() => config.value?.instances?.length ?? 0);
+const projectCountLabels = {
+  openIssues: "open issues",
+  epicsInProgress: "in-progress epics",
+  closedIssues: "closed issues",
+} as const;
+
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return count === 1 ? singular : pluralForm;
+}
+
+function projectSummaryLabel(projectCount: number, sourceCount: number, implicit: boolean): string {
+  if (implicit) return "1 default project";
+  const projectWord = plural(projectCount, "project");
+  const sourceWord = plural(sourceCount, "config source");
+  return `${projectCount} ${projectWord} from ${sourceCount} ${sourceWord}`;
+}
+
+function humanizeKeyLabel(key: string): string {
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  if (words.length === 0) return key;
+  return words
+    .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+    .join(" ");
+}
+
+function normalizedProjectRoot(root: string | null | undefined): string {
+  return root?.trim().replace(/\/+$/, "") ?? "";
+}
+
+function projectRootLabel(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "Repository root";
+}
+
+function projectRootTitle(root: string | null | undefined): string {
+  const normalized = normalizedProjectRoot(root);
+  return normalized ? `${normalized}/` : "<repo root>";
+}
+
+const projectsSummaryLabel = computed(() => {
+  if (loadState.value === "loading") return "discovering...";
+  if (loadState.value === "error") return "unavailable";
+  return projectSummaryLabel(
+    projects.value.length,
+    instanceCount.value,
+    projects.value.length === 1 && projects.value[0]?.implicit === true,
+  );
+});
 const reservedKeys = new Set([
   "name",
   "root",
@@ -86,10 +139,11 @@ const reservedKeys = new Set([
 
 // iter 76 — per-project work counts routed through the shared
 // `@comtrya/sdk-vue::useProjectCounts` composable. The composable
-// fetches both lists in parallel on mount, buckets by
-// `projectName`, and subscribes to the seven SSE topics that
-// mutate project-tagged work. WorkspaceHome (iter 65) uses the
-// same composable so both surfaces share one fetch implementation.
+// fans issue reads out across repository installations, fetches
+// workspace epics, buckets by `projectName`, and subscribes to the
+// seven SSE topics that mutate project-tagged work. WorkspaceHome
+// (iter 65) uses the same composable so both surfaces share one
+// fetch implementation.
 const { countsFor } = useProjectCounts();
 
 function projectFilterHref(
@@ -97,9 +151,14 @@ function projectFilterHref(
   name: string,
   state?: string,
 ): string {
-  const encoded = encodeURIComponent(name);
-  const suffix = state ? `&state=${state}` : "";
-  return `/x/${surface}/?project=${encoded}${suffix}`;
+  return projectWorkHref({
+    surface,
+    projectName: name,
+    state,
+    repoSegments: props.segments,
+    workspaceId: props.workspaceId,
+    repositoryId: props.repositoryId,
+  });
 }
 
 onMounted(() => void load());
@@ -218,17 +277,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
       <div class="title-block">
         <h2>Projects</h2>
         <span class="muted">
-          <template v-if="loadState === 'loading'">discovering…</template>
-          <template v-else-if="loadState === 'error'">unavailable</template>
-          <template v-else-if="projects.length === 1 && projects[0]?.implicit">
-            1 implicit project · add a <code>package comtrya</code> CUE
-            file anywhere in the repo to declare more
-          </template>
-          <template v-else>
-            {{ projects.length }} project<template v-if="projects.length !== 1">s</template>
-            · evaluated from {{ instanceCount }}
-            <code>package comtrya</code> instance<template v-if="instanceCount !== 1">s</template>
-          </template>
+          {{ projectsSummaryLabel }}
         </span>
       </div>
     </header>
@@ -250,13 +299,16 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               </RouterLink>
               <template v-else>{{ project.name }}</template>
             </h3>
-            <code v-if="project.root" class="project-root">{{ project.root }}/</code>
-            <code v-else class="project-root">&lt;repo root&gt;</code>
+            <span class="project-root" :title="projectRootTitle(project.root)">
+              {{ projectRootLabel(project.root) }}
+            </span>
             <span v-if="project.implicit" class="implicit-badge">implicit</span>
           </div>
           <div class="project-meta">
             <span v-if="project.labels?.length" class="labels">
-              <span v-for="label in project.labels" :key="label" class="label">{{ label }}</span>
+              <span v-for="label in project.labels" :key="label" class="label" :title="label">
+                {{ humanizeKeyLabel(label) }}
+              </span>
             </span>
             <span v-if="project.owners?.length" class="owners">
               <span class="owners-prefix">owners</span>
@@ -284,7 +336,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`Open issues in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).openIssues }}</span>
-              <span class="count-label">open</span>
+              <span class="count-label">{{ projectCountLabels.openIssues }}</span>
             </RouterLink>
             <RouterLink
               :to="projectFilterHref('epics', project.name, 'IN_PROGRESS')"
@@ -293,7 +345,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`In-progress epics in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).epicsInProgress }}</span>
-              <span class="count-label">epics</span>
+              <span class="count-label">{{ projectCountLabels.epicsInProgress }}</span>
             </RouterLink>
             <RouterLink
               :to="projectFilterHref('issues', project.name, 'CLOSED')"
@@ -302,7 +354,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
               :title="`Closed issues in ${project.name}`"
             >
               <span class="count-num">{{ countsFor(project.name).closedIssues }}</span>
-              <span class="count-label">closed</span>
+              <span class="count-label">{{ projectCountLabels.closedIssues }}</span>
             </RouterLink>
           </div>
         </header>
@@ -316,7 +368,7 @@ function authorKindOfOwner(owner: ComtryaRef): string {
             class="claim"
           >
             <header>
-              <code class="claim-key">{{ claim.key }}</code>
+              <span class="claim-key" :title="claim.key">{{ humanizeKeyLabel(claim.key) }}</span>
             </header>
             <ul v-if="claim.value && typeof claim.value === 'object' && !Array.isArray(claim.value)" class="claim-fields">
               <li
@@ -365,8 +417,10 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .muted {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
   color: var(--fg-3);
 }
 
@@ -421,9 +475,10 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .project-root {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-3);
 }
 
 .implicit-badge {
@@ -455,10 +510,14 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 
 .label {
   border: 1px solid currentColor;
-  padding: 0 5px;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 18px;
+  text-transform: none;
 }
 
 .owners {
@@ -494,9 +553,9 @@ function authorKindOfOwner(owner: ComtryaRef): string {
   gap: 5px;
   color: inherit;
   text-decoration: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
   border-bottom: 1px solid transparent;
   transition: border-color 80ms ease;
 }
@@ -547,11 +606,11 @@ function authorKindOfOwner(owner: ComtryaRef): string {
 }
 
 .claim-key {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--fg);
 }
 

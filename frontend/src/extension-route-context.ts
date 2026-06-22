@@ -18,7 +18,9 @@ export function extensionRouteQueryContext(
 ): Partial<Record<ExtensionRouteQueryKey, string>> {
   const context: Partial<Record<ExtensionRouteQueryKey, string>> = {};
   for (const key of EXTENSION_ROUTE_QUERY_KEYS) {
-    const value = firstQueryString(query[key]);
+    const value = key === "projectName"
+      ? firstQueryString(query.projectName) ?? firstQueryString(query.project)
+      : firstQueryString(query[key]);
     if (value !== undefined) {
       context[key] = value;
     }

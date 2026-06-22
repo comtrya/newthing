@@ -25,7 +25,13 @@ import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
 
-import { projectHref, shellRoutePaths } from "./route-paths";
+import {
+  projectHref,
+  projectNewWorkHref,
+  projectPlanningHref,
+  projectWorkHref,
+  shellRoutePaths,
+} from "./route-paths";
 
 const Stub = defineComponent({ render: () => null });
 
@@ -50,8 +56,12 @@ function buildRouter() {
     { name: "admin-storage", path: shellRoutePaths.adminStorage, component: Stub },
     { name: "project-home", path: shellRoutePaths.projectHome, component: Stub },
     { name: "repo-code", path: shellRoutePaths.repoCode, component: Stub },
+    { name: "repo-branches", path: shellRoutePaths.repoBranches, component: Stub },
+    { name: "repo-tags", path: shellRoutePaths.repoTags, component: Stub },
+    { name: "repo-commits", path: shellRoutePaths.repoCommits, component: Stub },
     { name: "repo-pull-review", path: shellRoutePaths.repoPullReview, component: Stub },
     { name: "repo-issue-board", path: shellRoutePaths.repoIssueBoard, component: Stub },
+    { name: "repo-commit-detail", path: shellRoutePaths.repoCommitDetail, component: Stub },
     { name: "repo-pipelines", path: shellRoutePaths.repoPipelines, component: Stub },
     { name: "repo-releases", path: shellRoutePaths.repoReleases, component: Stub },
     { name: "repo-config", path: shellRoutePaths.repoConfig, component: Stub },
@@ -59,6 +69,8 @@ function buildRouter() {
     { name: "repo-issues", path: shellRoutePaths.repoIssues, component: Stub },
     { name: "repo-checks", path: shellRoutePaths.repoChecks, component: Stub },
     { name: "repo-epics", path: shellRoutePaths.repoEpics, component: Stub },
+    { name: "repo-docs", path: shellRoutePaths.repoDocs, component: Stub },
+    { name: "repo-sprints", path: shellRoutePaths.repoSprints, component: Stub },
     { name: "repo-home", path: shellRoutePaths.repoHome, component: Stub },
     { name: "extension-route", path: shellRoutePaths.extensionRoute, component: Stub },
   ];
@@ -118,6 +130,33 @@ describe("shell route paths", () => {
     expect(r.params.repo).toBe("web");
   });
 
+  test("repo branches list preserves group/repo destructuring", () => {
+    const r = router.resolve("/r/acme/team/web/branches");
+    expect(r.name).toBe("repo-branches");
+    expect(r.params.groups).toEqual(["acme", "team"]);
+    expect(r.params.repo).toBe("web");
+  });
+
+  test("repo tags list preserves group/repo destructuring", () => {
+    const r = router.resolve("/r/acme/team/web/tags");
+    expect(r.name).toBe("repo-tags");
+    expect(r.params.groups).toEqual(["acme", "team"]);
+    expect(r.params.repo).toBe("web");
+  });
+
+  test("repo commits list and detail preserve group/repo destructuring", () => {
+    const list = router.resolve("/r/acme/team/web/commits");
+    expect(list.name).toBe("repo-commits");
+    expect(list.params.groups).toEqual(["acme", "team"]);
+    expect(list.params.repo).toBe("web");
+
+    const detail = router.resolve("/r/acme/team/web/commits/abc1234");
+    expect(detail.name).toBe("repo-commit-detail");
+    expect(detail.params.groups).toEqual(["acme", "team"]);
+    expect(detail.params.repo).toBe("web");
+    expect(detail.params.oid).toBe("abc1234");
+  });
+
   test("issue board wins over issues catch-all", () => {
     const r = router.resolve("/r/acme/web/issues/board");
     expect(r.name).toBe("repo-issue-board");
@@ -141,6 +180,16 @@ describe("shell route paths", () => {
     const r = router.resolve("/r/acme/web/pulls/queue");
     expect(r.name).toBe("repo-pulls");
     expect(r.params.rest).toEqual(["queue"]);
+  });
+
+  test("docs and sprints repo routes embed extension sub-paths", () => {
+    const docs = router.resolve("/r/acme/web/docs/prds");
+    expect(docs.name).toBe("repo-docs");
+    expect(docs.params.rest).toEqual(["prds"]);
+
+    const sprints = router.resolve("/r/acme/web/sprints/current");
+    expect(sprints.name).toBe("repo-sprints");
+    expect(sprints.params.rest).toEqual(["current"]);
   });
 
   test("project home parses :project segment", () => {
@@ -187,5 +236,107 @@ describe("shell route paths", () => {
     expect(r.params.groups).toEqual(["acme"]);
     expect(r.params.repo).toBe("my repo");
     expect(r.params.project).toBe("launch q4");
+  });
+
+  test("projectWorkHref keeps workspace project queues on extension routes", () => {
+    expect(projectWorkHref({
+      surface: "issues",
+      projectName: "frontend",
+      workspaceId: "ws_123",
+    })).toBe("/x/issues/?project=frontend&workspaceId=ws_123");
+
+    expect(projectWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      state: "IN_PROGRESS",
+      workspaceId: "ws_123",
+    })).toBe("/x/epics/?project=launch+q4&state=IN_PROGRESS&workspaceId=ws_123");
+  });
+
+  test("projectWorkHref scopes repository project queues to the workbench", () => {
+    const href = projectWorkHref({
+      surface: "issues",
+      projectName: "backend",
+      state: "CLOSED",
+      repoSegments: ["comtrya", "dogfood"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dogfood/issues?project=backend&state=CLOSED&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-issues");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dogfood");
+  });
+
+  test("projectNewWorkHref keeps workspace creation routes on extensions", () => {
+    expect(projectNewWorkHref({
+      surface: "issues",
+      projectName: "frontend",
+      workspaceId: "ws_123",
+    })).toBe("/x/issues/new?projectName=frontend&workspaceId=ws_123");
+
+    expect(projectNewWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      workspaceId: "ws_123",
+    })).toBe("/x/epics/new?projectName=launch+q4&workspaceId=ws_123");
+  });
+
+  test("projectNewWorkHref scopes repository creation routes to the workbench", () => {
+    const href = projectNewWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      repoSegments: ["comtrya", "dog food"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dog%20food/epics/new?projectName=launch+q4&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-epics");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dog food");
+    expect(r.params.rest).toEqual(["new"]);
+  });
+
+  test("projectPlanningHref keeps workspace project planning on extension routes", () => {
+    expect(projectPlanningHref({
+      surface: "sprints",
+      projectName: "backend",
+      workspaceId: "ws_123",
+    })).toBe("/x/sprints/?project=backend&workspaceId=ws_123");
+
+    expect(projectPlanningHref({
+      surface: "docs",
+      projectName: "launch q4",
+      board: "scenarios",
+      workspaceId: "ws_123",
+    })).toBe("/x/docs/scenarios?project=launch+q4&workspaceId=ws_123");
+  });
+
+  test("projectPlanningHref scopes repository project planning to the workbench", () => {
+    const href = projectPlanningHref({
+      surface: "docs",
+      projectName: "launch q4",
+      board: "prds",
+      repoSegments: ["comtrya", "dog food"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dog%20food/docs/prds?project=launch+q4&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-docs");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dog food");
+    expect(r.params.rest).toEqual(["prds"]);
   });
 });

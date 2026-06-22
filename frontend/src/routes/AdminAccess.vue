@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from "vue";
+import { principalLabel } from "@comtrya/sdk-vue";
 import AdminNav from "../components/AdminNav.vue";
 import Icon from "../components/Icon.vue";
 import Chip from "../components/Chip.vue";
@@ -38,16 +39,42 @@ async function handleRevokeSession(sessionId: string): Promise<void> {
   await loadSessions();
 }
 
+function formatActiveSessionCount(count: number): string {
+  return `${count} active session${count === 1 ? "" : "s"}`;
+}
+
+function formatSignInProviderCount(count: number): string {
+  return `${count} sign-in provider${count === 1 ? "" : "s"}`;
+}
+
+function formatUnavailableAdminPageCount(count: number): string {
+  return `${count} unavailable settings page${count === 1 ? "" : "s"}`;
+}
+
+function formatSessionPrincipal(principal: string): string {
+  const label = principalLabel(principal);
+  switch (label) {
+    case "OperatorCredential":
+      return "Operator credential";
+    case "AdminCredential":
+      return "Admin credential";
+    case "Credential":
+      return "Credential";
+    default:
+      return label;
+  }
+}
+
 onMounted(() => void loadSessions());
 
 const accessStats = computed(() => {
   const data = telemetry.value;
   if (!data) return [];
   return [
-    { label: "active sessions", value: data.access.activeSessions },
-    { label: "active credentials", value: data.access.activeCredentials },
-    { label: "rate limit rows", value: data.access.rateLimitRows },
-    { label: "oidc issuers", value: data.access.oidcIssuers.length },
+    { label: "Active sessions", value: data.access.activeSessions },
+    { label: "Active credentials", value: data.access.activeCredentials },
+    { label: "Rate limit entries", value: data.access.rateLimitRows },
+    { label: "Sign-in providers", value: data.access.oidcIssuers.length },
   ];
 });
 </script>
@@ -58,14 +85,14 @@ const accessStats = computed(() => {
     <div class="admin-content no-scrollbar">
       <div class="page-header">
         <div>
-          <div class="eyebrow" style="margin-bottom: 6px">Access telemetry</div>
-          <h1 class="serif">Authentication and authorization</h1>
+          <div class="eyebrow" style="margin-bottom: 6px">Access controls</div>
+          <h1>Authentication and authorization</h1>
           <div class="subline">
             <template v-if="telemetry">
-              Live metadata from the local session, credential, rate-limit, and OIDC stores.
+              Current access state across sessions, credentials, rate limits, and sign-in providers.
             </template>
-            <template v-else-if="loading">Loading access telemetry...</template>
-            <template v-else>Access telemetry unavailable</template>
+            <template v-else-if="loading">Loading access settings...</template>
+            <template v-else>Access settings unavailable</template>
           </div>
         </div>
         <div class="spacer" />
@@ -76,21 +103,21 @@ const accessStats = computed(() => {
 
       <div v-if="error" class="glass error-panel">
         <Icon name="x" />
-        <span>{{ error }}</span>
+        <span>Access settings could not be loaded. Try refreshing the page.</span>
       </div>
 
       <template v-if="telemetry">
         <div class="stat-grid">
           <div v-for="stat in accessStats" :key="stat.label" class="glass stat-card">
             <div class="eyebrow">{{ stat.label }}</div>
-            <div class="mono stat-value">{{ stat.value }}</div>
+            <div class="stat-value">{{ stat.value }}</div>
           </div>
         </div>
 
         <div class="glass" style="margin-bottom: 16px">
           <div class="section-hd">
-            <div class="section-hd-title">Configuration sync</div>
-            <div class="section-hd-sub">GitOps config repo</div>
+            <div class="section-hd-title">Configuration repository</div>
+            <div class="section-hd-sub">Repository-backed access settings</div>
             <div class="spacer" />
             <button
               class="btn"
@@ -103,45 +130,45 @@ const accessStats = computed(() => {
           </div>
           <div v-if="configSync?.configured" class="kv-list">
             <div>
-              <span>repo</span>
+              <span>Repository</span>
               <strong class="mono">{{ configSync.repoUrl }}</strong>
             </div>
             <div>
-              <span>last commit</span>
+              <span>Last commit</span>
               <strong class="mono">{{
                 configSync.lastCommit ? configSync.lastCommit.slice(0, 12) : "unknown"
               }}</strong>
             </div>
             <div>
-              <span>last synced</span>
+              <span>Last synced</span>
               <strong class="mono">{{
                 formatUnixTime(configSync.lastSyncedUnix ?? undefined)
               }}</strong>
             </div>
             <div>
-              <span>interval</span>
+              <span>Interval</span>
               <strong class="mono">{{ configSync.intervalSeconds }}s</strong>
             </div>
             <div v-if="configSync.pendingExtensionReload">
-              <span>extensions</span>
-              <Chip mono tone="warn">restart required to apply</Chip>
+              <span>Extensions</span>
+              <Chip tone="warn">Restart required</Chip>
             </div>
             <div v-if="configSync.lastError">
-              <span>last error</span>
+              <span>Last error</span>
               <strong class="mono" style="color: var(--err)">{{ configSync.lastError }}</strong>
             </div>
           </div>
           <div v-else class="empty">
-            This instance is not configured with a config repo
+            This instance is not configured with a configuration repository
             (COMTRYA_CONFIG_REPO_URL is unset).
           </div>
         </div>
 
         <div class="glass" style="margin-bottom: 16px">
           <div class="section-hd">
-            <div class="section-hd-title">OIDC issuers</div>
+            <div class="section-hd-title">Sign-in providers</div>
             <div class="section-hd-sub">
-              {{ telemetry.access.oidcIssuers.length }} configured
+              {{ formatSignInProviderCount(telemetry.access.oidcIssuers.length) }}
             </div>
           </div>
           <div v-if="telemetry.access.oidcIssuers.length" class="rows">
@@ -151,23 +178,23 @@ const accessStats = computed(() => {
                 <div class="issuer-title">
                   <span class="mono">{{ issuer.id }}</span>
                   <Chip mono>{{ issuer.clientKind }}</Chip>
-                  <Chip v-if="issuer.hasClientSecret" mono tone="ok">secret configured</Chip>
-                  <Chip v-else mono tone="warn">no client secret</Chip>
+                  <Chip v-if="issuer.hasClientSecret" tone="ok">Secret configured</Chip>
+                  <Chip v-else tone="warn">Secret missing</Chip>
                 </div>
                 <div class="issuer-detail mono">{{ issuer.issuerURL }}</div>
                 <div class="issuer-detail mono">{{ issuer.redirectURL }}</div>
               </div>
               <div class="issuer-policy">
                 <div>
-                  <span>domains</span>
+                  <span>Allowed domains</span>
                   <strong>{{ issuer.allowedDomains.length || 0 }}</strong>
                 </div>
                 <div>
-                  <span>groups</span>
+                  <span>Allowed groups</span>
                   <strong>{{ issuer.allowedGroups.length || 0 }}</strong>
                 </div>
                 <div>
-                  <span>subjects</span>
+                  <span>Allowed subjects</span>
                   <strong>{{ issuer.allowedSubjects.length || 0 }}</strong>
                 </div>
               </div>
@@ -176,15 +203,15 @@ const accessStats = computed(() => {
                   class="btn btn-sm"
                   type="button"
                   :disabled="loading"
-                  :title="`Flush OIDC discovery cache for ${issuer.id}. Forces a fresh HTTP discovery on the next login.`"
+                  :title="`Refresh sign-in provider metadata for ${issuer.id}. Forces a fresh OIDC discovery on the next login.`"
                   @click="refreshOidcIssuer(issuer.id)"
                 >
-                  <Icon name="retry" /><span>Refresh discovery</span>
+                  <Icon name="retry" /><span>Refresh provider</span>
                 </button>
               </div>
             </div>
           </div>
-          <div v-else class="empty">No OIDC issuers are configured for this instance.</div>
+          <div v-else class="empty">No sign-in providers are configured for this instance.</div>
         </div>
 
         <!-- Active sessions with per-session revoke -->
@@ -192,11 +219,11 @@ const accessStats = computed(() => {
           <div class="section-hd">
             <div class="section-hd-title">Active sessions</div>
             <div class="section-hd-sub">
-              {{ sessions.length }} live{{ sessionsLoading ? " (loading…)" : "" }}
+              {{ formatActiveSessionCount(sessions.length) }}{{ sessionsLoading ? " (loading…)" : "" }}
             </div>
             <div class="spacer" />
             <button class="btn" type="button" :disabled="sessionsLoading" @click="loadSessions">
-              <Icon name="retry" /><span>Refresh</span>
+              <Icon name="retry" /><span>Refresh sessions</span>
             </button>
           </div>
           <div v-if="sessionsError" class="error-panel">{{ sessionsError }}</div>
@@ -208,11 +235,11 @@ const accessStats = computed(() => {
             >
               <div class="session-main">
                 <div class="session-title">
-                  <Chip mono>{{ session.principal }}</Chip>
+                  <Chip :title="session.principal">{{ formatSessionPrincipal(session.principal) }}</Chip>
                   <span class="mono session-id">{{ session.sessionId }}</span>
                 </div>
-                <div class="session-detail mono">
-                  created {{ formatUnixTime(session.createdAt) }} · expires
+                <div class="session-detail">
+                  Created {{ formatUnixTime(session.createdAt) }} · Expires
                   {{ formatUnixTime(session.expiresAt) }}
                 </div>
               </div>
@@ -223,7 +250,7 @@ const accessStats = computed(() => {
                 title="Revoke this session immediately"
                 @click="handleRevokeSession(session.sessionId)"
               >
-                <Icon name="x" /><span>Revoke</span>
+                <Icon name="x" /><span>Revoke session</span>
               </button>
             </div>
           </div>
@@ -233,34 +260,34 @@ const accessStats = computed(() => {
         <div class="grid two">
           <div class="glass">
             <div class="section-hd">
-              <div class="section-hd-title">Credential store</div>
-              <div class="section-hd-sub">SQLite-backed runtime counts</div>
+              <div class="section-hd-title">Credentials</div>
+              <div class="section-hd-sub">Stored credentials and sessions</div>
             </div>
             <div class="kv-list">
               <div>
-                <span>active credentials</span>
-                <strong class="mono">{{ telemetry.access.activeCredentials }}</strong>
+                <span>Active credentials</span>
+                <strong>{{ telemetry.access.activeCredentials }}</strong>
               </div>
               <div>
-                <span>active sessions</span>
-                <strong class="mono">{{ telemetry.access.activeSessions }}</strong>
+                <span>Active sessions</span>
+                <strong>{{ telemetry.access.activeSessions }}</strong>
               </div>
               <div>
-                <span>rate limit rows</span>
-                <strong class="mono">{{ telemetry.access.rateLimitRows }}</strong>
+                <span>Rate limit entries</span>
+                <strong>{{ telemetry.access.rateLimitRows }}</strong>
               </div>
               <div>
-                <span>sampled at</span>
-                <strong class="mono">{{ formatUnixTime(telemetry.instance.now) }}</strong>
+                <span>Updated</span>
+                <strong>{{ formatUnixTime(telemetry.instance.now) }}</strong>
               </div>
             </div>
           </div>
 
           <div class="glass">
             <div class="section-hd">
-              <div class="section-hd-title">Unsupported admin surfaces</div>
+              <div class="section-hd-title">Unavailable settings pages</div>
               <div class="section-hd-sub">
-                {{ telemetry.readiness.unsupported.length }} explicit gaps
+                {{ formatUnavailableAdminPageCount(telemetry.readiness.unsupported.length) }}
               </div>
             </div>
             <div v-if="telemetry.readiness.unsupported.length" class="rows">
@@ -276,7 +303,7 @@ const accessStats = computed(() => {
                 </div>
               </div>
             </div>
-            <div v-else class="empty">No unsupported access surfaces were reported.</div>
+            <div v-else class="empty">All access settings pages are available.</div>
           </div>
         </div>
       </template>
@@ -300,10 +327,19 @@ const accessStats = computed(() => {
   align-items: flex-end;
   margin-bottom: 22px;
 }
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
 .page-header h1 {
+  font-family: var(--font-sans);
   font-size: 32px;
   margin: 0;
-  font-weight: 400;
+  font-weight: 600;
+  letter-spacing: 0;
 }
 .subline {
   margin-top: 8px;
@@ -331,7 +367,9 @@ const accessStats = computed(() => {
   padding: 16px;
 }
 .stat-value {
+  font-family: var(--font-sans);
   font-size: 28px;
+  font-weight: 600;
   color: var(--fg);
   margin-top: 8px;
 }
@@ -409,6 +447,13 @@ const accessStats = computed(() => {
   font-size: 13px;
   color: var(--fg);
 }
+.session-detail {
+  margin-top: 4px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0;
+  color: var(--fg-3);
+}
 .grid {
   display: grid;
   gap: 16px;
@@ -430,12 +475,16 @@ const accessStats = computed(() => {
 }
 .kv-list span,
 .detail {
+  font-family: var(--font-sans);
   font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--fg-3);
 }
 .kv-list strong,
 .path {
   font-size: 11px;
+  letter-spacing: 0;
   color: var(--fg-2);
   font-weight: 500;
   overflow: hidden;

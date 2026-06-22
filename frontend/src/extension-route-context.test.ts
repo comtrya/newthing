@@ -40,6 +40,25 @@ describe("extensionRouteQueryContext", () => {
       repositoryId: "repo_first",
     });
   });
+
+  test("maps project filters into projectName for extension props", () => {
+    expect(
+      extensionRouteQueryContext({
+        project: "backend",
+      }),
+    ).toEqual({
+      projectName: "backend",
+    });
+
+    expect(
+      extensionRouteQueryContext({
+        project: "backend",
+        projectName: "frontend",
+      }),
+    ).toEqual({
+      projectName: "frontend",
+    });
+  });
 });
 
 describe("extensionRouteElementContext", () => {

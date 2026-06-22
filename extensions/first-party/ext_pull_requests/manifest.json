@@ -24,6 +24,8 @@
     ],
     "resourceKinds": [
       { "name": "pull-request", "prefix": "pul", "scope": "repository" },
+      { "name": "pull-review", "prefix": "prr", "scope": "repository" },
+      { "name": "pull-review-request", "prefix": "prq", "scope": "repository" },
       { "name": "pull-counter", "prefix": "puc", "scope": "repository" }
     ],
     "collections": [
@@ -33,6 +35,24 @@
         "indexes": [
           { "name": "by_repository_state_updated", "fields": ["repositoryId", "state", "updatedAt"], "unique": false },
           { "name": "by_repository_number", "fields": ["repositoryId", "number"], "unique": true }
+        ]
+      },
+      {
+        "name": "pull_request_reviews",
+        "ownerExtension": "ext_pull_requests",
+        "indexes": [
+          { "name": "by_pull_created", "fields": ["pullId", "createdAt"], "unique": false },
+          { "name": "by_repository_created", "fields": ["repository", "createdAt"], "unique": false },
+          { "name": "by_reviewer_created", "fields": ["reviewerRef", "createdAt"], "unique": false }
+        ]
+      },
+      {
+        "name": "pull_review_requests",
+        "ownerExtension": "ext_pull_requests",
+        "indexes": [
+          { "name": "by_pull_reviewer", "fields": ["pullId", "reviewerRef"], "unique": true },
+          { "name": "by_repository_requested", "fields": ["repository", "requestedAt"], "unique": false },
+          { "name": "by_reviewer_requested", "fields": ["reviewerRef", "requestedAt"], "unique": false }
         ]
       },
       {
@@ -64,7 +84,9 @@
   "allowedEmits": [
     "dev.comtrya.pull-request.created",
     "dev.comtrya.pull-request.merged",
-    "dev.comtrya.pull-request.closed"
+    "dev.comtrya.pull-request.closed",
+    "dev.comtrya.pull-request.reviewed",
+    "dev.comtrya.pull-request.review-requested"
   ],
   "allowedEventReads": [],
   "requiresExtensionPoints": [
@@ -72,7 +94,15 @@
   ],
   "dispatchRoutes": [
     { "op": "pulls.create-pull", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
-    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
+    { "op": "pulls.list-pulls", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.review-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.merge-readiness-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.author-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.base-branch-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.head-branch-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.review-decision-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.review-request-board", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } },
+    { "op": "pulls.reviewer-queue", "scope": "repository", "derive": { "strategy": "payloadField", "field": "repository" } }
   ],
   "reactor": {
     "scope": "repository",

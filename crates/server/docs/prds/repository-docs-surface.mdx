@@ -1,0 +1,36 @@
+---
+title: Repository Docs Surface
+owner: platform-maintainers
+status: active
+audience: maintainers
+---
+
+## Problem
+
+Developers expect a forge to keep product intent beside the implementation. Comtrya
+already stores ADRs and specs in the repository, but product requirements and
+scenario-style acceptance criteria need the same first-class surface so a
+single-tenant forge can connect planning, implementation, and review without
+sending users to a separate product tool.
+
+## Requirements
+
+- A repository can opt into `ext_docs` once and expose project-owned document
+  types from `comtrya.cue`.
+- Backend-owned PRDs live under `crates/server/docs/prds/` and render in the
+  Docs extension with their declared front matter.
+- Scenario documents live beside backend docs and describe user-visible
+  workflows in a format that can later drive tests or issue templates.
+- The kernel stays generic: it evaluates doc type shape from CUE, while
+  `ext_docs` owns the reading and rendering experience.
+
+## Non-Goals
+
+- Do not hardcode PRD or BDD semantics into the kernel.
+- Do not add a separate requirements service before repo-resident docs have
+  been proven in the main forge workflow.
+
+## Success
+
+Opening the backend project docs shows ADRs, specs, PRDs, and BDD scenarios as
+declared document types, each backed by real repository files.

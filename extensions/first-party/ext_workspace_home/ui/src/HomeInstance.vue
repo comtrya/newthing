@@ -11,6 +11,10 @@ const error = ref<string | null>(null);
 const boundaryCount = ref(0);
 const origin = ref("");
 const allOk = computed(() => boundaryCount.value === 0);
+const unsupportedRouteText = computed(() => {
+  const count = boundaryCount.value;
+  return `${count} ${count === 1 ? "unsupported route" : "unsupported routes"}`;
+});
 
 onMounted(load);
 
@@ -38,11 +42,11 @@ async function load(): Promise<void> {
   <section v-else class="instance" data-smoke="home-instance">
     <span class="id">06</span>
     <div class="stats">
-      <span :class="allOk ? 'ok' : 'err'">{{ allOk ? "READY" : "NOT READY" }}</span>
-      <span><strong>{{ boundaryCount }}</strong> boundaries</span>
+      <span :class="allOk ? 'ok' : 'err'">{{ allOk ? "Ready" : "Not ready" }}</span>
+      <span>{{ unsupportedRouteText }}</span>
     </div>
     <code class="clone">git clone {{ origin }}/git/comtrya.git</code>
-    <a class="link" href="/instance">/instance</a>
+    <a class="link" href="/instance">Instance status</a>
   </section>
 </template>
 
@@ -59,6 +63,12 @@ async function load(): Promise<void> {
 .extension-placeholder {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
+}
+
+.stats,
+.link,
+.extension-placeholder {
+  font-family: var(--font-sans, system-ui);
 }
 
 .id,
