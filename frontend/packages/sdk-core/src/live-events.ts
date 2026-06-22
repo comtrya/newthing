@@ -28,6 +28,8 @@ export interface SubscribeOptions {
   source?: string;
   /** Called with each delivered event. */
   onEvent: (event: LiveEvent) => void;
+  /** Called once the kernel issues a stream session and the client is ready. */
+  onOpen?: () => void;
   /** Called when the stream errors. */
   onError?: (error: Event | Error) => void;
 }
@@ -46,6 +48,7 @@ async function streamEvents(
 ): Promise<void> {
   try {
     const session = await issueStreamSession(base, signal, opts.token);
+    opts.onOpen?.();
     const url = `${base}/events?session=${encodeURIComponent(session)}`;
     const response = await fetch(url, {
       credentials: "include",

@@ -14,8 +14,8 @@
  * extension-specific.
  *
  * Triggers `refresh()` on mount and re-runs whenever any of the
- * seven `dev.comtrya.{issues,epic}.*` topics fires. Subscriptions
- * tear down on unmount automatically. Pass `workspace` if you
+ * seven `dev.comtrya.{issues,epic}.*` topics fires. The single
+ * stream tears down on unmount automatically. Pass `workspace` if you
  * want to scope the listing; the default is the dogfood workspace
  * URI (matches the existing call sites' constant).
  */
@@ -23,12 +23,13 @@
 import { onMounted, onUnmounted, ref } from "vue";
 import {
   activeWorkspaceUri,
+  getSessionToken,
   invokeOp,
   subscribeLiveEvents,
   whenWorkspaceReady,
 } from "@comtrya/sdk-core";
 
-const TRACKED_TOPICS = [
+const TRACKED_TOPICS = new Set([
   "dev.comtrya.issues.opened",
   "dev.comtrya.issues.closed",
   "dev.comtrya.issues.reopened",
@@ -36,7 +37,7 @@ const TRACKED_TOPICS = [
   "dev.comtrya.epic.created",
   "dev.comtrya.epic.state-changed",
   "dev.comtrya.epic.project-changed",
-] as const;
+]);
 
 export interface ProjectCounts {
   openIssues: number;
@@ -80,6 +81,7 @@ export function useProjectCounts(options: UseProjectCountsOptions = {}) {
   const counts = ref<Record<string, ProjectCounts>>({});
   const isReady = ref(false);
   const unsubscribers: Array<() => void> = [];
+  let streamStarting = false;
 
   /** Resolve the workspace URI fresh on each refresh so we pick up
    *  whichever ID the shell store has by then. An explicit `options.
@@ -141,17 +143,31 @@ export function useProjectCounts(options: UseProjectCountsOptions = {}) {
     return counts.value[name] ?? emptyProjectCounts();
   }
 
+  async function startLiveRefreshStream(): Promise<void> {
+    if (unsubscribers.length > 0 || streamStarting) return;
+    streamStarting = true;
+    let token: string | undefined;
+    try {
+      token = await getSessionToken();
+    } catch {
+      token = undefined;
+    } finally {
+      streamStarting = false;
+    }
+    unsubscribers.push(
+      subscribeLiveEvents({
+        token,
+        onEvent: (event) => {
+          if (TRACKED_TOPICS.has(event.eventType)) void refresh();
+        },
+        onError: () => {},
+      }),
+    );
+  }
+
   onMounted(() => {
     void refresh();
-    for (const type of TRACKED_TOPICS) {
-      unsubscribers.push(
-        subscribeLiveEvents({
-          type,
-          onEvent: () => void refresh(),
-          onError: () => {},
-        }),
-      );
-    }
+    void startLiveRefreshStream();
   });
 
   onUnmounted(() => {

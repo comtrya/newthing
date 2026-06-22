@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   getGraphQLClient,
+  getSessionToken,
   invokeOp,
   subscribeLiveEvents,
 } from "@comtrya/sdk-core";
@@ -91,11 +92,17 @@ const totalOpenPulls = computed(() =>
  * Per-repo open-issue counts. Hydrated in parallel via
  * `invokeOp("ext_issues", "issues", "list-issues")` filtered to the
  * repo URI, counted client-side for OPEN + REOPENED. Live-synced
- * via the same SSE topics App.vue + RepoHome listen to, so opening
- * an issue from another tab updates the row's chip without reload.
+ * from one filtered SSE stream, so opening an issue from another tab
+ * updates the row's chip without reload.
  */
 const openIssuesByRepoId = ref<Record<string, number>>({});
 const issueUnsubscribers: Array<() => void> = [];
+let issueStreamStarting = false;
+const ISSUE_COUNT_EVENT_TYPES = new Set([
+  "dev.comtrya.issues.opened",
+  "dev.comtrya.issues.closed",
+  "dev.comtrya.issues.reopened",
+]);
 const workspaceId = computed(() => payload.value?.workspace?.id ?? null);
 
 function repoUri(workspaceUlid: string, repositoryUlid: string): string {
@@ -156,6 +163,30 @@ async function refreshAllOpenIssues(): Promise<void> {
     refreshWorkspaceOpenIssues(),
     ...repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
   ]);
+}
+
+async function startIssueCountStream(): Promise<void> {
+  if (issueUnsubscribers.length > 0 || issueStreamStarting) return;
+  issueStreamStarting = true;
+  let token: string | undefined;
+  try {
+    token = await getSessionToken();
+  } catch {
+    token = undefined;
+  } finally {
+    issueStreamStarting = false;
+  }
+  issueUnsubscribers.push(
+    subscribeLiveEvents({
+      token,
+      onEvent: (event) => {
+        if (ISSUE_COUNT_EVENT_TYPES.has(event.eventType)) {
+          void refreshAllOpenIssues();
+        }
+      },
+      onError: () => {},
+    }),
+  );
 }
 
 /**
@@ -285,23 +316,7 @@ let loadController: AbortController | undefined;
 
 onMounted(() => {
   void loadWorkspaceHome();
-  // The per-repo open-issue counts are independent of the
-  // workspace-wide per-project counts; iter 76 leaves only this
-  // subscription here. The `useProjectCounts` composable owns
-  // the seven topics that mutate project-tagged work.
-  for (const type of [
-    "dev.comtrya.issues.opened",
-    "dev.comtrya.issues.closed",
-    "dev.comtrya.issues.reopened",
-  ]) {
-    issueUnsubscribers.push(
-      subscribeLiveEvents({
-        type,
-        onEvent: () => void refreshAllOpenIssues(),
-        onError: () => {},
-      }),
-    );
-  }
+  void startIssueCountStream();
 });
 onUnmounted(() => {
   loadController?.abort();

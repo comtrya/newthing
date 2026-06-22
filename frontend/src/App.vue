@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   getGraphQLClient,
   invokeOp,
   openPalette,
   setActiveWorkspaceId,
-  subscribeLiveEvents,
 } from "@comtrya/sdk-core";
 import { useShortcuts } from "@comtrya/sdk-vue";
 import CommandPalette from "./components/CommandPalette.vue";
@@ -26,8 +25,6 @@ import {
   rebaseExtensionHrefToRepo,
 } from "./repo-workbench-routes";
 import { workspaceWorkLinks } from "./workspace-work-links";
-
-const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
 interface ShellRepositorySummary {
   id: string;
@@ -56,26 +53,6 @@ const workspace = ref<{
   id: null,
   name: "Workspace",
   repositories: [],
-});
-
-/**
- * Live-event subscription state. The topbar only surfaces it when
- * the stream is in trouble — "connecting" briefly on first load,
- * "error" when the SSE source disconnects. Healthy "live" / "idle"
- * is the default and shows nothing (no chrome the user has to
- * decode just to know things are fine).
- */
-const liveState = ref<"connecting" | "live" | "idle" | "error">("connecting");
-let unsubscribeLiveEvents: (() => void) | undefined;
-const degradedLiveState = computed<"connecting" | "error" | null>(() => {
-  if (liveState.value === "connecting") return "connecting";
-  if (liveState.value === "error") return "error";
-  return null;
-});
-const liveStateTitle = computed(() => {
-  if (liveState.value === "error") return "Live event stream disconnected.";
-  if (liveState.value === "connecting") return "Connecting to the live event stream…";
-  return "Live event stream is connected.";
 });
 
 const isMac =
@@ -181,27 +158,6 @@ const shortcutsVisible = ref(false);
 onMounted(() => {
   void loadAuthProviders();
   void loadShellSummary();
-  const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
-  if (!token) {
-    liveState.value = "idle";
-  } else {
-    unsubscribeLiveEvents = subscribeLiveEvents({
-      token,
-      onEvent: () => {
-        liveState.value = "live";
-      },
-      onError: () => {
-        liveState.value = "error";
-      },
-    });
-    window.setTimeout(() => {
-      if (liveState.value === "connecting") liveState.value = "idle";
-    }, 1500);
-  }
-});
-
-onUnmounted(() => {
-  unsubscribeLiveEvents?.();
 });
 
 useShortcuts({
@@ -221,7 +177,8 @@ async function loadShellSummary(): Promise<void> {
     const envelope = await getGraphQLClient().query<ShellSummaryPayload>(
       "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
     );
-    viewerAuthenticated.value = envelope.viewer?.authenticated === true;
+    const authenticated = envelope.viewer?.authenticated === true;
+    viewerAuthenticated.value = authenticated;
     workspace.value = {
       ...workspace.value,
       id: envelope.workspace?.id ?? workspace.value.id,
@@ -316,11 +273,6 @@ async function loadAuthProviders(): Promise<void> {
         <kbd>{{ cmdLabel }} K</kbd>
       </button>
       <div class="topbar-actions">
-        <span
-          v-if="degradedLiveState"
-          :class="['chip', degradedLiveState === 'error' ? 'err' : '']"
-          :title="liveStateTitle"
-        >{{ degradedLiveState }}</span>
         <span
           v-if="viewerAuthenticated"
           class="chip ok"

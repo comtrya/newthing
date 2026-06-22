@@ -13,10 +13,13 @@
 
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink } from "vue-router";
-import { getGraphQLClient, subscribeLiveEvents, type LiveEvent } from "@comtrya/sdk-core";
+import {
+  getGraphQLClient,
+  getSessionToken,
+  subscribeLiveEvents,
+  type LiveEvent,
+} from "@comtrya/sdk-core";
 import { activityEmptyStateCopy } from "../activity-empty-state";
-
-const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
 
 /**
  * Optional Project scope. When set, the stream renders only events
@@ -69,6 +72,7 @@ const statusLabel = computed(() => {
 });
 
 let unsubscribe: (() => void) | undefined;
+let liveStreamStarting = false;
 let highlightTimers: number[] = [];
 
 // Pre-format all filtered items once so the template doesn't call
@@ -114,26 +118,6 @@ const filtered = computed(() => {
 
 onMounted(() => {
   void bootstrap();
-  const token = window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY) ?? undefined;
-  hasLiveSession.value = Boolean(token);
-  if (!token) {
-    status.value = "idle";
-    return;
-  }
-  unsubscribe = subscribeLiveEvents({
-    token,
-    onEvent: (event) => {
-      status.value = "live";
-      ingest(toActivityItem(event, true));
-    },
-    onError: () => {
-      status.value = "error";
-      error.value = "Live stream disconnected.";
-    },
-  });
-  window.setTimeout(() => {
-    if (status.value === "connecting") status.value = "idle";
-  }, 1500);
 });
 
 onUnmounted(() => {
@@ -148,8 +132,8 @@ async function bootstrap(): Promise<void> {
       viewer?: { authenticated?: boolean };
       workspace?: { events?: unknown[] };
     }>("{ viewer { authenticated } workspace { events } }");
-    hasLiveSession.value =
-      hasLiveSession.value || data.viewer?.authenticated === true;
+    const authenticated = data.viewer?.authenticated === true;
+    hasLiveSession.value = hasLiveSession.value || authenticated;
     const initial = (data.workspace?.events ?? [])
       .map((raw) => {
         const live = normalizeBootstrapEvent(raw);
@@ -159,9 +143,47 @@ async function bootstrap(): Promise<void> {
     if (initial.length > 0) {
       events.value = sortAndDedupe([...initial, ...events.value]);
     }
+    if (authenticated) {
+      void startLiveStream();
+    } else {
+      status.value = "idle";
+    }
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught);
+    if (status.value === "connecting") {
+      status.value = "idle";
+    }
   }
+}
+
+async function startLiveStream(): Promise<void> {
+  if (unsubscribe || liveStreamStarting) return;
+  liveStreamStarting = true;
+  let token: string | undefined;
+  try {
+    token = await getSessionToken();
+  } catch {
+    token = undefined;
+  } finally {
+    liveStreamStarting = false;
+  }
+  hasLiveSession.value = true;
+  status.value = "connecting";
+  unsubscribe = subscribeLiveEvents({
+    token,
+    onOpen: () => {
+      status.value = "live";
+      error.value = null;
+    },
+    onEvent: (event) => {
+      status.value = "live";
+      ingest(toActivityItem(event, true));
+    },
+    onError: () => {
+      status.value = "error";
+      error.value = "Live stream disconnected.";
+    },
+  });
 }
 
 function ingest(item: ActivityItem): void {
