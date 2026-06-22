@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { getGraphQLClient } from "@comtrya/sdk-core";
 import Chip from "../components/Chip.vue";
 import Icon from "../components/Icon.vue";
+import {
+  filterRepositories,
+  repositoryCountLabel,
+  type RepositoryListRow,
+} from "./repos-list";
 
-interface RepoSummary {
+interface RepoSummary extends RepositoryListRow {
   id: string;
   name: string;
   path: string;
@@ -14,27 +20,20 @@ interface RepoSummary {
 const repos = ref<RepoSummary[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+const filterText = ref("");
 
 async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const response = await fetch("/graphql", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query:
-          "{ workspace { repositories { id name path groups openPullRequests } } }",
-      }),
-    });
-    const envelope = (await response.json()) as {
-      data?: {
-        workspace?: {
-          repositories?: RepoSummary[];
-        };
-      };
-    };
-    repos.value = envelope.data?.workspace?.repositories ?? [];
+    const envelope = await getGraphQLClient().query<{
+      workspace?: {
+        repositories?: RepoSummary[];
+      } | null;
+    }>(
+      "{ workspace { repositories { id name path groups openPullRequests } } }",
+    );
+    repos.value = envelope.workspace?.repositories ?? [];
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
     repos.value = [];
@@ -45,8 +44,11 @@ async function load() {
 
 onMounted(load);
 
-const sortedRepos = computed(() =>
-  [...repos.value].sort((a, b) => a.path.localeCompare(b.path)),
+const visibleRepos = computed(() =>
+  filterRepositories(repos.value, filterText.value),
+);
+const repositoryCount = computed(() =>
+  repositoryCountLabel(repos.value.length, visibleRepos.value.length),
 );
 </script>
 
@@ -54,10 +56,21 @@ const sortedRepos = computed(() =>
   <div class="repos-page">
     <header class="hairline-b repos-head">
       <div class="repos-head-titles">
-        <div class="eyebrow">{{ sortedRepos.length }} repositories in this workspace</div>
+        <div class="eyebrow">{{ repositoryCount }}</div>
         <h1 class="repos-title">Repositories</h1>
       </div>
       <div class="repos-head-actions">
+        <label class="repo-filter">
+          <Icon name="search" aria-hidden="true" />
+          <input
+            v-model="filterText"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Find a repository..."
+            aria-label="Find a repository"
+          />
+        </label>
         <RouterLink to="/new" class="btn btn-primary">
           <Icon name="plus" /><span>New repository</span>
         </RouterLink>
@@ -67,20 +80,31 @@ const sortedRepos = computed(() =>
     <div class="repos-body no-scrollbar">
       <p v-if="loading" class="repos-state">Loading repositories…</p>
       <p v-else-if="error" class="repos-state repos-state-err" role="alert">{{ error }}</p>
-      <p v-else-if="sortedRepos.length === 0" class="repos-state">
+      <p v-else-if="repos.length === 0" class="repos-state">
         No repositories yet. <RouterLink to="/new" class="repos-state-link">Create a repository</RouterLink>
         to get started.
       </p>
+      <p v-else-if="visibleRepos.length === 0" class="repos-state">
+        No repositories match "{{ filterText }}".
+        <button type="button" class="repos-state-button" @click="filterText = ''">Clear search</button>
+      </p>
 
       <ul v-else class="repo-list">
-        <li v-for="repo in sortedRepos" :key="repo.id" class="repo-card glass-thin">
-          <RouterLink :to="`/r/${repo.path}`" class="repo-link">
+        <li v-for="repo in visibleRepos" :key="repo.id" class="repo-card glass-thin">
+          <RouterLink
+            :to="`/r/${repo.path}`"
+            class="repo-link"
+            :aria-label="`Open repository ${repo.path}`"
+          >
             <div class="repo-row">
-              <span class="repo-icon"><Icon name="folder" /></span>
-              <span class="repo-path">{{ repo.path }}</span>
+              <span class="repo-icon"><Icon name="folder" aria-hidden="true" /></span>
+              <span class="repo-path-block">
+                <span class="repo-path">{{ repo.path }}</span>
+                <span v-if="repo.groups.length > 0" class="repo-groups">{{ repo.groups.join(" / ") }}</span>
+              </span>
               <span class="spacer" />
               <Chip v-if="(repo.openPullRequests ?? 0) > 0" :mono="true" tone="info">
-                {{ repo.openPullRequests }} open
+                {{ repo.openPullRequests }} open pull {{ repo.openPullRequests === 1 ? "request" : "requests" }}
               </Chip>
             </div>
           </RouterLink>
@@ -115,8 +139,37 @@ const sortedRepos = computed(() =>
 }
 .repos-head-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
+
+.repo-filter {
+  width: min(320px, 32vw);
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--fg-3);
+}
+.repo-filter:focus-within {
+  border-color: var(--accent);
+  color: var(--fg-2);
+}
+.repo-filter input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.repo-filter input::placeholder { color: var(--fg-3); }
 
 .repos-body {
   flex: 1;
@@ -132,6 +185,14 @@ const sortedRepos = computed(() =>
 .repos-state-link {
   color: var(--accent);
   text-decoration: none;
+}
+.repos-state-button {
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
 .repo-list {
@@ -158,12 +219,22 @@ const sortedRepos = computed(() =>
   gap: 10px;
 }
 .repo-icon { color: var(--fg-3); display: inline-flex; }
+.repo-path-block {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .repo-path {
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 600;
   color: var(--fg);
-  flex-shrink: 0;
+  overflow-wrap: anywhere;
+}
+.repo-groups {
+  color: var(--fg-3);
+  font-size: 11px;
 }
 .spacer { flex: 1; }
 .repo-description {
@@ -175,6 +246,8 @@ const sortedRepos = computed(() =>
 
 @media (max-width: 640px) {
   .repos-head { padding: 16px 14px; flex-direction: column; align-items: stretch; gap: 12px; }
+  .repos-head-actions { flex-direction: column; align-items: stretch; }
+  .repo-filter { width: auto; }
   .repos-body { padding: 14px; }
   .repo-list { grid-template-columns: 1fr; }
 }
