@@ -21,6 +21,7 @@ import {
 import { fetchOidcProviders, type OidcProvider } from "./auth";
 import {
   repoBaseFromRouteParams,
+  repoSegmentsFromRouteParams,
   rebaseExtensionHrefToRepo,
 } from "./repo-workbench-routes";
 import { workspaceWorkLinks } from "./workspace-work-links";
@@ -145,16 +146,8 @@ const workspaceWorkItems = computed(() =>
  * null on non-repo routes.
  */
 const activeRepoPath = computed<string | null>(() => {
-  const groupsParam = route.params.groups;
-  const repoParam = route.params.repo;
-  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
-  const groups = Array.isArray(groupsParam)
-    ? groupsParam.map(String)
-    : typeof groupsParam === "string" && groupsParam.length > 0
-      ? [groupsParam]
-      : [];
-  if (groups.length === 0) return null;
-  return `${groups.join("/")}/${repoParam}`;
+  const segments = repoSegmentsFromRouteParams(route.params);
+  return segments.length > 0 ? segments.join("/") : null;
 });
 
 const shortcutsVisible = ref(false);
@@ -426,6 +419,7 @@ async function loadAuthProviders(): Promise<void> {
               :key="entry.path"
               :to="entry.path"
               class="sb-recent"
+              data-smoke="recent-visit"
               :title="entry.path"
             >{{ entry.label }}</RouterLink>
           </nav>

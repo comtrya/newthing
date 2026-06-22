@@ -15,6 +15,48 @@ import { ref, type Ref } from "vue";
 
 const STORAGE_KEY = "comtrya.recentRoutes";
 const MAX_ENTRIES = 5;
+const DIRECT_SHELL_ROUTES = new Set([
+  "/",
+  "/inbox",
+  "/new",
+  "/repos",
+  "/pipelines",
+  "/releases",
+  "/admin",
+  "/admin/access",
+  "/admin/storage",
+  "/instance",
+  "/health",
+  "/settings",
+  "/account",
+  "/account/git-tokens",
+  "/account/ssh-keys",
+]);
+
+const REPO_SURFACE_LABELS: Record<string, string> = {
+  code: "Code",
+  branches: "Branches",
+  tags: "Tags",
+  commits: "Commits",
+  pulls: "Pull requests",
+  issues: "Issues",
+  checks: "Checks",
+  epics: "Epics",
+  docs: "Docs",
+  sprints: "Kanban",
+  pipelines: "Actions",
+  releases: "Releases",
+  config: "Config",
+};
+
+const WORKSPACE_SURFACE_LABELS: Record<string, string> = {
+  issues: "Issues",
+  pulls: "Pull requests",
+  checks: "Checks",
+  epics: "Epics",
+  docs: "Specs",
+  sprints: "Kanban",
+};
 
 export interface RecentEntry {
   /** Route path (without origin). Used as both key and href. */
@@ -35,7 +77,7 @@ function safeRead(): RecentEntry[] {
     return parsed.filter(
       (e): e is RecentEntry =>
         e && typeof e.path === "string" && typeof e.label === "string",
-    );
+    ).map(normalizeRecentEntry);
   } catch {
     return [];
   }
@@ -61,8 +103,8 @@ export function recentRoutes(): Ref<RecentEntry[]> {
   return recents;
 }
 
-function shouldRecord(path: string): boolean {
-  if (path === "/" || path === "/inbox" || path === "/new") return false;
+export function isRecordableRoute(path: string): boolean {
+  if (DIRECT_SHELL_ROUTES.has(path)) return false;
   if (/\/new$/.test(path)) return false;
   if (/\/new\?/.test(path)) return false;
   return true;
@@ -84,11 +126,18 @@ export function clearRecents(): void {
  * the top instead of inserting a duplicate).
  */
 export function recordRouteVisit(path: string, label: string): void {
-  if (!shouldRecord(path) || !label) return;
+  if (!isRecordableRoute(path) || !label) return;
   const next = recents.value.filter((e) => e.path !== path);
   next.unshift({ path, label, timestamp: Date.now() });
   recents.value = next.slice(0, MAX_ENTRIES);
   safeWrite(recents.value);
+}
+
+export function normalizeRecentEntry(entry: RecentEntry): RecentEntry {
+  return {
+    ...entry,
+    label: labelForRoute(entry.path) || entry.label,
+  };
 }
 
 /**
@@ -107,10 +156,22 @@ export function labelForRoute(path: string): string {
   const epicMatch = path.match(/^\/x\/epics\/(?:[^/]+\/)?(epc_[^/?#]+)/);
   if (epicMatch) return "epic " + (epicMatch[1] ?? "").slice(4, 11);
 
+  const workspaceSurfaceMatch = path.match(/^\/x\/([^/?#]+)(?:\/|$)/);
+  const workspaceSurface = workspaceSurfaceMatch?.[1] ?? "";
+  if (WORKSPACE_SURFACE_LABELS[workspaceSurface]) {
+    return WORKSPACE_SURFACE_LABELS[workspaceSurface];
+  }
+
   const repoTabMatch = path.match(
-    new RegExp("^/r/(.+?)/(code|pulls|issues|checks|epics|config)(?:/|$)"),
+    new RegExp(
+      "^/r/(.+?)/(" + Object.keys(REPO_SURFACE_LABELS).join("|") + ")(?:/|$)",
+    ),
   );
-  if (repoTabMatch) return (repoTabMatch[1] ?? "") + "/" + (repoTabMatch[2] ?? "");
+  if (repoTabMatch) {
+    const repo = repoTabMatch[1] ?? "";
+    const surface = repoTabMatch[2] ?? "";
+    return repo + "/" + (REPO_SURFACE_LABELS[surface] ?? surface);
+  }
 
   const repoMatch = path.match(/^\/r\/([^?#]+?)\/?$/);
   if (repoMatch) return repoMatch[1] ?? path;
