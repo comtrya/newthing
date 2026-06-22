@@ -50,8 +50,7 @@ pub struct ExtensionInstallConfig {
 /// already rejects any prefix starting with `_` — the entry was permanently
 /// unreachable and only existed as defensive documentation (#122 P3).
 pub const RESERVED_ROUTE_PREFIXES: &[&str] = &[
-    "r", "x", "api", "auth", "git", "graphql", "events", "readyz", "healthz", "instance",
-    "forge-ui",
+    "r", "x", "api", "auth", "git", "graphql", "events", "readyz", "healthz", "instance", "ui-ext",
 ];
 
 fn validate_route_prefix(prefix: &str) -> CoreResult<()> {

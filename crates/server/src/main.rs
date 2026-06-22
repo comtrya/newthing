@@ -54,7 +54,7 @@ mod generated_dispatch {
     include!(concat!(env!("OUT_DIR"), "/dispatch_table.rs"));
 }
 
-const UI_EXTENSION_BASE_PATH: &str = "/forge-ui";
+const UI_EXTENSION_BASE_PATH: &str = "/ui-ext";
 
 #[derive(Clone)]
 struct PureRustGitState {
@@ -502,11 +502,11 @@ fn router(state: AppState) -> Router {
         // is `not_found_or_unsupported`. Discovered while smoke-
         // testing the new Dockerfile (#12).
         .route(
-            "/forge-ui/session",
+            "/ui-ext/session",
             post(extension_session).layer(RequestBodyLimitLayer::new(SESSION_BODY_LIMIT)),
         )
-        .route("/forge-ui/:module/meta.json", get(extension_manifest))
-        .route("/forge-ui/:module/files/*path", get(extension_asset))
+        .route("/ui-ext/:module/meta.json", get(extension_manifest))
+        .route("/ui-ext/:module/files/*path", get(extension_asset))
         // `/r/<repo>` is the single forge URL: the SPA browses it and git
         // clients clone/push it. The handler branches on git smart-HTTP
         // markers; non-git browse traffic is owned by the SPA edge and falls
@@ -534,7 +534,7 @@ fn router(state: AppState) -> Router {
 //     `if_not_present` so the per-asset CSP installed by
 //     `apply_extension_asset_headers` (which uses
 //     `frame-ancestors 'self'` so extension UIs can frame their own
-//     assets) wins on the `/forge-ui/.../files/*` route. Every
+//     assets) wins on the `/ui-ext/.../files/*` route. Every
 //     other route inherits the strict default.
 //   * `Strict-Transport-Security` is only applied when TLS terminates
 //     at the server (`tls_terminated == true`). Plain-HTTP development
@@ -4304,6 +4304,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
         })
         .unwrap_or_default();
     let query_str = payload.get("query").and_then(Value::as_str).unwrap_or("");
+    let include_comtrya_config = query_requests_field(query_str, "comtryaConfig");
     let mut repository_by_path =
         resolve_repository_by_path(&repositories_value, &path_segments).unwrap_or(json!(null));
     // Enrich repositoryByPath with derived fields (groups, on-disk git data)
@@ -4341,7 +4342,7 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
             if query_requests_field(query_str, "bookmarks") {
                 annotate_bookmarks_with_resolution(repo_obj, &git_dir);
             }
-            if query_requests_field(query_str, "comtryaConfig") {
+            if include_comtrya_config {
                 repo_obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
             }
 
@@ -4399,6 +4400,9 @@ fn graphql_response(state: AppState, headers: HeaderMap, payload: Value) -> Resp
                             &schemas_for_overlay,
                         );
                         apply_repository_cue_overrides(obj, &comtrya_config);
+                        if include_comtrya_config {
+                            obj.insert("comtryaConfig".to_string(), (*comtrya_config).clone());
+                        }
                         annotate_bookmarks_with_resolution(obj, &git_dir);
                     }
                 }
@@ -4743,7 +4747,7 @@ async fn events_session(State(state): State<AppState>, headers: HeaderMap) -> Re
 }
 
 async fn extension_session(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    issue_session_response(state, headers, "/forge-ui/session")
+    issue_session_response(state, headers, "/ui-ext/session")
 }
 
 fn issue_session_response(state: AppState, headers: HeaderMap, route: &str) -> Response {
@@ -9792,7 +9796,7 @@ pub fn validate_ui_manifest_from_value(value: &serde_json::Value) -> Result<UiMa
         .entry
         .starts_with(&format!("{UI_EXTENSION_BASE_PATH}/"))
     {
-        return Err("entry must be served from /forge-ui/".into());
+        return Err("entry must be served from /ui-ext/".into());
     }
     if !m.assets.entry_integrity.starts_with("sha256-") {
         return Err("entryIntegrity must be sha256-prefixed".into());
@@ -13004,7 +13008,7 @@ mod tests {
         ui["id"] = json!("ext_local_wit");
         ui["extension"] = json!("local-wit");
         ui["assets"]["entry"] = json!(format!(
-            "/forge-ui/{}/files/index.js",
+            "/ui-ext/{}/files/index.js",
             ui_module_token("ext_local_wit")
         ));
         fs::write(&ui_manifest_path, serde_json::to_vec_pretty(&ui).unwrap()).unwrap();
@@ -13776,7 +13780,7 @@ mod tests {
             "version": "0.1.0",
             "publisher": "comtrya-dev",
             "assets": {
-                "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_test")),
+                "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_test")),
                 "entryIntegrity": "sha256-abc",
                 "styles": []
             },
@@ -13795,7 +13799,7 @@ mod tests {
             "schemaVersion": "comtrya.ui-extension/v1",
             "id": "ext_sample",
             "extension": "sample",
-            "assets": { "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_sample")), "entryIntegrity": "sha256-xyz", "styles": [] },
+            "assets": { "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_sample")), "entryIntegrity": "sha256-xyz", "styles": [] },
             "routes": [],
             "slots": [{ "slot": "repository.code", "element": "x-el", "requiredPermission": "code.read" }]
         });
@@ -13814,7 +13818,7 @@ mod tests {
         let v2 = serde_json::json!({
             "schemaVersion": "comtrya.ui-extension/v2",
             "id": "ext_test", "extension": "test", "version": "0.1.0", "publisher": "comtrya-dev",
-            "assets": { "entry": format!("/forge-ui/{}/files/index.js", ui_module_token("ext_test")), "entryIntegrity": "sha256-abc", "styles": [] },
+            "assets": { "entry": format!("/ui-ext/{}/files/index.js", ui_module_token("ext_test")), "entryIntegrity": "sha256-abc", "styles": [] },
             "permissions": [],
             "contributes": { "slots": ["bogus"], "routes": false }
         });
@@ -15200,7 +15204,7 @@ mod tests {
                 git_state: PureRustGitState::test_default(),
             }),
             headers,
-            json!({"query": "{ workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt } } }"}).to_string(),
+            json!({"query": "{ workspace { repositories { id name groups openPullRequests checkSummary { passed total } lastCommitAt comtryaConfig } } }"}).to_string(),
         )
         .await;
 
@@ -15241,6 +15245,17 @@ mod tests {
             assert!(
                 repo.get("lastCommitAt").is_some(),
                 "lastCommitAt must be present"
+            );
+            let projects = repo
+                .get("comtryaConfig")
+                .and_then(|config| config.get("projects"))
+                .and_then(Value::as_array)
+                .expect("comtryaConfig.projects must be an array");
+            assert!(
+                projects
+                    .iter()
+                    .any(|project| project.get("name") == Some(&json!("kernel"))),
+                "repository summary must include evaluated CUE projects"
             );
         }
     }
@@ -15928,7 +15943,7 @@ mod tests {
         let addr = spawn_test_server(dev_runtime_no_extensions()).await;
         let oversized = "a".repeat(SESSION_BODY_LIMIT + 1);
         let response = reqwest::Client::new()
-            .post(format!("http://{addr}/forge-ui/session"))
+            .post(format!("http://{addr}/ui-ext/session"))
             .header("content-type", "application/json")
             .body(oversized)
             .send()
@@ -16102,7 +16117,7 @@ mod tests {
 
     #[tokio::test]
     async fn extension_asset_csp_not_overridden_by_global_layer() {
-        // /forge-ui/.../files/* installs its own per-route CSP
+        // /ui-ext/.../files/* installs its own per-route CSP
         // (`frame-ancestors 'self'`) via `apply_extension_asset_headers`.
         // The global layer uses `if_not_present` so the asset CSP must
         // survive. Hitting a missing asset still goes through the
@@ -16110,7 +16125,7 @@ mod tests {
         let addr = spawn_security_test_server(dev_runtime_no_extensions()).await;
         let response = reqwest::Client::new()
             .get(format!(
-                "http://{addr}/forge-ui/{}/files/index.js",
+                "http://{addr}/ui-ext/{}/files/index.js",
                 ui_module_token("ext_issues")
             ))
             .send()

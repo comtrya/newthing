@@ -104,7 +104,7 @@ if [[ -f "$root/ui/package.json" ]]; then
   if [[ -f "$ui_manifest" ]]; then
     entry="$(jq -r '.assets.entry' "$ui_manifest")"
     module_token="$(printf '%s' "$ext_id" | od -An -tx1 | tr -d ' \n')"
-    expected_prefix="/forge-ui/$module_token/files/"
+    expected_prefix="/ui-ext/$module_token/files/"
     if [[ "$entry" == "$expected_prefix"* ]]; then
       entry_rel="${entry#"$expected_prefix"}"
       entry_path="$root/assets/$entry_rel"

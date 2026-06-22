@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
+  getGraphQLClient,
   invokeOp,
   openPalette,
   setActiveWorkspaceId,
@@ -34,6 +35,17 @@ interface ShellRepositorySummary {
   path: string;
   groups: string[];
   openPullRequests: number | null;
+}
+
+interface ShellSummaryPayload {
+  viewer?: {
+    authenticated?: boolean;
+  };
+  workspace?: {
+    id?: string;
+    name?: string;
+    repositories?: ShellRepositorySummary[];
+  };
 }
 
 const workspace = ref<{
@@ -206,35 +218,17 @@ useShortcuts({
 
 async function loadShellSummary(): Promise<void> {
   try {
-    const response = await fetch("/graphql", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query:
-          "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
-      }),
-    });
-    const envelope = (await response.json()) as {
-      data?: {
-        viewer?: {
-          authenticated?: boolean;
-        };
-        workspace?: {
-          id?: string;
-          name?: string;
-          repositories?: ShellRepositorySummary[];
-        };
-      };
-    };
-    viewerAuthenticated.value = envelope.data?.viewer?.authenticated === true;
+    const envelope = await getGraphQLClient().query<ShellSummaryPayload>(
+      "{ viewer { authenticated } workspace { id name repositories { id name path groups openPullRequests } } }",
+    );
+    viewerAuthenticated.value = envelope.viewer?.authenticated === true;
     workspace.value = {
       ...workspace.value,
-      id: envelope.data?.workspace?.id ?? workspace.value.id,
-      name: envelope.data?.workspace?.name ?? workspace.value.name,
-      repositories: envelope.data?.workspace?.repositories ?? [],
+      id: envelope.workspace?.id ?? workspace.value.id,
+      name: envelope.workspace?.name ?? workspace.value.name,
+      repositories: envelope.workspace?.repositories ?? [],
     };
-    const workspaceId = envelope.data?.workspace?.id;
+    const workspaceId = envelope.workspace?.id;
     if (workspaceId) {
       // Publish to the SDK store BEFORE the failing-checks fan-out so
       // composables that subscribe (`useWorkspaceContext`, the

@@ -258,8 +258,8 @@ function extensionEntryUrl(manifest: UiManifestV2): string {
 }
 
 function manifestUrlFor(extension: InstalledExtension): string {
-  if (!extension.manifest.startsWith("/forge-ui/")) {
-    throw new Error(`extension ${extension.id} manifest must be served from /forge-ui/`);
+  if (!extension.manifest.startsWith("/ui-ext/")) {
+    throw new Error(`extension ${extension.id} manifest must be served from /ui-ext/`);
   }
   return extension.manifest;
 }

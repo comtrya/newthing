@@ -9,18 +9,18 @@ const extension = (manifest: string): InstalledExtension => ({
 });
 
 describe("extension loader", () => {
-  test("uses the kernel-provided forge-ui manifest URL", () => {
+  test("uses the kernel-provided ui-ext manifest URL", () => {
     expect(
       _extensionLoaderTest.manifestUrlFor(
-        extension("/forge-ui/6578745f776f726b73706163655f686f6d65/meta.json"),
+        extension("/ui-ext/6578745f776f726b73706163655f686f6d65/meta.json"),
       ),
-    ).toBe("/forge-ui/6578745f776f726b73706163655f686f6d65/meta.json");
+    ).toBe("/ui-ext/6578745f776f726b73706163655f686f6d65/meta.json");
   });
 
   test("rejects non-forge manifest URLs", () => {
     expect(() =>
       _extensionLoaderTest.manifestUrlFor(extension("/assets/ext_workspace_home.json"))
-    ).toThrow("manifest must be served from /forge-ui/");
+    ).toThrow("manifest must be served from /ui-ext/");
   });
 
   test("surfaces hung loader stages as bounded failures", async () => {

@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { getSessionToken, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
+import {
+  getGraphQLClient,
+  invokeOp,
+  subscribeLiveEvents,
+} from "@comtrya/sdk-core";
 import {
   classifyPrincipal,
-  fetchComtryaProjects,
   useProjectCounts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
@@ -21,6 +24,9 @@ interface RepositorySummary {
   visibility?: string | null;
   vcs?: string | null;
   updated?: string | null;
+  comtryaConfig?: {
+    projects?: unknown[];
+  } | null;
 }
 
 interface WorkspaceHomePayload {
@@ -49,14 +55,10 @@ const WORKSPACE_HOME_QUERY = `query ShellWorkspaceHome {
     name
     repositories {
       id name path groups description openPullRequests
-      defaultBranch visibility vcs updated
+      defaultBranch visibility vcs updated comtryaConfig
     }
   }
   extensionInstallations { id routePrefix }
-}`;
-
-const WORKSPACE_PROJECTS_QUERY = `query WorkspaceHomeProjects($segments: [String!]!) {
-  workspace { repositoryByPath(segments: $segments) { comtryaConfig } }
 }`;
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
@@ -163,11 +165,10 @@ async function refreshAllOpenIssues(): Promise<void> {
  * project from the workspace home without having to first know
  * which repo it lives in.
  *
- * Resolved lazily after repos load. Uses the iter 63 sdk-vue
- * helper for the actual fetch (one query per repo; the kernel's
- * `workspace.repositories[] { comtryaConfig }` listing doesn't
- * evaluate CUE per repo today). Failures per-repo are silent so
- * one bad repo doesn't break the panel.
+ * Resolved from the same workspace GraphQL payload that renders the
+ * repository list. The kernel evaluates per-repo CUE while building
+ * workspace.repositories, so the Projects rail no longer waits on a
+ * second per-repo query fan-out before showing useful work.
  */
 interface ProjectRow {
   /** Repo path (`comtrya/dogfood`) — disambiguates same-named projects. */
@@ -177,134 +178,36 @@ interface ProjectRow {
   project: ComtryaProject;
 }
 
-const projectRows = ref<ProjectRow[]>([]);
-const projectsLoadState = ref<"idle" | "loading" | "ready">("idle");
-const PROJECT_FETCH_TIMEOUT_MS = 2_500;
-let projectsLoadRun = 0;
-
-interface WorkspaceProjectsPayload {
-  workspace?: {
-    repositoryByPath?: {
-      comtryaConfig?: {
-        projects?: unknown[];
-      } | null;
-    } | null;
-  };
-}
-
 function isComtryaProject(value: unknown): value is ComtryaProject {
   return value !== null && typeof value === "object";
 }
 
-async function sessionTokenWithTimeout(): Promise<string | undefined> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      getSessionToken(),
-      new Promise<undefined>((resolve) => {
-        timeoutId = setTimeout(() => resolve(undefined), PROJECT_FETCH_TIMEOUT_MS);
-      }),
-    ]);
-  } catch {
-    return undefined;
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-  }
-}
-
-async function fetchProjectsViaWorkspaceGraphQL(segments: string[]): Promise<ComtryaProject[]> {
-  try {
-    const token = await sessionTokenWithTimeout();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), PROJECT_FETCH_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch("/graphql", {
-        method: "POST",
-        credentials: "include",
-        signal: controller.signal,
-        headers,
-        body: JSON.stringify({
-          query: WORKSPACE_PROJECTS_QUERY,
-          variables: { segments },
-        }),
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
-    const envelope = (await response.json()) as {
-      data?: WorkspaceProjectsPayload;
-      errors?: Array<{ message?: string }>;
-    };
-    if (!response.ok || envelope.errors?.length) return [];
-    const projects =
-      envelope.data?.workspace?.repositoryByPath?.comtryaConfig?.projects ?? [];
-    return projects.filter(isComtryaProject);
-  } catch {
-    return [];
-  }
-}
-
-async function fetchProjectsWithTimeout(segments: string[]): Promise<ComtryaProject[]> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  let projects: ComtryaProject[] | null = null;
-  try {
-    projects = await Promise.race([
-      fetchComtryaProjects(segments),
-      new Promise<null>((resolve) => {
-        timeoutId = setTimeout(() => resolve(null), PROJECT_FETCH_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-  }
-  return projects && projects.length > 0
-    ? projects
-    : fetchProjectsViaWorkspaceGraphQL(segments);
-}
-
-async function projectRowsForRepository(repo: RepositorySummary): Promise<ProjectRow[]> {
+function projectRowsForRepository(repo: RepositorySummary): ProjectRow[] {
   const segments = (repo.path ?? "")
     .split("/")
     .filter(Boolean)
     .map(decodeURIComponent);
   if (segments.length === 0) return [];
-  const projects = await fetchProjectsWithTimeout(segments);
-  return projects.map((project): ProjectRow => ({
-    repoPath: repo.path,
-    segments,
-    project,
-  }));
+  const projects = repo.comtryaConfig?.projects ?? [];
+  return projects
+    .filter(isComtryaProject)
+    .filter((project) => Boolean(project.name))
+    .map((project): ProjectRow => ({
+      repoPath: repo.path,
+      segments,
+      project,
+    }));
 }
 
-async function refreshAllProjects(): Promise<void> {
-  const loadRun = ++projectsLoadRun;
-  if (repositories.value.length === 0) {
-    projectRows.value = [];
-    projectsLoadState.value = "ready";
-    return;
-  }
-  projectsLoadState.value = "loading";
-  try {
-    const fetched = await Promise.all(
-      repositories.value.map((repo) => projectRowsForRepository(repo)),
-    );
-    if (loadRun !== projectsLoadRun) return;
-    const rows = fetched.flat().filter((row) => Boolean(row.project.name));
-    rows.sort((a, b) => {
-      const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
-      if (byProject !== 0) return byProject;
-      return a.repoPath.localeCompare(b.repoPath);
-    });
-    projectRows.value = rows;
-  } finally {
-    if (loadRun === projectsLoadRun) {
-      projectsLoadState.value = "ready";
-    }
-  }
-}
+const projectRows = computed<ProjectRow[]>(() => {
+  const rows = repositories.value.flatMap((repo) => projectRowsForRepository(repo));
+  rows.sort((a, b) => {
+    const byProject = (a.project.name ?? "").localeCompare(b.project.name ?? "");
+    if (byProject !== 0) return byProject;
+    return a.repoPath.localeCompare(b.repoPath);
+  });
+  return rows;
+});
 
 function projectHomeHref(row: ProjectRow): string {
   const repoPath = row.segments.map(encodeURIComponent).join("/");
@@ -409,11 +312,6 @@ onUnmounted(() => {
 // Hydrate per-repo issue counts once the workspace summary resolves.
 watch([workspaceId, repositories], () => void refreshAllOpenIssues());
 
-// Hydrate the workspace-wide Projects list at the same time -
-// triggered on repos changing (mount or live insert from
-// imported-repository events).
-watch(repositories, () => void refreshAllProjects(), { immediate: true });
-
 // Per-project work counts depend on the workspace id being
 // available; refresh once that and the repo set resolve, then
 // keep the counts hot via the issue/epic SSE topics below.
@@ -437,24 +335,15 @@ async function loadWorkspaceHome(): Promise<void> {
 }
 
 async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePayload> {
-  const response = await fetch("/graphql", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query: WORKSPACE_HOME_QUERY }),
-    signal,
-  });
-  const envelope = (await response.json()) as {
-    data?: WorkspaceHomePayload;
-    errors?: Array<{ message?: string }>;
-  };
-  if (!response.ok || envelope.errors?.length) {
-    throw new Error(envelope.errors?.[0]?.message ?? response.statusText);
-  }
-  if (!envelope.data?.workspace) {
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  const data = await getGraphQLClient().query<WorkspaceHomePayload>(
+    WORKSPACE_HOME_QUERY,
+  );
+  if (signal.aborted) throw new DOMException("aborted", "AbortError");
+  if (!data.workspace) {
     throw new Error("workspace home response did not include workspace data");
   }
-  return envelope.data;
+  return data;
 }
 
 </script>
@@ -554,7 +443,7 @@ async function fetchWorkspaceHome(signal: AbortSignal): Promise<WorkspaceHomePay
               {{ projectRows.length }} project<template v-if="projectRows.length !== 1">s</template>
             </span>
           </header>
-          <p v-if="projectsLoadState === 'loading'" class="home-empty">
+          <p v-if="loadState === 'loading'" class="home-empty">
             Loading projects…
           </p>
           <p v-else-if="projectRows.length === 0" class="home-empty">

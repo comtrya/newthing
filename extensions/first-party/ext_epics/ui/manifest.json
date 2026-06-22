@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "comtrya-dev",
   "assets": {
-    "entry": "/forge-ui/6578745f6570696373/files/index.js",
+    "entry": "/ui-ext/6578745f6570696373/files/index.js",
     "entryIntegrity": "sha256-31102727bc52f48a4e47004af9b9fb4576f56ce03537f5c83a218bccbb71c648",
     "styles": []
   },
