@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   bodyExcerpt,
   classifyPrincipal as principalLabel,
   extensionHref,
   LabelPill,
+  parseQueryFilters,
   useShortcuts,
   type LabelCatalog,
 } from "@comtrya/sdk-vue";
@@ -18,6 +19,7 @@ import {
   defaultWorkspaceId,
   EXT_EPICS_ROUTE_PREFIX,
   stateTone,
+  type EpicState,
   type ExtensionRouteParams,
 } from "./types";
 
@@ -43,9 +45,34 @@ const boardTabs: Array<{ id: EpicBoardId; label: string; hint: string }> = [
   { id: "target", label: "Targets", hint: "target date health" },
 ];
 
+const BOARD_FILTER_KEYS = [
+  "is",
+  "owner",
+  "project",
+  "label",
+  "priority",
+  "milestone",
+  "target",
+] as const;
+
+const STATE_QUERY_TO_STATE: Record<string, EpicState> = {
+  planned: "PLANNED",
+  "in-progress": "IN_PROGRESS",
+  in_progress: "IN_PROGRESS",
+  inprogress: "IN_PROGRESS",
+  "at-risk": "AT_RISK",
+  at_risk: "AT_RISK",
+  atrisk: "AT_RISK",
+  done: "DONE",
+  closed: "DONE",
+  canceled: "CANCELED",
+  cancelled: "CANCELED",
+};
+
 const loadState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const error = ref<string | null>(null);
 const activeBoardId = ref<EpicBoardId>("roadmap");
+const boardSearch = ref("");
 const boards = ref<Record<EpicBoardId, EpicBoard | null>>(emptyBoards());
 const focusedEpicId = ref<string | null>(null);
 
@@ -55,7 +82,28 @@ const workspaceId = computed(() =>
   defaultWorkspaceId(),
 );
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
-const totalEpics = computed(() => activeBoard.value?.total ?? 0);
+const boardQuery = computed(() =>
+  parseQueryFilters(boardSearch.value, BOARD_FILTER_KEYS),
+);
+const hasBoardFilter = computed(() => boardSearch.value.trim().length > 0);
+const visibleBoard = computed<EpicBoard | null>(() => {
+  const board = activeBoard.value;
+  if (!board || !hasBoardFilter.value) return board;
+  const columns = board.columns.map((column) => {
+    const cards = column.cards.filter(matchesBoardQuery);
+    return { ...column, count: cards.length, cards };
+  });
+  return {
+    ...board,
+    total: columns.reduce((sum, column) => sum + column.cards.length, 0),
+    columns,
+  };
+});
+const totalEpics = computed(() => visibleBoard.value?.total ?? 0);
+const unfilteredTotalEpics = computed(() => activeBoard.value?.total ?? 0);
+const activeBoardLabel = computed(() =>
+  boardTabs.find((tab) => tab.id === activeBoardId.value)?.label ?? "Roadmap",
+);
 const newEpicHref = computed(() => {
   const base = extensionHref(EXT_EPICS_ROUTE_PREFIX, "/new", {
     repositorySegments: props.repositorySegments,
@@ -70,7 +118,7 @@ const epicCardHref = (epic: EpicBoardCard["epic"]): string =>
   });
 const orderedEpicIds = computed(() => {
   const ids: string[] = [];
-  for (const column of activeBoard.value?.columns ?? []) {
+  for (const column of visibleBoard.value?.columns ?? []) {
     for (const card of column.cards) {
       if (!ids.includes(card.epic.id)) ids.push(card.epic.id);
     }
@@ -80,7 +128,7 @@ const orderedEpicIds = computed(() => {
 const focusedCard = computed(() => {
   const id = focusedEpicId.value;
   if (!id) return null;
-  for (const column of activeBoard.value?.columns ?? []) {
+  for (const column of visibleBoard.value?.columns ?? []) {
     const card = column.cards.find((entry) => entry.epic.id === id);
     if (card) return card;
   }
@@ -88,7 +136,13 @@ const focusedCard = computed(() => {
 });
 
 onMounted(() => {
+  readUrlSearch();
+  window.addEventListener("popstate", onPopState);
   void loadBoards();
+});
+
+onUnmounted(() => {
+  window.removeEventListener("popstate", onPopState);
 });
 
 watch(workspaceId, () => void loadBoards());
@@ -96,6 +150,14 @@ watch(workspaceId, () => void loadBoards());
 watch(activeBoardId, () => {
   focusedEpicId.value = orderedEpicIds.value[0] ?? null;
 });
+
+watch(orderedEpicIds, (ids) => {
+  if (!ids.includes(focusedEpicId.value ?? "")) {
+    focusedEpicId.value = ids[0] ?? null;
+  }
+});
+
+watch(boardSearch, () => writeUrlSearch());
 
 useShortcuts({
   h: (event) => {
@@ -191,6 +253,10 @@ function setActiveBoard(id: EpicBoardId): void {
   activeBoardId.value = id;
 }
 
+function clearBoardSearch(): void {
+  boardSearch.value = "";
+}
+
 function moveBoard(delta: number): void {
   const index = boardTabs.findIndex((tab) => tab.id === activeBoardId.value);
   const next = Math.max(0, Math.min(boardTabs.length - 1, index + delta));
@@ -213,6 +279,90 @@ function cardBadges(card: EpicBoardCard): string[] {
   if (card.milestoneLabel) badges.push(card.milestoneLabel);
   if (card.epic.targetDate) badges.push(`target:${card.epic.targetDate}`);
   return badges;
+}
+
+function matchesBoardQuery(card: EpicBoardCard): boolean {
+  const query = boardQuery.value;
+  if (!matchesStateQuery(card.epic.state, query.filters.is ?? [])) return false;
+  if (!matchesAnyQuery([card.epic.projectName, card.projectName], query.filters.project ?? [])) return false;
+  if (!matchesAnyQuery([card.epic.ownerRef, card.ownerRef, shortPrincipal(card.ownerRef ?? card.epic.ownerRef ?? "")], query.filters.owner ?? [])) return false;
+  if (!matchesAllQuery(card.epic.labels ?? [], query.filters.label ?? [])) return false;
+  if (!matchesAnyQuery([card.priority, card.priorityLabel], query.filters.priority ?? [])) return false;
+  if (!matchesAnyQuery([card.milestone, card.milestoneLabel], query.filters.milestone ?? [])) return false;
+  if (!matchesAnyQuery([card.epic.targetDate], query.filters.target ?? [])) return false;
+
+  const text = query.text.trim().toLowerCase();
+  return !text || boardCardSearchText(card).includes(text);
+}
+
+function matchesStateQuery(state: EpicState, filters: string[]): boolean {
+  if (filters.length === 0) return true;
+  return filters.some((filter) => {
+    const normalized = filter.toLowerCase();
+    const expected = STATE_QUERY_TO_STATE[normalized];
+    return expected ? expected === state : state.toLowerCase().includes(normalized);
+  });
+}
+
+function matchesAnyQuery(values: Array<string | null | undefined>, filters: string[]): boolean {
+  if (filters.length === 0) return true;
+  const haystack = values.map(normalizeSearchValue).filter(Boolean);
+  return filters.some((filter) => haystack.some((value) => value.includes(normalizeSearchValue(filter))));
+}
+
+function matchesAllQuery(values: Array<string | null | undefined>, filters: string[]): boolean {
+  if (filters.length === 0) return true;
+  const haystack = values.map(normalizeSearchValue).filter(Boolean);
+  return filters.every((filter) => haystack.some((value) => value.includes(normalizeSearchValue(filter))));
+}
+
+function boardCardSearchText(card: EpicBoardCard): string {
+  return [
+    card.epic.number ? `#${card.epic.number}` : "",
+    card.epic.title,
+    card.epic.bodyMarkdown,
+    stateTone(card.epic.state).label,
+    card.epic.projectName,
+    card.projectName,
+    card.epic.ownerRef,
+    card.ownerRef,
+    shortPrincipal(card.ownerRef ?? card.epic.ownerRef ?? ""),
+    card.priority,
+    card.priorityLabel,
+    card.milestone,
+    card.milestoneLabel,
+    card.epic.targetDate,
+    ...(card.epic.labels ?? []),
+    ...cardBadges(card),
+  ].map(normalizeSearchValue).join(" ");
+}
+
+function normalizeSearchValue(value: string | number | null | undefined): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function readUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  boardSearch.value = new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function writeUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const trimmed = boardSearch.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (target !== current) window.history.replaceState(window.history.state, "", target);
+}
+
+function onPopState(): void {
+  readUrlSearch();
+  void nextTick(() => {
+    if (!focusedEpicId.value) focusedEpicId.value = orderedEpicIds.value[0] ?? null;
+  });
 }
 
 function shortPrincipal(ref: string): string {
@@ -262,29 +412,55 @@ function relativeTime(value: string | null | undefined): string {
         <span class="epics-roadmap-subtitle">
           <template v-if="loadState === 'loading'">loading roadmap...</template>
           <template v-else-if="loadState === 'error'">roadmap unavailable</template>
+          <template v-else-if="hasBoardFilter">
+            {{ totalEpics }} of {{ unfilteredTotalEpics }} epic<template v-if="unfilteredTotalEpics !== 1">s</template>
+            on {{ activeBoardLabel.toLowerCase() }}
+          </template>
           <template v-else>
             {{ totalEpics }} epic<template v-if="totalEpics !== 1">s</template>
-            on {{ boardTabs.find((tab) => tab.id === activeBoardId)?.label.toLowerCase() }}
+            on {{ activeBoardLabel.toLowerCase() }}
           </template>
         </span>
       </div>
-      <a :href="newEpicHref" class="epics-roadmap-new">+ new</a>
+      <a :href="newEpicHref" class="epics-roadmap-new">New epic</a>
     </header>
 
-    <nav class="epics-roadmap-tabs" aria-label="Epic roadmap views">
+    <div class="epics-roadmap-toolbar">
+      <nav class="epics-roadmap-tabs" aria-label="Epic roadmap views">
+        <button
+          v-for="tab in boardTabs"
+          :key="tab.id"
+          type="button"
+          :class="['epics-roadmap-tab', { active: activeBoardId === tab.id }]"
+          :aria-pressed="activeBoardId === tab.id"
+          :aria-label="`${tab.label}: ${boardTabTotal(tab.id)} epics. ${tab.hint}`"
+          :title="tab.hint"
+          @click="setActiveBoard(tab.id)"
+        >
+          <span>{{ tab.label }}</span>
+          <strong>{{ boardTabTotal(tab.id) }}</strong>
+        </button>
+      </nav>
+      <label class="epics-roadmap-search">
+        <input
+          data-epics-roadmap-search
+          v-model="boardSearch"
+          type="search"
+          placeholder="Filter epics: is:planned project:kernel roadmap"
+          autocomplete="off"
+          aria-label="Filter epics roadmap"
+        />
+      </label>
       <button
-        v-for="tab in boardTabs"
-        :key="tab.id"
+        v-if="boardSearch"
         type="button"
-        :class="['epics-roadmap-tab', { active: activeBoardId === tab.id }]"
-        :aria-pressed="activeBoardId === tab.id"
-        :title="tab.hint"
-        @click="setActiveBoard(tab.id)"
+        class="epics-roadmap-clear"
+        aria-label="Clear roadmap filter"
+        @click="clearBoardSearch"
       >
-        <span>{{ tab.label }}</span>
-        <strong>{{ boardTabTotal(tab.id) }}</strong>
+        Clear
       </button>
-    </nav>
+    </div>
 
     <p v-if="loadState === 'loading'" class="epics-roadmap-status">
       Loading roadmap...
@@ -295,14 +471,19 @@ function relativeTime(value: string | null | undefined): string {
     <p v-else-if="activeBoard && activeBoard.columns.length === 0" class="epics-roadmap-status">
       No roadmap columns yet.
     </p>
+    <p v-else-if="hasBoardFilter && visibleBoard && totalEpics === 0" class="epics-roadmap-status">
+      No epics match the current board filter.
+    </p>
 
     <div
-      v-else-if="activeBoard"
+      v-else-if="visibleBoard"
       class="epics-roadmap-columns"
       :data-board="activeBoardId"
+      :aria-label="`${activeBoardLabel} epic board`"
+      tabindex="0"
     >
       <section
-        v-for="column in activeBoard.columns"
+        v-for="column in visibleBoard.columns"
         :key="column.key"
         class="epics-roadmap-column"
       >
@@ -318,7 +499,11 @@ function relativeTime(value: string | null | undefined): string {
             :class="['epics-roadmap-card', { focused: focusedEpicId === card.epic.id }]"
             @mouseenter="focusedEpicId = card.epic.id"
           >
-            <a class="epics-roadmap-card-link" :href="epicCardHref(card.epic)">
+            <a
+              class="epics-roadmap-card-link"
+              :href="epicCardHref(card.epic)"
+              :aria-label="`Open epic #${card.epic.number ?? card.epic.id.slice(-4)}: ${card.epic.title}`"
+            >
               <header class="epics-roadmap-card-head">
                 <span class="epic-number">
                   #{{ card.epic.number ?? card.epic.id.slice(-4) }}
@@ -334,6 +519,8 @@ function relativeTime(value: string | null | undefined): string {
               <div class="epics-roadmap-progress">
                 <div
                   class="epics-roadmap-progress-bar"
+                  role="progressbar"
+                  :aria-label="progressLabel(card)"
                   :aria-valuenow="progressPercent(card)"
                   aria-valuemin="0"
                   aria-valuemax="100"
@@ -444,11 +631,20 @@ function relativeTime(value: string | null | undefined): string {
 }
 
 .epics-roadmap-tabs {
+  flex: 1 1 460px;
   min-width: 0;
   display: flex;
   gap: 6px;
   overflow-x: auto;
   padding-bottom: 2px;
+}
+
+.epics-roadmap-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .epics-roadmap-tab {
@@ -479,6 +675,45 @@ function relativeTime(value: string | null | undefined): string {
   font-weight: 600;
 }
 
+.epics-roadmap-search {
+  flex: 1 1 280px;
+  min-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 10px;
+  background: var(--bg, #0a0b0e);
+}
+
+.epics-roadmap-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: none;
+  padding: 8px 0;
+  color: inherit;
+  background: transparent;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.epics-roadmap-search input::placeholder {
+  color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.epics-roadmap-clear {
+  flex: 0 0 auto;
+  min-height: 32px;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.08));
+  border-radius: var(--r-sm, 6px);
+  padding: 0 10px;
+  color: var(--fg-2, rgba(255,255,255,0.76));
+  background: var(--surface, rgba(255,255,255,0.03));
+  font: inherit;
+  font-size: 12px;
+}
+
 .epics-roadmap-status {
   margin: 0;
   border: 0.5px solid var(--line, rgba(255,255,255,0.08));
@@ -500,7 +735,14 @@ function relativeTime(value: string | null | undefined): string {
   grid-auto-columns: minmax(270px, 1fr);
   gap: 10px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   padding-bottom: 6px;
+  scrollbar-gutter: stable;
+}
+
+.epics-roadmap-columns:focus-visible {
+  outline: 1.5px solid var(--accent, #3b82f6);
+  outline-offset: 3px;
 }
 
 .epics-roadmap-column {
