@@ -4643,11 +4643,25 @@ async function yc(e, t) {
 	}), "kanbanProjectBoard"));
 }
 //#endregion
+//#region ../extensions/first-party/ext_sprints/ui/src/issue-labels.ts
+function bc(e) {
+	return e.number == null ? "missing" : `#${e.number}`;
+}
+function xc(e) {
+	if (e.number != null) return `Issue #${e.number}`;
+	let t = e.title?.trim();
+	return t && !t.startsWith("comtrya://") ? t : "Missing issue";
+}
+function Sc(e) {
+	let t = e.issueRef?.trim();
+	return t ? `Internal issue ref: ${t}` : void 0;
+}
+//#endregion
 //#region ../extensions/first-party/ext_sprints/ui/src/kanban-filter.ts
-function bc(e, t) {
+function Cc(e, t) {
 	let n = t?.trim();
 	return n ? e.map((e) => {
-		let t = e.columns.map((e) => xc(e, n)).filter((e) => e.cards.length > 0), r = t.reduce((e, t) => e + t.cards.length, 0);
+		let t = e.columns.map((e) => wc(e, n)).filter((e) => e.cards.length > 0), r = t.reduce((e, t) => e + t.cards.length, 0);
 		return {
 			...e,
 			label: e.projectName === n ? e.label : n,
@@ -4657,7 +4671,7 @@ function bc(e, t) {
 		};
 	}).filter((e) => e.total > 0) : e;
 }
-function xc(e, t) {
+function wc(e, t) {
 	let n = e.cards.filter((e) => e.projectName === t);
 	return {
 		...e,
@@ -4667,92 +4681,92 @@ function xc(e, t) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_sprints/ui/src/SprintsBoard.vue?vue&type=script&setup=true&lang.ts
-var Sc = {
+var Tc = {
 	class: "sprints-board extension-payload",
 	"data-smoke": "sprints-board"
-}, Cc = { class: "sprints-board-head" }, wc = { class: "sprints-total" }, Tc = {
+}, Ec = { class: "sprints-board-head" }, Dc = { class: "sprints-total" }, Oc = {
 	key: 0,
 	class: "sprints-status"
-}, Ec = {
+}, kc = {
 	key: 1,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, Dc = {
+}, Ac = {
 	key: 2,
 	class: "sprints-status"
-}, Oc = {
+}, jc = {
 	key: 3,
 	class: "sprints-content"
-}, kc = {
+}, Mc = {
 	class: "sprints-summary",
 	"aria-label": "Sprint summary"
-}, Ac = { class: "sprints-section" }, jc = { class: "sprints-section-head" }, Mc = {
+}, Nc = { class: "sprints-section" }, Pc = { class: "sprints-section-head" }, Fc = {
 	class: "sprints-columns",
 	"aria-label": "Sprint planning board"
-}, Nc = ["data-column"], Pc = { class: "sprints-column-head" }, Fc = {
+}, Ic = ["data-column"], Lc = { class: "sprints-column-head" }, Rc = {
 	key: 0,
 	class: "sprints-cards"
-}, Ic = { class: "sprints-card-head" }, Lc = { class: "sprints-number" }, Rc = {
+}, zc = { class: "sprints-card-head" }, Bc = { class: "sprints-number" }, Vc = {
 	key: 0,
 	class: "sprints-goal"
-}, zc = { class: "sprints-card-meta" }, Bc = {
+}, Hc = { class: "sprints-card-meta" }, Uc = {
 	key: 1,
 	class: "sprints-empty-column"
-}, Vc = {
+}, Wc = {
 	key: 0,
 	class: "sprints-section",
 	"data-smoke": "sprints-selected-board"
-}, Hc = { class: "sprints-section-head selected" }, Uc = {
+}, Gc = { class: "sprints-section-head selected" }, Kc = {
 	key: 0,
 	class: "sprints-selected-goal"
-}, Wc = { class: "sprints-selected-meta" }, Gc = {
+}, qc = { class: "sprints-selected-meta" }, Jc = {
 	key: 1,
 	class: "sprints-status"
-}, Kc = {
+}, Yc = {
 	key: 2,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, qc = {
+}, Xc = {
 	key: 3,
 	class: "sprints-status"
-}, Jc = {
+}, Zc = {
 	key: 4,
 	class: "sprints-issue-columns",
 	"aria-label": "Selected sprint issue board"
-}, Yc = ["data-column", "data-smoke"], Xc = { class: "sprints-column-head issue" }, Zc = {
+}, Qc = ["data-column", "data-smoke"], $c = { class: "sprints-column-head issue" }, el = {
 	key: 0,
 	class: "sprints-issue-cards"
-}, Qc = { class: "sprints-issue-card-head" }, $c = { class: "sprints-number" }, el = { class: "sprints-issue-meta" }, tl = {
+}, tl = { class: "sprints-issue-card-head" }, nl = { class: "sprints-number" }, rl = { class: "sprints-issue-meta" }, il = ["title"], al = {
 	key: 1,
 	class: "sprints-empty-column"
-}, nl = {
+}, ol = {
 	key: 1,
 	class: "sprints-section",
 	"data-smoke": "sprints-kanban-board"
-}, rl = { class: "sprints-section-head selected" }, il = {
+}, sl = { class: "sprints-section-head selected" }, cl = {
 	key: 0,
 	class: "sprints-status"
-}, al = {
+}, ll = {
 	key: 1,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, ol = {
+}, ul = {
 	key: 2,
 	class: "sprints-status"
-}, sl = {
+}, dl = {
 	key: 3,
 	class: "sprints-swimlanes",
 	"aria-label": "Selected sprint Kanban swimlanes"
-}, cl = ["data-swimlane"], ll = { class: "sprints-column-head" }, ul = { class: "sprints-kanban-columns" }, dl = ["data-column"], fl = { class: "sprints-column-head issue" }, pl = {
+}, fl = ["data-swimlane"], pl = { class: "sprints-column-head" }, ml = { class: "sprints-kanban-columns" }, hl = ["data-column"], gl = { class: "sprints-column-head issue" }, _l = {
 	key: 0,
 	class: "sprints-kanban-cards"
-}, ml = { class: "sprints-kanban-card-head" }, hl = { class: "sprints-number" }, gl = { class: "sprints-kanban-card-meta" }, _l = {
+}, vl = { class: "sprints-kanban-card-head" }, yl = { class: "sprints-number" }, bl = { class: "sprints-kanban-card-meta" }, xl = {
 	key: 0,
 	class: "sprints-project"
-}, vl = {
+}, Sl = ["title"], Cl = {
 	key: 1,
 	class: "sprints-empty-column"
-}, yl = /* @__PURE__ */ Rn({
+}, wl = /* @__PURE__ */ Rn({
 	__name: "SprintsBoard",
 	props: {
 		host: { type: Object },
@@ -4761,7 +4775,7 @@ var Sc = {
 		projectName: { type: String }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z(null), u = /* @__PURE__ */ z(null), d = /* @__PURE__ */ z(null), f = Y(() => t.workspaceId ?? t.host?.workspaceId ?? t.workspace ?? t.host?.workspace ?? ""), p = Y(() => t.projectName?.trim() ?? ""), m = Y(() => a.value?.columns ?? []), h = Y(() => m.value.flatMap((e) => e.cards.map((e) => e.sprint))), g = Y(() => a.value?.total ?? 0), _ = Y(() => h.value.filter((e) => e.state === "active").length), v = Y(() => h.value.filter((e) => e.state === "planned").length), y = Y(() => h.value.filter((e) => e.state === "completed").length), b = Y(() => o.value?.columns ?? []), x = Y(() => o.value?.total ?? 0), S = Y(() => bc(s.value?.swimlanes ?? [], p.value)), C = Y(() => S.value.reduce((e, t) => e + t.total, 0)), w = Y(() => b.value.flatMap((e) => e.issues).filter((e) => e.state === "open" || e.state === "reopened").length), ee = Y(() => S.value.flatMap((e) => e.columns).flatMap((e) => e.cards).filter((e) => e.state === "open" || e.state === "reopened").length), te = Y(() => n.value === "loading" ? "Loading" : ee.value > 0 ? `${ee.value} open cards` : _.value > 0 ? `${_.value} active` : c.value ? `Sprint #${c.value.number}` : "No sprints"), ne = Y(() => p.value ? `${p.value} swimlane` : "Project swimlanes"), T = Y(() => p.value ? `No Kanban cards in ${p.value}.` : "No Kanban cards."), E = 0;
+		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z(null), u = /* @__PURE__ */ z(null), d = /* @__PURE__ */ z(null), f = Y(() => t.workspaceId ?? t.host?.workspaceId ?? t.workspace ?? t.host?.workspace ?? ""), p = Y(() => t.projectName?.trim() ?? ""), m = Y(() => a.value?.columns ?? []), h = Y(() => m.value.flatMap((e) => e.cards.map((e) => e.sprint))), g = Y(() => a.value?.total ?? 0), _ = Y(() => h.value.filter((e) => e.state === "active").length), v = Y(() => h.value.filter((e) => e.state === "planned").length), y = Y(() => h.value.filter((e) => e.state === "completed").length), b = Y(() => o.value?.columns ?? []), x = Y(() => o.value?.total ?? 0), S = Y(() => Cc(s.value?.swimlanes ?? [], p.value)), C = Y(() => S.value.reduce((e, t) => e + t.total, 0)), w = Y(() => b.value.flatMap((e) => e.issues).filter((e) => e.state === "open" || e.state === "reopened").length), ee = Y(() => S.value.flatMap((e) => e.columns).flatMap((e) => e.cards).filter((e) => e.state === "open" || e.state === "reopened").length), te = Y(() => n.value === "loading" ? "Loading" : ee.value > 0 ? `${ee.value} open cards` : _.value > 0 ? `${_.value} active` : c.value ? `Sprint #${c.value.number}` : "No sprints"), ne = Y(() => p.value ? `${p.value} swimlane` : "Project swimlanes"), T = Y(() => p.value ? `No Kanban cards in ${p.value}.` : "No Kanban cards."), E = 0;
 		$n(() => {
 			D();
 		}), An(f, () => void D());
@@ -4820,11 +4834,8 @@ var Sc = {
 		function ae(e) {
 			return e.slice(0, 1).toUpperCase() + e.slice(1);
 		}
-		function k(e) {
-			return e.number == null ? "missing" : `#${e.number}`;
-		}
-		return (e, t) => (G(), K("section", Sc, [q("header", Cc, [t[0] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "delivery board"), q("h3", null, "Kanban")], -1), q("span", wc, A(te.value), 1)]), n.value === "loading" ? (G(), K("p", Tc, "Loading...")) : n.value === "error" ? (G(), K("p", Ec, A(l.value), 1)) : n.value === "empty" ? (G(), K("p", Dc, "No sprints.")) : a.value ? (G(), K("div", Oc, [
-			q("dl", kc, [
+		return (e, t) => (G(), K("section", Tc, [q("header", Ec, [t[0] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "delivery board"), q("h3", null, "Kanban")], -1), q("span", Dc, A(te.value), 1)]), n.value === "loading" ? (G(), K("p", Oc, "Loading...")) : n.value === "error" ? (G(), K("p", kc, A(l.value), 1)) : n.value === "empty" ? (G(), K("p", Ac, "No sprints.")) : a.value ? (G(), K("div", jc, [
+			q("dl", Mc, [
 				q("div", null, [t[1] ||= q("dt", null, "Total", -1), q("dd", null, A(g.value), 1)]),
 				q("div", null, [t[2] ||= q("dt", null, "Active", -1), q("dd", null, A(_.value), 1)]),
 				q("div", null, [t[3] ||= q("dt", null, "Planned", -1), q("dd", null, A(v.value), 1)]),
@@ -4832,74 +4843,74 @@ var Sc = {
 				q("div", null, [t[5] ||= q("dt", null, "Open issues", -1), q("dd", null, A(w.value), 1)]),
 				q("div", null, [t[6] ||= q("dt", null, "Kanban cards", -1), q("dd", null, A(C.value), 1)])
 			]),
-			q("section", Ac, [q("header", jc, [t[7] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "plan"), q("h4", null, "Lifecycle board")], -1), q("span", null, A(g.value) + " total", 1)]), q("div", Mc, [(G(!0), K(U, null, lr(a.value.columns, (e) => (G(), K("section", {
+			q("section", Nc, [q("header", Pc, [t[7] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "plan"), q("h4", null, "Lifecycle board")], -1), q("span", null, A(g.value) + " total", 1)]), q("div", Fc, [(G(!0), K(U, null, lr(a.value.columns, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-column",
 				"data-column": e.key
-			}, [q("header", Pc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", Fc, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
+			}, [q("header", Lc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", Rc, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
 				key: e.sprint.id,
 				class: he(["sprints-card", O(e.sprint.state)])
 			}, [
-				q("header", Ic, [q("span", Lc, "#" + A(e.sprint.number), 1), q("strong", null, A(e.sprint.title), 1)]),
-				e.sprint.goal ? (G(), K("p", Rc, A(e.sprint.goal), 1)) : zi("", !0),
-				q("dl", zc, [q("div", null, [t[8] ||= q("dt", null, "start", -1), q("dd", null, A(ie(e.sprint.startDate)), 1)]), q("div", null, [t[9] ||= q("dt", null, "end", -1), q("dd", null, A(ie(e.sprint.endDate)), 1)])])
-			], 2))), 128))])) : (G(), K("p", Bc, "No " + A(e.label.toLowerCase()) + " sprints.", 1))], 8, Nc))), 128))])]),
-			c.value ? (G(), K("section", Vc, [
-				q("header", Hc, [q("div", null, [t[10] ||= q("p", { class: "sprints-kicker" }, "selected sprint", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(c.value.title), 1)])]), q("span", { class: he(["sprints-state", O(c.value.state)]) }, A(ae(c.value.state)), 3)]),
-				c.value.goal ? (G(), K("p", Uc, A(c.value.goal), 1)) : zi("", !0),
-				q("dl", Wc, [
+				q("header", zc, [q("span", Bc, "#" + A(e.sprint.number), 1), q("strong", null, A(e.sprint.title), 1)]),
+				e.sprint.goal ? (G(), K("p", Vc, A(e.sprint.goal), 1)) : zi("", !0),
+				q("dl", Hc, [q("div", null, [t[8] ||= q("dt", null, "start", -1), q("dd", null, A(ie(e.sprint.startDate)), 1)]), q("div", null, [t[9] ||= q("dt", null, "end", -1), q("dd", null, A(ie(e.sprint.endDate)), 1)])])
+			], 2))), 128))])) : (G(), K("p", Uc, "No " + A(e.label.toLowerCase()) + " sprints.", 1))], 8, Ic))), 128))])]),
+			c.value ? (G(), K("section", Wc, [
+				q("header", Gc, [q("div", null, [t[10] ||= q("p", { class: "sprints-kicker" }, "selected sprint", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(c.value.title), 1)])]), q("span", { class: he(["sprints-state", O(c.value.state)]) }, A(ae(c.value.state)), 3)]),
+				c.value.goal ? (G(), K("p", Kc, A(c.value.goal), 1)) : zi("", !0),
+				q("dl", qc, [
 					q("div", null, [t[11] ||= q("dt", null, "start", -1), q("dd", null, A(ie(c.value.startDate)), 1)]),
 					q("div", null, [t[12] ||= q("dt", null, "end", -1), q("dd", null, A(ie(c.value.endDate)), 1)]),
 					q("div", null, [t[13] ||= q("dt", null, "issues", -1), q("dd", null, A(x.value), 1)])
 				]),
-				r.value === "loading" ? (G(), K("p", Gc, "Loading issues...")) : r.value === "error" ? (G(), K("p", Kc, A(u.value), 1)) : r.value === "empty" ? (G(), K("p", qc, "No issues assigned.")) : (G(), K("div", Jc, [(G(!0), K(U, null, lr(b.value, (e) => (G(), K("section", {
+				r.value === "loading" ? (G(), K("p", Jc, "Loading issues...")) : r.value === "error" ? (G(), K("p", Yc, A(u.value), 1)) : r.value === "empty" ? (G(), K("p", Xc, "No issues assigned.")) : (G(), K("div", Zc, [(G(!0), K(U, null, lr(b.value, (e) => (G(), K("section", {
 					key: e.key,
 					class: "sprints-issue-column",
 					"data-column": e.key,
 					"data-smoke": `sprints-issue-column-${e.key}`
-				}, [q("header", Xc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.issues.length > 0 ? (G(), K("ol", Zc, [(G(!0), K(U, null, lr(e.issues, (e) => (G(), K("li", {
+				}, [q("header", $c, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.issues.length > 0 ? (G(), K("ol", el, [(G(!0), K(U, null, lr(e.issues, (e) => (G(), K("li", {
 					key: e.issueRef,
 					class: he(["sprints-issue-card", O(e.state)])
-				}, [q("header", Qc, [q("span", $c, A(k(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", el, [q("span", null, A(ae(e.state)), 1), q("code", null, A(e.issueRef), 1)])], 2))), 128))])) : (G(), K("p", tl, "No " + A(e.label.toLowerCase()) + " issues.", 1))], 8, Yc))), 128))]))
+				}, [q("header", tl, [q("span", nl, A(Wt(bc)(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", rl, [q("span", null, A(ae(e.state)), 1), q("code", { title: Wt(Sc)(e) }, A(Wt(xc)(e)), 9, il)])], 2))), 128))])) : (G(), K("p", al, "No " + A(e.label.toLowerCase()) + " issues.", 1))], 8, Qc))), 128))]))
 			])) : zi("", !0),
-			c.value ? (G(), K("section", nl, [q("header", rl, [q("div", null, [t[14] ||= q("p", { class: "sprints-kicker" }, "kanban", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(ne.value), 1)])]), q("span", null, A(C.value) + " cards", 1)]), i.value === "idle" || i.value === "loading" ? (G(), K("p", il, " Loading Kanban... ")) : i.value === "error" ? (G(), K("p", al, A(d.value), 1)) : i.value === "empty" || C.value === 0 ? (G(), K("p", ol, A(T.value), 1)) : s.value ? (G(), K("div", sl, [(G(!0), K(U, null, lr(S.value, (e) => (G(), K("section", {
+			c.value ? (G(), K("section", ol, [q("header", sl, [q("div", null, [t[14] ||= q("p", { class: "sprints-kicker" }, "kanban", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(ne.value), 1)])]), q("span", null, A(C.value) + " cards", 1)]), i.value === "idle" || i.value === "loading" ? (G(), K("p", cl, " Loading Kanban... ")) : i.value === "error" ? (G(), K("p", ll, A(d.value), 1)) : i.value === "empty" || C.value === 0 ? (G(), K("p", ul, A(T.value), 1)) : s.value ? (G(), K("div", dl, [(G(!0), K(U, null, lr(S.value, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-swimlane",
 				"data-swimlane": e.key
-			}, [q("header", ll, [q("h5", null, A(e.label), 1), q("span", null, A(e.total), 1)]), q("div", ul, [(G(!0), K(U, null, lr(e.columns, (e) => (G(), K("section", {
+			}, [q("header", pl, [q("h5", null, A(e.label), 1), q("span", null, A(e.total), 1)]), q("div", ml, [(G(!0), K(U, null, lr(e.columns, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-kanban-column",
 				"data-column": e.key
-			}, [q("header", fl, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", pl, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
+			}, [q("header", gl, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", _l, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
 				key: e.issueRef,
 				class: he(["sprints-kanban-card", O(e.state)])
-			}, [q("header", ml, [q("span", hl, A(k(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", gl, [
+			}, [q("header", vl, [q("span", yl, A(Wt(bc)(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", bl, [
 				q("span", null, A(ae(e.state)), 1),
-				e.projectName ? (G(), K("span", _l, A(e.projectName), 1)) : zi("", !0),
-				q("code", null, A(e.issueRef), 1)
-			])], 2))), 128))])) : (G(), K("p", vl, "No " + A(e.label.toLowerCase()) + " cards.", 1))], 8, dl))), 128))])], 8, cl))), 128))])) : zi("", !0)])) : zi("", !0)
+				e.projectName ? (G(), K("span", xl, A(e.projectName), 1)) : zi("", !0),
+				q("code", { title: Wt(Sc)(e) }, A(Wt(xc)(e)), 9, Sl)
+			])], 2))), 128))])) : (G(), K("p", Cl, "No " + A(e.label.toLowerCase()) + " cards.", 1))], 8, hl))), 128))])], 8, fl))), 128))])) : zi("", !0)])) : zi("", !0)
 		])) : zi("", !0)]));
 	}
-}), bl = ".extension-payload[data-v-823eccfe]{gap:14px;padding:14px;display:grid}.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe],.sprints-column-head[data-v-823eccfe],.sprints-card-head[data-v-823eccfe],.sprints-issue-card-head[data-v-823eccfe],.sprints-issue-meta[data-v-823eccfe],.sprints-kanban-card-head[data-v-823eccfe],.sprints-kanban-card-meta[data-v-823eccfe]{gap:10px;display:flex}.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe],.sprints-column-head[data-v-823eccfe]{justify-content:space-between;align-items:center}.sprints-board-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding-bottom:10px}.sprints-content[data-v-823eccfe],.sprints-section[data-v-823eccfe],.sprints-column[data-v-823eccfe],.sprints-issue-column[data-v-823eccfe],.sprints-swimlane[data-v-823eccfe],.sprints-kanban-column[data-v-823eccfe],.sprints-card[data-v-823eccfe],.sprints-issue-card[data-v-823eccfe],.sprints-kanban-card[data-v-823eccfe]{display:grid}.sprints-content[data-v-823eccfe]{gap:14px}.sprints-section[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--surface,#ffffff08);gap:12px}.sprints-section-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding:12px}.sprints-section-head.selected[data-v-823eccfe]{align-items:start}.sprints-kicker[data-v-823eccfe],.sprints-total[data-v-823eccfe],.sprints-status[data-v-823eccfe],.sprints-number[data-v-823eccfe],.sprints-card-meta[data-v-823eccfe],.sprints-selected-meta[data-v-823eccfe],.sprints-summary[data-v-823eccfe],.sprints-issue-meta[data-v-823eccfe],.sprints-state[data-v-823eccfe],.sprints-section-head>span[data-v-823eccfe]{font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace)}.sprints-kicker[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;margin:0 0 4px;font-size:.72rem}.sprints-board h3[data-v-823eccfe],.sprints-section h4[data-v-823eccfe],.sprints-column h5[data-v-823eccfe],.sprints-issue-column h5[data-v-823eccfe],.sprints-kanban-column h5[data-v-823eccfe]{margin:0}.sprints-board h3[data-v-823eccfe]{font-size:1.05rem}.sprints-section h4[data-v-823eccfe]{font-size:.95rem}.sprints-section h4 span[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);font-size:.82rem;font-weight:500}.sprints-column h5[data-v-823eccfe],.sprints-issue-column h5[data-v-823eccfe],.sprints-kanban-column h5[data-v-823eccfe]{font-size:.84rem}.sprints-total[data-v-823eccfe],.sprints-status[data-v-823eccfe],.sprints-section-head>span[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);font-size:.78rem}.sprints-error[data-v-823eccfe]{color:var(--accent-err,#c9341c)}.sprints-summary[data-v-823eccfe]{grid-template-columns:repeat(6,minmax(96px,1fr));gap:8px;margin:0;display:grid}.sprints-summary div[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);gap:4px;padding:10px;display:grid}.sprints-summary dt[data-v-823eccfe],.sprints-summary dd[data-v-823eccfe],.sprints-selected-meta dt[data-v-823eccfe],.sprints-selected-meta dd[data-v-823eccfe],.sprints-card-meta dt[data-v-823eccfe],.sprints-card-meta dd[data-v-823eccfe]{margin:0}.sprints-summary dt[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;font-size:.68rem}.sprints-summary dd[data-v-823eccfe]{color:var(--fg,#f3f4f6);font-size:1rem;font-weight:700}.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-swimlanes[data-v-823eccfe]{gap:12px;padding:12px;display:grid}.sprints-columns[data-v-823eccfe]{grid-template-columns:repeat(4,minmax(180px,1fr));overflow-x:auto}.sprints-issue-columns[data-v-823eccfe]{grid-template-columns:repeat(2,minmax(220px,1fr))}.sprints-column[data-v-823eccfe],.sprints-issue-column[data-v-823eccfe],.sprints-swimlane[data-v-823eccfe],.sprints-kanban-column[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);min-width:0}.sprints-column[data-v-823eccfe]{min-width:180px}.sprints-column-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding:10px 12px}.sprints-column-head.issue[data-v-823eccfe]{background:var(--surface-2,#ffffff0a)}.sprints-column-head span[data-v-823eccfe],.sprints-state[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);text-align:center;min-width:1.6rem;padding:2px 7px;font-size:.72rem}.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;padding:10px;display:grid}.sprints-cards[data-v-823eccfe],.sprints-issue-cards[data-v-823eccfe],.sprints-kanban-cards[data-v-823eccfe]{gap:8px;margin:0;padding:10px;list-style:none;display:grid}.sprints-card[data-v-823eccfe],.sprints-issue-card[data-v-823eccfe],.sprints-kanban-card[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);border-left:3px solid var(--fg-4,#ffffff52);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);gap:8px;padding:10px}.sprints-card.state-active[data-v-823eccfe],.sprints-state.state-active[data-v-823eccfe],.sprints-issue-card.state-open[data-v-823eccfe],.sprints-issue-card.state-reopened[data-v-823eccfe],.sprints-kanban-card.state-open[data-v-823eccfe],.sprints-kanban-card.state-reopened[data-v-823eccfe]{border-left-color:var(--accent-blue,#1d55a6)}.sprints-card.state-completed[data-v-823eccfe],.sprints-state.state-completed[data-v-823eccfe],.sprints-issue-card.state-closed[data-v-823eccfe],.sprints-kanban-card.state-closed[data-v-823eccfe]{border-left-color:var(--accent-good,#2f8f5b)}.sprints-card.state-canceled[data-v-823eccfe],.sprints-state.state-canceled[data-v-823eccfe],.sprints-issue-card.state-missing[data-v-823eccfe],.sprints-kanban-card.state-missing[data-v-823eccfe]{border-left-color:var(--accent-err,#c9341c)}.sprints-card-head[data-v-823eccfe],.sprints-issue-card-head[data-v-823eccfe],.sprints-kanban-card-head[data-v-823eccfe]{align-items:baseline}.sprints-card-head strong[data-v-823eccfe],.sprints-issue-card-head strong[data-v-823eccfe],.sprints-kanban-card-head strong[data-v-823eccfe]{overflow-wrap:anywhere;min-width:0;font-size:.9rem}.sprints-number[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);flex:none;font-size:.72rem}.sprints-goal[data-v-823eccfe],.sprints-selected-goal[data-v-823eccfe]{color:var(--fg-2,#ffffffbd);margin:0;font-size:.82rem;line-height:1.45}.sprints-selected-goal[data-v-823eccfe]{padding:0 12px}.sprints-card-meta[data-v-823eccfe],.sprints-selected-meta[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);flex-wrap:wrap;gap:10px;margin:0;font-size:.7rem;display:flex}.sprints-selected-meta[data-v-823eccfe]{padding:0 12px 4px}.sprints-card-meta div[data-v-823eccfe],.sprints-selected-meta div[data-v-823eccfe]{gap:4px;display:inline-flex}.sprints-issue-meta[data-v-823eccfe],.sprints-kanban-card-meta[data-v-823eccfe]{min-width:0;color:var(--fg-3,#ffffff8a);justify-content:space-between;align-items:center;font-size:.7rem}.sprints-issue-meta code[data-v-823eccfe],.sprints-kanban-card-meta code[data-v-823eccfe]{min-width:0;color:var(--fg-4,#ffffff57);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-project[data-v-823eccfe]{min-width:0;color:var(--accent-blue,#1d55a6);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-empty-column[data-v-823eccfe]{color:var(--fg-4,#ffffff57);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);margin:0;padding:10px 12px;font-size:.74rem}@media (max-width:920px){.sprints-summary[data-v-823eccfe]{grid-template-columns:repeat(3,minmax(96px,1fr))}.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:repeat(2,minmax(180px,1fr))}}@media (max-width:560px){.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe]{flex-direction:column;align-items:start}.sprints-summary[data-v-823eccfe],.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:minmax(0,1fr)}.sprints-column[data-v-823eccfe]{min-width:0}}", xl = (e, t) => {
+}), Tl = ".extension-payload[data-v-2d6e8ecf]{gap:14px;padding:14px;display:grid}.sprints-board-head[data-v-2d6e8ecf],.sprints-section-head[data-v-2d6e8ecf],.sprints-column-head[data-v-2d6e8ecf],.sprints-card-head[data-v-2d6e8ecf],.sprints-issue-card-head[data-v-2d6e8ecf],.sprints-issue-meta[data-v-2d6e8ecf],.sprints-kanban-card-head[data-v-2d6e8ecf],.sprints-kanban-card-meta[data-v-2d6e8ecf]{gap:10px;display:flex}.sprints-board-head[data-v-2d6e8ecf],.sprints-section-head[data-v-2d6e8ecf],.sprints-column-head[data-v-2d6e8ecf]{justify-content:space-between;align-items:center}.sprints-board-head[data-v-2d6e8ecf]{border-bottom:1px solid var(--line,#ffffff14);padding-bottom:10px}.sprints-content[data-v-2d6e8ecf],.sprints-section[data-v-2d6e8ecf],.sprints-column[data-v-2d6e8ecf],.sprints-issue-column[data-v-2d6e8ecf],.sprints-swimlane[data-v-2d6e8ecf],.sprints-kanban-column[data-v-2d6e8ecf],.sprints-card[data-v-2d6e8ecf],.sprints-issue-card[data-v-2d6e8ecf],.sprints-kanban-card[data-v-2d6e8ecf]{display:grid}.sprints-content[data-v-2d6e8ecf]{gap:14px}.sprints-section[data-v-2d6e8ecf]{border:1px solid var(--line,#ffffff14);background:var(--surface,#ffffff08);gap:12px}.sprints-section-head[data-v-2d6e8ecf]{border-bottom:1px solid var(--line,#ffffff14);padding:12px}.sprints-section-head.selected[data-v-2d6e8ecf]{align-items:start}.sprints-kicker[data-v-2d6e8ecf],.sprints-total[data-v-2d6e8ecf],.sprints-status[data-v-2d6e8ecf],.sprints-number[data-v-2d6e8ecf],.sprints-card-meta[data-v-2d6e8ecf],.sprints-selected-meta[data-v-2d6e8ecf],.sprints-summary[data-v-2d6e8ecf],.sprints-issue-meta[data-v-2d6e8ecf],.sprints-state[data-v-2d6e8ecf],.sprints-section-head>span[data-v-2d6e8ecf]{font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace)}.sprints-kicker[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;margin:0 0 4px;font-size:.72rem}.sprints-board h3[data-v-2d6e8ecf],.sprints-section h4[data-v-2d6e8ecf],.sprints-column h5[data-v-2d6e8ecf],.sprints-issue-column h5[data-v-2d6e8ecf],.sprints-kanban-column h5[data-v-2d6e8ecf]{margin:0}.sprints-board h3[data-v-2d6e8ecf]{font-size:1.05rem}.sprints-section h4[data-v-2d6e8ecf]{font-size:.95rem}.sprints-section h4 span[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);font-size:.82rem;font-weight:500}.sprints-column h5[data-v-2d6e8ecf],.sprints-issue-column h5[data-v-2d6e8ecf],.sprints-kanban-column h5[data-v-2d6e8ecf]{font-size:.84rem}.sprints-total[data-v-2d6e8ecf],.sprints-status[data-v-2d6e8ecf],.sprints-section-head>span[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);font-size:.78rem}.sprints-error[data-v-2d6e8ecf]{color:var(--accent-err,#c9341c)}.sprints-summary[data-v-2d6e8ecf]{grid-template-columns:repeat(6,minmax(96px,1fr));gap:8px;margin:0;display:grid}.sprints-summary div[data-v-2d6e8ecf]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);gap:4px;padding:10px;display:grid}.sprints-summary dt[data-v-2d6e8ecf],.sprints-summary dd[data-v-2d6e8ecf],.sprints-selected-meta dt[data-v-2d6e8ecf],.sprints-selected-meta dd[data-v-2d6e8ecf],.sprints-card-meta dt[data-v-2d6e8ecf],.sprints-card-meta dd[data-v-2d6e8ecf]{margin:0}.sprints-summary dt[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;font-size:.68rem}.sprints-summary dd[data-v-2d6e8ecf]{color:var(--fg,#f3f4f6);font-size:1rem;font-weight:700}.sprints-columns[data-v-2d6e8ecf],.sprints-issue-columns[data-v-2d6e8ecf],.sprints-swimlanes[data-v-2d6e8ecf]{gap:12px;padding:12px;display:grid}.sprints-columns[data-v-2d6e8ecf]{grid-template-columns:repeat(4,minmax(180px,1fr));overflow-x:auto}.sprints-issue-columns[data-v-2d6e8ecf]{grid-template-columns:repeat(2,minmax(220px,1fr))}.sprints-column[data-v-2d6e8ecf],.sprints-issue-column[data-v-2d6e8ecf],.sprints-swimlane[data-v-2d6e8ecf],.sprints-kanban-column[data-v-2d6e8ecf]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);min-width:0}.sprints-column[data-v-2d6e8ecf]{min-width:180px}.sprints-column-head[data-v-2d6e8ecf]{border-bottom:1px solid var(--line,#ffffff14);padding:10px 12px}.sprints-column-head.issue[data-v-2d6e8ecf]{background:var(--surface-2,#ffffff0a)}.sprints-column-head span[data-v-2d6e8ecf],.sprints-state[data-v-2d6e8ecf]{border:1px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);text-align:center;min-width:1.6rem;padding:2px 7px;font-size:.72rem}.sprints-kanban-columns[data-v-2d6e8ecf]{grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;padding:10px;display:grid}.sprints-cards[data-v-2d6e8ecf],.sprints-issue-cards[data-v-2d6e8ecf],.sprints-kanban-cards[data-v-2d6e8ecf]{gap:8px;margin:0;padding:10px;list-style:none;display:grid}.sprints-card[data-v-2d6e8ecf],.sprints-issue-card[data-v-2d6e8ecf],.sprints-kanban-card[data-v-2d6e8ecf]{border:1px solid var(--line,#ffffff14);border-left:3px solid var(--fg-4,#ffffff52);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);gap:8px;padding:10px}.sprints-card.state-active[data-v-2d6e8ecf],.sprints-state.state-active[data-v-2d6e8ecf],.sprints-issue-card.state-open[data-v-2d6e8ecf],.sprints-issue-card.state-reopened[data-v-2d6e8ecf],.sprints-kanban-card.state-open[data-v-2d6e8ecf],.sprints-kanban-card.state-reopened[data-v-2d6e8ecf]{border-left-color:var(--accent-blue,#1d55a6)}.sprints-card.state-completed[data-v-2d6e8ecf],.sprints-state.state-completed[data-v-2d6e8ecf],.sprints-issue-card.state-closed[data-v-2d6e8ecf],.sprints-kanban-card.state-closed[data-v-2d6e8ecf]{border-left-color:var(--accent-good,#2f8f5b)}.sprints-card.state-canceled[data-v-2d6e8ecf],.sprints-state.state-canceled[data-v-2d6e8ecf],.sprints-issue-card.state-missing[data-v-2d6e8ecf],.sprints-kanban-card.state-missing[data-v-2d6e8ecf]{border-left-color:var(--accent-err,#c9341c)}.sprints-card-head[data-v-2d6e8ecf],.sprints-issue-card-head[data-v-2d6e8ecf],.sprints-kanban-card-head[data-v-2d6e8ecf]{align-items:baseline}.sprints-card-head strong[data-v-2d6e8ecf],.sprints-issue-card-head strong[data-v-2d6e8ecf],.sprints-kanban-card-head strong[data-v-2d6e8ecf]{overflow-wrap:anywhere;min-width:0;font-size:.9rem}.sprints-number[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);flex:none;font-size:.72rem}.sprints-goal[data-v-2d6e8ecf],.sprints-selected-goal[data-v-2d6e8ecf]{color:var(--fg-2,#ffffffbd);margin:0;font-size:.82rem;line-height:1.45}.sprints-selected-goal[data-v-2d6e8ecf]{padding:0 12px}.sprints-card-meta[data-v-2d6e8ecf],.sprints-selected-meta[data-v-2d6e8ecf]{color:var(--fg-3,#ffffff8a);flex-wrap:wrap;gap:10px;margin:0;font-size:.7rem;display:flex}.sprints-selected-meta[data-v-2d6e8ecf]{padding:0 12px 4px}.sprints-card-meta div[data-v-2d6e8ecf],.sprints-selected-meta div[data-v-2d6e8ecf]{gap:4px;display:inline-flex}.sprints-issue-meta[data-v-2d6e8ecf],.sprints-kanban-card-meta[data-v-2d6e8ecf]{min-width:0;color:var(--fg-3,#ffffff8a);justify-content:space-between;align-items:center;font-size:.7rem}.sprints-issue-meta code[data-v-2d6e8ecf],.sprints-kanban-card-meta code[data-v-2d6e8ecf]{min-width:0;color:var(--fg-4,#ffffff57);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-project[data-v-2d6e8ecf]{min-width:0;color:var(--accent-blue,#1d55a6);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-empty-column[data-v-2d6e8ecf]{color:var(--fg-4,#ffffff57);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);margin:0;padding:10px 12px;font-size:.74rem}@media (max-width:920px){.sprints-summary[data-v-2d6e8ecf]{grid-template-columns:repeat(3,minmax(96px,1fr))}.sprints-columns[data-v-2d6e8ecf],.sprints-issue-columns[data-v-2d6e8ecf],.sprints-kanban-columns[data-v-2d6e8ecf]{grid-template-columns:repeat(2,minmax(180px,1fr))}}@media (max-width:560px){.sprints-board-head[data-v-2d6e8ecf],.sprints-section-head[data-v-2d6e8ecf]{flex-direction:column;align-items:start}.sprints-summary[data-v-2d6e8ecf],.sprints-columns[data-v-2d6e8ecf],.sprints-issue-columns[data-v-2d6e8ecf],.sprints-kanban-columns[data-v-2d6e8ecf]{grid-template-columns:minmax(0,1fr)}.sprints-column[data-v-2d6e8ecf]{min-width:0}}", El = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Sl = /* @__PURE__ */ xl(yl, [["styles", [bl]], ["__scopeId", "data-v-823eccfe"]]), Cl = {
+}, Dl = /* @__PURE__ */ El(wl, [["styles", [Tl]], ["__scopeId", "data-v-2d6e8ecf"]]), Ol = {
 	class: "extension-payload",
 	"data-smoke": "sprints-list"
-}, wl = {
+}, kl = {
 	key: 0,
 	class: "sprints-status"
-}, Tl = {
+}, Al = {
 	key: 1,
 	class: "sprints-status sprints-error"
-}, El = {
+}, jl = {
 	key: 2,
 	class: "sprints-status"
-}, Dl = {
+}, Ml = {
 	key: 3,
 	class: "sprints-table"
-}, Ol = { class: "sprints-number" }, kl = { class: "sprints-title" }, Al = { class: "sprints-state" }, jl = { class: "sprints-date" }, Ml = { class: "sprints-date" }, Nl = /* @__PURE__ */ xl(/* @__PURE__ */ Rn({
+}, Nl = { class: "sprints-number" }, Pl = { class: "sprints-title" }, Fl = { class: "sprints-state" }, Il = { class: "sprints-date" }, Ll = { class: "sprints-date" }, Rl = /* @__PURE__ */ El(/* @__PURE__ */ Rn({
 	__name: "SprintsList",
 	props: {
 		workspace: {
@@ -4940,42 +4951,42 @@ var Sc = {
 				default: return "Planned";
 			}
 		}
-		return (e, t) => (G(), K("div", Cl, [t[1] ||= q("h3", { class: "sprints-heading" }, "Sprints", -1), n.value === "loading" ? (G(), K("p", wl, "Loading…")) : n.value === "error" ? (G(), K("p", Tl, A(i.value), 1)) : n.value === "empty" ? (G(), K("p", El, "No sprints.")) : n.value === "ready" ? (G(), K("table", Dl, [t[0] ||= q("thead", null, [q("tr", null, [
+		return (e, t) => (G(), K("div", Ol, [t[1] ||= q("h3", { class: "sprints-heading" }, "Sprints", -1), n.value === "loading" ? (G(), K("p", kl, "Loading…")) : n.value === "error" ? (G(), K("p", Al, A(i.value), 1)) : n.value === "empty" ? (G(), K("p", jl, "No sprints.")) : n.value === "ready" ? (G(), K("table", Ml, [t[0] ||= q("thead", null, [q("tr", null, [
 			q("th", null, "#"),
 			q("th", null, "Title"),
 			q("th", null, "State"),
 			q("th", null, "Start"),
 			q("th", null, "End")
 		])], -1), q("tbody", null, [(G(!0), K(U, null, lr(r.value, (e) => (G(), K("tr", { key: e.id }, [
-			q("td", Ol, A(e.number), 1),
-			q("td", kl, A(e.title), 1),
-			q("td", Al, A(c(e.state)), 1),
-			q("td", jl, A(s(e.startDate)), 1),
-			q("td", Ml, A(s(e.endDate)), 1)
+			q("td", Nl, A(e.number), 1),
+			q("td", Pl, A(e.title), 1),
+			q("td", Fl, A(c(e.state)), 1),
+			q("td", Il, A(s(e.startDate)), 1),
+			q("td", Ll, A(s(e.endDate)), 1)
 		]))), 128))])])) : zi("", !0)]));
 	}
-}), [["styles", [".extension-payload[data-v-698380c0]{gap:8px;padding:12px;display:grid}.sprints-heading[data-v-698380c0]{margin:0;font-size:1rem}.sprints-status[data-v-698380c0]{opacity:.7;margin:0}.sprints-error[data-v-698380c0]{color:var(--color-danger,#c0392b)}.sprints-table[data-v-698380c0]{border-collapse:collapse;width:100%;font-size:.875rem}.sprints-table th[data-v-698380c0],.sprints-table td[data-v-698380c0]{text-align:left;border-bottom:1px solid var(--color-border,#e2e8f0);padding:4px 8px}.sprints-table th[data-v-698380c0]{opacity:.8;font-weight:600}.sprints-number[data-v-698380c0]{font-variant-numeric:tabular-nums;width:2rem}.sprints-date[data-v-698380c0]{white-space:nowrap;font-variant-numeric:tabular-nums}"]], ["__scopeId", "data-v-698380c0"]]), Pl = "ext_sprints", Fl = "comtrya-sprints-board", Il = "comtrya-sprints-list";
+}), [["styles", [".extension-payload[data-v-698380c0]{gap:8px;padding:12px;display:grid}.sprints-heading[data-v-698380c0]{margin:0;font-size:1rem}.sprints-status[data-v-698380c0]{opacity:.7;margin:0}.sprints-error[data-v-698380c0]{color:var(--color-danger,#c0392b)}.sprints-table[data-v-698380c0]{border-collapse:collapse;width:100%;font-size:.875rem}.sprints-table th[data-v-698380c0],.sprints-table td[data-v-698380c0]{text-align:left;border-bottom:1px solid var(--color-border,#e2e8f0);padding:4px 8px}.sprints-table th[data-v-698380c0]{opacity:.8;font-weight:600}.sprints-number[data-v-698380c0]{font-variant-numeric:tabular-nums;width:2rem}.sprints-date[data-v-698380c0]{white-space:nowrap;font-variant-numeric:tabular-nums}"]], ["__scopeId", "data-v-698380c0"]]), zl = "ext_sprints", Bl = "comtrya-sprints-board", Vl = "comtrya-sprints-list";
 Ys({
-	tagName: Il,
-	component: Nl
+	tagName: Vl,
+	component: Rl
 }), Ys({
-	tagName: Fl,
-	component: Sl
+	tagName: Bl,
+	component: Dl
 });
-var Ll = {
-	id: Pl,
+var Hl = {
+	id: zl,
 	setup(e) {
 		e.registerWidget({
 			id: "sprints-list",
-			element: Il,
+			element: Vl,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 150,
 			requiredPermission: "sprints.read"
 		}), e.registerRoute("/", {
-			element: Fl,
+			element: Bl,
 			requiredPermission: "sprints.read"
 		});
 	}
 };
 //#endregion
-export { Ll as default };
+export { Hl as default };

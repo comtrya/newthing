@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { boardForSprint, kanbanProjectBoard, planningBoard } from "./api";
+import {
+  internalIssueRefTitle,
+  issueNumberLabel,
+  issueReferenceLabel,
+} from "./issue-labels";
 import { filterKanbanSwimlanesByProject } from "./kanban-filter";
 import type {
   KanbanCardState,
@@ -209,10 +214,6 @@ function stateClass(state: SprintState | SprintIssueState | KanbanCardState): st
 function labelFor(value: SprintState | SprintIssueState | KanbanCardState): string {
   return value.slice(0, 1).toUpperCase() + value.slice(1);
 }
-
-function issueNumber(issue: { number?: number | null }): string {
-  return issue.number == null ? "missing" : `#${issue.number}`;
-}
 </script>
 
 <template>
@@ -360,12 +361,12 @@ function issueNumber(issue: { number?: number | null }): string {
                 :class="['sprints-issue-card', stateClass(issue.state)]"
               >
                 <header class="sprints-issue-card-head">
-                  <span class="sprints-number">{{ issueNumber(issue) }}</span>
+                  <span class="sprints-number">{{ issueNumberLabel(issue) }}</span>
                   <strong>{{ issue.title }}</strong>
                 </header>
                 <footer class="sprints-issue-meta">
                   <span>{{ labelFor(issue.state) }}</span>
-                  <code>{{ issue.issueRef }}</code>
+                  <code :title="internalIssueRefTitle(issue)">{{ issueReferenceLabel(issue) }}</code>
                 </footer>
               </li>
             </ol>
@@ -432,13 +433,13 @@ function issueNumber(issue: { number?: number | null }): string {
                     :class="['sprints-kanban-card', stateClass(card.state)]"
                   >
                     <header class="sprints-kanban-card-head">
-                      <span class="sprints-number">{{ issueNumber(card) }}</span>
+                      <span class="sprints-number">{{ issueNumberLabel(card) }}</span>
                       <strong>{{ card.title }}</strong>
                     </header>
                     <footer class="sprints-kanban-card-meta">
                       <span>{{ labelFor(card.state) }}</span>
                       <span v-if="card.projectName" class="sprints-project">{{ card.projectName }}</span>
-                      <code>{{ card.issueRef }}</code>
+                      <code :title="internalIssueRefTitle(card)">{{ issueReferenceLabel(card) }}</code>
                     </footer>
                   </li>
                 </ol>
