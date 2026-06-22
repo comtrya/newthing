@@ -8,10 +8,10 @@ function e(e) {
 var t = {}, n = [], r = () => {}, i = () => !1, a = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && (e.charCodeAt(2) > 122 || e.charCodeAt(2) < 97), o = (e) => e.startsWith("onUpdate:"), s = Object.assign, c = (e, t) => {
 	let n = e.indexOf(t);
 	n > -1 && e.splice(n, 1);
-}, l = Object.prototype.hasOwnProperty, u = (e, t) => l.call(e, t), d = Array.isArray, f = (e) => x(e) === "[object Map]", p = (e) => x(e) === "[object Set]", m = (e) => x(e) === "[object Date]", h = (e) => typeof e == "function", g = (e) => typeof e == "string", _ = (e) => typeof e == "symbol", v = (e) => typeof e == "object" && !!e, y = (e) => (v(e) || h(e)) && h(e.then) && h(e.catch), b = Object.prototype.toString, x = (e) => b.call(e), S = (e) => x(e).slice(8, -1), C = (e) => x(e) === "[object Object]", w = (e) => g(e) && e !== "NaN" && e[0] !== "-" && "" + parseInt(e, 10) === e, ee = /* @__PURE__ */ e(",key,ref,ref_for,ref_key,onVnodeBeforeMount,onVnodeMounted,onVnodeBeforeUpdate,onVnodeUpdated,onVnodeBeforeUnmount,onVnodeUnmounted"), T = (e) => {
+}, l = Object.prototype.hasOwnProperty, u = (e, t) => l.call(e, t), d = Array.isArray, f = (e) => x(e) === "[object Map]", p = (e) => x(e) === "[object Set]", m = (e) => x(e) === "[object Date]", h = (e) => typeof e == "function", g = (e) => typeof e == "string", _ = (e) => typeof e == "symbol", v = (e) => typeof e == "object" && !!e, y = (e) => (v(e) || h(e)) && h(e.then) && h(e.catch), b = Object.prototype.toString, x = (e) => b.call(e), S = (e) => x(e).slice(8, -1), C = (e) => x(e) === "[object Object]", w = (e) => g(e) && e !== "NaN" && e[0] !== "-" && "" + parseInt(e, 10) === e, ee = /* @__PURE__ */ e(",key,ref,ref_for,ref_key,onVnodeBeforeMount,onVnodeMounted,onVnodeBeforeUpdate,onVnodeUpdated,onVnodeBeforeUnmount,onVnodeUnmounted"), te = (e) => {
 	let t = /* @__PURE__ */ Object.create(null);
 	return ((n) => t[n] || (t[n] = e(n)));
-}, te = /-\w/g, E = T((e) => e.replace(te, (e) => e.slice(1).toUpperCase())), ne = /\B([A-Z])/g, D = T((e) => e.replace(ne, "-$1").toLowerCase()), re = T((e) => e.charAt(0).toUpperCase() + e.slice(1)), ie = T((e) => e ? `on${re(e)}` : ""), O = (e, t) => !Object.is(e, t), ae = (e, ...t) => {
+}, ne = /-\w/g, T = te((e) => e.replace(ne, (e) => e.slice(1).toUpperCase())), E = /\B([A-Z])/g, D = te((e) => e.replace(E, "-$1").toLowerCase()), re = te((e) => e.charAt(0).toUpperCase() + e.slice(1)), ie = te((e) => e ? `on${re(e)}` : ""), O = (e, t) => !Object.is(e, t), ae = (e, ...t) => {
 	for (let n = 0; n < e.length; n++) e[n](...t);
 }, k = (e, t, n, r = !1) => {
 	Object.defineProperty(e, t, {
@@ -1254,7 +1254,7 @@ var hr = !0;
 function gr(e) {
 	let t = br(e), n = e.proxy, i = e.ctx;
 	hr = !1, t.beforeCreate && vr(t.beforeCreate, e, "bc");
-	let { data: a, computed: o, methods: s, watch: c, provide: l, inject: u, created: f, beforeMount: p, mounted: m, beforeUpdate: g, updated: _, activated: y, deactivated: b, beforeDestroy: x, beforeUnmount: S, destroyed: C, unmounted: w, render: ee, renderTracked: T, renderTriggered: te, errorCaptured: E, serverPrefetch: ne, expose: D, inheritAttrs: re, components: ie, directives: O, filters: ae } = t;
+	let { data: a, computed: o, methods: s, watch: c, provide: l, inject: u, created: f, beforeMount: p, mounted: m, beforeUpdate: g, updated: _, activated: y, deactivated: b, beforeDestroy: x, beforeUnmount: S, destroyed: C, unmounted: w, render: ee, renderTracked: te, renderTriggered: ne, errorCaptured: T, serverPrefetch: E, expose: D, inheritAttrs: re, components: ie, directives: O, filters: ae } = t;
 	if (u && _r(u, i, null), s) for (let e in s) {
 		let t = s[e];
 		h(t) && (i[e] = t.bind(n));
@@ -1286,7 +1286,7 @@ function gr(e) {
 	function k(e, t) {
 		d(t) ? t.forEach((t) => e(t.bind(n))) : t && e(t.bind(n));
 	}
-	if (k(Qn, p), k($n, m), k(er, g), k(tr, _), k(Kn, y), k(qn, b), k(sr, E), k(or, T), k(ar, te), k(nr, S), k(rr, w), k(ir, ne), d(D)) if (D.length) {
+	if (k(Qn, p), k($n, m), k(er, g), k(tr, _), k(Kn, y), k(qn, b), k(sr, T), k(or, te), k(ar, ne), k(nr, S), k(rr, w), k(ir, E), d(D)) if (D.length) {
 		let t = e.exposed ||= {};
 		D.forEach((e) => {
 			Object.defineProperty(t, e, {
@@ -1296,7 +1296,7 @@ function gr(e) {
 			});
 		});
 	} else e.exposed ||= {};
-	ee && e.render === r && (e.render = ee), re != null && (e.inheritAttrs = re), ie && (e.components = ie), O && (e.directives = O), ne && zn(e);
+	ee && e.render === r && (e.render = ee), re != null && (e.inheritAttrs = re), ie && (e.components = ie), O && (e.directives = O), E && zn(e);
 }
 function _r(e, t, n = r) {
 	d(e) && (e = Tr(e));
@@ -1473,12 +1473,12 @@ function jr(e, t) {
 		return l;
 	};
 }
-var Mr = null, Nr = (e, t) => t === "modelValue" || t === "model-value" ? e.modelModifiers : e[`${t}Modifiers`] || e[`${E(t)}Modifiers`] || e[`${D(t)}Modifiers`];
+var Mr = null, Nr = (e, t) => t === "modelValue" || t === "model-value" ? e.modelModifiers : e[`${t}Modifiers`] || e[`${T(t)}Modifiers`] || e[`${D(t)}Modifiers`];
 function Pr(e, n, ...r) {
 	if (e.isUnmounted) return;
 	let i = e.vnode.props || t, a = r, o = n.startsWith("update:"), s = o && Nr(i, n.slice(7));
 	s && (s.trim && (a = r.map((e) => g(e) ? e.trim() : e)), s.number && (a = r.map(oe)));
-	let c, l = i[c = ie(n)] || i[c = ie(E(n))];
+	let c, l = i[c = ie(n)] || i[c = ie(T(n))];
 	!l && o && (l = i[c = ie(D(n))]), l && nn(l, e, 6, a);
 	let u = i[c + "Once"];
 	if (u) {
@@ -1592,7 +1592,7 @@ function Yr(e, t, n, r) {
 				let d = t[o];
 				if (c) if (u(a, o)) d !== a[o] && (a[o] = d, l = !0);
 				else {
-					let t = E(o);
+					let t = T(o);
 					i[t] = Zr(c, s, t, d, e, !1);
 				}
 				else d !== a[o] && (a[o] = d, l = !0);
@@ -1611,7 +1611,7 @@ function Xr(e, n, r, i) {
 	if (n) for (let t in n) {
 		if (ee(t)) continue;
 		let l = n[t], d;
-		a && u(a, d = E(t)) ? !o || !o.includes(d) ? r[d] = l : (c ||= {})[d] = l : Lr(e.emitsOptions, t) || (!(t in i) || l !== i[t]) && (i[t] = l, s = !0);
+		a && u(a, d = T(t)) ? !o || !o.includes(d) ? r[d] = l : (c ||= {})[d] = l : Lr(e.emitsOptions, t) || (!(t in i) || l !== i[t]) && (i[t] = l, s = !0);
 	}
 	if (o) {
 		let n = /* @__PURE__ */ I(r), i = c || t;
@@ -1657,11 +1657,11 @@ function $r(e, r, i = !1) {
 	}
 	if (!c && !p) return v(e) && a.set(e, n), n;
 	if (d(c)) for (let e = 0; e < c.length; e++) {
-		let n = E(c[e]);
+		let n = T(c[e]);
 		ei(n) && (l[n] = t);
 	}
 	else if (c) for (let e in c) {
-		let t = E(e);
+		let t = T(e);
 		if (ei(t)) {
 			let n = c[e], r = l[t] = d(n) || h(n) ? { type: n } : s({}, n), i = r.type, a = !1, o = !0;
 			if (d(i)) for (let e = 0; e < i.length; ++e) {
@@ -1760,18 +1760,18 @@ function ui(e, i) {
 		for (; e && e !== t;) n = h(e), s(e), e = n;
 		s(t);
 	}, w = (e, t, n, r, i, a, o, s, c) => {
-		if (t.type === "svg" ? o = "svg" : t.type === "math" && (o = "mathml"), e == null) T(t, n, r, i, a, o, s, c);
+		if (t.type === "svg" ? o = "svg" : t.type === "math" && (o = "mathml"), e == null) te(t, n, r, i, a, o, s, c);
 		else {
 			let n = e.el && e.el._isVueCE ? e.el : null;
 			try {
-				n && n._beginPatch(), ne(e, t, i, a, o, s, c);
+				n && n._beginPatch(), E(e, t, i, a, o, s, c);
 			} finally {
 				n && n._endPatch();
 			}
 		}
-	}, T = (e, t, n, r, i, a, s, u) => {
+	}, te = (e, t, n, r, i, a, s, u) => {
 		let d, f, { props: m, shapeFlag: h, transition: g, dirs: _ } = e;
-		if (d = e.el = l(e.type, a, m && m.is, m), h & 8 ? p(d, e.children) : h & 16 && E(e.children, d, null, r, i, di(e, a), s, u), _ && Tn(e, null, r, "created"), te(d, e, e.scopeId, s, r), m) {
+		if (d = e.el = l(e.type, a, m && m.is, m), h & 8 ? p(d, e.children) : h & 16 && T(e.children, d, null, r, i, di(e, a), s, u), _ && Tn(e, null, r, "created"), ne(d, e, e.scopeId, s, r), m) {
 			for (let e in m) e !== "value" && !ee(e) && c(d, e, null, m[e], a, r);
 			"value" in m && c(d, "value", null, m.value, a), (f = m.onVnodeBeforeMount) && Wi(f, r, e);
 		}
@@ -1782,18 +1782,18 @@ function ui(e, i) {
 				f && Wi(f, r, e), v && g.enter(d), _ && Tn(e, null, r, "mounted");
 			} finally {}
 		}, i);
-	}, te = (e, t, n, r, i) => {
+	}, ne = (e, t, n, r, i) => {
 		if (n && g(e, n), r) for (let t = 0; t < r.length; t++) g(e, r[t]);
 		if (i) {
 			let n = i.subTree;
 			if (t === n || yi(n.type) && (n.ssContent === t || n.ssFallback === t)) {
 				let t = i.vnode;
-				te(e, t, t.scopeId, t.slotScopeIds, i.parent);
+				ne(e, t, t.scopeId, t.slotScopeIds, i.parent);
 			}
 		}
-	}, E = (e, t, n, r, i, a, o, s, c = 0) => {
+	}, T = (e, t, n, r, i, a, o, s, c = 0) => {
 		for (let l = c; l < e.length; l++) v(null, e[l] = s ? Vi(e[l]) : Bi(e[l]), t, n, r, i, a, o, s);
-	}, ne = (e, n, r, i, a, o, s) => {
+	}, E = (e, n, r, i, a, o, s) => {
 		let l = n.el = e.el, { patchFlag: u, dynamicChildren: d, dirs: f } = n;
 		u |= e.patchFlag & 16;
 		let m = e.props || t, h = n.props || t, g;
@@ -1828,7 +1828,7 @@ function ui(e, i) {
 		}
 	}, ie = (e, t, n, r, i, a, s, c, l) => {
 		let d = t.el = e ? e.el : u(""), f = t.anchor = e ? e.anchor : u(""), { patchFlag: p, dynamicChildren: m, slotScopeIds: h } = t;
-		h && (c = c ? c.concat(h) : h), e == null ? (o(d, n, r), o(f, n, r), E(t.children || [], n, f, i, a, s, c, l)) : p > 0 && p & 64 && m && e.dynamicChildren && e.dynamicChildren.length === m.length ? (D(e.dynamicChildren, m, n, i, a, s, c), (t.key != null || i && t === i.subTree) && mi(e, t, !0)) : ue(e, t, n, f, i, a, s, c, l);
+		h && (c = c ? c.concat(h) : h), e == null ? (o(d, n, r), o(f, n, r), T(t.children || [], n, f, i, a, s, c, l)) : p > 0 && p & 64 && m && e.dynamicChildren && e.dynamicChildren.length === m.length ? (D(e.dynamicChildren, m, n, i, a, s, c), (t.key != null || i && t === i.subTree) && mi(e, t, !0)) : ue(e, t, n, f, i, a, s, c, l);
 	}, O = (e, t, n, r, i, a, o, s, c) => {
 		t.slotScopeIds = s, e == null ? t.shapeFlag & 512 ? i.ctx.activate(t, n, r, o, c) : k(t, n, r, i, a, o, c) : oe(e, t, c);
 	}, k = (e, t, n, r, i, a, o) => {
@@ -1904,7 +1904,7 @@ function ui(e, i) {
 				return;
 			}
 		}
-		m & 8 ? (u & 16 && ve(l, i, a), d !== l && p(n, d)) : u & 16 ? m & 16 ? fe(l, d, n, r, i, a, o, s, c) : ve(l, i, a, !0) : (u & 8 && p(n, ""), m & 16 && E(d, n, r, i, a, o, s, c));
+		m & 8 ? (u & 16 && ve(l, i, a), d !== l && p(n, d)) : u & 16 ? m & 16 ? fe(l, d, n, r, i, a, o, s, c) : ve(l, i, a, !0) : (u & 8 && p(n, ""), m & 16 && T(d, n, r, i, a, o, s, c));
 	}, de = (e, t, r, i, a, o, s, c, l) => {
 		e ||= n, t ||= n;
 		let u = e.length, d = t.length, f = Math.min(u, d), p;
@@ -1912,7 +1912,7 @@ function ui(e, i) {
 			let n = t[p] = l ? Vi(t[p]) : Bi(t[p]);
 			v(e[p], n, r, null, a, o, s, c, l);
 		}
-		u > d ? ve(e, a, o, !0, !1, f) : E(t, r, i, a, o, s, c, l, f);
+		u > d ? ve(e, a, o, !0, !1, f) : T(t, r, i, a, o, s, c, l, f);
 	}, fe = (e, t, r, i, a, o, s, c, l) => {
 		let u = 0, d = t.length, f = e.length - 1, p = d - 1;
 		for (; u <= f && u <= p;) {
@@ -2058,7 +2058,7 @@ function ui(e, i) {
 		m: pe,
 		r: he,
 		mt: k,
-		mc: E,
+		mc: T,
 		pc: ue,
 		pbc: D,
 		n: ye,
@@ -2539,7 +2539,7 @@ var ka = [
 function ja(e, t) {
 	let n = Aa[t];
 	if (n) return n;
-	let r = E(t);
+	let r = T(t);
 	if (r !== "filter" && r in e) return Aa[t] = r;
 	r = re(r);
 	for (let n = 0; n < ka.length; n++) {
@@ -2620,7 +2620,7 @@ function Ka(e, t) {
 }
 var qa = (e) => e.charCodeAt(0) === 111 && e.charCodeAt(1) === 110 && e.charCodeAt(2) > 96 && e.charCodeAt(2) < 123, Ja = (e, t, n, r, i, s) => {
 	let c = i === "svg";
-	t === "class" ? xa(e, r, c) : t === "style" ? Ea(e, n, r) : a(t) ? o(t) || za(e, t, n, r, s) : (t[0] === "." ? (t = t.slice(1), !0) : t[0] === "^" ? (t = t.slice(1), !1) : Ya(e, t, r, c)) ? (Fa(e, t, r), !e.tagName.includes("-") && (t === "value" || t === "checked" || t === "selected") && Pa(e, t, r, c, s, t !== "value")) : e._isVueCE && (Xa(e, t) || e._def.__asyncLoader && (/[A-Z]/.test(t) || !g(r))) ? Fa(e, E(t), r, s, t) : (t === "true-value" ? e._trueValue = r : t === "false-value" && (e._falseValue = r), Pa(e, t, r, c));
+	t === "class" ? xa(e, r, c) : t === "style" ? Ea(e, n, r) : a(t) ? o(t) || za(e, t, n, r, s) : (t[0] === "." ? (t = t.slice(1), !0) : t[0] === "^" ? (t = t.slice(1), !1) : Ya(e, t, r, c)) ? (Fa(e, t, r), !e.tagName.includes("-") && (t === "value" || t === "checked" || t === "selected") && Pa(e, t, r, c, s, t !== "value")) : e._isVueCE && (Xa(e, t) || e._def.__asyncLoader && (/[A-Z]/.test(t) || !g(r))) ? Fa(e, T(t), r, s, t) : (t === "true-value" ? e._trueValue = r : t === "false-value" && (e._falseValue = r), Pa(e, t, r, c));
 };
 function Ya(e, t, n, r) {
 	if (r) return !!(t === "innerHTML" || t === "textContent" || t in e && qa(t) && h(n));
@@ -2634,8 +2634,8 @@ function Ya(e, t, n, r) {
 function Xa(e, t) {
 	let n = e._def.props;
 	if (!n) return !1;
-	let r = E(t);
-	return Array.isArray(n) ? n.some((e) => E(e) === r) : Object.keys(n).some((e) => E(e) === r);
+	let r = T(t);
+	return Array.isArray(n) ? n.some((e) => T(e) === r) : Object.keys(n).some((e) => T(e) === r);
 }
 var Za = {};
 /* @__NO_SIDE_EFFECTS__ */
@@ -2688,7 +2688,7 @@ var $a = typeof HTMLElement < "u" ? HTMLElement : class {}, eo = class e extends
 			let { props: n, styles: r } = e, i;
 			if (n && !d(n)) for (let e in n) {
 				let t = n[e];
-				(t === Number || t && t.type === Number) && (e in this._props && (this._props[e] = se(this._props[e])), (i ||= /* @__PURE__ */ Object.create(null))[E(e)] = !0);
+				(t === Number || t && t.type === Number) && (e in this._props && (this._props[e] = se(this._props[e])), (i ||= /* @__PURE__ */ Object.create(null))[T(e)] = !0);
 			}
 			this._numberProps = i, this._resolveProps(e), this.shadowRoot && this._applyStyles(r), this._mount(e);
 		}, t = this._def.__asyncLoader;
@@ -2704,7 +2704,7 @@ var $a = typeof HTMLElement < "u" ? HTMLElement : class {}, eo = class e extends
 	_resolveProps(e) {
 		let { props: t } = e, n = d(t) ? t : Object.keys(t || {});
 		for (let e of Object.keys(this)) e[0] !== "_" && n.includes(e) && this._setProp(e, this[e]);
-		for (let e of n.map(E)) Object.defineProperty(this, e, {
+		for (let e of n.map(T)) Object.defineProperty(this, e, {
 			get() {
 				return this._getProp(e);
 			},
@@ -2715,7 +2715,7 @@ var $a = typeof HTMLElement < "u" ? HTMLElement : class {}, eo = class e extends
 	}
 	_setAttr(e) {
 		if (e.startsWith("data-v-")) return;
-		let t = this.hasAttribute(e), n = t ? this.getAttribute(e) : Za, r = E(e);
+		let t = this.hasAttribute(e), n = t ? this.getAttribute(e) : Za, r = T(e);
 		t && this._numberProps && this._numberProps[r] && (n = se(n)), this._setProp(r, n, !1, !0);
 	}
 	_getProp(e) {
@@ -2911,7 +2911,7 @@ function go() {
 }
 //#endregion
 //#region packages/sdk-core/src/runtime.ts
-async function _o(e, t, n, r, i = {}) {
+async function X(e, t, n, r, i = {}) {
 	let a = `${i.baseUrl ?? ""}/api/ops/${encodeURIComponent(e)}/${encodeURIComponent(t)}/${encodeURIComponent(n)}`, o = { "content-type": "application/json" }, s = i.token ?? await uo();
 	s && (o.authorization = `Bearer ${s}`);
 	try {
@@ -2931,11 +2931,11 @@ async function _o(e, t, n, r, i = {}) {
 			} catch {
 				n = void 0;
 			}
-			let r = yo(e.status), i = typeof n?.message == "string" ? n.message : void 0;
+			let r = vo(e.status), i = typeof n?.message == "string" ? n.message : void 0;
 			return {
 				ok: !1,
 				error: {
-					code: vo(n?.code) ?? r,
+					code: _o(n?.code) ?? r,
 					message: i ?? (t || e.statusText),
 					path: n?.path
 				}
@@ -2955,7 +2955,7 @@ async function _o(e, t, n, r, i = {}) {
 		};
 	}
 }
-function vo(e) {
+function _o(e) {
 	switch (e) {
 		case "not-found":
 		case "conflict":
@@ -2967,7 +2967,7 @@ function vo(e) {
 		default: return;
 	}
 }
-function yo(e) {
+function vo(e) {
 	switch (e) {
 		case 400: return "bad-input";
 		case 401: return "unauthenticated";
@@ -2981,11 +2981,11 @@ function yo(e) {
 typeof fetch < "u" && fetch.bind(globalThis);
 //#endregion
 //#region node_modules/.bun/tinykeys@3.0.0/node_modules/tinykeys/dist/tinykeys.module.js
-var bo = typeof navigator == "object" ? navigator.platform : "";
-/Mac|iPod|iPhone|iPad/.test(bo);
+var yo = typeof navigator == "object" ? navigator.platform : "";
+/Mac|iPod|iPhone|iPad/.test(yo);
 //#endregion
 //#region node_modules/.bun/marked@18.0.4/node_modules/marked/lib/marked.esm.js
-function xo() {
+function bo() {
 	return {
 		async: !1,
 		breaks: !1,
@@ -2999,35 +2999,35 @@ function xo() {
 		walkTokens: null
 	};
 }
-var So = xo();
-function Co(e) {
-	So = e;
+var xo = bo();
+function So(e) {
+	xo = e;
 }
-var wo = { exec: () => null };
-function To(e) {
+var Co = { exec: () => null };
+function wo(e) {
 	let t = [];
 	return (n) => {
 		let r = Math.max(0, Math.min(3, n - 1)), i = t[r];
 		return i || (i = e(r), t[r] = i), i;
 	};
 }
-function X(e, t = "") {
+function Z(e, t = "") {
 	let n = typeof e == "string" ? e : e.source, r = {
 		replace: (e, t) => {
 			let i = typeof t == "string" ? t : t.source;
-			return i = i.replace(Z.caret, "$1"), n = n.replace(e, i), r;
+			return i = i.replace(Q.caret, "$1"), n = n.replace(e, i), r;
 		},
 		getRegex: () => new RegExp(n, t)
 	};
 	return r;
 }
-var Eo = ((e = "") => {
+var To = ((e = "") => {
 	try {
 		return !!RegExp("(?<=1)(?<!1)" + e);
 	} catch {
 		return !1;
 	}
-})(), Z = {
+})(), Q = {
 	codeRemoveIndent: /^(?: {1,4}| {0,3}\t)/gm,
 	outputLinkReplace: /\\([\[\]])/g,
 	indentCodeCompensation: /^(\s+)(?:```)/,
@@ -3078,121 +3078,121 @@ var Eo = ((e = "") => {
 	notSpaceStart: /^\S*/,
 	endingNewline: /\n$/,
 	listItemRegex: (e) => RegExp(`^( {0,3}${e})((?:[	 ][^\\n]*)?(?:\\n|$))`),
-	nextBulletRegex: To((e) => RegExp(`^ {0,${e}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)),
-	hrRegex: To((e) => RegExp(`^ {0,${e}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)),
-	fencesBeginRegex: To((e) => RegExp(`^ {0,${e}}(?:\`\`\`|~~~)`)),
-	headingBeginRegex: To((e) => RegExp(`^ {0,${e}}#`)),
-	htmlBeginRegex: To((e) => RegExp(`^ {0,${e}}<(?:[a-z].*>|!--)`, "i")),
-	blockquoteBeginRegex: To((e) => RegExp(`^ {0,${e}}>`))
-}, Do = /^(?:[ \t]*(?:\n|$))+/, Oo = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/, ko = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/, Ao = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/, jo = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/, Mo = / {0,3}(?:[*+-]|\d{1,9}[.)])/, No = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/, Po = X(No).replace(/bull/g, Mo).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex(), Fo = X(No).replace(/bull/g, Mo).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(), Io = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/, Lo = /^[^\n]+/, Ro = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/, zo = X(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", Ro).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(), Bo = X(/^(bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g, Mo).getRegex(), Vo = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul", Ho = /<!--(?:-?>|[\s\S]*?(?:-->|$))/, Uo = X("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", Ho).replace("tag", Vo).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(), Wo = X(Io).replace("hr", Ao).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Vo).getRegex(), Go = {
-	blockquote: X(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Wo).getRegex(),
-	code: Oo,
-	def: zo,
-	fences: ko,
-	heading: jo,
-	hr: Ao,
-	html: Uo,
+	nextBulletRegex: wo((e) => RegExp(`^ {0,${e}}(?:[*+-]|\\d{1,9}[.)])((?:[ 	][^\\n]*)?(?:\\n|$))`)),
+	hrRegex: wo((e) => RegExp(`^ {0,${e}}((?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$)`)),
+	fencesBeginRegex: wo((e) => RegExp(`^ {0,${e}}(?:\`\`\`|~~~)`)),
+	headingBeginRegex: wo((e) => RegExp(`^ {0,${e}}#`)),
+	htmlBeginRegex: wo((e) => RegExp(`^ {0,${e}}<(?:[a-z].*>|!--)`, "i")),
+	blockquoteBeginRegex: wo((e) => RegExp(`^ {0,${e}}>`))
+}, Eo = /^(?:[ \t]*(?:\n|$))+/, Do = /^((?: {4}| {0,3}\t)[^\n]+(?:\n(?:[ \t]*(?:\n|$))*)?)+/, Oo = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)(?:|([\s\S]*?)(?:\n|$))(?: {0,3}\1[~`]* *(?=\n|$)|$)/, ko = /^ {0,3}((?:-[\t ]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})(?:\n+|$)/, Ao = /^ {0,3}(#{1,6})(?=\s|$)(.*)(?:\n+|$)/, jo = / {0,3}(?:[*+-]|\d{1,9}[.)])/, Mo = /^(?!bull |blockCode|fences|blockquote|heading|html|table)((?:.|\n(?!\s*?\n|bull |blockCode|fences|blockquote|heading|html|table))+?)\n {0,3}(=+|-+) *(?:\n+|$)/, No = Z(Mo).replace(/bull/g, jo).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/\|table/g, "").getRegex(), Po = Z(Mo).replace(/bull/g, jo).replace(/blockCode/g, /(?: {4}| {0,3}\t)/).replace(/fences/g, / {0,3}(?:`{3,}|~{3,})/).replace(/blockquote/g, / {0,3}>/).replace(/heading/g, / {0,3}#{1,6}/).replace(/html/g, / {0,3}<[^\n>]+>\n/).replace(/table/g, / {0,3}\|?(?:[:\- ]*\|)+[\:\- ]*\n/).getRegex(), Fo = /^([^\n]+(?:\n(?!hr|heading|lheading|blockquote|fences|list|html|table| +\n)[^\n]+)*)/, Io = /^[^\n]+/, Lo = /(?!\s*\])(?:\\[\s\S]|[^\[\]\\])+/, Ro = Z(/^ {0,3}\[(label)\]: *(?:\n[ \t]*)?([^<\s][^\s]*|<.*?>)(?:(?: +(?:\n[ \t]*)?| *\n[ \t]*)(title))? *(?:\n+|$)/).replace("label", Lo).replace("title", /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/).getRegex(), zo = Z(/^(bull)([ \t][^\n]+?)?(?:\n|$)/).replace(/bull/g, jo).getRegex(), Bo = "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul", Vo = /<!--(?:-?>|[\s\S]*?(?:-->|$))/, Ho = Z("^ {0,3}(?:<(script|pre|style|textarea)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)|comment[^\\n]*(\\n+|$)|<\\?[\\s\\S]*?(?:\\?>\\n*|$)|<![A-Z][\\s\\S]*?(?:>\\n*|$)|<!\\[CDATA\\[[\\s\\S]*?(?:\\]\\]>\\n*|$)|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|<(?!script|pre|style|textarea)([a-z][\\w-]*)(?:attribute)*? */?>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$)|</(?!script|pre|style|textarea)[a-z][\\w-]*\\s*>(?=[ \\t]*(?:\\n|$))[\\s\\S]*?(?:(?:\\n[ 	]*)+\\n|$))", "i").replace("comment", Vo).replace("tag", Bo).replace("attribute", / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/).getRegex(), Uo = Z(Fo).replace("hr", ko).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("|table", "").replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Bo).getRegex(), Wo = {
+	blockquote: Z(/^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/).replace("paragraph", Uo).getRegex(),
+	code: Do,
+	def: Ro,
+	fences: Oo,
+	heading: Ao,
+	hr: ko,
+	html: Ho,
+	lheading: No,
+	list: zo,
+	newline: Eo,
+	paragraph: Uo,
+	table: Co,
+	text: Io
+}, Go = Z("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", ko).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Bo).getRegex(), Ko = {
+	...Wo,
 	lheading: Po,
-	list: Bo,
-	newline: Do,
-	paragraph: Wo,
-	table: wo,
-	text: Lo
-}, Ko = X("^ *([^\\n ].*)\\n {0,3}((?:\\| *)?:?-+:? *(?:\\| *:?-+:? *)*(?:\\| *)?)(?:\\n((?:(?! *\\n|hr|heading|blockquote|code|fences|list|html).*(?:\\n|$))*)\\n*|$)").replace("hr", Ao).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("blockquote", " {0,3}>").replace("code", "(?: {4}| {0,3}	)[^\\n]").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Vo).getRegex(), qo = {
-	...Go,
-	lheading: Fo,
-	table: Ko,
-	paragraph: X(Io).replace("hr", Ao).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", Ko).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Vo).getRegex()
-}, Jo = {
-	...Go,
-	html: X("^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:\"[^\"]*\"|'[^']*'|\\s[^'\"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))").replace("comment", Ho).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),
+	table: Go,
+	paragraph: Z(Fo).replace("hr", ko).replace("heading", " {0,3}#{1,6}(?:\\s|$)").replace("|lheading", "").replace("table", Go).replace("blockquote", " {0,3}>").replace("fences", " {0,3}(?:`{3,}(?=[^`\\n]*\\n)|~{3,})[^\\n]*\\n").replace("list", " {0,3}(?:[*+-]|1[.)])[ \\t]").replace("html", "</?(?:tag)(?: +|\\n|/?>)|<(?:script|pre|style|textarea|!--)").replace("tag", Bo).getRegex()
+}, qo = {
+	...Wo,
+	html: Z("^ *(?:comment *(?:\\n|\\s*$)|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)|<tag(?:\"[^\"]*\"|'[^']*'|\\s[^'\"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))").replace("comment", Vo).replace(/tag/g, "(?!(?:a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)\\b)\\w+(?!:|[^\\w\\s@]*@)\\b").getRegex(),
 	def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/,
 	heading: /^(#{1,6})(.*)(?:\n+|$)/,
-	fences: wo,
+	fences: Co,
 	lheading: /^(.+?)\n {0,3}(=+|-+) *(?:\n+|$)/,
-	paragraph: X(Io).replace("hr", Ao).replace("heading", " *#{1,6} *[^\n]").replace("lheading", Po).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex()
-}, Yo = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/, Xo = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/, Zo = /^( {2,}|\\)\n(?!\s*$)/, Qo = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/, $o = /[\p{P}\p{S}]/u, es = /[\s\p{P}\p{S}]/u, ts = /[^\s\p{P}\p{S}]/u, ns = X(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, es).getRegex(), rs = /(?!~)[\p{P}\p{S}]/u, is = /(?!~)[\s\p{P}\p{S}]/u, as = /(?:[^\s\p{P}\p{S}]|~)/u, os = X(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", Eo ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex(), ss = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/, cs = X(ss, "u").replace(/punct/g, $o).getRegex(), ls = X(ss, "u").replace(/punct/g, rs).getRegex(), us = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)", ds = X(us, "gu").replace(/notPunctSpace/g, ts).replace(/punctSpace/g, es).replace(/punct/g, $o).getRegex(), fs = X(us, "gu").replace(/notPunctSpace/g, as).replace(/punctSpace/g, is).replace(/punct/g, rs).getRegex(), ps = X("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, ts).replace(/punctSpace/g, es).replace(/punct/g, $o).getRegex(), ms = X(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, $o).getRegex(), hs = X("^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)", "gu").replace(/notPunctSpace/g, ts).replace(/punctSpace/g, es).replace(/punct/g, $o).getRegex(), gs = X(/\\(punct)/, "gu").replace(/punct/g, $o).getRegex(), _s = X(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(), vs = X(Ho).replace("(?:-->|$)", "-->").getRegex(), ys = X("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", vs).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(), bs = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/, xs = X(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", bs).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(), Ss = X(/^!?\[(label)\]\[(ref)\]/).replace("label", bs).replace("ref", Ro).getRegex(), Cs = X(/^!?\[(ref)\](?:\[\])?/).replace("ref", Ro).getRegex(), ws = X("reflink|nolink(?!\\()", "g").replace("reflink", Ss).replace("nolink", Cs).getRegex(), Ts = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/, Es = {
-	_backpedal: wo,
-	anyPunctuation: gs,
-	autolink: _s,
-	blockSkip: os,
-	br: Zo,
-	code: Xo,
-	del: wo,
-	delLDelim: wo,
-	delRDelim: wo,
-	emStrongLDelim: cs,
-	emStrongRDelimAst: ds,
-	emStrongRDelimUnd: ps,
-	escape: Yo,
-	link: xs,
-	nolink: Cs,
-	punctuation: ns,
-	reflink: Ss,
-	reflinkSearch: ws,
-	tag: ys,
-	text: Qo,
-	url: wo
+	paragraph: Z(Fo).replace("hr", ko).replace("heading", " *#{1,6} *[^\n]").replace("lheading", No).replace("|table", "").replace("blockquote", " {0,3}>").replace("|fences", "").replace("|list", "").replace("|html", "").replace("|tag", "").getRegex()
+}, Jo = /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/, Yo = /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/, Xo = /^( {2,}|\\)\n(?!\s*$)/, Zo = /^(`+|[^`])(?:(?= {2,}\n)|[\s\S]*?(?:(?=[\\<!\[`*_]|\b_|$)|[^ ](?= {2,}\n)))/, Qo = /[\p{P}\p{S}]/u, $o = /[\s\p{P}\p{S}]/u, es = /[^\s\p{P}\p{S}]/u, ts = Z(/^((?![*_])punctSpace)/, "u").replace(/punctSpace/g, $o).getRegex(), ns = /(?!~)[\p{P}\p{S}]/u, rs = /(?!~)[\s\p{P}\p{S}]/u, is = /(?:[^\s\p{P}\p{S}]|~)/u, as = Z(/link|precode-code|html/, "g").replace("link", /\[(?:[^\[\]`]|(?<a>`+)[^`]+\k<a>(?!`))*?\]\((?:\\[\s\S]|[^\\\(\)]|\((?:\\[\s\S]|[^\\\(\)])*\))*\)/).replace("precode-", To ? "(?<!`)()" : "(^^|[^`])").replace("code", /(?<b>`+)[^`]+\k<b>(?!`)/).replace("html", /<(?! )[^<>]*?>/).getRegex(), os = /^(?:\*+(?:((?!\*)punct)|([^\s*]))?)|^_+(?:((?!_)punct)|([^\s_]))?/, ss = Z(os, "u").replace(/punct/g, Qo).getRegex(), cs = Z(os, "u").replace(/punct/g, ns).getRegex(), ls = "^[^_*]*?__[^_*]*?\\*[^_*]*?(?=__)|[^*]+(?=[^*])|(?!\\*)punct(\\*+)(?=[\\s]|$)|notPunctSpace(\\*+)(?!\\*)(?=punctSpace|$)|(?!\\*)punctSpace(\\*+)(?=notPunctSpace)|[\\s](\\*+)(?!\\*)(?=punct)|(?!\\*)punct(\\*+)(?!\\*)(?=punct)|notPunctSpace(\\*+)(?=notPunctSpace)", us = Z(ls, "gu").replace(/notPunctSpace/g, es).replace(/punctSpace/g, $o).replace(/punct/g, Qo).getRegex(), ds = Z(ls, "gu").replace(/notPunctSpace/g, is).replace(/punctSpace/g, rs).replace(/punct/g, ns).getRegex(), fs = Z("^[^_*]*?\\*\\*[^_*]*?_[^_*]*?(?=\\*\\*)|[^_]+(?=[^_])|(?!_)punct(_+)(?=[\\s]|$)|notPunctSpace(_+)(?!_)(?=punctSpace|$)|(?!_)punctSpace(_+)(?=notPunctSpace)|[\\s](_+)(?!_)(?=punct)|(?!_)punct(_+)(?!_)(?=punct)", "gu").replace(/notPunctSpace/g, es).replace(/punctSpace/g, $o).replace(/punct/g, Qo).getRegex(), ps = Z(/^~~?(?:((?!~)punct)|[^\s~])/, "u").replace(/punct/g, Qo).getRegex(), ms = Z("^[^~]+(?=[^~])|(?!~)punct(~~?)(?=[\\s]|$)|notPunctSpace(~~?)(?!~)(?=punctSpace|$)|(?!~)punctSpace(~~?)(?=notPunctSpace)|[\\s](~~?)(?!~)(?=punct)|(?!~)punct(~~?)(?!~)(?=punct)|notPunctSpace(~~?)(?=notPunctSpace)", "gu").replace(/notPunctSpace/g, es).replace(/punctSpace/g, $o).replace(/punct/g, Qo).getRegex(), hs = Z(/\\(punct)/, "gu").replace(/punct/g, Qo).getRegex(), gs = Z(/^<(scheme:[^\s\x00-\x1f<>]*|email)>/).replace("scheme", /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/).replace("email", /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/).getRegex(), _s = Z(Vo).replace("(?:-->|$)", "-->").getRegex(), vs = Z("^comment|^</[a-zA-Z][\\w:-]*\\s*>|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>|^<\\?[\\s\\S]*?\\?>|^<![a-zA-Z]+\\s[\\s\\S]*?>|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>").replace("comment", _s).replace("attribute", /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/).getRegex(), ys = /(?:\[(?:\\[\s\S]|[^\[\]\\])*\]|\\[\s\S]|`+(?!`)[^`]*?`+(?!`)|``+(?=\])|[^\[\]\\`])*?/, bs = Z(/^!?\[(label)\]\(\s*(href)(?:(?:[ \t]+(?:\n[ \t]*)?|\n[ \t]*)(title))?\s*\)/).replace("label", ys).replace("href", /<(?:\\.|[^\n<>\\])+>|[^ \t\n\x00-\x1f]*/).replace("title", /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/).getRegex(), xs = Z(/^!?\[(label)\]\[(ref)\]/).replace("label", ys).replace("ref", Lo).getRegex(), Ss = Z(/^!?\[(ref)\](?:\[\])?/).replace("ref", Lo).getRegex(), Cs = Z("reflink|nolink(?!\\()", "g").replace("reflink", xs).replace("nolink", Ss).getRegex(), ws = /[hH][tT][tT][pP][sS]?|[fF][tT][pP]/, Ts = {
+	_backpedal: Co,
+	anyPunctuation: hs,
+	autolink: gs,
+	blockSkip: as,
+	br: Xo,
+	code: Yo,
+	del: Co,
+	delLDelim: Co,
+	delRDelim: Co,
+	emStrongLDelim: ss,
+	emStrongRDelimAst: us,
+	emStrongRDelimUnd: fs,
+	escape: Jo,
+	link: bs,
+	nolink: Ss,
+	punctuation: ts,
+	reflink: xs,
+	reflinkSearch: Cs,
+	tag: vs,
+	text: Zo,
+	url: Co
+}, Es = {
+	...Ts,
+	link: Z(/^!?\[(label)\]\((.*?)\)/).replace("label", ys).getRegex(),
+	reflink: Z(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", ys).getRegex()
 }, Ds = {
-	...Es,
-	link: X(/^!?\[(label)\]\((.*?)\)/).replace("label", bs).getRegex(),
-	reflink: X(/^!?\[(label)\]\s*\[([^\]]*)\]/).replace("label", bs).getRegex()
-}, Os = {
-	...Es,
-	emStrongRDelimAst: fs,
-	emStrongLDelim: ls,
-	delLDelim: ms,
-	delRDelim: hs,
-	url: X(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", Ts).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),
+	...Ts,
+	emStrongRDelimAst: ds,
+	emStrongLDelim: cs,
+	delLDelim: ps,
+	delRDelim: ms,
+	url: Z(/^((?:protocol):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/).replace("protocol", ws).replace("email", /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/).getRegex(),
 	_backpedal: /(?:[^?!.,:;*_'"~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_'"~)]+(?!$))+/,
 	del: /^(~~?)(?=[^\s~])((?:\\[\s\S]|[^\\])*?(?:\\[\s\S]|[^\s~\\]))\1(?=[^~]|$)/,
-	text: X(/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", Ts).getRegex()
+	text: Z(/^([`~]+|[^`~])(?:(?= {2,}\n)|(?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)|[\s\S]*?(?:(?=[\\<!\[`*~_]|\b_|protocol:\/\/|www\.|$)|[^ ](?= {2,}\n)|[^a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-](?=[a-zA-Z0-9.!#$%&'*+\/=?_`{\|}~-]+@)))/).replace("protocol", ws).getRegex()
+}, Os = {
+	...Ds,
+	br: Z(Xo).replace("{2,}", "*").getRegex(),
+	text: Z(Ds.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex()
 }, ks = {
-	...Os,
-	br: X(Zo).replace("{2,}", "*").getRegex(),
-	text: X(Os.text).replace("\\b_", "\\b_| {2,}\\n").replace(/\{2,\}/g, "*").getRegex()
+	normal: Wo,
+	gfm: Ko,
+	pedantic: qo
 }, As = {
-	normal: Go,
-	gfm: qo,
-	pedantic: Jo
+	normal: Ts,
+	gfm: Ds,
+	breaks: Os,
+	pedantic: Es
 }, js = {
-	normal: Es,
-	gfm: Os,
-	breaks: ks,
-	pedantic: Ds
-}, Ms = {
 	"&": "&amp;",
 	"<": "&lt;",
 	">": "&gt;",
 	"\"": "&quot;",
 	"'": "&#39;"
-}, Ns = (e) => Ms[e];
-function Ps(e, t) {
+}, Ms = (e) => js[e];
+function Ns(e, t) {
 	if (t) {
-		if (Z.escapeTest.test(e)) return e.replace(Z.escapeReplace, Ns);
-	} else if (Z.escapeTestNoEncode.test(e)) return e.replace(Z.escapeReplaceNoEncode, Ns);
+		if (Q.escapeTest.test(e)) return e.replace(Q.escapeReplace, Ms);
+	} else if (Q.escapeTestNoEncode.test(e)) return e.replace(Q.escapeReplaceNoEncode, Ms);
 	return e;
 }
-function Fs(e) {
+function Ps(e) {
 	try {
-		e = encodeURI(e).replace(Z.percentDecode, "%");
+		e = encodeURI(e).replace(Q.percentDecode, "%");
 	} catch {
 		return null;
 	}
 	return e;
 }
-function Is(e, t) {
-	let n = e.replace(Z.findPipe, (e, t, n) => {
+function Fs(e, t) {
+	let n = e.replace(Q.findPipe, (e, t, n) => {
 		let r = !1, i = t;
 		for (; --i >= 0 && n[i] === "\\";) r = !r;
 		return r ? "|" : " |";
-	}).split(Z.splitPipe), r = 0;
+	}).split(Q.splitPipe), r = 0;
 	if (n[0].trim() || n.shift(), n.length > 0 && !n.at(-1)?.trim() && n.pop(), t) if (n.length > t) n.splice(t);
 	else for (; n.length < t;) n.push("");
-	for (; r < n.length; r++) n[r] = n[r].trim().replace(Z.slashPipe, "|");
+	for (; r < n.length; r++) n[r] = n[r].trim().replace(Q.slashPipe, "|");
 	return n;
 }
-function Ls(e, t, n) {
+function Is(e, t, n) {
 	let r = e.length;
 	if (r === 0) return "";
 	let i = 0;
@@ -3204,12 +3204,12 @@ function Ls(e, t, n) {
 	}
 	return e.slice(0, r - i);
 }
-function Rs(e) {
+function Ls(e) {
 	let t = e.split("\n"), n = t.length - 1;
-	for (; n >= 0 && Z.blankLine.test(t[n]);) n--;
+	for (; n >= 0 && Q.blankLine.test(t[n]);) n--;
 	return t.length - n <= 2 ? e : t.slice(0, n + 1).join("\n");
 }
-function zs(e, t) {
+function Rs(e, t) {
 	if (e.indexOf(t[1]) === -1) return -1;
 	let n = 0;
 	for (let r = 0; r < e.length; r++) if (e[r] === "\\") r++;
@@ -3217,7 +3217,7 @@ function zs(e, t) {
 	else if (e[r] === t[1] && (n--, n < 0)) return r;
 	return n > 0 ? -2 : -1;
 }
-function Bs(e, t = 0) {
+function zs(e, t = 0) {
 	let n = t, r = "";
 	for (let t of e) if (t === "	") {
 		let e = 4 - n % 4;
@@ -3225,7 +3225,7 @@ function Bs(e, t = 0) {
 	} else r += t, n++;
 	return r;
 }
-function Vs(e, t, n, r, i) {
+function Bs(e, t, n, r, i) {
 	let a = t.href, o = t.title || null, s = e[1].replace(i.other.outputLinkReplace, "$1");
 	r.state.inLink = !0;
 	let c = {
@@ -3238,7 +3238,7 @@ function Vs(e, t, n, r, i) {
 	};
 	return r.state.inLink = !1, c;
 }
-function Hs(e, t, n) {
+function Vs(e, t, n) {
 	let r = e.match(n.other.indentCodeCompensation);
 	if (r === null) return t;
 	let i = r[1];
@@ -3249,12 +3249,12 @@ function Hs(e, t, n) {
 		return r.length >= i.length ? e.slice(i.length) : e;
 	}).join("\n");
 }
-var Us = class {
+var Hs = class {
 	options;
 	rules;
 	lexer;
 	constructor(e) {
-		this.options = e || So;
+		this.options = e || xo;
 	}
 	space(e) {
 		let t = this.rules.block.newline.exec(e);
@@ -3266,7 +3266,7 @@ var Us = class {
 	code(e) {
 		let t = this.rules.block.code.exec(e);
 		if (t) {
-			let e = this.options.pedantic ? t[0] : Rs(t[0]);
+			let e = this.options.pedantic ? t[0] : Ls(t[0]);
 			return {
 				type: "code",
 				raw: e,
@@ -3278,7 +3278,7 @@ var Us = class {
 	fences(e) {
 		let t = this.rules.block.fences.exec(e);
 		if (t) {
-			let e = t[0], n = Hs(e, t[3] || "", this.rules);
+			let e = t[0], n = Vs(e, t[3] || "", this.rules);
 			return {
 				type: "code",
 				raw: e,
@@ -3292,12 +3292,12 @@ var Us = class {
 		if (t) {
 			let e = t[2].trim();
 			if (this.rules.other.endingHash.test(e)) {
-				let t = Ls(e, "#");
+				let t = Is(e, "#");
 				(this.options.pedantic || !t || this.rules.other.endingSpaceChar.test(t)) && (e = t.trim());
 			}
 			return {
 				type: "heading",
-				raw: Ls(t[0], "\n"),
+				raw: Is(t[0], "\n"),
 				depth: t[1].length,
 				text: e,
 				tokens: this.lexer.inline(e)
@@ -3308,13 +3308,13 @@ var Us = class {
 		let t = this.rules.block.hr.exec(e);
 		if (t) return {
 			type: "hr",
-			raw: Ls(t[0], "\n")
+			raw: Is(t[0], "\n")
 		};
 	}
 	blockquote(e) {
 		let t = this.rules.block.blockquote.exec(e);
 		if (t) {
-			let e = Ls(t[0], "\n").split("\n"), n = "", r = "", i = [];
+			let e = Is(t[0], "\n").split("\n"), n = "", r = "", i = [];
 			for (; e.length > 0;) {
 				let t = !1, a = [], o;
 				for (o = 0; o < e.length; o++) if (this.rules.other.blockquoteStart.test(e[o])) a.push(e[o]), t = !0;
@@ -3364,7 +3364,7 @@ ${c}` : c;
 				let n = !1, r = "", s = "";
 				if (!(t = a.exec(e)) || this.rules.block.hr.test(e)) break;
 				r = t[0], e = e.substring(r.length);
-				let c = Bs(t[2].split("\n", 1)[0], t[1].length), l = e.split("\n", 1)[0], u = !c.trim(), d = 0;
+				let c = zs(t[2].split("\n", 1)[0], t[1].length), l = e.split("\n", 1)[0], u = !c.trim(), d = 0;
 				if (this.options.pedantic ? (d = 2, s = c.trimStart()) : u ? d = t[1].length + 1 : (d = c.search(this.rules.other.nonSpaceChar), d = d > 4 ? 1 : d, s = c.slice(d), d += t[1].length), u && this.rules.other.blankLine.test(l) && (r += l + "\n", e = e.substring(l.length + 1), n = !0), !n) {
 					let t = this.rules.other.nextBulletRegex(d), n = this.rules.other.hrRegex(d), i = this.rules.other.fencesBeginRegex(d), a = this.rules.other.headingBeginRegex(d), o = this.rules.other.htmlBeginRegex(d), f = this.rules.other.blockquoteBeginRegex(d);
 					for (; e;) {
@@ -3430,7 +3430,7 @@ ${c}` : c;
 	html(e) {
 		let t = this.rules.block.html.exec(e);
 		if (t) {
-			let e = Rs(t[0]);
+			let e = Ls(t[0]);
 			return {
 				type: "html",
 				block: !0,
@@ -3447,7 +3447,7 @@ ${c}` : c;
 			return {
 				type: "def",
 				tag: e,
-				raw: Ls(t[0], "\n"),
+				raw: Is(t[0], "\n"),
 				href: n,
 				title: r
 			};
@@ -3456,9 +3456,9 @@ ${c}` : c;
 	table(e) {
 		let t = this.rules.block.table.exec(e);
 		if (!t || !this.rules.other.tableDelimiter.test(t[2])) return;
-		let n = Is(t[1]), r = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), i = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split("\n") : [], a = {
+		let n = Fs(t[1]), r = t[2].replace(this.rules.other.tableAlignChars, "").split("|"), i = t[3]?.trim() ? t[3].replace(this.rules.other.tableRowBlankLine, "").split("\n") : [], a = {
 			type: "table",
-			raw: Ls(t[0], "\n"),
+			raw: Is(t[0], "\n"),
 			header: [],
 			align: [],
 			rows: []
@@ -3471,7 +3471,7 @@ ${c}` : c;
 				header: !0,
 				align: a.align[e]
 			});
-			for (let e of i) a.rows.push(Is(e, a.header.length).map((e, t) => ({
+			for (let e of i) a.rows.push(Fs(e, a.header.length).map((e, t) => ({
 				text: e,
 				tokens: this.lexer.inline(e),
 				header: !1,
@@ -3486,7 +3486,7 @@ ${c}` : c;
 			let e = t[1].trim();
 			return {
 				type: "heading",
-				raw: Ls(t[0], "\n"),
+				raw: Is(t[0], "\n"),
 				depth: t[2].charAt(0) === "=" ? 1 : 2,
 				text: e,
 				tokens: this.lexer.inline(e)
@@ -3539,10 +3539,10 @@ ${c}` : c;
 			let e = t[2].trim();
 			if (!this.options.pedantic && this.rules.other.startAngleBracket.test(e)) {
 				if (!this.rules.other.endAngleBracket.test(e)) return;
-				let t = Ls(e.slice(0, -1), "\\");
+				let t = Is(e.slice(0, -1), "\\");
 				if ((e.length - t.length) % 2 == 0) return;
 			} else {
-				let e = zs(t[2], "()");
+				let e = Rs(t[2], "()");
 				if (e === -2) return;
 				if (e > -1) {
 					let n = (t[0].indexOf("!") === 0 ? 5 : 4) + t[1].length + e;
@@ -3554,7 +3554,7 @@ ${c}` : c;
 				let e = this.rules.other.pedanticHrefTitle.exec(n);
 				e && (n = e[1], r = e[3]);
 			} else r = t[3] ? t[3].slice(1, -1) : "";
-			return n = n.trim(), this.rules.other.startAngleBracket.test(n) && (n = this.options.pedantic && !this.rules.other.endAngleBracket.test(e) ? n.slice(1) : n.slice(1, -1)), Vs(t, {
+			return n = n.trim(), this.rules.other.startAngleBracket.test(n) && (n = this.options.pedantic && !this.rules.other.endAngleBracket.test(e) ? n.slice(1) : n.slice(1, -1)), Bs(t, {
 				href: n && n.replace(this.rules.inline.anyPunctuation, "$1"),
 				title: r && r.replace(this.rules.inline.anyPunctuation, "$1")
 			}, t[0], this.lexer, this.rules);
@@ -3572,7 +3572,7 @@ ${c}` : c;
 					text: e
 				};
 			}
-			return Vs(n, e, n[0], this.lexer, this.rules);
+			return Bs(n, e, n[0], this.lexer, this.rules);
 		}
 	}
 	emStrong(e, t, n = "") {
@@ -3704,29 +3704,29 @@ ${c}` : c;
 			};
 		}
 	}
-}, Ws = class e {
+}, Us = class e {
 	tokens;
 	options;
 	state;
 	inlineQueue;
 	tokenizer;
 	constructor(e) {
-		this.tokens = [], this.tokens.links = Object.create(null), this.options = e || So, this.options.tokenizer = this.options.tokenizer || new Us(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = {
+		this.tokens = [], this.tokens.links = Object.create(null), this.options = e || xo, this.options.tokenizer = this.options.tokenizer || new Hs(), this.tokenizer = this.options.tokenizer, this.tokenizer.options = this.options, this.tokenizer.lexer = this, this.inlineQueue = [], this.state = {
 			inLink: !1,
 			inRawBlock: !1,
 			top: !0
 		};
 		let t = {
-			other: Z,
-			block: As.normal,
-			inline: js.normal
+			other: Q,
+			block: ks.normal,
+			inline: As.normal
 		};
-		this.options.pedantic ? (t.block = As.pedantic, t.inline = js.pedantic) : this.options.gfm && (t.block = As.gfm, this.options.breaks ? t.inline = js.breaks : t.inline = js.gfm), this.tokenizer.rules = t;
+		this.options.pedantic ? (t.block = ks.pedantic, t.inline = As.pedantic) : this.options.gfm && (t.block = ks.gfm, this.options.breaks ? t.inline = As.breaks : t.inline = As.gfm), this.tokenizer.rules = t;
 	}
 	static get rules() {
 		return {
-			block: As,
-			inline: js
+			block: ks,
+			inline: As
 		};
 	}
 	static lex(t, n) {
@@ -3736,7 +3736,7 @@ ${c}` : c;
 		return new e(n).inlineTokens(t);
 	}
 	lex(e) {
-		e = e.replace(Z.carriageReturn, "\n"), this.blockTokens(e, this.tokens);
+		e = e.replace(Q.carriageReturn, "\n"), this.blockTokens(e, this.tokens);
 		for (let e = 0; e < this.inlineQueue.length; e++) {
 			let t = this.inlineQueue[e];
 			this.inlineTokens(t.src, t.tokens);
@@ -3744,7 +3744,7 @@ ${c}` : c;
 		return this.inlineQueue = [], this.tokens;
 	}
 	blockTokens(e, t = [], n = !1) {
-		this.tokenizer.lexer = this, this.options.pedantic && (e = e.replace(Z.tabCharGlobal, "    ").replace(Z.spaceLine, ""));
+		this.tokenizer.lexer = this, this.options.pedantic && (e = e.replace(Q.tabCharGlobal, "    ").replace(Q.spaceLine, ""));
 		let r = Infinity;
 		for (; e;) {
 			if (e.length < r) r = e.length;
@@ -3926,18 +3926,18 @@ ${c}` : c;
 		if (this.options.silent) console.error(t);
 		else throw Error(t);
 	}
-}, Gs = class {
+}, Ws = class {
 	options;
 	parser;
 	constructor(e) {
-		this.options = e || So;
+		this.options = e || xo;
 	}
 	space(e) {
 		return "";
 	}
 	code({ text: e, lang: t, escaped: n }) {
-		let r = (t || "").match(Z.notSpaceStart)?.[0], i = e.replace(Z.endingNewline, "") + "\n";
-		return r ? "<pre><code class=\"language-" + Ps(r) + "\">" + (n ? i : Ps(i, !0)) + "</code></pre>\n" : "<pre><code>" + (n ? i : Ps(i, !0)) + "</code></pre>\n";
+		let r = (t || "").match(Q.notSpaceStart)?.[0], i = e.replace(Q.endingNewline, "") + "\n";
+		return r ? "<pre><code class=\"language-" + Ns(r) + "\">" + (n ? i : Ns(i, !0)) + "</code></pre>\n" : "<pre><code>" + (n ? i : Ns(i, !0)) + "</code></pre>\n";
 	}
 	blockquote({ tokens: e }) {
 		return `<blockquote>
@@ -4007,7 +4007,7 @@ ${e}</tr>
 		return `<em>${this.parser.parseInline(e)}</em>`;
 	}
 	codespan({ text: e }) {
-		return `<code>${Ps(e, !0)}</code>`;
+		return `<code>${Ns(e, !0)}</code>`;
 	}
 	br(e) {
 		return "<br>";
@@ -4016,24 +4016,24 @@ ${e}</tr>
 		return `<del>${this.parser.parseInline(e)}</del>`;
 	}
 	link({ href: e, title: t, tokens: n }) {
-		let r = this.parser.parseInline(n), i = Fs(e);
+		let r = this.parser.parseInline(n), i = Ps(e);
 		if (i === null) return r;
 		e = i;
 		let a = "<a href=\"" + e + "\"";
-		return t && (a += " title=\"" + Ps(t) + "\""), a += ">" + r + "</a>", a;
+		return t && (a += " title=\"" + Ns(t) + "\""), a += ">" + r + "</a>", a;
 	}
 	image({ href: e, title: t, text: n, tokens: r }) {
 		r && (n = this.parser.parseInline(r, this.parser.textRenderer));
-		let i = Fs(e);
-		if (i === null) return Ps(n);
+		let i = Ps(e);
+		if (i === null) return Ns(n);
 		e = i;
-		let a = `<img src="${e}" alt="${Ps(n)}"`;
-		return t && (a += ` title="${Ps(t)}"`), a += ">", a;
+		let a = `<img src="${e}" alt="${Ns(n)}"`;
+		return t && (a += ` title="${Ns(t)}"`), a += ">", a;
 	}
 	text(e) {
-		return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : Ps(e.text);
+		return "tokens" in e && e.tokens ? this.parser.parseInline(e.tokens) : "escaped" in e && e.escaped ? e.text : Ns(e.text);
 	}
-}, Ks = class {
+}, Gs = class {
 	strong({ text: e }) {
 		return e;
 	}
@@ -4064,12 +4064,12 @@ ${e}</tr>
 	checkbox({ raw: e }) {
 		return e;
 	}
-}, Q = class e {
+}, Ks = class e {
 	options;
 	renderer;
 	textRenderer;
 	constructor(e) {
-		this.options = e || So, this.options.renderer = this.options.renderer || new Gs(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new Ks();
+		this.options = e || xo, this.options.renderer = this.options.renderer || new Ws(), this.renderer = this.options.renderer, this.renderer.options = this.options, this.renderer.parser = this, this.textRenderer = new Gs();
 	}
 	static parse(t, n) {
 		return new e(n).parse(t);
@@ -4219,7 +4219,7 @@ ${e}</tr>
 	options;
 	block;
 	constructor(e) {
-		this.options = e || So;
+		this.options = e || xo;
 	}
 	static passThroughHooks = new Set([
 		"preprocess",
@@ -4245,21 +4245,21 @@ ${e}</tr>
 		return e;
 	}
 	provideLexer(e = this.block) {
-		return e ? Ws.lex : Ws.lexInline;
+		return e ? Us.lex : Us.lexInline;
 	}
 	provideParser(e = this.block) {
-		return e ? Q.parse : Q.parseInline;
+		return e ? Ks.parse : Ks.parseInline;
 	}
 }, Js = new class {
-	defaults = xo();
+	defaults = bo();
 	options = this.setOptions;
 	parse = this.parseMarkdown(!0);
 	parseInline = this.parseMarkdown(!1);
-	Parser = Q;
-	Renderer = Gs;
-	TextRenderer = Ks;
-	Lexer = Ws;
-	Tokenizer = Us;
+	Parser = Ks;
+	Renderer = Ws;
+	TextRenderer = Gs;
+	Lexer = Us;
+	Tokenizer = Hs;
 	Hooks = qs;
 	constructor(...e) {
 		this.use(...e);
@@ -4311,7 +4311,7 @@ ${e}</tr>
 				}
 				"childTokens" in e && e.childTokens && (t.childTokens[e.name] = e.childTokens);
 			}), n.extensions = t), e.renderer) {
-				let t = this.defaults.renderer || new Gs(this.defaults);
+				let t = this.defaults.renderer || new Ws(this.defaults);
 				for (let n in e.renderer) {
 					if (!(n in t)) throw Error(`renderer '${n}' does not exist`);
 					if (["options", "parser"].includes(n)) continue;
@@ -4324,7 +4324,7 @@ ${e}</tr>
 				n.renderer = t;
 			}
 			if (e.tokenizer) {
-				let t = this.defaults.tokenizer || new Us(this.defaults);
+				let t = this.defaults.tokenizer || new Hs(this.defaults);
 				for (let n in e.tokenizer) {
 					if (!(n in t)) throw Error(`tokenizer '${n}' does not exist`);
 					if ([
@@ -4384,10 +4384,10 @@ ${e}</tr>
 		}, this;
 	}
 	lexer(e, t) {
-		return Ws.lex(e, t ?? this.defaults);
+		return Us.lex(e, t ?? this.defaults);
 	}
 	parser(e, t) {
-		return Q.parse(e, t ?? this.defaults);
+		return Ks.parse(e, t ?? this.defaults);
 	}
 	parseMarkdown(e) {
 		return (t, n) => {
@@ -4399,16 +4399,16 @@ ${e}</tr>
 			if (typeof t > "u" || t === null) return a(/* @__PURE__ */ Error("marked(): input parameter is undefined or null"));
 			if (typeof t != "string") return a(/* @__PURE__ */ Error("marked(): input parameter is of type " + Object.prototype.toString.call(t) + ", string expected"));
 			if (i.hooks && (i.hooks.options = i, i.hooks.block = e), i.async) return (async () => {
-				let n = i.hooks ? await i.hooks.preprocess(t) : t, r = await (i.hooks ? await i.hooks.provideLexer(e) : e ? Ws.lex : Ws.lexInline)(n, i), a = i.hooks ? await i.hooks.processAllTokens(r) : r;
+				let n = i.hooks ? await i.hooks.preprocess(t) : t, r = await (i.hooks ? await i.hooks.provideLexer(e) : e ? Us.lex : Us.lexInline)(n, i), a = i.hooks ? await i.hooks.processAllTokens(r) : r;
 				i.walkTokens && await Promise.all(this.walkTokens(a, i.walkTokens));
-				let o = await (i.hooks ? await i.hooks.provideParser(e) : e ? Q.parse : Q.parseInline)(a, i);
+				let o = await (i.hooks ? await i.hooks.provideParser(e) : e ? Ks.parse : Ks.parseInline)(a, i);
 				return i.hooks ? await i.hooks.postprocess(o) : o;
 			})().catch(a);
 			try {
 				i.hooks && (t = i.hooks.preprocess(t));
-				let n = (i.hooks ? i.hooks.provideLexer(e) : e ? Ws.lex : Ws.lexInline)(t, i);
+				let n = (i.hooks ? i.hooks.provideLexer(e) : e ? Us.lex : Us.lexInline)(t, i);
 				i.hooks && (n = i.hooks.processAllTokens(n)), i.walkTokens && this.walkTokens(n, i.walkTokens);
-				let r = (i.hooks ? i.hooks.provideParser(e) : e ? Q.parse : Q.parseInline)(n, i);
+				let r = (i.hooks ? i.hooks.provideParser(e) : e ? Ks.parse : Ks.parseInline)(n, i);
 				return i.hooks && (r = i.hooks.postprocess(r)), r;
 			} catch (e) {
 				return a(e);
@@ -4418,7 +4418,7 @@ ${e}</tr>
 	onError(e, t) {
 		return (n) => {
 			if (n.message += "\nPlease report this to https://github.com/markedjs/marked.", e) {
-				let e = "<p>An error occurred:</p><pre>" + Ps(n.message + "", !0) + "</pre>";
+				let e = "<p>An error occurred:</p><pre>" + Ns(n.message + "", !0) + "</pre>";
 				return t ? Promise.resolve(e) : e;
 			}
 			if (t) return Promise.reject(n);
@@ -4430,12 +4430,12 @@ function $(e, t) {
 	return Js.parse(e, t);
 }
 $.options = $.setOptions = function(e) {
-	return Js.setOptions(e), $.defaults = Js.defaults, Co($.defaults), $;
-}, $.getDefaults = xo, $.defaults = So, $.use = function(...e) {
-	return Js.use(...e), $.defaults = Js.defaults, Co($.defaults), $;
+	return Js.setOptions(e), $.defaults = Js.defaults, So($.defaults), $;
+}, $.getDefaults = bo, $.defaults = xo, $.use = function(...e) {
+	return Js.use(...e), $.defaults = Js.defaults, So($.defaults), $;
 }, $.walkTokens = function(e, t) {
 	return Js.walkTokens(e, t);
-}, $.parseInline = Js.parseInline, $.Parser = Q, $.parser = Q.parse, $.Renderer = Gs, $.TextRenderer = Ks, $.Lexer = Ws, $.lexer = Ws.lex, $.Tokenizer = Us, $.Hooks = qs, $.parse = $, $.options, $.setOptions, $.use, $.walkTokens, $.parseInline, Q.parse, Ws.lex;
+}, $.parseInline = Js.parseInline, $.Parser = Ks, $.parser = Ks.parse, $.Renderer = Ws, $.TextRenderer = Gs, $.Lexer = Us, $.lexer = Us.lex, $.Tokenizer = Hs, $.Hooks = qs, $.parse = $, $.options, $.setOptions, $.use, $.walkTokens, $.parseInline, Ks.parse, Us.lex;
 //#endregion
 //#region packages/sdk-vue/src/index.ts
 function Ys(e) {
@@ -4472,17 +4472,17 @@ function Qs(e) {
 //#endregion
 //#region ../extensions/first-party/ext_sprints/dist/ext_sprints.client.ts
 var $s = {
-	createSprint: async (e) => _o("ext_sprints", "sprints", "create-sprint", e),
-	getSprint: async (e) => _o("ext_sprints", "sprints", "get-sprint", e),
-	listSprints: async (e) => _o("ext_sprints", "sprints", "list-sprints", e),
-	byRefSprint: async (e) => _o("ext_sprints", "sprints", "by-ref-sprint", e),
-	changeStateSprint: async (e) => _o("ext_sprints", "sprints", "change-state-sprint", e),
-	assignIssue: async (e) => _o("ext_sprints", "sprints", "assign-issue", e),
-	issuesInSprint: async (e) => _o("ext_sprints", "sprints", "issues-in-sprint", e),
-	boardForSprint: async (e) => _o("ext_sprints", "sprints", "board-for-sprint", e),
-	planningBoard: async (e) => _o("ext_sprints", "sprints", "planning-board", e),
-	kanbanForIssues: async (e) => _o("ext_sprints", "sprints", "kanban-for-issues", e),
-	kanbanProjectBoard: async (e) => _o("ext_sprints", "sprints", "kanban-project-board", e)
+	createSprint: async (e) => X("ext_sprints", "sprints", "create-sprint", e),
+	getSprint: async (e) => X("ext_sprints", "sprints", "get-sprint", e),
+	listSprints: async (e) => X("ext_sprints", "sprints", "list-sprints", e),
+	byRefSprint: async (e) => X("ext_sprints", "sprints", "by-ref-sprint", e),
+	changeStateSprint: async (e) => X("ext_sprints", "sprints", "change-state-sprint", e),
+	assignIssue: async (e) => X("ext_sprints", "sprints", "assign-issue", e),
+	issuesInSprint: async (e) => X("ext_sprints", "sprints", "issues-in-sprint", e),
+	boardForSprint: async (e) => X("ext_sprints", "sprints", "board-for-sprint", e),
+	planningBoard: async (e) => X("ext_sprints", "sprints", "planning-board", e),
+	kanbanForIssues: async (e) => X("ext_sprints", "sprints", "kanban-for-issues", e),
+	kanbanProjectBoard: async (e) => X("ext_sprints", "sprints", "kanban-project-board", e)
 };
 //#endregion
 //#region ../extensions/first-party/ext_sprints/ui/src/api.ts
@@ -4643,106 +4643,130 @@ async function yc(e, t) {
 	}), "kanbanProjectBoard"));
 }
 //#endregion
+//#region ../extensions/first-party/ext_sprints/ui/src/kanban-filter.ts
+function bc(e, t) {
+	let n = t?.trim();
+	return n ? e.map((e) => {
+		let t = e.columns.map((e) => xc(e, n)).filter((e) => e.cards.length > 0), r = t.reduce((e, t) => e + t.cards.length, 0);
+		return {
+			...e,
+			label: e.projectName === n ? e.label : n,
+			projectName: e.projectName === n ? e.projectName : n,
+			total: r,
+			columns: t
+		};
+	}).filter((e) => e.total > 0) : e;
+}
+function xc(e, t) {
+	let n = e.cards.filter((e) => e.projectName === t);
+	return {
+		...e,
+		count: n.length,
+		cards: n
+	};
+}
+//#endregion
 //#region ../extensions/first-party/ext_sprints/ui/src/SprintsBoard.vue?vue&type=script&setup=true&lang.ts
-var bc = {
+var Sc = {
 	class: "sprints-board extension-payload",
 	"data-smoke": "sprints-board"
-}, xc = { class: "sprints-board-head" }, Sc = { class: "sprints-total" }, Cc = {
+}, Cc = { class: "sprints-board-head" }, wc = { class: "sprints-total" }, Tc = {
 	key: 0,
 	class: "sprints-status"
-}, wc = {
+}, Ec = {
 	key: 1,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, Tc = {
+}, Dc = {
 	key: 2,
 	class: "sprints-status"
-}, Ec = {
+}, Oc = {
 	key: 3,
 	class: "sprints-content"
-}, Dc = {
+}, kc = {
 	class: "sprints-summary",
 	"aria-label": "Sprint summary"
-}, Oc = { class: "sprints-section" }, kc = { class: "sprints-section-head" }, Ac = {
+}, Ac = { class: "sprints-section" }, jc = { class: "sprints-section-head" }, Mc = {
 	class: "sprints-columns",
 	"aria-label": "Sprint planning board"
-}, jc = ["data-column"], Mc = { class: "sprints-column-head" }, Nc = {
+}, Nc = ["data-column"], Pc = { class: "sprints-column-head" }, Fc = {
 	key: 0,
 	class: "sprints-cards"
-}, Pc = { class: "sprints-card-head" }, Fc = { class: "sprints-number" }, Ic = {
+}, Ic = { class: "sprints-card-head" }, Lc = { class: "sprints-number" }, Rc = {
 	key: 0,
 	class: "sprints-goal"
-}, Lc = { class: "sprints-card-meta" }, Rc = {
+}, zc = { class: "sprints-card-meta" }, Bc = {
 	key: 1,
 	class: "sprints-empty-column"
-}, zc = {
+}, Vc = {
 	key: 0,
 	class: "sprints-section",
 	"data-smoke": "sprints-selected-board"
-}, Bc = { class: "sprints-section-head selected" }, Vc = {
+}, Hc = { class: "sprints-section-head selected" }, Uc = {
 	key: 0,
 	class: "sprints-selected-goal"
-}, Hc = { class: "sprints-selected-meta" }, Uc = {
+}, Wc = { class: "sprints-selected-meta" }, Gc = {
 	key: 1,
 	class: "sprints-status"
-}, Wc = {
+}, Kc = {
 	key: 2,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, Gc = {
+}, qc = {
 	key: 3,
 	class: "sprints-status"
-}, Kc = {
+}, Jc = {
 	key: 4,
 	class: "sprints-issue-columns",
 	"aria-label": "Selected sprint issue board"
-}, qc = ["data-column", "data-smoke"], Jc = { class: "sprints-column-head issue" }, Yc = {
+}, Yc = ["data-column", "data-smoke"], Xc = { class: "sprints-column-head issue" }, Zc = {
 	key: 0,
 	class: "sprints-issue-cards"
-}, Xc = { class: "sprints-issue-card-head" }, Zc = { class: "sprints-number" }, Qc = { class: "sprints-issue-meta" }, $c = {
+}, Qc = { class: "sprints-issue-card-head" }, $c = { class: "sprints-number" }, el = { class: "sprints-issue-meta" }, tl = {
 	key: 1,
 	class: "sprints-empty-column"
-}, el = {
+}, nl = {
 	key: 1,
 	class: "sprints-section",
 	"data-smoke": "sprints-kanban-board"
-}, tl = { class: "sprints-section-head selected" }, nl = {
+}, rl = { class: "sprints-section-head selected" }, il = {
 	key: 0,
 	class: "sprints-status"
-}, rl = {
+}, al = {
 	key: 1,
 	class: "sprints-status sprints-error",
 	role: "alert"
-}, il = {
+}, ol = {
 	key: 2,
 	class: "sprints-status"
-}, al = {
+}, sl = {
 	key: 3,
 	class: "sprints-swimlanes",
 	"aria-label": "Selected sprint Kanban swimlanes"
-}, ol = ["data-swimlane"], sl = { class: "sprints-column-head" }, cl = { class: "sprints-kanban-columns" }, ll = ["data-column"], ul = { class: "sprints-column-head issue" }, dl = {
+}, cl = ["data-swimlane"], ll = { class: "sprints-column-head" }, ul = { class: "sprints-kanban-columns" }, dl = ["data-column"], fl = { class: "sprints-column-head issue" }, pl = {
 	key: 0,
 	class: "sprints-kanban-cards"
-}, fl = { class: "sprints-kanban-card-head" }, pl = { class: "sprints-number" }, ml = { class: "sprints-kanban-card-meta" }, hl = {
+}, ml = { class: "sprints-kanban-card-head" }, hl = { class: "sprints-number" }, gl = { class: "sprints-kanban-card-meta" }, _l = {
 	key: 0,
 	class: "sprints-project"
-}, gl = {
+}, vl = {
 	key: 1,
 	class: "sprints-empty-column"
-}, _l = /* @__PURE__ */ Rn({
+}, yl = /* @__PURE__ */ Rn({
 	__name: "SprintsBoard",
 	props: {
 		host: { type: Object },
 		workspace: { type: String },
-		workspaceId: { type: String }
+		workspaceId: { type: String },
+		projectName: { type: String }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z(null), u = /* @__PURE__ */ z(null), d = /* @__PURE__ */ z(null), f = Y(() => t.workspaceId ?? t.host?.workspaceId ?? t.workspace ?? t.host?.workspace ?? ""), p = Y(() => a.value?.columns ?? []), m = Y(() => p.value.flatMap((e) => e.cards.map((e) => e.sprint))), h = Y(() => a.value?.total ?? 0), g = Y(() => m.value.filter((e) => e.state === "active").length), _ = Y(() => m.value.filter((e) => e.state === "planned").length), v = Y(() => m.value.filter((e) => e.state === "completed").length), y = Y(() => o.value?.columns ?? []), b = Y(() => o.value?.total ?? 0), x = Y(() => s.value?.swimlanes ?? []), S = Y(() => s.value?.total ?? 0), C = Y(() => y.value.flatMap((e) => e.issues).filter((e) => e.state === "open" || e.state === "reopened").length), w = Y(() => x.value.flatMap((e) => e.columns).flatMap((e) => e.cards).filter((e) => e.state === "open" || e.state === "reopened").length), ee = Y(() => n.value === "loading" ? "Loading" : w.value > 0 ? `${w.value} open cards` : g.value > 0 ? `${g.value} active` : c.value ? `Sprint #${c.value.number}` : "No sprints"), T = 0;
+		let t = e, n = /* @__PURE__ */ z("idle"), r = /* @__PURE__ */ z("idle"), i = /* @__PURE__ */ z("idle"), a = /* @__PURE__ */ z(null), o = /* @__PURE__ */ z(null), s = /* @__PURE__ */ z(null), c = /* @__PURE__ */ z(null), l = /* @__PURE__ */ z(null), u = /* @__PURE__ */ z(null), d = /* @__PURE__ */ z(null), f = Y(() => t.workspaceId ?? t.host?.workspaceId ?? t.workspace ?? t.host?.workspace ?? ""), p = Y(() => t.projectName?.trim() ?? ""), m = Y(() => a.value?.columns ?? []), h = Y(() => m.value.flatMap((e) => e.cards.map((e) => e.sprint))), g = Y(() => a.value?.total ?? 0), _ = Y(() => h.value.filter((e) => e.state === "active").length), v = Y(() => h.value.filter((e) => e.state === "planned").length), y = Y(() => h.value.filter((e) => e.state === "completed").length), b = Y(() => o.value?.columns ?? []), x = Y(() => o.value?.total ?? 0), S = Y(() => bc(s.value?.swimlanes ?? [], p.value)), C = Y(() => S.value.reduce((e, t) => e + t.total, 0)), w = Y(() => b.value.flatMap((e) => e.issues).filter((e) => e.state === "open" || e.state === "reopened").length), ee = Y(() => S.value.flatMap((e) => e.columns).flatMap((e) => e.cards).filter((e) => e.state === "open" || e.state === "reopened").length), te = Y(() => n.value === "loading" ? "Loading" : ee.value > 0 ? `${ee.value} open cards` : _.value > 0 ? `${_.value} active` : c.value ? `Sprint #${c.value.number}` : "No sprints"), ne = Y(() => p.value ? `${p.value} swimlane` : "Project swimlanes"), T = Y(() => p.value ? `No Kanban cards in ${p.value}.` : "No Kanban cards."), E = 0;
 		$n(() => {
-			te();
-		}), An(f, () => void te());
-		async function te() {
-			let e = ++T;
+			D();
+		}), An(f, () => void D());
+		async function D() {
+			let e = ++E;
 			if (a.value = null, o.value = null, s.value = null, c.value = null, l.value = null, u.value = null, d.value = null, !f.value) {
 				n.value = "empty", r.value = "empty", i.value = "empty";
 				return;
@@ -4750,15 +4774,15 @@ var bc = {
 			n.value = "loading", r.value = "idle", i.value = "idle";
 			try {
 				let t = await _c(f.value);
-				if (e !== T) return;
-				if (a.value = t, c.value = E(t), n.value = t.total === 0 ? "empty" : "ready", !c.value) {
+				if (e !== E) return;
+				if (a.value = t, c.value = re(t), n.value = t.total === 0 ? "empty" : "ready", !c.value) {
 					r.value = "empty", i.value = "empty";
 					return;
 				}
 				r.value = "loading", i.value = "idle";
 				try {
 					let t = await vc(c.value.id);
-					if (e !== T) return;
+					if (e !== E) return;
 					o.value = t, r.value = t.total === 0 ? "empty" : "ready";
 					let n = Array.from(new Set(t.columns.flatMap((e) => e.issues.map((e) => e.issueRef)).filter((e) => e.length > 0)));
 					if (n.length === 0) {
@@ -4768,114 +4792,114 @@ var bc = {
 					i.value = "loading";
 					try {
 						let t = await yc(f.value, n);
-						if (e !== T) return;
+						if (e !== E) return;
 						s.value = t, i.value = t.total === 0 ? "empty" : "ready";
 					} catch (t) {
-						if (e !== T) return;
+						if (e !== E) return;
 						d.value = t instanceof Error ? t.message : String(t), i.value = "error";
 					}
 				} catch (t) {
-					if (e !== T) return;
+					if (e !== E) return;
 					u.value = t instanceof Error ? t.message : String(t), r.value = "error", i.value = "idle";
 				}
 			} catch (t) {
-				if (e !== T) return;
+				if (e !== E) return;
 				l.value = t instanceof Error ? t.message : String(t), n.value = "error", r.value = "idle", i.value = "idle";
 			}
 		}
-		function E(e) {
+		function re(e) {
 			let t = e.columns.flatMap((e) => e.cards.map((e) => e.sprint));
 			return t.find((e) => e.state === "active") || t.find((e) => e.state === "planned") || ([...t].sort((e, t) => t.updatedAt.localeCompare(e.updatedAt))[0] ?? null);
 		}
-		function ne(e) {
+		function ie(e) {
 			return e ? e.slice(0, 10) : "unscheduled";
 		}
-		function D(e) {
+		function O(e) {
 			return `state-${e}`;
 		}
-		function re(e) {
+		function ae(e) {
 			return e.slice(0, 1).toUpperCase() + e.slice(1);
 		}
-		function ie(e) {
+		function k(e) {
 			return e.number == null ? "missing" : `#${e.number}`;
 		}
-		return (e, t) => (G(), K("section", bc, [q("header", xc, [t[0] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "delivery board"), q("h3", null, "Kanban")], -1), q("span", Sc, A(ee.value), 1)]), n.value === "loading" ? (G(), K("p", Cc, "Loading...")) : n.value === "error" ? (G(), K("p", wc, A(l.value), 1)) : n.value === "empty" ? (G(), K("p", Tc, "No sprints.")) : a.value ? (G(), K("div", Ec, [
-			q("dl", Dc, [
-				q("div", null, [t[1] ||= q("dt", null, "Total", -1), q("dd", null, A(h.value), 1)]),
-				q("div", null, [t[2] ||= q("dt", null, "Active", -1), q("dd", null, A(g.value), 1)]),
-				q("div", null, [t[3] ||= q("dt", null, "Planned", -1), q("dd", null, A(_.value), 1)]),
-				q("div", null, [t[4] ||= q("dt", null, "Completed", -1), q("dd", null, A(v.value), 1)]),
-				q("div", null, [t[5] ||= q("dt", null, "Open issues", -1), q("dd", null, A(C.value), 1)]),
-				q("div", null, [t[6] ||= q("dt", null, "Kanban cards", -1), q("dd", null, A(S.value), 1)])
+		return (e, t) => (G(), K("section", Sc, [q("header", Cc, [t[0] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "delivery board"), q("h3", null, "Kanban")], -1), q("span", wc, A(te.value), 1)]), n.value === "loading" ? (G(), K("p", Tc, "Loading...")) : n.value === "error" ? (G(), K("p", Ec, A(l.value), 1)) : n.value === "empty" ? (G(), K("p", Dc, "No sprints.")) : a.value ? (G(), K("div", Oc, [
+			q("dl", kc, [
+				q("div", null, [t[1] ||= q("dt", null, "Total", -1), q("dd", null, A(g.value), 1)]),
+				q("div", null, [t[2] ||= q("dt", null, "Active", -1), q("dd", null, A(_.value), 1)]),
+				q("div", null, [t[3] ||= q("dt", null, "Planned", -1), q("dd", null, A(v.value), 1)]),
+				q("div", null, [t[4] ||= q("dt", null, "Completed", -1), q("dd", null, A(y.value), 1)]),
+				q("div", null, [t[5] ||= q("dt", null, "Open issues", -1), q("dd", null, A(w.value), 1)]),
+				q("div", null, [t[6] ||= q("dt", null, "Kanban cards", -1), q("dd", null, A(C.value), 1)])
 			]),
-			q("section", Oc, [q("header", kc, [t[7] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "plan"), q("h4", null, "Lifecycle board")], -1), q("span", null, A(h.value) + " total", 1)]), q("div", Ac, [(G(!0), K(U, null, lr(a.value.columns, (e) => (G(), K("section", {
+			q("section", Ac, [q("header", jc, [t[7] ||= q("div", null, [q("p", { class: "sprints-kicker" }, "plan"), q("h4", null, "Lifecycle board")], -1), q("span", null, A(g.value) + " total", 1)]), q("div", Mc, [(G(!0), K(U, null, lr(a.value.columns, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-column",
 				"data-column": e.key
-			}, [q("header", Mc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", Nc, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
+			}, [q("header", Pc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", Fc, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
 				key: e.sprint.id,
-				class: he(["sprints-card", D(e.sprint.state)])
+				class: he(["sprints-card", O(e.sprint.state)])
 			}, [
-				q("header", Pc, [q("span", Fc, "#" + A(e.sprint.number), 1), q("strong", null, A(e.sprint.title), 1)]),
-				e.sprint.goal ? (G(), K("p", Ic, A(e.sprint.goal), 1)) : zi("", !0),
-				q("dl", Lc, [q("div", null, [t[8] ||= q("dt", null, "start", -1), q("dd", null, A(ne(e.sprint.startDate)), 1)]), q("div", null, [t[9] ||= q("dt", null, "end", -1), q("dd", null, A(ne(e.sprint.endDate)), 1)])])
-			], 2))), 128))])) : (G(), K("p", Rc, "No " + A(e.label.toLowerCase()) + " sprints.", 1))], 8, jc))), 128))])]),
-			c.value ? (G(), K("section", zc, [
-				q("header", Bc, [q("div", null, [t[10] ||= q("p", { class: "sprints-kicker" }, "selected sprint", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(c.value.title), 1)])]), q("span", { class: he(["sprints-state", D(c.value.state)]) }, A(re(c.value.state)), 3)]),
-				c.value.goal ? (G(), K("p", Vc, A(c.value.goal), 1)) : zi("", !0),
-				q("dl", Hc, [
-					q("div", null, [t[11] ||= q("dt", null, "start", -1), q("dd", null, A(ne(c.value.startDate)), 1)]),
-					q("div", null, [t[12] ||= q("dt", null, "end", -1), q("dd", null, A(ne(c.value.endDate)), 1)]),
-					q("div", null, [t[13] ||= q("dt", null, "issues", -1), q("dd", null, A(b.value), 1)])
+				q("header", Ic, [q("span", Lc, "#" + A(e.sprint.number), 1), q("strong", null, A(e.sprint.title), 1)]),
+				e.sprint.goal ? (G(), K("p", Rc, A(e.sprint.goal), 1)) : zi("", !0),
+				q("dl", zc, [q("div", null, [t[8] ||= q("dt", null, "start", -1), q("dd", null, A(ie(e.sprint.startDate)), 1)]), q("div", null, [t[9] ||= q("dt", null, "end", -1), q("dd", null, A(ie(e.sprint.endDate)), 1)])])
+			], 2))), 128))])) : (G(), K("p", Bc, "No " + A(e.label.toLowerCase()) + " sprints.", 1))], 8, Nc))), 128))])]),
+			c.value ? (G(), K("section", Vc, [
+				q("header", Hc, [q("div", null, [t[10] ||= q("p", { class: "sprints-kicker" }, "selected sprint", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(c.value.title), 1)])]), q("span", { class: he(["sprints-state", O(c.value.state)]) }, A(ae(c.value.state)), 3)]),
+				c.value.goal ? (G(), K("p", Uc, A(c.value.goal), 1)) : zi("", !0),
+				q("dl", Wc, [
+					q("div", null, [t[11] ||= q("dt", null, "start", -1), q("dd", null, A(ie(c.value.startDate)), 1)]),
+					q("div", null, [t[12] ||= q("dt", null, "end", -1), q("dd", null, A(ie(c.value.endDate)), 1)]),
+					q("div", null, [t[13] ||= q("dt", null, "issues", -1), q("dd", null, A(x.value), 1)])
 				]),
-				r.value === "loading" ? (G(), K("p", Uc, "Loading issues...")) : r.value === "error" ? (G(), K("p", Wc, A(u.value), 1)) : r.value === "empty" ? (G(), K("p", Gc, "No issues assigned.")) : (G(), K("div", Kc, [(G(!0), K(U, null, lr(y.value, (e) => (G(), K("section", {
+				r.value === "loading" ? (G(), K("p", Gc, "Loading issues...")) : r.value === "error" ? (G(), K("p", Kc, A(u.value), 1)) : r.value === "empty" ? (G(), K("p", qc, "No issues assigned.")) : (G(), K("div", Jc, [(G(!0), K(U, null, lr(b.value, (e) => (G(), K("section", {
 					key: e.key,
 					class: "sprints-issue-column",
 					"data-column": e.key,
 					"data-smoke": `sprints-issue-column-${e.key}`
-				}, [q("header", Jc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.issues.length > 0 ? (G(), K("ol", Yc, [(G(!0), K(U, null, lr(e.issues, (e) => (G(), K("li", {
+				}, [q("header", Xc, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.issues.length > 0 ? (G(), K("ol", Zc, [(G(!0), K(U, null, lr(e.issues, (e) => (G(), K("li", {
 					key: e.issueRef,
-					class: he(["sprints-issue-card", D(e.state)])
-				}, [q("header", Xc, [q("span", Zc, A(ie(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", Qc, [q("span", null, A(re(e.state)), 1), q("code", null, A(e.issueRef), 1)])], 2))), 128))])) : (G(), K("p", $c, "No " + A(e.label.toLowerCase()) + " issues.", 1))], 8, qc))), 128))]))
+					class: he(["sprints-issue-card", O(e.state)])
+				}, [q("header", Qc, [q("span", $c, A(k(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", el, [q("span", null, A(ae(e.state)), 1), q("code", null, A(e.issueRef), 1)])], 2))), 128))])) : (G(), K("p", tl, "No " + A(e.label.toLowerCase()) + " issues.", 1))], 8, Yc))), 128))]))
 			])) : zi("", !0),
-			c.value ? (G(), K("section", el, [q("header", tl, [q("div", null, [t[15] ||= q("p", { class: "sprints-kicker" }, "kanban", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), t[14] ||= Ri(" Project swimlanes", -1)])]), q("span", null, A(S.value) + " cards", 1)]), i.value === "idle" || i.value === "loading" ? (G(), K("p", nl, " Loading Kanban... ")) : i.value === "error" ? (G(), K("p", rl, A(d.value), 1)) : i.value === "empty" ? (G(), K("p", il, "No Kanban cards.")) : s.value ? (G(), K("div", al, [(G(!0), K(U, null, lr(x.value, (e) => (G(), K("section", {
+			c.value ? (G(), K("section", nl, [q("header", rl, [q("div", null, [t[14] ||= q("p", { class: "sprints-kicker" }, "kanban", -1), q("h4", null, [q("span", null, "#" + A(c.value.number), 1), Ri(" " + A(ne.value), 1)])]), q("span", null, A(C.value) + " cards", 1)]), i.value === "idle" || i.value === "loading" ? (G(), K("p", il, " Loading Kanban... ")) : i.value === "error" ? (G(), K("p", al, A(d.value), 1)) : i.value === "empty" || C.value === 0 ? (G(), K("p", ol, A(T.value), 1)) : s.value ? (G(), K("div", sl, [(G(!0), K(U, null, lr(S.value, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-swimlane",
 				"data-swimlane": e.key
-			}, [q("header", sl, [q("h5", null, A(e.label), 1), q("span", null, A(e.total), 1)]), q("div", cl, [(G(!0), K(U, null, lr(e.columns, (e) => (G(), K("section", {
+			}, [q("header", ll, [q("h5", null, A(e.label), 1), q("span", null, A(e.total), 1)]), q("div", ul, [(G(!0), K(U, null, lr(e.columns, (e) => (G(), K("section", {
 				key: e.key,
 				class: "sprints-kanban-column",
 				"data-column": e.key
-			}, [q("header", ul, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", dl, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
+			}, [q("header", fl, [q("h5", null, A(e.label), 1), q("span", null, A(e.count), 1)]), e.cards.length > 0 ? (G(), K("ol", pl, [(G(!0), K(U, null, lr(e.cards, (e) => (G(), K("li", {
 				key: e.issueRef,
-				class: he(["sprints-kanban-card", D(e.state)])
-			}, [q("header", fl, [q("span", pl, A(ie(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", ml, [
-				q("span", null, A(re(e.state)), 1),
-				e.projectName ? (G(), K("span", hl, A(e.projectName), 1)) : zi("", !0),
+				class: he(["sprints-kanban-card", O(e.state)])
+			}, [q("header", ml, [q("span", hl, A(k(e)), 1), q("strong", null, A(e.title), 1)]), q("footer", gl, [
+				q("span", null, A(ae(e.state)), 1),
+				e.projectName ? (G(), K("span", _l, A(e.projectName), 1)) : zi("", !0),
 				q("code", null, A(e.issueRef), 1)
-			])], 2))), 128))])) : (G(), K("p", gl, "No " + A(e.label.toLowerCase()) + " cards.", 1))], 8, ll))), 128))])], 8, ol))), 128))])) : zi("", !0)])) : zi("", !0)
+			])], 2))), 128))])) : (G(), K("p", vl, "No " + A(e.label.toLowerCase()) + " cards.", 1))], 8, dl))), 128))])], 8, cl))), 128))])) : zi("", !0)])) : zi("", !0)
 		])) : zi("", !0)]));
 	}
-}), vl = ".extension-payload[data-v-408d2d91]{gap:14px;padding:14px;display:grid}.sprints-board-head[data-v-408d2d91],.sprints-section-head[data-v-408d2d91],.sprints-column-head[data-v-408d2d91],.sprints-card-head[data-v-408d2d91],.sprints-issue-card-head[data-v-408d2d91],.sprints-issue-meta[data-v-408d2d91],.sprints-kanban-card-head[data-v-408d2d91],.sprints-kanban-card-meta[data-v-408d2d91]{gap:10px;display:flex}.sprints-board-head[data-v-408d2d91],.sprints-section-head[data-v-408d2d91],.sprints-column-head[data-v-408d2d91]{justify-content:space-between;align-items:center}.sprints-board-head[data-v-408d2d91]{border-bottom:1px solid var(--line,#ffffff14);padding-bottom:10px}.sprints-content[data-v-408d2d91],.sprints-section[data-v-408d2d91],.sprints-column[data-v-408d2d91],.sprints-issue-column[data-v-408d2d91],.sprints-swimlane[data-v-408d2d91],.sprints-kanban-column[data-v-408d2d91],.sprints-card[data-v-408d2d91],.sprints-issue-card[data-v-408d2d91],.sprints-kanban-card[data-v-408d2d91]{display:grid}.sprints-content[data-v-408d2d91]{gap:14px}.sprints-section[data-v-408d2d91]{border:1px solid var(--line,#ffffff14);background:var(--surface,#ffffff08);gap:12px}.sprints-section-head[data-v-408d2d91]{border-bottom:1px solid var(--line,#ffffff14);padding:12px}.sprints-section-head.selected[data-v-408d2d91]{align-items:start}.sprints-kicker[data-v-408d2d91],.sprints-total[data-v-408d2d91],.sprints-status[data-v-408d2d91],.sprints-number[data-v-408d2d91],.sprints-card-meta[data-v-408d2d91],.sprints-selected-meta[data-v-408d2d91],.sprints-summary[data-v-408d2d91],.sprints-issue-meta[data-v-408d2d91],.sprints-state[data-v-408d2d91],.sprints-section-head>span[data-v-408d2d91]{font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace)}.sprints-kicker[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;margin:0 0 4px;font-size:.72rem}.sprints-board h3[data-v-408d2d91],.sprints-section h4[data-v-408d2d91],.sprints-column h5[data-v-408d2d91],.sprints-issue-column h5[data-v-408d2d91],.sprints-kanban-column h5[data-v-408d2d91]{margin:0}.sprints-board h3[data-v-408d2d91]{font-size:1.05rem}.sprints-section h4[data-v-408d2d91]{font-size:.95rem}.sprints-section h4 span[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);font-size:.82rem;font-weight:500}.sprints-column h5[data-v-408d2d91],.sprints-issue-column h5[data-v-408d2d91],.sprints-kanban-column h5[data-v-408d2d91]{font-size:.84rem}.sprints-total[data-v-408d2d91],.sprints-status[data-v-408d2d91],.sprints-section-head>span[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);font-size:.78rem}.sprints-error[data-v-408d2d91]{color:var(--accent-err,#c9341c)}.sprints-summary[data-v-408d2d91]{grid-template-columns:repeat(6,minmax(96px,1fr));gap:8px;margin:0;display:grid}.sprints-summary div[data-v-408d2d91]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);gap:4px;padding:10px;display:grid}.sprints-summary dt[data-v-408d2d91],.sprints-summary dd[data-v-408d2d91],.sprints-selected-meta dt[data-v-408d2d91],.sprints-selected-meta dd[data-v-408d2d91],.sprints-card-meta dt[data-v-408d2d91],.sprints-card-meta dd[data-v-408d2d91]{margin:0}.sprints-summary dt[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;font-size:.68rem}.sprints-summary dd[data-v-408d2d91]{color:var(--fg,#f3f4f6);font-size:1rem;font-weight:700}.sprints-columns[data-v-408d2d91],.sprints-issue-columns[data-v-408d2d91],.sprints-swimlanes[data-v-408d2d91]{gap:12px;padding:12px;display:grid}.sprints-columns[data-v-408d2d91]{grid-template-columns:repeat(4,minmax(180px,1fr));overflow-x:auto}.sprints-issue-columns[data-v-408d2d91]{grid-template-columns:repeat(2,minmax(220px,1fr))}.sprints-column[data-v-408d2d91],.sprints-issue-column[data-v-408d2d91],.sprints-swimlane[data-v-408d2d91],.sprints-kanban-column[data-v-408d2d91]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);min-width:0}.sprints-column[data-v-408d2d91]{min-width:180px}.sprints-column-head[data-v-408d2d91]{border-bottom:1px solid var(--line,#ffffff14);padding:10px 12px}.sprints-column-head.issue[data-v-408d2d91]{background:var(--surface-2,#ffffff0a)}.sprints-column-head span[data-v-408d2d91],.sprints-state[data-v-408d2d91]{border:1px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);text-align:center;min-width:1.6rem;padding:2px 7px;font-size:.72rem}.sprints-kanban-columns[data-v-408d2d91]{grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;padding:10px;display:grid}.sprints-cards[data-v-408d2d91],.sprints-issue-cards[data-v-408d2d91],.sprints-kanban-cards[data-v-408d2d91]{gap:8px;margin:0;padding:10px;list-style:none;display:grid}.sprints-card[data-v-408d2d91],.sprints-issue-card[data-v-408d2d91],.sprints-kanban-card[data-v-408d2d91]{border:1px solid var(--line,#ffffff14);border-left:3px solid var(--fg-4,#ffffff52);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);gap:8px;padding:10px}.sprints-card.state-active[data-v-408d2d91],.sprints-state.state-active[data-v-408d2d91],.sprints-issue-card.state-open[data-v-408d2d91],.sprints-issue-card.state-reopened[data-v-408d2d91],.sprints-kanban-card.state-open[data-v-408d2d91],.sprints-kanban-card.state-reopened[data-v-408d2d91]{border-left-color:var(--accent-blue,#1d55a6)}.sprints-card.state-completed[data-v-408d2d91],.sprints-state.state-completed[data-v-408d2d91],.sprints-issue-card.state-closed[data-v-408d2d91],.sprints-kanban-card.state-closed[data-v-408d2d91]{border-left-color:var(--accent-good,#2f8f5b)}.sprints-card.state-canceled[data-v-408d2d91],.sprints-state.state-canceled[data-v-408d2d91],.sprints-issue-card.state-missing[data-v-408d2d91],.sprints-kanban-card.state-missing[data-v-408d2d91]{border-left-color:var(--accent-err,#c9341c)}.sprints-card-head[data-v-408d2d91],.sprints-issue-card-head[data-v-408d2d91],.sprints-kanban-card-head[data-v-408d2d91]{align-items:baseline}.sprints-card-head strong[data-v-408d2d91],.sprints-issue-card-head strong[data-v-408d2d91],.sprints-kanban-card-head strong[data-v-408d2d91]{overflow-wrap:anywhere;min-width:0;font-size:.9rem}.sprints-number[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);flex:none;font-size:.72rem}.sprints-goal[data-v-408d2d91],.sprints-selected-goal[data-v-408d2d91]{color:var(--fg-2,#ffffffbd);margin:0;font-size:.82rem;line-height:1.45}.sprints-selected-goal[data-v-408d2d91]{padding:0 12px}.sprints-card-meta[data-v-408d2d91],.sprints-selected-meta[data-v-408d2d91]{color:var(--fg-3,#ffffff8a);flex-wrap:wrap;gap:10px;margin:0;font-size:.7rem;display:flex}.sprints-selected-meta[data-v-408d2d91]{padding:0 12px 4px}.sprints-card-meta div[data-v-408d2d91],.sprints-selected-meta div[data-v-408d2d91]{gap:4px;display:inline-flex}.sprints-issue-meta[data-v-408d2d91],.sprints-kanban-card-meta[data-v-408d2d91]{min-width:0;color:var(--fg-3,#ffffff8a);justify-content:space-between;align-items:center;font-size:.7rem}.sprints-issue-meta code[data-v-408d2d91],.sprints-kanban-card-meta code[data-v-408d2d91]{min-width:0;color:var(--fg-4,#ffffff57);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-project[data-v-408d2d91]{min-width:0;color:var(--accent-blue,#1d55a6);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-empty-column[data-v-408d2d91]{color:var(--fg-4,#ffffff57);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);margin:0;padding:10px 12px;font-size:.74rem}@media (max-width:920px){.sprints-summary[data-v-408d2d91]{grid-template-columns:repeat(3,minmax(96px,1fr))}.sprints-columns[data-v-408d2d91],.sprints-issue-columns[data-v-408d2d91],.sprints-kanban-columns[data-v-408d2d91]{grid-template-columns:repeat(2,minmax(180px,1fr))}}@media (max-width:560px){.sprints-board-head[data-v-408d2d91],.sprints-section-head[data-v-408d2d91]{flex-direction:column;align-items:start}.sprints-summary[data-v-408d2d91],.sprints-columns[data-v-408d2d91],.sprints-issue-columns[data-v-408d2d91],.sprints-kanban-columns[data-v-408d2d91]{grid-template-columns:minmax(0,1fr)}.sprints-column[data-v-408d2d91]{min-width:0}}", yl = (e, t) => {
+}), bl = ".extension-payload[data-v-823eccfe]{gap:14px;padding:14px;display:grid}.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe],.sprints-column-head[data-v-823eccfe],.sprints-card-head[data-v-823eccfe],.sprints-issue-card-head[data-v-823eccfe],.sprints-issue-meta[data-v-823eccfe],.sprints-kanban-card-head[data-v-823eccfe],.sprints-kanban-card-meta[data-v-823eccfe]{gap:10px;display:flex}.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe],.sprints-column-head[data-v-823eccfe]{justify-content:space-between;align-items:center}.sprints-board-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding-bottom:10px}.sprints-content[data-v-823eccfe],.sprints-section[data-v-823eccfe],.sprints-column[data-v-823eccfe],.sprints-issue-column[data-v-823eccfe],.sprints-swimlane[data-v-823eccfe],.sprints-kanban-column[data-v-823eccfe],.sprints-card[data-v-823eccfe],.sprints-issue-card[data-v-823eccfe],.sprints-kanban-card[data-v-823eccfe]{display:grid}.sprints-content[data-v-823eccfe]{gap:14px}.sprints-section[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--surface,#ffffff08);gap:12px}.sprints-section-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding:12px}.sprints-section-head.selected[data-v-823eccfe]{align-items:start}.sprints-kicker[data-v-823eccfe],.sprints-total[data-v-823eccfe],.sprints-status[data-v-823eccfe],.sprints-number[data-v-823eccfe],.sprints-card-meta[data-v-823eccfe],.sprints-selected-meta[data-v-823eccfe],.sprints-summary[data-v-823eccfe],.sprints-issue-meta[data-v-823eccfe],.sprints-state[data-v-823eccfe],.sprints-section-head>span[data-v-823eccfe]{font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace)}.sprints-kicker[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;margin:0 0 4px;font-size:.72rem}.sprints-board h3[data-v-823eccfe],.sprints-section h4[data-v-823eccfe],.sprints-column h5[data-v-823eccfe],.sprints-issue-column h5[data-v-823eccfe],.sprints-kanban-column h5[data-v-823eccfe]{margin:0}.sprints-board h3[data-v-823eccfe]{font-size:1.05rem}.sprints-section h4[data-v-823eccfe]{font-size:.95rem}.sprints-section h4 span[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);font-size:.82rem;font-weight:500}.sprints-column h5[data-v-823eccfe],.sprints-issue-column h5[data-v-823eccfe],.sprints-kanban-column h5[data-v-823eccfe]{font-size:.84rem}.sprints-total[data-v-823eccfe],.sprints-status[data-v-823eccfe],.sprints-section-head>span[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);font-size:.78rem}.sprints-error[data-v-823eccfe]{color:var(--accent-err,#c9341c)}.sprints-summary[data-v-823eccfe]{grid-template-columns:repeat(6,minmax(96px,1fr));gap:8px;margin:0;display:grid}.sprints-summary div[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);gap:4px;padding:10px;display:grid}.sprints-summary dt[data-v-823eccfe],.sprints-summary dd[data-v-823eccfe],.sprints-selected-meta dt[data-v-823eccfe],.sprints-selected-meta dd[data-v-823eccfe],.sprints-card-meta dt[data-v-823eccfe],.sprints-card-meta dd[data-v-823eccfe]{margin:0}.sprints-summary dt[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);text-transform:uppercase;font-size:.68rem}.sprints-summary dd[data-v-823eccfe]{color:var(--fg,#f3f4f6);font-size:1rem;font-weight:700}.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-swimlanes[data-v-823eccfe]{gap:12px;padding:12px;display:grid}.sprints-columns[data-v-823eccfe]{grid-template-columns:repeat(4,minmax(180px,1fr));overflow-x:auto}.sprints-issue-columns[data-v-823eccfe]{grid-template-columns:repeat(2,minmax(220px,1fr))}.sprints-column[data-v-823eccfe],.sprints-issue-column[data-v-823eccfe],.sprints-swimlane[data-v-823eccfe],.sprints-kanban-column[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);background:var(--bg,#0a0b0e);min-width:0}.sprints-column[data-v-823eccfe]{min-width:180px}.sprints-column-head[data-v-823eccfe]{border-bottom:1px solid var(--line,#ffffff14);padding:10px 12px}.sprints-column-head.issue[data-v-823eccfe]{background:var(--surface-2,#ffffff0a)}.sprints-column-head span[data-v-823eccfe],.sprints-state[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);text-align:center;min-width:1.6rem;padding:2px 7px;font-size:.72rem}.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:repeat(3,minmax(160px,1fr));gap:10px;padding:10px;display:grid}.sprints-cards[data-v-823eccfe],.sprints-issue-cards[data-v-823eccfe],.sprints-kanban-cards[data-v-823eccfe]{gap:8px;margin:0;padding:10px;list-style:none;display:grid}.sprints-card[data-v-823eccfe],.sprints-issue-card[data-v-823eccfe],.sprints-kanban-card[data-v-823eccfe]{border:1px solid var(--line,#ffffff14);border-left:3px solid var(--fg-4,#ffffff52);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);gap:8px;padding:10px}.sprints-card.state-active[data-v-823eccfe],.sprints-state.state-active[data-v-823eccfe],.sprints-issue-card.state-open[data-v-823eccfe],.sprints-issue-card.state-reopened[data-v-823eccfe],.sprints-kanban-card.state-open[data-v-823eccfe],.sprints-kanban-card.state-reopened[data-v-823eccfe]{border-left-color:var(--accent-blue,#1d55a6)}.sprints-card.state-completed[data-v-823eccfe],.sprints-state.state-completed[data-v-823eccfe],.sprints-issue-card.state-closed[data-v-823eccfe],.sprints-kanban-card.state-closed[data-v-823eccfe]{border-left-color:var(--accent-good,#2f8f5b)}.sprints-card.state-canceled[data-v-823eccfe],.sprints-state.state-canceled[data-v-823eccfe],.sprints-issue-card.state-missing[data-v-823eccfe],.sprints-kanban-card.state-missing[data-v-823eccfe]{border-left-color:var(--accent-err,#c9341c)}.sprints-card-head[data-v-823eccfe],.sprints-issue-card-head[data-v-823eccfe],.sprints-kanban-card-head[data-v-823eccfe]{align-items:baseline}.sprints-card-head strong[data-v-823eccfe],.sprints-issue-card-head strong[data-v-823eccfe],.sprints-kanban-card-head strong[data-v-823eccfe]{overflow-wrap:anywhere;min-width:0;font-size:.9rem}.sprints-number[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);flex:none;font-size:.72rem}.sprints-goal[data-v-823eccfe],.sprints-selected-goal[data-v-823eccfe]{color:var(--fg-2,#ffffffbd);margin:0;font-size:.82rem;line-height:1.45}.sprints-selected-goal[data-v-823eccfe]{padding:0 12px}.sprints-card-meta[data-v-823eccfe],.sprints-selected-meta[data-v-823eccfe]{color:var(--fg-3,#ffffff8a);flex-wrap:wrap;gap:10px;margin:0;font-size:.7rem;display:flex}.sprints-selected-meta[data-v-823eccfe]{padding:0 12px 4px}.sprints-card-meta div[data-v-823eccfe],.sprints-selected-meta div[data-v-823eccfe]{gap:4px;display:inline-flex}.sprints-issue-meta[data-v-823eccfe],.sprints-kanban-card-meta[data-v-823eccfe]{min-width:0;color:var(--fg-3,#ffffff8a);justify-content:space-between;align-items:center;font-size:.7rem}.sprints-issue-meta code[data-v-823eccfe],.sprints-kanban-card-meta code[data-v-823eccfe]{min-width:0;color:var(--fg-4,#ffffff57);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-project[data-v-823eccfe]{min-width:0;color:var(--accent-blue,#1d55a6);text-overflow:ellipsis;white-space:nowrap;overflow:hidden}.sprints-empty-column[data-v-823eccfe]{color:var(--fg-4,#ffffff57);font-family:var(--font-mono,ui-monospace, SFMono-Regular, Menlo, monospace);margin:0;padding:10px 12px;font-size:.74rem}@media (max-width:920px){.sprints-summary[data-v-823eccfe]{grid-template-columns:repeat(3,minmax(96px,1fr))}.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:repeat(2,minmax(180px,1fr))}}@media (max-width:560px){.sprints-board-head[data-v-823eccfe],.sprints-section-head[data-v-823eccfe]{flex-direction:column;align-items:start}.sprints-summary[data-v-823eccfe],.sprints-columns[data-v-823eccfe],.sprints-issue-columns[data-v-823eccfe],.sprints-kanban-columns[data-v-823eccfe]{grid-template-columns:minmax(0,1fr)}.sprints-column[data-v-823eccfe]{min-width:0}}", xl = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, bl = /* @__PURE__ */ yl(_l, [["styles", [vl]], ["__scopeId", "data-v-408d2d91"]]), xl = {
+}, Sl = /* @__PURE__ */ xl(yl, [["styles", [bl]], ["__scopeId", "data-v-823eccfe"]]), Cl = {
 	class: "extension-payload",
 	"data-smoke": "sprints-list"
-}, Sl = {
+}, wl = {
 	key: 0,
 	class: "sprints-status"
-}, Cl = {
+}, Tl = {
 	key: 1,
 	class: "sprints-status sprints-error"
-}, wl = {
+}, El = {
 	key: 2,
 	class: "sprints-status"
-}, Tl = {
+}, Dl = {
 	key: 3,
 	class: "sprints-table"
-}, El = { class: "sprints-number" }, Dl = { class: "sprints-title" }, Ol = { class: "sprints-state" }, kl = { class: "sprints-date" }, Al = { class: "sprints-date" }, jl = /* @__PURE__ */ yl(/* @__PURE__ */ Rn({
+}, Ol = { class: "sprints-number" }, kl = { class: "sprints-title" }, Al = { class: "sprints-state" }, jl = { class: "sprints-date" }, Ml = { class: "sprints-date" }, Nl = /* @__PURE__ */ xl(/* @__PURE__ */ Rn({
 	__name: "SprintsList",
 	props: {
 		workspace: {
@@ -4916,42 +4940,42 @@ var bc = {
 				default: return "Planned";
 			}
 		}
-		return (e, t) => (G(), K("div", xl, [t[1] ||= q("h3", { class: "sprints-heading" }, "Sprints", -1), n.value === "loading" ? (G(), K("p", Sl, "Loading…")) : n.value === "error" ? (G(), K("p", Cl, A(i.value), 1)) : n.value === "empty" ? (G(), K("p", wl, "No sprints.")) : n.value === "ready" ? (G(), K("table", Tl, [t[0] ||= q("thead", null, [q("tr", null, [
+		return (e, t) => (G(), K("div", Cl, [t[1] ||= q("h3", { class: "sprints-heading" }, "Sprints", -1), n.value === "loading" ? (G(), K("p", wl, "Loading…")) : n.value === "error" ? (G(), K("p", Tl, A(i.value), 1)) : n.value === "empty" ? (G(), K("p", El, "No sprints.")) : n.value === "ready" ? (G(), K("table", Dl, [t[0] ||= q("thead", null, [q("tr", null, [
 			q("th", null, "#"),
 			q("th", null, "Title"),
 			q("th", null, "State"),
 			q("th", null, "Start"),
 			q("th", null, "End")
 		])], -1), q("tbody", null, [(G(!0), K(U, null, lr(r.value, (e) => (G(), K("tr", { key: e.id }, [
-			q("td", El, A(e.number), 1),
-			q("td", Dl, A(e.title), 1),
-			q("td", Ol, A(c(e.state)), 1),
-			q("td", kl, A(s(e.startDate)), 1),
-			q("td", Al, A(s(e.endDate)), 1)
+			q("td", Ol, A(e.number), 1),
+			q("td", kl, A(e.title), 1),
+			q("td", Al, A(c(e.state)), 1),
+			q("td", jl, A(s(e.startDate)), 1),
+			q("td", Ml, A(s(e.endDate)), 1)
 		]))), 128))])])) : zi("", !0)]));
 	}
-}), [["styles", [".extension-payload[data-v-698380c0]{gap:8px;padding:12px;display:grid}.sprints-heading[data-v-698380c0]{margin:0;font-size:1rem}.sprints-status[data-v-698380c0]{opacity:.7;margin:0}.sprints-error[data-v-698380c0]{color:var(--color-danger,#c0392b)}.sprints-table[data-v-698380c0]{border-collapse:collapse;width:100%;font-size:.875rem}.sprints-table th[data-v-698380c0],.sprints-table td[data-v-698380c0]{text-align:left;border-bottom:1px solid var(--color-border,#e2e8f0);padding:4px 8px}.sprints-table th[data-v-698380c0]{opacity:.8;font-weight:600}.sprints-number[data-v-698380c0]{font-variant-numeric:tabular-nums;width:2rem}.sprints-date[data-v-698380c0]{white-space:nowrap;font-variant-numeric:tabular-nums}"]], ["__scopeId", "data-v-698380c0"]]), Ml = "ext_sprints", Nl = "comtrya-sprints-board", Pl = "comtrya-sprints-list";
+}), [["styles", [".extension-payload[data-v-698380c0]{gap:8px;padding:12px;display:grid}.sprints-heading[data-v-698380c0]{margin:0;font-size:1rem}.sprints-status[data-v-698380c0]{opacity:.7;margin:0}.sprints-error[data-v-698380c0]{color:var(--color-danger,#c0392b)}.sprints-table[data-v-698380c0]{border-collapse:collapse;width:100%;font-size:.875rem}.sprints-table th[data-v-698380c0],.sprints-table td[data-v-698380c0]{text-align:left;border-bottom:1px solid var(--color-border,#e2e8f0);padding:4px 8px}.sprints-table th[data-v-698380c0]{opacity:.8;font-weight:600}.sprints-number[data-v-698380c0]{font-variant-numeric:tabular-nums;width:2rem}.sprints-date[data-v-698380c0]{white-space:nowrap;font-variant-numeric:tabular-nums}"]], ["__scopeId", "data-v-698380c0"]]), Pl = "ext_sprints", Fl = "comtrya-sprints-board", Il = "comtrya-sprints-list";
 Ys({
-	tagName: Pl,
-	component: jl
+	tagName: Il,
+	component: Nl
 }), Ys({
-	tagName: Nl,
-	component: bl
+	tagName: Fl,
+	component: Sl
 });
-var Fl = {
-	id: Ml,
+var Ll = {
+	id: Pl,
 	setup(e) {
 		e.registerWidget({
 			id: "sprints-list",
-			element: Pl,
+			element: Il,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 150,
 			requiredPermission: "sprints.read"
 		}), e.registerRoute("/", {
-			element: Nl,
+			element: Fl,
 			requiredPermission: "sprints.read"
 		});
 	}
 };
 //#endregion
-export { Fl as default };
+export { Ll as default };

@@ -28,6 +28,7 @@ import type { RouteRecordRaw } from "vue-router";
 import {
   projectHref,
   projectNewWorkHref,
+  projectPlanningHref,
   projectWorkHref,
   shellRoutePaths,
 } from "./route-paths";
@@ -302,5 +303,40 @@ describe("shell route paths", () => {
     expect(r.params.groups).toEqual(["comtrya"]);
     expect(r.params.repo).toBe("dog food");
     expect(r.params.rest).toEqual(["new"]);
+  });
+
+  test("projectPlanningHref keeps workspace project planning on extension routes", () => {
+    expect(projectPlanningHref({
+      surface: "sprints",
+      projectName: "backend",
+      workspaceId: "ws_123",
+    })).toBe("/x/sprints/?project=backend&workspaceId=ws_123");
+
+    expect(projectPlanningHref({
+      surface: "docs",
+      projectName: "launch q4",
+      board: "scenarios",
+      workspaceId: "ws_123",
+    })).toBe("/x/docs/scenarios?project=launch+q4&workspaceId=ws_123");
+  });
+
+  test("projectPlanningHref scopes repository project planning to the workbench", () => {
+    const href = projectPlanningHref({
+      surface: "docs",
+      projectName: "launch q4",
+      board: "prds",
+      repoSegments: ["comtrya", "dog food"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dog%20food/docs/prds?project=launch+q4&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-docs");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dog food");
+    expect(r.params.rest).toEqual(["prds"]);
   });
 });

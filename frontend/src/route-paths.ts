@@ -96,3 +96,33 @@ export function projectNewWorkHref({
     : `/x/${surface}/new`;
   return `${repoPath}?${params.toString()}`;
 }
+
+export interface ProjectPlanningHrefOptions {
+  surface: "docs" | "sprints";
+  projectName: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+  board?: string;
+}
+
+export function projectPlanningHref({
+  surface,
+  projectName,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+  board,
+}: ProjectPlanningHrefOptions): string {
+  const params = new URLSearchParams({ project: projectName });
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const cleanBoard = board?.trim().replace(/^\/+|\/+$/g, "");
+  const suffix = cleanBoard ? `/${cleanBoard.split("/").map(encodeURIComponent).join("/")}` : "";
+  const basePath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}`
+    : `/x/${surface}`;
+  const path = suffix ? `${basePath}${suffix}` : `${basePath}/`;
+  return `${path}?${params.toString()}`;
+}

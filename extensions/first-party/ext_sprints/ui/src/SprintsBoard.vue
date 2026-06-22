@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { boardForSprint, kanbanProjectBoard, planningBoard } from "./api";
+import { filterKanbanSwimlanesByProject } from "./kanban-filter";
 import type {
   KanbanCardState,
   LoadState,
@@ -22,6 +23,7 @@ const props = defineProps<{
   host?: HostContext;
   workspace?: string;
   workspaceId?: string;
+  projectName?: string;
 }>();
 
 const loadState = ref<LoadState>("idle");
@@ -42,6 +44,7 @@ const effectiveWorkspace = computed(
     props.host?.workspace ??
     "",
 );
+const effectiveProjectName = computed(() => props.projectName?.trim() ?? "");
 const columns = computed(() => board.value?.columns ?? []);
 const sprints = computed(() =>
   columns.value.flatMap((column) => column.cards.map((card) => card.sprint)),
@@ -58,8 +61,15 @@ const completedCount = computed(
 );
 const issueColumns = computed<SprintBoardColumn[]>(() => sprintBoard.value?.columns ?? []);
 const issueTotal = computed(() => sprintBoard.value?.total ?? 0);
-const kanbanSwimlanes = computed(() => kanbanBoard.value?.swimlanes ?? []);
-const kanbanTotal = computed(() => kanbanBoard.value?.total ?? 0);
+const kanbanSwimlanes = computed(() =>
+  filterKanbanSwimlanesByProject(
+    kanbanBoard.value?.swimlanes ?? [],
+    effectiveProjectName.value,
+  ),
+);
+const kanbanTotal = computed(() =>
+  kanbanSwimlanes.value.reduce((sum, lane) => sum + lane.total, 0),
+);
 const openIssueCount = computed(() =>
   issueColumns.value
     .flatMap((column) => column.issues)
@@ -78,6 +88,16 @@ const headline = computed(() => {
   if (selectedSprint.value) return `Sprint #${selectedSprint.value.number}`;
   return "No sprints";
 });
+const kanbanTitle = computed(() =>
+  effectiveProjectName.value
+    ? `${effectiveProjectName.value} swimlane`
+    : "Project swimlanes",
+);
+const kanbanEmptyText = computed(() =>
+  effectiveProjectName.value
+    ? `No Kanban cards in ${effectiveProjectName.value}.`
+    : "No Kanban cards.",
+);
 
 let loadRun = 0;
 
@@ -359,7 +379,7 @@ function issueNumber(issue: { number?: number | null }): string {
         <header class="sprints-section-head selected">
           <div>
             <p class="sprints-kicker">kanban</p>
-            <h4><span>#{{ selectedSprint.number }}</span> Project swimlanes</h4>
+            <h4><span>#{{ selectedSprint.number }}</span> {{ kanbanTitle }}</h4>
           </div>
           <span>{{ kanbanTotal }} cards</span>
         </header>
@@ -373,7 +393,9 @@ function issueNumber(issue: { number?: number | null }): string {
         <p v-else-if="kanbanLoadState === 'error'" class="sprints-status sprints-error" role="alert">
           {{ kanbanError }}
         </p>
-        <p v-else-if="kanbanLoadState === 'empty'" class="sprints-status">No Kanban cards.</p>
+        <p v-else-if="kanbanLoadState === 'empty' || kanbanTotal === 0" class="sprints-status">
+          {{ kanbanEmptyText }}
+        </p>
 
         <div
           v-else-if="kanbanBoard"

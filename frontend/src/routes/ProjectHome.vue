@@ -20,7 +20,7 @@ import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
 import Icon from "../components/Icon.vue";
 import { setActiveLabelCatalog } from "../extension-runtime";
-import { projectNewWorkHref, projectWorkHref } from "../route-paths";
+import { projectNewWorkHref, projectPlanningHref, projectWorkHref } from "../route-paths";
 
 interface ComtryaRef {
   /** Canonical `comtrya://` URN, derived by CUE from kind + slug. */
@@ -377,6 +377,10 @@ const projectQueueHrefs = computed(() => {
       epicsInProgress: "#",
       epicsPlanned: "#",
       epicsDone: "#",
+      kanban: "#",
+      docs: "#",
+      prds: "#",
+      scenarios: "#",
       newIssue: "#",
       newEpic: "#",
     };
@@ -412,6 +416,20 @@ const projectQueueHrefs = computed(() => {
       surface: "epics",
       projectName: name,
       state: "DONE",
+      ...scoped,
+    }),
+    kanban: projectPlanningHref({ surface: "sprints", projectName: name, ...scoped }),
+    docs: projectPlanningHref({ surface: "docs", projectName: name, ...scoped }),
+    prds: projectPlanningHref({
+      surface: "docs",
+      projectName: name,
+      board: "prds",
+      ...scoped,
+    }),
+    scenarios: projectPlanningHref({
+      surface: "docs",
+      projectName: name,
+      board: "scenarios",
       ...scoped,
     }),
     // New-issue / new-epic routes already accept `projectName`
@@ -530,13 +548,37 @@ const projectQueueHrefs = computed(() => {
         <span class="stat-label">done epic<template v-if="summary.epicsDone !== 1">s</template></span>
       </RouterLink>
       <div class="stat-sep" aria-hidden="true" />
-      <div class="stat stat-static">
+      <RouterLink :to="projectQueueHrefs.docs" class="stat" :title="`Open project docs for ${project?.name}`">
         <span class="stat-num">{{ summary.loaded ? docsByType.length : '—' }}</span>
         <span class="stat-label">documentation type<template v-if="docsByType.length !== 1">s</template></span>
-      </div>
+      </RouterLink>
     </section>
 
     <section class="project-quick-actions" data-smoke="project-quick-actions" aria-label="Quick actions">
+      <RouterLink
+        :to="projectQueueHrefs.kanban"
+        class="quick-action quick-action-secondary"
+        :title="`Open Kanban scoped to ${project?.name}`"
+      >
+        <Icon name="ds" aria-hidden="true" />
+        <span>Kanban</span>
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.prds"
+        class="quick-action quick-action-secondary"
+        :title="`Open specs and PRDs scoped to ${project?.name}`"
+      >
+        <Icon name="file" aria-hidden="true" />
+        <span>Specs / PRDs</span>
+      </RouterLink>
+      <RouterLink
+        :to="projectQueueHrefs.scenarios"
+        class="quick-action quick-action-secondary"
+        :title="`Open BDD scenarios scoped to ${project?.name}`"
+      >
+        <Icon name="msg" aria-hidden="true" />
+        <span>BDD scenarios</span>
+      </RouterLink>
       <RouterLink
         :to="projectQueueHrefs.newIssue"
         class="quick-action quick-action-primary"
@@ -793,18 +835,12 @@ const projectQueueHrefs = computed(() => {
   transition: border-color 80ms ease;
 }
 
-/* Hover affordance on navigable stats. The doc-count stat is
- * static (no filter URL yet); `.stat-static` opts it out. */
 a.stat:hover {
   border-bottom-color: var(--fg);
 }
 
 a.stat:hover .stat-label {
   color: var(--fg);
-}
-
-.stat-static {
-  cursor: default;
 }
 
 .stat-num {
