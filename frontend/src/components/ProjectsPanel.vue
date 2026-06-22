@@ -13,7 +13,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { getGraphQLClient } from "@comtrya/sdk-core";
 import { useProjectCounts } from "@comtrya/sdk-vue";
-import { projectHref } from "../route-paths";
+import { projectHref, projectWorkHref } from "../route-paths";
 
 /**
  * Typed reference emitted by the kernel's `#ComtryaRef` family.
@@ -66,6 +66,8 @@ interface RepositoryPayload {
 const props = defineProps<{
   repositoryPath?: string;
   segments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
 }>();
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
@@ -148,9 +150,14 @@ function projectFilterHref(
   name: string,
   state?: string,
 ): string {
-  const encoded = encodeURIComponent(name);
-  const suffix = state ? `&state=${state}` : "";
-  return `/x/${surface}/?project=${encoded}${suffix}`;
+  return projectWorkHref({
+    surface,
+    projectName: name,
+    state,
+    repoSegments: props.segments,
+    workspaceId: props.workspaceId,
+    repositoryId: props.repositoryId,
+  });
 }
 
 onMounted(() => void load());

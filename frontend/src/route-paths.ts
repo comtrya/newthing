@@ -43,3 +43,31 @@ export function projectHref(
   const repoPath = segments.map(encodeURIComponent).join("/");
   return `/r/${repoPath}/p/${encodeURIComponent(projectName)}`;
 }
+
+export interface ProjectWorkHrefOptions {
+  surface: "issues" | "epics";
+  projectName: string;
+  state?: string;
+  repoSegments?: string[];
+  workspaceId?: string | null;
+  repositoryId?: string | null;
+}
+
+export function projectWorkHref({
+  surface,
+  projectName,
+  state,
+  repoSegments,
+  workspaceId,
+  repositoryId,
+}: ProjectWorkHrefOptions): string {
+  const params = new URLSearchParams({ project: projectName });
+  if (state) params.set("state", state);
+  if (workspaceId) params.set("workspaceId", workspaceId);
+  if (repositoryId) params.set("repositoryId", repositoryId);
+
+  const repoPath = repoSegments?.length
+    ? `/r/${repoSegments.map(encodeURIComponent).join("/")}/${surface}`
+    : `/x/${surface}/`;
+  return `${repoPath}?${params.toString()}`;
+}

@@ -1040,7 +1040,12 @@ function mergeRepositoryIdentity(
           </dl>
         </section>
 
-        <ProjectsPanel :repository-path="displayPath" :segments="repoSegments" />
+        <ProjectsPanel
+          :repository-path="displayPath"
+          :segments="repoSegments"
+          :workspace-id="workspaceId"
+          :repository-id="repositoryId"
+        />
 
         <SlotMount
           v-if="repositoryId"

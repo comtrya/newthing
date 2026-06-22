@@ -25,7 +25,7 @@ import { defineComponent } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
 import type { RouteRecordRaw } from "vue-router";
 
-import { projectHref, shellRoutePaths } from "./route-paths";
+import { projectHref, projectWorkHref, shellRoutePaths } from "./route-paths";
 
 const Stub = defineComponent({ render: () => null });
 
@@ -230,5 +230,39 @@ describe("shell route paths", () => {
     expect(r.params.groups).toEqual(["acme"]);
     expect(r.params.repo).toBe("my repo");
     expect(r.params.project).toBe("launch q4");
+  });
+
+  test("projectWorkHref keeps workspace project queues on extension routes", () => {
+    expect(projectWorkHref({
+      surface: "issues",
+      projectName: "frontend",
+      workspaceId: "ws_123",
+    })).toBe("/x/issues/?project=frontend&workspaceId=ws_123");
+
+    expect(projectWorkHref({
+      surface: "epics",
+      projectName: "launch q4",
+      state: "IN_PROGRESS",
+      workspaceId: "ws_123",
+    })).toBe("/x/epics/?project=launch+q4&state=IN_PROGRESS&workspaceId=ws_123");
+  });
+
+  test("projectWorkHref scopes repository project queues to the workbench", () => {
+    const href = projectWorkHref({
+      surface: "issues",
+      projectName: "backend",
+      state: "CLOSED",
+      repoSegments: ["comtrya", "dogfood"],
+      workspaceId: "ws_123",
+      repositoryId: "repo_456",
+    });
+
+    expect(href).toBe(
+      "/r/comtrya/dogfood/issues?project=backend&state=CLOSED&workspaceId=ws_123&repositoryId=repo_456",
+    );
+    const r = router.resolve(href);
+    expect(r.name).toBe("repo-issues");
+    expect(r.params.groups).toEqual(["comtrya"]);
+    expect(r.params.repo).toBe("dogfood");
   });
 });
