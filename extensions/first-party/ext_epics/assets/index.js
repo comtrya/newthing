@@ -4996,21 +4996,44 @@ function pl(e) {
 	return e >= 48 && e <= 57;
 }
 //#endregion
+//#region packages/sdk-vue/src/project-query.ts
+function ml(e, t) {
+	let n = _l(t.projectFilter);
+	if (!n) {
+		e.delete("project");
+		return;
+	}
+	hl(n, t) ? e.set("project", n) : e.delete("project");
+}
+function hl(e, t) {
+	let n = _l(t.scopedProjectName);
+	if (!n) return !0;
+	if (n !== e) return !1;
+	let r = gl(t.currentSearch);
+	return r.get("project") === e && !r.has("projectName");
+}
+function gl(e) {
+	return e instanceof URLSearchParams ? new URLSearchParams(e) : new URLSearchParams(e ?? "");
+}
+function _l(e) {
+	return (e?.trim() ?? "") || null;
+}
+//#endregion
 //#region packages/sdk-vue/src/classify-principal.ts
-var ml = {
+var vl = {
 	kind: "unknown",
 	label: "unknown",
 	glyph: "·",
 	tone: "neutral"
 };
-function hl(e) {
-	if (!e) return ml;
+function yl(e) {
+	if (!e) return vl;
 	let [t = "", ...n] = e.replace(/^comtrya:\/\//, "").split("/"), r = n.join("/") || e;
 	switch (t) {
 		case "user": return {
 			kind: "human",
 			label: r,
-			glyph: gl(r),
+			glyph: bl(r),
 			tone: "human"
 		};
 		case "agent": return {
@@ -5040,40 +5063,40 @@ function hl(e) {
 		default: return {
 			kind: "unknown",
 			label: r,
-			glyph: gl(r) || "·",
+			glyph: bl(r) || "·",
 			tone: "neutral"
 		};
 	}
 }
-function gl(e) {
+function bl(e) {
 	return e.slice(0, 1).toUpperCase();
 }
 //#endregion
 //#region packages/sdk-vue/src/comtrya-config.ts
-function _l() {
+function xl() {
 	if (typeof window > "u") return [];
 	let e = window.location.pathname;
 	if (!e.startsWith("/r/")) return [];
 	let t = e.slice(3), n = t.indexOf("/p/");
 	return (n >= 0 ? t.slice(0, n) : t).split("/").filter(Boolean).map(decodeURIComponent);
 }
-async function vl(e) {
+async function Sl(e) {
 	try {
-		let t = e ?? _l();
+		let t = e ?? xl();
 		return t.length === 0 ? [] : (((await p().query("query ComtryaProjects($segments: [String!]!) {\n      workspace { repositoryByPath(segments: $segments) { comtryaConfig } }\n    }", { segments: t })).workspace?.repositoryByPath?.comtryaConfig ?? null)?.projects ?? []).filter((e) => typeof e == "object" && !!e);
 	} catch {
 		return [];
 	}
 }
-async function yl(e, t) {
-	return ((await vl(t)).find((t) => t.name === e)?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0);
+async function Cl(e, t) {
+	return ((await Sl(t)).find((t) => t.name === e)?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0);
 }
 //#endregion
 //#region packages/sdk-vue/src/LabelPill.vue?vue&type=script&setup=true&lang.ts
-var bl = ["title"], xl = {
+var wl = ["title"], Tl = {
 	key: 0,
 	class: "label-pill-value"
-}, Sl = { class: "label-pill-type" }, Cl = { class: "label-pill-value" }, wl = /* @__PURE__ */ Ar({
+}, El = { class: "label-pill-type" }, Dl = { class: "label-pill-value" }, Ol = /* @__PURE__ */ Ar({
 	__name: "LabelPill",
 	props: {
 		name: { type: String },
@@ -5096,20 +5119,20 @@ var bl = ["title"], xl = {
 			class: N(["label-pill", [`label-pill--${r.value.kind}`]]),
 			title: a.value ?? void 0,
 			style: Qe(i.value ? { "--label-color": i.value } : void 0)
-		}, [r.value.kind === "plain" ? (W(), G("span", xl, P(r.value.value), 1)) : (W(), G(U, { key: 1 }, [
-			K("span", Sl, P(r.value.type), 1),
+		}, [r.value.kind === "plain" ? (W(), G("span", Tl, P(r.value.value), 1)) : (W(), G(U, { key: 1 }, [
+			K("span", El, P(r.value.type), 1),
 			t[0] ||= K("span", {
 				class: "label-pill-sep",
 				"aria-hidden": "true"
 			}, "::", -1),
-			K("span", Cl, P(r.value.value), 1)
-		], 64))], 14, bl));
+			K("span", Dl, P(r.value.value), 1)
+		], 64))], 14, wl));
 	}
 });
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Tl(e) {
-	El(e.tagName, e.component);
+function kl(e) {
+	Al(e.tagName, e.component);
 	let t = /* @__PURE__ */ Go(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -5117,31 +5140,31 @@ function Tl(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(Ol(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(Ml(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function El(e, t) {
+function Al(e, t) {
 	if (typeof document > "u") return;
-	let n = Dl(t);
+	let n = jl(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function Dl(e) {
+function jl(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function Ol(e) {
+function Ml(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/dist/ext_epics.client.ts
-var kl = {
+var Nl = {
 	createEpic: async (e) => c("ext_epics", "epics", "create-epic", e),
 	changeStateEpic: async (e) => c("ext_epics", "epics", "change-state-epic", e),
 	assignProject: async (e) => c("ext_epics", "epics", "assign-project", e),
@@ -5160,15 +5183,15 @@ var kl = {
 	targetBoard: async (e) => c("ext_epics", "epics", "target-board", e),
 	issuesInEpic: async (e) => c("ext_epics", "epics", "issues-in-epic", e),
 	childrenOfEpic: async (e) => c("ext_epics", "epics", "children-of-epic", e)
-}, Al = "query($from: ResourceURN!, $kind: ResourceURN) {\n  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n}", jl = "mutation($input: RelationCreateInput!) {\n  relations.create(input: $input) { id kind from to source target }\n}", Ml = "mutation($input: RelationDeleteInput!) {\n  relations.delete(input: $input)\n}";
-function Nl(e, t) {
+}, Pl = "query($from: ResourceURN!, $kind: ResourceURN) {\n  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n}", Fl = "mutation($input: RelationCreateInput!) {\n  relations.create(input: $input) { id kind from to source target }\n}", Il = "mutation($input: RelationDeleteInput!) {\n  relations.delete(input: $input)\n}";
+function Ll(e, t) {
 	if (e.ok) return e.value;
 	throw Error(`${t}: ${e.error.message}`);
 }
-function Pl(e) {
+function Rl(e) {
 	return `comtrya://workspace/${e}`;
 }
-function Fl(e) {
+function zl(e) {
 	switch (e) {
 		case "IN_PROGRESS":
 		case "AT_RISK":
@@ -5177,14 +5200,14 @@ function Fl(e) {
 		default: return "PLANNED";
 	}
 }
-function Il(e) {
+function Bl(e) {
 	return {
 		id: e.id,
 		workspaceId: e.workspaceId ?? e.workspace?.replace(/^comtrya:\/\/workspace\//, "") ?? "",
 		number: e.number ?? null,
 		title: e.title,
 		bodyMarkdown: e.bodyMarkdown ?? "",
-		state: Fl(e.state),
+		state: zl(e.state),
 		targetDate: e.targetDate ?? null,
 		ownerRef: e.ownerRef ?? null,
 		labels: e.labels ?? [],
@@ -5193,7 +5216,7 @@ function Il(e) {
 		projectName: e.projectName ?? null
 	};
 }
-function Ll(e) {
+function Vl(e) {
 	return {
 		workspace: e.workspace ?? "",
 		total: e.total ?? 0,
@@ -5207,7 +5230,7 @@ function Ll(e) {
 			priority: e.priority ?? null,
 			milestone: e.milestone ?? null,
 			cards: (e.cards ?? []).map((e) => ({
-				epic: Il(e.epic),
+				epic: Bl(e.epic),
 				progress: e.progress ?? null,
 				ownerRef: e.ownerRef ?? null,
 				projectName: e.projectName ?? null,
@@ -5219,53 +5242,53 @@ function Ll(e) {
 		}))
 	};
 }
-async function Rl(e, t) {
-	let n = Nl(await kl.byRefEpic(t), "epicByRef");
-	return n ? Il(n) : null;
+async function Hl(e, t) {
+	let n = Ll(await Nl.byRefEpic(t), "epicByRef");
+	return n ? Bl(n) : null;
 }
-async function zl(e, t) {
-	let n = Nl(await kl.listEpics({
-		workspace: Pl(t.workspaceId),
+async function Ul(e, t) {
+	let n = Ll(await Nl.listEpics({
+		workspace: Rl(t.workspaceId),
 		limit: 1024
-	}), "listEpics").map(Il), r = t.state ? Fl(t.state) : null;
+	}), "listEpics").map(Bl), r = t.state ? zl(t.state) : null;
 	return r ? n.filter((e) => e.state === r) : n;
 }
-async function Bl(e, t) {
+async function Wl(e, t) {
 	let n = {
-		workspace: Pl(t.workspaceId),
+		workspace: Rl(t.workspaceId),
 		limit: t.limit ?? 128
 	};
-	return Ll(Nl(await Vl(e)(n), `${e}Board`));
+	return Vl(Ll(await Gl(e)(n), `${e}Board`));
 }
-function Vl(e) {
+function Gl(e) {
 	switch (e) {
-		case "roadmap": return kl.roadmapBoard;
-		case "project": return kl.projectBoard;
-		case "owner": return kl.ownerBoard;
-		case "priority": return kl.priorityBoard;
-		case "milestone": return kl.milestoneBoard;
-		case "label": return kl.labelBoard;
-		case "target": return kl.targetBoard;
+		case "roadmap": return Nl.roadmapBoard;
+		case "project": return Nl.projectBoard;
+		case "owner": return Nl.ownerBoard;
+		case "priority": return Nl.priorityBoard;
+		case "milestone": return Nl.milestoneBoard;
+		case "label": return Nl.labelBoard;
+		case "target": return Nl.targetBoard;
 	}
 }
-async function Hl(e, t) {
-	return Nl(await kl.progressEpic(t), "epicProgress");
+async function Kl(e, t) {
+	return Ll(await Nl.progressEpic(t), "epicProgress");
 }
-async function Ul(e, t, n = 1024) {
-	return Nl(await kl.issuesInEpic({
+async function ql(e, t, n = 1024) {
+	return Ll(await Nl.issuesInEpic({
 		ref: t,
 		limit: n
 	}), "issuesInEpic");
 }
-async function Wl(e, t, n) {
-	return Il(Nl(await kl.changeStateEpic({
+async function Jl(e, t, n) {
+	return Bl(Ll(await Nl.changeStateEpic({
 		id: t,
 		state: n
 	}), "changeEpicState"));
 }
-async function Gl(e, t) {
-	return Il(Nl(await kl.createEpic({
-		workspace: Pl(t.workspaceId),
+async function Yl(e, t) {
+	return Bl(Ll(await Nl.createEpic({
+		workspace: Rl(t.workspaceId),
 		title: t.title,
 		bodyMarkdown: t.bodyMarkdown ?? "",
 		ownerRef: null,
@@ -5275,27 +5298,27 @@ async function Gl(e, t) {
 		projectName: t.projectName ?? null
 	}), "createEpic"));
 }
-async function Kl(e, t) {
-	return Il(Nl(await kl.assignProject({
+async function Xl(e, t) {
+	return Bl(Ll(await Nl.assignProject({
 		id: e,
 		projectName: t ?? null
 	}), "assignProject"));
 }
-async function ql(e, t, n) {
-	return ((await e.query(Al, n ? {
+async function Zl(e, t, n) {
+	return ((await e.query(Pl, n ? {
 		from: t,
 		kind: n
-	} : { from: t })).relations?.outgoing ?? []).map(Xl);
+	} : { from: t })).relations?.outgoing ?? []).map(eu);
 }
-async function Jl(e, t) {
-	let n = (await e.mutate(jl, { input: t })).relations?.create;
+async function Ql(e, t) {
+	let n = (await e.mutate(Fl, { input: t })).relations?.create;
 	if (!n) throw Error("relations.create returned no relation");
-	return Xl(n);
+	return eu(n);
 }
-async function Yl(e, t) {
-	return (await e.mutate(Ml, { input: { id: t } })).relations?.delete ?? !1;
+async function $l(e, t) {
+	return (await e.mutate(Il, { input: { id: t } })).relations?.delete ?? !1;
 }
-function Xl(e) {
+function eu(e) {
 	let t = e.from ?? e.source ?? "", n = e.to ?? e.target ?? "";
 	return {
 		...e,
@@ -5307,23 +5330,23 @@ function Xl(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/types.ts
-function Zl() {
+function tu() {
 	return _e() ?? "";
 }
-var Ql = "epics";
-function $l(e) {
+var nu = "epics";
+function ru(e) {
 	return `comtrya://epic/${e.id}`;
 }
-function eu(e) {
-	return h(Ql, `/${e.workspaceId}/${e.id}`);
+function iu(e) {
+	return h(nu, `/${e.workspaceId}/${e.id}`);
 }
-function tu(e) {
-	return `${h(Ql, "/board")}?workspaceId=${e}`;
+function au(e) {
+	return `${h(nu, "/board")}?workspaceId=${e}`;
 }
-function nu(e) {
-	return `${h(Ql, "/new")}?workspaceId=${e}`;
+function ou(e) {
+	return `${h(nu, "/new")}?workspaceId=${e}`;
 }
-function ru(e) {
+function su(e) {
 	switch (e) {
 		case "PLANNED": return {
 			label: "planned",
@@ -5353,8 +5376,8 @@ function ru(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/epic-commands.ts
-var iu = /* @__PURE__ */ new Map();
-function au(e) {
+var cu = /* @__PURE__ */ new Map();
+function lu(e) {
 	return [
 		e.id,
 		e.title,
@@ -5362,7 +5385,7 @@ function au(e) {
 		e.projectName ?? ""
 	].join("|");
 }
-var ou = [
+var uu = [
 	{
 		state: "IN_PROGRESS",
 		verb: "in progress"
@@ -5376,35 +5399,35 @@ var ou = [
 		verb: "canceled"
 	}
 ];
-function su(e) {
+function du(e) {
 	return e.projectName ? ` (${e.projectName})` : "";
 }
-function cu(e, t) {
-	let n = [], r = su(e);
+function fu(e, t) {
+	let n = [], r = du(e);
 	n.push(me({
 		id: `ext_epics.open.${e.id}`,
 		title: `Open epic ${e.title}${r}`,
 		category: "Epics",
 		extensionId: "ext_epics",
 		run: () => {
-			window.location.href = eu(e);
+			window.location.href = iu(e);
 		}
 	}));
-	for (let { state: i, verb: a } of ou) e.state !== i && n.push(me({
+	for (let { state: i, verb: a } of uu) e.state !== i && n.push(me({
 		id: `ext_epics.mark.${i.toLowerCase()}.${e.id}`,
 		title: `Mark epic ${e.title} ${a}${r}`,
 		category: "Epics",
 		extensionId: "ext_epics",
 		run: async () => {
-			await Wl(t, e.id, i);
+			await Jl(t, e.id, i);
 		}
 	}));
 	return () => n.forEach((e) => e());
 }
-async function lu(e, t) {
+async function pu(e, t) {
 	let n;
 	try {
-		n = await zl(e, { workspaceId: t });
+		n = await Ul(e, { workspaceId: t });
 	} catch (e) {
 		console.warn("[ext_epics] palette sync failed:", e);
 		return;
@@ -5412,23 +5435,23 @@ async function lu(e, t) {
 	let r = /* @__PURE__ */ new Set();
 	for (let t of n) {
 		r.add(t.id);
-		let n = au(t), i = iu.get(t.id);
-		i && i.signature === n || (i?.unregister(), iu.set(t.id, {
+		let n = lu(t), i = cu.get(t.id);
+		i && i.signature === n || (i?.unregister(), cu.set(t.id, {
 			signature: n,
-			unregister: cu(t, e)
+			unregister: fu(t, e)
 		}));
 	}
-	for (let [e, t] of iu) r.has(e) || (t.unregister(), iu.delete(e));
+	for (let [e, t] of cu) r.has(e) || (t.unregister(), cu.delete(e));
 }
-function uu(e) {
+function mu(e) {
 	let t = [], n = !1;
 	return ve().then((r) => {
 		if (!n) {
-			lu(e, r);
+			pu(e, r);
 			for (let n of ["dev.comtrya.epic.created", "dev.comtrya.epic.state-changed"]) t.push(g({
 				type: n,
 				onEvent: () => {
-					lu(e, r);
+					pu(e, r);
 				},
 				onError: () => {}
 			}));
@@ -5436,25 +5459,25 @@ function uu(e) {
 	}), () => {
 		n = !0;
 		for (let e of t) e();
-		for (let e of iu.values()) e.unregister();
-		iu.clear();
+		for (let e of cu.values()) e.unregister();
+		cu.clear();
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/EpicCard.vue?vue&type=script&setup=true&lang.ts
-var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" }, mu = ["href"], hu = ["data-author-kind", "title"], gu = { class: "owner-glyph" }, _u = ["title"], vu = {
+var hu = ["data-state"], gu = ["data-epic-id"], _u = { class: "epic-card-title" }, vu = ["href"], yu = ["data-author-kind", "title"], bu = { class: "owner-glyph" }, xu = ["title"], Su = {
 	key: 0,
 	class: "epic-meta"
-}, yu = {
+}, Cu = {
 	key: 1,
 	class: "epic-meta"
-}, bu = {
+}, wu = {
 	key: 1,
 	class: "epic-line muted"
-}, xu = {
+}, Tu = {
 	key: 2,
 	class: "epic-card-fallback"
-}, Su = { class: "epic-line muted" }, Cu = { class: "epic-line warn" }, wu = /* @__PURE__ */ Ar({
+}, Eu = { class: "epic-line muted" }, Du = { class: "epic-line warn" }, Ou = /* @__PURE__ */ Ar({
 	__name: "EpicCard",
 	props: {
 		client: { type: null },
@@ -5467,7 +5490,7 @@ var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" 
 	},
 	emits: ["owner-click", "project-click"],
 	setup(e, { emit: t }) {
-		let n = e, r = t, i = /* @__PURE__ */ B("idle"), a = /* @__PURE__ */ B(null), o = /* @__PURE__ */ B(n.epic ?? null), s = /* @__PURE__ */ B(null), c = X(() => n.resourceRef ?? n.ref ?? ""), l = X(() => n.client ?? n.comtryaClient), u = X(() => n.epic ?? o.value), d = X(() => ru(u.value?.state)), f = X(() => (s.value?.issuesOpen ?? 0) + (s.value?.issuesClosed ?? 0));
+		let n = e, r = t, i = /* @__PURE__ */ B("idle"), a = /* @__PURE__ */ B(null), o = /* @__PURE__ */ B(n.epic ?? null), s = /* @__PURE__ */ B(null), c = X(() => n.resourceRef ?? n.ref ?? ""), l = X(() => n.client ?? n.comtryaClient), u = X(() => n.epic ?? o.value), d = X(() => su(u.value?.state)), f = X(() => (s.value?.issuesOpen ?? 0) + (s.value?.issuesClosed ?? 0));
 		Gr(p), Sr(() => [
 			l.value,
 			n.epic,
@@ -5488,7 +5511,7 @@ var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" 
 			}
 			i.value = "loading", a.value = null;
 			try {
-				o.value = await Rl(l.value, c.value), i.value = o.value ? "ready" : "empty", await m();
+				o.value = await Hl(l.value, c.value), i.value = o.value ? "ready" : "empty", await m();
 			} catch (e) {
 				o.value = null, s.value = null, i.value = "error", a.value = e instanceof Error ? e.message : String(e);
 			}
@@ -5499,7 +5522,7 @@ var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" 
 				return;
 			}
 			try {
-				s.value = await Hl(l.value, c.value);
+				s.value = await Kl(l.value, c.value);
 			} catch {
 				s.value = null;
 			}
@@ -5547,12 +5570,12 @@ var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" 
 			"data-epic-id": u.value.id,
 			"data-smoke": "epic-card-body"
 		}, [
-			K("div", pu, [
+			K("div", _u, [
 				K("span", { class: N(["epic-pill", d.value.className]) }, P(d.value.label), 3),
 				K("a", {
 					class: "epic-title-link",
-					href: V(eu)(u.value)
-				}, P(u.value.title), 9, mu),
+					href: V(iu)(u.value)
+				}, P(u.value.title), 9, vu),
 				u.value.ownerRef ? (W(), G("button", {
 					key: 0,
 					type: "button",
@@ -5560,69 +5583,69 @@ var du = ["data-state"], fu = ["data-epic-id"], pu = { class: "epic-card-title" 
 					"data-author-kind": h(u.value.ownerRef).kind,
 					title: `${u.value.ownerRef}\nClick to filter by this owner`,
 					onClick: t[0] ||= as((e) => r("owner-click", u.value.ownerRef), ["prevent", "stop"])
-				}, [K("span", gu, P(h(u.value.ownerRef).glyph), 1), q(" " + P(h(u.value.ownerRef).label), 1)], 10, hu)) : J("", !0),
+				}, [K("span", bu, P(h(u.value.ownerRef).glyph), 1), q(" " + P(h(u.value.ownerRef).label), 1)], 10, yu)) : J("", !0),
 				u.value.projectName ? (W(), G("button", {
 					key: 1,
 					type: "button",
 					class: N(["epic-project", { active: n.activeProject === u.value.projectName }]),
 					title: `${u.value.projectName}\nClick to filter by this project`,
 					onClick: t[1] ||= as((e) => r("project-click", u.value.projectName), ["prevent", "stop"])
-				}, [t[2] ||= K("span", { class: "project-glyph" }, "◇", -1), q(" " + P(u.value.projectName), 1)], 10, _u)) : J("", !0)
+				}, [t[2] ||= K("span", { class: "project-glyph" }, "◇", -1), q(" " + P(u.value.projectName), 1)], 10, xu)) : J("", !0)
 			]),
-			s.value ? (W(), G("div", vu, [K("span", null, P(s.value.issuesClosed ?? 0) + "/" + P(f.value) + " issues", 1), K("span", null, P(s.value.percentComplete ?? 0) + "% complete", 1)])) : J("", !0),
-			u.value.targetDate ? (W(), G("div", yu, [K("span", null, "target: " + P(u.value.targetDate), 1)])) : J("", !0)
-		], 8, fu)) : i.value === "loading" ? (W(), G("p", bu, " Loading " + P(c.value), 1)) : (W(), G("div", xu, [K("p", Su, P(c.value || "epic"), 1), K("p", Cu, P(a.value ?? "epic not found"), 1)]))], 8, du));
+			s.value ? (W(), G("div", Su, [K("span", null, P(s.value.issuesClosed ?? 0) + "/" + P(f.value) + " issues", 1), K("span", null, P(s.value.percentComplete ?? 0) + "% complete", 1)])) : J("", !0),
+			u.value.targetDate ? (W(), G("div", Cu, [K("span", null, "target: " + P(u.value.targetDate), 1)])) : J("", !0)
+		], 8, gu)) : i.value === "loading" ? (W(), G("p", wu, " Loading " + P(c.value), 1)) : (W(), G("div", Tu, [K("p", Eu, P(c.value || "epic"), 1), K("p", Du, P(a.value ?? "epic not found"), 1)]))], 8, hu));
 	}
-}), Tu = ".epic-card[data-v-c61c70a7]{display:block}.epic-card-body[data-v-c61c70a7]{border:.5px solid var(--line,#ffffff12);gap:6px;padding:10px 12px;display:grid}.epic-card-title[data-v-c61c70a7]{align-items:baseline;gap:8px;min-width:0;display:flex}.epic-pill[data-v-c61c70a7],.epic-meta[data-v-c61c70a7],.epic-line[data-v-c61c70a7]{font-family:var(--font-mono,monospace)}.epic-pill[data-v-c61c70a7]{border:.5px solid;padding:1px 8px;font-size:10px}.epic-project[data-v-c61c70a7]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:.5px solid;align-items:center;gap:4px;margin-left:auto;padding:0 6px;display:inline-flex}.epic-project[data-v-c61c70a7]:hover{background:var(--bg-2,#0e1014)}.epic-project.active[data-v-c61c70a7]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.epic-owner+.epic-project[data-v-c61c70a7]{margin-left:4px}.epic-project .project-glyph[data-v-c61c70a7]{font-size:10px}.epic-owner[data-v-c61c70a7]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:1px dashed;align-items:center;gap:4px;margin-left:auto;padding:0 6px;display:inline-flex}.epic-owner[data-v-c61c70a7]:hover{background:var(--bg-2,#0e1014)}.epic-owner.active[data-v-c61c70a7]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-style:solid;border-color:var(--fg,#fffffff0)}.epic-owner.active .owner-glyph[data-v-c61c70a7]{color:inherit}.epic-owner .owner-glyph[data-v-c61c70a7]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.epic-owner[data-author-kind=agent][data-v-c61c70a7]{color:#6b3fa0}.epic-owner[data-author-kind=bot][data-v-c61c70a7]{color:var(--accent-blue,#1d55a6)}.epic-owner[data-author-kind=credential][data-v-c61c70a7]{color:var(--accent-yellow,#c89300)}.epic-owner[data-author-kind=team][data-v-c61c70a7]{color:var(--accent-teal,#087f6f)}.epic-state-good[data-v-c61c70a7]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.epic-state-good[data-v-c61c70a7]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.epic-state-warn[data-v-c61c70a7]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.epic-state-warn[data-v-c61c70a7]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.epic-state-muted[data-v-c61c70a7],.epic-meta[data-v-c61c70a7],.muted[data-v-c61c70a7]{color:var(--fg-3,#ffffff85)}.epic-title-link[data-v-c61c70a7]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);overflow-wrap:anywhere;font-weight:600}.epic-meta[data-v-c61c70a7]{flex-wrap:wrap;gap:8px;font-size:11px;display:flex}.epic-line[data-v-c61c70a7]{margin:4px 0;font-size:12px}.warn[data-v-c61c70a7]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-c61c70a7]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}", Eu = (e, t) => {
+}), ku = ".epic-card[data-v-c61c70a7]{display:block}.epic-card-body[data-v-c61c70a7]{border:.5px solid var(--line,#ffffff12);gap:6px;padding:10px 12px;display:grid}.epic-card-title[data-v-c61c70a7]{align-items:baseline;gap:8px;min-width:0;display:flex}.epic-pill[data-v-c61c70a7],.epic-meta[data-v-c61c70a7],.epic-line[data-v-c61c70a7]{font-family:var(--font-mono,monospace)}.epic-pill[data-v-c61c70a7]{border:.5px solid;padding:1px 8px;font-size:10px}.epic-project[data-v-c61c70a7]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:.5px solid;align-items:center;gap:4px;margin-left:auto;padding:0 6px;display:inline-flex}.epic-project[data-v-c61c70a7]:hover{background:var(--bg-2,#0e1014)}.epic-project.active[data-v-c61c70a7]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.epic-owner+.epic-project[data-v-c61c70a7]{margin-left:4px}.epic-project .project-glyph[data-v-c61c70a7]{font-size:10px}.epic-owner[data-v-c61c70a7]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:1px dashed;align-items:center;gap:4px;margin-left:auto;padding:0 6px;display:inline-flex}.epic-owner[data-v-c61c70a7]:hover{background:var(--bg-2,#0e1014)}.epic-owner.active[data-v-c61c70a7]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-style:solid;border-color:var(--fg,#fffffff0)}.epic-owner.active .owner-glyph[data-v-c61c70a7]{color:inherit}.epic-owner .owner-glyph[data-v-c61c70a7]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.epic-owner[data-author-kind=agent][data-v-c61c70a7]{color:#6b3fa0}.epic-owner[data-author-kind=bot][data-v-c61c70a7]{color:var(--accent-blue,#1d55a6)}.epic-owner[data-author-kind=credential][data-v-c61c70a7]{color:var(--accent-yellow,#c89300)}.epic-owner[data-author-kind=team][data-v-c61c70a7]{color:var(--accent-teal,#087f6f)}.epic-state-good[data-v-c61c70a7]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.epic-state-good[data-v-c61c70a7]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.epic-state-warn[data-v-c61c70a7]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.epic-state-warn[data-v-c61c70a7]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}.epic-state-muted[data-v-c61c70a7],.epic-meta[data-v-c61c70a7],.muted[data-v-c61c70a7]{color:var(--fg-3,#ffffff85)}.epic-title-link[data-v-c61c70a7]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);overflow-wrap:anywhere;font-weight:600}.epic-meta[data-v-c61c70a7]{flex-wrap:wrap;gap:8px;font-size:11px;display:flex}.epic-line[data-v-c61c70a7]{margin:4px 0;font-size:12px}.warn[data-v-c61c70a7]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-c61c70a7]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}", Au = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Du = /* @__PURE__ */ Eu(wu, [["styles", [Tu]], ["__scopeId", "data-v-c61c70a7"]]);
+}, ju = /* @__PURE__ */ Au(Ou, [["styles", [ku]], ["__scopeId", "data-v-c61c70a7"]]);
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/issue-rows.ts
-function Ou(e, t = "") {
+function Mu(e, t = "") {
 	return typeof e == "string" ? e : t;
 }
-function ku(e) {
+function Nu(e) {
 	return typeof e == "number" && Number.isFinite(e) ? e : null;
 }
-function Au(e) {
+function Pu(e) {
 	let t = typeof e == "string" ? e.toUpperCase() : "";
 	return t === "CLOSED" ? "CLOSED" : t === "REOPENED" ? "REOPENED" : "OPEN";
 }
-function ju(e) {
+function Fu(e) {
 	return typeof e == "string" ? e.match(/^comtrya:\/\/workspace\/([^/]+)(?:\/repository\/[^/]+)?$/)?.[1] ?? null : null;
 }
-async function Mu(e) {
+async function Iu(e) {
 	let t = await c("ext_issues", "issues", "by-ref-issue", e);
 	if (!t.ok || !t.value || typeof t.value != "object") return null;
-	let n = t.value, r = ku(n.number), i = ju(n.repository), a = r !== null && i ? h("issues", `/${i}/${r}`) : null;
+	let n = t.value, r = Nu(n.number), i = Fu(n.repository), a = r !== null && i ? h("issues", `/${i}/${r}`) : null;
 	return {
 		ref: e,
-		id: Ou(n.id),
+		id: Mu(n.id),
 		number: r,
-		title: Ou(n.title, "(untitled)"),
-		state: Au(n.state),
+		title: Mu(n.title, "(untitled)"),
+		state: Pu(n.state),
 		projectName: typeof n.projectName == "string" ? n.projectName : null,
 		labels: Array.isArray(n.labels) ? n.labels.filter((e) => typeof e == "string") : [],
 		authorRef: typeof n.authorRef == "string" ? n.authorRef : null,
 		href: a
 	};
 }
-async function Nu(e) {
-	return (await Promise.all(e.map((e) => Mu(e)))).filter((e) => e !== null);
+async function Lu(e) {
+	return (await Promise.all(e.map((e) => Iu(e)))).filter((e) => e !== null);
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/epic-detail-styles.ts
-var Pu = "ext-epics-detail-styles", Fu = "\n.epic-detail {\n  max-width: 880px;\n  display: grid;\n  gap: 24px;\n  padding: 24px 0 48px;\n  font-family: var(--serif, \"Bitter\", Georgia, ui-serif, serif);\n}\n\n.epic-detail .epic-line,\n.epic-detail .epic-meta,\n.epic-detail .epic-progress,\n.epic-detail .epic-issues-list,\n.epic-detail .epic-actions,\n.epic-detail .epic-actions-heading,\n.epic-detail .epic-kbd-hint,\n.epic-detail .epic-section-count {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-header { display: grid; gap: 6px; }\n\n.epic-overline {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10px;\n  letter-spacing: 0.18em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-title {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  font-size: 28px;\n  letter-spacing: -0.01em;\n  line-height: 1.15;\n  color: var(--ink, #1a1a1a);\n}\n\n.epic-meta {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 8px;\n  align-items: center;\n  font-size: 11.5px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-pill {\n  padding: 1px 8px;\n  border: 1px solid currentColor;\n  text-transform: lowercase;\n}\n\n.epic-state-good { color: var(--ink-go, #087f6f); }\n.epic-state-warn { color: var(--ink-warn, #c2410c); }\n.epic-state-muted, .muted { color: var(--ink-faint, #888); }\n.epic-line.warn { color: var(--ink-warn, #c2410c); }\n\n.epic-chip {\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n  padding: 1px 7px;\n  border-radius: 2px;\n  font-size: 11px;\n  line-height: 16px;\n  white-space: nowrap;\n}\n\n.epic-chip .chip-glyph {\n  font-size: 10px;\n}\n\n.epic-chip.tone-blue {\n  background: var(--chip-blue-bg, #e5edf7);\n  color: var(--chip-blue-ink, #1f3b6a);\n}\n.epic-chip.tone-teal {\n  background: var(--chip-teal-bg, #d8f0eb);\n  color: var(--chip-teal-ink, #0c5f54);\n}\n.epic-chip.tone-grey {\n  background: var(--chip-grey-bg, #ececea);\n  color: var(--chip-grey-ink, #4a4a45);\n}\n.epic-chip.compact {\n  padding: 0 6px;\n  font-size: 10.5px;\n}\n\n.epic-meta-time {\n  margin-left: auto;\n  color: var(--ink-faint, #888);\n}\n\n.epic-progress {\n  display: grid;\n  gap: 8px;\n  padding: 12px 14px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  background: var(--surface-2, #faf9f5);\n}\n\n/* \"Routed to\" panel — CUE Project ownership surfaced on the\n * detail page. Same paper-card aesthetic as the progress\n * panel above; owner chips carry classifier-glyph borders\n * so the visual vocabulary matches IssueDetail iter 59. */\n.epic-routed {\n  display: grid;\n  gap: 8px;\n  padding: 12px 14px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-routed-head {\n  display: flex;\n  align-items: baseline;\n  gap: 10px;\n}\n\n.epic-routed-label {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-routed-project {\n  margin-left: auto;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  color: var(--accent-blue, #1d55a6);\n  text-decoration: none;\n  letter-spacing: 0.02em;\n}\n\n.epic-routed-project:hover {\n  text-decoration: underline;\n  text-underline-offset: 2px;\n}\n\n/* iter 69 — inline Project picker on EpicDetail. Mirrors the\n * iter 68 IssueDetail select styling so both detail surfaces\n * read identically. */\n.epic-project-select {\n  width: 100%;\n  border: 1.5px solid var(--ink-rule, #d8d6cf);\n  background: var(--paper, #fffdf8);\n  color: var(--ink, #111);\n  padding: 8px 10px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 13px;\n  outline: none;\n  transition: border-color 120ms ease;\n}\n\n.epic-project-select:focus {\n  border-color: var(--ink, #1a1a1a);\n}\n\n.epic-project-select:disabled {\n  cursor: wait;\n  opacity: 0.55;\n}\n\n.epic-routed-list {\n  list-style: none;\n  padding: 0;\n  margin: 0;\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.epic-routed-owner {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 8px;\n  border: 1px solid currentColor;\n  color: var(--ink, #111);\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  letter-spacing: 0.02em;\n}\n\n.epic-routed-owner .chip-glyph {\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 12px;\n  line-height: 1;\n}\n\n.epic-routed-owner[data-author-kind=\"team\"]       { color: var(--accent-teal, #087f6f); }\n.epic-routed-owner[data-author-kind=\"human\"]      { color: var(--ink, #111); }\n.epic-routed-owner[data-author-kind=\"agent\"]      { color: #6b3fa0; }\n.epic-routed-owner[data-author-kind=\"bot\"]        { color: var(--accent-blue, #1d55a6); }\n.epic-routed-owner[data-author-kind=\"credential\"] { color: var(--accent-yellow, #c89300); }\n\n.epic-routed-source {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-routed-source code {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  padding: 0 4px;\n  background: var(--paper-tint, #f2efe7);\n  color: var(--ink-soft, #2c2b28);\n}\n\n.epic-progress-head {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  align-items: baseline;\n  font-size: 12px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-progress-stat {\n  display: inline-flex;\n  align-items: baseline;\n  gap: 4px;\n}\n\n.epic-progress-stat strong {\n  font-weight: 600;\n  color: var(--ink, #1a1a1a);\n  font-size: 15px;\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-progress-stat .stat-of {\n  color: var(--ink-faint, #888);\n}\n\n.epic-progress-stat .stat-label {\n  color: var(--ink-faint, #6e6a62);\n  font-size: 11px;\n  letter-spacing: 0.02em;\n}\n\n.epic-progress-sep {\n  color: var(--ink-rule, #c8c6bf);\n  padding: 0 2px;\n}\n\n.epic-progress-bar {\n  height: 4px;\n  background: var(--ink-rule-soft, #ebe9e2);\n  border-radius: 2px;\n  overflow: hidden;\n}\n\n.epic-progress-fill {\n  height: 100%;\n  background: var(--ink-go, #087f6f);\n  transition: width 200ms ease;\n}\n\n.epic-body {\n  margin: 0;\n  font-size: 15.5px;\n  line-height: 1.6;\n  color: var(--ink, #1a1a1a);\n}\n\n.epic-body.muted {\n  padding: 12px 14px;\n  border: 1px dashed var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  color: var(--ink-faint, #888);\n  font-size: 12px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-body.prose h1,\n.epic-body.prose h2,\n.epic-body.prose h3,\n.epic-body.prose h4 {\n  margin: 16px 0 6px;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  line-height: 1.2;\n  letter-spacing: -0.005em;\n}\n\n.epic-body.prose h1 { font-size: 20px; }\n.epic-body.prose h2 { font-size: 17px; }\n.epic-body.prose h3 { font-size: 15px; }\n\n.epic-body.prose p {\n  margin: 8px 0;\n}\n\n.epic-body.prose ul {\n  margin: 6px 0 6px 20px;\n  padding: 0;\n}\n\n.epic-body.prose li {\n  margin: 2px 0;\n}\n\n.epic-body.prose code {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  background: var(--ink-rule-soft, #efeee8);\n  padding: 0 4px;\n  border-radius: 2px;\n  font-size: 0.9em;\n}\n\n.epic-body.prose pre {\n  background: var(--surface-2, #f7f6f1);\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  padding: 10px 12px;\n  overflow-x: auto;\n  font-size: 12.5px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-body.prose pre code {\n  background: transparent;\n  padding: 0;\n}\n\n.epic-section { display: grid; gap: 8px; }\n\n.epic-section-head {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  padding-bottom: 6px;\n  border-bottom: 1px solid var(--ink-rule-soft, #ebe9e2);\n}\n\n.epic-section h3 {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  font-size: 13px;\n  letter-spacing: -0.005em;\n}\n\n.epic-section-count {\n  margin-left: auto;\n  font-size: 11px;\n  color: var(--ink-faint, #888);\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-section-count [data-zero=\"true\"] { color: var(--ink-rule, #c8c6bf); }\n.epic-section-count .sep { padding: 0 2px; color: var(--ink-rule, #c8c6bf); }\n\n.epic-issues-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n}\n\n.epic-issue-row {\n  display: grid;\n  grid-template-columns: 18px 56px 1fr auto;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  border-bottom: 1px solid var(--ink-rule-soft, #ebe9e2);\n  font-size: 12.5px;\n  cursor: pointer;\n  outline: none;\n}\n\n.epic-issue-row:last-child { border-bottom: none; }\n\n.epic-issue-row:hover,\n.epic-issue-row.focused,\n.epic-issue-row:focus {\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-issue-row .row-state {\n  text-align: center;\n  font-size: 11px;\n}\n\n.epic-issue-row .row-state[data-state=\"OPEN\"],\n.epic-issue-row .row-state[data-state=\"REOPENED\"] {\n  color: var(--ink-go, #087f6f);\n}\n.epic-issue-row .row-state[data-state=\"CLOSED\"] {\n  color: var(--ink-faint, #888);\n}\n\n.epic-issue-row.state-closed {\n  color: var(--ink-faint, #888);\n}\n.epic-issue-row.state-closed .row-title {\n  text-decoration: line-through;\n  text-decoration-color: var(--ink-rule, #c8c6bf);\n}\n\n.epic-issue-row .row-number {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11.5px;\n  color: var(--ink-faint, #6e6a62);\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-issue-row .row-title {\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 13px;\n  color: var(--ink, #1a1a1a);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.epic-issue-row .row-trailing {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  flex-wrap: nowrap;\n}\n\n.row-author {\n  display: inline-flex;\n  align-items: center;\n  gap: 3px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10.5px;\n  color: var(--ink-faint, #888);\n}\n\n.row-author[data-author-kind=\"agent\"] { color: var(--ink-go, #087f6f); }\n.row-author[data-author-kind=\"credential\"],\n.row-author[data-author-kind=\"bot\"] { color: var(--ink-warn, #c2410c); }\n\n.epic-kbd-hint {\n  margin: 0;\n  font-size: 10.5px;\n  color: var(--ink-faint, #888);\n}\n\n.epic-kbd-hint kbd {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10px;\n  padding: 0 4px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-actions-section {\n  display: grid;\n  gap: 8px;\n  padding-top: 12px;\n  border-top: 1px solid var(--ink-rule-soft, #ebe9e2);\n}\n\n.epic-actions-heading {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10.5px;\n  letter-spacing: 0.16em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n  font-weight: 500;\n}\n\n.epic-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.epic-actions button {\n  padding: 4px 12px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  background: var(--surface-2, #faf9f5);\n  color: var(--ink, #1a1a1a);\n  cursor: pointer;\n  letter-spacing: 0.01em;\n}\n\n.epic-actions button:hover:not(:disabled) {\n  background: var(--ink, #1a1a1a);\n  color: var(--surface, #ffffff);\n  border-color: var(--ink, #1a1a1a);\n}\n\n.epic-actions button:disabled {\n  opacity: 0.4;\n  cursor: not-allowed;\n}\n\n.epic-comments {\n  display: grid;\n  gap: 8px;\n}\n\n.epic-comments-head {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 4px;\n}\n\n.epic-comments-head h2 {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 18px;\n}\n\n.epic-comments-count {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 13px;\n  color: var(--ink-faint, #68645c);\n  font-weight: normal;\n}\n";
-function Iu() {
-	if (typeof document > "u" || document.getElementById(Pu)) return;
+var Ru = "ext-epics-detail-styles", zu = "\n.epic-detail {\n  max-width: 880px;\n  display: grid;\n  gap: 24px;\n  padding: 24px 0 48px;\n  font-family: var(--serif, \"Bitter\", Georgia, ui-serif, serif);\n}\n\n.epic-detail .epic-line,\n.epic-detail .epic-meta,\n.epic-detail .epic-progress,\n.epic-detail .epic-issues-list,\n.epic-detail .epic-actions,\n.epic-detail .epic-actions-heading,\n.epic-detail .epic-kbd-hint,\n.epic-detail .epic-section-count {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-header { display: grid; gap: 6px; }\n\n.epic-overline {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10px;\n  letter-spacing: 0.18em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-title {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  font-size: 28px;\n  letter-spacing: -0.01em;\n  line-height: 1.15;\n  color: var(--ink, #1a1a1a);\n}\n\n.epic-meta {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 8px;\n  align-items: center;\n  font-size: 11.5px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-pill {\n  padding: 1px 8px;\n  border: 1px solid currentColor;\n  text-transform: lowercase;\n}\n\n.epic-state-good { color: var(--ink-go, #087f6f); }\n.epic-state-warn { color: var(--ink-warn, #c2410c); }\n.epic-state-muted, .muted { color: var(--ink-faint, #888); }\n.epic-line.warn { color: var(--ink-warn, #c2410c); }\n\n.epic-chip {\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n  padding: 1px 7px;\n  border-radius: 2px;\n  font-size: 11px;\n  line-height: 16px;\n  white-space: nowrap;\n}\n\n.epic-chip .chip-glyph {\n  font-size: 10px;\n}\n\n.epic-chip.tone-blue {\n  background: var(--chip-blue-bg, #e5edf7);\n  color: var(--chip-blue-ink, #1f3b6a);\n}\n.epic-chip.tone-teal {\n  background: var(--chip-teal-bg, #d8f0eb);\n  color: var(--chip-teal-ink, #0c5f54);\n}\n.epic-chip.tone-grey {\n  background: var(--chip-grey-bg, #ececea);\n  color: var(--chip-grey-ink, #4a4a45);\n}\n.epic-chip.compact {\n  padding: 0 6px;\n  font-size: 10.5px;\n}\n\n.epic-meta-time {\n  margin-left: auto;\n  color: var(--ink-faint, #888);\n}\n\n.epic-progress {\n  display: grid;\n  gap: 8px;\n  padding: 12px 14px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  background: var(--surface-2, #faf9f5);\n}\n\n/* \"Routed to\" panel — CUE Project ownership surfaced on the\n * detail page. Same paper-card aesthetic as the progress\n * panel above; owner chips carry classifier-glyph borders\n * so the visual vocabulary matches IssueDetail iter 59. */\n.epic-routed {\n  display: grid;\n  gap: 8px;\n  padding: 12px 14px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-routed-head {\n  display: flex;\n  align-items: baseline;\n  gap: 10px;\n}\n\n.epic-routed-label {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-routed-project {\n  margin-left: auto;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  color: var(--accent-blue, #1d55a6);\n  text-decoration: none;\n  letter-spacing: 0.02em;\n}\n\n.epic-routed-project:hover {\n  text-decoration: underline;\n  text-underline-offset: 2px;\n}\n\n/* iter 69 — inline Project picker on EpicDetail. Mirrors the\n * iter 68 IssueDetail select styling so both detail surfaces\n * read identically. */\n.epic-project-select {\n  width: 100%;\n  border: 1.5px solid var(--ink-rule, #d8d6cf);\n  background: var(--paper, #fffdf8);\n  color: var(--ink, #111);\n  padding: 8px 10px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 13px;\n  outline: none;\n  transition: border-color 120ms ease;\n}\n\n.epic-project-select:focus {\n  border-color: var(--ink, #1a1a1a);\n}\n\n.epic-project-select:disabled {\n  cursor: wait;\n  opacity: 0.55;\n}\n\n.epic-routed-list {\n  list-style: none;\n  padding: 0;\n  margin: 0;\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.epic-routed-owner {\n  display: inline-flex;\n  align-items: center;\n  gap: 5px;\n  padding: 2px 8px;\n  border: 1px solid currentColor;\n  color: var(--ink, #111);\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  letter-spacing: 0.02em;\n}\n\n.epic-routed-owner .chip-glyph {\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 12px;\n  line-height: 1;\n}\n\n.epic-routed-owner[data-author-kind=\"team\"]       { color: var(--accent-teal, #087f6f); }\n.epic-routed-owner[data-author-kind=\"human\"]      { color: var(--ink, #111); }\n.epic-routed-owner[data-author-kind=\"agent\"]      { color: #6b3fa0; }\n.epic-routed-owner[data-author-kind=\"bot\"]        { color: var(--accent-blue, #1d55a6); }\n.epic-routed-owner[data-author-kind=\"credential\"] { color: var(--accent-yellow, #c89300); }\n\n.epic-routed-source {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-routed-source code {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  padding: 0 4px;\n  background: var(--paper-tint, #f2efe7);\n  color: var(--ink-soft, #2c2b28);\n}\n\n.epic-progress-head {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n  align-items: baseline;\n  font-size: 12px;\n  color: var(--ink-faint, #6e6a62);\n}\n\n.epic-progress-stat {\n  display: inline-flex;\n  align-items: baseline;\n  gap: 4px;\n}\n\n.epic-progress-stat strong {\n  font-weight: 600;\n  color: var(--ink, #1a1a1a);\n  font-size: 15px;\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-progress-stat .stat-of {\n  color: var(--ink-faint, #888);\n}\n\n.epic-progress-stat .stat-label {\n  color: var(--ink-faint, #6e6a62);\n  font-size: 11px;\n  letter-spacing: 0.02em;\n}\n\n.epic-progress-sep {\n  color: var(--ink-rule, #c8c6bf);\n  padding: 0 2px;\n}\n\n.epic-progress-bar {\n  height: 4px;\n  background: var(--ink-rule-soft, #ebe9e2);\n  border-radius: 2px;\n  overflow: hidden;\n}\n\n.epic-progress-fill {\n  height: 100%;\n  background: var(--ink-go, #087f6f);\n  transition: width 200ms ease;\n}\n\n.epic-body {\n  margin: 0;\n  font-size: 15.5px;\n  line-height: 1.6;\n  color: var(--ink, #1a1a1a);\n}\n\n.epic-body.muted {\n  padding: 12px 14px;\n  border: 1px dashed var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  color: var(--ink-faint, #888);\n  font-size: 12px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-body.prose h1,\n.epic-body.prose h2,\n.epic-body.prose h3,\n.epic-body.prose h4 {\n  margin: 16px 0 6px;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  line-height: 1.2;\n  letter-spacing: -0.005em;\n}\n\n.epic-body.prose h1 { font-size: 20px; }\n.epic-body.prose h2 { font-size: 17px; }\n.epic-body.prose h3 { font-size: 15px; }\n\n.epic-body.prose p {\n  margin: 8px 0;\n}\n\n.epic-body.prose ul {\n  margin: 6px 0 6px 20px;\n  padding: 0;\n}\n\n.epic-body.prose li {\n  margin: 2px 0;\n}\n\n.epic-body.prose code {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  background: var(--ink-rule-soft, #efeee8);\n  padding: 0 4px;\n  border-radius: 2px;\n  font-size: 0.9em;\n}\n\n.epic-body.prose pre {\n  background: var(--surface-2, #f7f6f1);\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  padding: 10px 12px;\n  overflow-x: auto;\n  font-size: 12.5px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n}\n\n.epic-body.prose pre code {\n  background: transparent;\n  padding: 0;\n}\n\n.epic-section { display: grid; gap: 8px; }\n\n.epic-section-head {\n  display: flex;\n  align-items: baseline;\n  gap: 8px;\n  padding-bottom: 6px;\n  border-bottom: 1px solid var(--ink-rule-soft, #ebe9e2);\n}\n\n.epic-section h3 {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-weight: 600;\n  font-size: 13px;\n  letter-spacing: -0.005em;\n}\n\n.epic-section-count {\n  margin-left: auto;\n  font-size: 11px;\n  color: var(--ink-faint, #888);\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-section-count [data-zero=\"true\"] { color: var(--ink-rule, #c8c6bf); }\n.epic-section-count .sep { padding: 0 2px; color: var(--ink-rule, #c8c6bf); }\n\n.epic-issues-list {\n  list-style: none;\n  margin: 0;\n  padding: 0;\n  display: grid;\n}\n\n.epic-issue-row {\n  display: grid;\n  grid-template-columns: 18px 56px 1fr auto;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  border-bottom: 1px solid var(--ink-rule-soft, #ebe9e2);\n  font-size: 12.5px;\n  cursor: pointer;\n  outline: none;\n}\n\n.epic-issue-row:last-child { border-bottom: none; }\n\n.epic-issue-row:hover,\n.epic-issue-row.focused,\n.epic-issue-row:focus {\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-issue-row .row-state {\n  text-align: center;\n  font-size: 11px;\n}\n\n.epic-issue-row .row-state[data-state=\"OPEN\"],\n.epic-issue-row .row-state[data-state=\"REOPENED\"] {\n  color: var(--ink-go, #087f6f);\n}\n.epic-issue-row .row-state[data-state=\"CLOSED\"] {\n  color: var(--ink-faint, #888);\n}\n\n.epic-issue-row.state-closed {\n  color: var(--ink-faint, #888);\n}\n.epic-issue-row.state-closed .row-title {\n  text-decoration: line-through;\n  text-decoration-color: var(--ink-rule, #c8c6bf);\n}\n\n.epic-issue-row .row-number {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11.5px;\n  color: var(--ink-faint, #6e6a62);\n  font-variant-numeric: tabular-nums;\n}\n\n.epic-issue-row .row-title {\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 13px;\n  color: var(--ink, #1a1a1a);\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n.epic-issue-row .row-trailing {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  flex-wrap: nowrap;\n}\n\n.row-author {\n  display: inline-flex;\n  align-items: center;\n  gap: 3px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10.5px;\n  color: var(--ink-faint, #888);\n}\n\n.row-author[data-author-kind=\"agent\"] { color: var(--ink-go, #087f6f); }\n.row-author[data-author-kind=\"credential\"],\n.row-author[data-author-kind=\"bot\"] { color: var(--ink-warn, #c2410c); }\n\n.epic-kbd-hint {\n  margin: 0;\n  font-size: 10.5px;\n  color: var(--ink-faint, #888);\n}\n\n.epic-kbd-hint kbd {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10px;\n  padding: 0 4px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  border-radius: 2px;\n  background: var(--surface-2, #faf9f5);\n}\n\n.epic-actions-section {\n  display: grid;\n  gap: 8px;\n  padding-top: 12px;\n  border-top: 1px solid var(--ink-rule-soft, #ebe9e2);\n}\n\n.epic-actions-heading {\n  margin: 0;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 10.5px;\n  letter-spacing: 0.16em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #6e6a62);\n  font-weight: 500;\n}\n\n.epic-actions {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n.epic-actions button {\n  padding: 4px 12px;\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 11px;\n  border: 1px solid var(--ink-rule, #d8d6cf);\n  background: var(--surface-2, #faf9f5);\n  color: var(--ink, #1a1a1a);\n  cursor: pointer;\n  letter-spacing: 0.01em;\n}\n\n.epic-actions button:hover:not(:disabled) {\n  background: var(--ink, #1a1a1a);\n  color: var(--surface, #ffffff);\n  border-color: var(--ink, #1a1a1a);\n}\n\n.epic-actions button:disabled {\n  opacity: 0.4;\n  cursor: not-allowed;\n}\n\n.epic-comments {\n  display: grid;\n  gap: 8px;\n}\n\n.epic-comments-head {\n  display: flex;\n  align-items: baseline;\n  justify-content: space-between;\n  gap: 12px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 4px;\n}\n\n.epic-comments-head h2 {\n  margin: 0;\n  font-family: var(--display, \"Bitter\", Georgia, ui-serif, serif);\n  font-size: 18px;\n}\n\n.epic-comments-count {\n  font-family: var(--mono, \"Monaspace Neon\", \"Monaspace Neon Var\", ui-monospace, monospace);\n  font-size: 13px;\n  color: var(--ink-faint, #68645c);\n  font-weight: normal;\n}\n";
+function Bu() {
+	if (typeof document > "u" || document.getElementById(Ru)) return;
 	let e = document.createElement("style");
-	e.id = Pu, e.textContent = Fu, document.head.appendChild(e);
+	e.id = Ru, e.textContent = zu, document.head.appendChild(e);
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/CustomElementHost.vue
-var Lu = /* @__PURE__ */ Eu(/* @__PURE__ */ Ar({
+var Vu = /* @__PURE__ */ Au(/* @__PURE__ */ Ar({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -5660,79 +5683,79 @@ var Lu = /* @__PURE__ */ Eu(/* @__PURE__ */ Ar({
 }), [["styles", [".custom-element-host[data-v-cf896d02]{display:contents}"]], ["__scopeId", "data-v-cf896d02"]]);
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/project-policy.ts
-async function Ru(e) {
-	return { ownerRefs: await yl(e) };
+async function Hu(e) {
+	return { ownerRefs: await Cl(e) };
 }
 //#endregion
 //#region ../extensions/first-party/ext_epics/ui/src/EpicDetail.vue?vue&type=script&setup=true&lang.ts
-var zu = ["data-state", "data-epic-id"], Bu = {
+var Uu = ["data-state", "data-epic-id"], Wu = {
 	key: 0,
 	class: "epic-line muted"
-}, Vu = {
+}, Gu = {
 	key: 1,
 	class: "epic-line warn"
-}, Hu = {
+}, Ku = {
 	key: 2,
 	class: "epic-line warn"
-}, Uu = { class: "epic-header" }, Wu = { class: "epic-title" }, Gu = { class: "epic-meta" }, Ku = ["title"], qu = {
+}, qu = { class: "epic-header" }, Ju = { class: "epic-title" }, Yu = { class: "epic-meta" }, Xu = ["title"], Zu = {
 	key: 1,
 	class: "epic-chip tone-grey",
 	title: "Owner"
-}, Ju = {
+}, Qu = {
 	key: 2,
 	class: "epic-chip tone-grey"
-}, Yu = {
+}, $u = {
 	key: 3,
 	class: "epic-meta-time"
-}, Xu = {
+}, ed = {
 	key: 0,
 	class: "epic-progress",
 	"data-smoke": "epic-progress"
-}, Zu = { class: "epic-progress-head" }, Qu = { class: "epic-progress-stat" }, $u = { class: "stat-of" }, ed = { class: "epic-progress-stat" }, td = {
+}, td = { class: "epic-progress-head" }, nd = { class: "epic-progress-stat" }, rd = { class: "stat-of" }, id = { class: "epic-progress-stat" }, ad = {
 	key: 0,
 	class: "epic-progress-sep"
-}, nd = {
+}, od = {
 	key: 1,
 	class: "epic-progress-stat"
-}, rd = ["aria-valuenow"], id = {
+}, sd = ["aria-valuenow"], cd = {
 	class: "epic-routed",
 	"data-smoke": "epic-project-picker"
-}, ad = { class: "epic-routed-head" }, od = ["href", "title"], sd = ["value", "disabled"], cd = ["value"], ld = {
+}, ld = { class: "epic-routed-head" }, ud = ["href", "title"], dd = ["value", "disabled"], fd = ["value"], pd = {
 	key: 0,
 	class: "epic-line warn",
 	role: "alert"
-}, ud = {
+}, md = {
 	key: 1,
 	class: "epic-routed",
 	"data-smoke": "epic-project-owners"
-}, dd = { class: "epic-routed-head" }, fd = ["href", "title"], pd = { class: "epic-routed-list" }, md = ["data-author-kind", "title"], hd = { class: "chip-glyph" }, gd = { class: "epic-routed-source" }, _d = ["data-epic-id", "innerHTML"], vd = {
+}, hd = { class: "epic-routed-head" }, gd = ["href", "title"], _d = { class: "epic-routed-list" }, vd = ["data-author-kind", "title"], yd = { class: "chip-glyph" }, bd = { class: "epic-routed-source" }, xd = ["data-epic-id", "innerHTML"], Sd = {
 	key: 3,
 	class: "epic-body muted"
-}, yd = {
+}, Cd = {
 	class: "epic-section",
 	"data-smoke": "epic-issues"
-}, bd = { class: "epic-section-head" }, xd = { class: "epic-section-count" }, Sd = ["data-zero"], Cd = ["data-zero"], wd = {
+}, wd = { class: "epic-section-head" }, Td = { class: "epic-section-count" }, Ed = ["data-zero"], Dd = ["data-zero"], Od = {
 	key: 0,
 	class: "epic-line muted"
-}, Td = {
+}, kd = {
 	key: 1,
 	class: "epic-issues-list",
 	"data-smoke": "epic-issues-list"
-}, Ed = [
+}, Ad = [
 	"onClick",
 	"onKeydown",
 	"onFocus"
-], Dd = ["data-state"], Od = { key: 0 }, kd = { key: 1 }, Ad = { class: "row-number" }, jd = { class: "row-title" }, Md = { class: "row-trailing" }, Nd = ["title"], Pd = ["data-author-kind", "title"], Fd = { class: "author-glyph" }, Id = {
+], jd = ["data-state"], Md = { key: 0 }, Nd = { key: 1 }, Pd = { class: "row-number" }, Fd = { class: "row-title" }, Id = { class: "row-trailing" }, Ld = ["title"], Rd = ["data-author-kind", "title"], zd = { class: "author-glyph" }, Bd = {
 	key: 2,
 	class: "epic-kbd-hint muted"
-}, Ld = { class: "epic-actions-section" }, Rd = { class: "epic-actions" }, zd = ["disabled", "onClick"], Bd = {
+}, Vd = { class: "epic-actions-section" }, Hd = { class: "epic-actions" }, Ud = ["disabled", "onClick"], Wd = {
 	key: 0,
 	class: "epic-line warn",
 	role: "alert"
-}, Vd = { class: "epic-comments-head" }, Hd = {
+}, Gd = { class: "epic-comments-head" }, Kd = {
 	key: 0,
 	class: "epic-comments-count"
-}, Ud = /* @__PURE__ */ Ar({
+}, qd = /* @__PURE__ */ Ar({
 	__name: "EpicDetail",
 	props: {
 		client: { type: null },
@@ -5749,7 +5772,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			"IN_PROGRESS",
 			"DONE",
 			"CANCELED"
-		], r = /* @__PURE__ */ B("idle"), i = /* @__PURE__ */ B("idle"), a = /* @__PURE__ */ B(null), o = /* @__PURE__ */ B(null), s = /* @__PURE__ */ B(t.epic ?? null), c = /* @__PURE__ */ B(null), l = /* @__PURE__ */ B([]), u = /* @__PURE__ */ B(null), d = X(() => t.client ?? t.comtryaClient), f = X(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? Zl()), p = X(() => t.id ?? t.routeParams?.params?.id ?? ""), m = X(() => t.epic ? $l(t.epic) : `comtrya://epic/${p.value}`), h = X(() => s.value ?? t.epic ?? null), g = X(() => ru(h.value?.state)), _ = X(() => n.filter((e) => e !== h.value?.state)), v = X(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), y = X(() => Math.max(0, Math.min(100, c.value?.percentComplete ?? 0))), ee = X(() => l.value.filter((e) => e.state !== "CLOSED").length), te = X(() => l.value.filter((e) => e.state === "CLOSED").length), b = X(() => ol(h.value?.bodyMarkdown ?? "", { workspaceId: f.value })), ne = X(() => d.value && !!p.value), re = X(() => {
+		], r = /* @__PURE__ */ B("idle"), i = /* @__PURE__ */ B("idle"), a = /* @__PURE__ */ B(null), o = /* @__PURE__ */ B(null), s = /* @__PURE__ */ B(t.epic ?? null), c = /* @__PURE__ */ B(null), l = /* @__PURE__ */ B([]), u = /* @__PURE__ */ B(null), d = X(() => t.client ?? t.comtryaClient), f = X(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? tu()), p = X(() => t.id ?? t.routeParams?.params?.id ?? ""), m = X(() => t.epic ? ru(t.epic) : `comtrya://epic/${p.value}`), h = X(() => s.value ?? t.epic ?? null), g = X(() => su(h.value?.state)), _ = X(() => n.filter((e) => e !== h.value?.state)), v = X(() => (c.value?.issuesOpen ?? 0) + (c.value?.issuesClosed ?? 0)), y = X(() => Math.max(0, Math.min(100, c.value?.percentComplete ?? 0))), ee = X(() => l.value.filter((e) => e.state !== "CLOSED").length), te = X(() => l.value.filter((e) => e.state === "CLOSED").length), b = X(() => ol(h.value?.bodyMarkdown ?? "", { workspaceId: f.value })), ne = X(() => d.value && !!p.value), re = X(() => {
 			let e = h.value?.ownerRef;
 			return e ? e.startsWith("comtrya://user/") ? e.slice(15) : e.startsWith("comtrya://agent/") ? `${e.slice(16)} (agent)` : e : null;
 		}), x = X(() => ge(h.value?.createdAt)), S = /* @__PURE__ */ B(null);
@@ -5764,15 +5787,15 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				return;
 			}
 			try {
-				ae.value = await Ru(e);
+				ae.value = await Hu(e);
 			} catch {
 				ae.value = null;
 			}
 		}, { immediate: !0 });
-		let se = hl, C = /* @__PURE__ */ B([]), ce = /* @__PURE__ */ B("idle"), le = /* @__PURE__ */ B(null);
+		let se = yl, C = /* @__PURE__ */ B([]), ce = /* @__PURE__ */ B("idle"), le = /* @__PURE__ */ B(null);
 		Gr(async () => {
 			try {
-				C.value = await vl();
+				C.value = await Sl();
 			} catch {
 				C.value = [];
 			}
@@ -5789,7 +5812,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				projectName: r
 			};
 			try {
-				s.value = await Kl(n.id, r);
+				s.value = await Xl(n.id, r);
 			} catch (e) {
 				s.value = {
 					...n,
@@ -5800,7 +5823,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			}
 		}
 		Gr(() => {
-			Iu(), fe();
+			Bu(), fe();
 		});
 		let de = (e) => {
 			if (l.value.length === 0) return;
@@ -5842,7 +5865,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			}
 			r.value = "loading", a.value = null;
 			try {
-				s.value = await Rl(d.value, m.value), r.value = s.value ? "ready" : "empty", await w();
+				s.value = await Hl(d.value, m.value), r.value = s.value ? "ready" : "empty", await w();
 			} catch (e) {
 				s.value = null, c.value = null, l.value = [], r.value = "error", a.value = e instanceof Error ? e.message : String(e);
 			}
@@ -5852,8 +5875,8 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				c.value = null, l.value = [];
 				return;
 			}
-			let e = $l(h.value), [t, n] = await Promise.allSettled([Hl(d.value, e), Ul(d.value, e)]);
-			c.value = t.status === "fulfilled" ? t.value : null, l.value = await Nu(n.status === "fulfilled" ? n.value : []), l.value.sort((e, t) => {
+			let e = ru(h.value), [t, n] = await Promise.allSettled([Kl(d.value, e), ql(d.value, e)]);
+			c.value = t.status === "fulfilled" ? t.value : null, l.value = await Lu(n.status === "fulfilled" ? n.value : []), l.value.sort((e, t) => {
 				let n = e.state !== "CLOSED";
 				return n === (t.state !== "CLOSED") ? (t.number ?? 0) - (e.number ?? 0) : n ? -1 : 1;
 			});
@@ -5862,7 +5885,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			if (!(!d.value || !h.value)) {
 				i.value = "submitting", o.value = null;
 				try {
-					s.value = await Wl(d.value, h.value.id, e), await w();
+					s.value = await Jl(d.value, h.value.id, e), await w();
 				} catch (e) {
 					o.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -5892,37 +5915,37 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			"data-state": r.value,
 			"data-epic-id": h.value?.id,
 			"data-smoke": "epic-detail"
-		}, [r.value === "loading" ? (W(), G("p", Bu, "Loading epic")) : r.value === "error" ? (W(), G("p", Vu, P(a.value), 1)) : h.value ? (W(), G(U, { key: 3 }, [
-			K("header", Uu, [
+		}, [r.value === "loading" ? (W(), G("p", Wu, "Loading epic")) : r.value === "error" ? (W(), G("p", Gu, P(a.value), 1)) : h.value ? (W(), G(U, { key: 3 }, [
+			K("header", qu, [
 				n[2] ||= K("p", { class: "epic-overline" }, "epic", -1),
-				K("h1", Wu, P(h.value.title), 1),
-				K("div", Gu, [
+				K("h1", Ju, P(h.value.title), 1),
+				K("div", Yu, [
 					K("span", { class: N(["epic-pill", g.value.className]) }, P(g.value.label), 3),
 					h.value.projectName ? (W(), G("span", {
 						key: 0,
 						class: "epic-chip tone-blue",
 						title: `Scoped to project ${h.value.projectName}`
-					}, [n[0] ||= K("span", { class: "chip-glyph" }, "◇", -1), q(P(h.value.projectName), 1)], 8, Ku)) : J("", !0),
-					(W(!0), G(U, null, H(h.value.labels, (t) => (W(), Ca(V(wl), {
+					}, [n[0] ||= K("span", { class: "chip-glyph" }, "◇", -1), q(P(h.value.projectName), 1)], 8, Xu)) : J("", !0),
+					(W(!0), G(U, null, H(h.value.labels, (t) => (W(), Ca(V(Ol), {
 						key: t,
 						name: t,
 						catalog: e.labelCatalog
 					}, null, 8, ["name", "catalog"]))), 128)),
-					re.value ? (W(), G("span", qu, [n[1] ||= K("span", { class: "chip-glyph" }, "@", -1), q(P(re.value), 1)])) : J("", !0),
-					h.value.targetDate ? (W(), G("span", Ju, " target " + P(h.value.targetDate), 1)) : J("", !0),
-					x.value ? (W(), G("span", Yu, "opened " + P(x.value), 1)) : J("", !0)
+					re.value ? (W(), G("span", Zu, [n[1] ||= K("span", { class: "chip-glyph" }, "@", -1), q(P(re.value), 1)])) : J("", !0),
+					h.value.targetDate ? (W(), G("span", Qu, " target " + P(h.value.targetDate), 1)) : J("", !0),
+					x.value ? (W(), G("span", $u, "opened " + P(x.value), 1)) : J("", !0)
 				])
 			]),
-			c.value || l.value.length > 0 ? (W(), G("section", Xu, [K("div", Zu, [
-				K("span", Qu, [
+			c.value || l.value.length > 0 ? (W(), G("section", ed, [K("div", td, [
+				K("span", nd, [
 					K("strong", null, P(c.value?.issuesClosed ?? te.value), 1),
-					K("span", $u, "/ " + P(v.value || l.value.length), 1),
+					K("span", rd, "/ " + P(v.value || l.value.length), 1),
 					n[3] ||= K("span", { class: "stat-label" }, "closed", -1)
 				]),
 				n[6] ||= K("span", { class: "epic-progress-sep" }, "·", -1),
-				K("span", ed, [K("strong", null, P(y.value), 1), n[4] ||= K("span", { class: "stat-label" }, "% complete", -1)]),
-				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (W(), G("span", td, "·")) : J("", !0),
-				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (W(), G("span", nd, [K("strong", null, P(c.value?.childEpicsOpen ?? 0), 1), n[5] ||= K("span", { class: "stat-label" }, "child epics open", -1)])) : J("", !0)
+				K("span", id, [K("strong", null, P(y.value), 1), n[4] ||= K("span", { class: "stat-label" }, "% complete", -1)]),
+				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (W(), G("span", ad, "·")) : J("", !0),
+				(c.value?.childEpicsOpen ?? 0) + (c.value?.childEpicsClosed ?? 0) > 0 ? (W(), G("span", od, [K("strong", null, P(c.value?.childEpicsOpen ?? 0), 1), n[5] ||= K("span", { class: "stat-label" }, "child epics open", -1)])) : J("", !0)
 			]), K("div", {
 				class: "epic-progress-bar",
 				"aria-valuenow": y.value,
@@ -5931,14 +5954,14 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			}, [K("div", {
 				class: "epic-progress-fill",
 				style: Qe({ width: y.value + "%" })
-			}, null, 4)], 8, rd)])) : J("", !0),
-			K("section", id, [
-				K("header", ad, [n[7] ||= K("span", { class: "epic-routed-label" }, "Project", -1), h.value.projectName ? (W(), G("a", {
+			}, null, 4)], 8, sd)])) : J("", !0),
+			K("section", cd, [
+				K("header", ld, [n[7] ||= K("span", { class: "epic-routed-label" }, "Project", -1), h.value.projectName ? (W(), G("a", {
 					key: 0,
 					href: `/x/epics/?project=${encodeURIComponent(h.value.projectName)}`,
 					class: "epic-routed-project",
 					title: `Filter epics to project ${h.value.projectName}`
-				}, "◇ " + P(h.value.projectName), 9, od)) : J("", !0)]),
+				}, "◇ " + P(h.value.projectName), 9, ud)) : J("", !0)]),
 				K("select", {
 					class: "epic-project-select",
 					"data-smoke": "epic-project-select",
@@ -5948,27 +5971,27 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				}, [n[8] ||= K("option", { value: "" }, "— no project —", -1), (W(!0), G(U, null, H(C.value, (e) => (W(), G("option", {
 					key: e.name,
 					value: e.name ?? ""
-				}, P(e.name), 9, cd))), 128))], 40, sd),
-				le.value ? (W(), G("p", ld, P(le.value), 1)) : J("", !0),
+				}, P(e.name), 9, fd))), 128))], 40, dd),
+				le.value ? (W(), G("p", pd, P(le.value), 1)) : J("", !0),
 				n[9] ||= K("p", { class: "epic-routed-source" }, [
 					q(" Stamps "),
 					K("code", null, "projectName"),
 					q(" on this epic. Lights up workspace per-Project counts. ")
 				], -1)
 			]),
-			h.value.projectName && oe.value.length > 0 ? (W(), G("section", ud, [
-				K("header", dd, [n[10] ||= K("span", { class: "epic-routed-label" }, "Routed to", -1), K("a", {
+			h.value.projectName && oe.value.length > 0 ? (W(), G("section", md, [
+				K("header", hd, [n[10] ||= K("span", { class: "epic-routed-label" }, "Routed to", -1), K("a", {
 					href: `/x/epics/?project=${encodeURIComponent(h.value.projectName)}`,
 					class: "epic-routed-project",
 					title: `Filter epics to project ${h.value.projectName}`
-				}, "◇ " + P(h.value.projectName), 9, fd)]),
-				K("ul", pd, [(W(!0), G(U, null, H(oe.value, (e) => (W(), G("li", {
+				}, "◇ " + P(h.value.projectName), 9, gd)]),
+				K("ul", _d, [(W(!0), G(U, null, H(oe.value, (e) => (W(), G("li", {
 					key: e,
 					class: "epic-routed-owner",
 					"data-author-kind": V(se)(e).kind,
 					title: e
-				}, [K("span", hd, P(V(se)(e).glyph), 1), q(" " + P(V(se)(e).label), 1)], 8, md))), 128))]),
-				K("p", gd, [
+				}, [K("span", yd, P(V(se)(e).glyph), 1), q(" " + P(V(se)(e).label), 1)], 8, vd))), 128))]),
+				K("p", bd, [
 					n[11] ||= q(" From ", -1),
 					n[12] ||= K("code", null, "package comtrya", -1),
 					q(" · projects." + P(h.value.projectName) + ".owners ", 1)
@@ -5980,16 +6003,16 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				"data-epic-id": h.value.id,
 				"data-smoke": "epic-detail-main",
 				innerHTML: b.value
-			}, null, 8, _d)) : (W(), G("p", vd, "No description yet.")),
-			K("section", yd, [
-				K("header", bd, [n[16] ||= K("h3", null, "Issues in this epic", -1), K("span", xd, [
-					K("span", { "data-zero": ee.value === 0 }, P(ee.value), 9, Sd),
+			}, null, 8, xd)) : (W(), G("p", Sd, "No description yet.")),
+			K("section", Cd, [
+				K("header", wd, [n[16] ||= K("h3", null, "Issues in this epic", -1), K("span", Td, [
+					K("span", { "data-zero": ee.value === 0 }, P(ee.value), 9, Ed),
 					n[13] ||= q(" open ", -1),
 					n[14] ||= K("span", { class: "sep" }, "·", -1),
-					K("span", { "data-zero": te.value === 0 }, P(te.value), 9, Cd),
+					K("span", { "data-zero": te.value === 0 }, P(te.value), 9, Dd),
 					n[15] ||= q(" closed ", -1)
 				])]),
-				l.value.length === 0 ? (W(), G("p", wd, " No issues linked yet. Link issues via the issue's \"part of epic\" relation. ")) : (W(), G("ul", Td, [(W(!0), G(U, null, H(l.value, (e, t) => (W(), G("li", {
+				l.value.length === 0 ? (W(), G("p", Od, " No issues linked yet. Link issues via the issue's \"part of epic\" relation. ")) : (W(), G("ul", kd, [(W(!0), G(U, null, H(l.value, (e, t) => (W(), G("li", {
 					key: e.ref,
 					class: N(["epic-issue-row", [`state-${e.state.toLowerCase()}`, { focused: u.value === t }]]),
 					tabindex: "0",
@@ -6000,28 +6023,28 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					K("span", {
 						class: "row-state",
 						"data-state": e.state
-					}, [e.state === "CLOSED" ? (W(), G("span", Od, "●")) : (W(), G("span", kd, "○"))], 8, Dd),
-					K("span", Ad, "#" + P(e.number ?? "—"), 1),
-					K("span", jd, P(e.title), 1),
-					K("span", Md, [
+					}, [e.state === "CLOSED" ? (W(), G("span", Md, "●")) : (W(), G("span", Nd, "○"))], 8, jd),
+					K("span", Pd, "#" + P(e.number ?? "—"), 1),
+					K("span", Fd, P(e.title), 1),
+					K("span", Id, [
 						e.projectName ? (W(), G("span", {
 							key: 0,
 							class: "epic-chip tone-blue compact",
 							title: e.projectName
-						}, [n[17] ||= K("span", { class: "chip-glyph" }, "◇", -1), q(P(e.projectName), 1)], 8, Nd)) : J("", !0),
-						(W(!0), G(U, null, H(e.labels, (e) => (W(), Ca(V(wl), {
+						}, [n[17] ||= K("span", { class: "chip-glyph" }, "◇", -1), q(P(e.projectName), 1)], 8, Ld)) : J("", !0),
+						(W(!0), G(U, null, H(e.labels, (e) => (W(), Ca(V(Ol), {
 							key: e,
 							name: e
 						}, null, 8, ["name"]))), 128)),
 						e.authorRef ? (W(), G("span", {
 							key: 1,
 							class: "row-author",
-							"data-author-kind": V(hl)(e.authorRef).kind,
+							"data-author-kind": V(yl)(e.authorRef).kind,
 							title: e.authorRef
-						}, [K("span", Fd, P(V(hl)(e.authorRef).glyph), 1), q(" " + P(V(hl)(e.authorRef).label), 1)], 8, Pd)) : J("", !0)
+						}, [K("span", zd, P(V(yl)(e.authorRef).glyph), 1), q(" " + P(V(yl)(e.authorRef).label), 1)], 8, Rd)) : J("", !0)
 					])
-				], 42, Ed))), 128))])),
-				l.value.length > 0 ? (W(), G("p", Id, [...n[18] ||= [
+				], 42, Ad))), 128))])),
+				l.value.length > 0 ? (W(), G("p", Bd, [...n[18] ||= [
 					K("kbd", null, "j", -1),
 					q(" / ", -1),
 					K("kbd", null, "k", -1),
@@ -6030,72 +6053,72 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					q(" open ", -1)
 				]])) : J("", !0)
 			]),
-			K("section", Ld, [
+			K("section", Vd, [
 				n[19] ||= K("h3", { class: "epic-actions-heading" }, "Change state", -1),
-				K("div", Rd, [(W(!0), G(U, null, H(_.value, (e) => (W(), G("button", {
+				K("div", Hd, [(W(!0), G(U, null, H(_.value, (e) => (W(), G("button", {
 					key: e,
 					type: "button",
 					disabled: i.value === "submitting",
 					onClick: (t) => T(e)
-				}, " mark " + P(pe(e)), 9, zd))), 128))]),
-				o.value ? (W(), G("p", Bd, P(o.value), 1)) : J("", !0)
+				}, " mark " + P(pe(e)), 9, Ud))), 128))]),
+				o.value ? (W(), G("p", Wd, P(o.value), 1)) : J("", !0)
 			]),
 			K("section", {
 				class: "epic-comments",
 				onCommentThreadUpdate: ie
-			}, [K("header", Vd, [K("h2", null, [n[20] ||= q(" Discussion", -1), S.value === null ? J("", !0) : (W(), G("span", Hd, " (" + P(S.value) + ")", 1))])]), Oa(Lu, {
+			}, [K("header", Gd, [K("h2", null, [n[20] ||= q(" Discussion", -1), S.value === null ? J("", !0) : (W(), G("span", Kd, " (" + P(S.value) + ")", 1))])]), Oa(Vu, {
 				tag: "comtrya-comment-thread",
-				attributes: { target: V($l)(h.value) },
+				attributes: { target: V(ru)(h.value) },
 				properties: {
-					target: V($l)(h.value),
+					target: V(ru)(h.value),
 					comtryaClient: d.value
 				}
 			}, null, 8, ["attributes", "properties"])], 32)
-		], 64)) : (W(), G("p", Hu, " No epic " + P(p.value || "?") + " in " + P(f.value), 1))], 8, zu));
+		], 64)) : (W(), G("p", Ku, " No epic " + P(p.value || "?") + " in " + P(f.value), 1))], 8, Uu));
 	}
-}), Wd = {
+}), Jd = {
 	class: "epics-roadmap",
 	"data-smoke": "epics-roadmap-board"
-}, Gd = { class: "epics-roadmap-head" }, Kd = { class: "epics-roadmap-title" }, qd = { class: "epics-roadmap-subtitle" }, Jd = ["href"], Yd = {
+}, Yd = { class: "epics-roadmap-head" }, Xd = { class: "epics-roadmap-title" }, Zd = { class: "epics-roadmap-subtitle" }, Qd = ["href"], $d = {
 	class: "epics-roadmap-tabs",
 	"aria-label": "Epic roadmap views"
-}, Xd = [
+}, ef = [
 	"aria-pressed",
 	"title",
 	"onClick"
-], Zd = {
+], tf = {
 	key: 0,
 	class: "epics-roadmap-status"
-}, Qd = {
+}, nf = {
 	key: 1,
 	class: "epics-roadmap-status error",
 	role: "alert"
-}, $d = {
+}, rf = {
 	key: 2,
 	class: "epics-roadmap-status"
-}, ef = ["data-board"], tf = { class: "epics-roadmap-column-head" }, nf = {
+}, af = ["data-board"], of = { class: "epics-roadmap-column-head" }, sf = {
 	key: 0,
 	class: "epics-roadmap-cards"
-}, rf = ["onMouseenter"], af = ["href"], of = { class: "epics-roadmap-card-head" }, sf = { class: "epic-number" }, cf = { class: "epics-roadmap-card-title" }, lf = {
+}, cf = ["onMouseenter"], lf = ["href"], uf = { class: "epics-roadmap-card-head" }, df = { class: "epic-number" }, ff = { class: "epics-roadmap-card-title" }, pf = {
 	key: 0,
 	class: "epics-roadmap-card-copy"
-}, uf = { class: "epics-roadmap-progress" }, df = ["aria-valuenow"], ff = { class: "epics-roadmap-card-meta" }, pf = {
+}, mf = { class: "epics-roadmap-progress" }, hf = ["aria-valuenow"], gf = { class: "epics-roadmap-card-meta" }, _f = {
 	key: 0,
 	class: "epic-age"
-}, mf = {
+}, vf = {
 	key: 1,
 	class: "epic-age"
-}, hf = {
+}, yf = {
 	key: 1,
 	class: "epics-roadmap-card-tags"
-}, gf = {
+}, bf = {
 	key: 1,
 	class: "epics-roadmap-empty"
-}, _f = /* @__PURE__ */ Eu(/* @__PURE__ */ Ar({
+}, xf = /* @__PURE__ */ Au(/* @__PURE__ */ Ar({
 	__name: "EpicRoadmapBoard",
 	props: {
 		workspaceId: {
-			default: Zl(),
+			default: tu(),
 			type: String
 		},
 		routeParams: { type: null },
@@ -6141,7 +6164,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				label: "Targets",
 				hint: "target date health"
 			}
-		], r = /* @__PURE__ */ B("idle"), i = /* @__PURE__ */ B(null), a = /* @__PURE__ */ B("roadmap"), o = /* @__PURE__ */ B(m()), s = /* @__PURE__ */ B(null), c = X(() => t.workspaceId || t.routeParams?.params?.workspaceId || Zl()), l = X(() => o.value[a.value]), u = X(() => l.value?.total ?? 0), d = X(() => nu(c.value)), f = X(() => {
+		], r = /* @__PURE__ */ B("idle"), i = /* @__PURE__ */ B(null), a = /* @__PURE__ */ B("roadmap"), o = /* @__PURE__ */ B(m()), s = /* @__PURE__ */ B(null), c = X(() => t.workspaceId || t.routeParams?.params?.workspaceId || tu()), l = X(() => o.value[a.value]), u = X(() => l.value?.total ?? 0), d = X(() => ou(c.value)), f = X(() => {
 			let e = [];
 			for (let t of l.value?.columns ?? []) for (let n of t.cards) e.includes(n.epic.id) || e.push(n.epic.id);
 			return e;
@@ -6185,7 +6208,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			},
 			Enter: (e) => {
 				let t = p.value?.epic;
-				t && (e.preventDefault(), window.location.href = eu(t));
+				t && (e.preventDefault(), window.location.href = iu(t));
 			}
 		});
 		function m() {
@@ -6206,13 +6229,13 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					workspaceId: c.value,
 					limit: 128
 				}, [t, n, i, a, l, u, d] = await Promise.all([
-					Bl("roadmap", e),
-					Bl("project", e),
-					Bl("owner", e),
-					Bl("priority", e),
-					Bl("milestone", e),
-					Bl("label", e),
-					Bl("target", e)
+					Wl("roadmap", e),
+					Wl("project", e),
+					Wl("owner", e),
+					Wl("priority", e),
+					Wl("milestone", e),
+					Wl("label", e),
+					Wl("target", e)
 				]);
 				o.value = {
 					roadmap: t,
@@ -6248,7 +6271,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			return e.epic.projectName && t.push(`project:${e.epic.projectName}`), (e.ownerRef ?? e.epic.ownerRef) && t.push(te(e.ownerRef ?? e.epic.ownerRef ?? "")), e.priorityLabel && t.push(e.priorityLabel), e.milestoneLabel && t.push(e.milestoneLabel), e.epic.targetDate && t.push(`target:${e.epic.targetDate}`), t;
 		}
 		function te(e) {
-			let t = hl(e);
+			let t = yl(e);
 			return `${t.glyph} ${t.label}`;
 		}
 		function b(e) {
@@ -6268,57 +6291,57 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			let n = Math.max(0, Date.now() - t), r = 6e4, i = 60 * r, a = 24 * i, o = 7 * a;
 			return n < r ? "just now" : n < i ? `${Math.floor(n / r)}m ago` : n < a ? `${Math.floor(n / i)}h ago` : n < o ? `${Math.floor(n / a)}d ago` : `${Math.floor(n / o)}w ago`;
 		}
-		return (t, o) => (W(), G("section", Wd, [
-			K("header", Gd, [K("div", Kd, [o[0] ||= K("h2", null, "Epics roadmap", -1), K("span", qd, [r.value === "loading" ? (W(), G(U, { key: 0 }, [q("loading roadmap...")], 64)) : r.value === "error" ? (W(), G(U, { key: 1 }, [q("roadmap unavailable")], 64)) : (W(), G(U, { key: 2 }, [
+		return (t, o) => (W(), G("section", Jd, [
+			K("header", Yd, [K("div", Xd, [o[0] ||= K("h2", null, "Epics roadmap", -1), K("span", Zd, [r.value === "loading" ? (W(), G(U, { key: 0 }, [q("loading roadmap...")], 64)) : r.value === "error" ? (W(), G(U, { key: 1 }, [q("roadmap unavailable")], 64)) : (W(), G(U, { key: 2 }, [
 				q(P(u.value) + " epic", 1),
 				u.value === 1 ? J("", !0) : (W(), G(U, { key: 0 }, [q("s")], 64)),
 				q(" on " + P(n.find((e) => e.id === a.value)?.label.toLowerCase()), 1)
 			], 64))])]), K("a", {
 				href: d.value,
 				class: "epics-roadmap-new"
-			}, "+ new", 8, Jd)]),
-			K("nav", Yd, [(W(), G(U, null, H(n, (e) => K("button", {
+			}, "+ new", 8, Qd)]),
+			K("nav", $d, [(W(), G(U, null, H(n, (e) => K("button", {
 				key: e.id,
 				type: "button",
 				class: N(["epics-roadmap-tab", { active: a.value === e.id }]),
 				"aria-pressed": a.value === e.id,
 				title: e.hint,
 				onClick: (t) => _(e.id)
-			}, [K("span", null, P(e.label), 1), K("strong", null, P(g(e.id)), 1)], 10, Xd)), 64))]),
-			r.value === "loading" ? (W(), G("p", Zd, " Loading roadmap... ")) : r.value === "error" ? (W(), G("p", Qd, P(i.value), 1)) : l.value && l.value.columns.length === 0 ? (W(), G("p", $d, " No roadmap columns yet. ")) : l.value ? (W(), G("div", {
+			}, [K("span", null, P(e.label), 1), K("strong", null, P(g(e.id)), 1)], 10, ef)), 64))]),
+			r.value === "loading" ? (W(), G("p", tf, " Loading roadmap... ")) : r.value === "error" ? (W(), G("p", nf, P(i.value), 1)) : l.value && l.value.columns.length === 0 ? (W(), G("p", rf, " No roadmap columns yet. ")) : l.value ? (W(), G("div", {
 				key: 3,
 				class: "epics-roadmap-columns",
 				"data-board": a.value
 			}, [(W(!0), G(U, null, H(l.value.columns, (t) => (W(), G("section", {
 				key: t.key,
 				class: "epics-roadmap-column"
-			}, [K("header", tf, [K("h3", null, P(t.label), 1), K("span", null, P(t.count), 1)]), t.cards.length > 0 ? (W(), G("ol", nf, [(W(!0), G(U, null, H(t.cards, (n) => (W(), G("li", {
+			}, [K("header", of, [K("h3", null, P(t.label), 1), K("span", null, P(t.count), 1)]), t.cards.length > 0 ? (W(), G("ol", sf, [(W(!0), G(U, null, H(t.cards, (n) => (W(), G("li", {
 				key: `${t.key}-${n.epic.id}`,
 				class: N(["epics-roadmap-card", { focused: s.value === n.epic.id }]),
 				onMouseenter: (e) => s.value = n.epic.id
 			}, [K("a", {
 				class: "epics-roadmap-card-link",
-				href: V(eu)(n.epic)
+				href: V(iu)(n.epic)
 			}, [
-				K("header", of, [K("span", sf, " #" + P(n.epic.number ?? n.epic.id.slice(-4)), 1), K("span", { class: N(["epic-state", V(ru)(n.epic.state).className]) }, P(V(ru)(n.epic.state).label), 3)]),
-				K("strong", cf, P(n.epic.title), 1),
-				n.epic.bodyMarkdown ? (W(), G("p", lf, P(V(sl)(n.epic.bodyMarkdown)), 1)) : J("", !0),
-				K("div", uf, [K("div", {
+				K("header", uf, [K("span", df, " #" + P(n.epic.number ?? n.epic.id.slice(-4)), 1), K("span", { class: N(["epic-state", V(su)(n.epic.state).className]) }, P(V(su)(n.epic.state).label), 3)]),
+				K("strong", ff, P(n.epic.title), 1),
+				n.epic.bodyMarkdown ? (W(), G("p", pf, P(V(sl)(n.epic.bodyMarkdown)), 1)) : J("", !0),
+				K("div", mf, [K("div", {
 					class: "epics-roadmap-progress-bar",
 					"aria-valuenow": b(n),
 					"aria-valuemin": "0",
 					"aria-valuemax": "100"
-				}, [K("span", { style: Qe({ width: b(n) + "%" }) }, null, 4)], 8, df), K("span", null, P(ne(n)), 1)]),
-				K("div", ff, [n.epic.createdAt ? (W(), G("span", pf, " opened " + P(re(n.epic.createdAt)), 1)) : J("", !0), l.value.today && a.value === "target" ? (W(), G("span", mf, " today " + P(l.value.today), 1)) : J("", !0)]),
-				ee(n).length > 0 || (n.epic.labels ?? []).length > 0 ? (W(), G("div", hf, [(W(!0), G(U, null, H(ee(n), (e) => (W(), G("span", {
+				}, [K("span", { style: Qe({ width: b(n) + "%" }) }, null, 4)], 8, hf), K("span", null, P(ne(n)), 1)]),
+				K("div", gf, [n.epic.createdAt ? (W(), G("span", _f, " opened " + P(re(n.epic.createdAt)), 1)) : J("", !0), l.value.today && a.value === "target" ? (W(), G("span", vf, " today " + P(l.value.today), 1)) : J("", !0)]),
+				ee(n).length > 0 || (n.epic.labels ?? []).length > 0 ? (W(), G("div", yf, [(W(!0), G(U, null, H(ee(n), (e) => (W(), G("span", {
 					key: `${n.epic.id}-${e}`,
 					class: "epics-roadmap-badge"
-				}, P(e), 1))), 128)), (W(!0), G(U, null, H(n.epic.labels ?? [], (t) => (W(), Ca(V(wl), {
+				}, P(e), 1))), 128)), (W(!0), G(U, null, H(n.epic.labels ?? [], (t) => (W(), Ca(V(Ol), {
 					key: `${n.epic.id}-${t}`,
 					name: t,
 					catalog: e.labelCatalog
 				}, null, 8, ["name", "catalog"]))), 128))])) : J("", !0)
-			], 8, af)], 42, rf))), 128))])) : (W(), G("p", gf, "No epics"))]))), 128))], 8, ef)) : J("", !0),
+			], 8, lf)], 42, cf))), 128))])) : (W(), G("p", bf, "No epics"))]))), 128))], 8, af)) : J("", !0),
 			o[1] ||= K("footer", { class: "epics-roadmap-foot" }, [K("span", null, [
 				K("kbd", null, "h"),
 				q("/"),
@@ -6333,69 +6356,69 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			])], -1)
 		]));
 	}
-}), [["styles", [".epics-roadmap[data-v-d49c9d48]{min-width:0;color:var(--fg,#fffffff0);font-family:var(--font-sans,system-ui);gap:14px;display:grid}.epics-roadmap-head[data-v-d49c9d48],.epics-roadmap-column-head[data-v-d49c9d48],.epics-roadmap-card-head[data-v-d49c9d48],.epics-roadmap-card-meta[data-v-d49c9d48],.epics-roadmap-card-tags[data-v-d49c9d48],.epics-roadmap-foot[data-v-d49c9d48]{align-items:center;min-width:0;display:flex}.epics-roadmap-head[data-v-d49c9d48]{justify-content:space-between;gap:12px}.epics-roadmap-title[data-v-d49c9d48]{gap:4px;min-width:0;display:grid}.epics-roadmap-title h2[data-v-d49c9d48]{font-family:var(--font-serif,system-ui);letter-spacing:0;margin:0;font-size:22px;line-height:1.2}.epics-roadmap-subtitle[data-v-d49c9d48],.epics-roadmap-status[data-v-d49c9d48],.epics-roadmap-empty[data-v-d49c9d48],.epics-roadmap-foot[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-size:12px}.epics-roadmap-new[data-v-d49c9d48]{border:.5px solid var(--line-2,#ffffff1f);border-radius:var(--r-sm,6px);min-height:30px;color:var(--fg,#fffffff0);background:var(--surface,#ffffff0a);flex:none;justify-content:center;align-items:center;padding:0 11px;font-size:13px;text-decoration:none;display:inline-flex}.epics-roadmap-tabs[data-v-d49c9d48]{gap:6px;min-width:0;padding-bottom:2px;display:flex;overflow-x:auto}.epics-roadmap-tab[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-height:32px;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);font:inherit;white-space:nowrap;flex:none;align-items:center;gap:8px;padding:0 10px;font-size:12px;display:inline-flex}.epics-roadmap-tab.active[data-v-d49c9d48]{border-color:var(--accent,#3b82f6);color:var(--fg,#fffffff0);background:var(--accent-soft,#3b82f624)}.epics-roadmap-tab strong[data-v-d49c9d48]{font-family:var(--font-mono,monospace);font-size:11px;font-weight:600}.epics-roadmap-status[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);margin:0;padding:12px}.epics-roadmap-status.error[data-v-d49c9d48]{color:var(--err,#f87171);border-color:var(--err-soft,#f8717133);background:var(--err-soft,#f871711f)}.epics-roadmap-columns[data-v-d49c9d48]{grid-auto-columns:minmax(270px,1fr);grid-auto-flow:column;gap:10px;min-width:0;padding-bottom:6px;display:grid;overflow-x:auto}.epics-roadmap-column[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff06);align-content:start;gap:8px;min-width:0;display:grid}.epics-roadmap-column-head[data-v-d49c9d48]{justify-content:space-between;gap:8px;padding:10px 10px 0}.epics-roadmap-column-head h3[data-v-d49c9d48]{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin:0;font-size:13px;font-weight:650;line-height:1.2;overflow:hidden}.epics-roadmap-column-head span[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);flex:none;font-size:11px}.epics-roadmap-cards[data-v-d49c9d48]{gap:8px;min-width:0;margin:0;padding:0 8px 8px;list-style:none;display:grid}.epics-roadmap-card[data-v-d49c9d48]{min-width:0}.epics-roadmap-card-link[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-width:0;color:inherit;background:var(--surface-2,#ffffff0b);gap:8px;padding:10px;text-decoration:none;display:grid}.epics-roadmap-card.focused .epics-roadmap-card-link[data-v-d49c9d48],.epics-roadmap-card-link[data-v-d49c9d48]:focus-visible{outline:1.5px solid var(--accent,#3b82f6);outline-offset:2px}.epics-roadmap-card-head[data-v-d49c9d48]{font-family:var(--font-mono,monospace);justify-content:space-between;gap:8px;font-size:11px}.epic-number[data-v-d49c9d48],.epic-age[data-v-d49c9d48]{color:var(--fg-3,#ffffff85)}.epic-state[data-v-d49c9d48]{border:.5px solid;border-radius:999px;flex:none;padding:1px 7px;font-size:10px}.epic-state-good[data-v-d49c9d48]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.epic-state-good[data-v-d49c9d48]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.epic-state-warn[data-v-d49c9d48]{color:var(--warn,#f59e0b)}.epic-state-muted[data-v-d49c9d48]{color:var(--fg-3,#ffffff85)}.epics-roadmap-card-title[data-v-d49c9d48]{overflow-wrap:anywhere;min-width:0;font-size:13px;line-height:1.35}.epics-roadmap-card-copy[data-v-d49c9d48]{color:var(--fg-2,#ffffffc2);-webkit-line-clamp:2;-webkit-box-orient:vertical;margin:0;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}.epics-roadmap-progress[data-v-d49c9d48]{gap:5px;min-width:0;display:grid}.epics-roadmap-progress-bar[data-v-d49c9d48]{background:var(--surface,#ffffff12);border-radius:999px;height:5px;overflow:hidden}.epics-roadmap-progress-bar span[data-v-d49c9d48]{border-radius:inherit;background:var(--accent,#3b82f6);height:100%;display:block}.epics-roadmap-progress>span[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);font-size:11px}.epics-roadmap-card-meta[data-v-d49c9d48],.epics-roadmap-card-tags[data-v-d49c9d48]{flex-wrap:wrap;gap:6px}.epics-roadmap-badge[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);min-width:0;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);border-radius:999px;align-items:center;gap:4px;padding:2px 7px;font-size:11px;line-height:1.2;display:inline-flex}.epics-roadmap-empty[data-v-d49c9d48]{margin:0;padding:0 10px 12px}.epics-roadmap-foot[data-v-d49c9d48]{justify-content:flex-end;gap:6px}.epics-roadmap-foot kbd[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);color:var(--fg-2,#ffffffbd);background:var(--surface,#ffffff0a);font-family:var(--font-mono,monospace);border-radius:4px;padding:1px 5px;font-size:10px}@media (max-width:720px){.epics-roadmap-head[data-v-d49c9d48]{flex-direction:column;align-items:stretch}.epics-roadmap-new[data-v-d49c9d48]{align-self:flex-start}.epics-roadmap-columns[data-v-d49c9d48]{grid-auto-columns:minmax(250px,88vw)}}"]], ["__scopeId", "data-v-d49c9d48"]]), vf = ["data-state"], yf = { class: "epics-list-header" }, bf = { class: "epics-list-actions" }, xf = ["href"], Sf = ["href"], Cf = {
+}), [["styles", [".epics-roadmap[data-v-d49c9d48]{min-width:0;color:var(--fg,#fffffff0);font-family:var(--font-sans,system-ui);gap:14px;display:grid}.epics-roadmap-head[data-v-d49c9d48],.epics-roadmap-column-head[data-v-d49c9d48],.epics-roadmap-card-head[data-v-d49c9d48],.epics-roadmap-card-meta[data-v-d49c9d48],.epics-roadmap-card-tags[data-v-d49c9d48],.epics-roadmap-foot[data-v-d49c9d48]{align-items:center;min-width:0;display:flex}.epics-roadmap-head[data-v-d49c9d48]{justify-content:space-between;gap:12px}.epics-roadmap-title[data-v-d49c9d48]{gap:4px;min-width:0;display:grid}.epics-roadmap-title h2[data-v-d49c9d48]{font-family:var(--font-serif,system-ui);letter-spacing:0;margin:0;font-size:22px;line-height:1.2}.epics-roadmap-subtitle[data-v-d49c9d48],.epics-roadmap-status[data-v-d49c9d48],.epics-roadmap-empty[data-v-d49c9d48],.epics-roadmap-foot[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-size:12px}.epics-roadmap-new[data-v-d49c9d48]{border:.5px solid var(--line-2,#ffffff1f);border-radius:var(--r-sm,6px);min-height:30px;color:var(--fg,#fffffff0);background:var(--surface,#ffffff0a);flex:none;justify-content:center;align-items:center;padding:0 11px;font-size:13px;text-decoration:none;display:inline-flex}.epics-roadmap-tabs[data-v-d49c9d48]{gap:6px;min-width:0;padding-bottom:2px;display:flex;overflow-x:auto}.epics-roadmap-tab[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-height:32px;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);font:inherit;white-space:nowrap;flex:none;align-items:center;gap:8px;padding:0 10px;font-size:12px;display:inline-flex}.epics-roadmap-tab.active[data-v-d49c9d48]{border-color:var(--accent,#3b82f6);color:var(--fg,#fffffff0);background:var(--accent-soft,#3b82f624)}.epics-roadmap-tab strong[data-v-d49c9d48]{font-family:var(--font-mono,monospace);font-size:11px;font-weight:600}.epics-roadmap-status[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);margin:0;padding:12px}.epics-roadmap-status.error[data-v-d49c9d48]{color:var(--err,#f87171);border-color:var(--err-soft,#f8717133);background:var(--err-soft,#f871711f)}.epics-roadmap-columns[data-v-d49c9d48]{grid-auto-columns:minmax(270px,1fr);grid-auto-flow:column;gap:10px;min-width:0;padding-bottom:6px;display:grid;overflow-x:auto}.epics-roadmap-column[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff06);align-content:start;gap:8px;min-width:0;display:grid}.epics-roadmap-column-head[data-v-d49c9d48]{justify-content:space-between;gap:8px;padding:10px 10px 0}.epics-roadmap-column-head h3[data-v-d49c9d48]{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin:0;font-size:13px;font-weight:650;line-height:1.2;overflow:hidden}.epics-roadmap-column-head span[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);flex:none;font-size:11px}.epics-roadmap-cards[data-v-d49c9d48]{gap:8px;min-width:0;margin:0;padding:0 8px 8px;list-style:none;display:grid}.epics-roadmap-card[data-v-d49c9d48]{min-width:0}.epics-roadmap-card-link[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-width:0;color:inherit;background:var(--surface-2,#ffffff0b);gap:8px;padding:10px;text-decoration:none;display:grid}.epics-roadmap-card.focused .epics-roadmap-card-link[data-v-d49c9d48],.epics-roadmap-card-link[data-v-d49c9d48]:focus-visible{outline:1.5px solid var(--accent,#3b82f6);outline-offset:2px}.epics-roadmap-card-head[data-v-d49c9d48]{font-family:var(--font-mono,monospace);justify-content:space-between;gap:8px;font-size:11px}.epic-number[data-v-d49c9d48],.epic-age[data-v-d49c9d48]{color:var(--fg-3,#ffffff85)}.epic-state[data-v-d49c9d48]{border:.5px solid;border-radius:999px;flex:none;padding:1px 7px;font-size:10px}.epic-state-good[data-v-d49c9d48]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.epic-state-good[data-v-d49c9d48]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.epic-state-warn[data-v-d49c9d48]{color:var(--warn,#f59e0b)}.epic-state-muted[data-v-d49c9d48]{color:var(--fg-3,#ffffff85)}.epics-roadmap-card-title[data-v-d49c9d48]{overflow-wrap:anywhere;min-width:0;font-size:13px;line-height:1.35}.epics-roadmap-card-copy[data-v-d49c9d48]{color:var(--fg-2,#ffffffc2);-webkit-line-clamp:2;-webkit-box-orient:vertical;margin:0;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}.epics-roadmap-progress[data-v-d49c9d48]{gap:5px;min-width:0;display:grid}.epics-roadmap-progress-bar[data-v-d49c9d48]{background:var(--surface,#ffffff12);border-radius:999px;height:5px;overflow:hidden}.epics-roadmap-progress-bar span[data-v-d49c9d48]{border-radius:inherit;background:var(--accent,#3b82f6);height:100%;display:block}.epics-roadmap-progress>span[data-v-d49c9d48]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);font-size:11px}.epics-roadmap-card-meta[data-v-d49c9d48],.epics-roadmap-card-tags[data-v-d49c9d48]{flex-wrap:wrap;gap:6px}.epics-roadmap-badge[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);min-width:0;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);border-radius:999px;align-items:center;gap:4px;padding:2px 7px;font-size:11px;line-height:1.2;display:inline-flex}.epics-roadmap-empty[data-v-d49c9d48]{margin:0;padding:0 10px 12px}.epics-roadmap-foot[data-v-d49c9d48]{justify-content:flex-end;gap:6px}.epics-roadmap-foot kbd[data-v-d49c9d48]{border:.5px solid var(--line,#ffffff14);color:var(--fg-2,#ffffffbd);background:var(--surface,#ffffff0a);font-family:var(--font-mono,monospace);border-radius:4px;padding:1px 5px;font-size:10px}@media (max-width:720px){.epics-roadmap-head[data-v-d49c9d48]{flex-direction:column;align-items:stretch}.epics-roadmap-new[data-v-d49c9d48]{align-self:flex-start}.epics-roadmap-columns[data-v-d49c9d48]{grid-auto-columns:minmax(250px,88vw)}}"]], ["__scopeId", "data-v-d49c9d48"]]), Sf = ["data-state"], Cf = { class: "epics-list-header" }, wf = { class: "epics-list-actions" }, Tf = ["href"], Ef = ["href"], Df = {
 	key: 0,
 	class: "epics-controls"
-}, wf = {
+}, Of = {
 	class: "epics-filter-row",
 	role: "tablist",
 	"aria-label": "Filter epics by state"
-}, Tf = ["aria-selected", "onClick"], Ef = { class: "count" }, Df = { class: "epics-search" }, Of = {
+}, kf = ["aria-selected", "onClick"], Af = { class: "count" }, jf = { class: "epics-search" }, Mf = {
 	key: 1,
 	class: "epics-query-chips",
 	"data-smoke": "epics-query-chips",
 	"aria-label": "Parsed search filters"
-}, kf = ["title"], Af = {
+}, Nf = ["title"], Pf = {
 	key: 2,
 	class: "epics-owner-filter",
 	"data-smoke": "epics-owner-filter"
-}, jf = ["title"], Mf = {
+}, Ff = ["title"], If = {
 	key: 3,
 	class: "epics-project-filter",
 	"data-smoke": "epics-project-filter"
-}, Nf = ["title"], Pf = ["data-busy"], Ff = ["placeholder", "disabled"], If = {
+}, Lf = ["title"], Rf = ["data-busy"], zf = ["placeholder", "disabled"], Bf = {
 	key: 0,
 	class: "quick-add-status"
-}, Lf = ["title"], Rf = {
+}, Vf = ["title"], Hf = {
 	key: 4,
 	class: "epic-line warn",
 	role: "alert"
-}, zf = {
+}, Uf = {
 	key: 5,
 	class: "epics-bulk-bar",
 	"data-smoke": "epics-bulk-bar"
-}, Bf = { class: "count" }, Vf = { class: "bulk-reproject" }, Hf = ["disabled"], Uf = ["value"], Wf = ["disabled"], Gf = {
+}, Wf = { class: "count" }, Gf = { class: "bulk-reproject" }, Kf = ["disabled"], qf = ["value"], Jf = ["disabled"], Yf = {
 	key: 6,
 	class: "epic-line warn",
 	role: "alert"
-}, Kf = {
+}, Xf = {
 	key: 7,
 	class: "epic-line muted"
-}, qf = {
+}, Zf = {
 	key: 8,
 	class: "epic-line warn"
-}, Jf = {
+}, Qf = {
 	key: 9,
 	class: "epic-line muted"
-}, Yf = {
+}, $f = {
 	key: 10,
 	class: "epic-line muted"
-}, Xf = {
+}, ep = {
 	key: 11,
 	class: "epics-list-items",
 	role: "listbox",
 	"aria-label": "Epic list"
-}, Zf = ["aria-selected", "onMouseenter"], Qf = {
+}, tp = ["aria-selected", "onMouseenter"], np = {
 	key: 12,
 	class: "epics-list-foot"
-}, $f = /* @__PURE__ */ Eu(/* @__PURE__ */ Ar({
+}, rp = /* @__PURE__ */ Au(/* @__PURE__ */ Ar({
 	__name: "EpicsList",
 	props: {
 		client: { type: null },
 		comtryaClient: { type: null },
 		epics: { type: [Array, null] },
 		workspaceId: {
-			default: Zl(),
+			default: tu(),
 			type: String
 		},
 		repositorySegments: { type: Array },
@@ -6547,12 +6570,12 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			for (let t of d.value) t.state === "PLANNED" ? e.PLANNED += 1 : t.state === "IN_PROGRESS" ? e.IN_PROGRESS += 1 : t.state === "DONE" ? e.DONE += 1 : t.state === "CANCELED" && (e.CANCELED += 1);
 			return e;
 		}), S = X(() => t.client ?? t.comtryaClient), ie = X(() => {
-			let e = nu(t.workspaceId);
+			let e = ou(t.workspaceId);
 			return t.projectName ? `${e}&projectName=${encodeURIComponent(t.projectName)}` : e;
 		}), ae = X(() => {
-			if (typeof window > "u") return tu(t.workspaceId);
+			if (typeof window > "u") return au(t.workspaceId);
 			let e = window.location.pathname.replace(/\/$/, "");
-			return e.endsWith("/epics") ? `${e}/board${window.location.search}` : tu(t.workspaceId);
+			return e.endsWith("/epics") ? `${e}/board${window.location.search}` : au(t.workspaceId);
 		}), oe = /* @__PURE__ */ B(""), se = /* @__PURE__ */ B(!1), C = /* @__PURE__ */ B(null), ce = X(() => t.projectName ?? _.value ?? null), le = X(() => {
 			let e = ce.value;
 			return e ? `New epic in ${e}…` : "New epic…";
@@ -6568,7 +6591,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			if (!(!e || se.value)) {
 				se.value = !0, C.value = null;
 				try {
-					let n = await Gl(S.value, {
+					let n = await Yl(S.value, {
 						workspaceId: t.workspaceId,
 						title: e,
 						bodyMarkdown: "",
@@ -6585,7 +6608,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 		let w = /* @__PURE__ */ B(0), T = /* @__PURE__ */ B(/* @__PURE__ */ new Set()), pe = /* @__PURE__ */ B(!1), me = /* @__PURE__ */ B(null), he = /* @__PURE__ */ B([]);
 		Gr(async () => {
 			try {
-				he.value = await vl(t.repositorySegments);
+				he.value = await Sl(t.repositorySegments);
 			} catch {
 				he.value = [];
 			}
@@ -6604,7 +6627,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			let t = Array.from(T.value);
 			pe.value = !0, me.value = null;
 			try {
-				let n = await Promise.allSettled(t.map((t) => Kl(t, e))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
+				let n = await Promise.allSettled(t.map((t) => Xl(t, e))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
 				if (n.forEach((e, n) => {
 					let a = t[n];
 					e.status === "fulfilled" ? r.set(a, e.value) : i.add(a);
@@ -6655,12 +6678,16 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 		}
 		function be() {
 			if (typeof window > "u") return;
-			let e = new URLSearchParams(window.location.search);
-			s.value === "ALL" ? e.delete("state") : e.set("state", s.value), l.value ? e.set("owner", l.value) : e.delete("owner"), u.value && !t.projectName ? e.set("project", u.value) : e.delete("project");
-			let n = c.value.trim();
-			n ? e.set("q", n) : e.delete("q");
-			let r = e.toString(), i = `${window.location.pathname}${r ? `?${r}` : ""}${window.location.hash}`;
-			i !== `${window.location.pathname}${window.location.search}${window.location.hash}` && window.history.replaceState(window.history.state, "", i);
+			let e = window.location.search, n = new URLSearchParams(e);
+			s.value === "ALL" ? n.delete("state") : n.set("state", s.value), l.value ? n.set("owner", l.value) : n.delete("owner"), ml(n, {
+				projectFilter: u.value,
+				scopedProjectName: t.projectName,
+				currentSearch: e
+			});
+			let r = c.value.trim();
+			r ? n.set("q", r) : n.delete("q");
+			let i = n.toString(), a = `${window.location.pathname}${i ? `?${i}` : ""}${window.location.hash}`;
+			a !== `${window.location.pathname}${window.location.search}${window.location.hash}` && window.history.replaceState(window.history.state, "", a);
 		}
 		let xe = !1;
 		function Se() {
@@ -6696,7 +6723,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			}
 			i.value = "loading", a.value = null;
 			try {
-				o.value = await zl(S.value, {
+				o.value = await Ul(S.value, {
 					workspaceId: t.workspaceId,
 					state: t.state
 				}), i.value = o.value.length > 0 ? "ready" : "empty";
@@ -6709,29 +6736,29 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			"data-state": i.value,
 			"data-smoke": "epics-list"
 		}, [
-			K("header", yf, [K("h3", null, P(e.title), 1), K("div", bf, [K("a", { href: ae.value }, "board", 8, xf), e.showNewLink ? (W(), G("a", {
+			K("header", Cf, [K("h3", null, P(e.title), 1), K("div", wf, [K("a", { href: ae.value }, "board", 8, Tf), e.showNewLink ? (W(), G("a", {
 				key: 0,
 				href: ie.value
-			}, "+ new", 8, Sf)) : J("", !0)])]),
-			d.value.length > 0 ? (W(), G("div", Cf, [K("div", wf, [(W(), G(U, null, H(n, (e) => K("button", {
+			}, "+ new", 8, Ef)) : J("", !0)])]),
+			d.value.length > 0 ? (W(), G("div", Df, [K("div", Of, [(W(), G(U, null, H(n, (e) => K("button", {
 				key: e.id,
 				type: "button",
 				role: "tab",
 				"aria-selected": s.value === e.id,
 				class: N(["epics-filter", { active: s.value === e.id }]),
 				onClick: (t) => s.value = e.id
-			}, [K("span", null, P(e.label), 1), K("span", Ef, P(x.value[e.id]), 1)], 10, Tf)), 64))]), K("label", Df, [gr(K("input", {
+			}, [K("span", null, P(e.label), 1), K("span", Af, P(x.value[e.id]), 1)], 10, kf)), 64))]), K("label", jf, [gr(K("input", {
 				"data-epics-search": "",
 				"onUpdate:modelValue": o[0] ||= (e) => c.value = e,
 				type: "search",
 				placeholder: "Filter — try is:in-progress · project:<name> · owner:<urn> · text",
 				autocomplete: "off"
 			}, null, 512), [[$o, c.value]])])])) : J("", !0),
-			y.value.length > 0 ? (W(), G("div", Of, [(W(!0), G(U, null, H(y.value, (e) => (W(), G("span", {
+			y.value.length > 0 ? (W(), G("div", Mf, [(W(!0), G(U, null, H(y.value, (e) => (W(), G("span", {
 				key: `${e.key}:${e.value || "unknown"}`,
 				class: N(["query-chip", `tone-${e.tone}`]),
 				title: e.tone === "unknown" ? `Unknown filter key: ${e.key}` : e.value
-			}, P(e.label), 11, kf))), 128)), o[2] ||= K("span", { class: "query-chips-hint" }, [
+			}, P(e.label), 11, Nf))), 128)), o[2] ||= K("span", { class: "query-chips-hint" }, [
 				q(" syntax: "),
 				K("code", null, "is:in-progress"),
 				q(" · "),
@@ -6739,12 +6766,12 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				q(" · "),
 				K("code", null, "owner:<urn>")
 			], -1)])) : J("", !0),
-			l.value ? (W(), G("div", Af, [
+			l.value ? (W(), G("div", Pf, [
 				o[3] ||= K("span", { class: "prefix" }, "owner", -1),
 				K("span", {
 					class: "active-chip",
 					title: l.value
-				}, P(re(l.value)), 9, jf),
+				}, P(re(l.value)), 9, Ff),
 				K("button", {
 					type: "button",
 					class: "clear",
@@ -6752,12 +6779,12 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					"aria-label": "Clear owner filter"
 				}, "clear ✕")
 			])) : J("", !0),
-			u.value && !t.projectName ? (W(), G("div", Mf, [
+			u.value && !t.projectName ? (W(), G("div", If, [
 				o[5] ||= K("span", { class: "prefix" }, "project", -1),
 				K("span", {
 					class: "active-chip",
 					title: `Scoped to project ${u.value}`
-				}, [o[4] ||= K("span", { class: "project-glyph" }, "◇", -1), q(" " + P(u.value), 1)], 8, Nf),
+				}, [o[4] ||= K("span", { class: "project-glyph" }, "◇", -1), q(" " + P(u.value), 1)], 8, Lf),
 				K("button", {
 					type: "button",
 					class: "clear",
@@ -6782,12 +6809,12 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					placeholder: le.value,
 					disabled: se.value,
 					onKeydown: ss(de, ["esc"])
-				}, null, 40, Ff), [[$o, oe.value]]),
-				se.value ? (W(), G("span", If, "creating…")) : ce.value ? (W(), G("span", {
+				}, null, 40, zf), [[$o, oe.value]]),
+				se.value ? (W(), G("span", Bf, "creating…")) : ce.value ? (W(), G("span", {
 					key: 1,
 					class: "quick-add-chip tone-blue",
 					title: `Stamps projectName = ${ce.value} on create`
-				}, "◇ " + P(ce.value), 9, Lf)) : J("", !0),
+				}, "◇ " + P(ce.value), 9, Vf)) : J("", !0),
 				o[7] ||= K("span", { class: "quick-add-hint" }, [
 					K("kbd", null, "↵"),
 					q(" create · "),
@@ -6796,11 +6823,11 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					K("kbd", null, "c"),
 					q(" focus ")
 				], -1)
-			], 40, Pf),
-			C.value ? (W(), G("p", Rf, P(C.value), 1)) : J("", !0),
-			T.value.size > 0 ? (W(), G("div", zf, [
-				K("span", Bf, P(T.value.size) + " selected", 1),
-				K("label", Vf, [o[10] ||= K("span", { class: "bulk-reproject-label" }, "reproject →", -1), K("select", {
+			], 40, Rf),
+			C.value ? (W(), G("p", Hf, P(C.value), 1)) : J("", !0),
+			T.value.size > 0 ? (W(), G("div", Uf, [
+				K("span", Wf, P(T.value.size) + " selected", 1),
+				K("label", Gf, [o[10] ||= K("span", { class: "bulk-reproject-label" }, "reproject →", -1), K("select", {
 					class: "bulk-reproject-select",
 					"data-smoke": "epics-bulk-reproject",
 					disabled: pe.value,
@@ -6815,18 +6842,18 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 					(W(!0), G(U, null, H(he.value, (e) => (W(), G("option", {
 						key: e.name,
 						value: e.name ?? ""
-					}, "◇ " + P(e.name), 9, Uf))), 128))
-				], 40, Hf)]),
+					}, "◇ " + P(e.name), 9, qf))), 128))
+				], 40, Kf)]),
 				K("button", {
 					type: "button",
 					class: "bulk-clear",
 					disabled: pe.value,
 					onClick: _e
-				}, [...o[11] ||= [q("clear ", -1), K("kbd", null, "esc", -1)]], 8, Wf),
+				}, [...o[11] ||= [q("clear ", -1), K("kbd", null, "esc", -1)]], 8, Jf),
 				o[12] ||= K("span", { class: "hint" }, [K("kbd", null, "space"), q(" toggle row ")], -1)
 			])) : J("", !0),
-			me.value ? (W(), G("p", Gf, P(me.value), 1)) : J("", !0),
-			i.value === "loading" ? (W(), G("p", Kf, "Loading epics")) : i.value === "error" ? (W(), G("p", qf, P(a.value), 1)) : d.value.length === 0 ? (W(), G("p", Jf, "No epics yet.")) : v.value.length === 0 ? (W(), G("p", Yf, " No " + P(s.value.toLowerCase().replace("_", " ")) + " epics in scope. ", 1)) : (W(), G("ul", Xf, [(W(!0), G(U, null, H(v.value, (e, t) => (W(), G("li", {
+			me.value ? (W(), G("p", Yf, P(me.value), 1)) : J("", !0),
+			i.value === "loading" ? (W(), G("p", Xf, "Loading epics")) : i.value === "error" ? (W(), G("p", Zf, P(a.value), 1)) : d.value.length === 0 ? (W(), G("p", Qf, "No epics yet.")) : v.value.length === 0 ? (W(), G("p", $f, " No " + P(s.value.toLowerCase().replace("_", " ")) + " epics in scope. ", 1)) : (W(), G("ul", ep, [(W(!0), G(U, null, H(v.value, (e, t) => (W(), G("li", {
 				key: e.id,
 				class: N({
 					focused: t === w.value,
@@ -6835,9 +6862,9 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				"aria-selected": T.value.has(e.id),
 				role: "option",
 				onMouseenter: (e) => w.value = t
-			}, [Oa(Du, {
+			}, [Oa(ju, {
 				epic: e,
-				"resource-ref": V($l)(e),
+				"resource-ref": V(ru)(e),
 				client: S.value,
 				"active-owner": l.value,
 				"active-project": u.value,
@@ -6849,8 +6876,8 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				"client",
 				"active-owner",
 				"active-project"
-			])], 42, Zf))), 128))])),
-			v.value.length > 0 ? (W(), G("footer", Qf, [...o[13] ||= [
+			])], 42, tp))), 128))])),
+			v.value.length > 0 ? (W(), G("footer", np, [...o[13] ||= [
 				K("kbd", null, "j", -1),
 				q(),
 				K("kbd", null, "k", -1),
@@ -6860,37 +6887,37 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				K("kbd", null, "c", -1),
 				q(" create ", -1)
 			]])) : J("", !0)
-		], 8, vf));
+		], 8, Sf));
 	}
-}), [["styles", [".epics-list[data-v-6b836914]{gap:8px;display:grid}.epics-list-header[data-v-6b836914]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.epics-list-header h3[data-v-6b836914]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-6b836914],.epic-line[data-v-6b836914]{font-family:var(--font-mono,monospace);font-size:12px}.epics-list-actions[data-v-6b836914]{align-items:center;gap:10px;display:inline-flex}.epics-list-header a[data-v-6b836914]{color:var(--fg-3,#ffffff85);text-decoration:none}.epics-controls[data-v-6b836914]{flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:4px;display:flex}.epics-search[data-v-6b836914]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);flex:280px;align-items:center;gap:6px;padding:0 8px;display:inline-flex}.epics-search input[data-v-6b836914]{font-family:var(--font-mono,monospace);color:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0;padding:6px 0;font-size:12px}.epics-search input[data-v-6b836914]::placeholder{color:var(--fg-3,#ffffff85)}.epics-query-chips[data-v-6b836914]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;display:flex}.epics-query-chips .query-chip[data-v-6b836914]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.epics-query-chips .query-chip.tone-is[data-v-6b836914]{color:var(--accent-teal,#087f6f)}.epics-query-chips .query-chip.tone-owner[data-v-6b836914]{color:var(--fg,#fffffff0)}.epics-query-chips .query-chip.tone-project[data-v-6b836914]{color:var(--accent-blue,#1d55a6)}.epics-query-chips .query-chip.tone-unknown[data-v-6b836914]{color:var(--accent-yellow,#c89300);border-style:dashed}.epics-query-chips .query-chips-hint[data-v-6b836914]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.epics-query-chips .query-chips-hint code[data-v-6b836914]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.epics-filter-row[data-v-6b836914]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;align-self:flex-start;gap:0;display:inline-flex}.epics-filter[data-v-6b836914]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:4px 9px;font-size:11px;display:inline-flex}.epics-filter[data-v-6b836914]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.epics-filter.active[data-v-6b836914]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.epics-filter .count[data-v-6b836914]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.epics-filter.active .count[data-v-6b836914]{color:var(--bg-2,#0e1014)}.epics-owner-filter[data-v-6b836914]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-self:flex-start;align-items:center;gap:8px;padding:6px 10px;font-size:11px;display:inline-flex}.epics-owner-filter .prefix[data-v-6b836914]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.epics-owner-filter .active-chip[data-v-6b836914]{border:.5px solid var(--fg,#fffffff0);color:var(--fg,#fffffff0);padding:0 5px}.epics-owner-filter .clear[data-v-6b836914]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.epics-owner-filter .clear[data-v-6b836914]:hover{color:var(--fg,#fffffff0)}.epics-project-filter[data-v-6b836914]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-self:flex-start;align-items:center;gap:8px;padding:6px 10px;font-size:11px;display:inline-flex}.epics-project-filter .prefix[data-v-6b836914]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.epics-project-filter .active-chip[data-v-6b836914]{color:var(--accent-blue,#1d55a6);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.epics-project-filter .project-glyph[data-v-6b836914]{font-size:10px}.epics-project-filter .clear[data-v-6b836914]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.epics-project-filter .clear[data-v-6b836914]:hover{color:var(--fg,#fffffff0)}.epics-quick-add[data-v-6b836914]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);align-items:center;gap:8px;padding:6px 10px 6px 6px;transition:border-color .12s;display:flex}.epics-quick-add[data-v-6b836914]:focus-within{border-color:var(--fg,#fffffff0)}.epics-quick-add[data-busy=true][data-v-6b836914]{opacity:.85;border-style:dashed}.epics-quick-add .quick-add-glyph[data-v-6b836914]{width:22px;height:22px;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid;border-radius:2px;place-items:center;font-size:13px;display:inline-grid}.epics-quick-add input[data-v-6b836914]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);background:0 0;border:0;outline:none;flex:1;padding:4px 0;font-size:15px}.epics-quick-add input[data-v-6b836914]::placeholder{color:var(--fg-4,#ffffff57);font-style:italic}.epics-quick-add .quick-add-status[data-v-6b836914]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.epics-quick-add .quick-add-chip[data-v-6b836914]{font-family:var(--font-mono,monospace);letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 6px;font-size:10.5px;display:inline-flex}.epics-quick-add .quick-add-chip.tone-blue[data-v-6b836914]{color:var(--accent-blue,#1d55a6)}.epics-quick-add .quick-add-hint[data-v-6b836914]{font-family:var(--font-mono,monospace);color:var(--fg-4,#ffffff57);white-space:nowrap;font-size:10.5px}.epics-quick-add .quick-add-hint kbd[data-v-6b836914]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.epics-list-items[data-v-6b836914]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epics-list-items>li[data-v-6b836914]{transition:background 80ms;position:relative}.epics-list-items>li.focused[data-v-6b836914]{background:var(--bg-2,#0e1014)}.epics-list-items>li.selected[data-v-6b836914]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0)}.epics-list-items>li.focused.selected[data-v-6b836914]{box-shadow:inset 3px 0 0 var(--accent-teal,#087f6f)}.epics-list-foot[data-v-6b836914]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:8px;font-size:11px}.epics-list-foot kbd[data-v-6b836914]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.epics-bulk-bar[data-v-6b836914]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);z-index:1;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 12px;font-size:11px;display:flex;position:sticky;top:0}.epics-bulk-bar .count[data-v-6b836914]{font-weight:600}.epics-bulk-bar .bulk-reproject[data-v-6b836914]{align-items:center;gap:6px;display:inline-flex}.epics-bulk-bar .bulk-reproject-label[data-v-6b836914]{color:var(--bg-2,#0e1014);letter-spacing:.04em}.epics-bulk-bar .bulk-reproject-select[data-v-6b836914]{border:.5px solid var(--bg-2,#0e1014);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;outline:none;padding:2px 6px;font-size:11px}.epics-bulk-bar .bulk-reproject-select[data-v-6b836914]:disabled{opacity:.5;cursor:wait}.epics-bulk-bar .bulk-reproject-select option[data-v-6b836914]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.epics-bulk-bar .bulk-clear[data-v-6b836914]{color:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 4px;font-size:11px}.epics-bulk-bar .bulk-clear kbd[data-v-6b836914]{border:.5px solid;margin-left:4px;padding:0 4px;font-size:10px}.epics-bulk-bar .hint[data-v-6b836914]{color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:10.5px}.epics-bulk-bar .hint kbd[data-v-6b836914]{border:.5px solid;padding:0 4px;font-size:10px}.epic-line[data-v-6b836914]{margin:4px 0}.muted[data-v-6b836914]{color:var(--fg-3,#ffffff85)}.warn[data-v-6b836914]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-6b836914]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-6b836914"]]), ep = {
+}), [["styles", [".epics-list[data-v-9aac6b9f]{gap:8px;min-width:0;max-width:100%;display:grid}.epics-list-header[data-v-9aac6b9f]{flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px;min-width:0;max-width:100%;display:flex}.epics-list-header h3[data-v-9aac6b9f]{font-family:var(--font-serif,system-ui);margin:0;font-size:14px}.epics-list-header a[data-v-9aac6b9f],.epic-line[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);font-size:12px}.epics-list-actions[data-v-9aac6b9f]{flex-wrap:wrap;align-items:center;gap:10px;display:flex}.epic-line[data-v-9aac6b9f]{overflow-wrap:anywhere;min-width:0}.epics-list-header a[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);text-decoration:none}.epics-controls[data-v-9aac6b9f]{flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:4px;display:flex}.epics-search[data-v-9aac6b9f]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);flex:280px;align-items:center;gap:6px;padding:0 8px;display:inline-flex}.epics-search input[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);color:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0;padding:6px 0;font-size:12px}.epics-search input[data-v-9aac6b9f]::placeholder{color:var(--fg-3,#ffffff85)}.epics-query-chips[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:4px;font-size:11px;display:flex}.epics-query-chips .query-chip[data-v-9aac6b9f]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.epics-query-chips .query-chip.tone-is[data-v-9aac6b9f]{color:var(--accent-teal,#087f6f)}.epics-query-chips .query-chip.tone-owner[data-v-9aac6b9f]{color:var(--fg,#fffffff0)}.epics-query-chips .query-chip.tone-project[data-v-9aac6b9f]{color:var(--accent-blue,#1d55a6)}.epics-query-chips .query-chip.tone-unknown[data-v-9aac6b9f]{color:var(--accent-yellow,#c89300);border-style:dashed}.epics-query-chips .query-chips-hint[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.epics-query-chips .query-chips-hint code[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.epics-filter-row[data-v-9aac6b9f]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;align-self:flex-start;gap:0;display:inline-flex}.epics-filter[data-v-9aac6b9f]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:4px 9px;font-size:11px;display:inline-flex}.epics-filter[data-v-9aac6b9f]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.epics-filter.active[data-v-9aac6b9f]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.epics-filter .count[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.epics-filter.active .count[data-v-9aac6b9f]{color:var(--bg-2,#0e1014)}.epics-owner-filter[data-v-9aac6b9f]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-self:flex-start;align-items:center;gap:8px;padding:6px 10px;font-size:11px;display:inline-flex}.epics-owner-filter .prefix[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.epics-owner-filter .active-chip[data-v-9aac6b9f]{border:.5px solid var(--fg,#fffffff0);color:var(--fg,#fffffff0);padding:0 5px}.epics-owner-filter .clear[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.epics-owner-filter .clear[data-v-9aac6b9f]:hover{color:var(--fg,#fffffff0)}.epics-project-filter[data-v-9aac6b9f]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-self:flex-start;align-items:center;gap:8px;padding:6px 10px;font-size:11px;display:inline-flex}.epics-project-filter .prefix[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.epics-project-filter .active-chip[data-v-9aac6b9f]{color:var(--accent-blue,#1d55a6);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.epics-project-filter .project-glyph[data-v-9aac6b9f]{font-size:10px}.epics-project-filter .clear[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.epics-project-filter .clear[data-v-9aac6b9f]:hover{color:var(--fg,#fffffff0)}.epics-quick-add[data-v-9aac6b9f]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);flex-wrap:wrap;align-items:center;gap:8px;min-width:0;max-width:100%;padding:6px 10px 6px 6px;transition:border-color .12s;display:flex}.epics-quick-add[data-v-9aac6b9f]:focus-within{border-color:var(--fg,#fffffff0)}.epics-quick-add[data-busy=true][data-v-9aac6b9f]{opacity:.85;border-style:dashed}.epics-quick-add .quick-add-glyph[data-v-9aac6b9f]{width:22px;height:22px;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid;border-radius:2px;place-items:center;font-size:13px;display:inline-grid}.epics-quick-add input[data-v-9aac6b9f]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);background:0 0;border:0;outline:none;flex:180px;padding:4px 0;font-size:15px}.epics-quick-add input[data-v-9aac6b9f]::placeholder{color:var(--fg-4,#ffffff57);font-style:italic}.epics-quick-add .quick-add-status[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex:0 auto;font-size:11px}.epics-quick-add .quick-add-chip[data-v-9aac6b9f]{min-width:0;max-width:100%;font-family:var(--font-mono,monospace);letter-spacing:.02em;white-space:nowrap;border:.5px solid;flex:0 auto;align-items:center;padding:1px 6px;font-size:10.5px;display:inline-flex}.epics-quick-add .quick-add-chip.tone-blue[data-v-9aac6b9f]{color:var(--accent-blue,#1d55a6)}.epics-quick-add .quick-add-hint[data-v-9aac6b9f]{min-width:0;font-family:var(--font-mono,monospace);color:var(--fg-4,#ffffff57);white-space:normal;flex:180px;font-size:10.5px}.epics-quick-add .quick-add-hint kbd[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.epics-list-items[data-v-9aac6b9f]{gap:8px;margin:0;padding:0;list-style:none;display:grid}.epics-list-items>li[data-v-9aac6b9f]{transition:background 80ms;position:relative}.epics-list-items>li.focused[data-v-9aac6b9f]{background:var(--bg-2,#0e1014)}.epics-list-items>li.selected[data-v-9aac6b9f]{box-shadow:inset 3px 0 0 var(--fg,#fffffff0)}.epics-list-items>li.focused.selected[data-v-9aac6b9f]{box-shadow:inset 3px 0 0 var(--accent-teal,#087f6f)}.epics-list-foot[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);letter-spacing:.04em;margin-top:8px;font-size:11px}.epics-list-foot kbd[data-v-9aac6b9f]{font-family:var(--font-mono,monospace);border:.5px solid var(--line,#ffffff12);margin:0 1px;padding:0 4px;font-size:10px}.epics-bulk-bar[data-v-9aac6b9f]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);z-index:1;flex-wrap:wrap;align-items:center;gap:12px;padding:8px 12px;font-size:11px;display:flex;position:sticky;top:0}.epics-bulk-bar .count[data-v-9aac6b9f]{font-weight:600}.epics-bulk-bar .bulk-reproject[data-v-9aac6b9f]{align-items:center;gap:6px;display:inline-flex}.epics-bulk-bar .bulk-reproject-label[data-v-9aac6b9f]{color:var(--bg-2,#0e1014);letter-spacing:.04em}.epics-bulk-bar .bulk-reproject-select[data-v-9aac6b9f]{border:.5px solid var(--bg-2,#0e1014);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;outline:none;padding:2px 6px;font-size:11px}.epics-bulk-bar .bulk-reproject-select[data-v-9aac6b9f]:disabled{opacity:.5;cursor:wait}.epics-bulk-bar .bulk-reproject-select option[data-v-9aac6b9f]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.epics-bulk-bar .bulk-clear[data-v-9aac6b9f]{color:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 4px;font-size:11px}.epics-bulk-bar .bulk-clear kbd[data-v-9aac6b9f]{border:.5px solid;margin-left:4px;padding:0 4px;font-size:10px}.epics-bulk-bar .hint[data-v-9aac6b9f]{color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:10.5px}.epics-bulk-bar .hint kbd[data-v-9aac6b9f]{border:.5px solid;padding:0 4px;font-size:10px}.epic-line[data-v-9aac6b9f]{margin:4px 0}.muted[data-v-9aac6b9f]{color:var(--fg-3,#ffffff85)}.warn[data-v-9aac6b9f]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-9aac6b9f]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-9aac6b9f"]]), ip = {
 	class: "issue-epic-linker",
 	"data-smoke": "issue-epic-linker"
-}, tp = { class: "issue-epic-linker-header" }, np = {
+}, ap = { class: "issue-epic-linker-header" }, op = {
 	key: 0,
 	class: "epic-linker-line muted"
-}, rp = {
+}, sp = {
 	key: 1,
 	class: "epic-linker-line warn"
-}, ip = {
+}, cp = {
 	key: 2,
 	class: "linked-epics"
-}, ap = ["href"], op = {
+}, lp = ["href"], up = {
 	key: 0,
 	class: "epic-linker-line muted"
-}, sp = ["disabled", "onClick"], cp = {
+}, dp = ["disabled", "onClick"], fp = {
 	key: 3,
 	class: "linked-epics"
-}, lp = { class: "epic-linker-line muted" }, up = ["disabled", "onClick"], dp = {
+}, pp = { class: "epic-linker-line muted" }, mp = ["disabled", "onClick"], hp = {
 	key: 4,
 	class: "epic-linker-line muted"
-}, fp = ["value"], pp = ["disabled"], mp = {
+}, gp = ["value"], _p = ["disabled"], vp = {
 	key: 6,
 	class: "epic-linker-line muted"
-}, hp = {
+}, yp = {
 	key: 7,
 	class: "epic-linker-line warn",
 	role: "alert"
-}, gp = "comtrya://rel/part-of", _p = /* @__PURE__ */ Eu(/* @__PURE__ */ Ar({
+}, bp = "comtrya://rel/part-of", xp = /* @__PURE__ */ Au(/* @__PURE__ */ Ar({
 	__name: "IssueEpicLinker",
 	props: {
 		client: { type: null },
@@ -6904,16 +6931,16 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 	},
 	emits: ["comtrya-relationship-changed"],
 	setup(e, { emit: t }) {
-		let n = e, r = t, i = X(() => n.client ?? n.comtryaClient), a = X(() => n.workspaceId ?? n.issue?.workspaceId ?? Zl()), o = X(() => n.issue?.id ? `comtrya://issue/${n.issue.id}` : ""), s = X(() => {
+		let n = e, r = t, i = X(() => n.client ?? n.comtryaClient), a = X(() => n.workspaceId ?? n.issue?.workspaceId ?? tu()), o = X(() => n.issue?.id ? `comtrya://issue/${n.issue.id}` : ""), s = X(() => {
 			let e = u.value;
-			return h.value.filter((t) => e.has($l(t)));
+			return h.value.filter((t) => e.has(ru(t)));
 		}), c = X(() => {
-			let e = new Set(h.value.map((e) => $l(e)));
+			let e = new Set(h.value.map((e) => ru(e)));
 			return [...u.value].filter((t) => !e.has(t));
 		}), l = X(() => {
 			let e = u.value, t = n.issue?.projectName ?? null;
-			return h.value.filter((t) => !e.has($l(t))).sort((e, n) => (t && e.projectName === t ? 0 : 1) - (t && n.projectName === t ? 0 : 1) || (e.projectName ?? "").localeCompare(n.projectName ?? "") || e.title.localeCompare(n.title));
-		}), u = X(() => new Set(g.value.filter((e) => e.kind === gp).map((e) => ne(e)).filter((e) => e.startsWith("comtrya://epic/")))), d = /* @__PURE__ */ B("idle"), f = /* @__PURE__ */ B(null), p = /* @__PURE__ */ B("idle"), m = /* @__PURE__ */ B(null), h = /* @__PURE__ */ B([]), g = /* @__PURE__ */ B([]), _ = /* @__PURE__ */ B("");
+			return h.value.filter((t) => !e.has(ru(t))).sort((e, n) => (t && e.projectName === t ? 0 : 1) - (t && n.projectName === t ? 0 : 1) || (e.projectName ?? "").localeCompare(n.projectName ?? "") || e.title.localeCompare(n.title));
+		}), u = X(() => new Set(g.value.filter((e) => e.kind === bp).map((e) => ne(e)).filter((e) => e.startsWith("comtrya://epic/")))), d = /* @__PURE__ */ B("idle"), f = /* @__PURE__ */ B(null), p = /* @__PURE__ */ B("idle"), m = /* @__PURE__ */ B(null), h = /* @__PURE__ */ B([]), g = /* @__PURE__ */ B([]), _ = /* @__PURE__ */ B("");
 		Sr(() => [
 			i.value,
 			a.value,
@@ -6921,7 +6948,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			n.refreshKey,
 			n.relationshipRefreshKey
 		], () => void v(), { immediate: !0 }), Sr(l, (e) => {
-			e.some((e) => $l(e) === _.value) || (_.value = e[0] ? $l(e[0]) : "");
+			e.some((e) => ru(e) === _.value) || (_.value = e[0] ? ru(e[0]) : "");
 		}, { immediate: !0 });
 		async function v() {
 			let e = i.value;
@@ -6931,7 +6958,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			}
 			d.value = "loading", f.value = null;
 			try {
-				let [t, n] = await Promise.all([zl(e, { workspaceId: a.value }), ql(e, o.value, gp)]);
+				let [t, n] = await Promise.all([Ul(e, { workspaceId: a.value }), Zl(e, o.value, bp)]);
 				h.value = t, g.value = n, d.value = "ready";
 			} catch (e) {
 				h.value = [], g.value = [], d.value = "error", f.value = e instanceof Error ? e.message : String(e);
@@ -6942,10 +6969,10 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			if (!(!e || !o.value || !_.value)) {
 				p.value = "submitting", m.value = null;
 				try {
-					let t = await Jl(e, {
+					let t = await Ql(e, {
 						from: o.value,
 						to: _.value,
-						kind: gp
+						kind: bp
 					});
 					await v(), re("created", t);
 				} catch (e) {
@@ -6960,7 +6987,7 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 			if (t) {
 				p.value = "submitting", m.value = null;
 				try {
-					await Yl(t, e.id), await v(), re("deleted", e);
+					await $l(t, e.id), await v(), re("deleted", e);
 				} catch (e) {
 					m.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -6985,31 +7012,31 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				relation: t
 			});
 		}
-		return (e, t) => (W(), G("section", ep, [
-			K("header", tp, [K("div", null, [t[1] ||= K("h2", null, "Epic", -1), K("p", null, P(s.value.length + c.value.length) + " linked", 1)])]),
-			d.value === "loading" ? (W(), G("p", np, "Loading epics")) : d.value === "error" ? (W(), G("p", rp, P(f.value), 1)) : J("", !0),
-			d.value === "ready" && s.value.length > 0 ? (W(), G("div", ip, [(W(!0), G(U, null, H(s.value, (e) => (W(), G("article", {
+		return (e, t) => (W(), G("section", ip, [
+			K("header", ap, [K("div", null, [t[1] ||= K("h2", null, "Epic", -1), K("p", null, P(s.value.length + c.value.length) + " linked", 1)])]),
+			d.value === "loading" ? (W(), G("p", op, "Loading epics")) : d.value === "error" ? (W(), G("p", sp, P(f.value), 1)) : J("", !0),
+			d.value === "ready" && s.value.length > 0 ? (W(), G("div", cp, [(W(!0), G(U, null, H(s.value, (e) => (W(), G("article", {
 				key: e.id,
 				class: "linked-epic"
 			}, [K("div", null, [
-				K("span", { class: N(["epic-state", V(ru)(e.state).className]) }, P(V(ru)(e.state).label), 3),
-				K("a", { href: V(eu)(e) }, P(e.title), 9, ap),
-				e.projectName ? (W(), G("p", op, P(e.projectName), 1)) : J("", !0)
+				K("span", { class: N(["epic-state", V(su)(e.state).className]) }, P(V(su)(e.state).label), 3),
+				K("a", { href: V(iu)(e) }, P(e.title), 9, lp),
+				e.projectName ? (W(), G("p", up, P(e.projectName), 1)) : J("", !0)
 			]), K("button", {
 				type: "button",
 				disabled: p.value === "submitting",
-				onClick: (t) => te(V($l)(e))
-			}, " Remove ", 8, sp)]))), 128))])) : J("", !0),
-			d.value === "ready" && c.value.length > 0 ? (W(), G("div", cp, [(W(!0), G(U, null, H(c.value, (e) => (W(), G("article", {
+				onClick: (t) => te(V(ru)(e))
+			}, " Remove ", 8, dp)]))), 128))])) : J("", !0),
+			d.value === "ready" && c.value.length > 0 ? (W(), G("div", fp, [(W(!0), G(U, null, H(c.value, (e) => (W(), G("article", {
 				key: e,
 				class: "linked-epic"
-			}, [K("p", lp, P(e), 1), b(e) ? (W(), G("button", {
+			}, [K("p", pp, P(e), 1), b(e) ? (W(), G("button", {
 				key: 0,
 				type: "button",
 				disabled: p.value === "submitting",
 				onClick: (t) => te(e)
-			}, " Remove ", 8, up)) : J("", !0)]))), 128))])) : J("", !0),
-			d.value === "ready" && s.value.length === 0 && c.value.length === 0 ? (W(), G("p", dp, " Not linked to an epic. ")) : J("", !0),
+			}, " Remove ", 8, mp)) : J("", !0)]))), 128))])) : J("", !0),
+			d.value === "ready" && s.value.length === 0 && c.value.length === 0 ? (W(), G("p", hp, " Not linked to an epic. ")) : J("", !0),
 			d.value === "ready" && l.value.length > 0 ? (W(), G("form", {
 				key: 5,
 				class: "epic-linker-form",
@@ -7019,100 +7046,100 @@ var zu = ["data-state", "data-epic-id"], Bu = {
 				"aria-label": "Epic"
 			}, [(W(!0), G(U, null, H(l.value, (e) => (W(), G("option", {
 				key: e.id,
-				value: V($l)(e)
-			}, P(e.title) + P(e.projectName ? ` - ${e.projectName}` : ""), 9, fp))), 128))], 512), [[es, _.value]])]), K("button", {
+				value: V(ru)(e)
+			}, P(e.title) + P(e.projectName ? ` - ${e.projectName}` : ""), 9, gp))), 128))], 512), [[es, _.value]])]), K("button", {
 				type: "submit",
 				disabled: p.value === "submitting" || !_.value
-			}, " Link ", 8, pp)], 32)) : d.value === "ready" && l.value.length === 0 ? (W(), G("p", mp, " No eligible epics. ")) : J("", !0),
-			m.value ? (W(), G("p", hp, P(m.value), 1)) : J("", !0)
+			}, " Link ", 8, _p)], 32)) : d.value === "ready" && l.value.length === 0 ? (W(), G("p", vp, " No eligible epics. ")) : J("", !0),
+			m.value ? (W(), G("p", yp, P(m.value), 1)) : J("", !0)
 		]));
 	}
-}), [["styles", [".issue-epic-linker[data-v-7883bb2f]{border:.5px solid var(--line,#ffffff12);background:var(--surface);color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);gap:12px;padding:14px;font-size:12px;display:grid}.issue-epic-linker-header[data-v-7883bb2f]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.issue-epic-linker-header h2[data-v-7883bb2f]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px;line-height:1}.issue-epic-linker-header p[data-v-7883bb2f],.epic-linker-line[data-v-7883bb2f]{margin:4px 0 0;font-size:11px}.linked-epics[data-v-7883bb2f],.epic-linker-form[data-v-7883bb2f]{gap:8px;display:grid}.linked-epic[data-v-7883bb2f]{grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;display:grid}.linked-epic a[data-v-7883bb2f]{color:inherit;overflow-wrap:anywhere;text-decoration:none}.linked-epic a[data-v-7883bb2f]:hover{text-decoration:underline}.epic-state[data-v-7883bb2f]{border:.5px solid;margin-right:6px;padding:1px 6px;font-size:10px;display:inline-flex}.epic-linker-form[data-v-7883bb2f]{border-top:.5px solid var(--line,#ffffff12);padding-top:12px}.epic-linker-form label[data-v-7883bb2f]{gap:4px;min-width:0;display:grid}.epic-linker-form label>span[data-v-7883bb2f]{color:var(--fg-3,#ffffff85);letter-spacing:.08em;text-transform:uppercase;font-size:10px}.epic-linker-form select[data-v-7883bb2f],.epic-linker-form button[data-v-7883bb2f],.linked-epic button[data-v-7883bb2f]{border:.5px solid var(--fg,#fffffff0);min-height:32px;color:inherit;font:inherit;background:0 0}.epic-linker-form select[data-v-7883bb2f]{width:100%;max-width:100%;padding:5px 8px}.epic-linker-form button[data-v-7883bb2f],.linked-epic button[data-v-7883bb2f]{cursor:pointer;padding:5px 10px}.epic-linker-form button[data-v-7883bb2f]:disabled,.linked-epic button[data-v-7883bb2f]:disabled{cursor:wait;opacity:.55}.muted[data-v-7883bb2f]{color:var(--fg-3,#ffffff85)}.warn[data-v-7883bb2f]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-7883bb2f]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-7883bb2f"]]), vp = "epics", yp = "ext_epics", bp = "comtrya-epic-card", xp = "comtrya-epics-board", Sp = "comtrya-epics-index", Cp = "comtrya-epics-roadmap", wp = "comtrya-epic-detail", Tp = "comtrya-issue-epic-linker", Ep = "comtrya-epic-new";
-Tl({
-	tagName: bp,
-	component: Du,
-	propertyAliases: { ref: "resourceRef" }
-}), Tl({
-	tagName: xp,
-	component: $f
-}), Tl({
-	tagName: Sp,
-	component: $f
-}), Tl({
-	tagName: Cp,
-	component: _f
-}), Tl({
+}), [["styles", [".issue-epic-linker[data-v-7883bb2f]{border:.5px solid var(--line,#ffffff12);background:var(--surface);color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);gap:12px;padding:14px;font-size:12px;display:grid}.issue-epic-linker-header[data-v-7883bb2f]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.issue-epic-linker-header h2[data-v-7883bb2f]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px;line-height:1}.issue-epic-linker-header p[data-v-7883bb2f],.epic-linker-line[data-v-7883bb2f]{margin:4px 0 0;font-size:11px}.linked-epics[data-v-7883bb2f],.epic-linker-form[data-v-7883bb2f]{gap:8px;display:grid}.linked-epic[data-v-7883bb2f]{grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:8px;display:grid}.linked-epic a[data-v-7883bb2f]{color:inherit;overflow-wrap:anywhere;text-decoration:none}.linked-epic a[data-v-7883bb2f]:hover{text-decoration:underline}.epic-state[data-v-7883bb2f]{border:.5px solid;margin-right:6px;padding:1px 6px;font-size:10px;display:inline-flex}.epic-linker-form[data-v-7883bb2f]{border-top:.5px solid var(--line,#ffffff12);padding-top:12px}.epic-linker-form label[data-v-7883bb2f]{gap:4px;min-width:0;display:grid}.epic-linker-form label>span[data-v-7883bb2f]{color:var(--fg-3,#ffffff85);letter-spacing:.08em;text-transform:uppercase;font-size:10px}.epic-linker-form select[data-v-7883bb2f],.epic-linker-form button[data-v-7883bb2f],.linked-epic button[data-v-7883bb2f]{border:.5px solid var(--fg,#fffffff0);min-height:32px;color:inherit;font:inherit;background:0 0}.epic-linker-form select[data-v-7883bb2f]{width:100%;max-width:100%;padding:5px 8px}.epic-linker-form button[data-v-7883bb2f],.linked-epic button[data-v-7883bb2f]{cursor:pointer;padding:5px 10px}.epic-linker-form button[data-v-7883bb2f]:disabled,.linked-epic button[data-v-7883bb2f]:disabled{cursor:wait;opacity:.55}.muted[data-v-7883bb2f]{color:var(--fg-3,#ffffff85)}.warn[data-v-7883bb2f]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-7883bb2f]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-7883bb2f"]]), Sp = "epics", Cp = "ext_epics", wp = "comtrya-epic-card", Tp = "comtrya-epics-board", Ep = "comtrya-epics-index", Dp = "comtrya-epics-roadmap", Op = "comtrya-epic-detail", kp = "comtrya-issue-epic-linker", Ap = "comtrya-epic-new";
+kl({
 	tagName: wp,
-	component: Ud
-}), Tl({
+	component: ju,
+	propertyAliases: { ref: "resourceRef" }
+}), kl({
 	tagName: Tp,
-	component: _p
-}), Op();
-var Dp = {
-	id: yp,
+	component: rp
+}), kl({
+	tagName: Ep,
+	component: rp
+}), kl({
+	tagName: Dp,
+	component: xf
+}), kl({
+	tagName: Op,
+	component: qd
+}), kl({
+	tagName: kp,
+	component: xp
+}), Mp();
+var jp = {
+	id: Cp,
 	setup(e) {
 		e.registerCard({
 			resourceKind: "epic",
-			element: bp,
+			element: wp,
 			requiredPermission: "epics.read"
 		}), e.registerRelationshipTargetProvider({
 			resourceKind: "epic",
-			loadTargets: async (t) => (await zl(e.client, { workspaceId: t.workspaceId ?? Zl() })).map((e) => ({
-				ref: $l(e),
+			loadTargets: async (t) => (await Ul(e.client, { workspaceId: t.workspaceId ?? tu() })).map((e) => ({
+				ref: ru(e),
 				kind: "epic",
 				title: e.title,
 				subtitle: e.state.toLowerCase().replace(/_/g, " ")
 			}))
 		}), e.registerWidget({
 			id: "epics-board",
-			element: xp,
+			element: Tp,
 			defaultSlot: "repository.sidebar",
 			defaultPriority: 100,
 			requiredPermission: "epics.read"
 		}), e.registerWidget({
 			id: "issue-epic-linker",
-			element: Tp,
+			element: kp,
 			defaultSlot: "issue.detail.sidebar",
 			defaultPriority: 90,
 			requiredPermission: "epics.write"
 		}), e.registerRoute("/", {
-			element: Sp,
+			element: Ep,
 			requiredPermission: "epics.read"
 		}), e.registerRoute("/board", {
-			element: Cp,
+			element: Dp,
 			requiredPermission: "epics.read"
 		}), e.registerRoute("/new", {
-			element: Ep,
+			element: Ap,
 			requiredPermission: "epics.write"
 		}), e.registerRoute("/:workspaceId/:id", {
-			element: wp,
+			element: Op,
 			requiredPermission: "epics.read"
-		}), uu(e.client);
+		}), mu(e.client);
 	}
 };
-function Op() {
-	typeof customElements > "u" || customElements.get(Ep) || customElements.define(Ep, class extends HTMLElement {
+function Mp() {
+	typeof customElements > "u" || customElements.get(Ap) || customElements.define(Ap, class extends HTMLElement {
 		routeParams;
 		workspaceId;
 		repositorySegments;
 		connectedCallback() {
-			let e = kp(this.routeParams, {
+			let e = Np(this.routeParams, {
 				workspaceId: this.workspaceId,
 				repositorySegments: this.repositorySegments
 			});
-			this.replaceChildren(Ap(e));
+			this.replaceChildren(Pp(e));
 		}
 	});
 }
-function kp(e, t = {}) {
+function Np(e, t = {}) {
 	let n = new URLSearchParams(window.location.search), r = t.repositorySegments?.map((e) => e.trim()).filter(Boolean);
 	return {
-		workspaceId: t.workspaceId ?? n.get("workspaceId") ?? e?.params?.workspaceId ?? Zl(),
+		workspaceId: t.workspaceId ?? n.get("workspaceId") ?? e?.params?.workspaceId ?? tu(),
 		repositorySegments: r?.length ? r : void 0,
 		projectName: n.get("projectName") ?? e?.params?.projectName ?? null
 	};
 }
-function Ap(e) {
+function Pp(e) {
 	let t = document.createElement("main");
 	t.className = "epic-new", t.dataset.smoke = "epic-new";
 	let n = document.createElement("h3");
@@ -7122,7 +7149,7 @@ function Ap(e) {
 	let a = document.createElement("select");
 	a.className = "epic-new-project-select", a.dataset.smoke = "epic-new-project";
 	let o = document.createElement("option");
-	o.value = "", o.textContent = "— no project —", a.append(o), vl(e.repositorySegments).then((t) => {
+	o.value = "", o.textContent = "— no project —", a.append(o), Sl(e.repositorySegments).then((t) => {
 		let n = !1;
 		for (let r of t) {
 			if (!r.name) continue;
@@ -7143,23 +7170,23 @@ function Ap(e) {
 	s.rows = 5, s.placeholder = "Description (optional)";
 	let c = document.createElement("button");
 	c.type = "submit", c.textContent = "Create epic";
-	let l = jp("", "warn");
+	let l = Fp("", "warn");
 	return l.setAttribute("role", "alert"), l.hidden = !0, r.append(i, a, s, c, l), r.addEventListener("submit", (t) => {
-		t.preventDefault(), c.disabled = !0, l.hidden = !0, Gl(void 0, {
+		t.preventDefault(), c.disabled = !0, l.hidden = !0, Yl(void 0, {
 			workspaceId: e.workspaceId,
 			projectName: a.value || e.projectName || null,
 			title: i.value.trim(),
 			bodyMarkdown: s.value
 		}).then((e) => {
-			window.location.assign(h(vp, `/${e.workspaceId}/${e.id}`));
+			window.location.assign(h(Sp, `/${e.workspaceId}/${e.id}`));
 		}).catch((e) => {
 			l.textContent = e instanceof Error ? e.message : String(e), l.hidden = !1, c.disabled = !1;
 		});
 	}), t.append(n, r), t;
 }
-function jp(e, t) {
+function Fp(e, t) {
 	let n = document.createElement("p");
 	return n.className = `epic-line ${t}`, n.textContent = e, n;
 }
 //#endregion
-export { Dp as default };
+export { jp as default };

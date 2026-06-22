@@ -5,6 +5,7 @@ import {
   fetchComtryaProjects,
   LabelPill,
   parseQueryFilters,
+  syncProjectFilterParam,
   useShortcuts,
   type ComtryaProject,
   type LabelCatalog,
@@ -526,7 +527,8 @@ function readUrlState(): void {
 
 function writeUrlState(): void {
   if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
+  const currentSearch = window.location.search;
+  const params = new URLSearchParams(currentSearch);
   // OPEN is the default — keep it out of the URL so a clean
   // "/x/issues/" link stays clean.
   if (filter.value === "OPEN") params.delete("state");
@@ -536,15 +538,18 @@ function writeUrlState(): void {
   else params.delete("q");
   if (assigneeFilter.value) params.set("assignee", assigneeFilter.value);
   else params.delete("assignee");
-  // Skip writing `?project=` when the list is project-scoped via
-  // its prop — the project comes from the route already.
-  if (projectFilter.value && !effectiveProjectName.value) params.set("project", projectFilter.value);
-  else params.delete("project");
+  syncProjectFilterParam(params, {
+    projectFilter: projectFilter.value,
+    scopedProjectName: effectiveProjectName.value,
+    currentSearch,
+  });
   const next = params.toString();
-  const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
-  if (target !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+  const nextSearch = next ? `?${next}` : "";
+  const target = `${window.location.pathname}${nextSearch}${window.location.hash}`;
+  if (target !== `${window.location.pathname}${currentSearch}${window.location.hash}`) {
     window.history.replaceState(window.history.state, "", target);
   }
+  locationSearch.value = nextSearch;
 }
 
 let suppressUrlWrite = false;

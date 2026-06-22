@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   fetchComtryaProjects,
   parseQueryFilters,
+  syncProjectFilterParam,
   useShortcuts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
@@ -462,13 +463,17 @@ function readUrlState(): void {
 
 function writeUrlState(): void {
   if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
+  const currentSearch = window.location.search;
+  const params = new URLSearchParams(currentSearch);
   if (filter.value === "ALL") params.delete("state");
   else params.set("state", filter.value);
   if (ownerFilter.value) params.set("owner", ownerFilter.value);
   else params.delete("owner");
-  if (projectFilter.value && !props.projectName) params.set("project", projectFilter.value);
-  else params.delete("project");
+  syncProjectFilterParam(params, {
+    projectFilter: projectFilter.value,
+    scopedProjectName: props.projectName,
+    currentSearch,
+  });
   const trimmedQ = search.value.trim();
   if (trimmedQ) params.set("q", trimmedQ);
   else params.delete("q");
@@ -736,13 +741,18 @@ async function loadEpics(): Promise<void> {
 .epics-list {
   display: grid;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .epics-list-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .epics-list-header h3 {
@@ -758,9 +768,15 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-list-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.epic-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .epics-list-header a {
@@ -993,7 +1009,10 @@ async function loadEpics(): Promise<void> {
 .epics-quick-add {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 10px 6px 6px;
   border: 0.5px solid var(--line, rgba(255,255,255,0.07));
   background: var(--bg, #0a0b0e);
@@ -1022,7 +1041,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add input {
-  flex: 1;
+  flex: 1 1 180px;
   min-width: 0;
   border: 0;
   background: transparent;
@@ -1039,6 +1058,7 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add .quick-add-status {
+  flex: 0 1 auto;
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   color: var(--fg-3, rgba(255,255,255,0.52));
@@ -1047,6 +1067,9 @@ async function loadEpics(): Promise<void> {
 .epics-quick-add .quick-add-chip {
   display: inline-flex;
   align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   letter-spacing: 0.02em;
@@ -1060,10 +1083,12 @@ async function loadEpics(): Promise<void> {
 }
 
 .epics-quick-add .quick-add-hint {
+  flex: 1 1 180px;
+  min-width: 0;
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
   color: var(--fg-4, rgba(255,255,255,0.34));
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .epics-quick-add .quick-add-hint kbd {

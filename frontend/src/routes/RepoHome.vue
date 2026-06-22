@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { getGraphQLClient, invokeOp, subscribeLiveEvents } from "@comtrya/sdk-core";
 import ProjectsPanel from "../components/ProjectsPanel.vue";
 import RepoTabs from "../components/RepoTabs.vue";
+import RepoWorkContextBar from "../components/RepoWorkContextBar.vue";
 import SlotMount from "../components/SlotMount.vue";
 import ActivityStream from "../components/ActivityStream.vue";
 import ExtensionRoute from "./ExtensionRoute.vue";
@@ -271,8 +273,15 @@ const repository = ref<RepositoryIdentity | null>(null);
 const workspaceId = ref<string | null>(null);
 const loadState = ref<"loading" | "ready" | "missing" | "error">("loading");
 const loadError = ref<string | null>(null);
+const route = useRoute();
 const repoPath = computed(() => [...props.groups, props.repo].join("/"));
 const repoSegments = computed(() => [...props.groups, props.repo]);
+const activeProjectName = computed(() =>
+  queryValue(route.query.project) || queryValue(route.query.projectName),
+);
+const activeDocsBoard = computed(() =>
+  props.view === "docs" ? props.embeddedSubPath[0] ?? "" : "",
+);
 const repositoryQueryMode = computed<RepositoryQueryMode>(() => {
   if (props.view === "overview" || props.view === "branches" || props.view === "tags" || props.view === "commits") return "overview";
   if (props.view === "config") return "config";
@@ -297,6 +306,12 @@ function repositoryVcsDisplayLabel(vcs: string): string {
   if (vcs === "jj") return "Jujutsu";
   return vcs;
 }
+
+function queryValue(value: unknown): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 const repositoryVcsLabel = computed(() => repositoryVcsDisplayLabel(repositoryVcs.value));
 const repositoryDefaultRef = computed(() => repository.value?.defaultBranch ?? "main");
 const repositoryRefLabel = computed(() =>
@@ -1442,18 +1457,51 @@ function mergeRepositoryIdentity(
       <ExtensionRoute prefix="pulls" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'issues'" class="repo-extension-embed" data-smoke="repo-issues">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="issues"
+      />
       <ExtensionRoute prefix="issues" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'checks'" class="repo-extension-embed" data-smoke="repo-checks">
       <ExtensionRoute prefix="checks" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'epics'" class="repo-extension-embed" data-smoke="repo-epics">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="epics"
+      />
       <ExtensionRoute prefix="epics" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'docs'" class="repo-extension-embed" data-smoke="repo-docs">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="docs"
+        :active-board="activeDocsBoard"
+      />
       <ExtensionRoute prefix="docs" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
     <section v-else-if="view === 'sprints'" class="repo-extension-embed" data-smoke="repo-sprints">
+      <RepoWorkContextBar
+        :repo-segments="repoSegments"
+        :repository-path="displayPath"
+        :project-name="activeProjectName"
+        :workspace-id="workspaceId"
+        :repository-id="repositoryId"
+        active-surface="sprints"
+      />
       <ExtensionRoute prefix="sprints" :rest="embeddedSubPath" :element-context="repoContext" />
     </section>
   </template>

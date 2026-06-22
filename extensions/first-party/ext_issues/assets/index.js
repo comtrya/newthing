@@ -5030,21 +5030,44 @@ function Sl(e) {
 	return e >= 48 && e <= 57;
 }
 //#endregion
+//#region packages/sdk-vue/src/project-query.ts
+function Cl(e, t) {
+	let n = El(t.projectFilter);
+	if (!n) {
+		e.delete("project");
+		return;
+	}
+	wl(n, t) ? e.set("project", n) : e.delete("project");
+}
+function wl(e, t) {
+	let n = El(t.scopedProjectName);
+	if (!n) return !0;
+	if (n !== e) return !1;
+	let r = Tl(t.currentSearch);
+	return r.get("project") === e && !r.has("projectName");
+}
+function Tl(e) {
+	return e instanceof URLSearchParams ? new URLSearchParams(e) : new URLSearchParams(e ?? "");
+}
+function El(e) {
+	return (e?.trim() ?? "") || null;
+}
+//#endregion
 //#region packages/sdk-vue/src/classify-principal.ts
-var Cl = {
+var Dl = {
 	kind: "unknown",
 	label: "unknown",
 	glyph: "·",
 	tone: "neutral"
 };
 function $(e) {
-	if (!e) return Cl;
+	if (!e) return Dl;
 	let [t = "", ...n] = e.replace(/^comtrya:\/\//, "").split("/"), r = n.join("/") || e;
 	switch (t) {
 		case "user": return {
 			kind: "human",
 			label: r,
-			glyph: wl(r),
+			glyph: Ol(r),
 			tone: "human"
 		};
 		case "agent": return {
@@ -5074,26 +5097,26 @@ function $(e) {
 		default: return {
 			kind: "unknown",
 			label: r,
-			glyph: wl(r) || "·",
+			glyph: Ol(r) || "·",
 			tone: "neutral"
 		};
 	}
 }
-function wl(e) {
+function Ol(e) {
 	return e.slice(0, 1).toUpperCase();
 }
 //#endregion
 //#region packages/sdk-vue/src/comtrya-config.ts
-function Tl() {
+function kl() {
 	if (typeof window > "u") return [];
 	let e = window.location.pathname;
 	if (!e.startsWith("/r/")) return [];
 	let t = e.slice(3), n = t.indexOf("/p/");
 	return (n >= 0 ? t.slice(0, n) : t).split("/").filter(Boolean).map(decodeURIComponent);
 }
-async function El(e) {
+async function Al(e) {
 	try {
-		let t = e ?? Tl();
+		let t = e ?? kl();
 		return t.length === 0 ? [] : (((await zo().query("query ComtryaProjects($segments: [String!]!) {\n      workspace { repositoryByPath(segments: $segments) { comtryaConfig } }\n    }", { segments: t })).workspace?.repositoryByPath?.comtryaConfig ?? null)?.projects ?? []).filter((e) => typeof e == "object" && !!e);
 	} catch {
 		return [];
@@ -5101,10 +5124,10 @@ async function El(e) {
 }
 //#endregion
 //#region packages/sdk-vue/src/LabelPill.vue?vue&type=script&setup=true&lang.ts
-var Dl = ["title"], Ol = {
+var jl = ["title"], Ml = {
 	key: 0,
 	class: "label-pill-value"
-}, kl = { class: "label-pill-type" }, Al = { class: "label-pill-value" }, jl = /* @__PURE__ */ Bn({
+}, Nl = { class: "label-pill-type" }, Pl = { class: "label-pill-value" }, Fl = /* @__PURE__ */ Bn({
 	__name: "LabelPill",
 	props: {
 		name: { type: String },
@@ -5127,20 +5150,20 @@ var Dl = ["title"], Ol = {
 			class: j(["label-pill", [`label-pill--${r.value.kind}`]]),
 			title: a.value ?? void 0,
 			style: le(i.value ? { "--label-color": i.value } : void 0)
-		}, [r.value.kind === "plain" ? (U(), W("span", Ol, M(r.value.value), 1)) : (U(), W(H, { key: 1 }, [
-			G("span", kl, M(r.value.type), 1),
+		}, [r.value.kind === "plain" ? (U(), W("span", Ml, M(r.value.value), 1)) : (U(), W(H, { key: 1 }, [
+			G("span", Nl, M(r.value.type), 1),
 			t[0] ||= G("span", {
 				class: "label-pill-sep",
 				"aria-hidden": "true"
 			}, "::", -1),
-			G("span", Al, M(r.value.value), 1)
-		], 64))], 14, Dl));
+			G("span", Pl, M(r.value.value), 1)
+		], 64))], 14, jl));
 	}
 });
 //#endregion
 //#region packages/sdk-vue/src/index.ts
-function Ml(e) {
-	Nl(e.tagName, e.component);
+function Il(e) {
+	Ll(e.tagName, e.component);
 	let t = /* @__PURE__ */ no(e.component, { shadowRoot: e.shadowRoot ?? !1 });
 	for (let [n, r] of Object.entries(e.propertyAliases ?? {})) Object.defineProperty(t.prototype, n, {
 		configurable: !0,
@@ -5148,31 +5171,31 @@ function Ml(e) {
 			return this[r];
 		},
 		set(e) {
-			this[r] = e, typeof e == "string" && this.setAttribute(Fl(r), e);
+			this[r] = e, typeof e == "string" && this.setAttribute(zl(r), e);
 		}
 	});
 	return typeof customElements < "u" && !customElements.get(e.tagName) && customElements.define(e.tagName, t), t;
 }
-function Nl(e, t) {
+function Ll(e, t) {
 	if (typeof document > "u") return;
-	let n = Pl(t);
+	let n = Rl(t);
 	if (n.length === 0) return;
 	let r = `comtrya-widget-styles:${e}`;
 	if (document.head.querySelector(`style[data-comtrya-widget-styles="${r}"]`)) return;
 	let i = document.createElement("style");
 	i.dataset.comtryaWidgetStyles = r, i.textContent = n.join("\n"), document.head.append(i);
 }
-function Pl(e) {
+function Rl(e) {
 	if (!e || typeof e != "object") return [];
 	let t = e.styles;
 	return Array.isArray(t) ? t.filter((e) => typeof e == "string") : [];
 }
-function Fl(e) {
+function zl(e) {
 	return e.replace(/[A-Z]/g, (e) => `-${e.toLowerCase()}`);
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/dist/ext_issues.client.ts
-var Il = {
+var Bl = {
 	openIssue: async (e) => Y("ext_issues", "issues", "open-issue", e),
 	closeIssue: async (e) => Y("ext_issues", "issues", "close-issue", e),
 	reopenIssue: async (e) => Y("ext_issues", "issues", "reopen-issue", e),
@@ -5195,21 +5218,21 @@ var Il = {
 };
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/scope.ts
-function Ll(e, t) {
-	let n = Rl(e), r = Rl(t);
+function Vl(e, t) {
+	let n = Hl(e), r = Hl(t);
 	return n && r ? `comtrya://workspace/${n}/repository/${r}` : r ? `comtrya://repository/${r}` : n ? `comtrya://workspace/${n}` : "comtrya://issues";
 }
-function Rl(e) {
+function Hl(e) {
 	return (e?.trim() ?? "") || null;
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/api.ts
-var zl = "query($from: ResourceURN!, $kind: ResourceURN) {\n  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n}", Bl = "query($to: ResourceURN!, $kind: ResourceURN) {\n  relations.incoming(to: $to, kind: $kind) { id kind from to source target }\n}", Vl = "mutation($input: RelationCreateInput!) {\n  relations.create(input: $input) { id kind from to source target }\n}", Hl = "mutation($input: RelationDeleteInput!) {\n  relations.delete(input: $input)\n}";
-function Ul(e, t) {
+var Ul = "query($from: ResourceURN!, $kind: ResourceURN) {\n  relations.outgoing(from: $from, kind: $kind) { id kind from to source target }\n}", Wl = "query($to: ResourceURN!, $kind: ResourceURN) {\n  relations.incoming(to: $to, kind: $kind) { id kind from to source target }\n}", Gl = "mutation($input: RelationCreateInput!) {\n  relations.create(input: $input) { id kind from to source target }\n}", Kl = "mutation($input: RelationDeleteInput!) {\n  relations.delete(input: $input)\n}";
+function ql(e, t) {
 	if (e.ok) return e.value;
 	throw Error(`${t}: ${e.error.message}`);
 }
-function Wl(e) {
+function Jl(e) {
 	let t = e?.match(/^comtrya:\/\/workspace\/([^/]+)(?:\/repository\/([^/]+))?$/);
 	return t ? {
 		workspaceId: t[1] ?? "",
@@ -5219,7 +5242,7 @@ function Wl(e) {
 		repositoryId: e?.match(/^comtrya:\/\/repository\/([^/]+)$/)?.[1] ?? null
 	};
 }
-function Gl(e) {
+function Yl(e) {
 	switch (e) {
 		case "closed":
 		case "CLOSED": return "CLOSED";
@@ -5228,8 +5251,8 @@ function Gl(e) {
 		default: return "OPEN";
 	}
 }
-function Kl(e) {
-	let t = Wl(e.repository);
+function Xl(e) {
+	let t = Jl(e.repository);
 	return {
 		id: e.id,
 		workspaceId: t.workspaceId,
@@ -5237,7 +5260,7 @@ function Kl(e) {
 		number: e.number,
 		title: e.title,
 		bodyMarkdown: e.bodyMarkdown ?? "",
-		state: Gl(e.state),
+		state: Yl(e.state),
 		stateReason: e.stateReason ?? null,
 		authorRef: e.authorRef ?? null,
 		labels: e.labels ?? [],
@@ -5249,7 +5272,7 @@ function Kl(e) {
 		assignees: e.assignees ?? []
 	};
 }
-function ql(e) {
+function Zl(e) {
 	return {
 		repository: e.repository ?? "",
 		total: e.total ?? 0,
@@ -5258,7 +5281,7 @@ function ql(e) {
 			label: e.label,
 			count: e.count,
 			cards: (e.cards ?? []).map((e) => ({
-				issue: Kl(e.issue),
+				issue: Xl(e.issue),
 				priority: e.priority ?? null,
 				priorityLabel: e.priorityLabel ?? null,
 				milestone: e.milestone ?? null,
@@ -5269,46 +5292,46 @@ function ql(e) {
 		}))
 	};
 }
-async function Jl(e, t) {
-	let n = Ul(await Il.listIssues({
-		repository: Ll(t.workspaceId, t.repositoryId),
+async function Ql(e, t) {
+	let n = ql(await Bl.listIssues({
+		repository: Vl(t.workspaceId, t.repositoryId),
 		limit: 1024
-	}), "listIssues").map(Kl), r = t.state ? Gl(t.state) : null;
+	}), "listIssues").map(Xl), r = t.state ? Yl(t.state) : null;
 	return r ? n.filter((e) => e.state === r) : n;
 }
-async function Yl(e, t) {
+async function $l(e, t) {
 	let n = {
-		repository: Ll(t.workspaceId, t.repositoryId),
+		repository: Vl(t.workspaceId, t.repositoryId),
 		limit: t.limit ?? 128
 	};
-	return ql(Ul(await Xl(e)(n), `${e}Board`));
+	return Zl(ql(await eu(e)(n), `${e}Board`));
 }
-function Xl(e) {
+function eu(e) {
 	switch (e) {
-		case "workflow": return Il.workflowBoard;
-		case "priority": return Il.priorityBoard;
-		case "project": return Il.projectBoard;
-		case "assignee": return Il.assigneeBoard;
-		case "label": return Il.labelBoard;
-		case "milestone": return Il.milestoneBoard;
-		case "author": return Il.authorBoard;
-		case "triage": return Il.triageBoard;
+		case "workflow": return Bl.workflowBoard;
+		case "priority": return Bl.priorityBoard;
+		case "project": return Bl.projectBoard;
+		case "assignee": return Bl.assigneeBoard;
+		case "label": return Bl.labelBoard;
+		case "milestone": return Bl.milestoneBoard;
+		case "author": return Bl.authorBoard;
+		case "triage": return Bl.triageBoard;
 	}
 }
-async function Zl(e, t) {
-	let n = Ul(await Il.byRefIssue(t), "issueByRef");
-	return n ? Kl(n) : null;
+async function tu(e, t) {
+	let n = ql(await Bl.byRefIssue(t), "issueByRef");
+	return n ? Xl(n) : null;
 }
-async function Ql(e, t, n) {
-	let r = Ul(await Il.byNumberIssue({
+async function nu(e, t, n) {
+	let r = ql(await Bl.byNumberIssue({
 		workspaceId: t,
 		number: n
 	}), "issueByNumber");
-	return r ? Kl(r) : null;
+	return r ? Xl(r) : null;
 }
-async function $l(e) {
-	return Kl(Ul(await Il.openIssue({
-		repository: Ll(e.workspaceId, e.repositoryId),
+async function ru(e) {
+	return Xl(ql(await Bl.openIssue({
+		repository: Vl(e.workspaceId, e.repositoryId),
 		title: e.title,
 		bodyMarkdown: e.bodyMarkdown ?? "",
 		projectName: e.projectName ?? null,
@@ -5317,42 +5340,42 @@ async function $l(e) {
 		assignees: e.assignees ?? []
 	}), "openIssue"));
 }
-async function eu(e, t) {
-	return Kl(Ul(await Il.closeIssue({
+async function iu(e, t) {
+	return Xl(ql(await Bl.closeIssue({
 		id: t,
 		reason: "completed"
 	}), "closeIssue"));
 }
-async function tu(e, t) {
-	return Kl(Ul(await Il.reopenIssue(t), "reopenIssue"));
+async function au(e, t) {
+	return Xl(ql(await Bl.reopenIssue(t), "reopenIssue"));
 }
-async function nu(e, t) {
-	return Kl(Ul(await Il.assignProject({
+async function ou(e, t) {
+	return Xl(ql(await Bl.assignProject({
 		id: e,
 		projectName: t ?? null
 	}), "assignProject"));
 }
-async function ru(e, t, n) {
-	return ((await e.query(zl, n ? {
+async function su(e, t, n) {
+	return ((await e.query(Ul, n ? {
 		from: t,
 		kind: n
-	} : { from: t })).relations?.outgoing ?? []).map(su);
+	} : { from: t })).relations?.outgoing ?? []).map(du);
 }
-async function iu(e, t, n) {
-	return ((await e.query(Bl, n ? {
+async function cu(e, t, n) {
+	return ((await e.query(Wl, n ? {
 		to: t,
 		kind: n
-	} : { to: t })).relations?.incoming ?? []).map(su);
+	} : { to: t })).relations?.incoming ?? []).map(du);
 }
-async function au(e, t) {
-	let n = (await e.mutate(Vl, { input: t })).relations?.create;
+async function lu(e, t) {
+	let n = (await e.mutate(Gl, { input: t })).relations?.create;
 	if (!n) throw Error("relations.create returned no relation");
-	return su(n);
+	return du(n);
 }
-async function ou(e, t) {
-	return (await e.mutate(Hl, { input: { id: t } })).relations?.delete ?? !1;
+async function uu(e, t) {
+	return (await e.mutate(Kl, { input: { id: t } })).relations?.delete ?? !1;
 }
-function su(e) {
+function du(e) {
 	let t = e.from ?? e.source ?? "", n = e.to ?? e.target ?? "";
 	return {
 		...e,
@@ -5364,20 +5387,20 @@ function su(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/types.ts
-function cu() {
+function fu() {
 	return Ss() ?? "";
 }
-function lu(e) {
+function pu(e) {
 	return `comtrya://issue/${e.id}`;
 }
-var uu = "issues";
-function du(e) {
-	return qo(uu, `/${e.workspaceId}/${e.number}`);
+var mu = "issues";
+function hu(e) {
+	return qo(mu, `/${e.workspaceId}/${e.number}`);
 }
-function fu() {
-	return qo(uu, "/new");
+function gu() {
+	return qo(mu, "/new");
 }
-function pu(e) {
+function _u(e) {
 	switch (e) {
 		case "OPEN":
 		case "REOPENED": return {
@@ -5396,67 +5419,67 @@ function pu(e) {
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/route-context.ts
-function mu(e = {}, t = hu()) {
-	let n = new URLSearchParams(t), r = gu(e.workspaceId), i = gu(e.routeParams?.params?.workspaceId), a = gu(n.get("workspaceId")), o = gu(e.repositoryId), s = gu(e.routeParams?.params?.repositoryId), c = gu(n.get("repositoryId")), l = o ?? s, u = gu(e.projectName), d = gu(e.routeParams?.params?.projectName), f = gu(n.get("projectName")), p = {
-		workspaceId: l ? r ?? i ?? a ?? cu() : a ?? r ?? i ?? cu(),
+function vu(e = {}, t = yu()) {
+	let n = new URLSearchParams(t), r = bu(e.workspaceId), i = bu(e.routeParams?.params?.workspaceId), a = bu(n.get("workspaceId")), o = bu(e.repositoryId), s = bu(e.routeParams?.params?.repositoryId), c = bu(n.get("repositoryId")), l = o ?? s, u = bu(e.projectName), d = bu(e.routeParams?.params?.projectName), f = bu(n.get("projectName")), p = {
+		workspaceId: l ? r ?? i ?? a ?? fu() : a ?? r ?? i ?? fu(),
 		repositoryId: l ?? c ?? null,
 		projectName: u ?? d ?? f ?? null,
-		state: gu(n.get("state")) ?? gu(e.state) ?? null
-	}, m = _u(e.repositorySegments);
+		state: bu(n.get("state")) ?? bu(e.state) ?? null
+	}, m = xu(e.repositorySegments);
 	return m && (p.repositorySegments = m), p;
 }
-function hu() {
+function yu() {
 	return typeof window > "u" ? "" : window.location.search;
 }
-function gu(e) {
+function bu(e) {
 	return e == null ? void 0 : e.trim() || void 0;
 }
-function _u(e) {
+function xu(e) {
 	let t = e?.map((e) => e.trim()).filter(Boolean) ?? [];
 	return t.length > 0 ? t : void 0;
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/IssueBoard.vue?vue&type=script&setup=true&lang.ts
-var vu = {
+var Su = {
 	class: "issue-board",
 	"data-smoke": "issues-board"
-}, yu = { class: "issue-board-head" }, bu = { class: "issue-board-title" }, xu = { class: "issue-board-subtitle" }, Su = ["href"], Cu = {
+}, Cu = { class: "issue-board-head" }, wu = { class: "issue-board-title" }, Tu = { class: "issue-board-subtitle" }, Eu = ["href"], Du = {
 	class: "issue-board-tabs",
 	"aria-label": "Issue board views"
-}, wu = [
+}, Ou = [
 	"aria-pressed",
 	"title",
 	"onClick"
-], Tu = {
+], ku = {
 	key: 0,
 	class: "issue-board-status"
-}, Eu = {
+}, Au = {
 	key: 1,
 	class: "issue-board-status error",
 	role: "alert"
-}, Du = {
+}, ju = {
 	key: 2,
 	class: "issue-board-status"
-}, Ou = ["data-board"], ku = { class: "issue-board-column-head" }, Au = {
+}, Mu = ["data-board"], Nu = { class: "issue-board-column-head" }, Pu = {
 	key: 0,
 	class: "issue-board-cards"
-}, ju = ["onMouseenter"], Mu = ["href"], Nu = { class: "issue-board-card-head" }, Pu = { class: "issue-number" }, Fu = { class: "issue-board-card-title" }, Iu = {
+}, Fu = ["onMouseenter"], Iu = ["href"], Lu = { class: "issue-board-card-head" }, Ru = { class: "issue-number" }, zu = { class: "issue-board-card-title" }, Bu = {
 	key: 0,
 	class: "issue-board-card-copy"
-}, Lu = { class: "issue-board-card-meta" }, Ru = ["data-author-kind", "title"], zu = ["data-author-kind", "title"], Bu = {
+}, Vu = { class: "issue-board-card-meta" }, Hu = ["data-author-kind", "title"], Uu = ["data-author-kind", "title"], Wu = {
 	key: 1,
 	class: "issue-age"
-}, Vu = {
+}, Gu = {
 	key: 1,
 	class: "issue-board-card-tags"
-}, Hu = {
+}, Ku = {
 	key: 1,
 	class: "issue-board-empty"
-}, Uu = /* @__PURE__ */ Bn({
+}, qu = /* @__PURE__ */ Bn({
 	__name: "IssueBoard",
 	props: {
 		workspaceId: {
-			default: cu(),
+			default: fu(),
 			type: String
 		},
 		repositoryId: {
@@ -5511,13 +5534,13 @@ var vu = {
 				label: "Triage",
 				hint: "state queue"
 			}
-		], r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R("workflow"), o = /* @__PURE__ */ R(h()), s = /* @__PURE__ */ R(null), c = /* @__PURE__ */ R(typeof window > "u" ? "" : window.location.search), l = J(() => mu({
+		], r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R("workflow"), o = /* @__PURE__ */ R(h()), s = /* @__PURE__ */ R(null), c = /* @__PURE__ */ R(typeof window > "u" ? "" : window.location.search), l = J(() => vu({
 			workspaceId: t.workspaceId,
 			repositoryId: t.repositoryId,
 			routeParams: t.routeParams
 		}, c.value)), u = J(() => o.value[a.value]), d = J(() => u.value?.total ?? 0), f = J(() => {
 			let e = new URLSearchParams({ workspaceId: l.value.workspaceId });
-			return l.value.repositoryId && e.set("repositoryId", l.value.repositoryId), `${fu()}?${e.toString()}`;
+			return l.value.repositoryId && e.set("repositoryId", l.value.repositoryId), `${gu()}?${e.toString()}`;
 		}), p = J(() => {
 			let e = [];
 			for (let t of u.value?.columns ?? []) for (let n of t.cards) e.includes(n.issue.id) || e.push(n.issue.id);
@@ -5562,7 +5585,7 @@ var vu = {
 			},
 			Enter: (e) => {
 				let t = m.value?.issue;
-				t && (e.preventDefault(), window.location.href = du(t));
+				t && (e.preventDefault(), window.location.href = hu(t));
 			}
 		});
 		let m = J(() => {
@@ -5597,14 +5620,14 @@ var vu = {
 					repositoryId: l.value.repositoryId,
 					limit: 128
 				}, [t, n, i, a, c, u, d, f] = await Promise.all([
-					Yl("workflow", e),
-					Yl("priority", e),
-					Yl("project", e),
-					Yl("assignee", e),
-					Yl("label", e),
-					Yl("milestone", e),
-					Yl("author", e),
-					Yl("triage", e)
+					$l("workflow", e),
+					$l("priority", e),
+					$l("project", e),
+					$l("assignee", e),
+					$l("label", e),
+					$l("milestone", e),
+					$l("author", e),
+					$l("triage", e)
 				]);
 				o.value = {
 					workflow: t,
@@ -5647,65 +5670,65 @@ var vu = {
 			let n = Math.max(0, Date.now() - t), r = 6e4, i = 60 * r, a = 24 * i, o = 7 * a;
 			return n < r ? "just now" : n < i ? `${Math.floor(n / r)}m ago` : n < a ? `${Math.floor(n / i)}h ago` : n < o ? `${Math.floor(n / a)}d ago` : `${Math.floor(n / o)}w ago`;
 		}
-		return (t, o) => (U(), W("section", vu, [
-			G("header", yu, [G("div", bu, [o[0] ||= G("h2", null, "Issues board", -1), G("span", xu, [r.value === "loading" ? (U(), W(H, { key: 0 }, [K("loading issue board...")], 64)) : r.value === "error" ? (U(), W(H, { key: 1 }, [K("board unavailable")], 64)) : (U(), W(H, { key: 2 }, [
+		return (t, o) => (U(), W("section", Su, [
+			G("header", Cu, [G("div", wu, [o[0] ||= G("h2", null, "Issues board", -1), G("span", Tu, [r.value === "loading" ? (U(), W(H, { key: 0 }, [K("loading issue board...")], 64)) : r.value === "error" ? (U(), W(H, { key: 1 }, [K("board unavailable")], 64)) : (U(), W(H, { key: 2 }, [
 				K(M(d.value) + " issue", 1),
 				d.value === 1 ? q("", !0) : (U(), W(H, { key: 0 }, [K("s")], 64)),
 				K(" on " + M(n.find((e) => e.id === a.value)?.label.toLowerCase()), 1)
 			], 64))])]), G("a", {
 				href: f.value,
 				class: "issue-board-new"
-			}, "+ new", 8, Su)]),
-			G("nav", Cu, [(U(), W(H, null, V(n, (e) => G("button", {
+			}, "+ new", 8, Eu)]),
+			G("nav", Du, [(U(), W(H, null, V(n, (e) => G("button", {
 				key: e.id,
 				type: "button",
 				class: j(["issue-board-tab", { active: a.value === e.id }]),
 				"aria-pressed": a.value === e.id,
 				title: e.hint,
 				onClick: (t) => y(e.id)
-			}, [G("span", null, M(e.label), 1), G("strong", null, M(v(e.id)), 1)], 10, wu)), 64))]),
-			r.value === "loading" ? (U(), W("p", Tu, " Loading board... ")) : r.value === "error" ? (U(), W("p", Eu, M(i.value), 1)) : u.value && u.value.columns.length === 0 ? (U(), W("p", Du, " No board columns yet. ")) : u.value ? (U(), W("div", {
+			}, [G("span", null, M(e.label), 1), G("strong", null, M(v(e.id)), 1)], 10, Ou)), 64))]),
+			r.value === "loading" ? (U(), W("p", ku, " Loading board... ")) : r.value === "error" ? (U(), W("p", Au, M(i.value), 1)) : u.value && u.value.columns.length === 0 ? (U(), W("p", ju, " No board columns yet. ")) : u.value ? (U(), W("div", {
 				key: 3,
 				class: "issue-board-columns",
 				"data-board": a.value
 			}, [(U(!0), W(H, null, V(u.value.columns, (t) => (U(), W("section", {
 				key: t.key,
 				class: "issue-board-column"
-			}, [G("header", ku, [G("h3", null, M(t.label), 1), G("span", null, M(t.count), 1)]), t.cards.length > 0 ? (U(), W("ol", Au, [(U(!0), W(H, null, V(t.cards, (n) => (U(), W("li", {
+			}, [G("header", Nu, [G("h3", null, M(t.label), 1), G("span", null, M(t.count), 1)]), t.cards.length > 0 ? (U(), W("ol", Pu, [(U(!0), W(H, null, V(t.cards, (n) => (U(), W("li", {
 				key: `${t.key}-${n.issue.id}`,
 				class: j(["issue-board-card", { focused: s.value === n.issue.id }]),
 				onMouseenter: (e) => s.value = n.issue.id
 			}, [G("a", {
 				class: "issue-board-card-link",
-				href: z(du)(n.issue)
+				href: z(hu)(n.issue)
 			}, [
-				G("header", Nu, [G("span", Pu, "#" + M(n.issue.number), 1), G("span", { class: j(["issue-state", z(pu)(n.issue.state).className]) }, M(z(pu)(n.issue.state).label), 3)]),
-				G("strong", Fu, M(n.issue.title), 1),
-				n.issue.bodyMarkdown ? (U(), W("p", Iu, M(z(gl)(n.issue.bodyMarkdown)), 1)) : q("", !0),
-				G("div", Lu, [
+				G("header", Lu, [G("span", Ru, "#" + M(n.issue.number), 1), G("span", { class: j(["issue-state", z(_u)(n.issue.state).className]) }, M(z(_u)(n.issue.state).label), 3)]),
+				G("strong", zu, M(n.issue.title), 1),
+				n.issue.bodyMarkdown ? (U(), W("p", Bu, M(z(gl)(n.issue.bodyMarkdown)), 1)) : q("", !0),
+				G("div", Vu, [
 					n.issue.authorRef ? (U(), W("span", {
 						key: 0,
 						class: "issue-principal",
 						"data-author-kind": z($)(n.issue.authorRef).kind,
 						title: n.issue.authorRef
-					}, [G("span", null, M(z($)(n.issue.authorRef).glyph), 1), K(" " + M(z($)(n.issue.authorRef).label), 1)], 8, Ru)) : q("", !0),
+					}, [G("span", null, M(z($)(n.issue.authorRef).glyph), 1), K(" " + M(z($)(n.issue.authorRef).label), 1)], 8, Hu)) : q("", !0),
 					(U(!0), W(H, null, V(n.issue.assignees ?? [], (e) => (U(), W("span", {
 						key: `${n.issue.id}-assignee-${e}`,
 						class: "issue-principal assignee",
 						"data-author-kind": z($)(e).kind,
 						title: e
-					}, [G("span", null, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, zu))), 128)),
-					n.issue.updatedAt || n.issue.createdAt ? (U(), W("span", Bu, M(C(n.issue.updatedAt ?? n.issue.createdAt)), 1)) : q("", !0)
+					}, [G("span", null, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, Uu))), 128)),
+					n.issue.updatedAt || n.issue.createdAt ? (U(), W("span", Wu, M(C(n.issue.updatedAt ?? n.issue.createdAt)), 1)) : q("", !0)
 				]),
-				S(n).length > 0 || (n.issue.labels ?? []).length > 0 ? (U(), W("div", Vu, [(U(!0), W(H, null, V(S(n), (e) => (U(), W("span", {
+				S(n).length > 0 || (n.issue.labels ?? []).length > 0 ? (U(), W("div", Gu, [(U(!0), W(H, null, V(S(n), (e) => (U(), W("span", {
 					key: `${n.issue.id}-${e}`,
 					class: "issue-board-badge"
-				}, M(e), 1))), 128)), (U(!0), W(H, null, V(n.issue.labels ?? [], (t) => (U(), Ni(z(jl), {
+				}, M(e), 1))), 128)), (U(!0), W(H, null, V(n.issue.labels ?? [], (t) => (U(), Ni(z(Fl), {
 					key: `${n.issue.id}-${t}`,
 					name: t,
 					catalog: e.labelCatalog
 				}, null, 8, ["name", "catalog"]))), 128))])) : q("", !0)
-			], 8, Mu)], 42, ju))), 128))])) : (U(), W("p", Hu, "No issues"))]))), 128))], 8, Ou)) : q("", !0),
+			], 8, Iu)], 42, Fu))), 128))])) : (U(), W("p", Ku, "No issues"))]))), 128))], 8, Mu)) : q("", !0),
 			o[1] ||= G("footer", { class: "issue-board-foot" }, [G("span", null, [
 				G("kbd", null, "h"),
 				K("/"),
@@ -5720,17 +5743,17 @@ var vu = {
 			])], -1)
 		]));
 	}
-}), Wu = ".issue-board[data-v-3495a1d6]{min-width:0;color:var(--fg,#fffffff0);font-family:var(--font-sans,system-ui);gap:14px;display:grid}.issue-board-head[data-v-3495a1d6],.issue-board-column-head[data-v-3495a1d6],.issue-board-card-head[data-v-3495a1d6],.issue-board-card-meta[data-v-3495a1d6],.issue-board-card-tags[data-v-3495a1d6],.issue-board-foot[data-v-3495a1d6]{align-items:center;min-width:0;display:flex}.issue-board-head[data-v-3495a1d6]{justify-content:space-between;gap:12px}.issue-board-title[data-v-3495a1d6]{gap:4px;min-width:0;display:grid}.issue-board-title h2[data-v-3495a1d6]{font-family:var(--font-serif,system-ui);letter-spacing:0;margin:0;font-size:22px;line-height:1.2}.issue-board-subtitle[data-v-3495a1d6],.issue-board-status[data-v-3495a1d6],.issue-board-empty[data-v-3495a1d6],.issue-board-foot[data-v-3495a1d6]{color:var(--fg-3,#ffffff85);font-size:12px}.issue-board-new[data-v-3495a1d6]{border:.5px solid var(--line-2,#ffffff1f);border-radius:var(--r-sm,6px);min-height:30px;color:var(--fg,#fffffff0);background:var(--surface,#ffffff0a);flex:none;justify-content:center;align-items:center;padding:0 11px;font-size:13px;text-decoration:none;display:inline-flex}.issue-board-tabs[data-v-3495a1d6]{gap:6px;min-width:0;padding-bottom:2px;display:flex;overflow-x:auto}.issue-board-tab[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-height:32px;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);font:inherit;white-space:nowrap;flex:none;align-items:center;gap:8px;padding:0 10px;font-size:12px;display:inline-flex}.issue-board-tab.active[data-v-3495a1d6]{border-color:var(--accent,#3b82f6);color:var(--fg,#fffffff0);background:var(--accent-soft,#3b82f624)}.issue-board-tab strong[data-v-3495a1d6]{font-family:var(--font-mono,monospace);font-size:11px;font-weight:600}.issue-board-status[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);margin:0;padding:12px}.issue-board-status.error[data-v-3495a1d6]{color:var(--err,#f87171);border-color:var(--err-soft,#f8717133);background:var(--err-soft,#f871711f)}.issue-board-columns[data-v-3495a1d6]{grid-auto-columns:minmax(260px,1fr);grid-auto-flow:column;gap:10px;min-width:0;padding-bottom:6px;display:grid;overflow-x:auto}.issue-board-column[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff06);align-content:start;gap:8px;min-width:0;display:grid}.issue-board-column-head[data-v-3495a1d6]{justify-content:space-between;gap:8px;padding:10px 10px 0}.issue-board-column-head h3[data-v-3495a1d6]{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin:0;font-size:13px;font-weight:650;line-height:1.2;overflow:hidden}.issue-board-column-head span[data-v-3495a1d6]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);flex:none;font-size:11px}.issue-board-cards[data-v-3495a1d6]{gap:8px;min-width:0;margin:0;padding:0 8px 8px;list-style:none;display:grid}.issue-board-card[data-v-3495a1d6]{min-width:0}.issue-board-card-link[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-width:0;color:inherit;background:var(--surface-2,#ffffff0b);gap:8px;padding:10px;text-decoration:none;display:grid}.issue-board-card.focused .issue-board-card-link[data-v-3495a1d6],.issue-board-card-link[data-v-3495a1d6]:focus-visible{outline:1.5px solid var(--accent,#3b82f6);outline-offset:2px}.issue-board-card-head[data-v-3495a1d6]{font-family:var(--font-mono,monospace);justify-content:space-between;gap:8px;font-size:11px}.issue-number[data-v-3495a1d6],.issue-age[data-v-3495a1d6]{color:var(--fg-3,#ffffff85)}.issue-state[data-v-3495a1d6]{border:.5px solid;border-radius:999px;flex:none;padding:1px 7px;font-size:10px}.issue-state-open[data-v-3495a1d6]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-3495a1d6]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-3495a1d6]{color:var(--fg-3,#ffffff85)}.issue-board-card-title[data-v-3495a1d6]{overflow-wrap:anywhere;min-width:0;font-size:13px;line-height:1.35}.issue-board-card-copy[data-v-3495a1d6]{color:var(--fg-2,#ffffffc2);-webkit-line-clamp:2;-webkit-box-orient:vertical;margin:0;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}.issue-board-card-meta[data-v-3495a1d6],.issue-board-card-tags[data-v-3495a1d6]{flex-wrap:wrap;gap:6px}.issue-principal[data-v-3495a1d6],.issue-board-badge[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);min-width:0;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);border-radius:999px;align-items:center;gap:4px;padding:2px 7px;font-size:11px;line-height:1.2;display:inline-flex}.issue-principal.assignee[data-v-3495a1d6]{border-color:var(--accent-soft,#3b82f62e);color:var(--accent,#60a5fa)}.issue-board-empty[data-v-3495a1d6]{margin:0;padding:0 10px 12px}.issue-board-foot[data-v-3495a1d6]{justify-content:flex-end;gap:6px}.issue-board-foot kbd[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);color:var(--fg-2,#ffffffbd);background:var(--surface,#ffffff0a);font-family:var(--font-mono,monospace);border-radius:4px;padding:1px 5px;font-size:10px}@media (max-width:720px){.issue-board-head[data-v-3495a1d6]{flex-direction:column;align-items:stretch}.issue-board-new[data-v-3495a1d6]{align-self:flex-start}.issue-board-columns[data-v-3495a1d6]{grid-auto-columns:minmax(240px,88vw)}}", Gu = (e, t) => {
+}), Ju = ".issue-board[data-v-3495a1d6]{min-width:0;color:var(--fg,#fffffff0);font-family:var(--font-sans,system-ui);gap:14px;display:grid}.issue-board-head[data-v-3495a1d6],.issue-board-column-head[data-v-3495a1d6],.issue-board-card-head[data-v-3495a1d6],.issue-board-card-meta[data-v-3495a1d6],.issue-board-card-tags[data-v-3495a1d6],.issue-board-foot[data-v-3495a1d6]{align-items:center;min-width:0;display:flex}.issue-board-head[data-v-3495a1d6]{justify-content:space-between;gap:12px}.issue-board-title[data-v-3495a1d6]{gap:4px;min-width:0;display:grid}.issue-board-title h2[data-v-3495a1d6]{font-family:var(--font-serif,system-ui);letter-spacing:0;margin:0;font-size:22px;line-height:1.2}.issue-board-subtitle[data-v-3495a1d6],.issue-board-status[data-v-3495a1d6],.issue-board-empty[data-v-3495a1d6],.issue-board-foot[data-v-3495a1d6]{color:var(--fg-3,#ffffff85);font-size:12px}.issue-board-new[data-v-3495a1d6]{border:.5px solid var(--line-2,#ffffff1f);border-radius:var(--r-sm,6px);min-height:30px;color:var(--fg,#fffffff0);background:var(--surface,#ffffff0a);flex:none;justify-content:center;align-items:center;padding:0 11px;font-size:13px;text-decoration:none;display:inline-flex}.issue-board-tabs[data-v-3495a1d6]{gap:6px;min-width:0;padding-bottom:2px;display:flex;overflow-x:auto}.issue-board-tab[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-height:32px;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);font:inherit;white-space:nowrap;flex:none;align-items:center;gap:8px;padding:0 10px;font-size:12px;display:inline-flex}.issue-board-tab.active[data-v-3495a1d6]{border-color:var(--accent,#3b82f6);color:var(--fg,#fffffff0);background:var(--accent-soft,#3b82f624)}.issue-board-tab strong[data-v-3495a1d6]{font-family:var(--font-mono,monospace);font-size:11px;font-weight:600}.issue-board-status[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff08);margin:0;padding:12px}.issue-board-status.error[data-v-3495a1d6]{color:var(--err,#f87171);border-color:var(--err-soft,#f8717133);background:var(--err-soft,#f871711f)}.issue-board-columns[data-v-3495a1d6]{grid-auto-columns:minmax(260px,1fr);grid-auto-flow:column;gap:10px;min-width:0;padding-bottom:6px;display:grid;overflow-x:auto}.issue-board-column[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);background:var(--surface,#ffffff06);align-content:start;gap:8px;min-width:0;display:grid}.issue-board-column-head[data-v-3495a1d6]{justify-content:space-between;gap:8px;padding:10px 10px 0}.issue-board-column-head h3[data-v-3495a1d6]{text-overflow:ellipsis;white-space:nowrap;min-width:0;margin:0;font-size:13px;font-weight:650;line-height:1.2;overflow:hidden}.issue-board-column-head span[data-v-3495a1d6]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);flex:none;font-size:11px}.issue-board-cards[data-v-3495a1d6]{gap:8px;min-width:0;margin:0;padding:0 8px 8px;list-style:none;display:grid}.issue-board-card[data-v-3495a1d6]{min-width:0}.issue-board-card-link[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);border-radius:var(--r-sm,6px);min-width:0;color:inherit;background:var(--surface-2,#ffffff0b);gap:8px;padding:10px;text-decoration:none;display:grid}.issue-board-card.focused .issue-board-card-link[data-v-3495a1d6],.issue-board-card-link[data-v-3495a1d6]:focus-visible{outline:1.5px solid var(--accent,#3b82f6);outline-offset:2px}.issue-board-card-head[data-v-3495a1d6]{font-family:var(--font-mono,monospace);justify-content:space-between;gap:8px;font-size:11px}.issue-number[data-v-3495a1d6],.issue-age[data-v-3495a1d6]{color:var(--fg-3,#ffffff85)}.issue-state[data-v-3495a1d6]{border:.5px solid;border-radius:999px;flex:none;padding:1px 7px;font-size:10px}.issue-state-open[data-v-3495a1d6]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-3495a1d6]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-3495a1d6]{color:var(--fg-3,#ffffff85)}.issue-board-card-title[data-v-3495a1d6]{overflow-wrap:anywhere;min-width:0;font-size:13px;line-height:1.35}.issue-board-card-copy[data-v-3495a1d6]{color:var(--fg-2,#ffffffc2);-webkit-line-clamp:2;-webkit-box-orient:vertical;margin:0;font-size:12px;line-height:1.4;display:-webkit-box;overflow:hidden}.issue-board-card-meta[data-v-3495a1d6],.issue-board-card-tags[data-v-3495a1d6]{flex-wrap:wrap;gap:6px}.issue-principal[data-v-3495a1d6],.issue-board-badge[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);min-width:0;color:var(--fg-2,#ffffffc2);background:var(--surface,#ffffff08);border-radius:999px;align-items:center;gap:4px;padding:2px 7px;font-size:11px;line-height:1.2;display:inline-flex}.issue-principal.assignee[data-v-3495a1d6]{border-color:var(--accent-soft,#3b82f62e);color:var(--accent,#60a5fa)}.issue-board-empty[data-v-3495a1d6]{margin:0;padding:0 10px 12px}.issue-board-foot[data-v-3495a1d6]{justify-content:flex-end;gap:6px}.issue-board-foot kbd[data-v-3495a1d6]{border:.5px solid var(--line,#ffffff14);color:var(--fg-2,#ffffffbd);background:var(--surface,#ffffff0a);font-family:var(--font-mono,monospace);border-radius:4px;padding:1px 5px;font-size:10px}@media (max-width:720px){.issue-board-head[data-v-3495a1d6]{flex-direction:column;align-items:stretch}.issue-board-new[data-v-3495a1d6]{align-self:flex-start}.issue-board-columns[data-v-3495a1d6]{grid-auto-columns:minmax(240px,88vw)}}", Yu = (e, t) => {
 	let n = e.__vccOpts || e;
 	for (let [e, r] of t) n[e] = r;
 	return n;
-}, Ku = /* @__PURE__ */ Gu(Uu, [["styles", [Wu]], ["__scopeId", "data-v-3495a1d6"]]), qu = ["data-state"], Ju = ["data-issue-id"], Yu = { class: "issue-card-title" }, Xu = { class: "issue-number" }, Zu = ["href"], Qu = { class: "issue-meta" }, $u = { key: 0 }, ed = {
+}, Xu = /* @__PURE__ */ Yu(qu, [["styles", [Ju]], ["__scopeId", "data-v-3495a1d6"]]), Zu = ["data-state"], Qu = ["data-issue-id"], $u = { class: "issue-card-title" }, ed = { class: "issue-number" }, td = ["href"], nd = { class: "issue-meta" }, rd = { key: 0 }, id = {
 	key: 1,
 	class: "issue-line muted"
-}, td = {
+}, ad = {
 	key: 2,
 	class: "issue-card-fallback"
-}, nd = { class: "issue-line muted" }, rd = { class: "issue-line warn" }, id = /* @__PURE__ */ Gu(/* @__PURE__ */ Bn({
+}, od = { class: "issue-line muted" }, sd = { class: "issue-line warn" }, cd = /* @__PURE__ */ Yu(/* @__PURE__ */ Bn({
 	__name: "IssueCard",
 	props: {
 		client: { type: null },
@@ -5740,7 +5763,7 @@ var vu = {
 		resourceRef: { type: String }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R(null), i = /* @__PURE__ */ R(t.issue ?? null), a = J(() => t.resourceRef ?? t.ref ?? ""), o = J(() => t.client ?? t.comtryaClient), s = J(() => t.issue ?? i.value), c = J(() => pu(s.value?.state)), l = J(() => s.value?.labels?.join(", ") ?? ""), u = J(() => s.value ? du(s.value) : "#");
+		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R(null), i = /* @__PURE__ */ R(t.issue ?? null), a = J(() => t.resourceRef ?? t.ref ?? ""), o = J(() => t.client ?? t.comtryaClient), s = J(() => t.issue ?? i.value), c = J(() => _u(s.value?.state)), l = J(() => s.value?.labels?.join(", ") ?? ""), u = J(() => s.value ? hu(s.value) : "#");
 		tr(d), B(() => [
 			o.value,
 			t.issue,
@@ -5761,7 +5784,7 @@ var vu = {
 			}
 			n.value = "loading", r.value = null;
 			try {
-				i.value = await Zl(o.value, a.value), n.value = i.value ? "ready" : "empty";
+				i.value = await tu(o.value, a.value), n.value = i.value ? "ready" : "empty";
 			} catch (e) {
 				i.value = null, n.value = "error", r.value = e instanceof Error ? e.message : String(e);
 			}
@@ -5775,16 +5798,16 @@ var vu = {
 			class: "issue-card-body",
 			"data-issue-id": s.value.id,
 			"data-smoke": "issue-card-body"
-		}, [G("div", Yu, [
+		}, [G("div", $u, [
 			G("span", { class: j(["issue-pill", c.value.className]) }, M(c.value.label), 3),
-			G("span", Xu, "#" + M(s.value.number), 1),
+			G("span", ed, "#" + M(s.value.number), 1),
 			G("a", {
 				class: "issue-title-link",
 				href: u.value
-			}, M(s.value.title), 9, Zu)
-		]), G("div", Qu, [G("span", null, "by " + M(s.value.authorRef ?? "unknown"), 1), l.value ? (U(), W("span", $u, M(l.value), 1)) : q("", !0)])], 8, Ju)) : n.value === "loading" ? (U(), W("p", ed, " Loading " + M(a.value), 1)) : (U(), W("div", td, [G("p", nd, M(a.value || "issue"), 1), G("p", rd, M(r.value ?? "issue not found"), 1)]))], 8, qu));
+			}, M(s.value.title), 9, td)
+		]), G("div", nd, [G("span", null, "by " + M(s.value.authorRef ?? "unknown"), 1), l.value ? (U(), W("span", rd, M(l.value), 1)) : q("", !0)])], 8, Qu)) : n.value === "loading" ? (U(), W("p", id, " Loading " + M(a.value), 1)) : (U(), W("div", ad, [G("p", od, M(a.value || "issue"), 1), G("p", sd, M(r.value ?? "issue not found"), 1)]))], 8, Zu));
 	}
-}), [["styles", [".issue-card[data-v-672ca665]{display:block}.issue-card-body[data-v-672ca665]{border:.5px solid var(--line,#ffffff12);padding:8px 12px}.issue-card-title[data-v-672ca665]{align-items:baseline;gap:8px;min-width:0;display:flex}.issue-pill[data-v-672ca665],.issue-number[data-v-672ca665],.issue-meta[data-v-672ca665],.issue-line[data-v-672ca665]{font-family:var(--font-mono,monospace)}.issue-pill[data-v-672ca665]{border:.5px solid;padding:1px 8px;font-size:10px}.issue-state-open[data-v-672ca665]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-672ca665]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-672ca665],.issue-number[data-v-672ca665],.issue-meta[data-v-672ca665]{color:var(--fg-3,#ffffff85)}.issue-number[data-v-672ca665]{font-size:12px}.issue-title-link[data-v-672ca665]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);overflow-wrap:anywhere;font-weight:600}.issue-meta[data-v-672ca665]{flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px;display:flex}.issue-line[data-v-672ca665]{margin:4px 0;font-size:12px}.muted[data-v-672ca665]{color:var(--fg-3,#ffffff85)}.warn[data-v-672ca665]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-672ca665]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-672ca665"]]), ad = /* @__PURE__ */ Gu(/* @__PURE__ */ Bn({
+}), [["styles", [".issue-card[data-v-672ca665]{display:block}.issue-card-body[data-v-672ca665]{border:.5px solid var(--line,#ffffff12);padding:8px 12px}.issue-card-title[data-v-672ca665]{align-items:baseline;gap:8px;min-width:0;display:flex}.issue-pill[data-v-672ca665],.issue-number[data-v-672ca665],.issue-meta[data-v-672ca665],.issue-line[data-v-672ca665]{font-family:var(--font-mono,monospace)}.issue-pill[data-v-672ca665]{border:.5px solid;padding:1px 8px;font-size:10px}.issue-state-open[data-v-672ca665]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-672ca665]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-672ca665],.issue-number[data-v-672ca665],.issue-meta[data-v-672ca665]{color:var(--fg-3,#ffffff85)}.issue-number[data-v-672ca665]{font-size:12px}.issue-title-link[data-v-672ca665]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);overflow-wrap:anywhere;font-weight:600}.issue-meta[data-v-672ca665]{flex-wrap:wrap;gap:8px;margin-top:4px;font-size:11px;display:flex}.issue-line[data-v-672ca665]{margin:4px 0;font-size:12px}.muted[data-v-672ca665]{color:var(--fg-3,#ffffff85)}.warn[data-v-672ca665]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-672ca665]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-672ca665"]]), ld = /* @__PURE__ */ Yu(/* @__PURE__ */ Bn({
 	__name: "CustomElementHost",
 	props: {
 		tag: { type: String },
@@ -5819,18 +5842,18 @@ var vu = {
 			class: "custom-element-host"
 		}, null, 512));
 	}
-}), [["styles", [".custom-element-host[data-v-cf896d02]{display:contents}"]], ["__scopeId", "data-v-cf896d02"]]), od = {
+}), [["styles", [".custom-element-host[data-v-cf896d02]{display:contents}"]], ["__scopeId", "data-v-cf896d02"]]), ud = {
 	defaultLabels: [],
 	closeOnMerge: null,
 	ownerRefs: []
 };
-function sd(e = "location") {
-	let t = e === "location" ? typeof window < "u" ? window.location.pathname : "" : cd();
+function dd(e = "location") {
+	let t = e === "location" ? typeof window < "u" ? window.location.pathname : "" : fd();
 	if (!t.startsWith("/r/")) return [];
 	let n = t.slice(3), r = n.indexOf("/p/");
 	return (r >= 0 ? n.slice(0, r) : n).split("/").filter(Boolean).map(decodeURIComponent);
 }
-function cd() {
+function fd() {
 	let e = typeof document < "u" && document.referrer || "";
 	if (!e) return "";
 	try {
@@ -5839,10 +5862,10 @@ function cd() {
 		return "";
 	}
 }
-async function ld(e, t = "location") {
+async function pd(e, t = "location") {
 	try {
-		let n = Array.isArray(t) ? t.map((e) => e.trim()).filter(Boolean) : sd(t);
-		if (n.length === 0) return od;
+		let n = Array.isArray(t) ? t.map((e) => e.trim()).filter(Boolean) : dd(t);
+		if (n.length === 0) return ud;
 		let r = (((await zo().query("query Q($segments: [String!]!) {\n        workspace { repositoryByPath(segments: $segments) { comtryaConfig } }\n      }", { segments: n })).workspace?.repositoryByPath?.comtryaConfig ?? null)?.projects ?? []).find((t) => t.name === e), i = (r?.owners ?? []).map((e) => e?.ref).filter((e) => typeof e == "string" && e.length > 0);
 		return {
 			defaultLabels: r?.issues?.defaultLabels ?? [],
@@ -5850,55 +5873,55 @@ async function ld(e, t = "location") {
 			ownerRefs: i
 		};
 	} catch {
-		return od;
+		return ud;
 	}
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/IssueDetail.vue?vue&type=script&setup=true&lang.ts
-var ud = ["data-state", "data-issue-id"], dd = {
+var md = ["data-state", "data-issue-id"], hd = {
 	key: 0,
 	class: "issue-line muted"
-}, fd = {
+}, gd = {
 	key: 1,
 	class: "issue-line warn"
-}, pd = {
+}, _d = {
 	key: 2,
 	class: "issue-line warn"
-}, md = {
+}, vd = {
 	key: 3,
 	class: "issue-detail-shell"
-}, hd = { class: "issue-main" }, gd = { class: "issue-hero" }, _d = { class: "issue-kicker" }, vd = { class: "issue-number" }, yd = {
+}, yd = { class: "issue-main" }, bd = { class: "issue-hero" }, xd = { class: "issue-kicker" }, Sd = { class: "issue-number" }, Cd = {
 	key: 0,
 	class: "issue-repository"
-}, bd = {
+}, wd = {
 	class: "issue-chip-row",
 	"aria-label": "Issue metadata"
-}, xd = ["href", "title"], Sd = {
+}, Td = ["href", "title"], Ed = {
 	key: 1,
 	class: "issue-chip tone-warn",
 	title: "closeOnMerge=false — opted out of the PR merge reactor's auto-close path."
-}, Cd = ["data-author-kind", "title"], wd = { class: "chip-glyph" }, Td = ["data-author-kind", "title"], Ed = { class: "chip-glyph" }, Dd = ["title"], Od = ["title"], kd = ["data-issue-id", "innerHTML"], Ad = ["data-issue-id"], jd = {
+}, Dd = ["data-author-kind", "title"], Od = { class: "chip-glyph" }, kd = ["data-author-kind", "title"], Ad = { class: "chip-glyph" }, jd = ["title"], Md = ["title"], Nd = ["data-issue-id", "innerHTML"], Pd = ["data-issue-id"], Fd = {
 	key: 0,
 	class: "issue-thread-count"
-}, Md = {
+}, Id = {
 	class: "issue-sidebar",
 	"aria-label": "Issue sidebar"
-}, Nd = { class: "issue-panel" }, Pd = { class: "issue-state-summary" }, Fd = { key: 0 }, Id = { class: "issue-actions" }, Ld = ["disabled"], Rd = ["disabled"], zd = {
-	key: 0,
-	class: "issue-line warn",
-	role: "alert"
-}, Bd = {
-	class: "issue-panel",
-	"data-smoke": "issue-project-picker"
-}, Vd = ["value", "disabled"], Hd = ["value"], Ud = {
+}, Ld = { class: "issue-panel" }, Rd = { class: "issue-state-summary" }, zd = { key: 0 }, Bd = { class: "issue-actions" }, Vd = ["disabled"], Hd = ["disabled"], Ud = {
 	key: 0,
 	class: "issue-line warn",
 	role: "alert"
 }, Wd = {
+	class: "issue-panel",
+	"data-smoke": "issue-project-picker"
+}, Gd = ["value", "disabled"], Kd = ["value"], qd = {
+	key: 0,
+	class: "issue-line warn",
+	role: "alert"
+}, Jd = {
 	key: 0,
 	class: "issue-panel",
 	"data-smoke": "issue-project-owners"
-}, Gd = ["href", "title"], Kd = { class: "issue-owners" }, qd = ["data-author-kind", "title"], Jd = { class: "chip-glyph" }, Yd = { class: "issue-line muted" }, Xd = "comtrya-issue-relationships", Zd = "comtrya-slot-mount", Qd = /* @__PURE__ */ Gu(/* @__PURE__ */ Bn({
+}, Yd = ["href", "title"], Xd = { class: "issue-owners" }, Zd = ["data-author-kind", "title"], Qd = { class: "chip-glyph" }, $d = { class: "issue-line muted" }, ef = "comtrya-issue-relationships", tf = "comtrya-slot-mount", nf = /* @__PURE__ */ Yu(/* @__PURE__ */ Bn({
 	__name: "IssueDetail",
 	props: {
 		client: { type: null },
@@ -5913,7 +5936,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 		labelCatalog: { type: null }
 	},
 	setup(e) {
-		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R(null), o = /* @__PURE__ */ R(t.issue ?? null), s = /* @__PURE__ */ R(0), c = J(() => t.client ?? t.comtryaClient), l = J(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? cu()), u = J(() => o.value ?? t.issue ?? null), d = J(() => pu(u.value?.state)), f = J(() => !!u.value?.bodyMarkdown?.trim()), p = J(() => f.value ? hl(u.value?.bodyMarkdown ?? "", { workspaceId: l.value }) : ""), m = /* @__PURE__ */ R(null);
+		let t = e, n = /* @__PURE__ */ R("idle"), r = /* @__PURE__ */ R("idle"), i = /* @__PURE__ */ R(null), a = /* @__PURE__ */ R(null), o = /* @__PURE__ */ R(t.issue ?? null), s = /* @__PURE__ */ R(0), c = J(() => t.client ?? t.comtryaClient), l = J(() => t.workspaceId ?? t.routeParams?.params?.workspaceId ?? fu()), u = J(() => o.value ?? t.issue ?? null), d = J(() => _u(u.value?.state)), f = J(() => !!u.value?.bodyMarkdown?.trim()), p = J(() => f.value ? hl(u.value?.bodyMarkdown ?? "", { workspaceId: l.value }) : ""), m = /* @__PURE__ */ R(null);
 		function h(e) {
 			let t = e.detail;
 			t && typeof t.count == "number" && (m.value = t.count);
@@ -5955,7 +5978,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				return;
 			}
 			try {
-				T.value = await ld(e);
+				T.value = await pd(e);
 			} catch {
 				T.value = null;
 			}
@@ -5963,7 +5986,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 		let E = /* @__PURE__ */ R([]), ne = /* @__PURE__ */ R("idle"), D = /* @__PURE__ */ R(null);
 		tr(async () => {
 			try {
-				E.value = await El();
+				E.value = await Al();
 			} catch {
 				E.value = [];
 			}
@@ -5980,7 +6003,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				projectName: r
 			};
 			try {
-				o.value = await nu(n.id, r);
+				o.value = await ou(n.id, r);
 			} catch (e) {
 				o.value = {
 					...n,
@@ -6009,7 +6032,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			}
 			n.value = "loading", i.value = null;
 			try {
-				let e = await Ql(c.value, l.value, S.value);
+				let e = await nu(c.value, l.value, S.value);
 				o.value = e && k(e) ? e : null, n.value = o.value ? "ready" : "empty";
 			} catch (e) {
 				o.value = null, n.value = "error", i.value = e instanceof Error ? e.message : String(e);
@@ -6051,7 +6074,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					},
 					op: async () => ({
 						ok: !0,
-						value: await eu(e, t.id)
+						value: await iu(e, t.id)
 					}),
 					onSuccess: (e) => {
 						o.value = e;
@@ -6083,7 +6106,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					},
 					op: async () => ({
 						ok: !0,
-						value: await tu(e, t.id)
+						value: await au(e, t.id)
 					}),
 					onSuccess: (e) => {
 						o.value = e;
@@ -6101,49 +6124,49 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			"data-state": n.value,
 			"data-issue-id": u.value?.id,
 			"data-smoke": "issue-detail"
-		}, [n.value === "loading" ? (U(), W("p", dd, "Loading issue")) : n.value === "error" ? (U(), W("p", fd, M(i.value), 1)) : u.value ? (U(), W("div", md, [G("section", hd, [
-			G("header", gd, [
-				G("div", _d, [
+		}, [n.value === "loading" ? (U(), W("p", hd, "Loading issue")) : n.value === "error" ? (U(), W("p", gd, M(i.value), 1)) : u.value ? (U(), W("div", vd, [G("section", yd, [
+			G("header", bd, [
+				G("div", xd, [
 					G("span", { class: j(["issue-pill", d.value.className]) }, M(d.value.label), 3),
-					G("span", vd, "#" + M(u.value.number), 1),
-					x.value ? (U(), W("span", yd, M(x.value), 1)) : q("", !0)
+					G("span", Sd, "#" + M(u.value.number), 1),
+					x.value ? (U(), W("span", Cd, M(x.value), 1)) : q("", !0)
 				]),
 				G("h1", null, M(u.value.title), 1),
-				G("div", bd, [
+				G("div", wd, [
 					u.value.projectName ? (U(), W("a", {
 						key: 0,
 						class: "issue-chip tone-project issue-chip-link",
 						href: `/x/issues/?project=${encodeURIComponent(u.value.projectName)}`,
 						title: `Filter issues by project ${u.value.projectName}`
-					}, [o[0] ||= G("span", { class: "chip-glyph" }, "◇", -1), K(M(u.value.projectName), 1)], 8, xd)) : q("", !0),
-					(U(!0), W(H, null, V(u.value.labels ?? [], (t) => (U(), Ni(z(jl), {
+					}, [o[0] ||= G("span", { class: "chip-glyph" }, "◇", -1), K(M(u.value.projectName), 1)], 8, Td)) : q("", !0),
+					(U(!0), W(H, null, V(u.value.labels ?? [], (t) => (U(), Ni(z(Fl), {
 						key: `label-${t}`,
 						name: t,
 						catalog: e.labelCatalog ?? null
 					}, null, 8, ["name", "catalog"]))), 128)),
-					u.value.closeOnMerge === !1 ? (U(), W("span", Sd, "closeOnMerge · off")) : q("", !0),
+					u.value.closeOnMerge === !1 ? (U(), W("span", Ed, "closeOnMerge · off")) : q("", !0),
 					(U(!0), W(H, null, V(u.value.assignees ?? [], (e) => (U(), W("span", {
 						key: `assignee-${e}`,
 						class: "issue-chip tone-assignee",
 						"data-author-kind": z($)(e).kind,
 						title: e
-					}, [G("span", wd, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, Cd))), 128)),
+					}, [G("span", Od, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, Dd))), 128)),
 					u.value.authorRef ? (U(), W("span", {
 						key: 2,
 						class: "issue-chip tone-author",
 						"data-author-kind": z($)(u.value.authorRef).kind,
 						title: `Opened by ${u.value.authorRef}`
-					}, [G("span", Ed, M(z($)(u.value.authorRef).glyph), 1), K(" by " + M(z($)(u.value.authorRef).label), 1)], 8, Td)) : q("", !0),
+					}, [G("span", Ad, M(z($)(u.value.authorRef).glyph), 1), K(" by " + M(z($)(u.value.authorRef).label), 1)], 8, kd)) : q("", !0),
 					v.value ? (U(), W("span", {
 						key: 3,
 						class: "issue-chip tone-time",
 						title: _.value ?? ""
-					}, "opened " + M(v.value), 9, Dd)) : q("", !0),
+					}, "opened " + M(v.value), 9, jd)) : q("", !0),
 					y.value ? (U(), W("span", {
 						key: 4,
 						class: "issue-chip tone-time tone-updated",
 						title: b.value ?? ""
-					}, "updated " + M(y.value), 9, Od)) : q("", !0)
+					}, "updated " + M(y.value), 9, Md)) : q("", !0)
 				])
 			]),
 			f.value ? (U(), W("article", {
@@ -6152,41 +6175,41 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				"data-issue-id": u.value.id,
 				"data-smoke": "issue-detail-main",
 				innerHTML: p.value
-			}, null, 8, kd)) : (U(), W("article", {
+			}, null, 8, Nd)) : (U(), W("article", {
 				key: 1,
 				class: "issue-body is-empty",
 				"data-issue-id": u.value.id,
 				"data-smoke": "issue-detail-main"
-			}, " No description has been added yet. ", 8, Ad)),
+			}, " No description has been added yet. ", 8, Pd)),
 			G("section", {
 				class: "issue-thread",
 				onCommentThreadUpdate: h
-			}, [G("header", null, [G("h2", null, [o[1] ||= K(" Activity", -1), m.value === null ? q("", !0) : (U(), W("span", jd, " (" + M(m.value) + ")", 1))])]), Ri(ad, {
+			}, [G("header", null, [G("h2", null, [o[1] ||= K(" Activity", -1), m.value === null ? q("", !0) : (U(), W("span", Fd, " (" + M(m.value) + ")", 1))])]), Ri(ld, {
 				tag: "comtrya-comment-thread",
-				attributes: { target: z(lu)(u.value) },
+				attributes: { target: z(pu)(u.value) },
 				properties: {
-					target: z(lu)(u.value),
+					target: z(pu)(u.value),
 					comtryaClient: c.value
 				}
 			}, null, 8, ["attributes", "properties"])], 32)
-		]), G("aside", Md, [
-			G("section", Nd, [
+		]), G("aside", Id, [
+			G("section", Ld, [
 				o[2] ||= G("header", null, [G("h2", null, "State")], -1),
-				G("div", Pd, [G("span", { class: j(["issue-pill", d.value.className]) }, M(d.value.label), 3), u.value.stateReason ? (U(), W("span", Fd, M(u.value.stateReason), 1)) : q("", !0)]),
-				G("div", Id, [u.value.state === "OPEN" || u.value.state === "REOPENED" ? (U(), W("button", {
+				G("div", Rd, [G("span", { class: j(["issue-pill", d.value.className]) }, M(d.value.label), 3), u.value.stateReason ? (U(), W("span", zd, M(u.value.stateReason), 1)) : q("", !0)]),
+				G("div", Bd, [u.value.state === "OPEN" || u.value.state === "REOPENED" ? (U(), W("button", {
 					key: 0,
 					type: "button",
 					disabled: r.value === "submitting",
 					onClick: ae
-				}, " Close issue ", 8, Ld)) : (U(), W("button", {
+				}, " Close issue ", 8, Vd)) : (U(), W("button", {
 					key: 1,
 					type: "button",
 					disabled: r.value === "submitting",
 					onClick: oe
-				}, " Reopen issue ", 8, Rd))]),
-				a.value ? (U(), W("p", zd, M(a.value), 1)) : q("", !0)
+				}, " Reopen issue ", 8, Hd))]),
+				a.value ? (U(), W("p", Ud, M(a.value), 1)) : q("", !0)
 			]),
-			G("section", Bd, [
+			G("section", Wd, [
 				o[4] ||= G("header", null, [G("h2", null, "Project")], -1),
 				G("select", {
 					class: "issue-project-select",
@@ -6197,74 +6220,74 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				}, [o[3] ||= G("option", { value: "" }, "— no project —", -1), (U(!0), W(H, null, V(E.value, (e) => (U(), W("option", {
 					key: e.name,
 					value: e.name ?? ""
-				}, M(e.name), 9, Hd))), 128))], 40, Vd),
-				D.value ? (U(), W("p", Ud, M(D.value), 1)) : q("", !0),
+				}, M(e.name), 9, Kd))), 128))], 40, Gd),
+				D.value ? (U(), W("p", qd, M(D.value), 1)) : q("", !0),
 				o[5] ||= G("p", { class: "issue-line muted" }, [
 					K(" Stamps "),
 					G("code", null, "projectName"),
 					K(" on this issue. Lights up the workspace per-Project counts. ")
 				], -1)
 			]),
-			u.value.projectName && te.value.length > 0 ? (U(), W("section", Wd, [
+			u.value.projectName && te.value.length > 0 ? (U(), W("section", Jd, [
 				G("header", null, [o[6] ||= G("h2", null, "Routed to", -1), G("a", {
 					href: `/x/issues/?project=${encodeURIComponent(u.value.projectName)}`,
 					class: "issue-panel-link",
 					title: `Filter to project ${u.value.projectName}`
-				}, "◇ " + M(u.value.projectName), 9, Gd)]),
-				G("ul", Kd, [(U(!0), W(H, null, V(te.value, (e) => (U(), W("li", {
+				}, "◇ " + M(u.value.projectName), 9, Yd)]),
+				G("ul", Xd, [(U(!0), W(H, null, V(te.value, (e) => (U(), W("li", {
 					key: e,
 					class: "issue-owner",
 					"data-author-kind": z($)(e).kind,
 					title: e
-				}, [G("span", Jd, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, qd))), 128))]),
-				G("p", Yd, [
+				}, [G("span", Qd, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 8, Zd))), 128))]),
+				G("p", $d, [
 					o[7] ||= K(" From ", -1),
 					o[8] ||= G("code", null, "package comtrya", -1),
 					K(" · projects." + M(u.value.projectName) + ".owners ", 1)
 				])
 			])) : q("", !0),
-			Ri(ad, {
-				tag: Zd,
+			Ri(ld, {
+				tag: tf,
 				properties: {
 					name: "issue.detail.sidebar",
 					elementContext: w.value
 				},
 				onComtryaRelationshipChanged: g
 			}, null, 8, ["properties"]),
-			Ri(ad, {
-				tag: Xd,
+			Ri(ld, {
+				tag: ef,
 				properties: ee.value,
 				onComtryaRelationshipChanged: g
 			}, null, 8, ["properties"])
-		])])) : (U(), W("p", pd, " No issue #" + M(Number.isFinite(S.value) ? S.value : "?") + " in " + M(l.value), 1))], 8, ud));
+		])])) : (U(), W("p", _d, " No issue #" + M(Number.isFinite(S.value) ? S.value : "?") + " in " + M(l.value), 1))], 8, md));
 	}
-}), [["styles", [".issue-detail[data-v-8ea4a8e4]{width:min(100%,1180px);color:var(--fg,#fffffff0);gap:24px;padding:8px 0 48px;display:grid}.issue-detail-shell[data-v-8ea4a8e4]{grid-template-columns:minmax(0,1fr) minmax(280px,340px);align-items:start;gap:32px;display:grid}.issue-main[data-v-8ea4a8e4],.issue-sidebar[data-v-8ea4a8e4],.issue-panel[data-v-8ea4a8e4],.issue-thread[data-v-8ea4a8e4]{min-width:0}.issue-main[data-v-8ea4a8e4]{gap:24px;display:grid}.issue-sidebar[data-v-8ea4a8e4]{gap:16px;display:grid}.issue-detail h1[data-v-8ea4a8e4]{max-width:820px;font-family:var(--font-serif,system-ui);letter-spacing:0;overflow-wrap:anywhere;margin:10px 0 0;font-size:42px;line-height:1}.issue-hero[data-v-8ea4a8e4]{border-bottom:2px solid var(--fg,#fffffff0);gap:14px;padding-bottom:22px;display:grid}.issue-kicker[data-v-8ea4a8e4]{flex-wrap:wrap;align-items:center;gap:8px;display:flex}.issue-chip-row[data-v-8ea4a8e4]{flex-wrap:wrap;gap:6px;margin:4px 0 0;display:flex}.issue-chip[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.issue-chip .chip-glyph[data-v-8ea4a8e4]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.issue-chip.tone-project[data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6);border-color:currentColor}.issue-chip-link[data-v-8ea4a8e4]{cursor:pointer;text-decoration:none}.issue-chip-link[data-v-8ea4a8e4]:hover{background:#1d55a60f}.issue-chip.tone-label[data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f);border-color:currentColor}.issue-chip.tone-warn[data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300);text-transform:lowercase;border-color:currentColor}.issue-chip.tone-assignee[data-v-8ea4a8e4]{cursor:help;border-style:dashed;border-color:currentColor}.issue-chip.tone-author[data-v-8ea4a8e4],.issue-chip.tone-assignee[data-v-8ea4a8e4]{color:var(--fg-2,#ffffffbd)}.issue-chip.tone-author[data-author-kind=agent][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=agent][data-v-8ea4a8e4]{color:#6b3fa0}.issue-chip.tone-author[data-author-kind=credential][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=credential][data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300)}.issue-chip.tone-author[data-author-kind=bot][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=bot][data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6)}.issue-chip.tone-author[data-author-kind=team][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=team][data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f)}.issue-chip.tone-time[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.issue-line[data-v-8ea4a8e4],.issue-kicker[data-v-8ea4a8e4],.issue-panel[data-v-8ea4a8e4],.issue-actions button[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace)}.issue-pill[data-v-8ea4a8e4]{min-height:22px;font-family:var(--font-mono,monospace);text-transform:lowercase;border:.5px solid;align-items:center;padding:2px 8px;font-size:11px;line-height:1;display:inline-flex}.issue-number[data-v-8ea4a8e4],.issue-repository[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);font-size:12px}.issue-state-open[data-v-8ea4a8e4]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-8ea4a8e4]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85)}.issue-body[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--surface);min-height:156px;font-family:var(--font-sans,\"Quicksand\", ui-sans-serif, system-ui, sans-serif);white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;font-size:15px;line-height:1.55}.issue-body.is-empty[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);font-size:12px}.issue-thread[data-v-8ea4a8e4]{gap:12px;padding-top:4px;display:grid}.issue-thread header[data-v-8ea4a8e4],.issue-panel header[data-v-8ea4a8e4]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.issue-thread h2[data-v-8ea4a8e4],.issue-panel h2[data-v-8ea4a8e4]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px;line-height:1}.issue-thread-count[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.issue-panel[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--surface);gap:12px;padding:14px;display:grid}.issue-state-summary[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;display:flex}.issue-actions[data-v-8ea4a8e4]{gap:8px;display:grid}.issue-project-select[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);width:100%;color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);outline:none;padding:8px 10px;font-size:13px;transition:border-color .12s}.issue-project-select[data-v-8ea4a8e4]:focus{border-color:var(--fg,#fffffff0)}.issue-project-select[data-v-8ea4a8e4]:disabled{cursor:wait;opacity:.55}.issue-panel header .issue-panel-link[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;margin-left:auto;font-size:11px;text-decoration:none}.issue-panel header .issue-panel-link[data-v-8ea4a8e4]:hover{text-underline-offset:2px;text-decoration:underline}.issue-owners[data-v-8ea4a8e4]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.issue-owner[data-v-8ea4a8e4]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.issue-owner .chip-glyph[data-v-8ea4a8e4]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.issue-owner[data-author-kind=team][data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f)}.issue-owner[data-author-kind=human][data-v-8ea4a8e4]{color:var(--fg,#fffffff0)}.issue-owner[data-author-kind=agent][data-v-8ea4a8e4]{color:#6b3fa0}.issue-owner[data-author-kind=bot][data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6)}.issue-owner[data-author-kind=credential][data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300)}.issue-line.muted code[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.issue-actions button[data-v-8ea4a8e4]{border:.5px solid var(--fg,#fffffff0);min-height:34px;color:inherit;cursor:pointer;text-align:left;background:0 0;padding:8px 12px}.issue-actions button[data-v-8ea4a8e4]:disabled{cursor:wait;opacity:.55}.issue-line[data-v-8ea4a8e4]{margin:4px 0;font-size:12px}.muted[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85)}.warn[data-v-8ea4a8e4]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-8ea4a8e4]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}@media (max-width:920px){.issue-detail-shell[data-v-8ea4a8e4]{grid-template-columns:1fr}.issue-detail h1[data-v-8ea4a8e4]{font-size:34px}}"]], ["__scopeId", "data-v-8ea4a8e4"]]), $d = {
+}), [["styles", [".issue-detail[data-v-8ea4a8e4]{width:min(100%,1180px);color:var(--fg,#fffffff0);gap:24px;padding:8px 0 48px;display:grid}.issue-detail-shell[data-v-8ea4a8e4]{grid-template-columns:minmax(0,1fr) minmax(280px,340px);align-items:start;gap:32px;display:grid}.issue-main[data-v-8ea4a8e4],.issue-sidebar[data-v-8ea4a8e4],.issue-panel[data-v-8ea4a8e4],.issue-thread[data-v-8ea4a8e4]{min-width:0}.issue-main[data-v-8ea4a8e4]{gap:24px;display:grid}.issue-sidebar[data-v-8ea4a8e4]{gap:16px;display:grid}.issue-detail h1[data-v-8ea4a8e4]{max-width:820px;font-family:var(--font-serif,system-ui);letter-spacing:0;overflow-wrap:anywhere;margin:10px 0 0;font-size:42px;line-height:1}.issue-hero[data-v-8ea4a8e4]{border-bottom:2px solid var(--fg,#fffffff0);gap:14px;padding-bottom:22px;display:grid}.issue-kicker[data-v-8ea4a8e4]{flex-wrap:wrap;align-items:center;gap:8px;display:flex}.issue-chip-row[data-v-8ea4a8e4]{flex-wrap:wrap;gap:6px;margin:4px 0 0;display:flex}.issue-chip[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);align-items:center;gap:5px;padding:2px 8px;font-size:11px;line-height:16px;display:inline-flex}.issue-chip .chip-glyph[data-v-8ea4a8e4]{place-items:center;width:13px;height:13px;font-size:10px;font-weight:700;display:inline-grid}.issue-chip.tone-project[data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6);border-color:currentColor}.issue-chip-link[data-v-8ea4a8e4]{cursor:pointer;text-decoration:none}.issue-chip-link[data-v-8ea4a8e4]:hover{background:#1d55a60f}.issue-chip.tone-label[data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f);border-color:currentColor}.issue-chip.tone-warn[data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300);text-transform:lowercase;border-color:currentColor}.issue-chip.tone-assignee[data-v-8ea4a8e4]{cursor:help;border-style:dashed;border-color:currentColor}.issue-chip.tone-author[data-v-8ea4a8e4],.issue-chip.tone-assignee[data-v-8ea4a8e4]{color:var(--fg-2,#ffffffbd)}.issue-chip.tone-author[data-author-kind=agent][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=agent][data-v-8ea4a8e4]{color:#6b3fa0}.issue-chip.tone-author[data-author-kind=credential][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=credential][data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300)}.issue-chip.tone-author[data-author-kind=bot][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=bot][data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6)}.issue-chip.tone-author[data-author-kind=team][data-v-8ea4a8e4],.issue-chip.tone-assignee[data-author-kind=team][data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f)}.issue-chip.tone-time[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);border-style:none;padding-left:2px}.issue-line[data-v-8ea4a8e4],.issue-kicker[data-v-8ea4a8e4],.issue-panel[data-v-8ea4a8e4],.issue-actions button[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace)}.issue-pill[data-v-8ea4a8e4]{min-height:22px;font-family:var(--font-mono,monospace);text-transform:lowercase;border:.5px solid;align-items:center;padding:2px 8px;font-size:11px;line-height:1;display:inline-flex}.issue-number[data-v-8ea4a8e4],.issue-repository[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);font-size:12px}.issue-state-open[data-v-8ea4a8e4]{color:var(--ok,#5dc879)}@supports (color:lab(0% 0 0)){.issue-state-open[data-v-8ea4a8e4]{color:var(--ok,lab(72.9029% -45.1402 29.5956))}}.issue-state-closed[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85)}.issue-body[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--surface);min-height:156px;font-family:var(--font-sans,\"Quicksand\", ui-sans-serif, system-ui, sans-serif);white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;font-size:15px;line-height:1.55}.issue-body.is-empty[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);font-size:12px}.issue-thread[data-v-8ea4a8e4]{gap:12px;padding-top:4px;display:grid}.issue-thread header[data-v-8ea4a8e4],.issue-panel header[data-v-8ea4a8e4]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.issue-thread h2[data-v-8ea4a8e4],.issue-panel h2[data-v-8ea4a8e4]{font-family:var(--font-serif,system-ui);margin:0;font-size:18px;line-height:1}.issue-thread-count[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:13px;font-weight:400}.issue-panel[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--surface);gap:12px;padding:14px;display:grid}.issue-state-summary[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:center;gap:8px;font-size:12px;display:flex}.issue-actions[data-v-8ea4a8e4]{gap:8px;display:grid}.issue-project-select[data-v-8ea4a8e4]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);width:100%;color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);outline:none;padding:8px 10px;font-size:13px;transition:border-color .12s}.issue-project-select[data-v-8ea4a8e4]:focus{border-color:var(--fg,#fffffff0)}.issue-project-select[data-v-8ea4a8e4]:disabled{cursor:wait;opacity:.55}.issue-panel header .issue-panel-link[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);letter-spacing:.02em;margin-left:auto;font-size:11px;text-decoration:none}.issue-panel header .issue-panel-link[data-v-8ea4a8e4]:hover{text-underline-offset:2px;text-decoration:underline}.issue-owners[data-v-8ea4a8e4]{flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none;display:flex}.issue-owner[data-v-8ea4a8e4]{color:var(--fg,#fffffff0);font-family:var(--font-mono,monospace);letter-spacing:.02em;border:.5px solid;align-items:center;gap:5px;padding:2px 8px;font-size:11px;display:inline-flex}.issue-owner .chip-glyph[data-v-8ea4a8e4]{font-family:var(--font-serif,system-ui);font-size:12px;line-height:1}.issue-owner[data-author-kind=team][data-v-8ea4a8e4]{color:var(--accent-teal,#087f6f)}.issue-owner[data-author-kind=human][data-v-8ea4a8e4]{color:var(--fg,#fffffff0)}.issue-owner[data-author-kind=agent][data-v-8ea4a8e4]{color:#6b3fa0}.issue-owner[data-author-kind=bot][data-v-8ea4a8e4]{color:var(--accent-blue,#1d55a6)}.issue-owner[data-author-kind=credential][data-v-8ea4a8e4]{color:var(--accent-yellow,#c89300)}.issue-line.muted code[data-v-8ea4a8e4]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.issue-actions button[data-v-8ea4a8e4]{border:.5px solid var(--fg,#fffffff0);min-height:34px;color:inherit;cursor:pointer;text-align:left;background:0 0;padding:8px 12px}.issue-actions button[data-v-8ea4a8e4]:disabled{cursor:wait;opacity:.55}.issue-line[data-v-8ea4a8e4]{margin:4px 0;font-size:12px}.muted[data-v-8ea4a8e4]{color:var(--fg-3,#ffffff85)}.warn[data-v-8ea4a8e4]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-8ea4a8e4]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}@media (max-width:920px){.issue-detail-shell[data-v-8ea4a8e4]{grid-template-columns:1fr}.issue-detail h1[data-v-8ea4a8e4]{font-size:34px}}"]], ["__scopeId", "data-v-8ea4a8e4"]]), rf = {
 	class: "issue-relationships",
 	"data-smoke": "issue-detail-relationships"
-}, ef = { class: "relationship-header" }, tf = {
+}, af = { class: "relationship-header" }, of = {
 	key: 0,
 	class: "issue-line muted"
-}, nf = {
+}, sf = {
 	key: 1,
 	class: "issue-line warn"
-}, rf = {
+}, cf = {
 	key: 2,
 	class: "issue-line muted"
-}, af = {
+}, lf = {
 	key: 3,
 	class: "relationship-groups"
-}, of = { class: "relationship-group-heading" }, sf = { class: "relationship-card" }, cf = [
+}, uf = { class: "relationship-group-heading" }, df = { class: "relationship-card" }, ff = [
 	"aria-label",
 	"disabled",
 	"onClick"
-], lf = ["value"], uf = ["value"], df = ["disabled"], ff = {
+], pf = ["value"], mf = ["value"], hf = ["disabled"], gf = {
 	key: 5,
 	class: "issue-line muted"
-}, pf = {
+}, _f = {
 	key: 6,
 	class: "issue-line warn",
 	role: "alert"
-}, mf = "issue", hf = /* @__PURE__ */ Gu(/* @__PURE__ */ Bn({
+}, vf = "issue", yf = /* @__PURE__ */ Yu(/* @__PURE__ */ Bn({
 	__name: "IssueRelationships",
 	props: {
 		client: { type: null },
@@ -6278,11 +6301,11 @@ var ud = ["data-state", "data-issue-id"], dd = {
 	},
 	emits: ["comtrya-relationship-changed"],
 	setup(e, { emit: t }) {
-		let n = e, r = t, i = J(() => n.client ?? n.comtryaClient), a = J(() => lu(n.issue)), o = /* @__PURE__ */ R("idle"), s = /* @__PURE__ */ R(null), c = /* @__PURE__ */ R("idle"), l = /* @__PURE__ */ R(null), u = /* @__PURE__ */ R([]), d = /* @__PURE__ */ R([]), f = /* @__PURE__ */ R([]), p = /* @__PURE__ */ R(""), m = /* @__PURE__ */ R(""), h = /* @__PURE__ */ R(0), g, _ = J(() => (h.value, T().relationshipTypesForSourceKind(mf))), v = J(() => x.value.reduce((e, t) => e + t.relations.length, 0)), y = J(() => {
+		let n = e, r = t, i = J(() => n.client ?? n.comtryaClient), a = J(() => pu(n.issue)), o = /* @__PURE__ */ R("idle"), s = /* @__PURE__ */ R(null), c = /* @__PURE__ */ R("idle"), l = /* @__PURE__ */ R(null), u = /* @__PURE__ */ R([]), d = /* @__PURE__ */ R([]), f = /* @__PURE__ */ R([]), p = /* @__PURE__ */ R(""), m = /* @__PURE__ */ R(""), h = /* @__PURE__ */ R(0), g, _ = J(() => (h.value, T().relationshipTypesForSourceKind(vf))), v = J(() => x.value.reduce((e, t) => e + t.relations.length, 0)), y = J(() => {
 			let e = [];
 			for (let t of _.value) {
 				if (t.symmetric) {
-					let n = O(t.sourceKinds.includes(mf) ? t.targetKinds : t.sourceKinds);
+					let n = O(t.sourceKinds.includes(vf) ? t.targetKinds : t.sourceKinds);
 					n.length > 0 && e.push({
 						key: `${t.id}:symmetric`,
 						type: t,
@@ -6292,7 +6315,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					});
 					continue;
 				}
-				if (t.sourceKinds.includes(mf)) {
+				if (t.sourceKinds.includes(vf)) {
 					let n = O(t.targetKinds);
 					n.length > 0 && e.push({
 						key: `${t.id}:outgoing`,
@@ -6302,7 +6325,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 						targetKinds: n
 					});
 				}
-				if (t.targetKinds.includes(mf)) {
+				if (t.targetKinds.includes(vf)) {
 					let n = O(t.sourceKinds);
 					n.length > 0 && e.push({
 						key: `${t.id}:incoming`,
@@ -6329,7 +6352,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					});
 					continue;
 				}
-				if (t.sourceKinds.includes(mf)) {
+				if (t.sourceKinds.includes(vf)) {
 					let n = u.value.filter((e) => e.kind === t.kind && te(e) === a.value).map((e) => ({
 						relation: e,
 						targetRef: E(e)
@@ -6340,7 +6363,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 						relations: n
 					});
 				}
-				if (t.targetKinds.includes(mf)) {
+				if (t.targetKinds.includes(vf)) {
 					let n = d.value.filter((e) => e.kind === t.kind && E(e) === a.value).map((e) => ({
 						relation: e,
 						targetRef: te(e)
@@ -6380,7 +6403,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			}
 			o.value = "loading", s.value = null;
 			try {
-				let [t, n] = await Promise.all([ru(e, a.value), iu(e, a.value)]);
+				let [t, n] = await Promise.all([su(e, a.value), cu(e, a.value)]);
 				u.value = t, d.value = n, o.value = "ready";
 			} catch (e) {
 				u.value = [], d.value = [], o.value = "error", s.value = e instanceof Error ? e.message : String(e);
@@ -6403,7 +6426,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 						repositoryId: n.repositoryId,
 						repositoryPath: n.repositoryPath,
 						currentRef: a.value,
-						currentKind: mf,
+						currentKind: vf,
 						relationshipType: e.type,
 						direction: e.direction,
 						targetKind: r
@@ -6423,7 +6446,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			let n = t.direction === "incoming" ? m.value : a.value, r = t.direction === "incoming" ? a.value : m.value;
 			c.value = "submitting", l.value = null;
 			try {
-				let i = await au(e, {
+				let i = await lu(e, {
 					from: n,
 					to: r,
 					kind: t.type.kind
@@ -6440,7 +6463,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			if (t) {
 				c.value = "submitting", l.value = null;
 				try {
-					await ou(t, e.id), await S(), ie("deleted", e);
+					await uu(t, e.id), await S(), ie("deleted", e);
 				} catch (e) {
 					l.value = e instanceof Error ? e.message : String(e);
 				} finally {
@@ -6486,12 +6509,12 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				relation: t
 			});
 		}
-		return (e, t) => (U(), W("section", $d, [
-			G("header", ef, [G("div", null, [t[2] ||= G("h2", null, "Relationships", -1), G("p", null, M(v.value) + " linked", 1)])]),
-			o.value === "loading" ? (U(), W("p", tf, "Loading relationships")) : o.value === "error" ? (U(), W("p", nf, M(s.value), 1)) : x.value.length === 0 ? (U(), W("p", rf, " No relationships yet. ")) : (U(), W("div", af, [(U(!0), W(H, null, V(x.value, (e) => (U(), W("section", {
+		return (e, t) => (U(), W("section", rf, [
+			G("header", af, [G("div", null, [t[2] ||= G("h2", null, "Relationships", -1), G("p", null, M(v.value) + " linked", 1)])]),
+			o.value === "loading" ? (U(), W("p", of, "Loading relationships")) : o.value === "error" ? (U(), W("p", sf, M(s.value), 1)) : x.value.length === 0 ? (U(), W("p", cf, " No relationships yet. ")) : (U(), W("div", lf, [(U(!0), W(H, null, V(x.value, (e) => (U(), W("section", {
 				key: e.key,
 				class: "relationship-group"
-			}, [G("div", of, [G("h3", null, M(e.label), 1), G("span", null, M(e.relations.length), 1)]), G("ul", null, [(U(!0), W(H, null, V(e.relations, (t) => (U(), W("li", { key: t.relation.id }, [G("div", sf, [Ri(ad, {
+			}, [G("div", uf, [G("h3", null, M(e.label), 1), G("span", null, M(e.relations.length), 1)]), G("ul", null, [(U(!0), W(H, null, V(e.relations, (t) => (U(), W("li", { key: t.relation.id }, [G("div", df, [Ri(ld, {
 				tag: "comtrya-resource-card",
 				attributes: { ref: t.targetRef },
 				properties: {
@@ -6504,7 +6527,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				"aria-label": `Remove ${e.label} relationship`,
 				disabled: c.value === "submitting",
 				onClick: (e) => ee(t.relation)
-			}, " Remove ", 8, cf)]))), 128))])]))), 128))])),
+			}, " Remove ", 8, ff)]))), 128))])]))), 128))])),
 			y.value.length > 0 ? (U(), W("form", {
 				key: 4,
 				class: "relationship-form",
@@ -6516,101 +6539,101 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				}, [(U(!0), W(H, null, V(y.value, (e) => (U(), W("option", {
 					key: e.key,
 					value: e.key
-				}, M(e.label), 9, lf))), 128))], 512), [[fo, p.value]])]),
+				}, M(e.label), 9, pf))), 128))], 512), [[fo, p.value]])]),
 				G("label", null, [t[4] ||= G("span", null, "Target", -1), Dn(G("select", {
 					"onUpdate:modelValue": t[1] ||= (e) => m.value = e,
 					"aria-label": "Relationship target"
 				}, [(U(!0), W(H, null, V(f.value, (e) => (U(), W("option", {
 					key: e.ref,
 					value: e.ref
-				}, M(e.title) + M(e.subtitle ? ` - ${e.subtitle}` : ""), 9, uf))), 128))], 512), [[fo, m.value]])]),
+				}, M(e.title) + M(e.subtitle ? ` - ${e.subtitle}` : ""), 9, mf))), 128))], 512), [[fo, m.value]])]),
 				G("button", {
 					type: "submit",
 					disabled: c.value !== "idle" || !m.value
-				}, " Add ", 8, df)
+				}, " Add ", 8, hf)
 			], 32)) : q("", !0),
-			y.value.length > 0 && f.value.length === 0 && c.value === "idle" ? (U(), W("p", ff, " No eligible targets for this relationship. ")) : q("", !0),
-			l.value ? (U(), W("p", pf, M(l.value), 1)) : q("", !0)
+			y.value.length > 0 && f.value.length === 0 && c.value === "idle" ? (U(), W("p", gf, " No eligible targets for this relationship. ")) : q("", !0),
+			l.value ? (U(), W("p", _f, M(l.value), 1)) : q("", !0)
 		]));
 	}
-}), [["styles", [".issue-relationships[data-v-b033a0e6]{border:.5px solid var(--line,#ffffff12);background:var(--surface);font-family:var(--font-mono,monospace);gap:12px;padding:14px;font-size:12px;display:grid}.relationship-header[data-v-b033a0e6]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.relationship-header h2[data-v-b033a0e6],.relationship-group h3[data-v-b033a0e6]{font-family:var(--font-serif,system-ui);margin:0}.relationship-header h2[data-v-b033a0e6]{font-size:18px;line-height:1}.relationship-header p[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);margin:4px 0 0;font-size:11px}.relationship-groups[data-v-b033a0e6],.relationship-group[data-v-b033a0e6],.relationship-group ul[data-v-b033a0e6]{flex-direction:column;gap:8px;display:flex}.relationship-group[data-v-b033a0e6]{padding-top:4px}.relationship-group-heading[data-v-b033a0e6]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.relationship-group-heading h3[data-v-b033a0e6]{font-size:14px;line-height:1}.relationship-group-heading span[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);font-size:11px}.relationship-group ul[data-v-b033a0e6]{margin:0;padding:0;list-style:none}.relationship-group li[data-v-b033a0e6]{grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:8px;display:grid}.relationship-card[data-v-b033a0e6]{min-width:0}.relationship-form[data-v-b033a0e6]{border-top:.5px solid var(--line,#ffffff12);gap:8px;padding-top:12px;display:grid}.relationship-form label[data-v-b033a0e6]{flex-direction:column;gap:4px;min-width:0;display:flex}.relationship-form label>span[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);letter-spacing:.08em;text-transform:uppercase;font-size:10px}.relationship-form select[data-v-b033a0e6],.relationship-form button[data-v-b033a0e6],.relationship-group button[data-v-b033a0e6]{border:.5px solid var(--fg,#fffffff0);min-height:32px;color:inherit;font:inherit;background:0 0}.relationship-form select[data-v-b033a0e6]{width:100%;max-width:100%;padding:5px 8px}.relationship-form button[data-v-b033a0e6],.relationship-group button[data-v-b033a0e6]{cursor:pointer;padding:5px 10px}.relationship-remove[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);align-self:start}.relationship-form button[data-v-b033a0e6]:disabled,.relationship-group button[data-v-b033a0e6]:disabled{cursor:wait;opacity:.55}.issue-line[data-v-b033a0e6]{margin:4px 0;font-size:12px}.muted[data-v-b033a0e6]{color:var(--fg-3,#ffffff85)}.warn[data-v-b033a0e6]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-b033a0e6]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-b033a0e6"]]), gf = {
+}), [["styles", [".issue-relationships[data-v-b033a0e6]{border:.5px solid var(--line,#ffffff12);background:var(--surface);font-family:var(--font-mono,monospace);gap:12px;padding:14px;font-size:12px;display:grid}.relationship-header[data-v-b033a0e6]{border-bottom:.5px solid var(--line,#ffffff12);align-items:center;min-height:36px;display:flex}.relationship-header h2[data-v-b033a0e6],.relationship-group h3[data-v-b033a0e6]{font-family:var(--font-serif,system-ui);margin:0}.relationship-header h2[data-v-b033a0e6]{font-size:18px;line-height:1}.relationship-header p[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);margin:4px 0 0;font-size:11px}.relationship-groups[data-v-b033a0e6],.relationship-group[data-v-b033a0e6],.relationship-group ul[data-v-b033a0e6]{flex-direction:column;gap:8px;display:flex}.relationship-group[data-v-b033a0e6]{padding-top:4px}.relationship-group-heading[data-v-b033a0e6]{justify-content:space-between;align-items:baseline;gap:12px;display:flex}.relationship-group-heading h3[data-v-b033a0e6]{font-size:14px;line-height:1}.relationship-group-heading span[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);font-size:11px}.relationship-group ul[data-v-b033a0e6]{margin:0;padding:0;list-style:none}.relationship-group li[data-v-b033a0e6]{grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:8px;display:grid}.relationship-card[data-v-b033a0e6]{min-width:0}.relationship-form[data-v-b033a0e6]{border-top:.5px solid var(--line,#ffffff12);gap:8px;padding-top:12px;display:grid}.relationship-form label[data-v-b033a0e6]{flex-direction:column;gap:4px;min-width:0;display:flex}.relationship-form label>span[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);letter-spacing:.08em;text-transform:uppercase;font-size:10px}.relationship-form select[data-v-b033a0e6],.relationship-form button[data-v-b033a0e6],.relationship-group button[data-v-b033a0e6]{border:.5px solid var(--fg,#fffffff0);min-height:32px;color:inherit;font:inherit;background:0 0}.relationship-form select[data-v-b033a0e6]{width:100%;max-width:100%;padding:5px 8px}.relationship-form button[data-v-b033a0e6],.relationship-group button[data-v-b033a0e6]{cursor:pointer;padding:5px 10px}.relationship-remove[data-v-b033a0e6]{color:var(--fg-3,#ffffff85);align-self:start}.relationship-form button[data-v-b033a0e6]:disabled,.relationship-group button[data-v-b033a0e6]:disabled{cursor:wait;opacity:.55}.issue-line[data-v-b033a0e6]{margin:4px 0;font-size:12px}.muted[data-v-b033a0e6]{color:var(--fg-3,#ffffff85)}.warn[data-v-b033a0e6]{color:var(--err,#ff645f)}@supports (color:lab(0% 0 0)){.warn[data-v-b033a0e6]{color:var(--err,lab(63.3139% 59.7937 35.1683))}}"]], ["__scopeId", "data-v-b033a0e6"]]), bf = {
 	class: "issues-queue",
 	"data-smoke": "issues-list"
-}, _f = { class: "issues-queue-head" }, vf = { class: "head-row" }, yf = ["href"], bf = { class: "issues-controls" }, xf = {
+}, xf = { class: "issues-queue-head" }, Sf = { class: "head-row" }, Cf = ["href"], wf = { class: "issues-controls" }, Tf = {
 	class: "issues-filter-row",
 	role: "tablist",
 	"aria-label": "Filter issues by state"
-}, Sf = ["aria-selected", "onClick"], Cf = { class: "count" }, wf = { class: "issues-search" }, Tf = {
+}, Ef = ["aria-selected", "onClick"], Df = { class: "count" }, Of = { class: "issues-search" }, kf = {
 	key: 0,
 	class: "issues-query-chips",
 	"data-smoke": "issues-query-chips",
 	"aria-label": "Parsed search filters"
-}, Ef = ["title"], Df = {
+}, Af = ["title"], jf = {
 	key: 1,
 	class: "issues-assignee-filter",
 	"data-smoke": "issues-assignee-filter"
-}, Of = ["data-author-kind", "title"], kf = { class: "author-glyph" }, Af = {
+}, Mf = ["data-author-kind", "title"], Nf = { class: "author-glyph" }, Pf = {
 	key: 2,
 	class: "issues-project-filter",
 	"data-smoke": "issues-project-filter"
-}, jf = ["title"], Mf = ["data-busy"], Nf = ["placeholder", "disabled"], Pf = {
+}, Ff = ["title"], If = ["data-busy"], Lf = ["placeholder", "disabled"], Rf = {
 	key: 0,
 	class: "quick-add-status"
-}, Ff = ["title"], If = {
+}, zf = ["title"], Bf = {
 	key: 2,
 	class: "quick-add-chip tone-yellow",
 	title: "closeOnMerge=false — opt-out from PR auto-close reactor"
-}, Lf = ["title"], Rf = {
+}, Vf = ["title"], Hf = {
 	key: 0,
 	class: "quick-add-error",
 	role: "alert"
-}, zf = {
+}, Uf = {
 	key: 1,
 	class: "issues-bulk-bar",
 	"data-smoke": "issues-bulk-bar"
-}, Bf = { class: "count" }, Vf = ["disabled"], Hf = { class: "bulk-reproject" }, Uf = ["disabled"], Wf = ["value"], Gf = ["disabled"], Kf = {
+}, Wf = { class: "count" }, Gf = ["disabled"], Kf = { class: "bulk-reproject" }, qf = ["disabled"], Jf = ["value"], Yf = ["disabled"], Xf = {
 	key: 2,
 	class: "quick-add-error",
 	role: "alert"
-}, qf = {
+}, Zf = {
 	key: 3,
 	class: "muted"
-}, Jf = {
+}, Qf = {
 	key: 4,
 	class: "muted error",
 	role: "alert"
-}, Yf = {
+}, $f = {
 	key: 5,
 	class: "muted"
-}, Xf = ["href"], Zf = {
+}, ep = ["href"], tp = {
 	key: 6,
 	class: "muted"
-}, Qf = {
+}, np = {
 	key: 7,
 	class: "issues-list",
 	role: "listbox",
 	"aria-label": "Issue list"
-}, $f = ["aria-selected", "onMouseenter"], ep = ["href"], tp = { class: "issues-row-number" }, np = { class: "issues-row-body" }, rp = { class: "issues-row-title" }, ip = { class: "issues-row-meta" }, ap = ["title", "onClick"], op = [
+}, rp = ["aria-selected", "onMouseenter"], ip = ["href"], ap = { class: "issues-row-number" }, op = { class: "issues-row-body" }, sp = { class: "issues-row-title" }, cp = { class: "issues-row-meta" }, lp = ["title", "onClick"], up = [
 	"data-author-kind",
 	"title",
 	"onClick"
-], sp = { class: "author-glyph" }, cp = ["data-author-kind"], lp = { class: "author-glyph" }, up = {
+], dp = { class: "author-glyph" }, fp = ["data-author-kind"], pp = { class: "author-glyph" }, mp = {
 	key: 0,
 	class: "author-badge"
-}, dp = {
+}, hp = {
 	key: 1,
 	class: "author-badge"
-}, fp = {
+}, gp = {
 	key: 2,
 	class: "author-badge"
-}, pp = ["title"], mp = /* @__PURE__ */ Gu(/* @__PURE__ */ Bn({
+}, _p = ["title"], vp = /* @__PURE__ */ Yu(/* @__PURE__ */ Bn({
 	__name: "IssuesList",
 	props: {
 		client: { type: null },
 		comtryaClient: { type: null },
 		issues: { type: [Array, null] },
 		workspaceId: {
-			default: cu(),
+			default: fu(),
 			type: String
 		},
 		repositoryId: {
@@ -6670,7 +6693,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			let e = te.value, t = Array.from(d.value);
 			f.value = !0, p.value = null;
 			try {
-				let n = await Promise.allSettled(t.map((t) => eu(e, t))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
+				let n = await Promise.allSettled(t.map((t) => iu(e, t))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
 				n.forEach((e, n) => {
 					let a = t[n];
 					e.status === "fulfilled" ? r.set(a, e.value) : i.add(a);
@@ -6684,7 +6707,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 		let v = /* @__PURE__ */ R([]);
 		tr(async () => {
 			try {
-				v.value = await El(t.repositorySegments);
+				v.value = await Al(t.repositorySegments);
 			} catch {
 				v.value = [];
 			}
@@ -6694,7 +6717,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			let t = Array.from(d.value);
 			f.value = !0, p.value = null;
 			try {
-				let n = await Promise.allSettled(t.map((t) => nu(t, e))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
+				let n = await Promise.allSettled(t.map((t) => ou(t, e))), r = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Set();
 				if (n.forEach((e, n) => {
 					let a = t[n];
 					e.status === "fulfilled" ? r.set(a, e.value) : i.add(a);
@@ -6721,7 +6744,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 		}), ee = /* @__PURE__ */ R(!1), T = J(() => {
 			let e = t.issues ?? a.value, n = O.value;
 			return n ? e.filter((e) => e.projectName === n) : e;
-		}), te = J(() => t.client ?? t.comtryaClient), E = J(() => mu({
+		}), te = J(() => t.client ?? t.comtryaClient), E = J(() => vu({
 			workspaceId: t.workspaceId,
 			repositoryId: t.repositoryId,
 			repositorySegments: t.repositorySegments,
@@ -6729,7 +6752,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			projectName: t.projectName,
 			state: t.state
 		}, m.value)), ne = J(() => E.value.workspaceId), D = J(() => E.value.repositoryId ?? null), O = J(() => E.value.projectName ?? null), re = J(() => E.value.state ?? null), k = J(() => {
-			let e = fu(), t = new URLSearchParams({ workspaceId: ne.value });
+			let e = gu(), t = new URLSearchParams({ workspaceId: ne.value });
 			return D.value && t.set("repositoryId", D.value), O.value && t.set("projectName", O.value), `${e}?${t.toString()}`;
 		}), ie = (e, t) => t === "ALL" ? !0 : t === "OPEN" ? e.state === "OPEN" || e.state === "REOPENED" : e.state === "CLOSED", A = [
 			"is",
@@ -6856,12 +6879,16 @@ var ud = ["data-state", "data-issue-id"], dd = {
 		}
 		function N() {
 			if (typeof window > "u") return;
-			let e = new URLSearchParams(window.location.search);
-			o.value === "OPEN" ? e.delete("state") : e.set("state", o.value);
-			let t = s.value.trim();
-			t ? e.set("q", t) : e.delete("q"), l.value ? e.set("assignee", l.value) : e.delete("assignee"), u.value && !O.value ? e.set("project", u.value) : e.delete("project");
-			let n = e.toString(), r = `${window.location.pathname}${n ? `?${n}` : ""}${window.location.hash}`;
-			r !== `${window.location.pathname}${window.location.search}${window.location.hash}` && window.history.replaceState(window.history.state, "", r);
+			let e = window.location.search, t = new URLSearchParams(e);
+			o.value === "OPEN" ? t.delete("state") : t.set("state", o.value);
+			let n = s.value.trim();
+			n ? t.set("q", n) : t.delete("q"), l.value ? t.set("assignee", l.value) : t.delete("assignee"), Cl(t, {
+				projectFilter: u.value,
+				scopedProjectName: O.value,
+				currentSearch: e
+			});
+			let r = t.toString(), i = r ? `?${r}` : "", a = `${window.location.pathname}${i}${window.location.hash}`;
+			a !== `${window.location.pathname}${e}${window.location.hash}` && window.history.replaceState(window.history.state, "", a), m.value = i;
 		}
 		let Ce = !1;
 		tr(() => {
@@ -6896,7 +6923,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			},
 			Enter: (e) => {
 				let t = de.value[c.value];
-				t && (e.preventDefault(), window.location.href = du(t));
+				t && (e.preventDefault(), window.location.href = hu(t));
 			},
 			" ": (e) => {
 				let t = de.value[c.value];
@@ -6940,7 +6967,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				}, ee.value = !0;
 				return;
 			}
-			w.value = await ld(e, "location"), ee.value = !0;
+			w.value = await pd(e, "location"), ee.value = !0;
 		}
 		async function De() {
 			if (t.issues) {
@@ -6953,7 +6980,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			}
 			r.value = "loading", i.value = null;
 			try {
-				let e = await Jl(te.value, {
+				let e = await Ql(te.value, {
 					workspaceId: ne.value,
 					repositoryId: D.value,
 					state: re.value
@@ -6971,7 +6998,7 @@ var ud = ["data-state", "data-issue-id"], dd = {
 			if (!(!e || S.value)) {
 				S.value = !0, C.value = null;
 				try {
-					let t = await $l({
+					let t = await ru({
 						workspaceId: ne.value,
 						repositoryId: D.value,
 						projectName: O.value,
@@ -6989,14 +7016,14 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				}
 			}
 		}
-		return (t, a) => (U(), W("section", gf, [
-			G("header", _f, [
-				G("div", vf, [G("h2", null, M(e.title), 1), e.showNewLink ? (U(), W("a", {
+		return (t, a) => (U(), W("section", bf, [
+			G("header", xf, [
+				G("div", Sf, [G("h2", null, M(e.title), 1), e.showNewLink ? (U(), W("a", {
 					key: 0,
 					href: k.value,
 					class: "issues-new"
-				}, "+ new", 8, yf)) : q("", !0)]),
-				G("div", bf, [G("div", xf, [(U(), W(H, null, V(n, (e) => G("button", {
+				}, "+ new", 8, Cf)) : q("", !0)]),
+				G("div", wf, [G("div", Tf, [(U(), W(H, null, V(n, (e) => G("button", {
 					key: e.id,
 					type: "button",
 					role: "tab",
@@ -7005,9 +7032,9 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					onClick: (t) => o.value = e.id
 				}, [
 					G("span", null, M(e.label), 1),
-					G("span", Cf, M(ve.value[e.id]), 1),
+					G("span", Df, M(ve.value[e.id]), 1),
 					G("kbd", null, M(e.key), 1)
-				], 10, Sf)), 64))]), G("label", wf, [Dn(G("input", {
+				], 10, Ef)), 64))]), G("label", Of, [Dn(G("input", {
 					"data-issues-search": "",
 					"onUpdate:modelValue": a[0] ||= (e) => s.value = e,
 					type: "search",
@@ -7015,11 +7042,11 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					autocomplete: "off",
 					onKeydown: yo(P, ["esc"])
 				}, null, 544), [[uo, s.value]]), a[2] ||= G("kbd", null, "/", -1)])]),
-				fe.value.length > 0 ? (U(), W("div", Tf, [(U(!0), W(H, null, V(fe.value, (e) => (U(), W("span", {
+				fe.value.length > 0 ? (U(), W("div", kf, [(U(!0), W(H, null, V(fe.value, (e) => (U(), W("span", {
 					key: `${e.key}:${e.value || "unknown"}`,
 					class: j(["query-chip", `tone-${e.tone}`]),
 					title: e.tone === "unknown" ? `Unknown filter key: ${e.key}` : e.value
-				}, M(e.label), 11, Ef))), 128)), a[3] ||= G("span", { class: "query-chips-hint" }, [
+				}, M(e.label), 11, Af))), 128)), a[3] ||= G("span", { class: "query-chips-hint" }, [
 					K(" syntax: "),
 					G("code", null, "is:open"),
 					K(" · "),
@@ -7027,13 +7054,13 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					K(" · "),
 					G("code", null, "assignee:<urn>")
 				], -1)])) : q("", !0),
-				l.value ? (U(), W("div", Df, [
+				l.value ? (U(), W("div", jf, [
 					a[4] ||= G("span", { class: "prefix" }, "assigned to", -1),
 					G("span", {
 						class: "active-chip",
 						"data-author-kind": z($)(l.value).kind,
 						title: l.value
-					}, [G("span", kf, M(z($)(l.value).glyph), 1), K(" " + M(z($)(l.value).label), 1)], 8, Of),
+					}, [G("span", Nf, M(z($)(l.value).glyph), 1), K(" " + M(z($)(l.value).label), 1)], 8, Mf),
 					G("button", {
 						type: "button",
 						class: "clear",
@@ -7041,12 +7068,12 @@ var ud = ["data-state", "data-issue-id"], dd = {
 						"aria-label": "Clear assignee filter"
 					}, " clear ✕ ")
 				])) : q("", !0),
-				u.value && !O.value ? (U(), W("div", Af, [
+				u.value && !O.value ? (U(), W("div", Pf, [
 					a[6] ||= G("span", { class: "prefix" }, "project", -1),
 					G("span", {
 						class: "active-chip",
 						title: `Scoped to project ${u.value}`
-					}, [a[5] ||= G("span", { class: "project-glyph" }, "◇", -1), K(" " + M(u.value), 1)], 8, jf),
+					}, [a[5] ||= G("span", { class: "project-glyph" }, "◇", -1), K(" " + M(u.value), 1)], 8, Ff),
 					G("button", {
 						type: "button",
 						class: "clear",
@@ -7072,18 +7099,18 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					placeholder: _e.value,
 					disabled: S.value,
 					onKeydown: yo(Te, ["esc"])
-				}, null, 40, Nf), [[uo, x.value]]),
-				S.value ? (U(), W("span", Pf, "opening…")) : w.value.defaultLabels.length > 0 ? (U(), W("span", {
+				}, null, 40, Lf), [[uo, x.value]]),
+				S.value ? (U(), W("span", Rf, "opening…")) : w.value.defaultLabels.length > 0 ? (U(), W("span", {
 					key: 1,
 					class: "quick-add-chip tone-teal",
 					title: `Labels will be pre-stamped: ${w.value.defaultLabels.join(", ")}`
-				}, " labels · " + M(w.value.defaultLabels.join(", ")), 9, Ff)) : q("", !0),
-				w.value.closeOnMerge === !1 ? (U(), W("span", If, "closeOnMerge · off")) : q("", !0),
+				}, " labels · " + M(w.value.defaultLabels.join(", ")), 9, zf)) : q("", !0),
+				w.value.closeOnMerge === !1 ? (U(), W("span", Bf, "closeOnMerge · off")) : q("", !0),
 				w.value.ownerRefs.length > 0 ? (U(), W("span", {
 					key: 3,
 					class: "quick-add-chip tone-teal",
 					title: `Assigned on create: ${w.value.ownerRefs.join(", ")}`
-				}, "→ " + M(w.value.ownerRefs.map((e) => e.split("/").pop()).join(" · ")), 9, Lf)) : q("", !0),
+				}, "→ " + M(w.value.ownerRefs.map((e) => e.split("/").pop()).join(" · ")), 9, Vf)) : q("", !0),
 				a[8] ||= G("span", { class: "quick-add-hint" }, [
 					G("kbd", null, "↵"),
 					K(" create · "),
@@ -7092,17 +7119,17 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					G("kbd", null, "c"),
 					K(" focus ")
 				], -1)
-			], 40, Mf),
-			C.value ? (U(), W("p", Rf, M(C.value), 1)) : q("", !0),
-			d.value.size > 0 ? (U(), W("div", zf, [
-				G("span", Bf, M(d.value.size) + " selected", 1),
+			], 40, If),
+			C.value ? (U(), W("p", Hf, M(C.value), 1)) : q("", !0),
+			d.value.size > 0 ? (U(), W("div", Uf, [
+				G("span", Wf, M(d.value.size) + " selected", 1),
 				G("button", {
 					type: "button",
 					class: "bulk-action",
 					disabled: f.value,
 					onClick: _
-				}, M(f.value ? "closing…" : `close ${d.value.size}`), 9, Vf),
-				G("label", Hf, [a[11] ||= G("span", { class: "bulk-reproject-label" }, "reproject →", -1), G("select", {
+				}, M(f.value ? "closing…" : `close ${d.value.size}`), 9, Gf),
+				G("label", Kf, [a[11] ||= G("span", { class: "bulk-reproject-label" }, "reproject →", -1), G("select", {
 					class: "bulk-reproject-select",
 					"data-smoke": "issues-bulk-reproject",
 					disabled: f.value,
@@ -7117,22 +7144,22 @@ var ud = ["data-state", "data-issue-id"], dd = {
 					(U(!0), W(H, null, V(v.value, (e) => (U(), W("option", {
 						key: e.name,
 						value: e.name ?? ""
-					}, "◇ " + M(e.name), 9, Wf))), 128))
-				], 40, Uf)]),
+					}, "◇ " + M(e.name), 9, Jf))), 128))
+				], 40, qf)]),
 				G("button", {
 					type: "button",
 					class: "bulk-clear",
 					disabled: f.value,
 					onClick: g
-				}, [...a[12] ||= [K("clear ", -1), G("kbd", null, "esc", -1)]], 8, Gf),
+				}, [...a[12] ||= [K("clear ", -1), G("kbd", null, "esc", -1)]], 8, Yf),
 				a[13] ||= G("span", { class: "hint" }, [G("kbd", null, "space"), K(" toggle row ")], -1)
 			])) : q("", !0),
-			p.value ? (U(), W("p", Kf, M(p.value), 1)) : q("", !0),
-			r.value === "loading" ? (U(), W("p", qf, "Loading issues…")) : r.value === "error" ? (U(), W("p", Jf, M(i.value), 1)) : T.value.length === 0 ? (U(), W("p", Yf, [
+			p.value ? (U(), W("p", Xf, M(p.value), 1)) : q("", !0),
+			r.value === "loading" ? (U(), W("p", Zf, "Loading issues…")) : r.value === "error" ? (U(), W("p", Qf, M(i.value), 1)) : T.value.length === 0 ? (U(), W("p", $f, [
 				a[14] ||= K(" No issues yet. ", -1),
-				G("a", { href: k.value }, "Create one", 8, Xf),
+				G("a", { href: k.value }, "Create one", 8, ep),
 				a[15] ||= K(" to get started. ", -1)
-			])) : de.value.length === 0 ? (U(), W("p", Zf, " No issues match the current filter. ")) : (U(), W("ol", Qf, [(U(!0), W(H, null, V(de.value, (t, n) => (U(), W("li", {
+			])) : de.value.length === 0 ? (U(), W("p", tp, " No issues match the current filter. ")) : (U(), W("ol", np, [(U(!0), W(H, null, V(de.value, (t, n) => (U(), W("li", {
 				key: t.id,
 				class: j(["issues-row", {
 					focused: n === c.value,
@@ -7142,20 +7169,20 @@ var ud = ["data-state", "data-issue-id"], dd = {
 				"aria-selected": n === c.value,
 				onMouseenter: (e) => c.value = n
 			}, [G("a", {
-				href: z(du)(t),
+				href: z(hu)(t),
 				class: "issues-row-link"
 			}, [
-				G("span", tp, "#" + M(t.number), 1),
-				G("span", np, [G("span", rp, M(t.title), 1), G("span", ip, [
-					G("span", { class: j(["issue-state", z(pu)(t.state).className]) }, M(z(pu)(t.state).label), 3),
+				G("span", ap, "#" + M(t.number), 1),
+				G("span", op, [G("span", sp, M(t.title), 1), G("span", cp, [
+					G("span", { class: j(["issue-state", z(_u)(t.state).className]) }, M(z(_u)(t.state).label), 3),
 					t.projectName ? (U(), W("button", {
 						key: 0,
 						type: "button",
 						class: j(["issue-project", { active: u.value === t.projectName }]),
 						title: `${t.projectName}\nClick to filter by this project`,
 						onClick: _o((e) => he(t.projectName), ["prevent", "stop"])
-					}, [a[16] ||= G("span", { class: "project-glyph" }, "◇", -1), K(" " + M(t.projectName), 1)], 10, ap)) : q("", !0),
-					(U(!0), W(H, null, V(t.labels ?? [], (t) => (U(), Ni(z(jl), {
+					}, [a[16] ||= G("span", { class: "project-glyph" }, "◇", -1), K(" " + M(t.projectName), 1)], 10, lp)) : q("", !0),
+					(U(!0), W(H, null, V(t.labels ?? [], (t) => (U(), Ni(z(Fl), {
 						key: t,
 						name: t,
 						catalog: e.labelCatalog
@@ -7167,27 +7194,27 @@ var ud = ["data-state", "data-issue-id"], dd = {
 						"data-author-kind": z($)(e).kind,
 						title: `${e}\nClick to filter by this assignee`,
 						onClick: _o((t) => pe(e), ["prevent", "stop"])
-					}, [G("span", sp, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 10, op))), 128)),
+					}, [G("span", dp, M(z($)(e).glyph), 1), K(" " + M(z($)(e).label), 1)], 10, up))), 128)),
 					t.authorRef ? (U(), W("span", {
 						key: 1,
 						class: "issue-author",
 						"data-author-kind": z($)(t.authorRef).kind
 					}, [
-						G("span", lp, M(z($)(t.authorRef).glyph), 1),
+						G("span", pp, M(z($)(t.authorRef).glyph), 1),
 						K(" " + M(z($)(t.authorRef).label) + " ", 1),
-						z($)(t.authorRef).kind === "agent" ? (U(), W("span", up, "agent")) : z($)(t.authorRef).kind === "credential" ? (U(), W("span", dp, "bot")) : z($)(t.authorRef).kind === "bot" ? (U(), W("span", fp, "bot")) : q("", !0)
-					], 8, cp)) : q("", !0)
+						z($)(t.authorRef).kind === "agent" ? (U(), W("span", mp, "agent")) : z($)(t.authorRef).kind === "credential" ? (U(), W("span", hp, "bot")) : z($)(t.authorRef).kind === "bot" ? (U(), W("span", gp, "bot")) : q("", !0)
+					], 8, fp)) : q("", !0)
 				])]),
 				G("span", {
 					class: "issues-row-age",
 					title: be(t)
-				}, M(ye(t.updatedAt ?? t.createdAt)), 9, pp)
-			], 8, ep)], 42, $f))), 128))])),
-			a[17] ||= Hi("<footer class=\"issues-foot\" data-v-915af788><span data-v-915af788><kbd data-v-915af788>j</kbd> <kbd data-v-915af788>k</kbd> navigate · <kbd data-v-915af788>↵</kbd> open · <kbd data-v-915af788>/</kbd> search · <kbd data-v-915af788>c</kbd> create · <kbd data-v-915af788>o</kbd> open <kbd data-v-915af788>x</kbd> closed <kbd data-v-915af788>a</kbd> all </span></footer>", 1)
+				}, M(ye(t.updatedAt ?? t.createdAt)), 9, _p)
+			], 8, ip)], 42, rp))), 128))])),
+			a[17] ||= Hi("<footer class=\"issues-foot\" data-v-90a55057><span data-v-90a55057><kbd data-v-90a55057>j</kbd> <kbd data-v-90a55057>k</kbd> navigate · <kbd data-v-90a55057>↵</kbd> open · <kbd data-v-90a55057>/</kbd> search · <kbd data-v-90a55057>c</kbd> create · <kbd data-v-90a55057>o</kbd> open <kbd data-v-90a55057>x</kbd> closed <kbd data-v-90a55057>a</kbd> all </span></footer>", 1)
 		]));
 	}
-}), [["styles", [".issues-queue[data-v-915af788]{min-width:0;font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:14px;display:grid}.issues-queue-head[data-v-915af788]{gap:12px;min-width:0;display:grid}.head-row[data-v-915af788]{justify-content:space-between;align-items:baseline;gap:12px;min-width:0;display:flex}.issues-queue-head h2[data-v-915af788]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.issues-new[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--fg,#fffffff0);padding:6px 12px;font-size:12px;text-decoration:none}.issues-controls[data-v-915af788]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;min-width:0;display:flex}.issues-query-chips[data-v-915af788]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.issues-query-chips .query-chip[data-v-915af788]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.issues-query-chips .query-chip.tone-is[data-v-915af788]{color:var(--accent-teal,#087f6f)}.issues-query-chips .query-chip.tone-assignee[data-v-915af788]{color:var(--fg,#fffffff0)}.issues-query-chips .query-chip.tone-project[data-v-915af788]{color:var(--accent-blue,#1d55a6)}.issues-query-chips .query-chip.tone-unknown[data-v-915af788]{color:var(--accent-yellow,#c89300);border-style:dashed}.issues-query-chips .query-chips-hint[data-v-915af788]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.issues-query-chips .query-chips-hint code[data-v-915af788]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.issues-assignee-filter[data-v-915af788]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.issues-assignee-filter .prefix[data-v-915af788]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.issues-assignee-filter .active-chip[data-v-915af788]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issues-assignee-filter .active-chip[data-author-kind=agent][data-v-915af788]{color:#6b3fa0}.issues-assignee-filter .active-chip[data-author-kind=credential][data-v-915af788]{color:var(--accent-yellow,#c89300)}.issues-assignee-filter .active-chip[data-author-kind=bot][data-v-915af788]{color:var(--accent-blue,#1d55a6)}.issues-assignee-filter .active-chip[data-author-kind=team][data-v-915af788]{color:var(--accent-teal,#087f6f)}.issues-project-filter[data-v-915af788]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.issues-project-filter .prefix[data-v-915af788]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.issues-project-filter .active-chip[data-v-915af788]{color:var(--accent-blue,#1d55a6);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issues-project-filter .project-glyph[data-v-915af788]{font-size:10px}.issues-project-filter .clear[data-v-915af788]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.issues-project-filter .clear[data-v-915af788]:hover{color:var(--fg,#fffffff0)}.issues-assignee-filter .author-glyph[data-v-915af788]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.issues-assignee-filter .clear[data-v-915af788]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.issues-assignee-filter .clear[data-v-915af788]:hover{color:var(--fg,#fffffff0)}.issues-quick-add[data-v-915af788]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);align-items:center;gap:8px;min-width:0;padding:6px 10px 6px 6px;transition:border-color .12s;display:flex}.issues-quick-add[data-v-915af788]:focus-within{border-color:var(--fg,#fffffff0)}.issues-quick-add[data-busy=true][data-v-915af788]{opacity:.85;border-style:dashed}.quick-add-glyph[data-v-915af788]{width:22px;height:22px;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid;border-radius:2px;place-items:center;font-size:13px;display:inline-grid}.issues-quick-add input[data-v-915af788]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);background:0 0;border:0;outline:none;flex:1;padding:4px 0;font-size:15px}.issues-quick-add input[data-v-915af788]::placeholder{color:var(--fg-4,#ffffff57);font-style:italic}.quick-add-status[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.quick-add-chip[data-v-915af788]{font-family:var(--font-mono,monospace);letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 6px;font-size:10.5px;display:inline-flex}.quick-add-chip.tone-teal[data-v-915af788]{color:var(--accent-teal,#087f6f)}.quick-add-chip.tone-yellow[data-v-915af788]{color:var(--accent-yellow,#c89300)}.quick-add-hint[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-4,#ffffff57);white-space:nowrap;font-size:10.5px}.quick-add-hint kbd[data-v-915af788]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}.quick-add-error[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--accent-err,#c9341c);margin:-6px 0 0;font-size:11px}.issues-filter-row[data-v-915af788]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.issues-filter[data-v-915af788]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.issues-filter[data-v-915af788]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.issues-filter.active[data-v-915af788]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.issues-filter .count[data-v-915af788]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.issues-filter.active .count[data-v-915af788]{color:var(--bg-2,#0e1014)}.issues-filter kbd[data-v-915af788]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.issues-search[data-v-915af788]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:0;max-width:420px;padding:4px 10px;display:inline-flex}.issues-search input[data-v-915af788]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.issues-search kbd[data-v-915af788]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.muted[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.muted.error[data-v-915af788]{color:var(--accent-err,#c9341c)}.issues-list[data-v-915af788]{border-top:.5px solid var(--fg,#fffffff0);min-width:0;margin:0;padding:0;list-style:none;display:grid}.issues-row[data-v-915af788]{border-bottom:.5px solid var(--line,#ffffff12);min-width:0;position:relative}.issues-row.focused[data-v-915af788]{background:var(--bg-2,#0e1014)}.issues-row.selected[data-v-915af788]{background:var(--bg-2,#0e1014);box-shadow:inset 3px 0 0 var(--fg,#fffffff0)}.issues-row.selected.focused[data-v-915af788]{background:var(--bg-2,#0e1014);box-shadow:inset 3px 0 0 var(--accent-teal,#087f6f)}.issues-bulk-bar[data-v-915af788]{z-index:5;border:.5px solid var(--fg,#fffffff0);background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);align-items:center;gap:12px;margin:8px 0;padding:8px 12px;font-size:12px;display:flex;position:sticky;top:0}.issues-bulk-bar .count[data-v-915af788]{letter-spacing:.02em;font-weight:600}.issues-bulk-bar .bulk-action[data-v-915af788]{border:.5px solid var(--bg,#0a0b0e);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;letter-spacing:.02em;text-transform:lowercase;background:0 0;padding:4px 10px;font-size:11px}.issues-bulk-bar .bulk-action[data-v-915af788]:hover:not(:disabled){background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0)}.issues-bulk-bar .bulk-action[data-v-915af788]:disabled{opacity:.5;cursor:wait}.issues-bulk-bar .bulk-reproject[data-v-915af788]{align-items:center;gap:6px;display:inline-flex}.issues-bulk-bar .bulk-reproject-label[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:11px}.issues-bulk-bar .bulk-reproject-select[data-v-915af788]{border:.5px solid var(--bg-2,#0e1014);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;outline:none;padding:2px 6px;font-size:11px}.issues-bulk-bar .bulk-reproject-select[data-v-915af788]:disabled{opacity:.5;cursor:wait}.issues-bulk-bar .bulk-reproject-select option[data-v-915af788]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.issues-bulk-bar .bulk-clear[data-v-915af788]{color:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 4px;font-size:11px}.issues-bulk-bar .bulk-clear kbd[data-v-915af788]{border:.5px solid;margin-left:4px;padding:0 4px;font-size:10px}.issues-bulk-bar .hint[data-v-915af788]{color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:10.5px}.issues-bulk-bar .hint kbd[data-v-915af788]{border:.5px solid;padding:0 4px;font-size:10px}.issues-row-link[data-v-915af788]{min-width:0;color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.issues-row-link[data-v-915af788]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.issues-row-number[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.issues-row-body[data-v-915af788]{gap:4px;min-width:0;display:grid}.issues-row-title[data-v-915af788]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.issues-row-meta[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.issue-state[data-v-915af788]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.issue-state.issue-state-open[data-v-915af788]{color:var(--accent-teal,#087f6f)}.issue-state.issue-state-closed[data-v-915af788]{color:var(--accent-blue,#1d55a6)}.issue-project[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:.5px solid;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.issue-project[data-v-915af788]:hover{background:var(--bg-2,#0e1014)}.issue-project.active[data-v-915af788]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.issue-project .project-glyph[data-v-915af788]{font-size:10px}.issue-label[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--accent-teal,#087f6f);letter-spacing:.02em;border:.5px solid;padding:0 5px;font-size:10px}.issue-author[data-v-915af788]{font-family:var(--font-mono,monospace);align-items:center;gap:5px;font-size:12px;display:inline-flex}.issue-author .author-glyph[data-v-915af788]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.issue-author[data-author-kind=agent][data-v-915af788]{color:#6b3fa0}.issue-author[data-author-kind=credential][data-v-915af788]{color:var(--accent-yellow,#c89300)}.issue-author[data-author-kind=bot][data-v-915af788]{color:var(--accent-blue,#1d55a6)}.issue-author .author-badge[data-v-915af788]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.issue-assignee[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:1px dashed;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issue-assignee[data-v-915af788]:hover{background:var(--bg-2,#0e1014)}.issue-assignee.active[data-v-915af788]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.issue-assignee.active .author-glyph[data-v-915af788]{color:inherit}.issue-assignee .author-glyph[data-v-915af788]{width:12px;height:12px;color:inherit;border:0;place-items:center;font-size:9px;font-weight:700;display:inline-grid}.issue-assignee[data-author-kind=agent][data-v-915af788]{color:#6b3fa0}.issue-assignee[data-author-kind=credential][data-v-915af788]{color:var(--accent-yellow,#c89300)}.issue-assignee[data-author-kind=bot][data-v-915af788]{color:var(--accent-blue,#1d55a6)}.issue-assignee[data-author-kind=team][data-v-915af788]{color:var(--accent-teal,#087f6f)}.issues-row-age[data-v-915af788]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.issues-foot[data-v-915af788]{min-width:0;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.issues-foot kbd[data-v-915af788]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}@media (max-width:520px){.head-row[data-v-915af788],.issues-controls[data-v-915af788],.issues-quick-add[data-v-915af788]{align-items:stretch}.head-row[data-v-915af788]{flex-wrap:wrap}.issues-new[data-v-915af788]{justify-self:start}.issues-controls[data-v-915af788]{grid-template-columns:minmax(0,1fr);display:grid}.issues-search[data-v-915af788]{flex-basis:auto;width:100%;max-width:none}.issues-quick-add[data-v-915af788]{flex-wrap:wrap}.quick-add-status[data-v-915af788],.quick-add-hint[data-v-915af788]{white-space:normal;max-width:100%}.issues-row-link[data-v-915af788]{grid-template-columns:42px minmax(0,1fr);align-items:start;gap:10px}.issues-row-age[data-v-915af788]{grid-column:2;justify-self:start}.issues-foot[data-v-915af788]{overflow-wrap:anywhere}}"]], ["__scopeId", "data-v-915af788"]]), hp = /* @__PURE__ */ new Map();
-function gp(e) {
+}), [["styles", [".issues-queue[data-v-90a55057]{min-width:0;font-family:var(--font-sans,system-ui);color:var(--fg,#fffffff0);gap:14px;display:grid}.issues-queue-head[data-v-90a55057]{gap:12px;min-width:0;display:grid}.head-row[data-v-90a55057]{justify-content:space-between;align-items:baseline;gap:12px;min-width:0;display:flex}.issues-queue-head h2[data-v-90a55057]{font-family:var(--font-serif,system-ui);margin:0;font-size:22px;line-height:1}.issues-new[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid var(--fg,#fffffff0);padding:6px 12px;font-size:12px;text-decoration:none}.issues-controls[data-v-90a55057]{flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;min-width:0;display:flex}.issues-query-chips[data-v-90a55057]{font-family:var(--font-mono,monospace);flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px;font-size:11px;display:flex}.issues-query-chips .query-chip[data-v-90a55057]{letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 7px;display:inline-flex}.issues-query-chips .query-chip.tone-is[data-v-90a55057]{color:var(--accent-teal,#087f6f)}.issues-query-chips .query-chip.tone-assignee[data-v-90a55057]{color:var(--fg,#fffffff0)}.issues-query-chips .query-chip.tone-project[data-v-90a55057]{color:var(--accent-blue,#1d55a6)}.issues-query-chips .query-chip.tone-unknown[data-v-90a55057]{color:var(--accent-yellow,#c89300);border-style:dashed}.issues-query-chips .query-chips-hint[data-v-90a55057]{color:var(--fg-3,#ffffff85);letter-spacing:0;margin-left:4px}.issues-query-chips .query-chips-hint code[data-v-90a55057]{font-family:var(--font-mono,monospace);background:var(--bg-2,#0e1014);color:var(--fg-2,#ffffffbd);padding:0 4px;font-size:11px}.issues-assignee-filter[data-v-90a55057]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.issues-assignee-filter .prefix[data-v-90a55057]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.issues-assignee-filter .active-chip[data-v-90a55057]{color:var(--fg,#fffffff0);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issues-assignee-filter .active-chip[data-author-kind=agent][data-v-90a55057]{color:#6b3fa0}.issues-assignee-filter .active-chip[data-author-kind=credential][data-v-90a55057]{color:var(--accent-yellow,#c89300)}.issues-assignee-filter .active-chip[data-author-kind=bot][data-v-90a55057]{color:var(--accent-blue,#1d55a6)}.issues-assignee-filter .active-chip[data-author-kind=team][data-v-90a55057]{color:var(--accent-teal,#087f6f)}.issues-project-filter[data-v-90a55057]{border:.5px solid var(--line,#ffffff12);background:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);align-items:center;gap:8px;margin-top:8px;padding:6px 10px;font-size:11px;display:inline-flex}.issues-project-filter .prefix[data-v-90a55057]{color:var(--fg-3,#ffffff85);letter-spacing:.04em;text-transform:lowercase}.issues-project-filter .active-chip[data-v-90a55057]{color:var(--accent-blue,#1d55a6);border:.5px solid;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issues-project-filter .project-glyph[data-v-90a55057]{font-size:10px}.issues-project-filter .clear[data-v-90a55057]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.issues-project-filter .clear[data-v-90a55057]:hover{color:var(--fg,#fffffff0)}.issues-assignee-filter .author-glyph[data-v-90a55057]{place-items:center;width:12px;height:12px;font-size:9px;font-weight:700;display:inline-grid}.issues-assignee-filter .clear[data-v-90a55057]{color:var(--fg-3,#ffffff85);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 2px;font-size:10.5px}.issues-assignee-filter .clear[data-v-90a55057]:hover{color:var(--fg,#fffffff0)}.issues-quick-add[data-v-90a55057]{border:.5px solid var(--line,#ffffff12);background:var(--bg,#0a0b0e);align-items:center;gap:8px;min-width:0;padding:6px 10px 6px 6px;transition:border-color .12s;display:flex}.issues-quick-add[data-v-90a55057]:focus-within{border-color:var(--fg,#fffffff0)}.issues-quick-add[data-busy=true][data-v-90a55057]{opacity:.85;border-style:dashed}.quick-add-glyph[data-v-90a55057]{width:22px;height:22px;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border:.5px solid;border-radius:2px;place-items:center;font-size:13px;display:inline-grid}.issues-quick-add input[data-v-90a55057]{min-width:0;color:inherit;font-family:var(--font-serif,system-ui);background:0 0;border:0;outline:none;flex:1;padding:4px 0;font-size:15px}.issues-quick-add input[data-v-90a55057]::placeholder{color:var(--fg-4,#ffffff57);font-style:italic}.quick-add-status[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.quick-add-chip[data-v-90a55057]{font-family:var(--font-mono,monospace);letter-spacing:.02em;white-space:nowrap;border:.5px solid;align-items:center;padding:1px 6px;font-size:10.5px;display:inline-flex}.quick-add-chip.tone-teal[data-v-90a55057]{color:var(--accent-teal,#087f6f)}.quick-add-chip.tone-yellow[data-v-90a55057]{color:var(--accent-yellow,#c89300)}.quick-add-hint[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-4,#ffffff57);white-space:nowrap;font-size:10.5px}.quick-add-hint kbd[data-v-90a55057]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}.quick-add-error[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--accent-err,#c9341c);margin:-6px 0 0;font-size:11px}.issues-filter-row[data-v-90a55057]{border:.5px solid var(--fg,#fffffff0);flex-wrap:wrap;gap:4px;display:inline-flex}.issues-filter[data-v-90a55057]{color:inherit;cursor:pointer;font-family:var(--font-mono,monospace);background:0 0;border:0;align-items:center;gap:6px;padding:6px 10px;font-size:12px;display:inline-flex}.issues-filter[data-v-90a55057]:not(:last-child){border-right:.5px solid var(--line,#ffffff12)}.issues-filter.active[data-v-90a55057]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.issues-filter .count[data-v-90a55057]{color:var(--fg-3,#ffffff85);font-variant-numeric:tabular-nums}.issues-filter.active .count[data-v-90a55057]{color:var(--bg-2,#0e1014)}.issues-filter kbd[data-v-90a55057]{font-family:var(--font-mono,monospace);opacity:.6;border:.5px solid;padding:0 4px;font-size:10px}.issues-search[data-v-90a55057]{border:.5px solid var(--fg,#fffffff0);flex:240px;align-items:center;gap:8px;min-width:0;max-width:420px;padding:4px 10px;display:inline-flex}.issues-search input[data-v-90a55057]{color:inherit;font:inherit;background:0 0;border:0;outline:none;flex:1;min-width:0}.issues-search kbd[data-v-90a55057]{border:.5px solid var(--fg,#fffffff0);font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);padding:0 4px;font-size:10px}.muted[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);border-top:.5px solid var(--line,#ffffff12);padding:18px 0;font-size:13px}.muted.error[data-v-90a55057]{color:var(--accent-err,#c9341c)}.issues-list[data-v-90a55057]{border-top:.5px solid var(--fg,#fffffff0);min-width:0;margin:0;padding:0;list-style:none;display:grid}.issues-row[data-v-90a55057]{border-bottom:.5px solid var(--line,#ffffff12);min-width:0;position:relative}.issues-row.focused[data-v-90a55057]{background:var(--bg-2,#0e1014)}.issues-row.selected[data-v-90a55057]{background:var(--bg-2,#0e1014);box-shadow:inset 3px 0 0 var(--fg,#fffffff0)}.issues-row.selected.focused[data-v-90a55057]{background:var(--bg-2,#0e1014);box-shadow:inset 3px 0 0 var(--accent-teal,#087f6f)}.issues-bulk-bar[data-v-90a55057]{z-index:5;border:.5px solid var(--fg,#fffffff0);background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);align-items:center;gap:12px;margin:8px 0;padding:8px 12px;font-size:12px;display:flex;position:sticky;top:0}.issues-bulk-bar .count[data-v-90a55057]{letter-spacing:.02em;font-weight:600}.issues-bulk-bar .bulk-action[data-v-90a55057]{border:.5px solid var(--bg,#0a0b0e);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;letter-spacing:.02em;text-transform:lowercase;background:0 0;padding:4px 10px;font-size:11px}.issues-bulk-bar .bulk-action[data-v-90a55057]:hover:not(:disabled){background:var(--bg,#0a0b0e);color:var(--fg,#fffffff0)}.issues-bulk-bar .bulk-action[data-v-90a55057]:disabled{opacity:.5;cursor:wait}.issues-bulk-bar .bulk-reproject[data-v-90a55057]{align-items:center;gap:6px;display:inline-flex}.issues-bulk-bar .bulk-reproject-label[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:11px}.issues-bulk-bar .bulk-reproject-select[data-v-90a55057]{border:.5px solid var(--bg-2,#0e1014);color:var(--bg,#0a0b0e);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;outline:none;padding:2px 6px;font-size:11px}.issues-bulk-bar .bulk-reproject-select[data-v-90a55057]:disabled{opacity:.5;cursor:wait}.issues-bulk-bar .bulk-reproject-select option[data-v-90a55057]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e)}.issues-bulk-bar .bulk-clear[data-v-90a55057]{color:var(--bg-2,#0e1014);font-family:var(--font-mono,monospace);cursor:pointer;background:0 0;border:0;margin-left:auto;padding:0 4px;font-size:11px}.issues-bulk-bar .bulk-clear kbd[data-v-90a55057]{border:.5px solid;margin-left:4px;padding:0 4px;font-size:10px}.issues-bulk-bar .hint[data-v-90a55057]{color:var(--bg-2,#0e1014);letter-spacing:.04em;font-size:10.5px}.issues-bulk-bar .hint kbd[data-v-90a55057]{border:.5px solid;padding:0 4px;font-size:10px}.issues-row-link[data-v-90a55057]{min-width:0;color:inherit;grid-template-columns:56px 1fr auto;align-items:baseline;gap:14px;padding:12px 12px 12px 6px;text-decoration:none;display:grid}.issues-row-link[data-v-90a55057]:hover{background:var(--bg-2,#0e1014);text-decoration:none}.issues-row-number[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);text-align:right;font-variant-numeric:tabular-nums;font-size:12px}.issues-row-body[data-v-90a55057]{gap:4px;min-width:0;display:grid}.issues-row-title[data-v-90a55057]{font-family:var(--font-serif,system-ui);text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600;overflow:hidden}.issues-row-meta[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);flex-wrap:wrap;align-items:baseline;gap:10px;font-size:12px;display:flex}.issue-state[data-v-90a55057]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 6px;font-size:11px}.issue-state.issue-state-open[data-v-90a55057]{color:var(--accent-teal,#087f6f)}.issue-state.issue-state-closed[data-v-90a55057]{color:var(--accent-blue,#1d55a6)}.issue-project[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--accent-blue,#1d55a6);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:.5px solid;align-items:center;gap:4px;padding:0 6px;display:inline-flex}.issue-project[data-v-90a55057]:hover{background:var(--bg-2,#0e1014)}.issue-project.active[data-v-90a55057]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.issue-project .project-glyph[data-v-90a55057]{font-size:10px}.issue-label[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--accent-teal,#087f6f);letter-spacing:.02em;border:.5px solid;padding:0 5px;font-size:10px}.issue-author[data-v-90a55057]{font-family:var(--font-mono,monospace);align-items:center;gap:5px;font-size:12px;display:inline-flex}.issue-author .author-glyph[data-v-90a55057]{width:14px;height:14px;color:var(--fg-3,#ffffff85);border:.5px solid;place-items:center;font-size:10px;font-weight:700;display:inline-grid}.issue-author[data-author-kind=agent][data-v-90a55057]{color:#6b3fa0}.issue-author[data-author-kind=credential][data-v-90a55057]{color:var(--accent-yellow,#c89300)}.issue-author[data-author-kind=bot][data-v-90a55057]{color:var(--accent-blue,#1d55a6)}.issue-author .author-badge[data-v-90a55057]{letter-spacing:.04em;text-transform:uppercase;border:.5px solid;padding:0 4px;font-size:10px}.issue-assignee[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-2,#ffffffbd);cursor:pointer;font-size:11px;font:inherit;font-family:var(--font-mono,monospace);background:0 0;border:1px dashed;align-items:center;gap:4px;padding:0 5px;display:inline-flex}.issue-assignee[data-v-90a55057]:hover{background:var(--bg-2,#0e1014)}.issue-assignee.active[data-v-90a55057]{background:var(--fg,#fffffff0);color:var(--bg,#0a0b0e);border-color:var(--fg,#fffffff0)}.issue-assignee.active .author-glyph[data-v-90a55057]{color:inherit}.issue-assignee .author-glyph[data-v-90a55057]{width:12px;height:12px;color:inherit;border:0;place-items:center;font-size:9px;font-weight:700;display:inline-grid}.issue-assignee[data-author-kind=agent][data-v-90a55057]{color:#6b3fa0}.issue-assignee[data-author-kind=credential][data-v-90a55057]{color:var(--accent-yellow,#c89300)}.issue-assignee[data-author-kind=bot][data-v-90a55057]{color:var(--accent-blue,#1d55a6)}.issue-assignee[data-author-kind=team][data-v-90a55057]{color:var(--accent-teal,#087f6f)}.issues-row-age[data-v-90a55057]{font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);white-space:nowrap;font-size:12px}.issues-foot[data-v-90a55057]{min-width:0;font-family:var(--font-mono,monospace);color:var(--fg-3,#ffffff85);font-size:11px}.issues-foot kbd[data-v-90a55057]{font-family:var(--font-mono,monospace);border:.5px solid;padding:0 4px;font-size:10px}@media (max-width:520px){.head-row[data-v-90a55057],.issues-controls[data-v-90a55057],.issues-quick-add[data-v-90a55057]{align-items:stretch}.head-row[data-v-90a55057]{flex-wrap:wrap}.issues-new[data-v-90a55057]{justify-self:start}.issues-controls[data-v-90a55057]{grid-template-columns:minmax(0,1fr);display:grid}.issues-search[data-v-90a55057]{flex-basis:auto;width:100%;max-width:none}.issues-quick-add[data-v-90a55057]{flex-wrap:wrap}.quick-add-status[data-v-90a55057],.quick-add-hint[data-v-90a55057]{white-space:normal;max-width:100%}.issues-row-link[data-v-90a55057]{grid-template-columns:42px minmax(0,1fr);align-items:start;gap:10px}.issues-row-age[data-v-90a55057]{grid-column:2;justify-self:start}.issues-foot[data-v-90a55057]{overflow-wrap:anywhere}}"]], ["__scopeId", "data-v-90a55057"]]), yp = /* @__PURE__ */ new Map();
+function bp(e) {
 	return [
 		e.id,
 		e.number,
@@ -7195,7 +7222,7 @@ function gp(e) {
 		e.state
 	].join("|");
 }
-function _p(e, t) {
+function xp(e, t) {
 	let n = [];
 	return n.push(vs({
 		id: `ext_issues.open.${e.id}`,
@@ -7203,7 +7230,7 @@ function _p(e, t) {
 		category: "Issues",
 		extensionId: "ext_issues",
 		run: () => {
-			window.location.href = du(e);
+			window.location.href = hu(e);
 		}
 	})), e.state === "OPEN" || e.state === "REOPENED" ? n.push(vs({
 		id: `ext_issues.close.${e.id}`,
@@ -7211,7 +7238,7 @@ function _p(e, t) {
 		category: "Issues",
 		extensionId: "ext_issues",
 		run: async () => {
-			await eu(t, e.id);
+			await iu(t, e.id);
 		}
 	})) : e.state === "CLOSED" && n.push(vs({
 		id: `ext_issues.reopen.${e.id}`,
@@ -7219,14 +7246,14 @@ function _p(e, t) {
 		category: "Issues",
 		extensionId: "ext_issues",
 		run: async () => {
-			await tu(t, e.id);
+			await au(t, e.id);
 		}
 	})), () => n.forEach((e) => e());
 }
-async function vp(e, t) {
+async function Sp(e, t) {
 	let n;
 	try {
-		n = await Jl(e, { workspaceId: t });
+		n = await Ql(e, { workspaceId: t });
 	} catch (e) {
 		console.warn("[ext_issues] palette sync failed:", e);
 		return;
@@ -7234,19 +7261,19 @@ async function vp(e, t) {
 	let r = /* @__PURE__ */ new Set();
 	for (let t of n) {
 		r.add(t.id);
-		let n = gp(t), i = hp.get(t.id);
-		i && i.signature === n || (i?.unregister(), hp.set(t.id, {
+		let n = bp(t), i = yp.get(t.id);
+		i && i.signature === n || (i?.unregister(), yp.set(t.id, {
 			signature: n,
-			unregister: _p(t, e)
+			unregister: xp(t, e)
 		}));
 	}
-	for (let [e, t] of hp) r.has(e) || (t.unregister(), hp.delete(e));
+	for (let [e, t] of yp) r.has(e) || (t.unregister(), yp.delete(e));
 }
-function yp(e) {
+function Cp(e) {
 	let t = [], n = !1;
 	return Cs().then((r) => {
 		if (!n) {
-			vp(e, r);
+			Sp(e, r);
 			for (let n of [
 				"dev.comtrya.issues.opened",
 				"dev.comtrya.issues.closed",
@@ -7254,7 +7281,7 @@ function yp(e) {
 			]) t.push(Jo({
 				type: n,
 				onEvent: () => {
-					vp(e, r);
+					Sp(e, r);
 				},
 				onError: () => {}
 			}));
@@ -7262,81 +7289,81 @@ function yp(e) {
 	}), () => {
 		n = !0;
 		for (let e of t) e();
-		for (let e of hp.values()) e.unregister();
-		hp.clear();
+		for (let e of yp.values()) e.unregister();
+		yp.clear();
 	};
 }
 //#endregion
 //#region ../extensions/first-party/ext_issues/ui/src/register.ts
-var bp = "ext_issues", xp = "comtrya-issue-card", Sp = "comtrya-issue-board", Cp = "comtrya-issues-list", wp = "comtrya-issues-repo-list", Tp = "comtrya-issue-detail", Ep = "comtrya-issue-relationships", Dp = "comtrya-issue-new";
-Ml({
-	tagName: xp,
-	component: id,
-	propertyAliases: { ref: "resourceRef" }
-}), Ml({
-	tagName: Sp,
-	component: Ku
-}), Ml({
-	tagName: Cp,
-	component: mp
-}), Ml({
-	tagName: wp,
-	component: mp
-}), Ml({
+var wp = "ext_issues", Tp = "comtrya-issue-card", Ep = "comtrya-issue-board", Dp = "comtrya-issues-list", Op = "comtrya-issues-repo-list", kp = "comtrya-issue-detail", Ap = "comtrya-issue-relationships", jp = "comtrya-issue-new";
+Il({
 	tagName: Tp,
-	component: Qd
-}), Ml({
+	component: cd,
+	propertyAliases: { ref: "resourceRef" }
+}), Il({
 	tagName: Ep,
-	component: hf
-}), kp();
-var Op = {
-	id: bp,
+	component: Xu
+}), Il({
+	tagName: Dp,
+	component: vp
+}), Il({
+	tagName: Op,
+	component: vp
+}), Il({
+	tagName: kp,
+	component: nf
+}), Il({
+	tagName: Ap,
+	component: yf
+}), Np();
+var Mp = {
+	id: wp,
 	setup(e) {
 		e.registerCard({
 			resourceKind: "issue",
-			element: xp,
+			element: Tp,
 			requiredPermission: "issues.read"
 		}), e.registerRelationshipTargetProvider({
 			resourceKind: "issue",
-			loadTargets: async (t) => (await Jl(e.client, {
-				workspaceId: t.workspaceId ?? cu(),
+			loadTargets: async (t) => (await Ql(e.client, {
+				workspaceId: t.workspaceId ?? fu(),
 				repositoryId: t.repositoryId
 			})).map((e) => ({
-				ref: lu(e),
+				ref: pu(e),
 				kind: "issue",
 				title: `#${e.number} ${e.title}`,
 				subtitle: e.state.toLowerCase()
 			}))
 		}), e.registerWidget({
 			id: "issues-list",
-			element: Cp,
+			element: Dp,
 			defaultSlot: "repository.main",
 			defaultPriority: 100,
 			requiredPermission: "issues.read"
 		}), e.registerRoute("/", {
-			element: Cp,
+			element: Dp,
 			requiredPermission: "issues.read"
 		}), e.registerRoute("/board", {
-			element: Sp,
+			element: Ep,
 			requiredPermission: "issues.read"
 		}), e.registerRoute("/new", {
-			element: Dp,
+			element: jp,
 			requiredPermission: "issues.write"
 		}), e.registerRoute("/:workspaceId/:number", {
-			element: Tp,
+			element: kp,
 			requiredPermission: "issues.read"
-		}), yp(e.client);
+		}), Cp(e.client);
 	}
 };
-function kp() {
-	if (typeof customElements > "u" || customElements.get(Dp)) return;
+function Np() {
+	if (typeof customElements > "u" || customElements.get(jp)) return;
 	class e extends HTMLElement {
 		routeParams;
 		workspaceId;
 		repositoryId;
 		repositorySegments;
 		connectedCallback() {
-			this.replaceChildren(Ap(mu({
+			this.replaceChildren(Pp(vu({
 				routeParams: this.routeParams,
 				workspaceId: this.workspaceId,
 				repositoryId: this.repositoryId,
@@ -7344,10 +7371,10 @@ function kp() {
 			})));
 		}
 	}
-	customElements.define(Dp, e);
+	customElements.define(jp, e);
 }
-function Ap(e) {
-	Pp();
+function Pp(e) {
+	Rp();
 	let t = document.createElement("main");
 	t.className = "issue-new", t.dataset.smoke = "issue-new";
 	let n = document.createElement("header");
@@ -7358,15 +7385,15 @@ function Ap(e) {
 	i.textContent = "New issue", n.append(r, i);
 	let a = document.createElement("form");
 	a.className = "issue-new-form";
-	let o = jp("Title"), s = document.createElement("input");
+	let o = Fp("Title"), s = document.createElement("input");
 	s.required = !0, s.placeholder = "What needs to be done?", o.append(s);
-	let c = jp("Project", "Stamps the Project on this issue and pulls its CUE policy."), l = document.createElement("select");
+	let c = Fp("Project", "Stamps the Project on this issue and pulls its CUE policy."), l = document.createElement("select");
 	l.className = "issue-new-project-select", l.dataset.smoke = "issue-new-project";
 	let u = document.createElement("option");
 	u.value = "", u.textContent = "— no project —", l.append(u), c.append(l);
-	let d = jp("Description", "Optional. Supports Markdown."), f = document.createElement("textarea");
+	let d = Fp("Description", "Optional. Supports Markdown."), f = document.createElement("textarea");
 	f.rows = 6, f.placeholder = "Add context, repro steps, links…", d.append(f);
-	let p = jp("Labels"), m = document.createElement("input");
+	let p = Fp("Labels"), m = document.createElement("input");
 	m.placeholder = "comma-separated", m.dataset.smoke = "issue-new-labels", p.append(m);
 	let h = document.createElement("p");
 	h.className = "issue-new-hint", h.hidden = !0, p.append(h);
@@ -7375,11 +7402,11 @@ function Ap(e) {
 	let _ = null, v = [];
 	function y(t) {
 		if (!t) {
-			v.length > 0 && m.value.trim() && (m.value = Fp(m.value).filter((e) => !v.includes(e)).join(", ")), v = [], h.hidden = !0, h.textContent = "", g.hidden = !0, g.replaceChildren(), _ = null, r.textContent = "Issue";
+			v.length > 0 && m.value.trim() && (m.value = zp(m.value).filter((e) => !v.includes(e)).join(", ")), v = [], h.hidden = !0, h.textContent = "", g.hidden = !0, g.replaceChildren(), _ = null, r.textContent = "Issue";
 			return;
 		}
-		r.textContent = `${t} · issue`, ld(t, e.repositorySegments ?? "referrer").then((e) => {
-			let n = Fp(m.value).filter((e) => !v.includes(e)), r = [], i = /* @__PURE__ */ new Set();
+		r.textContent = `${t} · issue`, pd(t, e.repositorySegments ?? "referrer").then((e) => {
+			let n = zp(m.value).filter((e) => !v.includes(e)), r = [], i = /* @__PURE__ */ new Set();
 			for (let t of [...e.defaultLabels, ...n]) i.has(t) || (i.add(t), r.push(t));
 			if (m.value = r.join(", "), v = [...e.defaultLabels], e.defaultLabels.length > 0 ? (h.hidden = !1, h.textContent = `Pre-filled from CUE · ${t} → issues.defaultLabels`) : h.hidden = !0, _ = e.closeOnMerge, e.closeOnMerge !== null) {
 				g.hidden = !1;
@@ -7390,7 +7417,7 @@ function Ap(e) {
 			} else g.hidden = !0, g.replaceChildren();
 		});
 	}
-	El(e.repositorySegments).then((t) => {
+	Al(e.repositorySegments).then((t) => {
 		let n = !1;
 		for (let r of t) {
 			if (!r.name) continue;
@@ -7413,22 +7440,22 @@ function Ap(e) {
 	x.type = "submit", x.className = "issue-new-submit", x.textContent = "Create issue", b.append(x);
 	let S = document.createElement("p");
 	return S.className = "issue-new-error", S.setAttribute("role", "alert"), S.hidden = !0, a.append(o, c, d, p, g, b, S), a.addEventListener("submit", (t) => {
-		t.preventDefault(), x.disabled = !0, S.hidden = !0, $l({
+		t.preventDefault(), x.disabled = !0, S.hidden = !0, ru({
 			workspaceId: e.workspaceId,
 			repositoryId: e.repositoryId,
 			projectName: l.value || e.projectName || null,
 			title: s.value.trim(),
 			bodyMarkdown: f.value,
-			labels: Fp(m.value),
+			labels: zp(m.value),
 			closeOnMerge: _
 		}).then((e) => {
-			window.location.assign(du(e));
+			window.location.assign(hu(e));
 		}).catch((e) => {
 			S.textContent = e instanceof Error ? e.message : String(e), S.hidden = !1, x.disabled = !1;
 		});
 	}), t.append(n, a), t;
 }
-function jp(e, t) {
+function Fp(e, t) {
 	let n = document.createElement("div");
 	n.className = "issue-new-field";
 	let r = document.createElement("label");
@@ -7438,13 +7465,13 @@ function jp(e, t) {
 	}
 	return n;
 }
-var Mp = "comtrya-issue-new-styles", Np = "\n.issue-new {\n  display: grid;\n  gap: 24px;\n  max-width: 720px;\n  font-family: var(--sans, system-ui);\n  color: var(--ink, #111);\n}\n.issue-new-head {\n  display: grid;\n  gap: 6px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 14px;\n}\n.issue-new-overline {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.12em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #68645c);\n}\n.issue-new h1 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 36px;\n  line-height: 1;\n}\n.issue-new-form {\n  display: grid;\n  gap: 18px;\n}\n.issue-new-field {\n  display: grid;\n  gap: 6px;\n}\n.issue-new-label {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #68645c);\n}\n.issue-new-hint {\n  margin: 0;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-fainter, #918b80);\n}\n.issue-new input,\n.issue-new textarea,\n.issue-new select {\n  width: 100%;\n  border: 1.5px solid var(--rule-light, #d8d1c4);\n  background: var(--paper, #fffdf8);\n  color: var(--ink, #111);\n  padding: 10px 12px;\n  font-family: var(--mono, monospace);\n  font-size: 13px;\n  outline: none;\n  transition: border-color 120ms ease;\n}\n.issue-new input:focus,\n.issue-new textarea:focus,\n.issue-new select:focus {\n  border-color: var(--ink, #111);\n}\n.issue-new textarea {\n  resize: vertical;\n  font-family: var(--mono, monospace);\n}\n.issue-new-policy {\n  display: inline-flex;\n  align-items: center;\n  gap: 10px;\n  flex-wrap: wrap;\n  border: 1px dashed var(--rule-light, #d8d1c4);\n  padding: 8px 12px;\n  background: var(--paper-tint, #f2efe7);\n}\n.issue-new-chip {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  border: 1px solid currentColor;\n  padding: 1px 6px;\n}\n.issue-new-chip.chip-on {\n  color: var(--accent-teal, #087f6f);\n}\n.issue-new-chip.chip-off {\n  color: var(--accent-yellow, #c89300);\n}\n.issue-new-chip-detail {\n  font-family: var(--sans, system-ui);\n  font-size: 12px;\n  color: var(--ink-soft, #2c2b28);\n}\n.issue-new-actions {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  padding-top: 4px;\n}\n.issue-new-submit {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--ink, #111);\n  color: var(--paper, #fffdf8);\n  padding: 10px 18px;\n  font-family: var(--display, system-ui);\n  font-weight: 600;\n  font-size: 13px;\n  cursor: pointer;\n}\n.issue-new-submit:disabled {\n  background: var(--ink-faint, #68645c);\n  cursor: wait;\n}\n.issue-new-error {\n  margin: 0;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--accent-err, #c9341c);\n}\n";
-function Pp() {
-	if (typeof document > "u" || document.getElementById(Mp)) return;
+var Ip = "comtrya-issue-new-styles", Lp = "\n.issue-new {\n  display: grid;\n  gap: 24px;\n  max-width: 720px;\n  font-family: var(--sans, system-ui);\n  color: var(--ink, #111);\n}\n.issue-new-head {\n  display: grid;\n  gap: 6px;\n  border-bottom: 1.5px solid var(--ink, #111);\n  padding-bottom: 14px;\n}\n.issue-new-overline {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.12em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #68645c);\n}\n.issue-new h1 {\n  margin: 0;\n  font-family: var(--display, system-ui);\n  font-size: 36px;\n  line-height: 1;\n}\n.issue-new-form {\n  display: grid;\n  gap: 18px;\n}\n.issue-new-field {\n  display: grid;\n  gap: 6px;\n}\n.issue-new-label {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n  color: var(--ink-faint, #68645c);\n}\n.issue-new-hint {\n  margin: 0;\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  color: var(--ink-fainter, #918b80);\n}\n.issue-new input,\n.issue-new textarea,\n.issue-new select {\n  width: 100%;\n  border: 1.5px solid var(--rule-light, #d8d1c4);\n  background: var(--paper, #fffdf8);\n  color: var(--ink, #111);\n  padding: 10px 12px;\n  font-family: var(--mono, monospace);\n  font-size: 13px;\n  outline: none;\n  transition: border-color 120ms ease;\n}\n.issue-new input:focus,\n.issue-new textarea:focus,\n.issue-new select:focus {\n  border-color: var(--ink, #111);\n}\n.issue-new textarea {\n  resize: vertical;\n  font-family: var(--mono, monospace);\n}\n.issue-new-policy {\n  display: inline-flex;\n  align-items: center;\n  gap: 10px;\n  flex-wrap: wrap;\n  border: 1px dashed var(--rule-light, #d8d1c4);\n  padding: 8px 12px;\n  background: var(--paper-tint, #f2efe7);\n}\n.issue-new-chip {\n  font-family: var(--mono, monospace);\n  font-size: 11px;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  border: 1px solid currentColor;\n  padding: 1px 6px;\n}\n.issue-new-chip.chip-on {\n  color: var(--accent-teal, #087f6f);\n}\n.issue-new-chip.chip-off {\n  color: var(--accent-yellow, #c89300);\n}\n.issue-new-chip-detail {\n  font-family: var(--sans, system-ui);\n  font-size: 12px;\n  color: var(--ink-soft, #2c2b28);\n}\n.issue-new-actions {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  padding-top: 4px;\n}\n.issue-new-submit {\n  border: 1.5px solid var(--ink, #111);\n  background: var(--ink, #111);\n  color: var(--paper, #fffdf8);\n  padding: 10px 18px;\n  font-family: var(--display, system-ui);\n  font-weight: 600;\n  font-size: 13px;\n  cursor: pointer;\n}\n.issue-new-submit:disabled {\n  background: var(--ink-faint, #68645c);\n  cursor: wait;\n}\n.issue-new-error {\n  margin: 0;\n  font-family: var(--mono, monospace);\n  font-size: 12px;\n  color: var(--accent-err, #c9341c);\n}\n";
+function Rp() {
+	if (typeof document > "u" || document.getElementById(Ip)) return;
 	let e = document.createElement("style");
-	e.id = Mp, e.textContent = Np, document.head.appendChild(e);
+	e.id = Ip, e.textContent = Lp, document.head.appendChild(e);
 }
-function Fp(e) {
+function zp(e) {
 	let t = /* @__PURE__ */ new Set(), n = [];
 	for (let r of e.split(",")) {
 		let e = r.trim();
@@ -7453,4 +7480,4 @@ function Fp(e) {
 	return n;
 }
 //#endregion
-export { Op as default };
+export { Mp as default };
