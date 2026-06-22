@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { parseQueryFilters } from "@comtrya/sdk-vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { boardForSprint, kanbanProjectBoard, planningBoard } from "./api";
 import {
   internalIssueRefTitle,
   issueNumberLabel,
   issueReferenceLabel,
 } from "./issue-labels";
-import { filterKanbanSwimlanesByProject } from "./kanban-filter";
+import {
+  filterKanbanSwimlanes,
+  filterKanbanSwimlanesByProject,
+  filterSprintBoardColumns,
+  filterSprintPlanningBoard,
+  matchesSprintFilters,
+} from "./kanban-filter";
 import type {
   KanbanCardState,
   LoadState,
@@ -31,6 +38,8 @@ const props = defineProps<{
   projectName?: string;
 }>();
 
+const BOARD_FILTER_KEYS = ["is", "project", "sprint", "issue"] as const;
+
 const loadState = ref<LoadState>("idle");
 const issueLoadState = ref<LoadState>("idle");
 const kanbanLoadState = ref<LoadState>("idle");
@@ -38,6 +47,7 @@ const board = ref<SprintPlanningBoard | null>(null);
 const sprintBoard = ref<SprintBoard | null>(null);
 const kanbanBoard = ref<ProjectKanbanBoard | null>(null);
 const selectedSprint = ref<Sprint | null>(null);
+const boardSearch = ref("");
 const error = ref<string | null>(null);
 const issueError = ref<string | null>(null);
 const kanbanError = ref<string | null>(null);
@@ -50,11 +60,21 @@ const effectiveWorkspace = computed(
     "",
 );
 const effectiveProjectName = computed(() => props.projectName?.trim() ?? "");
-const columns = computed(() => board.value?.columns ?? []);
+const boardQuery = computed(() =>
+  parseQueryFilters(boardSearch.value, BOARD_FILTER_KEYS),
+);
+const hasBoardFilter = computed(() => boardSearch.value.trim().length > 0);
+const visibleBoard = computed<SprintPlanningBoard | null>(() => {
+  const value = board.value;
+  if (!value) return null;
+  return hasBoardFilter.value ? filterSprintPlanningBoard(value, boardQuery.value) : value;
+});
+const columns = computed(() => visibleBoard.value?.columns ?? []);
 const sprints = computed(() =>
   columns.value.flatMap((column) => column.cards.map((card) => card.sprint)),
 );
-const total = computed(() => board.value?.total ?? 0);
+const total = computed(() => visibleBoard.value?.total ?? 0);
+const unfilteredTotal = computed(() => board.value?.total ?? 0);
 const activeCount = computed(
   () => sprints.value.filter((sprint) => sprint.state === "active").length,
 );
@@ -64,16 +84,45 @@ const plannedCount = computed(
 const completedCount = computed(
   () => sprints.value.filter((sprint) => sprint.state === "completed").length,
 );
-const issueColumns = computed<SprintBoardColumn[]>(() => sprintBoard.value?.columns ?? []);
-const issueTotal = computed(() => sprintBoard.value?.total ?? 0);
-const kanbanSwimlanes = computed(() =>
+const selectedSprintMatchesSearch = computed(() =>
+  matchesSprintFilters(selectedSprint.value, boardQuery.value.filters.sprint ?? []),
+);
+const visibleSelectedSprint = computed(() =>
+  selectedSprintMatchesSearch.value ? selectedSprint.value : null,
+);
+const unfilteredIssueColumns = computed<SprintBoardColumn[]>(
+  () => sprintBoard.value?.columns ?? [],
+);
+const issueColumns = computed<SprintBoardColumn[]>(() =>
+  filterSprintBoardColumns(
+    unfilteredIssueColumns.value,
+    boardQuery.value,
+    selectedSprint.value,
+  ),
+);
+const issueTotal = computed(() =>
+  issueColumns.value.reduce((sum, column) => sum + column.issues.length, 0),
+);
+const unfilteredIssueTotal = computed(() => sprintBoard.value?.total ?? 0);
+const unfilteredKanbanSwimlanes = computed(() =>
   filterKanbanSwimlanesByProject(
     kanbanBoard.value?.swimlanes ?? [],
     effectiveProjectName.value,
   ),
 );
+const kanbanSwimlanes = computed(() =>
+  filterKanbanSwimlanes(
+    kanbanBoard.value?.swimlanes ?? [],
+    effectiveProjectName.value,
+    boardQuery.value,
+    selectedSprint.value,
+  ),
+);
 const kanbanTotal = computed(() =>
   kanbanSwimlanes.value.reduce((sum, lane) => sum + lane.total, 0),
+);
+const unfilteredKanbanTotal = computed(() =>
+  unfilteredKanbanSwimlanes.value.reduce((sum, lane) => sum + lane.total, 0),
 );
 const openIssueCount = computed(() =>
   issueColumns.value
@@ -88,6 +137,11 @@ const kanbanOpenCount = computed(() =>
 );
 const headline = computed(() => {
   if (loadState.value === "loading") return "Loading";
+  if (hasBoardFilter.value) {
+    const visibleItems = total.value + issueTotal.value + kanbanTotal.value;
+    const allItems = unfilteredTotal.value + unfilteredIssueTotal.value + unfilteredKanbanTotal.value;
+    return `${visibleItems} of ${allItems}`;
+  }
   if (kanbanOpenCount.value > 0) return `${kanbanOpenCount.value} open cards`;
   if (activeCount.value > 0) return `${activeCount.value} active`;
   if (selectedSprint.value) return `Sprint #${selectedSprint.value.number}`;
@@ -99,18 +153,91 @@ const kanbanTitle = computed(() =>
     : "Project swimlanes",
 );
 const kanbanEmptyText = computed(() =>
-  effectiveProjectName.value
-    ? `No Kanban cards in ${effectiveProjectName.value}.`
-    : "No Kanban cards.",
+  hasBoardFilter.value && unfilteredKanbanTotal.value > 0
+    ? "No Kanban cards match the current board filter."
+    : effectiveProjectName.value
+      ? `No Kanban cards in ${effectiveProjectName.value}.`
+      : "No Kanban cards.",
+);
+const boardFilterSummary = computed(() =>
+  hasBoardFilter.value
+    ? `${total.value}/${unfilteredTotal.value} sprints | ${issueTotal.value}/${unfilteredIssueTotal.value} issues | ${kanbanTotal.value}/${unfilteredKanbanTotal.value} cards`
+    : "",
+);
+const issueEmptyText = computed(() =>
+  hasBoardFilter.value && unfilteredIssueTotal.value > 0
+    ? "No issues match the current board filter."
+    : "No issues assigned.",
+);
+const lifecycleTotalLabel = computed(() =>
+  hasBoardFilter.value ? `${total.value} of ${unfilteredTotal.value} total` : `${total.value} total`,
+);
+const kanbanTotalLabel = computed(() =>
+  hasBoardFilter.value
+    ? `${kanbanTotal.value} of ${unfilteredKanbanTotal.value} cards`
+    : `${kanbanTotal.value} cards`,
+);
+const selectedIssueTotalLabel = computed(() =>
+  hasBoardFilter.value
+    ? `${issueTotal.value} of ${unfilteredIssueTotal.value}`
+    : String(issueTotal.value),
+);
+const planningBoardHasMatches = computed(() =>
+  !hasBoardFilter.value || total.value > 0,
+);
+const selectedBoardHasMatches = computed(() =>
+  !hasBoardFilter.value || issueTotal.value > 0,
+);
+const kanbanBoardHasMatches = computed(() =>
+  !hasBoardFilter.value || kanbanTotal.value > 0,
+);
+const selectedSprintHiddenByFilter = computed(
+  () => hasBoardFilter.value && !!selectedSprint.value && !visibleSelectedSprint.value,
 );
 
 let loadRun = 0;
 
 onMounted(() => {
+  readUrlSearch();
+  window.addEventListener("popstate", onPopState);
   void load();
 });
 
+onUnmounted(() => {
+  window.removeEventListener("popstate", onPopState);
+});
+
 watch(effectiveWorkspace, () => void load());
+watch(boardSearch, () => writeUrlSearch());
+
+function clearBoardSearch(): void {
+  boardSearch.value = "";
+}
+
+function onBoardSearchEscape(): void {
+  if (boardSearch.value) clearBoardSearch();
+}
+
+function readUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  boardSearch.value = new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function writeUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const trimmed = boardSearch.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (target !== current) window.history.replaceState(window.history.state, "", target);
+}
+
+function onPopState(): void {
+  readUrlSearch();
+}
 
 async function load(): Promise<void> {
   const run = ++loadRun;
@@ -226,6 +353,36 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
       <span class="sprints-total">{{ headline }}</span>
     </header>
 
+    <div class="sprints-toolbar">
+      <label class="sprints-search">
+        <input
+          data-sprints-board-search
+          v-model="boardSearch"
+          type="search"
+          placeholder="Filter Kanban: is:open project:kernel #123"
+          autocomplete="off"
+          aria-label="Filter sprint Kanban board"
+          @keydown.esc="onBoardSearchEscape"
+        />
+      </label>
+      <button
+        v-if="boardSearch"
+        type="button"
+        class="sprints-clear"
+        aria-label="Clear Kanban filter"
+        @click="clearBoardSearch"
+      >
+        Clear
+      </button>
+      <span
+        v-if="hasBoardFilter"
+        class="sprints-filter-summary"
+        data-smoke="sprints-board-filter-summary"
+      >
+        {{ boardFilterSummary }}
+      </span>
+    </div>
+
     <p v-if="loadState === 'loading'" class="sprints-status">Loading...</p>
     <p v-else-if="loadState === 'error'" class="sprints-status sprints-error" role="alert">{{ error }}</p>
     <p v-else-if="loadState === 'empty'" class="sprints-status">No sprints.</p>
@@ -264,12 +421,16 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
             <p class="sprints-kicker">plan</p>
             <h4>Lifecycle board</h4>
           </div>
-          <span>{{ total }} total</span>
+          <span>{{ lifecycleTotalLabel }}</span>
         </header>
 
-        <div class="sprints-columns" aria-label="Sprint planning board">
+        <p v-if="!planningBoardHasMatches" class="sprints-status">
+          No sprints match the current board filter.
+        </p>
+
+        <div v-else class="sprints-columns" aria-label="Sprint planning board">
           <section
-            v-for="column in board.columns"
+            v-for="column in columns"
             :key="column.key"
             class="sprints-column"
             :data-column="column.key"
@@ -284,6 +445,7 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
                 v-for="card in column.cards"
                 :key="card.sprint.id"
                 :class="['sprints-card', stateClass(card.sprint.state)]"
+                :aria-label="`Sprint #${card.sprint.number}: ${card.sprint.title}`"
               >
                 <header class="sprints-card-head">
                   <span class="sprints-number">#{{ card.sprint.number }}</span>
@@ -308,30 +470,40 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
         </div>
       </section>
 
-      <section v-if="selectedSprint" class="sprints-section" data-smoke="sprints-selected-board">
+      <p v-if="selectedSprintHiddenByFilter" class="sprints-status">
+        No selected sprint matches the current board filter.
+      </p>
+
+      <section
+        v-if="visibleSelectedSprint"
+        class="sprints-section"
+        data-smoke="sprints-selected-board"
+      >
         <header class="sprints-section-head selected">
           <div>
             <p class="sprints-kicker">selected sprint</p>
-            <h4><span>#{{ selectedSprint.number }}</span> {{ selectedSprint.title }}</h4>
+            <h4><span>#{{ visibleSelectedSprint.number }}</span> {{ visibleSelectedSprint.title }}</h4>
           </div>
-          <span :class="['sprints-state', stateClass(selectedSprint.state)]">
-            {{ labelFor(selectedSprint.state) }}
+          <span :class="['sprints-state', stateClass(visibleSelectedSprint.state)]">
+            {{ labelFor(visibleSelectedSprint.state) }}
           </span>
         </header>
 
-        <p v-if="selectedSprint.goal" class="sprints-selected-goal">{{ selectedSprint.goal }}</p>
+        <p v-if="visibleSelectedSprint.goal" class="sprints-selected-goal">
+          {{ visibleSelectedSprint.goal }}
+        </p>
         <dl class="sprints-selected-meta">
           <div>
             <dt>start</dt>
-            <dd>{{ formatDate(selectedSprint.startDate) }}</dd>
+            <dd>{{ formatDate(visibleSelectedSprint.startDate) }}</dd>
           </div>
           <div>
             <dt>end</dt>
-            <dd>{{ formatDate(selectedSprint.endDate) }}</dd>
+            <dd>{{ formatDate(visibleSelectedSprint.endDate) }}</dd>
           </div>
           <div>
             <dt>issues</dt>
-            <dd>{{ issueTotal }}</dd>
+            <dd>{{ selectedIssueTotalLabel }}</dd>
           </div>
         </dl>
 
@@ -339,7 +511,9 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
         <p v-else-if="issueLoadState === 'error'" class="sprints-status sprints-error" role="alert">
           {{ issueError }}
         </p>
-        <p v-else-if="issueLoadState === 'empty'" class="sprints-status">No issues assigned.</p>
+        <p v-else-if="issueLoadState === 'empty' || !selectedBoardHasMatches" class="sprints-status">
+          {{ issueEmptyText }}
+        </p>
 
         <div v-else class="sprints-issue-columns" aria-label="Selected sprint issue board">
           <section
@@ -359,6 +533,7 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
                 v-for="issue in column.issues"
                 :key="issue.issueRef"
                 :class="['sprints-issue-card', stateClass(issue.state)]"
+                :aria-label="`${issueNumberLabel(issue)}: ${issue.title}`"
               >
                 <header class="sprints-issue-card-head">
                   <span class="sprints-number">{{ issueNumberLabel(issue) }}</span>
@@ -376,13 +551,17 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
         </div>
       </section>
 
-      <section v-if="selectedSprint" class="sprints-section" data-smoke="sprints-kanban-board">
+      <section
+        v-if="visibleSelectedSprint"
+        class="sprints-section"
+        data-smoke="sprints-kanban-board"
+      >
         <header class="sprints-section-head selected">
           <div>
             <p class="sprints-kicker">kanban</p>
-            <h4><span>#{{ selectedSprint.number }}</span> {{ kanbanTitle }}</h4>
+            <h4><span>#{{ visibleSelectedSprint.number }}</span> {{ kanbanTitle }}</h4>
           </div>
-          <span>{{ kanbanTotal }} cards</span>
+          <span>{{ kanbanTotalLabel }}</span>
         </header>
 
         <p
@@ -394,7 +573,10 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
         <p v-else-if="kanbanLoadState === 'error'" class="sprints-status sprints-error" role="alert">
           {{ kanbanError }}
         </p>
-        <p v-else-if="kanbanLoadState === 'empty' || kanbanTotal === 0" class="sprints-status">
+        <p
+          v-else-if="kanbanLoadState === 'empty' || !kanbanBoardHasMatches"
+          class="sprints-status"
+        >
           {{ kanbanEmptyText }}
         </p>
 
@@ -431,6 +613,7 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
                     v-for="card in column.cards"
                     :key="card.issueRef"
                     :class="['sprints-kanban-card', stateClass(card.state)]"
+                    :aria-label="`${issueNumberLabel(card)}: ${card.title}`"
                   >
                     <header class="sprints-kanban-card-head">
                       <span class="sprints-number">{{ issueNumberLabel(card) }}</span>
@@ -483,6 +666,55 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
 .sprints-board-head {
   border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
   padding-bottom: 10px;
+}
+
+.sprints-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sprints-search {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.sprints-search input {
+  width: 100%;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, #f3f4f6);
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.sprints-search input:focus {
+  border-color: var(--accent-blue, #1d55a6);
+  outline: 2px solid color-mix(in srgb, var(--accent-blue, #1d55a6) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.sprints-clear {
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  border-radius: var(--r-sm, 6px);
+  background: var(--surface-2, rgba(255, 255, 255, 0.04));
+  color: var(--fg, #f3f4f6);
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.sprints-clear:hover {
+  border-color: var(--fg-4, rgba(255, 255, 255, 0.32));
+}
+
+.sprints-filter-summary {
+  color: var(--fg-3, rgba(255, 255, 255, 0.54));
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
 }
 
 .sprints-content,
@@ -816,9 +1048,15 @@ function labelFor(value: SprintState | SprintIssueState | KanbanCardState): stri
 
 @media (max-width: 560px) {
   .sprints-board-head,
-  .sprints-section-head {
+  .sprints-section-head,
+  .sprints-toolbar {
     align-items: start;
     flex-direction: column;
+  }
+
+  .sprints-search,
+  .sprints-clear {
+    width: 100%;
   }
 
   .sprints-summary,
