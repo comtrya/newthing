@@ -19,6 +19,10 @@ import {
   recordRouteVisit,
 } from "./recents";
 import { fetchOidcProviders, type OidcProvider } from "./auth";
+import {
+  repoBaseFromRouteParams,
+  rebaseExtensionHrefToRepo,
+} from "./repo-workbench-routes";
 import { workspaceWorkLinks } from "./workspace-work-links";
 
 const ACCESS_TOKEN_STORAGE_KEY = "comtrya.accessToken";
@@ -79,35 +83,13 @@ router.afterEach((to) => {
 });
 
 /**
- * Extension prefixes that have a corresponding `/r/:path/<prefix>`
- * workbench view. Used by the link rewriter below to decide which
- * `/x/<prefix>/<sub>` deep links to rebase back into the repo
- * workbench instead of letting them escape.
- */
-const WORKBENCH_EXTENSION_PREFIXES = new Set([
-  "issues",
-  "pulls",
-  "checks",
-  "epics",
-]);
-
-/**
  * Compute the `/r/<groups>/<repo>` base when the active route is a
  * per-repo workbench view. Used by the link rewriter to rebase
  * extension deep-links into the workbench. Returns null on
  * non-repo routes.
  */
 const workbenchRepoBase = computed<string | null>(() => {
-  const groupsParam = route.params.groups;
-  const repoParam = route.params.repo;
-  if (typeof repoParam !== "string" || repoParam.length === 0) return null;
-  const groups = Array.isArray(groupsParam)
-    ? groupsParam.map(String)
-    : typeof groupsParam === "string" && groupsParam.length > 0
-      ? [groupsParam]
-      : [];
-  if (groups.length === 0) return null;
-  return `/r/${groups.map(encodeURIComponent).join("/")}/${encodeURIComponent(repoParam)}`;
+  return repoBaseFromRouteParams(route.params);
 });
 
 /**
@@ -133,24 +115,11 @@ function onPageClick(event: MouseEvent): void {
   const repoBase = workbenchRepoBase.value;
   if (!repoBase) return;
 
-  const url = new URL(href, window.location.origin);
-  const segments = url.pathname.split("/").filter(Boolean);
-  const prefix = segments[1];
-  if (segments[0] !== "x" || !prefix) return;
-  if (!WORKBENCH_EXTENSION_PREFIXES.has(prefix)) return;
+  const rebased = rebaseExtensionHrefToRepo(href, repoBase, window.location.origin);
+  if (!rebased) return;
 
-  const rest = segments.slice(2);
-  const pathParts = [repoBase, prefix, ...rest].join("/").replace(/\/\/+/g, "/");
   event.preventDefault();
-  void router.push({ path: pathParts, query: queryFromSearch(url.search), hash: url.hash });
-}
-
-function queryFromSearch(search: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!search) return out;
-  const params = new URLSearchParams(search);
-  for (const [key, value] of params.entries()) out[key] = value;
-  return out;
+  void router.push({ path: rebased.path, query: rebased.query, hash: rebased.hash });
 }
 
 /**
@@ -335,7 +304,7 @@ async function loadAuthProviders(): Promise<void> {
 </script>
 
 <template>
-  <div class="shell shell-app">
+  <div class="shell shell-app" @click.capture="onPageClick">
     <header class="topbar" role="banner">
       <RouterLink to="/" class="brand" aria-label="Home">
         <div class="mark">C</div>
@@ -508,7 +477,7 @@ async function loadAuthProviders(): Promise<void> {
         </nav>
       </aside>
 
-      <main class="page" @click="onPageClick">
+      <main class="page">
         <RouterView />
       </main>
     </div>

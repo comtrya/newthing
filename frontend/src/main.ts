@@ -15,6 +15,7 @@ import { defineCoreSlotMountElement } from "./core-widgets/slot-mount-element";
 import { loadShellExtensions } from "./extension-loader";
 import { installIssueRefHover } from "./issue-ref-hover";
 import { bindProjectCommands } from "./project-commands";
+import { repoBaseFromRouteParams } from "./repo-workbench-routes";
 import { registerRepositoryShellSlots } from "./repository-slots";
 import { createShellRouter } from "./router";
 import { assertWorkspaceSdkDepsLinked } from "./workspace-deps";
@@ -198,9 +199,7 @@ function bindGoChord(router: Router): void {
    * the owning repo for `g i`/`g p` etc.
    */
   const repoBase = (): string | null => {
-    const path = router.currentRoute.value.path;
-    const match = /^(\/r\/[^/]+(?:\/[^/]+)+?)(\/(?:code|config|pulls|issues|checks|epics|p)(?:\/.*)?)?$/.exec(path);
-    return match?.[1] ?? null;
+    return repoBaseFromRouteParams(router.currentRoute.value.params);
   };
   const go = (path: string) => skipIfInInput(() => void router.push(path));
   /**
@@ -282,6 +281,8 @@ function bindGoChord(router: Router): void {
     "g i": scoped("/issues", "/x/issues/"),
     "g p": scoped("/pulls", "/x/pulls/"),
     "g e": scoped("/epics", null),
+    "g d": scoped("/docs", "/x/docs/"),
+    "g s": scoped("/sprints", "/x/sprints/"),
     "g k": scoped("/checks", null),
     "g f": scoped("/config", null),
     "c": createOnSurface,
