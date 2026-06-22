@@ -19,8 +19,18 @@
 
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, type OpResult } from "@comtrya/sdk-core";
-import { bodyExcerpt, renderMarkdown, useShortcuts } from "@comtrya/sdk-vue";
+import {
+  bodyExcerpt,
+  parseQueryFilters,
+  renderMarkdown,
+  useShortcuts,
+} from "@comtrya/sdk-vue";
 import { extDocsXDocs } from "../../dist/ext_docs.client";
+import {
+  docFileMatches,
+  filterDocBoard,
+  hasDocsFilterQuery,
+} from "./docs-board-filter";
 import {
   DOCS_BOARD_TABS,
   docsBoardFromRouteSubPath,
@@ -146,6 +156,17 @@ const props = defineProps<{
   routeParams?: ExtensionRouteParams;
 }>();
 
+const DOC_FILTER_KEYS = [
+  "feature",
+  "is",
+  "owner",
+  "path",
+  "project",
+  "status",
+  "tag",
+  "type",
+] as const;
+
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const error = ref<string | null>(null);
 const config = ref<ComtryaConfig | null>(null);
@@ -176,9 +197,19 @@ const focusedDocPath = ref<string | null>(null);
 const boardState = ref<"idle" | "loading" | "ready" | "error">("idle");
 const boardError = ref<string | null>(null);
 const activeBoardId = ref<DocsBoardId>("type");
+const docSearch = ref("");
 const boards = ref<Record<DocsBoardId, DocBoard | null>>(emptyBoards());
 const boardTabs = DOCS_BOARD_TABS;
 const activeBoard = computed(() => boards.value[activeBoardId.value]);
+const docQuery = computed(() => parseQueryFilters(docSearch.value, DOC_FILTER_KEYS));
+const hasDocFilter = computed(() => hasDocsFilterQuery(docQuery.value));
+const visibleActiveBoard = computed<DocBoard | null>(() => {
+  const board = activeBoard.value;
+  if (!board) return null;
+  return hasDocFilter.value ? filterDocBoard(board, docQuery.value) : board;
+});
+const visibleBoardTotal = computed(() => visibleActiveBoard.value?.totalDocs ?? 0);
+const activeBoardTotal = computed(() => activeBoard.value?.totalDocs ?? totalDocs.value);
 const docTypeSummaries = computed(() => {
   const byKey = new Map<string, { key: string; label: string; count: number }>();
   for (const project of projects.value) {
@@ -220,6 +251,31 @@ const overviewHeadline = computed(() => {
   if (totalDocs.value === 0) return "No specs";
   return `${totalDocs.value} specs`;
 });
+const visibleProjects = computed(() =>
+  projects.value.filter((project) => visibleDocTypesFor(project).length > 0),
+);
+const visibleCatalogTotal = computed(() => {
+  let total = 0;
+  for (const project of projects.value) {
+    for (const entry of docTypesFor(project)) {
+      total += visibleFilesForType(project, entry.key, entry.type).length;
+    }
+  }
+  return total;
+});
+const docsWorkbenchCountLabel = computed(() =>
+  hasDocFilter.value
+    ? `${visibleBoardTotal.value} of ${activeBoardTotal.value}`
+    : String(activeBoardTotal.value),
+);
+const docsWorkbenchCountIsPlural = computed(() =>
+  (hasDocFilter.value ? visibleBoardTotal.value : activeBoardTotal.value) !== 1,
+);
+const docsFilterSummary = computed(() =>
+  hasDocFilter.value
+    ? `${visibleCatalogTotal.value}/${totalDocs.value} specs | ${visibleProjects.value.length}/${projects.value.length} projects`
+    : "",
+);
 
 function emptyBoards(): Record<DocsBoardId, DocBoard | null> {
   return {
@@ -264,9 +320,9 @@ function openDocsWorkbench(event: MouseEvent): void {
 /** Flat list of every visible doc path in render order — for j/k nav. */
 const orderedDocPaths = computed<string[]>(() => {
   const out: string[] = [];
-  for (const project of projects.value) {
-    for (const entry of docTypesFor(project)) {
-      for (const doc of filesForType(project, entry.type)) {
+  for (const project of visibleProjects.value) {
+    for (const entry of visibleDocTypesFor(project)) {
+      for (const doc of visibleFilesForType(project, entry.key, entry.type)) {
         out.push(doc.path);
       }
     }
@@ -325,12 +381,12 @@ useShortcuts({
 });
 
 onMounted(() => {
-  syncBoardFromRoute();
-  window.addEventListener("popstate", syncBoardFromLocation);
+  syncRouteStateFromLocation();
+  window.addEventListener("popstate", syncRouteStateFromLocation);
   void load();
 });
 onUnmounted(() => {
-  window.removeEventListener("popstate", syncBoardFromLocation);
+  window.removeEventListener("popstate", syncRouteStateFromLocation);
 });
 watch(
   [() => props.repositoryPath, () => props.projectName, () => props.extensionSlot],
@@ -340,13 +396,15 @@ watch(
   () => props.routeParams?.subPath,
   () => syncBoardFromRoute(),
 );
+watch(docSearch, () => writeUrlSearch());
 
 function syncBoardFromRoute(): void {
   activeBoardId.value = docsBoardFromRouteSubPath(props.routeParams?.subPath);
 }
 
-function syncBoardFromLocation(): void {
+function syncRouteStateFromLocation(): void {
   activeBoardId.value = docsBoardFromRouteSubPath(currentDocsSubPath());
+  readUrlSearch();
 }
 
 function currentDocsSubPath(): string {
@@ -381,6 +439,31 @@ function selectBoard(boardId: DocsBoardId, event: MouseEvent): void {
   if (href !== current) {
     window.history.pushState({}, "", href);
   }
+}
+
+function clearDocSearch(): void {
+  docSearch.value = "";
+}
+
+function onDocSearchEscape(): void {
+  if (docSearch.value) clearDocSearch();
+}
+
+function readUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  docSearch.value = new URLSearchParams(window.location.search).get("q") ?? "";
+}
+
+function writeUrlSearch(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const trimmed = docSearch.value.trim();
+  if (trimmed) params.set("q", trimmed);
+  else params.delete("q");
+  const next = params.toString();
+  const target = `${window.location.pathname}${next ? `?${next}` : ""}`;
+  const current = `${window.location.pathname}${window.location.search}`;
+  if (target !== current) window.history.replaceState(window.history.state, "", target);
 }
 
 function routeSubPathFromSegments(segments: string[]): string {
@@ -512,6 +595,24 @@ function docTypesFor(project: ComtryaProject): Array<{ key: string; type: DocTyp
   return Object.entries(project.docs)
     .map(([key, type]) => ({ key, type }))
     .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+function visibleDocTypesFor(project: ComtryaProject): Array<{ key: string; type: DocType }> {
+  return docTypesFor(project).filter(
+    (entry) => visibleFilesForType(project, entry.key, entry.type).length > 0,
+  );
+}
+
+function visibleFilesForType(
+  project: ComtryaProject,
+  typeName: string,
+  type: DocType,
+): DocFile[] {
+  const files = filesForType(project, type);
+  if (!hasDocFilter.value) return files;
+  return files.filter((doc) =>
+    docFileMatches(project, typeName, type, doc, docQuery.value),
+  );
 }
 
 function propertyEntries(type: DocType): Array<{ name: string; spec: unknown }> {
@@ -788,7 +889,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
         <div class="docs-workbench-title">
           <h3>Specs workbench</h3>
           <span class="muted">
-            {{ activeBoard?.totalDocs ?? totalDocs }} spec<template v-if="(activeBoard?.totalDocs ?? totalDocs) !== 1">s</template>
+            {{ docsWorkbenchCountLabel }} spec<template v-if="docsWorkbenchCountIsPlural">s</template>
           </span>
         </div>
         <nav class="docs-board-tabs" aria-label="Specs workbench views">
@@ -806,6 +907,36 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
         </nav>
       </header>
 
+      <div class="docs-workbench-toolbar">
+        <label class="docs-search">
+          <input
+            data-docs-workbench-search
+            v-model="docSearch"
+            type="search"
+            placeholder="Filter specs: type:prd owner:platform bdd"
+            autocomplete="off"
+            aria-label="Filter specs workbench"
+            @keydown.esc="onDocSearchEscape"
+          />
+        </label>
+        <button
+          v-if="docSearch"
+          type="button"
+          class="docs-clear"
+          aria-label="Clear specs filter"
+          @click="clearDocSearch"
+        >
+          Clear
+        </button>
+        <span
+          v-if="hasDocFilter"
+          class="docs-filter-summary"
+          data-smoke="docs-filter-summary"
+        >
+          {{ docsFilterSummary }}
+        </span>
+      </div>
+
       <p v-if="boardState === 'loading'" class="muted docs-board-status">
         Loading specs board…
       </p>
@@ -816,13 +947,19 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
       >
         {{ boardError }}
       </p>
+      <p
+        v-else-if="hasDocFilter && visibleActiveBoard && visibleActiveBoard.totalDocs === 0"
+        class="muted docs-board-status"
+      >
+        No specs match the current filter.
+      </p>
       <div
-        v-else-if="activeBoard"
+        v-else-if="visibleActiveBoard"
         class="docs-board"
         :data-board="activeBoardId"
       >
         <section
-          v-for="column in activeBoard.columns"
+          v-for="column in visibleActiveBoard.columns"
           :key="column.key"
           class="docs-board-column"
         >
@@ -835,6 +972,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
               v-for="doc in column.docs"
               :key="doc.path"
               class="docs-board-card"
+              :aria-label="`${cardTypeLabel(doc)}: ${doc.title || doc.path}`"
             >
               <header class="docs-board-card-head">
                 <span class="docs-board-type">{{ cardTypeLabel(doc) }}</span>
@@ -854,9 +992,15 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
       </div>
     </section>
 
+    <p
+      v-if="loadState === 'ready' && totalDocs > 0 && hasDocFilter && visibleCatalogTotal === 0"
+      class="muted docs-board-status"
+    >
+      No repo specs, PRDs, or BDD scenarios match the current filter.
+    </p>
+
     <article
-      v-for="project in projects"
-      v-show="docTypesFor(project).length > 0"
+      v-for="project in visibleProjects"
       :key="project.name"
       class="docs-project"
     >
@@ -866,7 +1010,7 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
       </header>
 
       <section
-        v-for="entry in docTypesFor(project)"
+        v-for="entry in visibleDocTypesFor(project)"
         :key="entry.key"
         class="docs-type"
       >
@@ -875,7 +1019,8 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
           <span class="docs-type-label">{{ entry.type.label || entry.key }}</span>
           <code class="docs-type-scope">{{ scopeFor(project, entry.type) || "&lt;project root&gt;" }}/</code>
           <span class="muted docs-type-count">
-            {{ filesForType(project, entry.type).length }} file<template v-if="filesForType(project, entry.type).length !== 1">s</template>
+            {{ visibleFilesForType(project, entry.key, entry.type).length }}
+            file<template v-if="visibleFilesForType(project, entry.key, entry.type).length !== 1">s</template>
           </span>
         </header>
 
@@ -892,14 +1037,18 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
           <dd class="implicit">MDX body (implicit)</dd>
         </dl>
 
-        <ol v-if="filesForType(project, entry.type).length > 0" class="docs-files">
+        <ol
+          v-if="visibleFilesForType(project, entry.key, entry.type).length > 0"
+          class="docs-files"
+        >
           <li
-            v-for="doc in filesForType(project, entry.type)"
+            v-for="doc in visibleFilesForType(project, entry.key, entry.type)"
             :key="doc.path"
             :class="[
               'docs-file',
               { focused: focusedDocPath === doc.path, expanded: isExpanded(doc.path) },
             ]"
+            :aria-label="`${entry.type.label || entry.key}: ${doc.title}`"
             tabindex="0"
             @click="toggleDoc(doc.path)"
             @focus="focusDoc(doc.path)"
@@ -1218,6 +1367,60 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
   color: var(--fg, rgba(255,255,255,0.94));
   text-align: center;
   font-weight: 700;
+}
+
+.docs-panel .docs-workbench-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  background: var(--surface, rgba(255,255,255,0.03));
+}
+
+.docs-panel .docs-search {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.docs-panel .docs-search input {
+  width: 100%;
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg, #0a0b0e);
+  color: var(--fg, rgba(255,255,255,0.94));
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.docs-panel .docs-search input:focus {
+  border-color: var(--accent-blue, #1d55a6);
+  outline: 2px solid color-mix(in srgb, var(--accent-blue, #1d55a6) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.docs-panel .docs-clear {
+  border: 0.5px solid var(--line, rgba(255,255,255,0.07));
+  border-radius: var(--r-sm, 6px);
+  background: var(--bg-2, #0e1014);
+  color: var(--fg, rgba(255,255,255,0.94));
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 10px;
+}
+
+.docs-panel .docs-clear:hover {
+  border-color: var(--fg-3, rgba(255,255,255,0.52));
+}
+
+.docs-panel .docs-filter-summary {
+  min-width: 0;
+  color: var(--fg-3, rgba(255,255,255,0.52));
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .docs-panel .docs-board-status {
@@ -1602,6 +1805,17 @@ function metricRows(card: DocBoardCard): Array<{ label: string; value: string }>
 
   .docs-panel .docs-board-tabs {
     justify-content: flex-start;
+  }
+
+  .docs-panel .docs-workbench-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .docs-panel .docs-search,
+  .docs-panel .docs-clear {
+    flex: 0 1 auto;
+    width: 100%;
   }
 }
 </style>
