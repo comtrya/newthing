@@ -39,6 +39,11 @@ import {
   whenWorkspaceReady,
   type CommandContribution,
 } from "@comtrya/sdk-core";
+import {
+  listWorkspaceRepositoryIssues,
+  workspaceIdFromUri,
+  type WorkspaceIssueRepository,
+} from "@comtrya/sdk-vue";
 import { recentRoutes, type RecentEntry } from "../recents";
 
 /**
@@ -237,8 +242,8 @@ onMounted(() => {
     query.value = "";
     open.value = true;
     // Refresh issues each time the palette opens so titles stay fresh
-    // without burning a fetch on every keystroke. Workspace-scoped
-    // issue counts are small enough that an on-open fetch is cheap.
+    // without burning a fetch on every keystroke. Repository fan-out
+    // avoids relying on issue reads at the bare workspace URI.
     void refreshIssues();
     void refreshPulls();
     void refreshEpics();
@@ -260,36 +265,33 @@ function refreshCommands(): void {
 
 async function refreshIssues(): Promise<void> {
   const workspaceUri = await activeWorkspaceUriOrWait();
-  const result = await invokeOp<Array<{
+  const workspaceId = workspaceIdFromUri(workspaceUri);
+  if (!workspaceId) return;
+  const data = await getGraphQLClient().query<{
+    workspace?: { repositories?: WorkspaceIssueRepository[] };
+  }>("{ workspace { repositories { id } } }");
+  const rows = await listWorkspaceRepositoryIssues<{
     id: string;
     number: number;
     title: string;
     state?: string;
     repository?: string;
-  }>>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: workspaceUri, limit: 1024 },
-  );
-  if (!result.ok || !Array.isArray(result.value)) return;
+  }>(workspaceId, data.workspace?.repositories ?? []);
   // Extract workspaceId from each issue's `repository` URI; fall
   // back to the active workspace id. The detail route shape is
   // /x/issues/<workspaceId>/<number>, so we need a workspace id
   // per-issue rather than per-result-set.
-  const fallbackId = workspaceUri.replace("comtrya://workspace/", "");
-  issues.value = result.value
-    .map((issue) => {
-      const match = /^comtrya:\/\/workspace\/([^/]+)/.exec(issue.repository ?? "");
-      return {
-        kind: "issue" as const,
-        id: issue.id,
-        number: issue.number,
-        title: issue.title ?? "",
-        state: issue.state ?? null,
-        workspaceId: match?.[1] ?? fallbackId,
-      };
-    });
+  issues.value = rows.map((issue) => {
+    const match = /^comtrya:\/\/workspace\/([^/]+)/.exec(issue.repository ?? "");
+    return {
+      kind: "issue" as const,
+      id: issue.id,
+      number: issue.number,
+      title: issue.title ?? "",
+      state: issue.state ?? null,
+      workspaceId: match?.[1] ?? workspaceId,
+    };
+  });
 }
 
 async function refreshPulls(): Promise<void> {

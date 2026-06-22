@@ -15,19 +15,25 @@
  *
  * Triggers `refresh()` on mount and re-runs whenever any of the
  * seven `dev.comtrya.{issues,epic}.*` topics fires. The single
- * stream tears down on unmount automatically. Pass `workspace` if you
- * want to scope the listing; the default is the dogfood workspace
- * URI (matches the existing call sites' constant).
+ * stream tears down on unmount automatically. Issue reads fan out
+ * across repository-scoped extension installations; epic reads remain
+ * workspace-scoped.
  */
 
 import { onMounted, onUnmounted, ref } from "vue";
 import {
   activeWorkspaceUri,
+  getGraphQLClient,
   getSessionToken,
   invokeOp,
   subscribeLiveEvents,
   whenWorkspaceReady,
 } from "@comtrya/sdk-core";
+import {
+  listWorkspaceRepositoryIssues,
+  workspaceIdFromUri,
+  type WorkspaceIssueRepository,
+} from "./workspace-issues";
 
 const TRACKED_TOPICS = new Set([
   "dev.comtrya.issues.opened",
@@ -68,6 +74,7 @@ export interface UseProjectCountsOptions {
 }
 
 interface IssueLite {
+  repository?: string;
   state?: string;
   projectName?: string | null;
 }
@@ -83,44 +90,51 @@ export function useProjectCounts(options: UseProjectCountsOptions = {}) {
   const unsubscribers: Array<() => void> = [];
   let streamStarting = false;
 
-  /** Resolve the workspace URI fresh on each refresh so we pick up
+  async function loadWorkspaceRepositories(): Promise<WorkspaceIssueRepository[]> {
+    const data = await getGraphQLClient().query<{
+      workspace?: { repositories?: WorkspaceIssueRepository[] };
+    }>("{ workspace { repositories { id } } }");
+    return data.workspace?.repositories ?? [];
+  }
+
+  /** Resolve the workspace ID fresh on each refresh so we pick up
    *  whichever ID the shell store has by then. An explicit `options.
    *  workspace` always wins. Returns `null` if neither is available
    *  (we then skip the fetch instead of querying the wrong scope). */
-  async function resolveWorkspace(): Promise<string | null> {
-    if (options.workspace) return options.workspace;
+  async function resolveWorkspaceId(): Promise<string | null> {
+    if (options.workspace) return workspaceIdFromUri(options.workspace);
     const live = activeWorkspaceUri();
-    if (live) return live;
+    const liveWorkspaceId = live ? workspaceIdFromUri(live) : null;
+    if (liveWorkspaceId) return liveWorkspaceId;
     // Bootstrap window: wait until the shell has resolved a workspace.
-    const id = await whenWorkspaceReady();
-    return `comtrya://workspace/${id}`;
+    return await whenWorkspaceReady();
   }
 
   async function refresh(): Promise<void> {
-    const workspace = await resolveWorkspace();
-    if (!workspace) return;
-    const [issuesRes, epicsRes] = await Promise.all([
-      invokeOp<IssueLite[]>("ext_issues", "issues", "list-issues", {
-        repository: workspace,
-        limit: 4096,
-      }),
+    const workspaceId = await resolveWorkspaceId();
+    if (!workspaceId) return;
+    const [repositories, epicsRes] = await Promise.all([
+      loadWorkspaceRepositories(),
       invokeOp<EpicLite[]>("ext_epics", "epics", "list-epics", {
-        workspace,
+        workspace: `comtrya://workspace/${workspaceId}`,
         limit: 4096,
       }),
     ]);
+    const issues = await listWorkspaceRepositoryIssues<IssueLite>(
+      workspaceId,
+      repositories,
+      { limitPerRepository: 4096 },
+    );
     const next: Record<string, ProjectCounts> = {};
     const bucket = (name: string): ProjectCounts =>
       (next[name] ??= emptyProjectCounts());
-    if (issuesRes.ok && Array.isArray(issuesRes.value)) {
-      for (const issue of issuesRes.value) {
-        const project = (issue.projectName ?? "").trim();
-        if (!project) continue;
-        const c = bucket(project);
-        const state = (issue.state ?? "").toUpperCase();
-        if (state === "CLOSED") c.closedIssues += 1;
-        else c.openIssues += 1;
-      }
+    for (const issue of issues) {
+      const project = (issue.projectName ?? "").trim();
+      if (!project) continue;
+      const c = bucket(project);
+      const state = (issue.state ?? "").toUpperCase();
+      if (state === "CLOSED") c.closedIssues += 1;
+      else c.openIssues += 1;
     }
     if (epicsRes.ok && Array.isArray(epicsRes.value)) {
       for (const epic of epicsRes.value) {

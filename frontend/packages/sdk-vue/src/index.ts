@@ -239,6 +239,18 @@ export type { ComtryaOwnerRef, ComtryaProject } from "./comtrya-config";
 export { useProjectCounts, emptyProjectCounts } from "./use-project-counts";
 export type { ProjectCounts, UseProjectCountsOptions } from "./use-project-counts";
 
+export {
+  countOpenIssues,
+  isOpenIssueState,
+  issueRepositoryId,
+  listWorkspaceRepositoryIssues,
+  openIssueCountsByRepository,
+  workspaceIdFromUri,
+  workspaceRepositoryUri,
+  type WorkspaceIssueRepository,
+  type WorkspaceIssueRow,
+} from "./workspace-issues";
+
 export { default as LabelPill } from "./LabelPill.vue";
 export type {
   LabelKind,

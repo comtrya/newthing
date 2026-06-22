@@ -18,7 +18,10 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { getGraphQLClient, invokeOp } from "@comtrya/sdk-core";
 import {
+  isOpenIssueState,
+  issueRepositoryId,
   LabelPill,
+  listWorkspaceRepositoryIssues,
   type LabelCatalog,
   useWorkspaceContext,
 } from "@comtrya/sdk-vue";
@@ -41,6 +44,7 @@ interface IssueRow {
   state?: string;
   labels?: string[];
   projectName?: string | null;
+  repository?: string;
   updatedAt?: string | null;
 }
 
@@ -67,8 +71,7 @@ interface CheckRow {
   updatedAt?: string | null;
 }
 
-const { workspaceId, workspaceUri, ready: workspaceReady } =
-  useWorkspaceContext();
+const { workspaceId, ready: workspaceReady } = useWorkspaceContext();
 
 const loadState = ref<"loading" | "ready" | "error">("loading");
 const loadError = ref<string | null>(null);
@@ -82,6 +85,10 @@ const openIssues = computed(() =>
   [...issues.value]
     .filter((i) => (i.state ?? "").toLowerCase() !== "closed")
     .filter((i) => {
+      const sel = selectedRepoId.value;
+      return !sel || issueRepositoryId(i) === sel;
+    })
+    .filter((i) => {
       const sel = selectedProject.value;
       return !sel || (i.projectName ?? null) === sel;
     })
@@ -89,9 +96,8 @@ const openIssues = computed(() =>
 );
 
 /** Repo filter — read from `?repo=<repositoryId>` and apply to
- *  the per-repo panels (pulls, checks). Issues are workspace-scoped
- *  in this codebase so they stay unfiltered; the panel header
- *  notes that scope when a repo is selected. */
+ *  issues, pulls, and checks. Issue rows carry their repository URI,
+ *  so the same chip narrows the whole inbox. */
 const selectedRepoId = computed<string | null>(() => {
   const raw = route.query.repo;
   if (typeof raw !== "string" || raw.length === 0) return null;
@@ -152,9 +158,9 @@ const failingChecks = computed(() => {
 
 /**
  * Repos that have anything to surface in the inbox right now —
- * any open PR or any failing required check. The "All" chip is
- * always rendered first; then one chip per repo that has at
- * least one of those signals. A clean repo doesn't earn a chip.
+ * any open issue, open PR, or failing required check. The "All"
+ * chip is always rendered first; then one chip per repo that has
+ * at least one of those signals. A clean repo doesn't earn a chip.
  */
 const filterRepoOptions = computed<RepoLookupRow[]>(() => {
   const reposWithSignal = new Set<string>();
@@ -162,6 +168,11 @@ const filterRepoOptions = computed<RepoLookupRow[]>(() => {
     if (isOpenPrState(p.state) && typeof p.repositoryId === "string") {
       reposWithSignal.add(p.repositoryId);
     }
+  }
+  for (const issue of issues.value) {
+    if (!isOpenIssueState(issue.state)) continue;
+    const repoId = issueRepositoryId(issue);
+    if (repoId) reposWithSignal.add(repoId);
   }
   for (const c of checks.value) {
     if (
@@ -242,13 +253,12 @@ onMounted(async () => {
   loadError.value = null;
   try {
     // Wait for the shell's `workspace { id }` query to resolve before
-    // firing any workspace-scoped op. The shell publishes the ID
-    // synchronously inside `loadShellSummary`; this `await` is
-    // essentially free once that has run, and a couple of ms during
-    // first paint.
+    // firing extension ops. The shell publishes the ID synchronously
+    // inside `loadShellSummary`; this `await` is essentially free once
+    // that has run, and a couple of ms during first paint.
     const id = await workspaceReady;
     const workspaceUriStr = `comtrya://workspace/${id}`;
-    const [workspaceData, issueRes, pullRes] = await Promise.all([
+    const [workspaceData, pullRes] = await Promise.all([
       getGraphQLClient().query<{
         workspace?: {
           repositories?: RepoLookupRow[];
@@ -256,28 +266,28 @@ onMounted(async () => {
       }>(
         "{ workspace { repositories { id path labelCatalog } } }",
       ),
-      invokeOp<IssueRow[]>("ext_issues", "issues", "list-issues", {
-        repository: workspaceUriStr,
-        limit: 1024,
-      }),
       invokeOp<PullRow[]>("ext_pull_requests", "pulls", "list-pulls", {
         repository: workspaceUriStr,
         limit: 1024,
       }),
     ]);
     repositories.value = workspaceData.workspace?.repositories ?? [];
-    issues.value = issueRes.ok ? (issueRes.value as IssueRow[]) : [];
     pulls.value = pullRes.ok ? (pullRes.value as PullRow[]) : [];
-    // Checks are repo-scoped — list-checks rejects the workspace
-    // URI alone — so fan out per repo and merge.
-    const checkResults = await Promise.all(
-      repositories.value.map((repo) =>
-        invokeOp<CheckRow[]>("ext_checks", "checks", "list-checks", {
-          repository: `${workspaceUriStr}/repository/${repo.id}`,
-          limit: 256,
-        }),
+    // Issues and checks are repo-scoped in practice: a repo without
+    // the corresponding extension should contribute no rows rather
+    // than hiding all workspace work.
+    const [issueRows, checkResults] = await Promise.all([
+      listWorkspaceRepositoryIssues<IssueRow>(id, repositories.value),
+      Promise.all(
+        repositories.value.map((repo) =>
+          invokeOp<CheckRow[]>("ext_checks", "checks", "list-checks", {
+            repository: `${workspaceUriStr}/repository/${repo.id}`,
+            limit: 256,
+          }),
+        ),
       ),
-    );
+    ]);
+    issues.value = issueRows;
     checks.value = checkResults.flatMap((r) =>
       r.ok ? (r.value as CheckRow[]) : [],
     );
@@ -423,10 +433,7 @@ function pullRepoLabel(pull: PullRow): string {
 
       <article class="inbox-panel" data-smoke="inbox-issues">
         <header>
-          <h2>
-            Open issues
-            <span v-if="selectedRepoId" class="scope-note">(workspace-scoped — not narrowed by repo filter)</span>
-          </h2>
+          <h2>Open issues</h2>
           <span class="count">{{ openIssues.length }}</span>
         </header>
         <p v-if="loadState === 'loading'" class="inbox-empty">Loading…</p>
@@ -550,15 +557,6 @@ function pullRepoLabel(pull: PullRow): string {
   background: var(--fg);
   border-color: var(--fg);
   color: var(--bg);
-}
-
-.scope-note {
-  margin-left: 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--fg-3);
-  text-transform: none;
-  letter-spacing: 0;
 }
 
 .inbox-grid {

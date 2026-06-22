@@ -139,10 +139,11 @@ const reservedKeys = new Set([
 
 // iter 76 — per-project work counts routed through the shared
 // `@comtrya/sdk-vue::useProjectCounts` composable. The composable
-// fetches both lists in parallel on mount, buckets by
-// `projectName`, and subscribes to the seven SSE topics that
-// mutate project-tagged work. WorkspaceHome (iter 65) uses the
-// same composable so both surfaces share one fetch implementation.
+// fans issue reads out across repository installations, fetches
+// workspace epics, buckets by `projectName`, and subscribes to the
+// seven SSE topics that mutate project-tagged work. WorkspaceHome
+// (iter 65) uses the same composable so both surfaces share one
+// fetch implementation.
 const { countsFor } = useProjectCounts();
 
 function projectFilterHref(

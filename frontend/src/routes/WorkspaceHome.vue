@@ -3,11 +3,12 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   getGraphQLClient,
   getSessionToken,
-  invokeOp,
   subscribeLiveEvents,
 } from "@comtrya/sdk-core";
 import {
   classifyPrincipal,
+  listWorkspaceRepositoryIssues,
+  openIssueCountsByRepository,
   useProjectCounts,
   type ComtryaProject,
 } from "@comtrya/sdk-vue";
@@ -79,21 +80,25 @@ const extensionRuntime = computed(
  * Workspace-wide aggregates surfaced on the summary strip. Both
  * tally counts already loaded per-repo: pull-request counts come
  * from the workspace GraphQL projection (`openPullRequests`),
- * issue counts from the per-repo `list-issues` op pass that the
- * sidebar uses too. The Inbox is the authoritative open-work
+ * issue counts from a repository fan-out of `list-issues`. The
+ * Inbox is the authoritative open-work
  * surface; these tiles link there so they read as actionable
  * jump-offs, not vanity numbers.
  */
-const totalOpenIssues = computed(() => totalOpenIssuesFetched.value);
+const totalOpenIssues = computed(() =>
+  Object.values(openIssuesByRepoId.value).reduce(
+    (sum, count) => sum + (count ?? 0),
+    0,
+  ),
+);
 const totalOpenPulls = computed(() =>
   repositories.value.reduce((sum, r) => sum + (r.openPullRequests ?? 0), 0),
 );
 /**
- * Per-repo open-issue counts. Hydrated in parallel via
- * `invokeOp("ext_issues", "issues", "list-issues")` filtered to the
- * repo URI, counted client-side for OPEN + REOPENED. Live-synced
- * from one filtered SSE stream, so opening an issue from another tab
- * updates the row's chip without reload.
+ * Per-repo open-issue counts. Hydrated via a repository fan-out of
+ * `issues.list-issues`, counted client-side for OPEN + REOPENED, and
+ * live-synced from one filtered SSE stream. Repos without the Issues
+ * extension contribute 0 instead of blocking the workspace summary.
  */
 const openIssuesByRepoId = ref<Record<string, number>>({});
 const issueUnsubscribers: Array<() => void> = [];
@@ -105,64 +110,32 @@ const ISSUE_COUNT_EVENT_TYPES = new Set([
 ]);
 const workspaceId = computed(() => payload.value?.workspace?.id ?? null);
 
-function repoUri(workspaceUlid: string, repositoryUlid: string): string {
-  return `comtrya://workspace/${workspaceUlid}/repository/${repositoryUlid}`;
-}
-
-async function refreshOpenIssueCount(repoId: string, ws: string): Promise<void> {
-  const result = await invokeOp<Array<{ state?: string }>>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: repoUri(ws, repoId), limit: 1024 },
-  );
-  if (!result.ok || !Array.isArray(result.value)) return;
-  const count = result.value.filter((issue) => {
-    const s = (issue.state ?? "").toUpperCase();
-    return s === "OPEN" || s === "REOPENED";
-  }).length;
-  openIssuesByRepoId.value = { ...openIssuesByRepoId.value, [repoId]: count };
-}
-
-/**
- * Workspace-wide open-issue count. Per-repo `list-issues` calls
- * miss issues that were opened against the bare workspace URI
- * (workspace-scoped issues — what start.sh's smoke seeds), so the
- * summary tile fans out one extra `list-issues` against the
- * workspace URN itself and uses that as the authoritative total.
- * Re-fired on the same SSE topics the per-repo counts watch.
- */
-const totalOpenIssuesFetched = ref(0);
-// Tracks whether the workspace-wide open-issue fetch has resolved at least
-// once. The count is hydrated by a separate invokeOp after the main GraphQL
-// load, so the summary tile must show `—` (not a misleading 0) until then.
 const workspaceOpenIssuesLoaded = ref(false);
 const homeSlotContext = computed(() => ({ workspaceId: workspaceId.value }));
 
-async function refreshWorkspaceOpenIssues(): Promise<void> {
-  const ws = workspaceId.value;
-  if (!ws) return;
-  const result = await invokeOp<Array<{ state?: string }>>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: `comtrya://workspace/${ws}`, limit: 1024 },
-  );
-  if (!result.ok || !Array.isArray(result.value)) return;
-  totalOpenIssuesFetched.value = result.value.filter((issue) => {
-    const s = (issue.state ?? "").toUpperCase();
-    return s === "OPEN" || s === "REOPENED";
-  }).length;
-  workspaceOpenIssuesLoaded.value = true;
-}
-
 async function refreshAllOpenIssues(): Promise<void> {
   const ws = workspaceId.value;
-  if (!ws) return;
-  await Promise.all([
-    refreshWorkspaceOpenIssues(),
-    ...repositories.value.map((r) => refreshOpenIssueCount(r.id, ws)),
-  ]);
+  if (!ws) {
+    openIssuesByRepoId.value = {};
+    workspaceOpenIssuesLoaded.value = true;
+    return;
+  }
+  try {
+    const issues = await listWorkspaceRepositoryIssues(ws, repositories.value, {
+      limitPerRepository: 4096,
+    });
+    openIssuesByRepoId.value = openIssueCountsByRepository(
+      repositories.value,
+      issues,
+    );
+  } catch {
+    openIssuesByRepoId.value = openIssueCountsByRepository(
+      repositories.value,
+      [],
+    );
+  } finally {
+    workspaceOpenIssuesLoaded.value = true;
+  }
 }
 
 async function startIssueCountStream(): Promise<void> {
@@ -253,11 +226,10 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
 
 /**
  * Per-Project work counts — open / closed issues + epic state
- * tally bucketed by `projectName`. Workspace-wide single fetch
- * per resource so a workspace with N repos × M projects costs
- * exactly two ops calls, not N × M. Renders count chips on each
- * panel row; each chip links to the corresponding filtered queue
- * (iter 60 URL recipe).
+ * tally bucketed by `projectName`. Workspace-wide aggregation costs
+ * one repository issue fan-out plus one epic op, not N × M project
+ * fetches. Renders count chips on each panel row; each chip links
+ * to the corresponding filtered queue (iter 60 URL recipe).
  *
  * Live-synced via SSE on `dev.comtrya.issues.{opened,closed,
  * reopened}` and `dev.comtrya.epic.{created,state-changed}` so
@@ -267,11 +239,10 @@ function projectOwnerRefs(project: ComtryaProject): string[] {
 // iter 76 — routed through the canonical
 // `@comtrya/sdk-vue::useProjectCounts` composable so this surface
 // and `ProjectsPanel` (iter 75) share one fetch + SSE subscriber
-// implementation. The composable runs two workspace-wide ops on
-// mount and re-fires on the seven topics that mutate
-// project-tagged work; the watch below remains for resilience
-// against the kernel re-emitting workspace id after initial
-// mount.
+// implementation. The composable fans issue reads out by repo,
+// fetches workspace epics, and re-fires on the seven topics that
+// mutate project-tagged work; the watch below remains for resilience
+// against the kernel re-emitting workspace id after initial mount.
 const { countsFor, refresh: refreshProjectCounts } = useProjectCounts();
 
 /**
@@ -339,8 +310,11 @@ async function loadWorkspaceHome(): Promise<void> {
   loadState.value = "loading";
   loadError.value = null;
   try {
+    workspaceOpenIssuesLoaded.value = false;
     payload.value = await fetchWorkspaceHome(controller.signal);
     loadState.value = "ready";
+    void refreshAllOpenIssues();
+    void refreshProjectCounts();
   } catch (error) {
     if (controller.signal.aborted) return;
     payload.value = null;

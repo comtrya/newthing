@@ -15,7 +15,11 @@
 
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getGraphQLClient, invokeOp, type OpResult } from "@comtrya/sdk-core";
-import { LabelPill, type LabelCatalog } from "@comtrya/sdk-vue";
+import {
+  LabelPill,
+  listWorkspaceRepositoryIssues,
+  type LabelCatalog,
+} from "@comtrya/sdk-vue";
 import { whenWorkspaceReady } from "@comtrya/sdk-core";
 import ActivityStream from "../components/ActivityStream.vue";
 import Icon from "../components/Icon.vue";
@@ -156,6 +160,7 @@ interface IssueLite {
   title?: string;
   state?: string;
   projectName?: string | null;
+  repository?: string;
   labels?: string[];
   updatedAt?: string | null;
 }
@@ -273,25 +278,23 @@ async function loadSummary(): Promise<void> {
   if (!project.value) return;
   const proj = project.value.name;
   if (!proj) return;
+  const repoId = repository.value?.id;
+  if (!repoId) return;
   // Sourced from the shell-wide store published by
   // `App.vue::loadShellSummary`; the local `workspaceId` ref filled
   // by `load()` is a per-repo signal, not always populated by the
   // time `loadSummary` fires (`immediate: true` watch).
   const id = await whenWorkspaceReady();
   const workspaceUri = `comtrya://workspace/${id}`;
-  // Issues
-  const issuesRes = await invokeOp<IssueLite[]>(
-    "ext_issues",
-    "issues",
-    "list-issues",
-    { repository: workspaceUri, limit: 1024 },
-  );
-  const epicsRes = await invokeOp<EpicLite[]>(
-    "ext_epics",
-    "epics",
-    "list-epics",
-    { workspace: workspaceUri, limit: 1024 },
-  );
+  const [issueRows, epicsRes] = await Promise.all([
+    listWorkspaceRepositoryIssues<IssueLite>(id, [{ id: repoId }]),
+    invokeOp<EpicLite[]>(
+      "ext_epics",
+      "epics",
+      "list-epics",
+      { workspace: workspaceUri, limit: 1024 },
+    ),
+  ]);
   let issuesOpen = 0;
   let issuesClosed = 0;
   let epicsPlanned = 0;
@@ -299,15 +302,13 @@ async function loadSummary(): Promise<void> {
   let epicsDone = 0;
   const openIssues: IssueLite[] = [];
   const inProgressEpics: EpicLite[] = [];
-  if (issuesRes.ok) {
-    for (const issue of issuesRes.value as IssueLite[]) {
-      if (issue.projectName !== proj) continue;
-      if (issue.state === "closed") {
-        issuesClosed += 1;
-      } else {
-        issuesOpen += 1;
-        openIssues.push(issue);
-      }
+  for (const issue of issueRows) {
+    if (issue.projectName !== proj) continue;
+    if ((issue.state ?? "").toUpperCase() === "CLOSED") {
+      issuesClosed += 1;
+    } else {
+      issuesOpen += 1;
+      openIssues.push(issue);
     }
   }
   if (epicsRes.ok) {
